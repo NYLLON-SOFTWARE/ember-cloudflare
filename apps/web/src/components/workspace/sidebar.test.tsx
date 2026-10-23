@@ -1,9 +1,10 @@
 import { feature } from "@ember/parity";
-import type { DirectoryUser, Favorites, SidebarRoom, User } from "@ember/protocol";
+import type { Account, DirectoryUser, Favorites, SidebarRoom, User } from "@ember/protocol";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AccountContext } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
 import { guardLeaving } from "@/hooks/use-route";
 import { Sidebar } from "./sidebar";
@@ -17,8 +18,11 @@ const HELP = "Hold a starred room to drag it, or press Alt and the up or down ar
 
 type Props = ComponentProps<typeof Sidebar>;
 
-/** The sidebar, with `props` in place of an unstarred one listing `rooms` with none open. */
-function renderSidebar(props: Partial<Props> = {}) {
+/** The workspace, as it's set up. */
+const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false };
+
+/** The sidebar, with `props` in place of an unstarred one listing `rooms` with none open, in `account`'s workspace. */
+function renderSidebar(props: Partial<Props> = {}, account = EMBER) {
   const all: Props = {
     workspaceName: "Ember",
     meId: "u1",
@@ -36,8 +40,13 @@ function renderSidebar(props: Partial<Props> = {}) {
     onSessionChanged: vi.fn(),
     ...props,
   };
-  const view = render(<Sidebar {...all} />);
-  return { ...view, ...all, rerender: (changes: Partial<Props>) => view.rerender(<Sidebar {...all} {...changes} />) };
+  const sidebar = (changes: Partial<Props>, shown: Account) => (
+    <AccountContext value={shown}>
+      <Sidebar {...all} {...changes} />
+    </AccountContext>
+  );
+  const view = render(sidebar({}, account));
+  return { ...view, ...all, rerender: (changes: Partial<Props>, changed = account) => view.rerender(sidebar(changes, changed)) };
 }
 
 const [ada, grace, linus, alan, edsger, barbara]: User[] = ["Ada", "Grace", "Linus", "Alan", "Edsger", "Barbara"].map((name, i) => ({ id: `u${i + 1}`, name }));
@@ -58,6 +67,25 @@ const listed = () => rows().map((row) => row.textContent?.replace(/★$/, ""));
 const row = (name: string) => rows().find((link) => link.textContent?.replace(/★$/, "") === `#${name}`)!;
 
 afterEach(() => vi.restoreAllMocks());
+
+describe(feature("accounts.tagline"), () => {
+  it("heads the list with the workspace's tagline in small type under its name, and nothing while it has none", () => {
+    const tagline = "Engines for every occasion";
+    const { rerender } = renderSidebar({ workspaceName: "Analytical Engines" }, { ...EMBER, tagline });
+    const name = screen.getByRole("heading", { level: 2, name: "Analytical Engines" });
+    // HTML's element for a heading and its tagline, which the drawer's close button stays clear of.
+    const heading = name.closest("hgroup")!;
+    expect(heading).toHaveClass("max-md:pr-10");
+    expect([...heading.children].map((child) => [child.tagName, child.textContent])).toEqual([
+      ["H2", "Analytical Engines"],
+      ["P", tagline],
+    ]);
+    expect(screen.getByText(tagline)).toHaveClass("text-[13px]", "text-muted-foreground");
+
+    rerender({}, EMBER);
+    expect([...heading.children].map((child) => child.tagName)).toEqual(["H2"]);
+  });
+});
 
 describe(feature("sidebar.rooms"), () => {
   it("lists the rooms under the workspace name and marks the one you're in", () => {

@@ -29,6 +29,7 @@ const SIGN_IN_PATH = "/session/new";
 
 const isSameAccount = (a: Account, b: Account) =>
   a.name === b.name &&
+  a.tagline === b.tagline &&
   a.hideTranslationButtons === b.hideTranslationButtons &&
   a.customStyles === b.customStyles &&
   a.restrictRoomCreation === b.restrictRoomCreation &&

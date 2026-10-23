@@ -74,8 +74,9 @@ search index. On top of that schema it adds indexes and query changes for speed.
   column with a unique index, so a second account can't be inserted. Ours has it too: the Workspace
   runs one first run at a time on DO SQLite, but on D1 two can overlap, and the index refuses the
   second. The account's columns are ember-rust's: its name, its join code, its settings as JSON and
-  its custom styles. Ember's custom domain, which ember-rust doesn't have, is one more of those
-  settings (`custom_domain`), so it took no migration and is read with the rest of the account.
+  its custom styles. Ember's custom domain and tagline, which ember-rust doesn't have, are more of
+  those settings (`custom_domain` and `tagline`), so they took no migration and are read with the rest
+  of the account.
 - **Unread marks are a column of the membership.** `memberships.unread_at` is when a room was marked
   unread for someone, null while it isn't, and one `UPDATE` marks every member a message should, as
   ember-rust's `unread_memberships` does (`crates/db/src/models/room.rs`). We skip its `connections`

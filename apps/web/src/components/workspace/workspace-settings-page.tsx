@@ -3,6 +3,7 @@ import {
   LOGO_TOO_LARGE,
   MAX_ACCOUNT_NAME_LENGTH,
   MAX_LOGO_SIZE,
+  MAX_TAGLINE_LENGTH,
   type Account,
   type AccountSettings,
   type DirectoryUser,
@@ -77,9 +78,9 @@ interface Props {
  * what's typed in one waits there while another shows:
  *
  * - Community (accounts/_community_settings.html), where administrators change the workspace's icon, which
- *   one picked saves at once, showing it meanwhile, and Remove icon takes away, then rename the workspace
- *   and show or hide the translation buttons, which Save changes saves together, and give it a custom
- *   domain, this port's own. Members see its icon and name.
+ *   one picked saves at once, showing it meanwhile, and Remove icon takes away, then rename the workspace,
+ *   give it a tagline, this port's own, and show or hide the translation buttons, which Save changes saves
+ *   together, and give it a custom domain, this port's own too. Members see its icon, name and tagline.
  * - Rooms and permissions (accounts/_room_settings.html): New room, which members don't get while only
  *   administrators can create rooms, then for administrators, the switch that says so and the rooms'
  *   order for everyone, each linking to its settings.
@@ -102,7 +103,11 @@ export function WorkspaceSettingsPage({
   onSessionChanged,
 }: Props) {
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
-  const [name, setName] = useState("");
+  // What's typed in Workspace name and Tagline, or null for either while it's as the workspace has it,
+  // when the field follows the workspace socket, so that saving one never puts back what another tab
+  // changed in the other.
+  const [typedName, setTypedName] = useState<string | null>(null);
+  const [typedTagline, setTypedTagline] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   /** The address of the logo picked, shown while it saves. */
   const [pickedLogo, setPickedLogo] = useState<string | null>(null);
@@ -114,6 +119,8 @@ export function WorkspaceSettingsPage({
   const [restrictingCreation, setRestrictingCreation] = useState<boolean | null>(null);
   const [switchingMemberful, setSwitchingMemberful] = useState<boolean | null>(null);
   const account = useAccount();
+  const name = typedName ?? account.name;
+  const tagline = typedTagline ?? account.tagline;
   const people = useContext(PeopleContext);
   // The people as they are now, for answers that come later.
   const peopleNow = useRef(people);
@@ -146,7 +153,8 @@ export function WorkspaceSettingsPage({
       (settings) => {
         if (stopped) return;
         setSettings(settings);
-        setName(settings.account.name);
+        setTypedName(null);
+        setTypedTagline(null);
         answered(settings.account);
         onJoinCodeChanged(settings.joinCode);
       },
@@ -158,13 +166,14 @@ export function WorkspaceSettingsPage({
     return () => void (stopped = true);
   }, [administrator, askForAccount, onJoinCodeChanged, onFailed]);
 
-  // The name and, if it was moved, the translation buttons' switch, as ember-rust's form sends them together.
+  // The name, the tagline and, if it was moved, the translation buttons' switch, as ember-rust's form sends them together.
   const save = (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
     const answered = askForAccount();
+    const sent = { name, tagline };
     const hideTranslationButtons = hidingTranslations;
-    changeAccount({ name, ...(hideTranslationButtons !== null && { settings: { hideTranslationButtons } }) }).then(
+    changeAccount({ ...sent, ...(hideTranslationButtons !== null && { settings: { hideTranslationButtons } }) }).then(
       (account) => {
         answered(account);
         if (!mounted.current) return;
@@ -172,6 +181,9 @@ export function WorkspaceSettingsPage({
         // Unless it's been moved again since.
         setHidingTranslations((hiding) => (hiding === hideTranslationButtons ? null : hiding));
         setSettings((settings) => settings && { ...settings, account });
+        // Each shows as it's kept, the tagline with no space at its ends, unless it's been typed over since.
+        setTypedName((typed) => (typed === sent.name ? null : typed));
+        setTypedTagline((typed) => (typed === sent.tagline ? null : typed));
         flash("notice", CHANGES_SAVED);
       },
       (error: unknown) => {
@@ -331,10 +343,25 @@ export function WorkspaceSettingsPage({
                     placeholder="Name this account"
                     data-ember-preserve-selection
                     value={name}
-                    onChange={(event) => setName(event.target.value)}
+                    onChange={(event) => setTypedName(event.target.value)}
                     // zz-ember.css takes the focus ring off this field alone.
                     className={cn(FIELD_INPUT, "focus-visible:outline-none")}
                   />
+                </Field>
+                <Field id="account_tagline" label="Tagline">
+                  <Input
+                    id="account_tagline"
+                    autoComplete="off"
+                    maxLength={MAX_TAGLINE_LENGTH}
+                    placeholder="Sum it up in a few words"
+                    aria-describedby="account-tagline-description"
+                    value={tagline}
+                    onChange={(event) => setTypedTagline(event.target.value)}
+                    className={FIELD_INPUT}
+                  />
+                  <p id="account-tagline-description" className="text-[0.8em] text-muted-foreground">
+                    Shown under the community name in the sidebar, up to {MAX_TAGLINE_LENGTH} characters. Leave it empty for none.
+                  </p>
                 </Field>
                 <div id="localization-settings" className="mt-1 flex items-center gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface p-5">
                   <div className="min-w-0 flex-1 text-start">
@@ -361,7 +388,10 @@ export function WorkspaceSettingsPage({
             <>
               {/* `account_logo_tag(style: "txt-xx-large center")`: 5ch wide at 2.4rem. */}
               <AccountLogo src={account.logo ?? STOCK_LOGO} className="mx-auto w-[5ch] text-[2.4rem]" />
-              <h2 className="text-[24px] font-bold wrap-anywhere max-md:text-[22px]">{account.name}</h2>
+              <hgroup>
+                <h2 className="text-[24px] font-bold wrap-anywhere max-md:text-[22px]">{account.name}</h2>
+                {account.tagline && <p className="text-muted-foreground wrap-anywhere">{account.tagline}</p>}
+              </hgroup>
             </>
           ))}
       </Panel>

@@ -23,6 +23,7 @@ import {
   MAX_PUSH_ENDPOINT_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   MAX_SHARED_ORDER,
+  MAX_TAGLINE_LENGTH,
   MAX_USER_NAME_LENGTH,
   memberfulProblemOf,
   memberfulSignInPath,
@@ -48,6 +49,7 @@ import {
   roomSocketQuery,
   startingInvolvement,
   suggestedCount,
+  TAGLINE_TOO_LONG,
   type WorkspaceServerFrame,
 } from "./index";
 
@@ -187,7 +189,7 @@ describe(feature("platform.live-socket"), () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
+      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -351,6 +353,33 @@ describe(feature("accounts.name"), () => {
     ["a name that's too long", { name: "x".repeat(MAX_ACCOUNT_NAME_LENGTH + 1) }, `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseAccountChanges(body)).toBe(error);
+  });
+});
+
+describe(feature("accounts.tagline"), () => {
+  it("takes a tagline on one line, with no space at either end, or blank for none, with the name or alone", () => {
+    expect(parseAccountChanges({ tagline: "Engines for every occasion" })).toEqual({ tagline: "Engines for every occasion" });
+    expect(parseAccountChanges({ name: "Ember", tagline: " Engines\tfor\r\nevery\u00a0 occasion  " })).toEqual({ name: "Ember", tagline: "Engines for every occasion" });
+    expect(parseAccountChanges({ tagline: "" })).toEqual({ tagline: "" });
+    expect(parseAccountChanges({ tagline: " \n " })).toEqual({ tagline: "" });
+  });
+
+  it("counts its characters as it's kept", () => {
+    const longest = "x".repeat(MAX_TAGLINE_LENGTH);
+    expect(parseAccountChanges({ tagline: longest })).toEqual({ tagline: longest });
+    expect(parseAccountChanges({ tagline: `  ${longest}\n` })).toEqual({ tagline: longest });
+    expect(parseAccountChanges({ tagline: `x${" ".repeat(10_000)}y` })).toEqual({ tagline: "x y" });
+    expect(parseAccountChanges({ tagline: `${longest}x` })).toBe(TAGLINE_TOO_LONG);
+    expect(parseAccountChanges({ tagline: `${longest} x` })).toBe(TAGLINE_TOO_LONG);
+  });
+
+  it.each([
+    ["null", { tagline: null }],
+    ["a number", { tagline: 30 }],
+    ["a list", { tagline: ["Engines"] }],
+    ["a good name beside a bad tagline", { name: "Ember Studio", tagline: false }],
+  ])("refuses %s and says why", (_, body) => {
+    expect(parseAccountChanges(body)).toBe(TAGLINE_TOO_LONG);
   });
 });
 

@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import type { Account, BotAnswer, Bots, BotSettings, WorkspaceServerFrame } from "@ember/protocol";
 import { isolateRoom, listing, openRoom, signInAs, signInAsAdministrator, useOwnAddress, WORKSPACE_SOCKET } from "../../fixtures";
 import { auditScreen, settle } from "./audits";
@@ -6,6 +6,8 @@ import { expect, hasDrawerLayout, SWITCHES, test } from "./fixtures";
 
 /** A name as long as the server takes, with a run that only breaks anywhere. */
 const LONG_NAME = "The-Analytical-Engine-Appreciation-Society-of-Greater-Marylebone-and-the-Surrounding-Districts";
+/** A tagline as long as the server takes, in everyday words. */
+const LONGEST_TAGLINE = "Engines and tea for every soul";
 
 /** Which of the workspace socket's frames reach the page. */
 type Passes = (frame: WorkspaceServerFrame) => boolean;
@@ -67,6 +69,42 @@ test("a member's workspace settings, with a long name, fit the phone", async ({ 
   await page.goto("/account/edit");
   await expect(page.getByRole("main").getByRole("heading", { level: 2, name: LONG_NAME })).toBeVisible();
   await screenIsFine();
+});
+
+/** How many lines `text` takes up. */
+const linesOf = (text: Locator) =>
+  text.evaluate((element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    return new Set([...range.getClientRects()].map((line) => Math.round(line.top))).size;
+  });
+
+test("the longest tagline fits the phone under a long name, in a member's settings and the conversations, clear of the drawer's close button", async ({
+  page,
+  room,
+  session,
+  screenIsFine,
+}) => {
+  await changeTheWorkspace(page, (account) => ({ ...account, name: LONG_NAME, tagline: LONGEST_TAGLINE }));
+  await signInAs(page, session);
+  await page.goto("/account/edit");
+  const settingsName = page.getByRole("main").getByRole("heading", { level: 2, name: LONG_NAME });
+  await expect(settingsName.locator("xpath=following-sibling::p")).toHaveText(LONGEST_TAGLINE);
+  await screenIsFine();
+
+  // Community settings' links take the conversations' place, so they're a room's.
+  await openRoom(page, room);
+  if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();
+  const conversations = page.getByRole("complementary", { name: "Conversations" });
+  const tagline = conversations.locator("hgroup > h2 + p");
+  await expect(tagline).toHaveText(LONGEST_TAGLINE);
+  await screenIsFine();
+  if (hasDrawerLayout(page)) {
+    const [line, close] = [(await tagline.boundingBox())!, (await page.getByRole("dialog").getByRole("button", { name: "Close conversations" }).boundingBox())!];
+    expect(line.x + line.width <= close.x || line.y >= close.y + close.height, "the tagline is clear of the close button").toBe(true);
+  }
+  // A drawer with room for the sidebar's full 280px, from 376px wide, takes it on one line, as the desktop does.
+  if ((await conversations.evaluate((sidebar) => sidebar.getBoundingClientRect().width)) >= 280) expect(await linesOf(tagline)).toBe(1);
 });
 
 test("the Custom CSS page fits the phone, its field too big for iOS to zoom in on", async ({ page, screenIsFine }) => {

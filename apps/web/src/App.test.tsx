@@ -19,7 +19,7 @@ const TRANSFER_ID = "u2.mgk3x2a9.Ab-_9z";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 /** The workspace as it's set up. */
-const EMBER: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false };
+const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false };
 /** What the deployment's Set up Ember form suggests. */
 const PLACEHOLDERS = { name: "Grace Hopper", emailAddress: "grace@example.com" };
 const general = { id: "general", name: "general", kind: "open", icon: null };
@@ -153,8 +153,8 @@ function serve({
     if (route === "GET /api/users") return Response.json({ users: [] });
     if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null } });
     if (route === "PATCH /api/account") {
-      const { name = account.name, settings, customDomain = account.customDomain } = JSON.parse(String(init?.body)) as AccountChanges;
-      account = { ...account, name, hideTranslationButtons: settings?.hideTranslationButtons ?? account.hideTranslationButtons, customDomain };
+      const { name = account.name, tagline = account.tagline, settings, customDomain = account.customDomain } = JSON.parse(String(init?.body)) as AccountChanges;
+      account = { ...account, name, tagline, hideTranslationButtons: settings?.hideTranslationButtons ?? account.hideTranslationButtons, customDomain };
       return Response.json({ account });
     }
     // Each read, at the level a room starts at.
@@ -430,7 +430,8 @@ describe(feature("accounts.name"), () => {
     act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: { ...EMBER, name: "Analytical Engines" } }));
     sendSettings();
 
-    await waitFor(() => expect(screen.getByRole("textbox", { name: "Community name" })).toHaveValue("Ember"));
+    // The field too, which follows the workspace until it's typed in.
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Community name" })).toHaveValue("Analytical Engines"));
     expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
   });
 
@@ -453,6 +454,39 @@ describe(feature("accounts.name"), () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved.");
     expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
+  });
+});
+
+describe(feature("accounts.tagline"), () => {
+  const TAGLINE = "Engines for every occasion";
+  /** The sidebar's heading, with the tagline under the name, if there is one. */
+  const sidebarHeading = () => screen.getByRole("heading", { level: 2, name: "Ember" }).closest("hgroup");
+
+  it("takes a tagline saved in another tab at once, as the workspace socket says", async () => {
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({ signedIn: true });
+    render(<App />);
+    await roomHeading();
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    act(() => WorkspaceSocket.all[0]!.welcome(ada));
+    expect(sidebarHeading()).toHaveTextContent(/^Ember$/);
+
+    act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: { ...EMBER, tagline: TAGLINE } }));
+    expect(sidebarHeading()).toHaveTextContent(`Ember${TAGLINE}`);
+    act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: EMBER }));
+    expect(sidebarHeading()).toHaveTextContent(/^Ember$/);
+  });
+
+  it("gives the workspace a tagline from its settings, which the sidebar shows under the name", async () => {
+    history.replaceState(null, "", "/account/edit");
+    serve({ signedIn: true });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.type(await screen.findByRole("textbox", { name: "Tagline" }), `${TAGLINE}{Enter}`);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved.");
+    expect(sidebarHeading()).toHaveTextContent(`Ember${TAGLINE}`);
   });
 });
 
