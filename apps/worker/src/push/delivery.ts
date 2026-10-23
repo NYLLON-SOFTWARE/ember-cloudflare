@@ -8,8 +8,9 @@ import { encryptPush, InvalidPushKeyError, PushArgumentError, vapidAuthorization
 
 // Sending pushes as ember-rust's push pool delivers them (crates/ember/src/integrations/web_push.rs and
 // web_push/pool.rs): each to its subscription's push service, encrypted for its browser and signed with
-// the deployment's key, a few at a time. Nothing is retried. A subscription whose push service says it's
-// gone, or whose keys no push can be encrypted for, is forgotten, and any other failure is logged.
+// the deployment's key, a few at a time, once it's checked again that it may still go. Nothing is retried.
+// A subscription whose push service says it's gone, or whose keys no push can be encrypted for, is
+// forgotten, and any other failure is logged.
 
 /** Whom push services may contact about this deployment's pushes when VAPID_SUBJECT doesn't say: the project. */
 export const DEFAULT_VAPID_SUBJECT = "https://github.com/NYLLON-SOFTWARE/ember-cloudflare";
@@ -25,15 +26,17 @@ const encoder = new TextEncoder();
 /**
  * Sends `pushes`, as long as Web Push is on, and answers the subscriptions to forget: those whose push
  * service said they're gone (404 or 410), and those whose keys no push can be encrypted for. Any other
- * failure is logged. An endpoint that's no longer at a permitted push service is skipped. `send` stands
- * in for `fetch` in tests.
+ * failure is logged. An endpoint that's no longer at a permitted push service is skipped, and so is a
+ * subscription `pushable` says may no longer have pushes, or can't say about, asked just before each is
+ * sent: a push can wait its turn while its person is banned. `send` stands in for `fetch` in tests.
  */
-export async function sendPushes(env: Env, pushes: MessagePush[], send: typeof fetch = fetch): Promise<number[]> {
+export async function sendPushes(env: Env, pushes: MessagePush[], pushable: Pushable, send: typeof fetch = fetch): Promise<number[]> {
   const push = await webPush(env);
   if (!push.on) return [];
   const deliveries = pushes.flatMap(({ payload, deliveries }) => deliveries.map((delivery) => ({ message: encodedPush(payload, delivery.badge), delivery })));
   const gone: number[] = [];
   await eachAtMost(deliveries, PUSHES_AT_ONCE, async ({ message, delivery }) => {
+    if (!(await mayPush(pushable, delivery.subscriptionId))) return;
     try {
       await deliver(message, delivery, push.keys, subjectOf(env), send);
     } catch (error) {
@@ -57,6 +60,22 @@ export async function sendTestPush(env: Env, payload: PushPayload, delivery: Pus
 }
 
 const subjectOf = (env: Env) => env.VAPID_SUBJECT?.trim() || DEFAULT_VAPID_SUBJECT;
+
+/** Whether a push subscription may still have pushes: still saved, for someone still active. */
+export type Pushable = (subscriptionId: number) => Promise<boolean>;
+
+/**
+ * Whether `pushable` says subscription `id` may still have pushes, as ember-rust's `delivery_allowed`
+ * (pull request #24) asks, which fails closed: no when it can't say, logging why.
+ */
+async function mayPush(pushable: Pushable, id: number): Promise<boolean> {
+  try {
+    return await pushable(id);
+  } catch (error) {
+    console.warn(`push authorization failed for subscription ${id}: ${error}`);
+    return false;
+  }
+}
 
 /** Why a push failed, as the gem's error class and message name it, and whether its subscription is gone for good. */
 class PushFailure extends Error {

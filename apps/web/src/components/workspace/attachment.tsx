@@ -1,4 +1,4 @@
-import { isWebImage, MAX_PREVIEW_SIZE, PREVIEW_MAX_HEIGHT, PREVIEW_MAX_WIDTH, type StoredFile } from "@ember/protocol";
+import { isPreviewableSize, isWebImage, MAX_PREVIEW_SIZE, PREVIEW_MAX_HEIGHT, PREVIEW_MAX_WIDTH, type StoredFile } from "@ember/protocol";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Lightbox } from "@/components/lightbox";
 import type { Size } from "@/lib/previews";
@@ -9,15 +9,22 @@ import { FileCard } from "./file-card";
 /**
  * A file message's file, as ember-rust's `attachment_presentation` shows it (crates/views/src/messages/presentation.rs):
  * an SVG of up to 5 MiB shows above its card, a video plays in place, a picture shows its thumbnail, or
- * without one, as a bot's has none, itself if it's a picture every browser shows of up to 5 MiB, and every
- * other file shows its card.
+ * without one, as a bot's has none, itself if it's a picture every browser shows of up to 5 MiB and 250
+ * megapixels, and every other file shows its card.
  */
 export function Attachment({ file }: { file: StoredFile }) {
   if (file.contentType === "image/svg+xml" && file.byteSize <= MAX_PREVIEW_SIZE) return <SvgPreview file={file} />;
   if (file.contentType.startsWith("video")) return <VideoPreview file={file} />;
-  const picture = file.previewUrl ?? (isWebImage(file.contentType) && file.byteSize <= MAX_PREVIEW_SIZE ? file.url : null);
+  const picture = file.previewUrl ?? (showsItself(file) && file.byteSize <= MAX_PREVIEW_SIZE ? file.url : null);
   return picture ? <PicturePreview file={file} src={picture} /> : <FileCard file={file} />;
 }
+
+/**
+ * Whether a message may show `file` itself rather than only its thumbnail: a picture every browser shows,
+ * whose size is known and at most 250 megapixels, as a small file can hold a picture far too large to
+ * decode. ember-rust previews only a picture of such a size since its pull request #24.
+ */
+const showsItself = (file: StoredFile) => isWebImage(file.contentType) && isPreviewableSize(file);
 
 /** The size a message shows a file at, as ember-rust's `preview_dimensions` works it out: its own, scaled down to fit 1200×800. */
 function shownSize({ width, height }: StoredFile): Size | null {
@@ -30,12 +37,13 @@ function shownSize({ width, height }: StoredFile): Size | null {
  * A picture, lazily loaded, which links to its file and opens it in the image viewer, as ember-rust's
  * `lightboxed_image_preview` does, with Download and Share taking the file's download address. A picture
  * not every browser shows, such as a HEIC or TIFF, opens as its thumbnail, where ember-rust's viewer shows
- * the original, which Chrome can't. ember-rust's box is half the picture's size, as its
- * `inline_media_dimension_constraints` sets it, but the picture is at most 480px wide and 640px or 70% of
- * the screen tall (zz-ember.css), so a picture shown more than 480px wide leaves the rest of its box blank
- * below it. Ember's box keeps to those limits instead, so it's always the picture's shape. The picture's
- * alt text is the file's name, where ember-rust's has none. The viewer is only there while it's open, so
- * a timeline of pictures holds no viewer for each.
+ * the original, which Chrome can't, and so does one over 250 megapixels, which only a message posted
+ * before Ember kept to that limit has a thumbnail of. ember-rust's box is half the
+ * picture's size, as its `inline_media_dimension_constraints` sets it, but the picture is at most 480px
+ * wide and 640px or 70% of the screen tall (zz-ember.css), so a picture shown more than 480px wide leaves
+ * the rest of its box blank below it. Ember's box keeps to those limits instead, so it's always the
+ * picture's shape. The picture's alt text is the file's name, where ember-rust's has none. The viewer is
+ * only there while it's open, so a timeline of pictures holds no viewer for each.
  */
 function PicturePreview({ file, src }: { file: StoredFile; src: string }) {
   const [viewing, setViewing] = useState(false);
@@ -64,7 +72,7 @@ function PicturePreview({ file, src }: { file: StoredFile; src: string }) {
         />
       </a>
       {viewing && (
-        <Lightbox src={isWebImage(file.contentType) ? file.url : src} alt={file.name} downloadUrl={file.downloadUrl} onClose={() => setViewing(false)} />
+        <Lightbox src={showsItself(file) ? file.url : src} alt={file.name} downloadUrl={file.downloadUrl} onClose={() => setViewing(false)} />
       )}
     </>
   );

@@ -59,6 +59,19 @@ export const isPreviewed = (contentType: string) => isVariable(contentType) || c
 export const isWebImage = (contentType: string) => WEB_IMAGE_TYPES.has(contentType);
 
 /**
+ * The most pixels a picture or video has for Ember to preview it or show it in its place, as a small file
+ * can hold a picture far too large to decode: ember-rust's limit since its pull request #24 (d49621e).
+ */
+export const MAX_PREVIEW_PIXELS = 250_000_000;
+
+/**
+ * Whether a picture or video of `width` by `height` pixels may be previewed: both known and above 0, and
+ * at most 250 megapixels between them, as ember-rust's `Blob::preview_dimensions_allowed` (crates/storage/src/blob.rs) checks.
+ */
+export const isPreviewableSize = ({ width, height }: { width?: number; height?: number }) =>
+  width !== undefined && height !== undefined && width > 0 && height > 0 && width * height <= MAX_PREVIEW_PIXELS;
+
+/**
  * What the app sends to start uploading a file: its name, the type the browser gives it, which may be
  * empty, its size in bytes, and the id it gives the message the file becomes, as it gives each message
  * it sends one (`Message.clientMessageId`).

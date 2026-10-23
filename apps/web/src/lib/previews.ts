@@ -1,4 +1,4 @@
-import { AVATAR_BOX, isPreviewed, isVariable, LOGO_BOXES, PREVIEW_MAX_HEIGHT, PREVIEW_MAX_WIDTH } from "@ember/protocol";
+import { AVATAR_BOX, isPreviewableSize, isPreviewed, isVariable, LOGO_BOXES, PREVIEW_MAX_HEIGHT, PREVIEW_MAX_WIDTH } from "@ember/protocol";
 
 // Previews of files, which the uploader's browser makes and the app sends before a file's last part, where
 // ember-rust makes them on the server: a picture's thumbnail, as Active Storage's `:thumb` variant resizes
@@ -8,6 +8,8 @@ import { AVATAR_BOX, isPreviewed, isVariable, LOGO_BOXES, PREVIEW_MAX_HEIGHT, PR
 // variant is made as a picture's thumbnail is, to fit 512×512, as ember-rust's `:square` variant
 // resizes it (crates/ember/src/controllers/users/avatars.rs), and a logo's two as PNGs within 512×512
 // and 192×192, as its logo controller resizes them (crates/ember/src/controllers/accounts/logos.rs).
+// None is made of a picture or video over 250 megapixels, which isn't decoded, as ember-rust makes none
+// since its pull request #24 (`process::transform` and `video_preview_dimensions_allowed`).
 
 /** A picture's or video's width and height, in pixels. */
 export interface Size {
@@ -106,10 +108,14 @@ async function thumbnailOf(url: string, seeThrough: boolean, limit: Size, signal
   return encoded(picture, fitted(sizeOf(picture), limit), seeThrough);
 }
 
-/** The picture at `url`, once it has decoded, unless `signal` aborts first. */
+/** The picture at `url`, once it has decoded, unless `signal` aborts first, or it's over 250 megapixels, when it isn't decoded. */
 async function pictureAt(url: string, signal: AbortSignal): Promise<HTMLImageElement> {
   const picture = new Image();
+  const loaded = nextEvent(picture, "load", signal);
   picture.src = url;
+  // Its size is known once it has loaded, before it's decoded.
+  await loaded;
+  if (!isPreviewableSize(sizeOf(picture))) throw new RangeError("The picture is over 250 megapixels");
   await Promise.race([picture.decode(), abortOf(signal)]);
   return picture;
 }
@@ -118,7 +124,8 @@ const sizeOf = (picture: HTMLImageElement): Size => ({ width: picture.naturalWid
 
 /**
  * The poster of the video at `url`, or null for one with no picture, such as a recording of sound alone,
- * unless `signal` aborts before it has loaded and sought, when it lets go of the video at once.
+ * or one over 250 megapixels, which it seeks no frame of, unless `signal` aborts before it has loaded and
+ * sought, when it lets go of the video at once.
  */
 async function posterOf(url: string, signal: AbortSignal): Promise<Blob | null> {
   const video = document.createElement("video");
@@ -128,10 +135,11 @@ async function posterOf(url: string, signal: AbortSignal): Promise<Blob | null> 
   try {
     video.src = url;
     await nextEvent(video, "loadedmetadata", signal);
+    const size = { width: video.videoWidth, height: video.videoHeight };
+    if (!isPreviewableSize(size)) return null;
     video.currentTime = Number.isFinite(video.duration) ? Math.min(POSTER_TIME, video.duration / 2) : POSTER_TIME;
     await nextEvent(video, "seeked", signal);
-    const size = { width: video.videoWidth, height: video.videoHeight };
-    return size.width && size.height ? await encoded(video, fitted(size), false) : null;
+    return await encoded(video, fitted(size), false);
   } finally {
     // Lets go of the decoder.
     video.removeAttribute("src");
@@ -139,12 +147,12 @@ async function posterOf(url: string, signal: AbortSignal): Promise<Blob | null> 
   }
 }
 
-/** Resolves on `media`'s next `type` event, or rejects on its next error, or once `signal` aborts. */
-const nextEvent = (media: HTMLMediaElement, type: string, signal: AbortSignal) =>
+/** Resolves on `element`'s next `type` event, or rejects on its next error, or once `signal` aborts. */
+const nextEvent = (element: HTMLMediaElement | HTMLImageElement, type: string, signal: AbortSignal) =>
   Promise.race([
     new Promise<void>((resolve, reject) => {
-      media.addEventListener(type, () => resolve(), { once: true, signal });
-      media.addEventListener("error", () => reject(media.error), { once: true, signal });
+      element.addEventListener(type, () => resolve(), { once: true, signal });
+      element.addEventListener("error", (event) => reject(event), { once: true, signal });
     }),
     abortOf(signal),
   ]);

@@ -131,6 +131,14 @@ const WEBHOOK_CHANGED = "the bot has been deleted, has left the room or its webh
 /** How long an Active Storage key is: `MINIMUM_TOKEN_LENGTH`. */
 const KEY_LENGTH = 28;
 
+/**
+ * How many messages deleting the room deletes in each write, and has the search index forget in each
+ * call, so that a large room holds up neither the rooms sharing D1 or the index for long, nor fails for
+ * its size each time it's tried, as ember-rust's room cleanup deletes a few at a time since its pull
+ * request #24 (`BATCH_SIZE`, room_deletion.rs). A page of history's worth, where ember-rust's is 32.
+ */
+export const MESSAGES_DELETED_AT_ONCE = 100;
+
 /** How long an upload may go unfinished, after which the room deletes what R2 has of it. */
 export const UNFINISHED_UPLOAD_KEPT_MS = 24 * 60 * 60 * 1000;
 
@@ -159,6 +167,8 @@ export class ChatRoom extends DurableObject<Env> {
   private blobs: Blobs | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private couriers: Couriers | null = null;
+  /** Whether the alarm has erased the room, whose storage no longer says it was deleted. */
+  private erased = false;
   private readonly webhooks = new JobQueue(WEBHOOKS_AT_ONCE, WEBHOOKS_WAITING);
   /**
    * Who has read the room since its latest message, as far as this object has seen. Only a new message
@@ -258,16 +268,17 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Closes every socket in a room the Workspace has deleted, with `code`, and deletes its messages, as
-   * ember-rust's `Room::destroy` does (room.rs), with their files, and has the search index forget them.
-   * Nobody is left to hear who leaves. The record that the room was deleted stays, turning away sockets
-   * let through before then, until none of those could still arrive, when the alarm erases it. A failure
-   * has the Workspace ask again.
+   * ember-rust's `Room::destroy` does (room.rs), with their files, and has the search index forget them,
+   * each `MESSAGES_DELETED_AT_ONCE` at a time. Nobody is left to hear who leaves. The record that the
+   * room was deleted stays, turning away sockets let through before then, until none of those could
+   * still arrive, when the alarm erases it. A failure has the Workspace ask again, which goes on from
+   * the batch that failed.
    */
   private async destroy(roomId: RoomId, code: CloseCode): Promise<void> {
     for (const socket of this.ctx.getWebSockets()) this.close(socket, code);
-    await this.storeFor(roomId).deleteAllMessages();
+    while (await this.storeFor(roomId).deleteMessages(MESSAGES_DELETED_AT_ONCE));
     await this.logFor(roomId).forget();
-    await searchIndex(this.env).forget(roomId);
+    while (await searchIndex(this.env).forget(roomId, MESSAGES_DELETED_AT_ONCE));
     await this.ctx.storage.put(DELETED_ROOM, roomId);
     await this.ctx.storage.setAlarm(Date.now() + REVOCATIONS_KEPT_MS);
     this.couriersFor(roomId).files.deliver();
@@ -309,8 +320,9 @@ export class ChatRoom extends DurableObject<Env> {
     await this.serially(async () => {
       await this.revocationsFor(roomId).forget();
       await this.ctx.storage.deleteAll();
-      // Its tables went too, so anything after this opens the database afresh.
+      // Its tables went too, so anything after this would open the database afresh, making them again.
       this.db = this.store = this.revocations = this.log = this.blobs = null;
+      this.erased = true;
     });
   }
 
@@ -1053,9 +1065,12 @@ export class ChatRoom extends DurableObject<Env> {
     return refused;
   }
 
-  /** Sends new messages' pushes, and has the Workspace forget the subscriptions they found gone. */
+  /**
+   * Sends new messages' pushes, as the Workspace still allows each when its turn comes, and has it forget
+   * the subscriptions they found gone.
+   */
   private async push(pushes: MessagePush[]): Promise<void> {
-    const gone = await sendPushes(this.env, pushes);
+    const gone = await sendPushes(this.env, pushes, (id) => workspace(this.env).pushable(id));
     if (gone.length === 0) return;
     await workspace(this.env)
       .forgetPushSubscriptions(gone)
@@ -1122,9 +1137,12 @@ export class ChatRoom extends DurableObject<Env> {
     });
   }
 
-  /** Whether the Workspace has deleted the room, which a request it let through just before can still find. */
+  /**
+   * Whether the Workspace has deleted the room, which a request it let through just before can still
+   * find, as can a delivery to a bot's webhook still waiting its turn once the alarm has erased the room.
+   */
   private async isDeleted(): Promise<boolean> {
-    return (await this.ctx.storage.get(DELETED_ROOM)) !== undefined;
+    return this.erased || (await this.ctx.storage.get(DELETED_ROOM)) !== undefined;
   }
 
   /** Everyone with at least one open socket, once each. */

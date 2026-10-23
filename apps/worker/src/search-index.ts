@@ -151,14 +151,18 @@ export class SearchIndex extends DurableObject<Env> {
   }
 
   /**
-   * Forgets room `roomId`'s messages, as deleting the room does, and keeps any call it made before from
-   * putting them back.
+   * Forgets up to `limit` of room `roomId`'s messages, as deleting the room has it do a batch at a time,
+   * so that no call holds up the other rooms' for long, and answers whether any are left. The first keeps
+   * any call the room made before from putting them back.
    */
-  forget(roomId: RoomId): void {
-    this.ctx.storage.transactionSync(() => {
-      this.sql.exec(`DELETE FROM search_index WHERE rowid IN (SELECT id FROM search_messages WHERE room_id = ?)`, roomId);
-      this.sql.exec(`DELETE FROM search_messages WHERE room_id = ?`, roomId);
+  forget(roomId: RoomId, limit: number): boolean {
+    return this.ctx.storage.transactionSync(() => {
       this.sql.exec(`INSERT INTO search_rooms (room_id, seq) VALUES (?, ?) ON CONFLICT (room_id) DO UPDATE SET seq = excluded.seq`, roomId, FORGOTTEN);
+      const ids = this.sql.exec<{ id: number }>(`SELECT id FROM search_messages WHERE room_id = ? LIMIT ?`, roomId, limit + 1).toArray();
+      const forgotten = JSON.stringify(ids.slice(0, limit).map(({ id }) => id));
+      this.sql.exec(`DELETE FROM search_index WHERE rowid IN (SELECT value FROM json_each(?))`, forgotten);
+      this.sql.exec(`DELETE FROM search_messages WHERE id IN (SELECT value FROM json_each(?))`, forgotten);
+      return ids.length > limit;
     });
   }
 

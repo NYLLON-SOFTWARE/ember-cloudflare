@@ -366,6 +366,28 @@ describe(feature("search.messages"), () => {
     expect(await searchSql("SELECT count(*) AS n FROM search_messages WHERE room_id = ?", room)).toEqual([{ n: 0 }]);
   });
 
+  it("forgets a deleted room's messages a batch at a time, taking nothing more from the room from the first", async () => {
+    const indexing = (seq: number, ids: string[]) =>
+      searchIndexStub().apply(
+        "doomed",
+        seq,
+        ids.map((id, i) => ({ id, createdAt: new Date(Date.UTC(2026, 9, 1, 0, 0, i)).toISOString(), text: "kumquat", message: "{}" })),
+        [],
+      );
+    const left = async () => ((await searchSql("SELECT count(*) AS n FROM search_messages WHERE room_id = 'doomed'")) as [{ n: number }])[0].n;
+    await indexing(1, ["a", "b", "c", "d", "e"]);
+
+    expect(await searchIndexStub().forget("doomed", 2)).toBe(true);
+    expect(await left()).toBe(3);
+    // A call the room made before it was deleted, arriving between batches.
+    await indexing(2, ["f"]);
+    expect(await left()).toBe(3);
+    expect(await searchIndexStub().forget("doomed", 2)).toBe(true);
+    expect(await searchIndexStub().forget("doomed", 2)).toBe(false);
+    expect(await left()).toBe(0);
+    expect(await searchSql("SELECT count(*) AS n FROM search_index WHERE search_index MATCH 'kumquat'")).toEqual([{ n: 0 }]);
+  });
+
   it("drops a banned person's messages as their room deletes them", async () => {
     const room = await freshRoom("purged");
     const ada = await connect(room, "Ada");

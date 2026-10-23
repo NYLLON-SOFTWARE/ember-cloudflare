@@ -2,11 +2,12 @@ import { feature } from "@ember/parity";
 import { CloseCode, type RoomId, type Sidebar } from "@ember/protocol";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ChatRoom } from "../src/chat-room";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MESSAGES_DELETED_AT_ONCE, type ChatRoom } from "../src/chat-room";
 import type { Courier } from "../src/courier";
 import type { Env } from "../src/env";
 import { EVERYONE, REVOCATIONS_KEPT_MS } from "../src/revocations";
+import { MessageStore } from "../src/store";
 import type { Workspace } from "../src/workspace";
 import type { WorkspaceStore } from "../src/workspace-store";
 import {
@@ -35,6 +36,10 @@ import {
 const bindings = env as unknown as Env;
 
 beforeEach(freshDeploy);
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const remove = (roomId: RoomId, session: Session) => api(`/api/rooms/${roomId}`, { method: "DELETE", headers: { Cookie: session.cookie } });
 
@@ -132,6 +137,40 @@ describe(feature("rooms.delete"), () => {
     expect(await countIn(annex.id, "message_deletions")).toBe(1);
     expect(await countIn(annex.id, "blobs")).toBe(1);
     await settle(inAnnex);
+  });
+
+  it("deletes a large room's messages a batch at a time, going on from a batch that failed when the Workspace asks again", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const ada = await signIn("Ada");
+    const room = await createRoom("Design", { as: ada });
+    const inRoom = await connect(room.id, ada);
+    await post(inRoom, "The newest");
+    // Two batches' worth from before.
+    const older = 2 * MESSAGES_DELETED_AT_ONCE;
+    await roomSql(
+      room.id,
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${older})
+       INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, created_at, updated_at)
+       SELECT printf('old-%04d', i), ?, 'c-old-' || i, ?, 'Ada', '<p>Before</p>', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z' FROM n`,
+      room.id,
+      ada.user.id,
+    );
+    // The second batch fails, as a write to D1 can when it's reset.
+    const deleteMessages = MessageStore.prototype.deleteMessages;
+    let batches = 0;
+    vi.spyOn(MessageStore.prototype, "deleteMessages").mockImplementation(async function (this: MessageStore, limit) {
+      if (++batches === 2) throw new Error("D1 DB exceeded its CPU time limit and was reset.");
+      return deleteMessages.call(this, limit);
+    });
+    const closed = closeOf(inRoom.ws);
+
+    expect((await remove(room.id, ada)).status).toBe(204);
+    await closed;
+    await vi.waitFor(() => expect(batches).toBe(2), { timeout: 5_000 });
+    expect(await countIn(room.id, "messages")).toBe(older + 1 - MESSAGES_DELETED_AT_ONCE);
+    await delivered();
+    expect(batches).toBe(4);
+    expect(await countIn(room.id, "messages")).toBe(0);
   });
 
   it("lets administrators delete the rooms they're in, and refuses other members, changing nothing", async () => {

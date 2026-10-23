@@ -1835,6 +1835,14 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Whether push subscription `id` is still saved, for someone still active, as a room asks just before
+   * sending a push that waited its turn, so that one banned, removed or suspended meanwhile gets none.
+   */
+  async pushable(id: number): Promise<boolean> {
+    return this.store.pushable(id);
+  }
+
+  /**
    * Forgets the push subscriptions with `ids`, which a push service has said are gone, or whose keys no
    * push can be encrypted for, as ember-rust's push pool destroys them, logging each as it does.
    */

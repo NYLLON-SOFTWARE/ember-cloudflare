@@ -55,6 +55,9 @@ export const MESSAGES_BY = `SELECT id FROM messages WHERE room_id = ? AND creato
 /** As MESSAGES_BY, but only those written by a time. */
 export const MESSAGES_BY_UNTIL = `SELECT id FROM messages WHERE room_id = ? AND creator_id = ? AND created_at <= ? LIMIT ?`;
 
+/** Up to a number of the room's oldest messages, as deleting the room deletes them a batch at a time. */
+export const OLDEST_MESSAGES = `SELECT id FROM messages WHERE room_id = ? ORDER BY id LIMIT ?`;
+
 const toBoost = (row: BoostRow): Boost => ({
   id: row.id,
   messageId: row.message_id,
@@ -484,19 +487,25 @@ export class MessageStore {
   }
 
   /**
-   * Deletes every message here, and through ON DELETE CASCADE their boosts, as deleting the room does,
-   * and the deletions it kept, since no tab can connect to it again, marking every file the room has
-   * deleted, for it to purge.
+   * Deletes up to `limit` of the messages here, the oldest first, and through ON DELETE CASCADE their
+   * boosts, as deleting the room does a batch at a time, marking their files deleted, for the room to
+   * purge, and answers whether any are left. The last batch also deletes the deletions it kept, since no
+   * tab can connect to the room again, and marks deleted every file it has left, uploads under way too.
    */
-  async deleteAllMessages(): Promise<void> {
+  async deleteMessages(limit: number): Promise<boolean> {
+    const ids = (await this.db.all<{ id: string }>(OLDEST_MESSAGES, this.roomId, limit + 1)).map(({ id }) => id);
+    const listed = JSON.stringify(ids.slice(0, limit));
+    const left = ids.length > limit;
+    const now = new Date().toISOString();
     await this.changingMessages(() =>
       this.db.batch([
-        deletingAllFiles(this.roomId, new Date().toISOString()),
-        statement(`DELETE FROM messages WHERE room_id = ?`, this.roomId),
-        statement(`DELETE FROM message_deletions WHERE room_id = ?`, this.roomId),
+        deletingFilesOf(this.roomId, listed, now),
+        statement(`DELETE FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`, this.roomId, listed),
+        ...(left ? [] : [deletingAllFiles(this.roomId, now), statement(`DELETE FROM message_deletions WHERE room_id = ?`, this.roomId)]),
       ]),
     );
     this.seq = null;
+    return left;
   }
 
   async addBoost(id: string, messageId: string, booster: User, content: string, now: string): Promise<{ boost: Boost; seq: number }> {

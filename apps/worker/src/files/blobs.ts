@@ -1,4 +1,4 @@
-import { isPreviewed, type RoomId, type StoredFile, type UserId } from "@ember/protocol";
+import { isPreviewableSize, isPreviewed, type RoomId, type StoredFile, type UserId } from "@ember/protocol";
 import { statement, type Db, type Statement } from "../db";
 import { sanitizedFilename } from "./filename";
 import type { ImageSize } from "./images";
@@ -128,12 +128,16 @@ export type AttachedFile = Omit<StoredFile, "url" | "downloadUrl" | "previewUrl"
 /**
  * What the message `blob` is posted as keeps of it, once its first part has identified it, as `identified`
  * says if it isn't recorded yet: with its preview, if it's a file shown by one, and that preview's size
- * where its own can't be read.
+ * where its own can't be read, as a video's can't. A picture keeps its preview only where its own size
+ * is known and within 250 megapixels, as ember-rust makes one only then since its pull request #24
+ * (`preview_dimensions_allowed`, crates/ember/src/controllers/messages.rs): the uploader's browser
+ * makes it, so it's checked here.
  */
 export function attachedFile(blob: RoomBlob, identified?: Identified): AttachedFile {
   const { contentType, metadata } = identified ?? { contentType: blob.contentType, metadata: blob.metadata! };
   const { width, height } = JSON.parse(metadata) as Partial<ImageSize>;
-  const preview = isPreviewed(contentType) ? blob.preview : null;
+  const shownByPreview = contentType.startsWith("video") || isPreviewableSize({ width, height });
+  const preview = isPreviewed(contentType) && shownByPreview ? blob.preview : null;
   const size = width !== undefined && height !== undefined ? { width, height } : preview;
   return {
     id: blob.id,

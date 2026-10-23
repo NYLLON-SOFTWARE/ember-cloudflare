@@ -148,13 +148,18 @@ export async function postWebhook<K>(
 
 /**
  * What the bot says back in `response`, as `extract_text_from`, then `extract_attachment_from`, read it:
- * a 200's `text/html` or `text/plain` is text, and any other answer with a type is a file, of a name and
- * type by that type, which `keep` keeps. An answer without one says nothing, and one whose type isn't a
- * media type fails.
+ * a 200's `text/html` or `text/plain` is text, and a 200 of any other type is a file, of a name and type
+ * by that type, which `keep` keeps. A 200 without a type says nothing, and one whose type isn't a media
+ * type fails. Any other answer says nothing, unread, since an error page or a redirect is no reply, as
+ * Campfire 1.5.2 and ember-rust's pull request #24 have it.
  */
 async function replyIn<K>(response: Response, clock: DeliveryClock, keep: Keep<K>): Promise<Reply<K> | null> {
+  if (response.status !== 200) {
+    await response.body?.cancel();
+    return null;
+  }
   const type = contentTypeOf(response.headers.get("Content-Type"));
-  if (response.status === 200 && (type === "text/html" || type === "text/plain")) return { text: await textOf(response.body, clock) };
+  if (type === "text/html" || type === "text/plain") return { text: await textOf(response.body, clock) };
   const file = type === null ? null : replyFileOf(type);
   if (!file) {
     await response.body?.cancel();

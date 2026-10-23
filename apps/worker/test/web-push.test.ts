@@ -178,11 +178,14 @@ const PAYLOAD: PushPayload = { title: "Designers", body: "David: Hi", path: "/ro
 const ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc";
 const pushEnv = (changes: Partial<Env> = {}) => ({ ...(env as unknown as Env), ...changes });
 
+/** Says every subscription may still have pushes. */
+const anyone = async () => true;
+
 describe(feature("notifications.push"), () => {
   it("sends each push to its subscription's push service as the gem does: encrypted for its browser, signed, urgent, kept for four weeks", async () => {
     const receiver = await pushBrowser();
     const { send, sent } = pushService();
-    expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, receiver, 4])], send)).toEqual([]);
+    expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, receiver, 4])], anyone, send)).toEqual([]);
 
     expect(sent).toHaveLength(1);
     const [[endpoint, init]] = sent as [[string, RequestInit]];
@@ -203,7 +206,7 @@ describe(feature("notifications.push"), () => {
 
   it("names VAPID_SUBJECT as whom the push service may contact, when it's set", async () => {
     const { send, sent } = pushService();
-    await sendPushes(pushEnv({ VAPID_SUBJECT: " mailto:ops@example.com " }), [messagePush(PAYLOAD, [ENDPOINT, await pushBrowser()])], send);
+    await sendPushes(pushEnv({ VAPID_SUBJECT: " mailto:ops@example.com " }), [messagePush(PAYLOAD, [ENDPOINT, await pushBrowser()])], anyone, send);
     const { claims } = await claimsOf((sent[0]![1].headers as Record<string, string>).Authorization!);
     expect(claims.sub).toBe("mailto:ops@example.com");
   });
@@ -223,7 +226,7 @@ describe(feature("notifications.push"), () => {
       ["https://fcm.googleapis.com/fcm/send/3", receiver],
       ["https://fcm.googleapis.com/fcm/send/4", { p256dh: "dGVzdF9rZXk", auth: "dGVzdF9hdXRo" }],
     );
-    expect((await sendPushes(pushEnv(), [push], send)).sort()).toEqual([1, 2, 4]);
+    expect((await sendPushes(pushEnv(), [push], anyone, send)).sort()).toEqual([1, 2, 4]);
     expect(sent.map(([endpoint]) => new URL(endpoint).pathname).sort()).toEqual(["/fcm/send/1", "/fcm/send/2", "/fcm/send/3"]);
     expect(log).not.toHaveBeenCalled();
   });
@@ -243,18 +246,18 @@ describe(feature("notifications.push"), () => {
     ];
     for (const [status, statusText, kind] of answers) {
       const { send, sent } = pushService(() => new Response(null, { status, statusText }));
-      expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, receiver])], send)).toEqual([]);
+      expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, receiver])], anyone, send)).toEqual([]);
       expect(sent).toHaveLength(1);
       expect(log).toHaveBeenLastCalledWith(`Error in WebPush::Pool.deliver: ${kind} host: fcm.googleapis.com, status: ${status}`);
     }
 
     const failing = (error: Error) => pushService(() => Promise.reject(error)).send;
-    await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, receiver])], failing(new DOMException("The operation was aborted due to timeout", "TimeoutError")));
+    await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, receiver])], anyone, failing(new DOMException("The operation was aborted due to timeout", "TimeoutError")));
     expect(log).toHaveBeenLastCalledWith("Error in WebPush::Pool.deliver: Net::ReadTimeout The operation was aborted due to timeout");
-    await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, receiver])], failing(new TypeError("Network connection lost.")));
+    await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, receiver])], anyone, failing(new TypeError("Network connection lost.")));
     expect(log).toHaveBeenLastCalledWith("Error in WebPush::Pool.deliver: SystemCallError Network connection lost.");
     const { send } = pushService();
-    expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, { p256dh: "", auth: receiver.auth }])], send)).toEqual([]);
+    expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, [ENDPOINT, { p256dh: "", auth: receiver.auth }])], anyone, send)).toEqual([]);
     expect(log).toHaveBeenLastCalledWith("Error in WebPush::Pool.deliver: ArgumentError p256dh cannot be blank");
   });
 
@@ -262,8 +265,37 @@ describe(feature("notifications.push"), () => {
     const { send, sent } = pushService();
     const receiver = await pushBrowser();
     const endpoints = ["https://attacker.example.com/collect", "https://fcm.googleapis.com:22/fcm/send/abc", "http://fcm.googleapis.com/fcm/send/abc", "https://evilfcm.googleapis.com.attacker.example/webhook"];
-    expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, ...endpoints.map((endpoint) => [endpoint, receiver] as [string, typeof receiver]))], send)).toEqual([]);
+    expect(await sendPushes(pushEnv(), [messagePush(PAYLOAD, ...endpoints.map((endpoint) => [endpoint, receiver] as [string, typeof receiver]))], anyone, send)).toEqual([]);
     expect(sent).toEqual([]);
+  });
+
+  it("asks whether each subscription may still have its push as its turn comes, sending none it's told no or can't be told about, and forgetting neither", async () => {
+    const receiver = await pushBrowser();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const { send, sent } = pushService(async () => {
+      await held;
+      return new Response(null, { status: 201 });
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const banned = new Set<number>();
+    const asked: number[] = [];
+    const pushable = async (id: number) => {
+      asked.push(id);
+      if (id === 8) throw new Error("The database's answer was lost");
+      return !banned.has(id);
+    };
+    const deliveries = Array.from({ length: 8 }, (_, i): [string, typeof receiver] => [`https://fcm.googleapis.com/fcm/send/${i + 1}`, receiver]);
+
+    const sending = sendPushes(pushEnv(), [messagePush(PAYLOAD, ...deliveries)], pushable, send);
+    await vi.waitFor(() => expect(sent).toHaveLength(6));
+    expect(asked).toEqual([1, 2, 3, 4, 5, 6]);
+    banned.add(7);
+    release();
+    expect(await sending).toEqual([]);
+    expect(asked).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(sent.map(([endpoint]) => new URL(endpoint).pathname)).toEqual([1, 2, 3, 4, 5, 6].map((i) => `/fcm/send/${i}`));
+    expect(warn).toHaveBeenCalledExactlyOnceWith("push authorization failed for subscription 8: Error: The database's answer was lost");
   });
 
   it("sends six pushes at a time, as many as a Worker has connections", async () => {
@@ -277,7 +309,7 @@ describe(feature("notifications.push"), () => {
       return new Response(null, { status: 201 });
     });
     const deliveries = Array.from({ length: 15 }, (_, i): [string, typeof receiver] => [`https://fcm.googleapis.com/fcm/send/${i}`, receiver]);
-    await sendPushes(pushEnv(), [messagePush(PAYLOAD, ...deliveries.slice(0, 8)), messagePush(PAYLOAD, ...deliveries.slice(8))], send);
+    await sendPushes(pushEnv(), [messagePush(PAYLOAD, ...deliveries.slice(0, 8)), messagePush(PAYLOAD, ...deliveries.slice(8))], anyone, send);
     expect(sent).toHaveLength(15);
     expect(most).toBe(6);
   });
@@ -285,7 +317,7 @@ describe(feature("notifications.push"), () => {
   it("sends nothing while Web Push is off", async () => {
     const { send, sent } = pushService();
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(await sendPushes(pushEnv({ VAPID_PUBLIC_KEY: undefined, VAPID_PRIVATE_KEY: undefined }), [messagePush(PAYLOAD, [ENDPOINT, await pushBrowser()])], send)).toEqual([]);
+    expect(await sendPushes(pushEnv({ VAPID_PUBLIC_KEY: undefined, VAPID_PRIVATE_KEY: undefined }), [messagePush(PAYLOAD, [ENDPOINT, await pushBrowser()])], anyone, send)).toEqual([]);
     expect(sent).toEqual([]);
   });
 });

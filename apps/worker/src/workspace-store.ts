@@ -856,6 +856,13 @@ export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.
     AND (memberships.involvement = 'everything' OR (memberships.involvement = 'mentions' AND memberships.user_id IN (SELECT value FROM json_each(?4))))
   ORDER BY memberships.involvement = 'mentions', push_subscriptions.id`;
 
+/**
+ * Whether push subscription ?1 is still saved, for someone active, as ember-rust's `delivery_allowed`
+ * (pull request #24) asks. Its id is never another's, as AUTOINCREMENT numbers them.
+ */
+const PUSHABLE = `SELECT 1 FROM push_subscriptions JOIN users ON users.id = push_subscriptions.user_id
+  WHERE push_subscriptions.id = ?1 AND users.status = ${ACTIVE}`;
+
 /** A subscription a push goes to, and the count it sets the badge to. */
 interface DeliveryRow {
   id: number;
@@ -2234,6 +2241,11 @@ export class WorkspaceStore {
     const webhooks = applied.flatMap(({ event, webhooks: at }) => (at === null ? [] : messageWebhooks(event, results[at] as WebhookRow[])));
     const toldIds = message ? userIdsOf(results[told] as UserIdRow[]) : [];
     return { marks, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks };
+  }
+
+  /** Whether push subscription `id` is still saved, for someone active. */
+  async pushable(id: number): Promise<boolean> {
+    return (await this.db.all(PUSHABLE, id)).length > 0;
   }
 
   /** Forgets the push subscriptions with `ids`, which the push service has said are gone or can never be pushed to. */

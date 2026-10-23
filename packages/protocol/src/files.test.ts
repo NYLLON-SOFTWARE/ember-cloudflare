@@ -2,6 +2,7 @@ import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import {
   FILE_TOO_LARGE,
+  isPreviewableSize,
   isPreviewed,
   isWebImage,
   MAX_FILE_NAME_LENGTH,
@@ -81,6 +82,26 @@ describe(feature("attachments.previews"), () => {
     // Campfire leaves BMP, ICO and PSD out, and SVGs get previews of their own.
     expect(["image/bmp", "image/vnd.microsoft.icon", "image/vnd.adobe.photoshop", "image/svg+xml", "application/pdf", "audio/mpeg", "text/plain", ""].filter(isPreviewed)).toEqual([]);
     expect(uploadPreviewPath("lobby" as RoomId, "1ykrknnn9r4youv0f71wrntkzilx")).toBe("/api/rooms/lobby/uploads/1ykrknnn9r4youv0f71wrntkzilx/preview");
+  });
+
+  it("previews a picture or video of up to 250 megapixels, whose width and height are both known and above 0", () => {
+    // ember-rust's own cases (`preview_limit_tests`, crates/storage/src/blob.rs).
+    expect(isPreviewableSize({ width: 25_000, height: 10_000 })).toBe(true);
+    expect(isPreviewableSize({ width: 1920, height: 1080 })).toBe(true);
+    for (const [width, height] of [
+      [25_001, 10_000],
+      [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER],
+      [0, 5],
+      [-1, 5],
+      [Infinity, 5],
+      [NaN, 5],
+      [5, NaN],
+    ]) {
+      expect(isPreviewableSize({ width, height }), `${width}×${height}`).toBe(false);
+    }
+    expect(isPreviewableSize({ width: 1920 })).toBe(false);
+    expect(isPreviewableSize({ height: 1080 })).toBe(false);
+    expect(isPreviewableSize({})).toBe(false);
   });
 
   it("knows the pictures every browser shows, as Active Storage's `web_image_content_types` lists them", () => {
