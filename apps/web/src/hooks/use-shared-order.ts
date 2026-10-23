@@ -39,8 +39,8 @@ export function useSharedOrder({ rooms, sharedOrder, onSaved, onSessionChanged }
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<OrderStatus | null>(null);
   const mounted = useMounted();
-  // Whether the order is saving, as it is now rather than as last drawn.
-  const saved = useRef(false);
+  // The save under way, as it is now rather than as last drawn, which saving again waits for.
+  const saved = useRef<Promise<boolean> | null>(null);
 
   const savedOrder = useMemo(() => inSidebarOrder(rooms, [], sharedOrder).map((room) => room.id), [rooms, sharedOrder]);
   const order = useMemo(() => (staged ? stillStaged(staged, savedOrder) : savedOrder), [staged, savedOrder]);
@@ -52,7 +52,7 @@ export function useSharedOrder({ rooms, sharedOrder, onSaved, onSessionChanged }
     movable: order,
     holdMs: 0,
     grabs: (target) => target.closest("[data-room-order-handle]") !== null,
-    isLocked: () => saved.current,
+    isLocked: () => saved.current !== null,
     onDrag: (roomId) => setStatus({ message: `Moving ${nameOf(roomId)}. Release to place, or press Escape to cancel.`, error: false }),
     onMove: (moved) => {
       setStaged(moved);
@@ -61,26 +61,38 @@ export function useSharedOrder({ rooms, sharedOrder, onSaved, onSessionChanged }
     onCancel: () => setStatus({ message: "Room move canceled.", error: false }),
   });
 
-  /** Saves the order staged as the shared order, putting back a row being dragged, so what's saved is what shows. */
-  async function save() {
-    if (saved.current || !changed) return;
+  /**
+   * Saves the order staged as the shared order, putting back a row being dragged, so what's saved is what
+   * shows, and settles with whether it's saved, waiting for a save already under way rather than saving again.
+   */
+  function save(): Promise<boolean> {
+    if (saved.current) return saved.current;
+    if (!changed) return Promise.resolve(true);
     drag.release();
-    saved.current = true;
     setSaving(true);
     setStatus({ message: "Saving room order…", error: false });
+    saved.current = send().finally(() => {
+      saved.current = null;
+      if (mounted.current) setSaving(false);
+    });
+    return saved.current;
+  }
+
+  /** Sends the order staged, saying how that went, and settles with whether it's saved. */
+  async function send(): Promise<boolean> {
     try {
       onSaved(await setSharedOrder(order));
-      if (!mounted.current) return;
-      setStaged(null);
-      setStatus({ message: "Room order saved for everyone.", error: false });
+      if (mounted.current) {
+        setStaged(null);
+        setStatus({ message: "Room order saved for everyone.", error: false });
+      }
+      return true;
     } catch (error) {
       // Once another person's workspace has taken this one's place, the session it hears about is gone.
-      if (!mounted.current) return;
-      if (isSignedOut(error)) return onSessionChanged(null);
-      setStatus({ message: "Couldn’t save room order. Please try again.", error: true });
-    } finally {
-      saved.current = false;
-      if (mounted.current) setSaving(false);
+      if (!mounted.current) return false;
+      if (isSignedOut(error)) onSessionChanged(null);
+      else setStatus({ message: "Couldn’t save room order. Please try again.", error: true });
+      return false;
     }
   }
 

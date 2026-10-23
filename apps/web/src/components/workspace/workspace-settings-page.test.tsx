@@ -25,7 +25,7 @@ import minus from "@/components/icons/campfire/minus.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
-import { navigate } from "@/hooks/use-route";
+import { navigate, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { CONFIRM_REMOVE } from "./people-list";
 import { workspaceSectionPath, type WorkspaceSection } from "./settings-navigation";
@@ -1070,6 +1070,96 @@ describe(feature("sidebar.shared-order"), () => {
     expect(general).toHaveTextContent("Everyone");
     await user.click(general);
     expect(location.pathname).toBe("/rooms/opens/general/edit");
+  });
+
+  describe("left unsaved", () => {
+    const asking = () => screen.queryByRole("dialog", { name: "Unsaved Changes" });
+    /** Whether the browser would ask before reloading or closing the tab. */
+    const unloadAsks = () => !window.dispatchEvent(new Event("beforeunload", { cancelable: true }));
+    const settingsLink = (name: string) => within(orderRow(name)).getByRole("link", { name: `Settings for ${name}` });
+
+    it("asks before leaving with an order staged, by a room's own link too, as a room's form asks, but not between the page's sections", async () => {
+      const { user } = showPage();
+      await screen.findByRole("list", { name: "Room order" });
+      expect(unloadAsks()).toBe(false);
+      altArrow("general", "ArrowUp");
+      expect(unloadAsks()).toBe(true);
+
+      await user.click(settingsLink("random"));
+      const dialog = await screen.findByRole("dialog", { name: "Unsaved Changes" });
+      expect(dialog).toHaveAccessibleDescription("You’ve changed the room order. Save it before you leave, or discard it to keep things as they were.");
+      expect(button("Save")).toHaveFocus();
+      expect(location.pathname).toBe(WORKSPACE_SETTINGS_PATH);
+      await user.click(button("Keep editing"));
+      await waitFor(() => expect(asking()).not.toBeInTheDocument());
+      expect(ordered()).toEqual(["general", "Design", "random"]);
+
+      // Another of the page's sections keeps it staged, as does going Back from there.
+      act(() => navigate(workspaceSectionPath("membership-settings")));
+      act(() => history.back());
+      await waitFor(() => expect(location.hash).toBe("#channel-settings"));
+      expect(asking()).not.toBeInTheDocument();
+
+      await user.click(settingsLink("random"));
+      await user.click(await screen.findByRole("button", { name: "Discard" }));
+      expect(location.pathname).toBe("/rooms/opens/random/edit");
+      expect(sentOrders()).toEqual([]);
+      expect(unloadAsks()).toBe(false);
+    });
+
+    it("saves the order staged before going on, staying, saying so, while it can't be saved", async () => {
+      let answers = 0;
+      serve(asAdministrator, {
+        ordered: () => (answers++ === 0 ? Response.json({ error: "Something went wrong" }, { status: 500 }) : Response.json({ sharedOrder: ["general", "secret", "random"] })),
+      });
+      const { onSharedOrderSaved, user } = showPage();
+      await screen.findByRole("list", { name: "Room order" });
+      altArrow("general", "ArrowUp");
+      await user.click(settingsLink("random"));
+      await user.click(await screen.findByRole("button", { name: "Save" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Your changes couldn’t be saved. Please try again, or keep editing.");
+      expect(location.pathname).toBe(WORKSPACE_SETTINGS_PATH);
+      expect(onSharedOrderSaved).not.toHaveBeenCalled();
+
+      await user.click(button("Save"));
+      await waitFor(() => expect(location.pathname).toBe("/rooms/opens/random/edit"));
+      expect(sentOrders()).toEqual([
+        ["PUT", { roomIds: ["general", "secret", "random"] }],
+        ["PUT", { roomIds: ["general", "secret", "random"] }],
+      ]);
+      expect(onSharedOrderSaved).toHaveBeenCalledExactlyOnceWith(["general", "secret", "random"]);
+      await waitFor(() => expect(asking()).not.toBeInTheDocument());
+    });
+
+    it("waits for a save under way, rather than saving again", async () => {
+      let answer = (_: Response) => {};
+      serve(asAdministrator, { ordered: () => new Promise((resolve) => (answer = resolve)) });
+      const { user } = showPage();
+      await screen.findByRole("list", { name: "Room order" });
+      altArrow("general", "ArrowUp");
+      await user.click(button("Save order"));
+      await user.click(settingsLink("random"));
+      await user.click(await screen.findByRole("button", { name: "Save" }));
+      expect(button("Saving…")).toBeDisabled();
+      expect(location.pathname).toBe(WORKSPACE_SETTINGS_PATH);
+
+      await act(async () => answer(Response.json({ sharedOrder: ["general", "secret", "random"] })));
+      await waitFor(() => expect(location.pathname).toBe("/rooms/opens/random/edit"));
+      expect(sentOrders()).toHaveLength(1);
+    });
+
+    it("closes the page's other dialogs first, which would stay above it, as another section's icon picker does", async () => {
+      const { user } = showPage();
+      await screen.findByRole("list", { name: "Room order" });
+      altArrow("general", "ArrowUp");
+      act(() => navigate(workspaceSectionPath("community-settings")));
+      await user.click(await screen.findByRole("button", { name: "Choose Home icon" }));
+      const picker = screen.getByRole("dialog", { name: "Choose a navigation icon" });
+
+      act(() => navigate("/rooms/opens/random/edit"));
+      expect(await screen.findByRole("dialog", { name: "Unsaved Changes" })).toBeInTheDocument();
+      expect(picker).not.toHaveAttribute("open");
+    });
   });
 
   it("waits for the sidebar's rooms, and says when there are none to arrange", async () => {

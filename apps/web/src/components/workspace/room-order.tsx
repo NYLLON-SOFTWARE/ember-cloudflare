@@ -3,9 +3,10 @@ import type { Me, RoomId, SharedRoom } from "@ember/protocol";
 import { GripVertical } from "@/components/icons/lucide";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
-import { roomSettingsPath } from "@/hooks/use-route";
+import { roomSettingsPath, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { useSharedOrder } from "@/hooks/use-shared-order";
 import { cn } from "@/lib/utils";
+import { UnsavedChanges } from "./unsaved-changes";
 
 /**
  * `.mb-admin-room-order-actions .btn`: Campfire's `.btn`, 40px tall, 44px for fingers. Disabled, it's
@@ -13,6 +14,12 @@ import { cn } from "@/lib/utils";
  */
 const ACTION =
   "inline-flex min-h-10 cursor-pointer items-center justify-center rounded-[9px] border px-3.5 py-2 font-medium touch:min-h-11 disabled:cursor-not-allowed disabled:opacity-50 disabled:grayscale disabled:contrast-50";
+
+/** What the unsaved changes dialog says about an order staged, as it says of a room's form. */
+const ORDER_CHANGES = "You’ve changed the room order. Save it before you leave, or discard it to keep things as they were.";
+
+/** Whether going to `path` keeps workspace settings, as Back and Forward between its sections do. */
+const staysInSettings = (path: string) => path === WORKSPACE_SETTINGS_PATH;
 
 interface Props {
   /** The rooms in this administrator's sidebar, but their DMs, in any order. */
@@ -30,12 +37,19 @@ interface Props {
  * pull request #24 stages it (accounts/_room_settings.html, `.mb-admin-room-order` in zz-ember.css): a row
  * per room, dragged by its grip or moved with Alt and an arrow (`useSharedOrder`), then Save order or
  * Cancel. The rest of each row links to the room's settings, saying who it's open to. What the list last
- * said about a move shows under it.
+ * said about a move shows under it. Leaving the page with an order staged asks to save or discard it, as
+ * leaving a room's form does, where ember-rust drops it without asking, by the project owner's choice.
  */
 export function RoomOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Props) {
   const { order, moving, status, changed, saving, listRef, listProps, save, reset } = useSharedOrder({ rooms, sharedOrder, onSaved, onSessionChanged });
   const byId = useMemo(() => new Map(rooms.map((room) => [room.id, room])), [rooms]);
   const helpId = useId();
+
+  /** Saves the order staged for the unsaved changes dialog, which says so when it isn't saved. */
+  const saveBeforeLeaving = async () => {
+    if (!(await save())) throw new Error("The room order wasn't saved");
+  };
+
   return (
     <div className="border-t">
       <p id={helpId} className="my-[1em] text-[0.8em] text-muted-foreground">
@@ -110,6 +124,7 @@ export function RoomOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Pro
           Save order
         </button>
       </div>
+      <UnsavedChanges changed={changed} stays={staysInSettings} onSave={saveBeforeLeaving} description={ORDER_CHANGES} />
     </div>
   );
 }

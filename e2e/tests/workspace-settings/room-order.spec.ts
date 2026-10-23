@@ -80,6 +80,21 @@ test.describe(feature("sidebar.shared-order"), () => {
       await page.getByRole("button", { name: "Cancel" }).click();
       await expectAt(0, first);
       await expect(saveOrder).toBeDisabled();
+
+      // Leaving with an order unsaved asks first, as a room's form does, and Save saves it on the way.
+      await rows.first().focus();
+      await page.keyboard.press("Alt+ArrowDown");
+      await expectAt(0, second);
+      const unsaved = page.getByRole("dialog", { name: "Unsaved Changes" });
+      await row(first).getByRole("link").click();
+      await expect(unsaved).toHaveAccessibleDescription("You’ve changed the room order. Save it before you leave, or discard it to keep things as they were.");
+      await unsaved.getByRole("button", { name: "Keep editing" }).click();
+      await expect(unsaved).toBeHidden();
+      await expectAt(0, second);
+      await row(first).getByRole("link").click();
+      await unsaved.getByRole("button", { name: "Save" }).click();
+      await expect(page).toHaveURL(/\/rooms\/opens\/[^/]+\/edit$/);
+      await expect(sidebarRooms(member).first()).toHaveText(`#${second}`, REORDERED);
     } finally {
       // An empty order leaves every room to go by name again, for the tests that follow.
       expect(await send(page, "PUT", "/api/account/room_order", { roomIds: [] })).toBe(200);
