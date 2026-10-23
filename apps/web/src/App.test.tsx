@@ -428,7 +428,8 @@ describe(feature("accounts.name"), () => {
     act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account: { ...EMBER, name: "Analytical Engines" } }));
     sendSettings();
 
-    await waitFor(() => expect(screen.getByRole("textbox", { name: "Workspace name" })).toHaveValue("Ember"));
+    // The field too, which follows the workspace until it's typed in.
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Workspace name" })).toHaveValue("Analytical Engines"));
     expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
   });
