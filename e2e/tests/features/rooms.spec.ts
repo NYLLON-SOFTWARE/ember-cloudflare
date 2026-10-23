@@ -1,7 +1,7 @@
 import { feature } from "@ember/parity";
 import type { Sidebar, WorkspaceServerFrame } from "@ember/protocol";
 import type { APIRequestContext, Page, WebSocketRoute } from "@playwright/test";
-import { connectWorkspace, cookieHeader, createRoom, invitation, keepOtherRoomsOut, listing, signInAs, WORKSPACE_SOCKET } from "../../fixtures";
+import { administratorSession, connectWorkspace, cookieHeader, createRoom, invitation, keepOtherRoomsOut, listing, makeAdministrator, signInAs, WORKSPACE_SOCKET } from "../../fixtures";
 import { expect, test, unique, type Member } from "./fixtures";
 
 test.describe(feature("sidebar.rooms"), () => {
@@ -338,9 +338,9 @@ test.describe(feature("rooms.open"), () => {
 });
 
 test.describe(feature("rooms.invitation-card"), () => {
-  test("welcomes people to the first room with the workspace's join link", async ({ baseURL, members, request, session }) => {
+  test("welcomes administrators to the first room with the workspace's join link", async ({ baseURL, members, request, session }) => {
     const { roomId, joinCode } = await invitation(request, session);
-    const ada = await members.signIn("Ada", { path: `/rooms/${roomId}`, serverRooms: true });
+    const ada = await members.signIn("Ada", { path: `/rooms/${roomId}`, serverRooms: true, administrator: true });
     const log = ada.page.getByRole("log", { name: "Messages in general" });
     await expect(log.getByRole("heading", { level: 2, name: "Welcome to Ember" })).toBeVisible();
     await expect(log.getByText("To invite people to chat, share the join link below.")).toBeVisible();
@@ -350,9 +350,42 @@ test.describe(feature("rooms.invitation-card"), () => {
   });
 
   test("stays in the first room", async ({ members }) => {
-    const ada = await members.signIn("Ada");
+    const ada = await members.signIn("Ada", { administrator: true });
     await expect(ada.page.getByRole("heading", { name: "Welcome to #general" })).toBeVisible();
     await expect(ada.page.getByRole("heading", { name: "Welcome to Ember" })).toHaveCount(0);
+  });
+});
+
+test.describe(feature("rooms.invitation-dismissal"), () => {
+  test("shows the welcome card to administrators alone, and to a member made one at once", async ({ members, request, session }) => {
+    const { roomId } = await invitation(request, session);
+    const grace = await members.signIn("Grace", { path: `/rooms/${roomId}`, serverRooms: true });
+    const card = grace.page.getByRole("heading", { level: 2, name: "Welcome to Ember" });
+    await expect(card).toHaveCount(0);
+
+    await makeAdministrator(request, grace.session);
+    await expect(card).toBeVisible();
+  });
+
+  test("an administrator dismisses it for good, in every tab of theirs, and other administrators keep theirs", async ({ members, request, session }) => {
+    const { roomId } = await invitation(request, session);
+    const grace = await members.signIn("Grace", { path: `/rooms/${roomId}`, serverRooms: true, administrator: true });
+    const otherTab = await grace.page.context().newPage();
+    await otherTab.goto(`/rooms/${roomId}`);
+    const cards = [grace.page, otherTab].map((page) => page.getByRole("heading", { level: 2, name: "Welcome to Ember" }));
+    for (const card of cards) await expect(card).toBeVisible();
+
+    const dismissed = grace.page.waitForResponse((response) => response.url().endsWith("/api/sidebar/invitation") && response.request().method() === "DELETE");
+    await grace.page.getByRole("button", { name: "Dismiss welcome card" }).click();
+    expect((await dismissed).status()).toBe(204);
+    for (const card of cards) await expect(card).toHaveCount(0);
+
+    await grace.page.reload();
+    await grace.connected();
+    await expect(cards[0]!).toHaveCount(0);
+    const administrator = await administratorSession(request);
+    const { invitation: theirs } = (await (await request.get("/api/sidebar", { headers: { Cookie: cookieHeader(administrator) } })).json()) as Sidebar;
+    expect(theirs).toEqual({ roomId, joinCode: expect.any(String) });
   });
 });
 
@@ -360,7 +393,7 @@ test.describe(feature("accounts.join-link"), () => {
   test("copies the join link", async ({ baseURL, members, request, session }) => {
     const { roomId, joinCode } = await invitation(request, session);
     const context = { permissions: ["clipboard-read", "clipboard-write"] };
-    const ada = await members.signIn("Ada", { path: `/rooms/${roomId}`, serverRooms: true, context });
+    const ada = await members.signIn("Ada", { path: `/rooms/${roomId}`, serverRooms: true, administrator: true, context });
     const copy = ada.page.getByRole("button", { name: "Copy join link" });
     await copy.click();
     await expect(copy).toHaveClass(/animate-success/);
@@ -372,6 +405,7 @@ test.describe(feature("accounts.join-link"), () => {
     const ada = await members.signIn("Ada", {
       path: `/rooms/${roomId}`,
       serverRooms: true,
+      administrator: true,
       beforeOpen: async (page) => {
         await page.addInitScript(() => {
           Object.defineProperties(Navigator.prototype, {
@@ -395,6 +429,7 @@ test.describe(feature("accounts.join-link"), () => {
     const ada = await members.signIn("Ada", {
       path: `/rooms/${roomId}`,
       serverRooms: true,
+      administrator: true,
       beforeOpen: async (page) => {
         await page.addInitScript(() => {
           const navigator = Navigator.prototype as Partial<Navigator>;
@@ -411,7 +446,7 @@ test.describe(feature("accounts.join-link"), () => {
 test.describe(feature("accounts.qr-codes"), () => {
   test("opens the join link's QR code in the image viewer", async ({ baseURL, members, request, session }) => {
     const { roomId, joinCode } = await invitation(request, session);
-    const ada = await members.signIn("Ada", { path: `/rooms/${roomId}`, serverRooms: true });
+    const ada = await members.signIn("Ada", { path: `/rooms/${roomId}`, serverRooms: true, administrator: true });
     // The join link as padded URL-safe base64.
     const qrCode = `/qr_code/${Buffer.from(new URL(`/join/${joinCode}`, baseURL).href).toString("base64").replace(/\+/g, "-").replace(/\//g, "_")}`;
     const show = ada.page.getByRole("link", { name: "Show join link QR code" });

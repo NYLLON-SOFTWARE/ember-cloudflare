@@ -112,6 +112,7 @@ const list = (state: Partial<RoomState>, onLoadOlder: () => void = vi.fn(), invi
   <MessageList
     roomName="general"
     invitation={invitation}
+    onDismissInvitation={vi.fn()}
     state={{ ...initialRoomState, status: "open", ...state }}
     me={ada}
     actions={actions}
@@ -260,7 +261,7 @@ describe(feature("attachments.upload"), () => {
 describe(feature("dms.naming"), () => {
   it("names a DM's messages and its beginning for the others in it", () => {
     render(
-      <MessageList roomName="Grace and Linus" direct invitation={null} state={{ ...initialRoomState, status: "open", messages: [] }} me={ada} actions={actions} editing={new Set()} editors={editors} onLoadOlder={vi.fn()} onLoadNewer={vi.fn()} onJumpToNewest={vi.fn()} />,
+      <MessageList roomName="Grace and Linus" direct invitation={null} onDismissInvitation={vi.fn()} state={{ ...initialRoomState, status: "open", messages: [] }} me={ada} actions={actions} editing={new Set()} editors={editors} onLoadOlder={vi.fn()} onLoadNewer={vi.fn()} onJumpToNewest={vi.fn()} />,
     );
     expect(screen.getByRole("log", { name: "Messages with Grace and Linus" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Grace and Linus" })).toBeInTheDocument();

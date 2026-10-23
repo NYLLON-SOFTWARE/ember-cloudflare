@@ -1,6 +1,6 @@
 import type { Sidebar } from "@ember/protocol";
 import type { APIRequestContext, BrowserContext, BrowserContextOptions, Locator, Page } from "@playwright/test";
-import { test as app, cookieHeader, createRoom, createSession, editorField, expect, keepOtherRoomsOut, type Session, type TestRoom } from "../../fixtures";
+import { test as app, cookieHeader, createRoom, createSession, editorField, expect, keepOtherRoomsOut, makeAdministrator, type Session, type TestRoom } from "../../fixtures";
 
 export { expect };
 
@@ -132,6 +132,8 @@ export interface SignInOptions {
   beforeOpen?: (page: Page) => Promise<void>;
   /** Lists the server's rooms rather than this test's. */
   serverRooms?: boolean;
+  /** Makes them an administrator before the app loads, as only administrators are shown the welcome card. */
+  administrator?: boolean;
 }
 
 export interface Members {
@@ -160,8 +162,9 @@ export const test = app.extend<{ rooms: Rooms; members: Members }>({
     // Closing every context ends its sockets, so nobody lingers in a room after the test.
     const contexts: BrowserContext[] = [];
     await use({
-      signIn: async (name, { path = `/rooms/${rooms.general.id}`, context: options, beforeOpen, serverRooms = false } = {}) => {
+      signIn: async (name, { path = `/rooms/${rooms.general.id}`, context: options, beforeOpen, serverRooms = false, administrator = false } = {}) => {
         const session = await createSession(request, name);
+        if (administrator) await makeAdministrator(request, session);
         // Given the cookie signing in gives a browser, so signing out and reloading stays signed out.
         const context = await browser.newContext({ baseURL, ...options });
         await context.addCookies([session.cookie]);

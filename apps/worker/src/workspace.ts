@@ -720,16 +720,31 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * The sidebar of the person `credentials` signs in: the rooms they're in, the ones they've starred and
-   * the shared order of the rest, with the welcome card's invitation if they're in the workspace's first
-   * room, and the people it suggests for DMs. Null without a valid session.
+   * the shared order of the rest, with the welcome card's invitation if they're an administrator in the
+   * workspace's first room who hasn't dismissed the card, and the people it suggests for DMs. Null
+   * without a valid session.
    */
   async sidebar(credentials: Credentials): Promise<Sidebar | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    const [{ rooms, favorites, sharedOrder, suggestions, originalRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
-    const inOriginal = originalRoomId !== null && rooms.some((room) => room.id === originalRoomId);
-    const invitation = account && inOriginal ? { roomId: originalRoomId, joinCode: account.joinCode } : null;
+    const [{ rooms, favorites, sharedOrder, suggestions, invitationRoomId }, account] = await Promise.all([this.store.roomsFor(user.id), this.joinableAccount()]);
+    const invited = invitationRoomId !== null && rooms.some((room) => room.id === invitationRoomId);
+    const invitation = account && invited ? { roomId: invitationRoomId, joinCode: account.joinCode } : null;
     return { rooms, favorites, sharedOrder, invitation, suggestions };
+  }
+
+  /**
+   * Dismisses the welcome card for the person `credentials` signs in, for good, which ember-rust's card
+   * can't be: their sidebar, on any device, has no invitation from then on, and every tab of theirs
+   * hears so. Only administrators are shown the card, but anyone may dismiss it, since that changes
+   * nothing but what they're shown. Answers whether it did, which it can't without a valid session.
+   */
+  async dismissInvitation(credentials: Credentials): Promise<boolean> {
+    const user = await this.authenticate(credentials);
+    if (!user) return false;
+    await this.store.dismissInvitation(user.id, new Date().toISOString());
+    this.tell([user.id], { type: "invitation.dismissed" });
+    return true;
   }
 
   /**

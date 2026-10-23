@@ -65,10 +65,11 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * included, as ember-rust's rooms_list_controller.js reloads its frame, since nothing that changed
  * while it wasn't connected reached it. Meanwhile the socket brings rooms as they're made, changed and
  * deleted, and as this person is put in them and taken out, marks rooms unread and read, moves DMs as
- * messages come in them, and brings the stars saved in any of their tabs. It loads again when the tab
- * is shown after more than a minute hidden too, as `refresh-room:visible` reloads it
- * (helpers/users.rs), which ember-rust does on a room's page and this does on every page, and a while
- * after the socket says the shared order has changed, its rooms only. `refresh` asks for it again,
+ * messages come in them, and brings the stars saved in any of their tabs, and the welcome card
+ * dismissed in any of them. It loads again when the tab is shown after more than a minute hidden too,
+ * as `refresh-room:visible` reloads it (helpers/users.rs), which ember-rust does on a room's page and
+ * this does on every page, and, its rooms only, a while after the socket says the shared order has
+ * changed, and once it says this person has been given another role. `refresh` asks for it again,
  * settling once a list asked for since has come, or failing as that did.
  *
  * `onSessionChanged` hears when who the browser's session signs in changes: null once it has expired,
@@ -181,13 +182,19 @@ export function useSidebar(
         case "room.active":
           return change({ type: "active", roomId: frame.roomId, at: frame.at });
         case "user.updated":
-          if (!isSomeoneElse(frame.user)) toldOf.you = true;
+          if (!isSomeoneElse(frame.user)) {
+            toldOf.you = true;
+            // Only administrators are given the welcome card with their rooms, so a new role loads them again.
+            if ((frame.user.role === "administrator") !== heard.current.administrator) reloadRooms();
+          }
           return changed(frame.user);
         case "room.involvement":
           heardOf(frame.roomId);
           return change({ type: "involved", roomId: frame.roomId, involvement: frame.involvement });
         case "favorites.changed":
           return change({ type: "starred", favorites: frame.favorites });
+        case "invitation.dismissed":
+          return change({ type: "invitation dismissed" });
         case "rooms.reordered":
           return reorder();
         case "account.updated":

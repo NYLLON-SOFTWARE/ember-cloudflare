@@ -33,7 +33,8 @@ import avatars from "../migrations/0032_avatars.sql";
 import logos from "../migrations/0033_logos.sql";
 import messageCards from "../migrations/0034_message_cards.sql";
 import pushSubscriptionsPerBrowser from "../migrations/0035_push_subscriptions_per_browser.sql";
-import searchResultsReindex from "../migrations/0036_search_results.sql";
+import invitationDismissals from "../migrations/0036_invitation_dismissals.sql";
+import searchResultsReindex from "../migrations/0037_search_results.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 
@@ -92,7 +93,8 @@ export const MIGRATIONS: Migration[] = [
   { name: "0033_logos.sql", scope: "workspace", sql: logos },
   { name: "0034_message_cards.sql", scope: "room", sql: messageCards },
   { name: "0035_push_subscriptions_per_browser.sql", scope: "workspace", sql: pushSubscriptionsPerBrowser },
-  { name: "0036_search_results.sql", scope: "workspace", sql: searchResultsReindex },
+  { name: "0036_invitation_dismissals.sql", scope: "workspace", sql: invitationDismissals },
+  { name: "0037_search_results.sql", scope: "workspace", sql: searchResultsReindex },
 ];
 
 /**
