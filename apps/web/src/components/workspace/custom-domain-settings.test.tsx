@@ -7,7 +7,7 @@ import { CUSTOM_DOMAIN_NOT_A_HOST, NOT_A_CUSTOM_DOMAIN, type Account, type Accou
 import { FlashProvider } from "@/components/flash";
 import { AccountContext } from "@/hooks/use-account";
 import { ApiError } from "@/lib/api";
-import { CustomDomainSettings, WORKERS_DASHBOARD, workerDomains } from "./custom-domain-settings";
+import { CustomDomainSettings, DNS_ELSEWHERE, WORKERS_DASHBOARD, workerDomains } from "./custom-domain-settings";
 
 /** The test environment's jsdom, whose address the section reads as the page's. */
 declare const jsdom: { reconfigure(options: { url: string }): void };
@@ -100,6 +100,11 @@ describe(feature("accounts.custom-domain"), () => {
       "href",
       "https://dash.cloudflare.com/?to=/:account/workers/services/view/ember/production/domains",
     );
+    // Workers take only a domain whose DNS Cloudflare runs, so the step says what to do with one it doesn't.
+    expect(cloudflare).toHaveTextContent(
+      "If the domain's DNS is with another provider, Cloudflare offers to take it over for free, copying its records. To leave it there, follow Ember's steps for Cloudflare for SaaS instead.",
+    );
+    expect(within(cloudflare!).getByRole("link", { name: "Ember's steps for Cloudflare for SaaS" })).toHaveAttribute("href", DNS_ELSEWHERE);
     expect(check).toHaveTextContent("Check that chat.example.com reaches Ember.");
     expect(within(check!).getByRole("button", { name: "Check DNS" })).toBeEnabled();
     expect(ember).toHaveTextContent("Once it does, open https://chat.example.com/account/edit, sign in, and choose Use this address.");
