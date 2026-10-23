@@ -29,7 +29,7 @@ interface Props<T> {
   onSave: () => Promise<T>;
   /** What the page does instead when it stays after Save, with what was saved: New room shows the room it made. */
   onStayAfterSave?: (saved: T) => void;
-  /** The form holding the changes, if a form does, whose fields Save checks first, and whose own dialogs close for this one. */
+  /** The form holding the changes, if a form does, whose fields Save checks first. */
   form?: RefObject<HTMLFormElement | null>;
   /** What the dialog says the changes are, a room's form's unless it says otherwise. */
   description?: string;
@@ -61,13 +61,13 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
       if (saving) return true;
       proceed.current = go;
       setFailed(false);
-      // The form's own dialogs, such as the icon picker, are native ones, which would stay above this one
+      // The page's own dialogs, such as its icon pickers, are native ones, which would stay above this one
       // and keep it from being answered, where ember-rust's, native too, opens above them. They close first.
-      for (const dialog of form?.current?.querySelectorAll<HTMLDialogElement>("dialog[open]") ?? []) dialog.close();
+      for (const dialog of document.querySelectorAll<HTMLDialogElement>("dialog[open]")) dialog.close();
       setAsking(true);
       return true;
     });
-  }, [changed, stays, saving, form]);
+  }, [changed, stays, saving]);
 
   // Listening only while there's something to lose keeps the page eligible for the browser's
   // back/forward cache, as ember-rust keeps it.

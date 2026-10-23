@@ -1147,6 +1147,19 @@ describe(feature("sidebar.shared-order"), () => {
       await waitFor(() => expect(location.pathname).toBe("/rooms/opens/random/edit"));
       expect(sentOrders()).toHaveLength(1);
     });
+
+    it("closes the page's other dialogs first, which would stay above it, as another section's icon picker does", async () => {
+      const { user } = showPage();
+      await screen.findByRole("list", { name: "Room order" });
+      altArrow("general", "ArrowUp");
+      act(() => navigate(workspaceSectionPath("community-settings")));
+      await user.click(await screen.findByRole("button", { name: "Choose Home icon" }));
+      const picker = screen.getByRole("dialog", { name: "Choose a navigation icon" });
+
+      act(() => navigate("/rooms/opens/random/edit"));
+      expect(await screen.findByRole("dialog", { name: "Unsaved Changes" })).toBeInTheDocument();
+      expect(picker).not.toHaveAttribute("open");
+    });
   });
 
   it("waits for the sidebar's rooms, and says when there are none to arrange", async () => {
