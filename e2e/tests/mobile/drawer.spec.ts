@@ -20,6 +20,15 @@ test("the conversations drawer opens from the header and fits", async ({ page, s
   expect(page.viewportSize()!.width - (box.x + box.width)).toBeGreaterThanOrEqual(16);
 });
 
+test("on community settings the drawer holds the rail alone, as Navigation, and fits", async ({ page, screenIsFine }) => {
+  await page.goto("/account/edit#channel-settings");
+  await page.getByRole("button", { name: "Open navigation" }).tap();
+  const drawer = page.getByRole("dialog", { name: "Navigation" });
+  await expect(drawer.getByRole("navigation", { name: "Workspace" })).toBeVisible();
+  await expect(drawer.getByRole("complementary", { name: "Conversations" })).toHaveCount(0);
+  await screenIsFine();
+});
+
 test("tapping outside the drawer closes it", async ({ page }) => {
   await page.getByRole("button", { name: "Open conversations" }).tap();
   await expect(page.getByRole("dialog")).toBeVisible();

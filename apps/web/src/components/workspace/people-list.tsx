@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { DirectoryUser, PersonRole, UserId } from "@ember/protocol";
 import { Cancel, Crown, Minus, Pencil } from "@/components/icons/campfire";
 import { PageLink } from "@/components/page-link";
@@ -6,16 +6,17 @@ import type { People } from "@/hooks/use-directory";
 import { PROFILE_PATH } from "@/hooks/use-route";
 import { byName } from "@/lib/people";
 import { cn } from "@/lib/utils";
-import { ListRow, ListSeparator } from "./list-row";
+import { ListRow } from "./list-row";
 import { AvatarLink } from "./user-avatar";
 
-// ember-rust's people on workspace settings (accounts/edit.html, accounts/users/_user.html): everyone but
-// bots by name, administrators first, with a rule before the members when there are both, each avatar
-// linking to the person's page, and your own row to your profile. Administrators also see who's banned,
-// dimmed under Campfire's cancel mark (avatars.css), and on each active person's row a crown that makes
-// them an administrator or a member again, and, but on their own, Delete, which removes them. They see
-// members suspended for their Memberful membership's lapsing too (`auth.memberful-memberships`), which
-// ember-rust has no need of, dimmed and said to be so, with Delete.
+// ember-rust's people on workspace settings (accounts/users/_user.html), as its pull request #24's Membership
+// section groups them (accounts/_membership_settings.html): everyone but bots by name, administrators under
+// Admins and members under Members, each group left out while nobody's in it, each avatar linking to the
+// person's page, and your own row to your profile. Administrators also see who's banned, dimmed under
+// Campfire's cancel mark (avatars.css), and on each active person's row a crown that makes them an
+// administrator or a member again, and, but on their own, Delete, which removes them. They see members
+// suspended for their Memberful membership's lapsing too (`auth.memberful-memberships`), which ember-rust
+// has no need of, dimmed and said to be so, with Delete.
 
 /** What ember-rust's Delete asks before removing someone (accounts/users/_user.html). */
 export const CONFIRM_REMOVE = "Are you sure you want to permanently remove this person from the account? This can’t be undone.";
@@ -28,8 +29,6 @@ interface Props {
   onChangeRole?: (person: DirectoryUser, role: PersonRole) => Promise<void>;
   /** Removes someone from the workspace, settling once it has or failed. Only administrators have it, and Delete. */
   onRemove?: (person: DirectoryUser) => Promise<void>;
-  /** The heading that names the list. */
-  "aria-labelledby"?: string;
 }
 
 /**
@@ -41,9 +40,16 @@ function groupsOf(people: People, administrator: boolean): [DirectoryUser[], Dir
   return [listed.filter((person) => person.role === "administrator"), listed.filter((person) => person.role === "member")];
 }
 
-export function PeopleList({ people, myId, onChangeRole, onRemove, "aria-labelledby": labelledBy }: Props) {
+export function PeopleList({ people, myId, onChangeRole, onRemove }: Props) {
   const administrator = onChangeRole !== undefined;
   const [administrators, members] = useMemo(() => groupsOf(people, administrator), [people, administrator]);
+  const headingId = useId();
+  // A row that changes group is drawn afresh in the other list, so a crown with the focus as its row
+  // leaves hands it to the one drawn for the same person, and any not taken by then is let go.
+  const focusedCrown = useRef<UserId | null>(null);
+  useLayoutEffect(() => {
+    focusedCrown.current = null;
+  });
   // Roles on their way to the server, which their crowns show until it answers.
   const [changing, setChanging] = useState<ReadonlyMap<UserId, PersonRole>>(new Map());
   // The people being removed, whose Delete waits for the server's answer.
@@ -82,6 +88,8 @@ export function PeopleList({ people, myId, onChangeRole, onRemove, "aria-labelle
         {suspended && <span className="shrink-0 text-[0.8em] text-muted-foreground">Membership lapsed</span>}
         {onChangeRole && person.status === "active" && (
           <RoleCrown
+            personId={person.id}
+            focused={focusedCrown}
             administrator={role === "administrator"}
             mine={mine}
             // A change on its way waits for the server's answer before another.
@@ -94,11 +102,23 @@ export function PeopleList({ people, myId, onChangeRole, onRemove, "aria-labelle
     );
   };
 
-  // One list, so a row that changes group moves rather than being made again.
-  return (
-    <menu aria-labelledby={labelledBy} className="m-0 flex flex-col gap-x-[1ch] gap-y-4 px-[1ch] py-4">
-      {[...administrators.map(row), administrators.length > 0 && members.length > 0 && <ListSeparator key="members" />, ...members.map(row)]}
-    </menu>
+  const groups = [
+    { id: `${headingId}admins`, title: "Admins", people: administrators },
+    { id: `${headingId}members`, title: "Members", people: members },
+  ];
+  return groups.map(
+    ({ id, title, people }) =>
+      people.length > 0 && (
+        // `.mb-member-group`, 24px below the one before it, its `.mb-section-title` over its people.
+        <section key={title} aria-labelledby={id} className="[&+&]:mt-6">
+          <h2 id={id} className="mb-3 text-base font-semibold">
+            {title}
+          </h2>
+          <menu aria-labelledby={id} className="m-0 flex flex-col gap-x-[1ch] gap-y-4 py-4">
+            {people.map(row)}
+          </menu>
+        </section>
+      ),
   );
 }
 
@@ -145,12 +165,29 @@ function RemoveButton({ name, removing, onClick }: { name: string; removing: boo
   );
 }
 
+interface RoleCrownProps {
+  personId: UserId;
+  /** Whose crown had the focus as its row left its list, for the crown drawn for them in the other to take. */
+  focused: RefObject<UserId | null>;
+  administrator: boolean;
+  mine: boolean;
+  onChange: (administrator: boolean) => void;
+}
+
 /**
  * ember-rust's crown, a round `.btn.txt-small` around a checkbox, reversed while it's checked, for an
  * administrator (buttons.css). Its checkbox is hidden from keyboards and screen readers there, and only
  * visually hidden here, so it can be reached and pressed without a mouse.
  */
-function RoleCrown({ administrator, mine, onChange }: { administrator: boolean; mine: boolean; onChange: (administrator: boolean) => void }) {
+function RoleCrown({ personId, focused, administrator, mine, onChange }: RoleCrownProps) {
+  const checkbox = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => {
+    const input = checkbox.current;
+    if (focused.current === personId) input?.focus();
+    return () => {
+      if (input !== null && document.activeElement === input) focused.current = personId;
+    };
+  }, [personId, focused]);
   return (
     <label
       className={cn(
@@ -163,7 +200,7 @@ function RoleCrown({ administrator, mine, onChange }: { administrator: boolean; 
     >
       <span className="sr-only">Role: {administrator ? "Administrator" : "Member"}</span>
       <Crown tone={administrator ? "reversed" : "black"} className="size-[1.3em]" />
-      <input type="checkbox" checked={administrator} disabled={mine} onChange={(event) => onChange(event.target.checked)} className="sr-only" />
+      <input ref={checkbox} type="checkbox" checked={administrator} disabled={mine} onChange={(event) => onChange(event.target.checked)} className="sr-only" />
     </label>
   );
 }

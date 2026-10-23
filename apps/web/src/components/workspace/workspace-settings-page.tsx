@@ -15,15 +15,15 @@ import {
 import { AccountLogo, STOCK_LOGO } from "@/components/account-logo";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { Add, Art, Bot, Crown } from "@/components/icons/campfire";
+import { Add, Crown } from "@/components/icons/campfire";
+import { scrollMainContentToTop } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Version } from "@/components/version";
 import { useAccount } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
-import { BOTS_PATH, CUSTOM_STYLES_PATH, newRoomPath } from "@/hooks/use-route";
+import { newRoomPath, useHash } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { changeAccount, changeLogo, changeRole, fetchWorkspaceSettings, isSignedOut, regenerateJoinCode, removeLogo, removePerson } from "@/lib/api";
 import { logoVariantsOf } from "@/lib/previews";
@@ -32,21 +32,22 @@ import { cn } from "@/lib/utils";
 import { CustomDomainSettings } from "./custom-domain-settings";
 import { InviteLink } from "./invite-link";
 import { MemberfulSettings } from "./memberful-settings";
-import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PeopleList } from "./people-list";
 import { PicturePicker } from "./picture-picker";
 import { RoomOrder } from "./room-order";
+import { workspaceSectionOf } from "./settings-navigation";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 
 /** What ember-rust's redirect back to settings says once the name is saved, changed or not (accounts.rs). */
 export const CHANGES_SAVED = "Changes saved.";
 
+/** A section's `.mb-page-heading`, 4px above what follows it in the section, which spaces its parts 24px apart. */
+const SECTION_HEADING = "mb-1";
+
 interface Props {
   me: Me;
   /** Where Go Back goes: the last room visited, as ember-rust's `link_back_to_last_room_visited` has it. */
   back: string;
-  /** This deployment's version, which the page ends with. */
-  version: string;
   /**
    * Called as the page asks for the workspace, by loading or saving it. What it returns is called with
    * the workspace the server answers, for the rail and sidebar to show.
@@ -71,19 +72,25 @@ interface Props {
 }
 
 /**
- * ember-rust's workspace settings (accounts/edit.html), as far as they're built: administrators change
- * the workspace's logo, which a logo picked saves at once, showing it meanwhile, and Remove logo takes
- * away, rename the workspace, show or hide the translation buttons, give it a custom domain and turn on
- * Memberful sign-in, this port's own, and have a link to the Custom CSS page, and members see its logo and name. Then comes the Rooms section with New room, which members
- * don't get while only administrators can create rooms, and where administrators switch that on or off
- * and put the rooms in order for everyone. Then the join link, which administrators can regenerate, or
- * while members sign in with Memberful, a note that it's off, the people, whom administrators can make
- * administrators or members and remove, and "Ember™ version" at the foot.
+ * ember-rust's workspace settings, as its pull request #24 splits them into three sections
+ * (accounts/edit.html, d49621e), of which the address's fragment shows one, all three staying drawn so
+ * what's typed in one waits there while another shows:
+ *
+ * - Community (accounts/_community_settings.html), where administrators change the workspace's icon, which
+ *   one picked saves at once, showing it meanwhile, and Remove icon takes away, then rename the workspace
+ *   and show or hide the translation buttons, which Save changes saves together, and give it a custom
+ *   domain, this port's own. Members see its icon and name.
+ * - Rooms and permissions (accounts/_room_settings.html): New room, which members don't get while only
+ *   administrators can create rooms, then for administrators, the switch that says so and the rooms'
+ *   order for everyone, each linking to its settings.
+ * - Membership (accounts/_membership_settings.html): for administrators, Memberful sign-in, this port's own,
+ *   then the join link, which administrators can regenerate, or while members sign in with Memberful, a
+ *   note that it's off, then the administrators and members, whom administrators can make administrators
+ *   or members and remove.
  */
 export function WorkspaceSettingsPage({
   me,
   back,
-  version,
   askForAccount,
   onJoinCodeChanged,
   reloadPeople,
@@ -101,9 +108,9 @@ export function WorkspaceSettingsPage({
   const [pickedLogo, setPickedLogo] = useState<string | null>(null);
   const [savingLogo, setSavingLogo] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
-  // Where the Hide translation buttons switch was moved to, while that's saved, and Must be admin to create new
-  // rooms, and Members sign in with Memberful.
+  // Where the Hide translation buttons switch was moved to, until Save changes saves it with the name.
   const [hidingTranslations, setHidingTranslations] = useState<boolean | null>(null);
+  // Where Must be admin to create new rooms and Members sign in with Memberful were moved to, while that's saved.
   const [restrictingCreation, setRestrictingCreation] = useState<boolean | null>(null);
   const [switchingMemberful, setSwitchingMemberful] = useState<boolean | null>(null);
   const account = useAccount();
@@ -115,7 +122,11 @@ export function WorkspaceSettingsPage({
   }, [people]);
   const flash = useFlash();
   const mounted = useMounted();
-  useTitle("Account settings");
+  const section = workspaceSectionOf(useHash());
+  useTitle("Community settings");
+
+  // Another section starts at its top, as community_settings.js scrolls the page when the fragment changes.
+  useLayoutEffect(scrollMainContentToTop, [section]);
 
   // A page that has gone only reports a session that's ended, which goes to sign in.
   const listPeople = useCallback(
@@ -147,15 +158,19 @@ export function WorkspaceSettingsPage({
     return () => void (stopped = true);
   }, [administrator, askForAccount, onJoinCodeChanged, onFailed]);
 
+  // The name and, if it was moved, the translation buttons' switch, as ember-rust's form sends them together.
   const save = (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
     const answered = askForAccount();
-    changeAccount({ name }).then(
+    const hideTranslationButtons = hidingTranslations;
+    changeAccount({ name, ...(hideTranslationButtons !== null && { settings: { hideTranslationButtons } }) }).then(
       (account) => {
         answered(account);
         if (!mounted.current) return;
         setSaving(false);
+        // Unless it's been moved again since.
+        setHidingTranslations((hiding) => (hiding === hideTranslationButtons ? null : hiding));
         setSettings((settings) => settings && { ...settings, account });
         flash("notice", CHANGES_SAVED);
       },
@@ -213,11 +228,6 @@ export function WorkspaceSettingsPage({
         onFailed(error);
       },
     );
-  };
-  const switchTranslations = (hide: boolean) => {
-    if (hidingTranslations !== null) return;
-    setHidingTranslations(hide);
-    saveSwitch({ hideTranslationButtons: hide }, () => setHidingTranslations(null));
   };
   const switchRoomCreation = (restrict: boolean) => {
     if (restrictingCreation !== null) return;
@@ -284,40 +294,35 @@ export function WorkspaceSettingsPage({
     [onPersonChanged, onFailed, mounted, listPeople],
   );
 
-  // zz-ember.css leaves only their icons on screen at 500px wide and below.
-  const links = settings?.canAdminister && (
-    <>
-      <PageLink href={BOTS_PATH} className={cn(HEADER_TEXT_BUTTON, "upto-500px:size-11 upto-500px:p-0")}>
-        <Bot width={20} height={20} className="h-5 w-[1.3em]" />
-        <span className="upto-500px:sr-only">Chat bots</span>
-      </PageLink>
-      <PageLink href={CUSTOM_STYLES_PATH} className={cn(HEADER_TEXT_BUTTON, "upto-500px:size-11 upto-500px:p-0")}>
-        <Art width={20} height={20} className="h-5 w-[1.3em]" />
-        <span className="upto-500px:sr-only">Custom styles</span>
-      </PageLink>
-    </>
-  );
-
   return (
-    <SettingsPage back={back} links={links}>
-      <Panel aria-busy={settings === null} className="flex flex-col gap-x-[1ch] gap-y-4">
-        <PageHeading title="Workspace settings">Manage your workspace, invitations, and people.</PageHeading>
+    <SettingsPage back={back}>
+      <Panel
+        id="community-settings"
+        hidden={section !== "community-settings"}
+        aria-labelledby="community-settings-heading"
+        aria-busy={settings === null}
+        className="flex flex-col gap-6"
+      >
+        <PageHeading id="community-settings-heading" title="Basic community settings" className={SECTION_HEADING}>
+          Manage your community name, icon, and preferences.
+        </PageHeading>
         {settings &&
           (settings.canAdminister ? (
             <>
               <PicturePicker
                 id="account_logo"
                 src={pickedLogo ?? account.logo ?? STOCK_LOGO}
-                alt="Workspace logo"
-                label="Upload logo"
-                description="Choose a workspace logo"
+                alt="Community icon"
+                label="Upload icon"
+                description="Choose a community icon"
                 onChoose={saveLogo}
                 disabled={savingLogo}
-                // As ember-rust's Remove logo does: no confirmation first, and no notice after.
-                remove={account.logo ? { label: "Remove logo", onRemove: () => showLogo(removeLogo()) } : null}
+                // As ember-rust's Remove icon does: no confirmation first, and no notice after.
+                remove={account.logo ? { label: "Remove icon", onRemove: () => showLogo(removeLogo()) } : null}
               />
-              <form onSubmit={save} className="flex flex-col gap-4">
-                <Field id="account_name" label="Workspace name" translation="account_name">
+              {/* `.mb-community-form`. */}
+              <form onSubmit={save} className="flex flex-col gap-6">
+                <Field id="account_name" label="Community name" translation="account_name">
                   {/* Not focused as the page opens, and the cursor goes where it's put, as in ember-rust. */}
                   <Input
                     id="account_name"
@@ -331,29 +336,26 @@ export function WorkspaceSettingsPage({
                     className={cn(FIELD_INPUT, "focus-visible:outline-none")}
                   />
                 </Field>
-                <SubmitButton disabled={saving}>Save changes</SubmitButton>
-              </form>
-              <div id="localization-settings" className="flex items-center gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface px-[2ch] py-4 max-md:px-3">
-                <div className="min-w-0 flex-1 text-start">
-                  <div>Hide translation buttons</div>
-                  <p id="localization-description" className="text-[0.8em] text-muted-foreground max-md:text-[12px]">
-                    Hide language help throughout the app for everyone.
-                  </p>
+                <div id="localization-settings" className="mt-1 flex items-center gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface p-5">
+                  <div className="min-w-0 flex-1 text-start">
+                    <div>Hide translation buttons</div>
+                    <p id="localization-description" className="text-[0.8em] text-muted-foreground max-md:text-[12px]">
+                      Hide language help throughout the app for everyone.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={hidingTranslations ?? account.hideTranslationButtons}
+                    onCheckedChange={setHidingTranslations}
+                    aria-label="Hide translation buttons"
+                    aria-describedby="localization-description"
+                  />
                 </div>
-                <Switch
-                  checked={hidingTranslations ?? account.hideTranslationButtons}
-                  onCheckedChange={switchTranslations}
-                  aria-label="Hide translation buttons"
-                  aria-describedby="localization-description"
-                />
-              </div>
+                {/* On a page of community settings, as wide as it needs, but at least 126px, at the form's end. */}
+                <SubmitButton disabled={saving} className="w-auto min-w-[126px] self-end">
+                  Save changes
+                </SubmitButton>
+              </form>
               <CustomDomainSettings askForAccount={askForAccount} onSaved={() => flash("notice", CHANGES_SAVED)} onFailed={onFailed} />
-              <MemberfulSettings
-                site={settings.memberfulSite}
-                webhooks={settings.memberfulWebhooks}
-                checked={switchingMemberful ?? account.memberfulSignIn}
-                onCheckedChange={switchMemberful}
-              />
             </>
           ) : (
             <>
@@ -362,66 +364,80 @@ export function WorkspaceSettingsPage({
               <h2 className="text-[24px] font-bold wrap-anywhere max-md:text-[22px]">{account.name}</h2>
             </>
           ))}
-        {(me.administrator || !account.restrictRoomCreation) && (
-          <section aria-labelledby="rooms-settings-heading" className="rounded-[10px] border bg-surface px-[2ch] py-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 id="rooms-settings-heading" className="text-base font-semibold">
-                Rooms
-              </h2>
-              <PageLink
-                href={newRoomPath("open")}
-                className="inline-flex min-h-11 items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-3.5 py-2.5 font-medium"
-              >
-                <Add width={18} height={18} className="size-[18px]" />
-                <span>New room</span>
-              </PageLink>
+      </Panel>
+      <Panel id="channel-settings" hidden={section !== "channel-settings"} aria-labelledby="channel-settings-heading" className="flex flex-col gap-6">
+        {/* `.mb-channel-settings-heading`. */}
+        <div className="flex flex-wrap items-center justify-between gap-3 upto-500px:items-start">
+          <h2 id="channel-settings-heading" className="text-[24px] font-semibold upto-500px:text-[22px]">
+            Room order and permissions
+          </h2>
+          {(me.administrator || !account.restrictRoomCreation) && (
+            <PageLink
+              href={newRoomPath("open")}
+              className="inline-flex min-h-11 items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-3.5 py-2.5 font-medium"
+            >
+              <Add width={18} height={18} className="size-[18px]" />
+              <span>New room</span>
+            </PageLink>
+          )}
+        </div>
+        {settings?.canAdminister ? (
+          <>
+            {/* `.mb-channel-settings-permissions`. */}
+            <div className="flex items-center gap-x-[1ch] gap-y-4 border-t pt-5">
+              <div className="flex min-w-0 grow items-center gap-x-[1ch] text-start">
+                <Crown width={18} height={18} className="size-[18px]" />
+                Must be admin to create new rooms
+              </div>
+              <Switch
+                checked={restrictingCreation ?? account.restrictRoomCreation}
+                onCheckedChange={switchRoomCreation}
+                aria-label="Must be admin to create new rooms"
+              />
             </div>
-            {settings?.canAdminister && (
-              <>
-                {/* `.mb-channel-settings-permissions`. */}
-                <div className="mt-4 flex items-center gap-x-[1ch] gap-y-4 border-t pt-4">
-                  <div className="flex min-w-0 grow items-center gap-x-[1ch] text-start">
-                    <Crown width={18} height={18} className="size-[18px]" />
-                    Must be admin to create new rooms
-                  </div>
-                  <Switch
-                    checked={restrictingCreation ?? account.restrictRoomCreation}
-                    onCheckedChange={switchRoomCreation}
-                    aria-label="Must be admin to create new rooms"
-                  />
-                </div>
-                {sharedRooms && <RoomOrder rooms={sharedRooms} sharedOrder={sharedOrder} onSaved={onSharedOrderSaved} onSessionChanged={onSessionChanged} />}
-              </>
-            )}
-          </section>
+            {sharedRooms && <RoomOrder rooms={sharedRooms} sharedOrder={sharedOrder} onSaved={onSharedOrderSaved} onSessionChanged={onSessionChanged} />}
+          </>
+        ) : (
+          settings && <p className="text-muted-foreground">Community admins manage room order and permissions.</p>
         )}
-        {/* ember-rust's box holds the people too, under the link (accounts/edit.html). */}
+      </Panel>
+      <Panel id="membership-settings" hidden={section !== "membership-settings"} aria-labelledby="membership-settings-heading" className="flex flex-col gap-6">
+        <PageHeading id="membership-settings-heading" title="Membership" className={SECTION_HEADING}>
+          Invite people and manage access to your community.
+        </PageHeading>
         {settings && (
-          <div className="my-4 rounded-[10px] border bg-surface px-[1ch] pt-4">
+          // `.mb-membership-content`.
+          <div className="min-w-0">
+            {settings.canAdminister && (
+              <div className="mb-4">
+                <MemberfulSettings
+                  site={settings.memberfulSite}
+                  webhooks={settings.memberfulWebhooks}
+                  checked={switchingMemberful ?? account.memberfulSignIn}
+                  onCheckedChange={switchMemberful}
+                />
+              </div>
+            )}
             {account.memberfulSignIn ? (
               <p className="text-start">
                 <strong>Members sign in with Memberful</strong>, so the join link is off.
               </p>
             ) : (
-              <InviteLink joinCode={settings.joinCode} onRegenerate={settings.canAdminister ? regenerate : undefined} regenerating={regenerating} />
+              // `#account_invitation`, a card on the surface.
+              <div className="rounded-[10px] border bg-surface p-5 upto-500px:p-3.5">
+                <InviteLink joinCode={settings.joinCode} onRegenerate={settings.canAdminister ? regenerate : undefined} regenerating={regenerating} />
+              </div>
             )}
             <hr className="my-4 w-full" />
-            <h2 id="people-heading" className="mb-3 text-base font-semibold">
-              People
-            </h2>
             <PeopleList
               people={people}
               myId={me.id}
               onChangeRole={settings.canAdminister ? changeRoleOf : undefined}
               onRemove={settings.canAdminister ? removeOf : undefined}
-              aria-labelledby="people-heading"
             />
           </div>
         )}
       </Panel>
-      <footer>
-        <Version version={version} className="my-8 text-center" />
-      </footer>
     </SettingsPage>
   );
 }

@@ -65,14 +65,14 @@ afterEach(() => {
 });
 
 describe(feature("rooms.create-open"), () => {
-  it("reads New room, prefilled, with Go Back to workspace settings", async () => {
+  it("reads New room, prefilled, with Go Back to community settings' rooms", async () => {
     serve();
     showPage();
     expect(document.title).toBe("New chat room");
     expect(screen.getByRole("heading", { level: 1, name: "New room" })).toBeInTheDocument();
     expect(screen.getByText("Create a place for a team, topic, or project.")).toBeInTheDocument();
     expect(await roomName()).toHaveValue("New room");
-    expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/edit");
+    expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/edit#channel-settings");
   });
 
   it("lists everyone with a check mark under Everyone, which is on", async () => {
@@ -179,11 +179,11 @@ describe(feature("rooms.create-open"), () => {
 describe(feature("rooms.creation-permission"), () => {
   const ONLY_ADMINISTRATORS = "Only administrators can create rooms";
 
-  it("sends anyone but an administrator to workspace settings, saying why, while only they can create rooms, where ember-rust answers an empty 403", async () => {
+  it("sends anyone but an administrator to Rooms and permissions, saying why, while only they can create rooms, where ember-rust answers an empty 403", async () => {
     serve({ formRefusal: { status: 403, error: ONLY_ADMINISTRATORS } });
     const { onFailed } = showPage("/rooms/closeds/new");
     expect(await screen.findByRole("alert")).toHaveTextContent(ONLY_ADMINISTRATORS);
-    expect(location.pathname).toBe("/account/edit");
+    expect(location.pathname + location.hash).toBe("/account/edit#channel-settings");
     expect(onFailed).not.toHaveBeenCalled();
   });
 

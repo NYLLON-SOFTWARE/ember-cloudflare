@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { NewRoom, Room, RoomIconName, User, UserId } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { useMounted } from "@/hooks/use-mounted";
-import { navigate, newRoomPath, roomPath, WORKSPACE_SETTINGS_PATH, type Access } from "@/hooks/use-route";
+import { navigate, newRoomPath, roomPath, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { ApiError, createRoom, fetchNewRoomForm, isSignedOut } from "@/lib/api";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
+import { workspaceSectionPath } from "./settings-navigation";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { UnsavedChanges } from "./unsaved-changes";
 
@@ -54,7 +55,8 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
         // A page left before its form loads only reports a session that's ended, which goes to sign in.
         if (stopped && !isSignedOut(error)) return;
         if (!(error instanceof ApiError && error.status === 403)) return onFailed(error);
-        navigate(WORKSPACE_SETTINGS_PATH, { replace: true });
+        // To Rooms and permissions, which says who makes rooms.
+        navigate(workspaceSectionPath("channel-settings"), { replace: true });
         flash("alert", error.message);
       },
     );
@@ -94,7 +96,8 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   const changed =
     people !== null && !saving && !created && (name !== DEFAULT_ROOM_NAME || icon !== null || access !== opened || (access === "closed" && chosen.size > 0));
   return (
-    <SettingsPage back={WORKSPACE_SETTINGS_PATH}>
+    // Go Back returns to Rooms and permissions, as ember-rust's pull request #24 links it.
+    <SettingsPage back={workspaceSectionPath("channel-settings")}>
       <Panel aria-busy={people === null}>
         <PageHeading title="New room">Create a place for a team, topic, or project.</PageHeading>
         {people && (

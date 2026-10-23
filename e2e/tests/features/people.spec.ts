@@ -113,7 +113,7 @@ test.describe(feature("users.avatar-links"), () => {
     const { page } = ada;
     const toGrace = (scope: Locator) => scope.getByRole("link", { name: grace.user.name, exact: true });
 
-    await page.goto("/account/edit");
+    await page.goto("/account/edit#membership-settings");
     await expect(toGrace(page.getByRole("main"))).toHaveAttribute("href", `/users/${grace.user.id}`);
 
     await page.goto(`/rooms/opens/${rooms.general.id}/edit`);

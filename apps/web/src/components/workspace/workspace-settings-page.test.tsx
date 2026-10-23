@@ -11,8 +11,10 @@ import minus from "@/components/icons/campfire/minus.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
+import { navigate } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { CONFIRM_REMOVE } from "./people-list";
+import { workspaceSectionPath, type WorkspaceSection } from "./settings-navigation";
 import { CHANGES_SAVED, WorkspaceSettingsPage } from "./workspace-settings-page";
 
 vi.mock("@/lib/previews", () => ({
@@ -175,7 +177,6 @@ function Page({ me, listed, rooms: listedRooms, callbacks }: { me: Me; listed: D
             <WorkspaceSettingsPage
               me={me}
               back="/rooms/general"
-              version="0.1"
               {...handlers}
               askForAccount={askForAccount}
               onPersonChanged={personChanged}
@@ -190,13 +191,18 @@ function Page({ me, listed, rooms: listedRooms, callbacks }: { me: Me; listed: D
   );
 }
 
+/** The section the tests show, as the address's fragment names it: Community, unless their `describe` names another. */
+let section: WorkspaceSection = "community-settings";
+/** Shows `shown` in the tests of the `describe` that calls it. */
+const showingSection = (shown: WorkspaceSection) => beforeEach(() => void (section = shown));
+
 function showPage(me = asAda, people = everyone, callbacks = spies(), rooms: SidebarRoom[] | null = adasRooms) {
-  history.replaceState(null, "", "/account/edit");
+  history.replaceState(null, "", workspaceSectionPath(section));
   const { rerender } = render(<Page me={me} listed={people} rooms={rooms} callbacks={callbacks} />);
   return { ...callbacks, rerender: (me: Me) => rerender(<Page me={me} listed={people} rooms={rooms} callbacks={callbacks} />), user: userEvent.setup() };
 }
 
-const nameField = () => screen.findByRole("textbox", { name: "Workspace name" });
+const nameField = () => screen.findByRole("textbox", { name: "Community name" });
 const joinLink = () => screen.findByRole("textbox", { name: "Share to invite more people" });
 /** What the page last asked to save, if anything. */
 const saved = () =>
@@ -212,20 +218,58 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   history.replaceState(null, "", "/");
+  section = "community-settings";
 });
 
 describe(feature("accounts.settings-page"), () => {
-  it("reads Workspace settings, titled Account settings, with Go Back to the last room visited", () => {
+  const community = () => screen.queryByRole("region", { name: "Basic community settings" });
+  const rooms = () => screen.queryByRole("region", { name: "Room order and permissions" });
+  const membership = () => screen.queryByRole("region", { name: "Membership" });
+
+  it("reads Basic community settings, titled Community settings, with Go Back to the last room visited", () => {
     showPage();
-    expect(document.title).toBe("Account settings");
-    expect(screen.getByRole("heading", { level: 1, name: "Workspace settings" })).toBeInTheDocument();
-    expect(screen.getByText("Manage your workspace, invitations, and people.")).toBeInTheDocument();
+    expect(document.title).toBe("Community settings");
+    expect(screen.getByRole("heading", { level: 1, name: "Basic community settings" })).toBeInTheDocument();
+    expect(screen.getByText("Manage your community name, icon, and preferences.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/rooms/general");
+  });
+
+  it("shows one section at a time, Community unless the address's fragment names another", async () => {
+    showPage();
+    await nameField();
+    act(() => navigate("/account/edit"));
+    expect(community()).toBeInTheDocument();
+    expect(rooms()).not.toBeInTheDocument();
+    expect(membership()).not.toBeInTheDocument();
+
+    act(() => navigate(workspaceSectionPath("channel-settings")));
+    expect(community()).not.toBeInTheDocument();
+    expect(rooms()).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Room order and permissions" })).toBeInTheDocument();
+
+    act(() => navigate(workspaceSectionPath("membership-settings")));
+    expect(rooms()).not.toBeInTheDocument();
+    expect(membership()).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Membership" })).toBeInTheDocument();
+    expect(screen.getByText("Invite people and manage access to your community.")).toBeInTheDocument();
+
+    act(() => navigate("/account/edit#account_name"));
+    expect(community()).toBeInTheDocument();
+    expect(membership()).not.toBeInTheDocument();
+  });
+
+  it("keeps what's typed in one section while another shows", async () => {
+    const { user } = showPage();
+    await user.type(await nameField(), " Ltd");
+    act(() => navigate(workspaceSectionPath("membership-settings")));
+    act(() => navigate(workspaceSectionPath("community-settings")));
+    expect(await nameField()).toHaveValue("Analytical Engines Ltd");
+    expect(saved()).toEqual([]);
   });
 
   it("is busy until its settings load", async () => {
     showPage();
-    const panel = screen.getByRole("heading", { level: 1 }).closest("section")!;
+    const panel = community()!;
     expect(panel).toHaveAttribute("aria-busy", "true");
     await nameField();
     expect(panel).toHaveAttribute("aria-busy", "false");
@@ -240,9 +284,10 @@ describe(feature("accounts.settings-page"), () => {
 });
 
 describe(feature("platform.version"), () => {
-  it("ends with Ember's version", () => {
+  it("doesn't show Ember's version, as ember-rust's pull request #24 takes it off", async () => {
     showPage();
-    expect(screen.getByText("0.1").closest("footer")).toHaveTextContent("Ember™ version 0.1");
+    await nameField();
+    expect(screen.queryByText(/version/)).not.toBeInTheDocument();
   });
 });
 
@@ -305,7 +350,7 @@ describe(feature("accounts.name"), () => {
     serve(asMember);
     showPage();
     expect(await screen.findByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: "Workspace name" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Community name" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
   });
 
@@ -319,9 +364,9 @@ describe(feature("accounts.name"), () => {
 });
 
 describe(feature("accounts.logo"), () => {
-  const logo = () => screen.getByRole("img", { name: "Workspace logo" });
-  const picker = () => screen.getByLabelText("Upload logo", { exact: false });
-  const removeButton = () => screen.queryByRole("button", { name: "Remove logo" });
+  const logo = () => screen.getByRole("img", { name: "Community icon" });
+  const picker = () => screen.getByLabelText("Upload icon", { exact: false });
+  const removeButton = () => screen.queryByRole("button", { name: "Remove icon" });
   /** What each logo saved sent, in order. */
   const uploads = () =>
     vi
@@ -343,7 +388,7 @@ describe(feature("accounts.logo"), () => {
     expect(picker()).toBeEnabled();
     expect(picker()).toHaveAttribute("type", "file");
     expect(picker()).toHaveAttribute("accept", "image/*");
-    expect(picker()).toHaveAccessibleDescription("Choose a workspace logo");
+    expect(picker()).toHaveAccessibleDescription("Choose a community icon");
     expect(picker().compareDocumentPosition(await nameField())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     // Nothing to remove while there's no logo.
     expect(removeButton()).toBeNull();
@@ -375,7 +420,7 @@ describe(feature("accounts.logo"), () => {
     expect(onFailed).not.toHaveBeenCalled();
   });
 
-  it("removes the logo with Remove logo, saying nothing, as ember-rust's page comes back", async () => {
+  it("removes the logo with Remove icon, saying nothing, as ember-rust's page comes back", async () => {
     serve(withLogo);
     const { onAccountChanged, user } = showPage();
     await nameField();
@@ -427,8 +472,8 @@ describe(feature("accounts.logo"), () => {
     const shown = screen.getByRole("img", { name: "Account logo" });
     expect(shown).toHaveAttribute("src", LOGO);
     expect(shown.compareDocumentPosition(name)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(screen.queryByLabelText("Upload logo", { exact: false })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Remove logo" })).toBeNull();
+    expect(screen.queryByLabelText("Upload icon", { exact: false })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove icon" })).toBeNull();
 
     act(() => workspaceSays(asMember.account));
     expect(screen.getByRole("img", { name: "Account logo" })).toHaveAttribute("src", "/logos/app-icon.png");
@@ -438,7 +483,7 @@ describe(feature("accounts.logo"), () => {
 describe(feature("accounts.translation-buttons"), () => {
   const hideSwitch = () => screen.findByRole("switch", { name: "Hide translation buttons" });
 
-  it("lets an administrator show translation buttons, and hide them again, saved at once with no notice", async () => {
+  it("lets an administrator show translation buttons, and hide them again, saved with the name by Save changes", async () => {
     const { onAccountChanged, user } = showPage();
     const hide = await hideSwitch();
     expect(hide).toBeChecked();
@@ -447,37 +492,61 @@ describe(feature("accounts.translation-buttons"), () => {
 
     await user.click(hide);
     expect(hide).not.toBeChecked();
-    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, hideTranslationButtons: false }));
-    // The workspace name's globe.
+    expect(saved()).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
+    expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, hideTranslationButtons: false });
+    // The community name's globe.
     expect(screen.getByText("Translate")).toBeInTheDocument();
 
     await user.click(hide);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith(asAdministrator.account));
-    expect(saved()).toEqual([{ settings: { hideTranslationButtons: false } }, { settings: { hideTranslationButtons: true } }]);
+    expect(saved()).toEqual([
+      { name: "Analytical Engines", settings: { hideTranslationButtons: false } },
+      { name: "Analytical Engines", settings: { hideTranslationButtons: true } },
+    ]);
     expect(screen.queryByText("Translate")).not.toBeInTheDocument();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(hide).toBeChecked();
   });
 
-  it("follows the workspace socket, for a switch moved in another tab", async () => {
-    showPage();
+  it("follows the workspace socket, for a switch moved in another tab, until it's moved here", async () => {
+    const { user } = showPage();
     const hide = await hideSwitch();
     act(() => workspaceSays({ ...asAdministrator.account, hideTranslationButtons: false }));
     expect(hide).not.toBeChecked();
+    await user.click(hide);
+    act(() => workspaceSays(asAdministrator.account));
+    act(() => workspaceSays({ ...asAdministrator.account, hideTranslationButtons: false }));
+    expect(hide).toBeChecked();
   });
 
-  it("can't be moved again until the last move is answered, and moves back saying why it was refused", async () => {
+  it("stays where it was moved while a save is on its way, and after one is refused, to be saved again", async () => {
     let answer = (_: Response) => {};
     serve(asAdministrator, { saved: () => new Promise((resolve) => (answer = resolve)) });
     const { onFailed, user } = showPage();
     const hide = await hideSwitch();
     await user.click(hide);
-    await user.click(hide);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
     expect(hide).not.toBeChecked();
-    expect(saved()).toEqual([{ settings: { hideTranslationButtons: false } }]);
 
     answer(Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }));
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 403 })));
+    expect(hide).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+  });
+
+  it("keeps a move made while a save is on its way, for the next", async () => {
+    let answer = (_: Response) => {};
+    serve(asAdministrator, { saved: () => new Promise((resolve) => (answer = resolve)) });
+    const { user } = showPage();
+    const hide = await hideSwitch();
+    await user.click(hide);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await user.click(hide);
+    await act(async () => answer(Response.json({ account: { ...asAdministrator.account, hideTranslationButtons: false } })));
     expect(hide).toBeChecked();
+    expect(saved()).toEqual([{ name: "Analytical Engines", settings: { hideTranslationButtons: false } }]);
   });
 
   it("isn't shown to members", async () => {
@@ -497,7 +566,8 @@ describe(feature("accounts.custom-domain"), () => {
     const section = await screen.findByRole("region", { name: "Custom domain" });
     const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     expect(following(screen.getByRole("switch", { name: "Hide translation buttons" }), section)).toBe(true);
-    expect(following(section, screen.getByRole("heading", { level: 2, name: "Rooms" }))).toBe(true);
+    expect(following(screen.getByRole("button", { name: "Save changes" }), section)).toBe(true);
+    expect(screen.getByRole("region", { name: "Basic community settings" })).toContainElement(section);
     expect(section).toHaveTextContent("Ember's address is chat.example.com.");
 
     await user.click(within(section).getByRole("button", { name: "Stop using it" }));
@@ -520,13 +590,14 @@ describe(feature("auth.memberful-sign-in"), () => {
   const SITE = "https://example.memberful.com";
   const withKeys: WorkspaceSettings = { ...asAdministrator, memberfulSite: SITE };
   const memberfulSwitch = () => screen.findByRole("switch", { name: "Members sign in with Memberful" });
+  showingSection("membership-settings");
 
-  it("gives administrators a Memberful section after Custom domain, with the steps to get the keys until the deployment has them", async () => {
+  it("gives administrators a Memberful section first in Membership, with the steps to get the keys until the deployment has them", async () => {
     showPage();
     const section = await screen.findByRole("region", { name: "Memberful" });
     const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-    expect(following(screen.getByRole("region", { name: "Custom domain" }), section)).toBe(true);
-    expect(following(section, screen.getByRole("heading", { level: 2, name: "Rooms" }))).toBe(true);
+    expect(following(screen.getByRole("heading", { level: 1, name: "Membership" }), section)).toBe(true);
+    expect(following(section, await joinLink())).toBe(true);
     expect(within(section).queryByRole("switch")).not.toBeInTheDocument();
     const steps = within(section).getByRole("list", { name: "Steps to let Memberful members sign in" });
     expect(within(steps).getAllByRole("listitem")).toHaveLength(4);
@@ -598,45 +669,16 @@ describe(feature("auth.memberful-sign-in"), () => {
   it("isn't shown to members, who see the join link is off while it's on", async () => {
     serve({ ...withKeys, canAdminister: false, account: { ...asAdministrator.account, memberfulSignIn: true } });
     showPage(asLinus);
-    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
+    expect(await screen.findByText(/so the join link is off/)).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Memberful" })).not.toBeInTheDocument();
     expect(screen.queryByText(SITE)).not.toBeInTheDocument();
-    expect(screen.getByText(/so the join link is off/)).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
   });
 });
 
-describe(feature("accounts.custom-css"), () => {
-  it("links administrators to Custom styles from its top bar", async () => {
-    showPage();
-    expect(await screen.findByRole("link", { name: "Custom styles" })).toHaveAttribute("href", "/account/custom_styles/edit");
-  });
-
-  it("gives members no link", async () => {
-    serve(asMember);
-    showPage();
-    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
-    expect(screen.queryByRole("link", { name: "Custom styles" })).not.toBeInTheDocument();
-  });
-});
-
-describe(feature("bots.list"), () => {
-  it("links administrators to Chat bots from its top bar, before Custom styles", async () => {
-    showPage();
-    const bots = await screen.findByRole("link", { name: "Chat bots" });
-    expect(bots).toHaveAttribute("href", "/account/bots");
-    expect(bots.nextElementSibling).toBe(screen.getByRole("link", { name: "Custom styles" }));
-  });
-
-  it("gives members no link", async () => {
-    serve(asMember);
-    showPage();
-    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
-    expect(screen.queryByRole("link", { name: "Chat bots" })).not.toBeInTheDocument();
-  });
-});
-
 describe(feature("accounts.join-link"), () => {
+  showingSection("membership-settings");
+
   it("shows everyone the join link, and tells the welcome card its code", async () => {
     serve(asMember);
     const { onJoinCodeChanged } = showPage();
@@ -648,6 +690,8 @@ describe(feature("accounts.join-link"), () => {
 });
 
 describe(feature("accounts.regenerate-join-link"), () => {
+  showingSection("membership-settings");
+
   it("lets an administrator regenerate the link at once, with no notice, as ember-rust does", async () => {
     const { onJoinCodeChanged, user } = showPage();
     await user.click(await screen.findByRole("button", { name: "Regenerate join link" }));
@@ -680,9 +724,11 @@ describe(feature("accounts.regenerate-join-link"), () => {
 });
 
 describe(feature("rooms.create-open"), () => {
-  it("has New room in its Rooms section, which opens the form in place", async () => {
+  showingSection("channel-settings");
+
+  it("has New room in Rooms and permissions, which opens the form in place", async () => {
     const { user } = showPage();
-    const rooms = screen.getByRole("region", { name: "Rooms" });
+    const rooms = screen.getByRole("region", { name: "Room order and permissions" });
     const newRoom = within(rooms).getByRole("link", { name: "New room" });
     expect(newRoom).toHaveAttribute("href", "/rooms/opens/new");
     await user.click(newRoom);
@@ -692,7 +738,9 @@ describe(feature("rooms.create-open"), () => {
 
 describe(feature("rooms.creation-permission"), () => {
   const restrictSwitch = () => screen.findByRole("switch", { name: "Must be admin to create new rooms" });
-  const roomsSection = () => screen.queryByRole("region", { name: "Rooms" });
+  const roomsSection = () => screen.getByRole("region", { name: "Room order and permissions" });
+  const ADMINS_MANAGE = "Community admins manage room order and permissions.";
+  showingSection("channel-settings");
 
   it("gives administrators a crowned switch under New room that limits creating rooms to them, saved at once with no notice", async () => {
     const { onAccountChanged, user } = showPage();
@@ -706,7 +754,7 @@ describe(feature("rooms.creation-permission"), () => {
     expect(restrict).toBeChecked();
     await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, restrictRoomCreation: true }));
     // Administrators can still create rooms.
-    expect(within(roomsSection()!).getByRole("link", { name: "New room" })).toBeInTheDocument();
+    expect(within(roomsSection()).getByRole("link", { name: "New room" })).toBeInTheDocument();
 
     await user.click(restrict);
     await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith(asAdministrator.account));
@@ -736,22 +784,21 @@ describe(feature("rooms.creation-permission"), () => {
     expect(restrict).not.toBeChecked();
   });
 
-  it("takes the Rooms section away from members while it's on, and gives it back once it's off", async () => {
+  it("takes New room away from members while it's on, and gives it back once it's off", async () => {
     serve({ ...asMember, account: { ...asMember.account, restrictRoomCreation: true } });
     showPage(asLinus);
-    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
-    expect(roomsSection()).not.toBeInTheDocument();
+    expect(await screen.findByText(ADMINS_MANAGE)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "New room" })).not.toBeInTheDocument();
 
     act(() => workspaceSays({ ...asMember.account, restrictRoomCreation: false }));
-    expect(within(roomsSection()!).getByRole("link", { name: "New room" })).toBeInTheDocument();
+    expect(within(roomsSection()).getByRole("link", { name: "New room" })).toBeInTheDocument();
   });
 
-  it("gives members New room alone in the Rooms section while anyone can create rooms", async () => {
+  it("gives members New room while anyone can create rooms, saying admins manage the rest, as ember-rust does", async () => {
     serve(asMember);
     showPage(asLinus);
-    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
-    const rooms = roomsSection()!;
+    const rooms = roomsSection();
+    expect(await within(rooms).findByText(ADMINS_MANAGE)).toBeInTheDocument();
     expect(within(rooms).getByRole("link", { name: "New room" })).toBeInTheDocument();
     expect(within(rooms).queryByRole("switch")).not.toBeInTheDocument();
     expect(within(rooms).queryByRole("list", { name: "Room order" })).not.toBeInTheDocument();
@@ -759,13 +806,16 @@ describe(feature("rooms.creation-permission"), () => {
 });
 
 describe(feature("sidebar.shared-order"), () => {
-  const HELP = "Drag rooms into order, then save to update everyone’s sidebar. Starred rooms keep their personal order.";
+  const HELP = "Drag a room to reorder your community sidebar. Click a room to set its permissions.";
   const orderList = () => screen.getByRole("list", { name: "Room order" });
   const orderRows = () => within(orderList()).getAllByRole("listitem");
+  /** The room a row is for, by the name its link to the room's settings has. */
+  const roomOf = (row: HTMLElement) => within(row).getByRole("link").getAttribute("aria-label")!.replace("Settings for ", "");
   /** The rooms the list shows, top to bottom. */
-  const ordered = () => orderRows().map((row) => row.textContent);
-  const orderRow = (name: string) => orderRows().find((row) => row.textContent === `#${name}`)!;
-  const status = () => within(screen.getByRole("region", { name: "Rooms" })).getByRole("status");
+  const ordered = () => orderRows().map(roomOf);
+  const orderRow = (name: string) => orderRows().find((row) => roomOf(row) === name)!;
+  const status = () => within(screen.getByRole("region", { name: "Room order and permissions" })).getByRole("status");
+  showingSection("channel-settings");
   const button = (name: string) => screen.getByRole("button", { name });
   /** The orders the page has saved, as sent. */
   const sentOrders = () =>
@@ -779,9 +829,9 @@ describe(feature("sidebar.shared-order"), () => {
   it("lists an administrator's rooms but their DMs, the ones the shared order ranks first, in its order, then the rest by name", async () => {
     showPage();
     await screen.findByRole("list", { name: "Room order" });
-    expect(ordered()).toEqual(["#Design", "#general", "#random"]);
+    expect(ordered()).toEqual(["Design", "general", "random"]);
     act(() => sidebarSays(adasRooms, ["random", "general"]));
-    expect(ordered()).toEqual(["#random", "#general", "#Design"]);
+    expect(ordered()).toEqual(["random", "general", "Design"]);
 
     expect(screen.getByText(HELP)).toBeInTheDocument();
     for (const row of orderRows()) {
@@ -803,7 +853,7 @@ describe(feature("sidebar.shared-order"), () => {
     await screen.findByRole("list", { name: "Room order" });
     orderRow("random").focus();
     altArrow("random", "ArrowUp");
-    expect(ordered()).toEqual(["#Design", "#random", "#general"]);
+    expect(ordered()).toEqual(["Design", "random", "general"]);
     expect(orderRow("random")).toHaveFocus();
     expect(status()).toHaveTextContent("Unsaved room order. Save to apply it to everyone.");
     expect(status()).not.toHaveClass("sr-only");
@@ -812,14 +862,14 @@ describe(feature("sidebar.shared-order"), () => {
     altArrow("Design", "ArrowUp");
     fireEvent.keyDown(orderRow("general"), { key: "ArrowUp" });
     altArrow("general", "ArrowDown");
-    expect(ordered()).toEqual(["#Design", "#random", "#general"]);
+    expect(ordered()).toEqual(["Design", "random", "general"]);
     expect(sentOrders()).toEqual([]);
 
     await user.click(button("Save order"));
     await waitFor(() => expect(status()).toHaveTextContent("Room order saved for everyone."));
     expect(sentOrders()).toEqual([["PUT", { roomIds: ["secret", "random", "general"] }]]);
     expect(onSharedOrderSaved).toHaveBeenCalledExactlyOnceWith(["secret", "random", "general"]);
-    expect(ordered()).toEqual(["#Design", "#random", "#general"]);
+    expect(ordered()).toEqual(["Design", "random", "general"]);
     expect(button("Save order")).toBeDisabled();
     expect(button("Cancel")).toBeDisabled();
   });
@@ -829,7 +879,7 @@ describe(feature("sidebar.shared-order"), () => {
     await screen.findByRole("list", { name: "Room order" });
     altArrow("general", "ArrowUp");
     await user.click(button("Cancel"));
-    expect(ordered()).toEqual(["#Design", "#general", "#random"]);
+    expect(ordered()).toEqual(["Design", "general", "random"]);
     expect(status()).toBeEmptyDOMElement();
     expect(button("Save order")).toBeDisabled();
     expect(sentOrders()).toEqual([]);
@@ -846,7 +896,7 @@ describe(feature("sidebar.shared-order"), () => {
     expect(button("Save order")).toBeDisabled();
     expect(button("Cancel")).toBeDisabled();
     altArrow("random", "ArrowUp");
-    expect(ordered()).toEqual(["#general", "#Design", "#random"]);
+    expect(ordered()).toEqual(["general", "Design", "random"]);
 
     await act(async () => answer(Response.json({ sharedOrder: ["general", "secret", "random"] })));
     expect(status()).toHaveTextContent("Room order saved for everyone.");
@@ -861,7 +911,7 @@ describe(feature("sidebar.shared-order"), () => {
     await user.click(button("Save order"));
     await waitFor(() => expect(status()).toHaveTextContent("Couldn’t save room order. Please try again."));
     expect(status()).toHaveClass("text-negative");
-    expect(ordered()).toEqual(["#general", "#Design", "#random"]);
+    expect(ordered()).toEqual(["general", "Design", "random"]);
     expect(button("Save order")).toBeEnabled();
     expect(onSharedOrderSaved).not.toHaveBeenCalled();
     expect(onFailed).not.toHaveBeenCalled();
@@ -880,15 +930,28 @@ describe(feature("sidebar.shared-order"), () => {
     showPage();
     await screen.findByRole("list", { name: "Room order" });
     altArrow("random", "ArrowUp");
-    expect(ordered()).toEqual(["#Design", "#random", "#general"]);
+    expect(ordered()).toEqual(["Design", "random", "general"]);
     act(() => sidebarSays([...adasRooms.filter((room) => room.id !== "secret"), shared("ops", "Ops")], ["general"]));
-    expect(ordered()).toEqual(["#random", "#general", "#Ops"]);
+    expect(ordered()).toEqual(["random", "general", "Ops"]);
     expect(button("Save order")).toBeEnabled();
 
     fireEvent.click(button("Cancel"));
-    expect(ordered()).toEqual(["#general", "#Ops", "#random"]);
+    expect(ordered()).toEqual(["general", "Ops", "random"]);
     act(() => sidebarSays(adasRooms, ["random", "secret"]));
-    expect(ordered()).toEqual(["#random", "#Design", "#general"]);
+    expect(ordered()).toEqual(["random", "Design", "general"]);
+  });
+
+  it("links each room to its settings, saying who it's open to, as ember-rust's pull request #24 does", async () => {
+    const { user } = showPage();
+    await screen.findByRole("list", { name: "Room order" });
+    const design = within(orderRow("Design")).getByRole("link", { name: "Settings for Design" });
+    expect(design).toHaveAttribute("href", "/rooms/closeds/secret/edit");
+    expect(design).toHaveTextContent("Selected people");
+    const general = within(orderRow("general")).getByRole("link", { name: "Settings for general" });
+    expect(general).toHaveAttribute("href", "/rooms/opens/general/edit");
+    expect(general).toHaveTextContent("Everyone");
+    await user.click(general);
+    expect(location.pathname).toBe("/rooms/opens/general/edit");
   });
 
   it("waits for the sidebar's rooms, and says when there are none to arrange", async () => {
@@ -899,7 +962,7 @@ describe(feature("sidebar.shared-order"), () => {
     expect(orderList()).toBeEmptyDOMElement();
     expect(screen.getByText("No rooms to arrange yet.")).toBeInTheDocument();
     act(() => sidebarSays(adasRooms));
-    expect(ordered()).toEqual(["#Design", "#general", "#random"]);
+    expect(ordered()).toEqual(["Design", "general", "random"]);
     expect(screen.queryByText("No rooms to arrange yet.")).not.toBeInTheDocument();
   });
 
@@ -937,7 +1000,7 @@ describe(feature("sidebar.shared-order"), () => {
       expect(orderList()).toHaveClass("select-none");
 
       dragTo(10);
-      expect(ordered()).toEqual(["#random", "#Design", "#general"]);
+      expect(ordered()).toEqual(["random", "Design", "general"]);
       fireEvent.pointerUp(window);
       expect(orderRow("random")).not.toHaveClass("bg-hover");
       expect(orderRow("random")).toHaveFocus();
@@ -951,7 +1014,7 @@ describe(feature("sidebar.shared-order"), () => {
       fireEvent.pointerDown(orderRow("random").lastElementChild!, { pointerType: "mouse", button: 0, clientX: 200, clientY: 2 * 52 + 26 });
       dragTo(10);
       fireEvent.pointerUp(window);
-      expect(ordered()).toEqual(["#Design", "#general", "#random"]);
+      expect(ordered()).toEqual(["Design", "general", "random"]);
       expect(status()).toBeEmptyDOMElement();
     });
 
@@ -960,7 +1023,7 @@ describe(feature("sidebar.shared-order"), () => {
       pressGrip("random");
       dragTo(10);
       expect(fireEvent.keyDown(document.body, { key: "Escape" })).toBe(false);
-      expect(ordered()).toEqual(["#Design", "#general", "#random"]);
+      expect(ordered()).toEqual(["Design", "general", "random"]);
       expect(status()).toHaveTextContent("Room move canceled.");
       fireEvent.pointerUp(window);
       expect(button("Save order")).toBeDisabled();
@@ -971,10 +1034,10 @@ describe(feature("sidebar.shared-order"), () => {
       altArrow("random", "ArrowUp");
       pressGrip("Design");
       dragTo(2 * 52 + 40);
-      expect(ordered()).toEqual(["#random", "#general", "#Design"]);
+      expect(ordered()).toEqual(["random", "general", "Design"]);
       fireEvent.click(button("Cancel"));
       fireEvent.pointerUp(window);
-      expect(ordered()).toEqual(["#Design", "#general", "#random"]);
+      expect(ordered()).toEqual(["Design", "general", "random"]);
       expect(button("Save order")).toBeDisabled();
 
       altArrow("random", "ArrowUp");
@@ -982,7 +1045,7 @@ describe(feature("sidebar.shared-order"), () => {
       dragTo(2 * 52 + 40);
       fireEvent.click(button("Save order"));
       fireEvent.pointerUp(window);
-      expect(ordered()).toEqual(["#Design", "#random", "#general"]);
+      expect(ordered()).toEqual(["Design", "random", "general"]);
       expect(sentOrders()).toEqual([["PUT", { roomIds: ["secret", "random", "general"] }]]);
       await act(() => vi.runAllTimersAsync());
       expect(status()).toHaveTextContent("Room order saved for everyone.");
@@ -993,17 +1056,28 @@ describe(feature("sidebar.shared-order"), () => {
       fireEvent.touchStart(grip("Design"), { touches: [{ clientX: 20, clientY: 26 }] });
       expect(status()).toHaveTextContent("Moving Design.");
       expect(fireEvent.touchMove(window, { touches: [{ clientX: 20, clientY: 2 * 52 + 40 }] })).toBe(false);
-      expect(ordered()).toEqual(["#general", "#random", "#Design"]);
+      expect(ordered()).toEqual(["general", "random", "Design"]);
       fireEvent.touchEnd(window);
       expect(status()).toHaveTextContent("Unsaved room order.");
     });
   });
 });
 
-const peopleList = () => screen.findByRole("list", { name: "People" });
-/** The list as it reads: each row's name, and a dash for the rule between administrators and members. */
-const readList = async () => [...(await peopleList()).children].map((item) => (item.tagName === "HR" ? "—" : item.querySelector("strong")!.textContent));
-const rowOf = async (name: string) => within(await peopleList()).getByText(name).closest("li")!;
+/** The names listed under `title`, Admins or Members, or null while the group is left out. */
+const namesUnder = (title: "Admins" | "Members") => {
+  const group = screen.queryByRole("list", { name: title });
+  return group && [...group.children].map((item) => item.querySelector("strong")!.textContent);
+};
+/** The lists as they read, once the people show: the administrators' names, then the members'. */
+const readList = async () => {
+  await screen.findByRole("list", { name: "Admins" });
+  return [namesUnder("Admins"), namesUnder("Members")];
+};
+const peopleLists = async () => {
+  await screen.findByRole("list", { name: "Admins" });
+  return screen.getAllByRole("list", { name: /^(Admins|Members)$/ });
+};
+const rowOf = async (name: string) => within(await screen.findByRole("region", { name: "Membership" })).getByText(name).closest("li")!;
 const crownOf = async (name: string) => within(await rowOf(name)).getByRole("checkbox");
 /** The roles the page has asked for, by whom. */
 const roleChanges = () =>
@@ -1013,22 +1087,30 @@ const roleChanges = () =>
     .map(([input, init]) => [String(input).split("/").at(-1), (JSON.parse(String(init?.body)) as RoleChange).role]);
 
 describe(feature("accounts.people"), () => {
-  it("lists everyone but bots by name, administrators first, then a rule and the members", async () => {
+  showingSection("membership-settings");
+
+  it("lists everyone but bots by name, administrators under Admins, then the members under Members, after the join link", async () => {
     showPage();
-    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "linus Torvalds", "Mallory"]);
-    expect(screen.getByRole("heading", { level: 2, name: "People" })).toBeInTheDocument();
+    expect(await readList()).toEqual([
+      ["Ada Lovelace", "Grace Hopper"],
+      ["linus Torvalds", "Mallory"],
+    ]);
+    expect(screen.getByRole("heading", { level: 2, name: "Admins" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Members" })).toBeInTheDocument();
+    expect((await joinLink()).compareDocumentPosition(screen.getByRole("list", { name: "Admins" }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it("draws the rule only when there are both administrators and members", async () => {
+  it("leaves out a group while nobody's in it", async () => {
     showPage(asAda, [grace, ada]);
-    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper"]);
+    expect(await readList()).toEqual([["Ada Lovelace", "Grace Hopper"], null]);
+    expect(screen.queryByRole("heading", { level: 2, name: "Members" })).not.toBeInTheDocument();
   });
 
   it("shows members the people who are active, with no controls", async () => {
     serve(asMember);
     showPage(asLinus);
-    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "linus Torvalds"]);
-    expect(within(await peopleList()).queryAllByRole("checkbox")).toEqual([]);
+    expect(await readList()).toEqual([["Ada Lovelace", "Grace Hopper"], ["linus Torvalds"]]);
+    for (const list of await peopleLists()) expect(within(list).queryAllByRole("checkbox")).toEqual([]);
   });
 
   it("shows administrators who's banned, dimmed under a cancel mark, with no crown", async () => {
@@ -1059,7 +1141,7 @@ describe(feature("accounts.people"), () => {
 
   it("loads the people directory again as it shows, as ember-rust lists everyone as its page loads", async () => {
     const { reloadPeople } = showPage();
-    await peopleList();
+    await peopleLists();
     expect(reloadPeople).toHaveBeenCalledOnce();
   });
 
@@ -1073,6 +1155,8 @@ describe(feature("accounts.people"), () => {
 });
 
 describe(feature("accounts.roles"), () => {
+  showingSection("membership-settings");
+
   it("gives administrators a crown on each person's row, pressed for administrators, and their own can't be pressed", async () => {
     showPage();
     expect(await crownOf("Ada Lovelace")).toBeDisabled();
@@ -1091,7 +1175,7 @@ describe(feature("accounts.roles"), () => {
     await waitFor(() => expect(onPersonChanged).toHaveBeenCalledWith({ ...linus, role: "administrator" }));
     expect(roleChanges()).toEqual([["u3", "administrator"]]);
     // Their row joins the administrators.
-    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "linus Torvalds", "—", "Mallory"]);
+    expect(await readList()).toEqual([["Ada Lovelace", "Grace Hopper", "linus Torvalds"], ["Mallory"]]);
     expect(await crownOf("linus Torvalds")).toHaveAccessibleName("Role: Administrator");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -1101,10 +1185,10 @@ describe(feature("accounts.roles"), () => {
     await user.click(await crownOf("Grace Hopper"));
     await waitFor(() => expect(onPersonChanged).toHaveBeenCalledWith({ ...grace, role: "member" }));
     expect(roleChanges()).toEqual([["u2", "member"]]);
-    expect(await readList()).toEqual(["Ada Lovelace", "—", "Grace Hopper", "linus Torvalds", "Mallory"]);
+    expect(await readList()).toEqual([["Ada Lovelace"], ["Grace Hopper", "linus Torvalds", "Mallory"]]);
   });
 
-  it("can be pressed from the keyboard, where ember-rust's checkbox is hidden from it", async () => {
+  it("can be pressed from the keyboard, where ember-rust's checkbox is hidden from it, keeping the focus as its row changes group", async () => {
     const { onPersonChanged, user } = showPage();
     (await crownOf("Grace Hopper")).focus();
     // Past Grace's Delete, and linus's avatar, which links to his page.
@@ -1116,6 +1200,12 @@ describe(feature("accounts.roles"), () => {
     expect(await crownOf("linus Torvalds")).toHaveFocus();
     await user.keyboard(" ");
     await waitFor(() => expect(onPersonChanged).toHaveBeenCalledWith({ ...linus, role: "administrator" }));
+    expect(namesUnder("Admins")).toContain("linus Torvalds");
+    expect(await crownOf("linus Torvalds")).toHaveFocus();
+
+    await user.keyboard(" ");
+    await waitFor(() => expect(namesUnder("Members")).toContain("linus Torvalds"));
+    expect(await crownOf("linus Torvalds")).toHaveFocus();
   });
 
   it("can't be pressed again until the change is answered", async () => {
@@ -1128,7 +1218,7 @@ describe(feature("accounts.roles"), () => {
     expect(crown).toBeChecked();
     expect(roleChanges()).toEqual([["u3", "administrator"]]);
     answer(Response.json({ user: { ...linus, role: "administrator" } }));
-    await waitFor(async () => expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "linus Torvalds", "—", "Mallory"]));
+    await waitFor(async () => expect(await readList()).toEqual([["Ada Lovelace", "Grace Hopper", "linus Torvalds"], ["Mallory"]]));
   });
 
   it("leaves out an answer the workspace socket has overtaken, loading the people again to see who's right", async () => {
@@ -1141,7 +1231,10 @@ describe(feature("accounts.roles"), () => {
     act(() => socketSays({ ...linus, role: "member" }));
     answer(Response.json({ user: { ...linus, role: "administrator" } }));
     await waitFor(async () => expect(await crownOf("linus Torvalds")).not.toBeChecked());
-    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "linus Torvalds", "Mallory"]);
+    expect(await readList()).toEqual([
+      ["Ada Lovelace", "Grace Hopper"],
+      ["linus Torvalds", "Mallory"],
+    ]);
     expect(onPersonChanged).not.toHaveBeenCalled();
     expect(reloadPeople).toHaveBeenCalledTimes(2);
   });
@@ -1174,13 +1267,13 @@ describe(feature("accounts.roles"), () => {
   it("loads the settings again once the person looking is made an administrator, or a member again", async () => {
     serve(asMember);
     const { rerender } = showPage(asLinus);
-    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "linus Torvalds"]);
+    expect(await readList()).toEqual([["Ada Lovelace", "Grace Hopper"], ["linus Torvalds"]]);
 
     serve(asAdministrator);
     rerender({ ...asLinus, administrator: true });
-    expect(await nameField()).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Regenerate join link" })).toBeInTheDocument();
     expect(await crownOf("linus Torvalds")).toBeDisabled();
-    expect(await readList()).toContain("Mallory");
+    expect((await readList()).flat()).toContain("Mallory");
   });
 });
 
@@ -1194,6 +1287,8 @@ const removals = () =>
 const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
 
 describe(feature("accounts.remove-person"), () => {
+  showingSection("membership-settings");
+
   it("gives administrators Delete on each active person's row but their own, white on red, named for them", async () => {
     showPage();
     const remove = await deleteOf("Grace Hopper");
@@ -1212,8 +1307,7 @@ describe(feature("accounts.remove-person"), () => {
   it("gives members none", async () => {
     serve(asMember);
     showPage(asLinus);
-    await peopleList();
-    expect(within(await peopleList()).queryAllByRole("button")).toEqual([]);
+    for (const list of await peopleLists()) expect(within(list).queryAllByRole("button")).toEqual([]);
   });
 
   it("removes someone once you confirm, with no notice, as ember-rust does, and they leave the list", async () => {
@@ -1223,7 +1317,7 @@ describe(feature("accounts.remove-person"), () => {
     expect(confirm).toHaveBeenCalledExactlyOnceWith(CONFIRM_REMOVE);
     await waitFor(() => expect(onPersonChanged).toHaveBeenCalledWith({ ...linus, status: "deactivated" }));
     expect(removals()).toEqual(["u3"]);
-    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "Mallory"]);
+    expect(await readList()).toEqual([["Ada Lovelace", "Grace Hopper"], ["Mallory"]]);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -1232,7 +1326,7 @@ describe(feature("accounts.remove-person"), () => {
     const { user } = showPage();
     await user.click((await deleteOf("linus Torvalds"))!);
     expect(removals()).toEqual([]);
-    expect(await readList()).toContain("linus Torvalds");
+    expect((await readList()).flat()).toContain("linus Torvalds");
   });
 
   it("can't be pressed again until the removal is answered", async () => {
@@ -1246,7 +1340,7 @@ describe(feature("accounts.remove-person"), () => {
     await user.click(remove);
     expect(removals()).toEqual(["u3"]);
     answer(Response.json({ user: { ...linus, status: "deactivated" } }));
-    await waitFor(async () => expect(await readList()).not.toContain("linus Torvalds"));
+    await waitFor(async () => expect((await readList()).flat()).not.toContain("linus Torvalds"));
   });
 
   it("needs no answer the workspace socket has already brought", async () => {
@@ -1256,7 +1350,7 @@ describe(feature("accounts.remove-person"), () => {
     const { onPersonChanged, reloadPeople, user } = showPage();
     await user.click((await deleteOf("linus Torvalds"))!);
     act(() => socketSays({ ...linus, status: "deactivated" }));
-    expect(await readList()).not.toContain("linus Torvalds");
+    expect((await readList()).flat()).not.toContain("linus Torvalds");
     answer(Response.json({ user: { ...linus, status: "deactivated" } }));
     // Answered after Linus's, Grace's removal shows his answer has been heard.
     serve(asAdministrator);
@@ -1273,12 +1367,13 @@ describe(feature("accounts.remove-person"), () => {
     await user.click((await deleteOf("linus Torvalds"))!);
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 403 })));
     expect(await deleteOf("linus Torvalds")).toBeEnabled();
-    expect(await readList()).toContain("linus Torvalds");
+    expect((await readList()).flat()).toContain("linus Torvalds");
     expect(onPersonChanged).not.toHaveBeenCalled();
   });
 });
 
 describe(feature("auth.memberful-memberships"), () => {
+  showingSection("membership-settings");
   const SITE = "https://example.memberful.com";
   const withKeys: WorkspaceSettings = { ...asAdministrator, memberfulSite: SITE };
   const webhookSteps = () => screen.queryByRole("list", { name: "Steps to sign out members whose membership lapses" });
@@ -1318,7 +1413,10 @@ describe(feature("auth.memberful-memberships"), () => {
 
   it("shows administrators who's suspended for their membership's lapsing, dimmed and said to be so, with Delete but no crown", async () => {
     showPage(asAda, [...everyone, lapsed]);
-    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "linus Torvalds", "Mallory", "Sam Lapsed"]);
+    expect(await readList()).toEqual([
+      ["Ada Lovelace", "Grace Hopper"],
+      ["linus Torvalds", "Mallory", "Sam Lapsed"],
+    ]);
     const row = await rowOf("Sam Lapsed");
     expect(row).toHaveTextContent("Membership lapsed");
     expect(row.querySelector("a")).toHaveClass("[&>img]:opacity-50");
@@ -1330,11 +1428,13 @@ describe(feature("auth.memberful-memberships"), () => {
   it("doesn't show members who's suspended", async () => {
     serve(asMember);
     showPage(asLinus, [...everyone, lapsed]);
-    expect(await readList()).toEqual(["Ada Lovelace", "Grace Hopper", "—", "linus Torvalds"]);
+    expect(await readList()).toEqual([["Ada Lovelace", "Grace Hopper"], ["linus Torvalds"]]);
   });
 });
 
 describe(feature("users.avatar-links"), () => {
+  showingSection("membership-settings");
+
   it("links each person's avatar to their page, titled with their name and bio, a banned person's too, and goes there in place", async () => {
     const { user } = showPage(asAda, [ada, { ...grace, bio: "Wrote the first compiler" }, mallory]);
     const link = within(await rowOf("Grace Hopper")).getByRole("link");

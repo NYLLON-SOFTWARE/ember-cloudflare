@@ -149,13 +149,15 @@ window.addEventListener("popstate", (event) => {
 });
 
 /**
- * Shows `path`, which can have a query string, as a new entry in the browser's history unless `replace`
- * says to take the current one's place, once the page's guard lets it.
+ * Shows `path`, which can have a query string and a fragment, as a new entry in the browser's history
+ * unless `replace` says to take the current one's place, once the page's guard lets it. A fragment alone
+ * changes no page, so going from one of a page's sections to another doesn't ask its guard, as a
+ * browser follows a link to a fragment without leaving the page.
  */
 export function navigate(path: string, { replace = false } = {}): void {
   const navigation = ++asked;
   followUp = null;
-  if (shownAddress() === path) {
+  if (shownAddress() + location.hash === path) {
     gone = navigation;
     notify();
     return;
@@ -171,7 +173,7 @@ export function navigate(path: string, { replace = false } = {}): void {
     }
     notify();
   };
-  if (!guard?.(path, go)) go();
+  if (shownAddress() === path.split("#", 1)[0] || !guard?.(path, go)) go();
 }
 
 /**
@@ -215,6 +217,11 @@ export function useVisit(): number {
 export function useRoute(): Route {
   const pathname = useSyncExternalStore(subscribe, shownPath);
   return useMemo(() => routeOf(pathname), [pathname]);
+}
+
+/** The address's fragment, from its "#", or nothing, re-rendering when it changes. */
+export function useHash(): string {
+  return useSyncExternalStore(subscribe, () => location.hash);
 }
 
 /** The value `name` has in the query string of the page shown, or null where it has none, re-rendering when it changes. */

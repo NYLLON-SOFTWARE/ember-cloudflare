@@ -2,6 +2,7 @@ import type { TranslationKey } from "@ember/protocol";
 import type { ReactNode } from "react";
 import { TranslationButton } from "@/components/translation-button";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 // ember-rust's form pieces (styled in zz-ember.css), which its sign-in and join cards and its settings
 // panels share.
@@ -30,9 +31,9 @@ export function Field({ id, label, translation, children }: { id: string; label:
 export const PRIMARY_BUTTON = "h-auto min-h-[42px] w-full rounded-[9px] border border-primary px-4 py-2.5 text-sm font-[550] touch:min-h-11";
 
 /** ember-rust's `.mb-primary-button`, which sends its form. */
-export function SubmitButton({ disabled, children }: { disabled: boolean; children: ReactNode }) {
+export function SubmitButton({ disabled, className, children }: { disabled: boolean; className?: string; children: ReactNode }) {
   return (
-    <Button type="submit" disabled={disabled} className={PRIMARY_BUTTON}>
+    <Button type="submit" disabled={disabled} className={cn(PRIMARY_BUTTON, className)}>
       {children}
     </Button>
   );

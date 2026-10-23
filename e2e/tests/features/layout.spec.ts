@@ -232,7 +232,7 @@ test.describe(feature("ui.mobile-drawer"), () => {
       expect(await overflow(ada.page), `${width}px drawer`).toBeLessThanOrEqual(0);
 
       for (const [path, title] of [
-        ["/account/edit", "Workspace settings"],
+        ["/account/edit", "Basic community settings"],
         ["/rooms/opens/new", "New room"],
       ] as const) {
         await ada.page.goto(path);
@@ -290,21 +290,30 @@ test.describe(feature("ui.accessibility"), () => {
   });
 });
 
-test.describe(feature("ui.room-header"), () => {
-  test("Workspace settings' Chat bots and Custom styles show only their icons up to 500px wide, as ember-rust's do", async ({ page }) => {
-    await page.setViewportSize({ width: 500, height: 800 });
+test.describe(feature("accounts.settings-page"), () => {
+  test("puts community settings' links in a 244px column beside the page, in a strip under the header at 900px and below, and each icon over its label at 500px and below, as ember-rust's pull request #24 does", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
     await useOwnAddress(page);
     await page.goto("/account/edit");
     await signInAsAdministrator(page);
-    const links = ["Chat bots", "Custom styles"].map((name) => page.getByRole("navigation", { name: "Page" }).getByRole("link", { name }));
-    for (const link of links) {
-      await expect(link).toBeVisible();
-      expect(await box(link)).toMatchObject({ width: 44, height: 44 });
-    }
+    const links = page.getByRole("navigation", { name: "Community settings" });
+    const membership = links.getByRole("link", { name: "Membership" });
+    const [icon, label] = [membership.locator("svg"), membership.getByText("Membership")];
 
-    // Wider, their labels show beside their icons.
-    await page.setViewportSize({ width: 501, height: 800 });
-    for (const link of links) expect((await box(link)).width).toBeGreaterThan(80);
+    // Where the conversations would be, under the header, which spans both.
+    expect(await box(page.getByRole("navigation", { name: "Page" }))).toMatchObject({ x: 80, y: 0, width: 1200, height: 60 });
+    expect(await box(links)).toMatchObject({ x: 80, y: 60, width: 244, height: 740 });
+    expect(await box(page.getByRole("main"))).toMatchObject({ x: 324, y: 60, width: 956 });
+
+    for (const width of [900, 501, 500, 320]) {
+      await page.setViewportSize({ width, height: 800 });
+      expect(await box(links), `${width}px`).toMatchObject({ x: 0, width });
+      // The strip scrolls sideways when its links don't fit, and the page doesn't.
+      expect(await overflow(page), `${width}px`).toBeLessThanOrEqual(0);
+      const [iconBox, labelBox] = [await box(icon), await box(label)];
+      if (width > 500) expect(iconBox.x + iconBox.width, `${width}px`).toBeLessThanOrEqual(labelBox.x);
+      else expect(iconBox.y + iconBox.height, `${width}px`).toBeLessThanOrEqual(labelBox.y);
+    }
   });
 });
 

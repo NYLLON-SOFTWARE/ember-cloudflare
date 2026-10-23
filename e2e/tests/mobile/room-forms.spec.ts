@@ -1,13 +1,13 @@
 import { cookieHeader, ICON_CATALOG_LOADED, signInAs, type TestRoom } from "../../fixtures";
 import { expect, hasDrawerLayout, SWITCHES, test } from "./fixtures";
 
-// Asking for the test's room makes it the only one in the sidebar, which wider phones show beside the page.
+// Asking for the test's room keeps every other test's rooms out of the workspace these pages show.
 test.beforeEach(async ({ page, session, room: _ }) => {
   await signInAs(page, session);
 });
 
-test("workspace settings fit the phone", async ({ page, screenIsFine }) => {
-  await page.goto("/account/edit");
+test("Rooms and permissions fit the phone", async ({ page, screenIsFine }) => {
+  await page.goto("/account/edit#channel-settings");
   await expect(page.getByRole("link", { name: "New room" })).toBeVisible();
   await screenIsFine();
 });
@@ -60,7 +60,7 @@ test("the room icon picker fits the phone", async ({ page, room, screenIsFine })
 test("asking about unsaved changes opens over the drawer, keeps focus in, and fits the phone", async ({ page, room, screenIsFine }) => {
   await page.goto(`/rooms/opens/${room.id}/edit`);
   await page.getByRole("textbox", { name: "Room name" }).fill("Phone draft");
-  if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();
+  if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open navigation" }).tap();
   await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace" }).tap();
   const unsaved = page.getByRole("dialog", { name: "Unsaved Changes" });
   await expect(unsaved).toBeVisible();

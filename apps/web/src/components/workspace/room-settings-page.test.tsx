@@ -52,11 +52,11 @@ function holdChange(settings: RoomSettings, method: "PATCH" | "DELETE" = "PATCH"
 
 type Callbacks = Pick<Parameters<typeof RoomSettingsPage>[0], "askForRoom" | "onMissing" | "onFailed">;
 
-/** The page, as Ada, at the form its address names, as the workspace shows it, with general the last room she visited. */
+/** The page, as Ada, at the form its address names, as the workspace shows it. */
 function SettingsRoute(callbacks: Callbacks) {
   const route = useRoute();
   return route.page === "room-settings" ? (
-    <RoomSettingsPage key={route.roomId} roomId={route.roomId} access={route.access} me={ada} back="/rooms/general" {...callbacks} />
+    <RoomSettingsPage key={route.roomId} roomId={route.roomId} access={route.access} me={ada} {...callbacks} />
   ) : null;
 }
 
@@ -89,14 +89,14 @@ afterEach(() => {
 });
 
 describe(feature("rooms.settings-page"), () => {
-  it("reads Room settings, titled for the room, with Go Back to the last room visited", async () => {
+  it("reads Room settings, titled for the room, with Go Back to community settings' rooms", async () => {
     serve(openSettings());
     showPage(design);
     expect(await roomName()).toHaveValue("Design");
     expect(document.title).toBe("Edit settings for Design");
     expect(screen.getByRole("heading", { level: 1, name: "Room settings" })).toBeInTheDocument();
     expect(screen.getByText("Manage the room name, access, and members.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/rooms/general");
+    expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/edit#channel-settings");
   });
 
   it("lists everyone in an open room under Everyone, which is on, each with a check mark", async () => {

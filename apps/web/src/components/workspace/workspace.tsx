@@ -14,12 +14,14 @@ import { lastRoomVisited } from "@/lib/last-room";
 import { takeMemberfulFlash } from "@/lib/memberful";
 import { loadPage } from "@/lib/page";
 import { markedUnread } from "@/lib/room-list";
-import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useRoute, type Route } from "@/hooks/use-route";
+import { cn } from "@/lib/utils";
+import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, type Route } from "@/hooks/use-route";
 import { MovedNotice } from "./moved-notice";
 import { NewDirectDialog } from "./new-direct-dialog";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
 import { RoomView, type RoomViewHandle } from "./room-view";
+import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
 import { Sidebar } from "./sidebar";
 import { WelcomePage } from "./welcome-page";
 
@@ -77,10 +79,11 @@ function whenIdle(run: () => void): () => void {
 
 /**
  * What the rail marks on each page, as ember-rust's shell.js does: the logo and Home at home, Home on
- * a room's page and the pages that go on to one, Search on search, your avatar on your profile, and
- * nothing on a room's forms, a DM's settings, the Custom CSS page, the bot pages or your push
- * subscriptions, whose addresses none of its links have, nor on New direct message's, which goes on to
- * the last room visited at once.
+ * a room's page and the pages that go on to one, Search on search, Admin or Workspace on every page of
+ * community settings (a room's forms, the bot pages and the Custom CSS page among them, as pull request
+ * #24 has it), your avatar on your profile, and nothing on a DM's settings or your push subscriptions,
+ * whose addresses none of its links have, nor on New direct message's, which goes on to the last room
+ * visited at once.
  */
 const RAIL_PAGES = {
   home: "home",
@@ -88,15 +91,15 @@ const RAIL_PAGES = {
   room: "room",
   message: "room",
   "room-of-kind": "room",
-  "new-room": null,
-  "room-settings": null,
+  "new-room": "workspace",
+  "room-settings": "workspace",
   "new-direct": null,
   "direct-settings": null,
   "workspace-settings": "workspace",
-  "custom-styles": null,
-  bots: null,
-  "new-bot": null,
-  "bot-settings": null,
+  "custom-styles": "workspace",
+  bots: "workspace",
+  "new-bot": "workspace",
+  "bot-settings": "workspace",
   profile: "profile",
   "push-subscriptions": null,
   person: null,
@@ -123,12 +126,26 @@ const LOADING = (
   <MainContent className="col-start-3 row-span-2 flex items-center justify-center bg-background text-muted-foreground max-md:col-start-1">Loading…</MainContent>
 );
 
+/** And a page of community settings, under the header and beside the links to their sections, which stay. */
+const SETTINGS_LOADING = (
+  <>
+    <PageHeader />
+    <MainContent className="flex items-center justify-center bg-background text-muted-foreground">Loading…</MainContent>
+  </>
+);
+
+interface RarePageProps {
+  show: (pages: RarePages) => ReactNode;
+  loading: ReactNode;
+  onFailed: (error: unknown) => void;
+}
+
 /**
- * What `show` makes of the pages few visits need, once they've loaded, and Loading… until then. They aren't
+ * What `show` makes of the pages few visits need, once they've loaded, and `loading` until then. They aren't
  * `lazy` components, each of which shows its fallback the first time it shows, however long ago its code
  * loaded, and React then keeps showing that for 300 ms.
  */
-function RarePage({ show, onFailed }: { show: (pages: RarePages) => ReactNode; onFailed: (error: unknown) => void }) {
+function RarePage({ show, loading, onFailed }: RarePageProps) {
   const [pages, setPages] = useState(rarePages);
   useEffect(() => {
     if (pages) return;
@@ -141,7 +158,7 @@ function RarePage({ show, onFailed }: { show: (pages: RarePages) => ReactNode; o
       current = false;
     };
   }, [pages, onFailed]);
-  return pages ? show(pages) : LOADING;
+  return pages ? show(pages) : loading;
 }
 
 /** As ember-rust sends someone home from a room they can't see (controllers/rooms.rs, `set_room`). */
@@ -205,7 +222,8 @@ function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
 
 /**
  * ember-rust's drawer layout (`(max-width: 900px)` in shell.js): `max-md`, 900px wide and below, where
- * the rail and sidebar move into a drawer opened from the header.
+ * the rail and sidebar move into a drawer opened from the header, or on a page of community settings,
+ * the rail alone.
  */
 const DRAWER_LAYOUT = "(width < 56.3125rem)";
 
@@ -214,8 +232,6 @@ interface Props {
   me: Me;
   /** The workspace's name, which titles the rail's logo and heads the sidebar. */
   workspaceName: string;
-  /** This deployment's version, which workspace settings end with. */
-  version: string;
   /**
    * Called with the workspace as the workspace socket last said it is, or as its settings last loaded or
    * saved it, when the socket has said nothing since they were asked for.
@@ -230,7 +246,7 @@ interface Props {
   onSessionChanged: (me: Me | null) => void;
 }
 
-export function Workspace({ me, workspaceName, version, onAccountChanged, onSignOut, onSessionChanged }: Props) {
+export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSessionChanged }: Props) {
   // How many times the workspace socket has said what the account is. A page's answer from the server
   // shows only if no more has been said since it was asked for, since it may have been read before.
   const accountsHeard = useRef(0);
@@ -259,8 +275,14 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   // keep it on, and loading the page again starts with it off.
   const [unreadOnly, setUnreadOnly] = useState(false);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
+  const drawerRail = useRef<HTMLDivElement>(null);
   const roomView = useRef<RoomViewHandle>(null);
   const route = useRoute();
+  const hash = useHash();
+  // On a page of community settings, the links to their sections take the conversations' place.
+  const section = settingsSectionOf(route, hash);
+  const administrator = me.administrator;
+  const settings = useMemo<SettingsPlace | null>(() => section && { section, administrator }, [section, administrator]);
 
   const rooms = list?.rooms ?? null;
   const invitation = list?.invitation ?? null;
@@ -464,7 +486,13 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   const activity = {
     on: unreadOnly,
     unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length,
-    onToggle: () => setUnreadOnly((on) => !on),
+    onToggle: () => {
+      // A page of community settings has no conversations to show, so Activity goes home to them, as
+      // shell.js visits it there, once unsaved changes let it.
+      if (!settings) return setUnreadOnly((on) => !on);
+      navigate("/");
+      afterNavigating(() => setUnreadOnly((on) => !on));
+    },
   };
   // The app's badge counts what Activity does, as badge_dot_controller.js counts the sidebar's unread rows,
   // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
@@ -493,7 +521,9 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
    * One of the pages few visits need, as `show` makes it once they've loaded. Keyed by the page, so that going on
    * from one that couldn't load them to another tries again.
    */
-  const rarePage = (show: (pages: RarePages) => ReactNode) => <RarePage key={route.page} show={show} onFailed={failed} />;
+  const rarePage = (show: (pages: RarePages) => ReactNode) => (
+    <RarePage key={route.page} show={show} loading={settings ? SETTINGS_LOADING : LOADING} onFailed={failed} />
+  );
   const page = () => {
     switch (route.page) {
       case "new-room":
@@ -507,7 +537,6 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
             access={route.access}
             me={me}
             askForRoom={askForRoom}
-            back={back}
             onMissing={missing}
             onFailed={failed}
           />
@@ -517,7 +546,6 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
           <WorkspaceSettingsPage
             me={me}
             back={back}
-            version={version}
             askForAccount={askForAccount}
             onJoinCodeChanged={joinCodeChanged}
             reloadPeople={directory.reload}
@@ -611,26 +639,35 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
 
   // The Sheet wraps the whole layout so the header's menu button can be its trigger, which gives
   // it aria-expanded and gets focus back to it when the drawer closes. The skip link comes first,
-  // and the rail and conversations are ember-rust's landmarks in either layout.
+  // and the rail and conversations are ember-rust's landmarks in either layout. On a page of community
+  // settings, the header spans the column beside the rail, 244px wide there, and the links to their
+  // sections, which it brings, fill that column under it, or at 900px and below, a row of their own.
   const layout = (
     <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
       <DrawerOpen value={drawerOpen}>
-        <div className="grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-hidden bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]">
+        <div
+          className={cn(
+            "grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-hidden bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]",
+            settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",
+          )}
+        >
           <SkipLink />
           <div className="contents max-md:hidden [&>*]:row-span-2" onClick={showAllForLink}>
             {rail}
-            <aside aria-label="Conversations" className="min-h-0 overflow-hidden border-r">
-              {sidebar}
-            </aside>
+            {!settings && (
+              <aside aria-label="Conversations" className="min-h-0 overflow-hidden border-r">
+                {sidebar}
+              </aside>
+            )}
           </div>
 
           <SheetContent
             side="left"
             showCloseButton={false}
-            // As ember-rust's shell.js does, opening it focuses its close button.
+            // As ember-rust's shell.js does, opening it focuses its close button, or with the rail alone, its first link.
             onOpenAutoFocus={(event) => {
               event.preventDefault();
-              closeDrawerButton.current?.focus();
+              (settings ? drawerRail.current?.querySelector<HTMLElement>("a[href]") : closeDrawerButton.current)?.focus();
             }}
             onClick={(event) => {
               closeForLinkHere(event);
@@ -638,21 +675,25 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
             }}
             className="flex w-auto max-w-[calc(100dvw-16px)] flex-row gap-0 border-0 bg-surface p-0 shadow-none sm:max-w-[calc(100dvw-16px)] md:hidden"
           >
-            <SheetTitle className="sr-only">Conversations</SheetTitle>
-            <SheetDescription className="sr-only">Rooms and direct messages</SheetDescription>
-            <div className="pt-[env(safe-area-inset-top)]">{rail}</div>
+            <SheetTitle className="sr-only">{settings ? "Navigation" : "Conversations"}</SheetTitle>
+            <SheetDescription className="sr-only">{settings ? "Ember’s pages" : "Rooms and direct messages"}</SheetDescription>
+            <div ref={drawerRail} className="pt-[env(safe-area-inset-top)]">
+              {rail}
+            </div>
             {/* As in ember-rust, the drawer leaves at least 16px of the room showing. */}
-            <aside aria-label="Conversations" className="relative w-sidebar min-w-0 overflow-hidden border-r pt-[env(safe-area-inset-top)]">
-              {/* ember-rust's .mb-sidebar-close: a 44px button clear of the status bar, first in the sidebar's tab order. */}
-              <SheetClose
-                ref={closeDrawerButton}
-                aria-label="Close conversations"
-                className="absolute top-[max(7px,env(safe-area-inset-top))] right-1 z-[2] flex size-11 items-center justify-center rounded-lg bg-surface hover:bg-hover"
-              >
-                <Close className="size-5" />
-              </SheetClose>
-              {sidebar}
-            </aside>
+            {!settings && (
+              <aside aria-label="Conversations" className="relative w-sidebar min-w-0 overflow-hidden border-r pt-[env(safe-area-inset-top)]">
+                {/* ember-rust's .mb-sidebar-close: a 44px button clear of the status bar, first in the sidebar's tab order. */}
+                <SheetClose
+                  ref={closeDrawerButton}
+                  aria-label="Close conversations"
+                  className="absolute top-[max(7px,env(safe-area-inset-top))] right-1 z-[2] flex size-11 items-center justify-center rounded-lg bg-surface hover:bg-hover"
+                >
+                  <Close className="size-5" />
+                </SheetClose>
+                {sidebar}
+              </aside>
+            )}
           </SheetContent>
 
           {page()}
@@ -678,7 +719,9 @@ export function Workspace({ me, workspaceName, version, onAccountChanged, onSign
   );
   return (
     <PeopleContext value={directory.people}>
-      <DirectoryLoaded value={directory.loaded}>{layout}</DirectoryLoaded>
+      <DirectoryLoaded value={directory.loaded}>
+        <SettingsLayout value={settings}>{layout}</SettingsLayout>
+      </DirectoryLoaded>
     </PeopleContext>
   );
 }
