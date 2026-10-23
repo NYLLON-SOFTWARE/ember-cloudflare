@@ -54,23 +54,29 @@ test.describe(feature("sidebar.live-updates"), () => {
     const ownRooms = listing([rooms.general.id, rooms.random.id]);
     let connection: { page: WebSocketRoute; server: WebSocketRoute } | undefined;
     let welcomed = false;
+    // The sidebar loads the welcome asks for. One the Workspace answered after the rename would bring the
+    // new name without the socket.
+    const reloads: Promise<unknown>[] = [];
     // What the Workspace sends while this is set is lost on the way, as it is on a connection that's dropped.
     let losing = false;
     const lost: WorkspaceServerFrame[] = [];
     const ada = await members.signIn("Ada", {
-      beforeOpen: (page) =>
-        page.routeWebSocket(WORKSPACE_SOCKET, (ws) => {
+      beforeOpen: (page) => {
+        page.on("request", (request) => void (welcomed && new URL(request.url()).pathname === "/api/sidebar" && reloads.push(request.response())));
+        return page.routeWebSocket(WORKSPACE_SOCKET, (ws) => {
           const server = connectWorkspace(ws, (frame) => {
             welcomed ||= frame.type === "welcome";
             if (losing) lost.push(frame);
             return !losing && ownRooms(frame);
           });
           connection = { page: ws, server };
-        }),
+        });
+      },
     });
     const links = ada.page.getByRole("region", { name: "Rooms" }).getByRole("link");
     await expect(links).toHaveText(["#general", "#random"]);
-    await expect.poll(() => welcomed).toBe(true);
+    await expect.poll(() => reloads.length).toBeGreaterThan(0);
+    await Promise.all(reloads);
 
     losing = true;
     const renamed = await request.patch(`/api/rooms/${rooms.random.id}`, { data: { name: "watercooler" }, headers: { Cookie: cookieHeader(session) } });
