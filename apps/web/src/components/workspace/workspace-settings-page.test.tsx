@@ -22,7 +22,7 @@ vi.mock("@/lib/previews", () => ({
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
 const asAdministrator: WorkspaceSettings = {
-  account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null },
+  account: { name: "Analytical Engines", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null },
   joinCode: JOIN_CODE,
   canAdminister: true,
 };
@@ -93,12 +93,13 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         return Response.json({ ...settings, account });
       case "PATCH /api/account": {
         if (saved) return saved();
-        const { name = account.name, settings: changed } = JSON.parse(String(init?.body)) as AccountChanges;
+        const { name = account.name, settings: changed, customDomain = account.customDomain } = JSON.parse(String(init?.body)) as AccountChanges;
         account = {
           ...account,
           name,
           hideTranslationButtons: changed?.hideTranslationButtons ?? account.hideTranslationButtons,
           restrictRoomCreation: changed?.restrictRoomCreation ?? account.restrictRoomCreation,
+          customDomain,
         };
         return Response.json({ account });
       }
@@ -481,6 +482,34 @@ describe(feature("accounts.translation-buttons"), () => {
     showPage();
     await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.custom-domain"), () => {
+  const moved: WorkspaceSettings = { ...asAdministrator, account: { ...asAdministrator.account, customDomain: "chat.example.com" } };
+
+  it("gives administrators a Custom domain section, after Hide translation buttons, saying Changes saved.", async () => {
+    serve(moved);
+    const { onAccountChanged, user } = showPage();
+    const section = await screen.findByRole("region", { name: "Custom domain" });
+    const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(following(screen.getByRole("switch", { name: "Hide translation buttons" }), section)).toBe(true);
+    expect(following(section, screen.getByRole("heading", { level: 2, name: "Rooms" }))).toBe(true);
+    expect(section).toHaveTextContent("Ember's address is chat.example.com.");
+
+    await user.click(within(section).getByRole("button", { name: "Stop using it" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
+    expect(saved()).toEqual([{ customDomain: null }]);
+    expect(onAccountChanged).toHaveBeenLastCalledWith(asAdministrator.account);
+    expect(section).toHaveTextContent(`People open Ember at ${location.host}.`);
+  });
+
+  it("isn't shown to members", async () => {
+    serve({ ...moved, canAdminister: false });
+    showPage(asLinus);
+    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
+    expect(screen.queryByRole("region", { name: "Custom domain" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/chat\.example\.com/)).not.toBeInTheDocument();
   });
 });
 

@@ -19,7 +19,7 @@ const TRANSFER_ID = "u2.mgk3x2a9.Ab-_9z";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 /** The workspace as it's set up. */
-const EMBER: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null };
+const EMBER: Account = { name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null };
 /** What the deployment's Set up Ember form suggests. */
 const PLACEHOLDERS = { name: "Grace Hopper", emailAddress: "grace@example.com" };
 const general = { id: "general", name: "general", kind: "open", icon: null };
@@ -153,8 +153,8 @@ function serve({
     if (route === "GET /api/users") return Response.json({ users: [] });
     if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null } });
     if (route === "PATCH /api/account") {
-      const { name = account.name, settings } = JSON.parse(String(init?.body)) as AccountChanges;
-      account = { ...account, name, hideTranslationButtons: settings?.hideTranslationButtons ?? account.hideTranslationButtons };
+      const { name = account.name, settings, customDomain = account.customDomain } = JSON.parse(String(init?.body)) as AccountChanges;
+      account = { ...account, name, hideTranslationButtons: settings?.hideTranslationButtons ?? account.hideTranslationButtons, customDomain };
       return Response.json({ account });
     }
     // Each read, at the level a room starts at.
@@ -453,6 +453,89 @@ describe(feature("accounts.name"), () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved.");
     expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
+  });
+});
+
+describe(feature("accounts.custom-domain"), () => {
+  const DOMAIN = "chat.example.com";
+  const MOVED: Account = { ...EMBER, customDomain: DOMAIN };
+  /** The notice in a tab left open at another address. */
+  const movedNotice = () => screen.queryByText((_, element) => element?.tagName === "P" && element.textContent === `Ember has moved to ${DOMAIN}. Go there`);
+
+  it("moves a page opened at any other address to the same page at Ember's custom domain, before showing anything", async () => {
+    history.replaceState(null, "", "/rooms/general?ref=email#top");
+    serve({ signedIn: true, account: MOVED });
+    render(<App />);
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith(`http://${DOMAIN}/rooms/general?ref=email#top`));
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+    expect(RoomSocket.all).toEqual([]);
+  });
+
+  it("moves sign-in too, so people sign in there", async () => {
+    history.replaceState(null, "", "/session/new");
+    serve({ signedIn: false, account: MOVED });
+    render(<App />);
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith(`http://${DOMAIN}/session/new`));
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+  });
+
+  it("stays at Ember's custom domain", async () => {
+    serve({ signedIn: true, account: { ...EMBER, customDomain: location.host } });
+    render(<App />);
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(loadPage).not.toHaveBeenCalled();
+    expect(movedNotice()).not.toBeInTheDocument();
+  });
+
+  it("keeps workspace settings wherever they're opened, so an administrator can stop using a domain from another address", async () => {
+    history.replaceState(null, "", "/account/edit");
+    serve({ signedIn: true, account: MOVED });
+    render(<App />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Stop using it" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved.");
+    expect(screen.getByRole("region", { name: "Custom domain" })).toHaveTextContent(`People open Ember at ${location.host}.`);
+    expect(loadPage).not.toHaveBeenCalled();
+    expect(movedNotice()).not.toBeInTheDocument();
+  });
+
+  it("tells a tab left open at another address that Ember has moved, on every page that would move", async () => {
+    WorkspaceSocket.all = [];
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serve({ signedIn: true });
+    render(<App />);
+    await roomHeading();
+    await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
+    act(() => WorkspaceSocket.all[0]!.welcome(ada));
+    expect(movedNotice()).not.toBeInTheDocument();
+    /** Gives Ember the custom domain `customDomain`, as an administrator at that address does, which the workspace socket then says. */
+    const moveTo = async (customDomain: string | null) => {
+      const { account } = (await (await fetch("/api/account", { method: "PATCH", body: JSON.stringify({ customDomain }) })).json()) as { account: Account };
+      act(() => WorkspaceSocket.all[0]!.receive({ type: "account.updated", account }));
+    };
+
+    await moveTo(DOMAIN);
+    expect(movedNotice()).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go there" })).toHaveAttribute("href", `http://${DOMAIN}/rooms/general`);
+    // Not moved from under them.
+    expect(loadPage).not.toHaveBeenCalled();
+
+    // Workspace settings stay, and say so themselves.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("link", { name: "Admin" }));
+    expect(await screen.findByRole("region", { name: "Custom domain" })).toHaveTextContent(`Ember's address is ${DOMAIN}.`);
+    expect(movedNotice()).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    await roomHeading();
+    expect(movedNotice()).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(movedNotice()).not.toBeInTheDocument();
+    // Until Ember moves again.
+    await moveTo("ember.example.org");
+    expect(screen.getByRole("link", { name: "Go there" })).toHaveAttribute("href", "http://ember.example.org/rooms/general");
+    await moveTo(null);
+    expect(screen.queryByRole("link", { name: "Go there" })).not.toBeInTheDocument();
   });
 });
 

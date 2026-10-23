@@ -29,6 +29,7 @@ import { changeAccount, changeLogo, changeRole, fetchWorkspaceSettings, isSigned
 import { logoVariantsOf } from "@/lib/previews";
 import { apart } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
+import { CustomDomainSettings } from "./custom-domain-settings";
 import { InviteLink } from "./invite-link";
 import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PeopleList } from "./people-list";
@@ -71,8 +72,8 @@ interface Props {
 /**
  * ember-rust's workspace settings (accounts/edit.html), as far as they're built: administrators change
  * the workspace's logo, which a logo picked saves at once, showing it meanwhile, and Remove logo takes
- * away, rename the workspace, show or hide the translation buttons, and have a link to the Custom CSS
- * page, and members see its logo and name. Then comes the Rooms section with New room, which members
+ * away, rename the workspace, show or hide the translation buttons, give it a custom domain, this port's
+ * own, and have a link to the Custom CSS page, and members see its logo and name. Then comes the Rooms section with New room, which members
  * don't get while only administrators can create rooms, and where administrators switch that on or off
  * and put the rooms in order for everyone. Then the join link, which administrators can regenerate, the
  * people, whom administrators can make administrators or members and remove, and "Ember™ version" at
@@ -338,6 +339,7 @@ export function WorkspaceSettingsPage({
                   aria-describedby="localization-description"
                 />
               </div>
+              <CustomDomainSettings askForAccount={askForAccount} onSaved={() => flash("notice", CHANGES_SAVED)} onFailed={onFailed} />
             </>
           ) : (
             <>

@@ -58,8 +58,11 @@ const STATUSES: readonly UserStatus[] = ["active", "deactivated", "banned"];
 /** The settings ember-rust writes out for a new account (crates/db/src/models/account.rs). */
 const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administrators: false });
 
-/** What a new account's settings and custom CSS read as: translation buttons hidden, no CSS, and anyone may create rooms. */
-export const NEW_ACCOUNT_LOOKS = { hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false } as const;
+/**
+ * What a new account's settings and custom CSS read as: translation buttons hidden, no CSS, anyone may
+ * create rooms, and no custom domain.
+ */
+export const NEW_ACCOUNT_LOOKS = { hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, customDomain: null } as const;
 
 /**
  * The workspace's account as the Workspace keeps it: as every page shows it, but for its logo's address,
@@ -79,8 +82,8 @@ export interface NewAccount {
   joinCode: string;
 }
 
-/** What `WorkspaceStore.changeAccount` changes: the name, and the settings workspace settings' switches change. */
-export type AccountChange = Partial<Pick<Account, "name" | "hideTranslationButtons" | "restrictRoomCreation">>;
+/** What `WorkspaceStore.changeAccount` changes: the name, the settings workspace settings' switches change, and the custom domain. */
+export type AccountChange = Partial<Pick<Account, "name" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain">>;
 
 /** Someone who signs in with an email address and password: first run's administrator, or someone who joins. */
 export interface NewPerson {
@@ -214,6 +217,12 @@ export type RoomEventDeliveries = Pick<AppliedEvents, "pushes" | "webhooks">;
 export interface MessagePush {
   payload: PushPayload;
   deliveries: PushDelivery[];
+}
+
+/** The browser saving a push subscription: its user agent, if it sent one, and the host it saved it at. */
+export interface SavingBrowser {
+  userAgent: string | null;
+  host: string;
 }
 
 /** One of someone's push subscriptions, with the user agent of the browser that saved it, if it sent one. */
@@ -386,6 +395,9 @@ function hidesTranslationButtons(settings: Record<string, unknown> | null): bool
  * (account.rs, `restrict_room_creation_to_administrators`): only while the setting is present.
  */
 const restrictsRoomCreation = (settings: Record<string, unknown> | null) => isPresent(settings?.restrict_room_creation_to_administrators);
+
+/** The account's custom domain, which its settings keep as `custom_domain`, ember-rust having none, or null while it has none. */
+const customDomainIn = (settings: Record<string, unknown> | null) => (typeof settings?.custom_domain === "string" ? settings.custom_domain : null);
 
 interface RoomToChangeRow extends SharedRoom {
   can_administer: number;
@@ -785,6 +797,7 @@ const setSetting = (key: string) => `UPDATE accounts SET settings = json_set(
   ), updated_at = ?2`;
 const SET_HIDE_TRANSLATION_BUTTONS = setSetting("hide_translation_buttons");
 const SET_RESTRICT_ROOM_CREATION = setSetting("restrict_room_creation_to_administrators");
+const SET_CUSTOM_DOMAIN = setSetting("custom_domain");
 
 /** Saves the workspace's custom CSS as typed and records when, unless it's that already. */
 const CHANGE_CUSTOM_STYLES = `UPDATE accounts SET custom_styles = ?1, updated_at = ?2 WHERE custom_styles IS NOT ?1`;
@@ -985,17 +998,26 @@ const RECENT_SEARCHES_FOR_USER = `SELECT query FROM searches WHERE user_id = ? O
 
 /**
  * Saves a browser's push subscription for someone, as ember-rust's `push_subscriptions#create` does,
- * with its user agent, or, when they've saved one at the same endpoint before, records that it was
- * saved again, as ember-rust touches it, with the keys and user agent it has now. ember-rust adds
- * another for keys that differ, which each message then pushes to as well. It saves nothing once their
- * session ?7, which was checked first, has ended, answering a row only if it saves: on D1 a password
- * reset can end the session in between, and a subscription saved after would outlive it.
+ * with its user agent and the host ?8 it was saved at, or, when they've saved one at the same endpoint
+ * before, records that it was saved again, as ember-rust touches it, with the keys, user agent and host
+ * it has now. ember-rust adds another for keys that differ, which each message then pushes to as well.
+ * It saves nothing once their session ?7, which was checked first, has ended, answering a row only if it
+ * saves: on D1 a password reset can end the session in between, and a subscription saved after would
+ * outlive it.
  */
-const SAVE_PUSH_SUBSCRIPTION = `INSERT INTO push_subscriptions (user_id, endpoint, p256dh_key, auth_key, user_agent, created_at, updated_at)
-  SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6 WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?7 AND user_id = ?1)
+const SAVE_PUSH_SUBSCRIPTION = `INSERT INTO push_subscriptions (user_id, endpoint, p256dh_key, auth_key, user_agent, host, created_at, updated_at)
+  SELECT ?1, ?2, ?3, ?4, ?5, ?8, ?6, ?6 WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?7 AND user_id = ?1)
   ON CONFLICT (user_id, endpoint) DO UPDATE SET p256dh_key = excluded.p256dh_key, auth_key = excluded.auth_key,
-    user_agent = excluded.user_agent, updated_at = excluded.updated_at
+    user_agent = excluded.user_agent, host = excluded.host, updated_at = excluded.updated_at
   RETURNING id`;
+
+/**
+ * Forgets the subscriptions someone, ?1, saved at hosts other than Ember's custom domain, ?3, with the
+ * user agent ?2, as they save one there in session ?4, if it hasn't ended: the same browser's at the
+ * address Ember had before, which would have every push come twice. Their other browsers' stay.
+ */
+const FORGET_PUSH_SUBSCRIPTIONS_ELSEWHERE = `DELETE FROM push_subscriptions WHERE user_id = ?1 AND user_agent = ?2 AND host IS NOT ?3
+  AND EXISTS (SELECT 1 FROM sessions WHERE id = ?4 AND user_id = ?1)`;
 
 /**
  * Forgets someone's push subscriptions past the ?2 they saved most recently, which ember-rust never
@@ -1188,17 +1210,19 @@ export class WorkspaceStore {
       hideTranslationButtons: hidesTranslationButtons(settings),
       customStyles: row.custom_styles ?? "",
       restrictRoomCreation: restrictsRoomCreation(settings),
+      customDomain: customDomainIn(settings),
       updatedAt: row.updated_at,
       storedLogo: row.logo_key === null ? null : { key: row.logo_key, variant: row.logo_variant },
     };
   }
 
-  /** Changes the workspace's name and settings, as `change` has them, in one batch. */
-  async changeAccount({ name, hideTranslationButtons, restrictRoomCreation }: AccountChange, now: string): Promise<void> {
+  /** Changes the workspace's name, settings and custom domain, as `change` has them, in one batch. */
+  async changeAccount({ name, hideTranslationButtons, restrictRoomCreation, customDomain }: AccountChange, now: string): Promise<void> {
     await this.db.batch([
       ...(name === undefined ? [] : [statement(RENAME_ACCOUNT, name, now)]),
       ...(hideTranslationButtons === undefined ? [] : [statement(SET_HIDE_TRANSLATION_BUTTONS, JSON.stringify(hideTranslationButtons), now)]),
       ...(restrictRoomCreation === undefined ? [] : [statement(SET_RESTRICT_ROOM_CREATION, JSON.stringify(restrictRoomCreation), now)]),
+      ...(customDomain === undefined ? [] : [statement(SET_CUSTOM_DOMAIN, JSON.stringify(customDomain), now)]),
     ]);
   }
 
@@ -1606,19 +1630,25 @@ export class WorkspaceStore {
   }
 
   /**
-   * Saves a browser's push subscription for someone, with its user agent, or records that they saved it
-   * again, and forgets theirs past the `MAX_PUSH_SUBSCRIPTIONS` saved most recently. Answers whether it
-   * saved it, which it doesn't once their session `sessionId` has ended.
+   * Saves a browser's push subscription for someone, with its user agent and the host it was saved at,
+   * or records that they saved it again, and forgets theirs past the `MAX_PUSH_SUBSCRIPTIONS` saved most
+   * recently. Saved at Ember's custom domain, `customDomain`, it forgets the ones a browser with the same
+   * user agent saved at other hosts. Answers whether it saved it, which it doesn't once their session
+   * `sessionId` has ended.
    */
   async savePushSubscription(
     userId: UserId,
     sessionId: string,
     { endpoint, p256dhKey, authKey }: PushSubscriptionKeys,
-    userAgent: string | null,
+    { userAgent, host }: SavingBrowser,
+    customDomain: string | null,
     now: string,
   ): Promise<boolean> {
+    // A browser that sends no user agent can't be told apart from the person's others.
+    const replacing = userAgent !== null && host === customDomain;
     const [saved] = await this.db.batch([
-      statement(SAVE_PUSH_SUBSCRIPTION, userId, endpoint, p256dhKey, authKey, userAgent, now, sessionId),
+      statement(SAVE_PUSH_SUBSCRIPTION, userId, endpoint, p256dhKey, authKey, userAgent, now, sessionId, host),
+      ...(replacing ? [statement(FORGET_PUSH_SUBSCRIPTIONS_ELSEWHERE, userId, userAgent, host, sessionId)] : []),
       statement(TRIM_PUSH_SUBSCRIPTIONS, userId, MAX_PUSH_SUBSCRIPTIONS),
     ]);
     return saved!.length > 0;

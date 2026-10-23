@@ -108,7 +108,7 @@ describe(feature("accounts.qr-codes"), () => {
 describe(feature("accounts.translation-buttons"), () => {
   it("has a translation button for its invitation once an administrator shows them", () => {
     render(
-      <AccountContext value={{ name: "Ember", hideTranslationButtons: false, customStyles: "", restrictRoomCreation: false, logo: null }}>
+      <AccountContext value={{ name: "Ember", hideTranslationButtons: false, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null }}>
         <InvitationCard joinCode={JOIN_CODE} />
       </AccountContext>,
     );
@@ -121,7 +121,7 @@ describe(feature("accounts.logo"), () => {
   it("shows the workspace's logo in place of Ember's flame, as ember-rust's welcome card does", () => {
     const logo = "/account/logo?v=20261017120000";
     render(
-      <AccountContext value={{ name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo }}>
+      <AccountContext value={{ name: "Ember", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo, customDomain: null }}>
         <InvitationCard joinCode={JOIN_CODE} />
       </AccountContext>,
     );
