@@ -98,17 +98,18 @@ interface SentToMemberful {
 
 /**
  * Stands in for the Memberful site: its token endpoint gives an access token for `CODE` sent with the
- * app's keys, and its member API describes `site.member`, which a test can change, to that token. Its
- * admin API describes `site.member` and `site.others` by their ids to the app's API key, as they were when
- * it was asked, once `site.held` settles, or answers 502 if `site.down` was set then. Either fails to
- * describe the members whose ids are in `site.failing`, answering as GraphQL answers a field that failed:
- * null, with an error saying where. What it's sent goes in `site.requests`.
+ * app's keys, and its member API describes `site.member`, which a test can change, to that token, once
+ * `site.signInHeld` settles. Its admin API describes `site.member` and `site.others` by their ids to the
+ * app's API key, as they were when it was asked, once `site.held` settles, or answers 502 if `site.down`
+ * was set then. Either fails to describe the members whose ids are in `site.failing`, answering as GraphQL
+ * answers a field that failed: null, with an error saying where. What it's sent goes in `site.requests`.
  */
 function fakeMemberful(member: Partial<MemberfulMember> | null = {}) {
   const site = {
     member: member && { ...katherine, ...member },
     others: [] as MemberfulMember[],
     held: Promise.resolve(),
+    signInHeld: Promise.resolve(),
     down: false,
     failing: [] as string[],
     requests: [] as SentToMemberful[],
@@ -130,6 +131,7 @@ function fakeMemberful(member: Partial<MemberfulMember> | null = {}) {
       return Response.json({ access_token: ACCESS_TOKEN, token_type: "bearer", expires_in: 900, refresh_token: "a-refresh-token" });
     }
     if (url.origin === SITE && url.pathname === "/api/graphql/member" && request.headers.get("Authorization") === `Bearer ${ACCESS_TOKEN}`) {
+      await site.signInHeld;
       if (site.member && site.failing.includes(site.member.id)) {
         const error = { message: "Internal server error", path: ["currentMember", "subscriptions"] };
         return Response.json({ data: { currentMember: { ...site.member, subscriptions: null } }, errors: [error] });
@@ -1495,6 +1497,22 @@ describe(feature("auth.memberful-connect"), () => {
       await runInDurableObject(workspaceStub(), (workspace: Workspace) => workspace.resetPassword(grace.emailAddress, "recovery digest"));
       expect(await count("pending_identities")).toBe(0);
       expect(locationOf(await finish(before))).toBe(backToSignIn("failed"));
+      expect(await identities()).toEqual([]);
+    });
+
+    it("connects nothing once the password that started it is reset while Memberful is asked who signed in", async () => {
+      const { member } = await setUpWithGrace();
+      const site = fakeMemberful(gracesAccount);
+      const started = await connectionOf(await connect(member, { currentPassword: grace.password }));
+      const answered = Promise.withResolvers<void>();
+      site.signInHeld = answered.promise;
+      const finishing = finish(started);
+      // The callback has taken the connection by now, so the reset has none to forget.
+      await vi.waitFor(() => expect(site.requests.some(({ url }) => new URL(url).pathname === "/api/graphql/member")).toBe(true));
+      expect(await count("pending_identities")).toBe(0);
+      await runInDurableObject(workspaceStub(), (workspace: Workspace) => workspace.resetPassword(grace.emailAddress, "recovery digest"));
+      answered.resolve();
+      expect(locationOf(await finishing)).toBe(backToSignIn("refused"));
       expect(await identities()).toEqual([]);
     });
 

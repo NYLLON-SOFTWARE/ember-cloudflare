@@ -59,6 +59,7 @@ import {
   type AvatarOwner,
   type BotWebhook,
   type Client,
+  type Connecting,
   type DirectoryEntry,
   type JoinableAccount,
   type LinkedPerson,
@@ -690,14 +691,16 @@ export class Workspace extends DurableObject<Env> {
    * (`auth.memberful-connect`), so that each is good for one try, whatever comes of it: "limited" past the
    * limit, "expired" for a connection taken already, forgotten, or started more than ten minutes ago, or
    * else when it began by the Workspace's clock, which what Memberful then says of the membership of
-   * whoever signed in is no older than, and whose account it connects, if anyone's.
+   * whoever signed in is no older than, and whose account it connects, if anyone's, with the password
+   * that started it.
    */
-  async beginMemberfulSignIn(ip: string, connection: string | null): Promise<"limited" | "expired" | { begunAt: number; connecting: UserId | null }> {
+  async beginMemberfulSignIn(ip: string, connection: string | null): Promise<"limited" | "expired" | { begunAt: number; connecting: Connecting | null }> {
     const taken = connection === null ? null : await this.store.takeConnection(connection);
     if (!this.signInAttempts.attempt(ip)) return "limited";
     const begunAt = Date.now();
     if (connection === null) return { begunAt, connecting: null };
-    return taken && taken.startedAt >= begunAt - MEMBERFUL_ROUND_TRIP_MS ? { begunAt, connecting: taken.userId } : "expired";
+    if (!taken || taken.startedAt < begunAt - MEMBERFUL_ROUND_TRIP_MS) return "expired";
+    return { begunAt, connecting: { userId: taken.userId, passwordDigest: taken.passwordDigest } };
   }
 
   /** Whose password `emailAddress` signs in with, and its digest as kept now, for a sign-in that found the one it checked replaced. */
@@ -844,24 +847,28 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Connects the account of `member`, who signed in to the Memberful site `issuer`, to the account here of
-   * `userId`, who started connecting one (`auth.memberful-connect`), and signs them in with the session
-   * their cookie's token opens, `tokenDigest`, unless it's null, as it is when the browser is signed in as
-   * them already, which answers "connected". Only its owner here connects an account there, which is never
-   * matched by email address. A member needs an active membership to connect one, as to sign in with it,
-   * which an administrator doesn't, and an account connected to them already signs them in as signing in
-   * with it does, going by what Memberful said of its membership as of `readAt` (`settleMembership`).
-   * Answers "off" unless members sign in with Memberful, "claimed" for an account connected to someone
-   * else, "another" when they're connected to another account at the site, "membership" for a member
-   * without an active membership, and "refused" when they've been removed or banned.
+   * the person `connecting` is for, who started connecting one (`auth.memberful-connect`), and signs them
+   * in with the session their cookie's token opens, `tokenDigest`, unless it's null, as it is when the
+   * browser is signed in as them already, which answers "connected". Only its owner here connects an
+   * account there, which is never matched by email address, and only while the password that started it
+   * is theirs still, so that a new one, as a reset gives someone whose account was taken over, ends a
+   * connection on its way as it ends their sessions. A member needs an active membership to connect one,
+   * as to sign in with it, which an administrator doesn't, and an account connected to them already signs
+   * them in as signing in with it does, going by what Memberful said of its membership as of `readAt`
+   * (`settleMembership`). Answers "off" unless members sign in with Memberful, "claimed" for an account
+   * connected to someone else, "another" when they're connected to another account at the site,
+   * "membership" for a member without an active membership, and "refused" when they've been removed or
+   * banned, or their password has changed.
    */
   async connectMemberful(
     issuer: string,
     member: MemberfulMember,
     readAt: number,
-    userId: UserId,
+    connecting: Connecting,
     tokenDigest: string | null,
     client: Client,
   ): Promise<Me | "connected" | MemberfulRefusal> {
+    const { userId } = connecting;
     // One at a time, as signing in with Memberful is, so that two can't connect the same account.
     return this.closingSockets(async () => {
       if (!(await this.joinableAccount())?.memberfulSignIn) return "off";
@@ -876,7 +883,7 @@ export class Workspace extends DurableObject<Env> {
         if (!person) return "refused";
         if (person.subject !== null) return "another";
         if (!person.administrator && !member.subscribed) return "membership";
-        if (!(await this.store.connectIdentity(userId, issuer, member.id, readAt, new Date().toISOString()))) return "refused";
+        if (!(await this.store.connectIdentity(connecting, issuer, member.id, readAt, new Date().toISOString()))) return "refused";
       }
       if (tokenDigest === null) return "connected";
       // On D1 a role change can overlap it, so it's remembered only if none did.

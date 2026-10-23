@@ -457,10 +457,13 @@ search index. On top of that schema it adds indexes and query changes for speed.
   would need no migration. People who sign in this way have no `password_digest`. Someone with an
   account from before connects one once their password checks out (`auth.memberful-connect`):
   `pending_identities` (workspace migration 0039) keeps the connection's OAuth state, as its HMAC under
-  SESSION_SECRET, and whose account it's for, for ten minutes, and the callback takes the row with
-  `DELETE … RETURNING` before Memberful is asked anything, so each is good for one try. A new password
-  deletes that person's rows. Connecting inserts the identity, which `identities`' unique indexes
-  guard, one at a time with sign-ins, then starts a session unless the browser is signed in as them.
+  SESSION_SECRET, whose account it's for, and the digest of the password that checked out, for ten
+  minutes, and the callback takes the row with `DELETE … RETURNING` before Memberful is asked
+  anything, so each is good for one try. A new password deletes that person's rows, and the identity
+  is inserted only while `users.password_digest` is still the one the row kept, so a new password
+  while the callback waits on Memberful connects nothing either. That insert, which `identities`'
+  unique indexes guard, runs one at a time with sign-ins, then a session starts unless the browser
+  is signed in as them.
 - **Memberships are asked about, not taken from webhooks.** ember-rust has no memberships. Memberful
   sends its webhooks in no particular order, so one only queues a check of a linked member in
   `membership_checks` (workspace migration 0038), keyed by issuer and subject, as `identities` is,

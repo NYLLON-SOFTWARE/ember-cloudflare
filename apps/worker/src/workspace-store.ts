@@ -147,6 +147,12 @@ export interface NewLinkedPerson {
   emailAddress: string | null;
 }
 
+/** Whose account connecting one elsewhere is for, and the digest of the password that checked out to start it, or "" without one. */
+export interface Connecting {
+  userId: UserId;
+  passwordDigest: string;
+}
+
 /** The person an account elsewhere is linked to, as signing in with it finds them. */
 export interface LinkedPerson {
   userId: UserId;
@@ -384,10 +390,11 @@ const CONNECTABLE = `users.status = ${ACTIVE} AND users.guest = 0 AND users.role
 /**
  * Keeps the state digest ?1, started at ?2, for connecting the account of person ?3 to one at issuer ?5,
  * if they can connect one, their password's digest is still ?4, or "" without one, as it was checked, and
- * they aren't connected to an account there already.
+ * they aren't connected to an account there already. It keeps that digest too, which connecting needs to
+ * be theirs still.
  */
-const START_CONNECTION = `INSERT INTO pending_identities (state_digest, user_id, created_at)
-  SELECT ?1, id, ?2 FROM users WHERE id = ?3 AND ${CONNECTABLE} AND coalesce(password_digest, '') = ?4
+const START_CONNECTION = `INSERT INTO pending_identities (state_digest, user_id, password_digest, created_at)
+  SELECT ?1, id, ?4, ?2 FROM users WHERE id = ?3 AND ${CONNECTABLE} AND coalesce(password_digest, '') = ?4
     AND NOT EXISTS (SELECT 1 FROM identities WHERE identities.user_id = users.id AND identities.issuer = ?5)
   RETURNING user_id`;
 
@@ -396,9 +403,13 @@ const CONNECTING_PERSON = `SELECT users.role = ${ADMINISTRATOR} AS administrator
     (SELECT subject FROM identities WHERE identities.user_id = users.id AND identities.issuer = ?2) AS subject
   FROM users WHERE id = ?1 AND ${CONNECTABLE}`;
 
-/** Links the account at issuer ?1 with subject ?2, its membership read at ?3, to person ?5 at ?4, if they can have one connected. */
+/**
+ * Links the account at issuer ?1 with subject ?2, its membership read at ?3, to person ?5 at ?4, if they
+ * can have one connected and their password's digest is still ?6, or "" without one, as it was when they
+ * started connecting it.
+ */
 const CONNECT_IDENTITY = `INSERT INTO identities (issuer, subject, user_id, checked_at, created_at, updated_at)
-  SELECT ?1, ?2, id, ?3, ?4, ?4 FROM users WHERE id = ?5 AND ${CONNECTABLE}
+  SELECT ?1, ?2, id, ?3, ?4, ?4 FROM users WHERE id = ?5 AND ${CONNECTABLE} AND coalesce(password_digest, '') = ?6
   RETURNING user_id`;
 
 /**
@@ -1512,13 +1523,16 @@ export class WorkspaceStore {
     return started!.length > 0;
   }
 
-  /** Takes the connection `stateDigest` started, if it started one, for good, answering whose it is and when it was started. */
-  async takeConnection(stateDigest: string): Promise<{ userId: UserId; startedAt: number } | null> {
-    const [row] = await this.db.all<{ user_id: UserId; created_at: number }>(
-      `DELETE FROM pending_identities WHERE state_digest = ? RETURNING user_id, created_at`,
+  /**
+   * Takes the connection `stateDigest` started, if it started one, for good, answering whose it is, the
+   * digest of the password that started it, and when it was started.
+   */
+  async takeConnection(stateDigest: string): Promise<(Connecting & { startedAt: number }) | null> {
+    const [row] = await this.db.all<{ user_id: UserId; password_digest: string; created_at: number }>(
+      `DELETE FROM pending_identities WHERE state_digest = ? RETURNING user_id, password_digest, created_at`,
       stateDigest,
     );
-    return row ? { userId: row.user_id, startedAt: row.created_at } : null;
+    return row ? { userId: row.user_id, passwordDigest: row.password_digest, startedAt: row.created_at } : null;
   }
 
   /**
@@ -1532,12 +1546,13 @@ export class WorkspaceStore {
   }
 
   /**
-   * Links the account elsewhere that `issuer` and `subject` name to `userId`, its membership read at
-   * `checkedAt`, unless they've stopped being able to have one connected. Whether it's linked. A unique
-   * index refuses it for an account linked to anyone already, or a second account of theirs at `issuer`.
+   * Links the account elsewhere that `issuer` and `subject` name to the person `connecting` is for, its
+   * membership read at `checkedAt`, unless they've stopped being able to have one connected, or their
+   * password has changed since it checked out. Whether it's linked. A unique index refuses it for an
+   * account linked to anyone already, or a second account of theirs at `issuer`.
    */
-  async connectIdentity(userId: UserId, issuer: string, subject: string, checkedAt: number, now: string): Promise<boolean> {
-    return (await this.db.all(CONNECT_IDENTITY, issuer, subject, checkedAt, now, userId)).length > 0;
+  async connectIdentity({ userId, passwordDigest }: Connecting, issuer: string, subject: string, checkedAt: number, now: string): Promise<boolean> {
+    return (await this.db.all(CONNECT_IDENTITY, issuer, subject, checkedAt, now, userId, passwordDigest)).length > 0;
   }
 
   /** Whether anyone has exactly this email address, whatever their status. */

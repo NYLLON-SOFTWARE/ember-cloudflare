@@ -186,7 +186,7 @@ async function signedInWithMemberful(request: Request, env: Env): Promise<Respon
   const digest = await tokenDigest(token, env.SESSION_SECRET);
   const { connecting, begunAt } = begun;
   // A browser signed in as whoever is connecting stays signed in as it is.
-  const staying = connecting !== null && signedIn?.user.id === connecting;
+  const staying = connecting !== null && signedIn?.user.id === connecting.userId;
   const user =
     connecting === null
       ? await workspace(env).signInWithMemberful(keys.site, member, begunAt, digest, clientOf(request))
