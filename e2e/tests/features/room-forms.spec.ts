@@ -22,15 +22,16 @@ async function canSee(request: APIRequestContext, session: Session, roomId: stri
 }
 
 test.describe(feature("rooms.create-open"), () => {
-  test("makes an open room from workspace settings, opens it, and lets everyone in", async ({ members, request }) => {
+  test("makes an open room from Rooms and permissions, opens it, and lets everyone in", async ({ members, request }) => {
     const ada = await members.signIn("Ada");
     const rail = ada.page.getByRole("navigation", { name: "Workspace" });
     await expect(rail.getByRole("link", { name: "Home", exact: true })).toHaveAttribute("aria-current", "page");
     await rail.getByRole("link", { name: "Workspace" }).click();
     await expect(ada.page).toHaveURL(/\/account\/edit$/);
-    await expect(ada.page).toHaveTitle("Account settings");
+    await expect(ada.page).toHaveTitle("Community settings");
     await expect(rail.getByRole("link", { name: "Workspace" })).toHaveAttribute("aria-current", "page");
 
+    await ada.page.getByRole("navigation", { name: "Community settings" }).getByRole("link", { name: "Rooms and permissions" }).click();
     await ada.page.getByRole("link", { name: "New room" }).click();
     await expect(ada.page).toHaveURL(/\/rooms\/opens\/new$/);
     await expect(ada.page).toHaveTitle("New chat room");
@@ -42,7 +43,7 @@ test.describe(feature("rooms.create-open"), () => {
     const name = unique("Design");
     await roomName.fill(name);
     await roomName.press("Enter");
-    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText(name);
+    await expect(ada.page.getByRole("heading", { level: 1, name, exact: true })).toBeVisible();
     await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name })).toHaveAttribute("aria-current", "page");
     await ada.connected();
     expect(await canSee(request, await createSession(request, "Grace"), roomIdOf(ada))).toBe(true);
@@ -67,7 +68,7 @@ test.describe(feature("rooms.create-closed"), () => {
     await graceSwitch.click();
     await ada.page.getByRole("button", { name: "Save" }).click();
 
-    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText(name);
+    await expect(ada.page.getByRole("heading", { level: 1, name, exact: true })).toBeVisible();
     await ada.connected();
     const roomId = roomIdOf(ada);
     expect(await canSee(request, grace, roomId)).toBe(true);
@@ -88,15 +89,16 @@ test.describe(feature("rooms.settings-page"), () => {
     await expect(page).toHaveURL(new RegExp(`/rooms/opens/${rooms.general.id}/edit$`));
     await expect(page).toHaveTitle("Edit settings for general");
     await expect(page.getByRole("heading", { level: 1, name: "Room settings" })).toBeVisible();
-    // A room's settings are no rail link's page.
-    await expect(page.getByRole("navigation", { name: "Workspace" }).locator("[aria-current=page]")).toHaveCount(0);
+    // A room's settings are part of community settings, as ember-rust's pull request #24 lays them out.
+    await expect(page.getByRole("navigation", { name: "Workspace" }).locator("[aria-current=page]")).toHaveAccessibleName("Workspace");
+    await expect(page.getByRole("navigation", { name: "Community settings" }).locator("[aria-current=page]")).toHaveText("Rooms and permissions");
 
     const roomName = page.getByRole("textbox", { name: "Room name" });
     await expect(roomName).toHaveValue("general");
     await roomName.fill("lobby");
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("lobby");
+    await expect(page.getByRole("heading", { level: 1, name: "lobby", exact: true })).toBeVisible();
     await expect(page.getByRole("region", { name: "Rooms" }).getByRole("link")).toHaveText(["#lobby", "#random"]);
 
     await page.reload();
@@ -105,7 +107,7 @@ test.describe(feature("rooms.settings-page"), () => {
 });
 
 test.describe(feature("rooms.edit-permissions"), () => {
-  test("shows other members a room's settings with nothing to change them with", async ({ members, rooms }) => {
+  test("shows other members a room's settings with nothing to change them with", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.page.getByRole("link", { name: "Settings for this room" }).click();
     await expect(ada.page.getByRole("heading", { level: 2, name: "general" })).toBeVisible();
@@ -113,9 +115,10 @@ test.describe(feature("rooms.edit-permissions"), () => {
     await expect(ada.page.getByRole("textbox", { name: "Room name" })).toHaveCount(0);
     await expect(ada.page.getByRole("button", { name: "Save" })).toHaveCount(0);
 
+    // Back to Rooms and permissions, as ember-rust's pull request #24 links it.
     await ada.page.getByRole("link", { name: "Go Back" }).click();
-    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
-    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
+    await expect(ada.page).toHaveURL(/\/account\/edit#channel-settings$/);
+    await expect(ada.page.getByText("Community admins manage room order and permissions.")).toBeVisible();
   });
 
   test("goes home with an alert from the settings of a room you aren't in", async ({ members, request, rooms }) => {
@@ -126,7 +129,7 @@ test.describe(feature("rooms.edit-permissions"), () => {
     await expect(ada.page.getByRole("alert")).toHaveText("Room not found or inaccessible");
     // Home, which is the room they were in.
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
-    await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
+    await expect(ada.page.getByRole("heading", { level: 1, name: "general", exact: true })).toBeVisible();
   });
 });
 
@@ -347,7 +350,7 @@ test.describe(feature("rooms.unsaved-changes"), () => {
     await expect(picker).toBeHidden();
     await unsaved(page).getByRole("button", { name: "Discard" }).click();
     await expect(page).toHaveURL(at(`/rooms/${rooms.general.id}`));
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
+    await expect(page.getByRole("heading", { level: 1, name: "general", exact: true })).toBeVisible();
     await page.evaluate(() => history.forward());
     await expect(page).toHaveURL(at(closedPath));
     await expect(name).toHaveValue("general");
@@ -414,6 +417,9 @@ test.describe(feature("rooms.unsaved-changes"), () => {
     await page.unroute(room);
     await unsaved(page).getByRole("button", { name: "Save" }).click();
     await expect(page).toHaveURL(/\/account\/edit$/);
+    // Back in a room, the sidebar has it no more.
+    await page.getByRole("link", { name: "Go Back" }).click();
+    await expect(page.getByRole("region", { name: "Rooms" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: leads.name })).toHaveCount(0);
     expect(await canSee(request, ada.session, leads.id)).toBe(false);
     expect(await canSee(request, grace, leads.id)).toBe(true);

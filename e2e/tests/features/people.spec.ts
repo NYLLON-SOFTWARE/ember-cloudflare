@@ -113,8 +113,14 @@ test.describe(feature("users.avatar-links"), () => {
     const { page } = ada;
     const toGrace = (scope: Locator) => scope.getByRole("link", { name: grace.user.name, exact: true });
 
-    await page.goto("/account/edit");
+    await page.goto("/account/edit#membership-settings");
     await expect(toGrace(page.getByRole("main"))).toHaveAttribute("href", `/users/${grace.user.id}`);
+    // Go Back from their page returns to the people list, rather than the first section of settings.
+    await toGrace(page.getByRole("main")).click();
+    await expect(heading(page)).toHaveText(grace.user.name);
+    await page.getByRole("link", { name: "Go Back" }).click();
+    await expect(page).toHaveURL(/\/account\/edit#membership-settings$/);
+    await expect(toGrace(page.getByRole("region", { name: "Membership" }))).toBeVisible();
 
     await page.goto(`/rooms/opens/${rooms.general.id}/edit`);
     await expect(toGrace(page.getByRole("main"))).toHaveAttribute("href", `/users/${grace.user.id}`);

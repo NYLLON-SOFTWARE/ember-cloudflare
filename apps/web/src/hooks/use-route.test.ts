@@ -143,6 +143,13 @@ describe(feature("accounts.settings-page"), () => {
   it("has workspace settings at /account/edit", () => {
     expect(routeOf("/account/edit")).toEqual({ page: "workspace-settings" });
   });
+
+  it("goes back to the section of community settings someone's page was opened from, which a referrer leaves out", () => {
+    history.replaceState(null, "", "/account/edit#membership-settings");
+    const { result } = renderHook(() => useBackPath());
+    act(() => navigate("/users/u2"));
+    expect(result.current).toBe("/account/edit#membership-settings");
+  });
 });
 
 describe(feature("users.profile"), () => {
@@ -179,6 +186,8 @@ describe(feature("users.profile"), () => {
     const { result } = renderHook(() => useBackPath());
     expect(result.current).toBe("/");
     act(() => history.replaceState({ position: 0, from: "/users/me/profile" }, "", "/users/me/profile"));
+    expect(renderHook(() => useBackPath()).result.current).toBe("/");
+    act(() => history.replaceState({ position: 0, from: "/users/me/profile#bio" }, "", "/users/me/profile"));
     expect(renderHook(() => useBackPath()).result.current).toBe("/");
   });
 });

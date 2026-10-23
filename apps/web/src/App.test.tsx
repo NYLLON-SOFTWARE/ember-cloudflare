@@ -400,20 +400,22 @@ describe(feature("accounts.name"), () => {
     expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
   });
 
-  it("renames the workspace from its settings, and the rail and sidebar take the new name", async () => {
+  it("renames the workspace from its settings, and the rail takes the new name, and the sidebar back in a room", async () => {
     history.replaceState(null, "", "/account/edit");
     serve({ signedIn: true });
     render(<App />);
     const user = userEvent.setup();
-    const name = await screen.findByRole("textbox", { name: "Workspace name" });
+    const name = await screen.findByRole("textbox", { name: "Community name" });
     expect(name).toHaveValue("Ember");
     await user.clear(name);
     await user.type(name, "Analytical Engines{Enter}");
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved.");
-    expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
     expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("aria-current", "page");
+    // Community settings take the sidebar's place.
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    expect(await screen.findByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
   });
 
   it("keeps a name the workspace socket says over settings asked for before it said so, which may be older", async () => {
@@ -429,8 +431,7 @@ describe(feature("accounts.name"), () => {
     sendSettings();
 
     // The field too, which follows the workspace until it's typed in.
-    await waitFor(() => expect(screen.getByRole("textbox", { name: "Workspace name" })).toHaveValue("Analytical Engines"));
-    expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Community name" })).toHaveValue("Analytical Engines"));
     expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
   });
 
@@ -443,7 +444,7 @@ describe(feature("accounts.name"), () => {
     await waitFor(() => expect(WorkspaceSocket.all).toHaveLength(1));
     act(() => WorkspaceSocket.all[0]!.welcome(ada));
     const user = userEvent.setup();
-    const name = await screen.findByRole("textbox", { name: "Workspace name" });
+    const name = await screen.findByRole("textbox", { name: "Community name" });
     await waitFor(() => expect(name).toHaveValue("Ember"));
     await user.clear(name);
     await user.type(name, "Difference Engines{Enter}");
@@ -452,7 +453,6 @@ describe(feature("accounts.name"), () => {
     answerSave();
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved.");
-    expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ember home" })).toHaveAttribute("title", "Analytical Engines");
   });
 });
@@ -486,7 +486,9 @@ describe(feature("accounts.tagline"), () => {
     await user.type(await screen.findByRole("textbox", { name: "Tagline" }), `${TAGLINE}{Enter}`);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved.");
-    expect(sidebarHeading()).toHaveTextContent(`Ember${TAGLINE}`);
+    // Community settings take the sidebar's place.
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    await waitFor(() => expect(sidebarHeading()).toHaveTextContent(`Ember${TAGLINE}`));
   });
 });
 

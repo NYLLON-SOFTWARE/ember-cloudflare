@@ -7,6 +7,7 @@ import { Trash } from "@/components/icons/campfire";
 import { ApiError, changeRoom, deleteRoom, fetchRoomSettings, isSignedOut } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
+import { workspaceSectionPath } from "./settings-navigation";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { UnsavedChanges } from "./unsaved-changes";
 
@@ -25,8 +26,6 @@ interface Props {
   /** Which of the two forms the address names. */
   access: Access;
   me: User;
-  /** Where Go Back goes: the last room visited, as ember-rust's `link_back_to_last_room_visited` has it. */
-  back: string;
   /**
    * Called as the room is saved or deleted, with what lists it, for the sidebar, as the server answers:
    * as saved, or gone once it's saved without this person, or deleted. The page then shows the room, or
@@ -46,7 +45,7 @@ interface Props {
  * whose switches are on; under the form, they can delete it. Leaving with changes asks first. Everyone
  * else sees its name and people, in the form for the room's kind.
  */
-export function RoomSettingsPage({ roomId, access, me, back, askForRoom, onMissing, onFailed }: Props) {
+export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, onFailed }: Props) {
   const [settings, setSettings] = useState<RoomSettings | null>(null);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<RoomIconName | null>(null);
@@ -146,7 +145,8 @@ export function RoomSettingsPage({ roomId, access, me, back, askForRoom, onMissi
   // The Everyone switch moves between the room's two forms, keeping the draft.
   const stays = useCallback((path: string) => path === roomSettingsPath("open", roomId) || path === roomSettingsPath("closed", roomId), [roomId]);
   return (
-    <SettingsPage back={back}>
+    // Go Back returns to Rooms and permissions, as ember-rust's pull request #24 links it.
+    <SettingsPage back={workspaceSectionPath("channel-settings")}>
       <Panel aria-busy={settings === null}>
         <PageHeading title="Room settings">Manage the room name, access, and members.</PageHeading>
         {settings && (

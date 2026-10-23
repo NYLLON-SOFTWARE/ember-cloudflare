@@ -79,8 +79,10 @@ function positionOf(state: unknown): number | null {
 }
 
 /**
- * The path of the page the app opened a history entry from, as a browser keeps the page a link was
- * followed from as the referrer, or null for an entry the app didn't open, such as the first one.
+ * The address of the page the app opened a history entry from, as a browser keeps the page a link was
+ * followed from as the referrer, or null for an entry the app didn't open, such as the first one. It
+ * keeps the fragment, which a referrer leaves out, so Go Back returns to the section of community
+ * settings it was opened from, where ember-rust's shows their first.
  */
 function openedFrom(state: unknown): string | null {
   const from = (state as { from?: unknown } | null)?.from;
@@ -149,13 +151,15 @@ window.addEventListener("popstate", (event) => {
 });
 
 /**
- * Shows `path`, which can have a query string, as a new entry in the browser's history unless `replace`
- * says to take the current one's place, once the page's guard lets it.
+ * Shows `path`, which can have a query string and a fragment, as a new entry in the browser's history
+ * unless `replace` says to take the current one's place, once the page's guard lets it. A fragment alone
+ * changes no page, so going from one of a page's sections to another doesn't ask its guard, as a
+ * browser follows a link to a fragment without leaving the page.
  */
 export function navigate(path: string, { replace = false } = {}): void {
   const navigation = ++asked;
   followUp = null;
-  if (shownAddress() === path) {
+  if (shownAddress() + location.hash === path) {
     gone = navigation;
     notify();
     return;
@@ -163,7 +167,7 @@ export function navigate(path: string, { replace = false } = {}): void {
   const go = () => {
     // A page that takes another's place was opened from where that one was, as a redirect keeps the referrer.
     if (replace) history.replaceState({ position, from: openedFrom(history.state) }, "", path);
-    else history.pushState({ position: ++position, from: shownAddress() }, "", path);
+    else history.pushState({ position: ++position, from: shownAddress() + location.hash }, "", path);
     gone = navigation;
     if (navigation === asked) {
       followUp?.();
@@ -171,7 +175,7 @@ export function navigate(path: string, { replace = false } = {}): void {
     }
     notify();
   };
-  if (!guard?.(path, go)) go();
+  if (shownAddress() === path.split("#", 1)[0] || !guard?.(path, go)) go();
 }
 
 /**
@@ -203,7 +207,7 @@ export const routeOf = (pathname: string): Route => workspacePageOf(pathname) ??
 export function useBackPath(): string {
   const from = useSyncExternalStore(subscribe, () => openedFrom(history.state));
   const here = useSyncExternalStore(subscribe, shownAddress);
-  return from !== null && from !== here ? from : "/";
+  return from !== null && from.split("#", 1)[0] !== here ? from : "/";
 }
 
 /** How many times the app has gone to a page, re-rendering each time, even when it's the page shown. */
@@ -215,6 +219,11 @@ export function useVisit(): number {
 export function useRoute(): Route {
   const pathname = useSyncExternalStore(subscribe, shownPath);
   return useMemo(() => routeOf(pathname), [pathname]);
+}
+
+/** The address's fragment, from its "#", or nothing, re-rendering when it changes. */
+export function useHash(): string {
+  return useSyncExternalStore(subscribe, () => location.hash);
 }
 
 /** The value `name` has in the query string of the page shown, or null where it has none, re-rendering when it changes. */

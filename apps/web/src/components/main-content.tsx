@@ -32,3 +32,9 @@ export function SkipLink({ className }: { className?: string }) {
 export function MainContent(props: ComponentProps<"main">) {
   return <main id={MAIN_CONTENT} tabIndex={-1} {...props} />;
 }
+
+/** Scrolls the page's main content back to its top. */
+export function scrollMainContentToTop(): void {
+  const main = document.getElementById(MAIN_CONTENT);
+  if (main) main.scrollTop = 0;
+}

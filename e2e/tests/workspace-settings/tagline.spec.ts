@@ -32,19 +32,24 @@ test.describe(feature("accounts.tagline"), () => {
     await field.fill(TAGLINE);
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByRole("alert")).toHaveText("Changes saved.");
-    for (const tab of [page, otherTab]) await expect(taglineOf(tab)).toHaveText(TAGLINE);
-    // On one line in the sidebar's full 280px, as in a phone's drawer (mobile/accounts.spec.ts).
-    expect(await linesOf(taglineOf(page))).toBe(1);
     // The other tab's settings follow, so saving there keeps it.
     await expect(otherTab.getByRole("textbox", { name: "Tagline" })).toHaveValue(TAGLINE);
     await otherTab.getByRole("button", { name: "Save changes" }).click();
     await expect(otherTab.getByRole("alert")).toHaveText("Changes saved.");
+    // Community settings' links take the conversations' place, which have it under the name back in a room.
+    for (const tab of [page, otherTab]) await tab.getByRole("link", { name: "Go Back" }).click();
+    for (const tab of [page, otherTab]) await expect(taglineOf(tab)).toHaveText(TAGLINE);
+    // On one line in the sidebar's full 280px, as in a phone's drawer (mobile/accounts.spec.ts).
+    expect(await linesOf(taglineOf(page))).toBe(1);
 
-    await page.reload();
+    await page.goto("/account/edit");
     await expect(field).toHaveValue(TAGLINE);
     await field.clear();
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByRole("alert")).toHaveText("Changes saved.");
-    for (const tab of [page, otherTab]) await expect(taglineOf(tab)).toHaveCount(0);
+    // At once in the tab still in a room.
+    await expect(taglineOf(otherTab)).toHaveCount(0);
+    await page.getByRole("link", { name: "Go Back" }).click();
+    await expect(taglineOf(page)).toHaveCount(0);
   });
 });

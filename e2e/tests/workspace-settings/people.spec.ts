@@ -11,9 +11,9 @@ const signInHeading = (tab: Page) => tab.getByRole("heading", { level: 1, name: 
 test.describe(feature("accounts.roles"), () => {
   test("the administrator makes someone an administrator, and a member again, and that person's pages follow at once", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
-    await page.goto("/account/edit");
+    await page.goto("/account/edit#membership-settings");
     await signInAsAdministrator(page);
-    const people = page.getByRole("list", { name: "People" });
+    const people = page.getByRole("region", { name: "Membership" });
     // Their own crown can't be pressed, so there's always an administrator.
     await expect(people.getByRole("listitem").filter({ hasText: "Ada Lovelace" }).getByRole("checkbox", { name: "Role: Administrator" })).toBeDisabled();
 
@@ -22,7 +22,9 @@ test.describe(feature("accounts.roles"), () => {
     const grace = await join(browser, baseURL!, await page.getByRole("textbox", { name: "Share to invite more people" }).inputValue(), name);
     const rail = grace.getByRole("navigation", { name: "Workspace" });
     await rail.getByRole("link", { name: "Workspace" }).click();
-    await expect(grace.getByRole("list", { name: "People" }).getByRole("listitem").filter({ hasText: name })).toBeVisible();
+    await grace.getByRole("link", { name: "Membership" }).click();
+    const gracesPeople = grace.getByRole("region", { name: "Membership" });
+    await expect(gracesPeople.getByRole("list", { name: "Members" }).getByRole("listitem").filter({ hasText: name })).toBeVisible();
     await expect(grace.getByRole("checkbox")).toHaveCount(0);
 
     // The administrator's page lists them once it loads again, as ember-rust's does.
@@ -31,18 +33,22 @@ test.describe(feature("accounts.roles"), () => {
     await expect(row.getByRole("checkbox", { name: "Role: Member" })).not.toBeChecked();
     await row.locator("label").click();
     await expect(row.getByRole("checkbox", { name: "Role: Administrator" })).toBeChecked();
+    // Under Admins, its crown keeping the focus.
+    await expect(people.getByRole("list", { name: "Admins" }).getByRole("listitem").filter({ hasText: name })).toBeVisible();
+    await expect(row.getByRole("checkbox")).toBeFocused();
 
-    // Their page follows without being loaded again: the rail's Admin, the name to change, and crowns.
+    // Their page follows without being loaded again: the rail's Admin, the administrators' pages, and crowns.
     await expect(rail.getByRole("link", { name: "Admin" })).toBeVisible();
-    await expect(grace.getByRole("textbox", { name: "Workspace name" })).toBeVisible();
-    await expect(grace.getByRole("list", { name: "People" }).getByRole("listitem").filter({ hasText: name }).getByRole("checkbox")).toBeDisabled();
+    await expect(grace.getByRole("navigation", { name: "Community settings" }).getByRole("link", { name: "Chat bots" })).toBeVisible();
+    await expect(grace.getByRole("button", { name: "Regenerate join link" })).toBeVisible();
+    await expect(gracesPeople.getByRole("list", { name: "Admins" }).getByRole("listitem").filter({ hasText: name }).getByRole("checkbox")).toBeDisabled();
 
     await page.reload();
     await expect(row.getByRole("checkbox", { name: "Role: Administrator" })).toBeChecked();
     await row.locator("label").click();
     await expect(row.getByRole("checkbox", { name: "Role: Member" })).not.toBeChecked();
     await expect(rail.getByRole("link", { name: "Workspace" })).toBeVisible();
-    await expect(grace.getByRole("textbox", { name: "Workspace name" })).toHaveCount(0);
+    await expect(grace.getByRole("link", { name: "Chat bots" })).toHaveCount(0);
     await expect(grace.getByRole("checkbox")).toHaveCount(0);
     await grace.context().close();
   });
@@ -51,17 +57,18 @@ test.describe(feature("accounts.roles"), () => {
 test.describe(feature("accounts.remove-person"), () => {
   test("the administrator removes someone after asking, and that person's pages go to sign in at once", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
-    await page.goto("/account/edit");
+    await page.goto("/account/edit#membership-settings");
     await signInAsAdministrator(page);
-    const people = page.getByRole("list", { name: "People" });
+    const people = page.getByRole("region", { name: "Membership" });
+    await expect(people.getByRole("listitem").filter({ hasText: "Ada Lovelace" })).toBeVisible();
     await expect(people.getByRole("listitem").filter({ hasText: "Ada Lovelace" }).getByRole("button", { name: /^Delete/ })).toHaveCount(0);
 
     const name = `Grace ${crypto.randomUUID().slice(0, 8)}`;
     const grace = await join(browser, baseURL!, await page.getByRole("textbox", { name: "Share to invite more people" }).inputValue(), name);
     // A tab showing a page that isn't a room, which only the workspace socket tells.
     const graceSettings = await grace.context().newPage();
-    await graceSettings.goto("/account/edit");
-    await expect(graceSettings.getByRole("list", { name: "People" }).getByRole("listitem").filter({ hasText: name })).toBeVisible();
+    await graceSettings.goto("/account/edit#membership-settings");
+    await expect(graceSettings.getByRole("region", { name: "Membership" }).getByRole("listitem").filter({ hasText: name })).toBeVisible();
 
     await page.reload();
     const row = people.getByRole("listitem").filter({ hasText: name });
@@ -96,7 +103,7 @@ test.describe(feature("accounts.remove-person"), () => {
 test.describe(feature("accounts.ban"), () => {
   test("the administrator bans someone from their page after asking, signing them out and deleting their messages, and lifts the ban", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
-    await page.goto("/account/edit");
+    await page.goto("/account/edit#membership-settings");
     await signInAsAdministrator(page);
     const name = `Grace ${crypto.randomUUID().slice(0, 8)}`;
     // From an address of her own, a public one, which a ban can block.
@@ -167,7 +174,7 @@ test.describe(feature("accounts.ban-enforcement"), () => {
   // Worker's tests cover what a banned address's room sockets can do.
   test("nobody at a banned address can sign in or change anything, though they can still read, until the ban is lifted", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
-    await page.goto("/account/edit");
+    await page.goto("/account/edit#membership-settings");
     await signInAsAdministrator(page);
     const joinUrl = await page.getByRole("textbox", { name: "Share to invite more people" }).inputValue();
     const tag = crypto.randomUUID().slice(0, 8);

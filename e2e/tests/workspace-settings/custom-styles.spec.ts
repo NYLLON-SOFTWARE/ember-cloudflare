@@ -17,11 +17,12 @@ test.describe(feature("accounts.custom-css"), () => {
     await signInAsAdministrator(page);
     const otherTab = await page.context().newPage();
     await otherTab.goto("/account/edit");
-    await expect(otherTab.getByRole("heading", { level: 1 })).toHaveText("Workspace settings");
+    await expect(otherTab.getByRole("heading", { level: 1, name: "Basic community settings" })).toBeVisible();
 
     await page.getByRole("link", { name: "Custom styles" }).click();
     await expect(page).toHaveURL(/\/account\/custom_styles\/edit$/);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Custom CSS");
+    await expect(page.getByRole("heading", { level: 1, name: "Custom CSS" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Community settings" }).getByRole("link", { name: "Custom styles" })).toHaveAttribute("aria-current", "page");
     const css = page.getByRole("textbox", { name: "Custom CSS" });
     await css.fill(CSS);
     await css.press("ControlOrMeta+Enter");
@@ -47,14 +48,14 @@ test.describe(feature("accounts.custom-css"), () => {
 
   test("a member who opens Custom CSS is sent to workspace settings, told why", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
-    await page.goto("/account/edit");
+    await page.goto("/account/edit#membership-settings");
     await signInAsAdministrator(page);
     const member = await join(browser, baseURL!, await page.getByRole("textbox", { name: "Share to invite more people" }).inputValue(), "Grace Hopper");
 
     await member.goto("/account/custom_styles/edit");
     await expect(member.getByRole("alert")).toHaveText("Only administrators can change the workspace");
     await expect(member).toHaveURL(/\/account\/edit$/);
-    await expect(member.getByRole("heading", { level: 1 })).toHaveText("Workspace settings");
+    await expect(member.getByRole("heading", { level: 1, name: "Basic community settings" })).toBeVisible();
     await expect(member.getByRole("link", { name: "Custom styles" })).toHaveCount(0);
     await member.context().close();
   });

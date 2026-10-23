@@ -20,19 +20,21 @@ test.describe(feature("accounts.logo"), () => {
     await useOwnAddress(page);
     await page.goto("/account/edit");
     await signInAsAdministrator(page);
-    const logo = page.getByRole("img", { name: "Workspace logo" });
-    const remove = page.getByRole("button", { name: "Remove logo" });
+    const logo = page.getByRole("img", { name: "Community icon" });
+    const remove = page.getByRole("button", { name: "Remove icon" });
     await expect(logo).toBeVisible();
     // A server kept from an earlier run may have its logo still.
     if (await remove.isVisible()) await remove.click();
     await expect(logo).toHaveAttribute("src", "/logos/app-icon.png");
-    await expect(page.getByText("Choose a workspace logo")).toBeVisible();
+    await expect(page.getByText("Choose a community icon")).toBeVisible();
     await expect(remove).toHaveCount(0);
+    await page.getByRole("link", { name: "Membership" }).click();
     const member = await join(browser, baseURL!, await page.getByRole("textbox", { name: "Share to invite more people" }).inputValue(), "Grace Hopper");
+    await page.getByRole("link", { name: "Community", exact: true }).click();
     await expect(railLogo(member)).toHaveAttribute("src", "/ember-icon.png");
 
     await nextSecond();
-    await page.getByLabel("Upload logo").setInputFiles(await drawnPicture(page, "logo.png", 1200, 800));
+    await page.getByLabel("Upload icon").setInputFiles(await drawnPicture(page, "logo.png", 1200, 800));
     await expect(page.getByRole("alert")).toHaveText("Changes saved.");
     await expect(logo).toHaveAttribute("src", /^\/account\/logo\?v=\d{14}$/);
     const uploaded = (await logo.getAttribute("src"))!;

@@ -11,6 +11,7 @@ test.describe(feature("ui.select-on-entry"), () => {
   test("selects what's in a field when it's entered, so typing replaces it, and a second click places the cursor", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace" }).click();
+    await ada.page.getByRole("link", { name: "Rooms and permissions" }).click();
     await ada.page.getByRole("link", { name: "New room" }).click();
     const name = ada.page.getByRole("textbox", { name: "Room name" });
     await expect(name).toBeFocused();

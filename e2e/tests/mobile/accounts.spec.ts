@@ -43,10 +43,11 @@ test("an administrator's workspace settings, with a long name, fit the phone", a
   await nameTheWorkspaceLong(page);
   await page.goto("/account/edit");
   await signInAsAdministrator(page);
-  await expect(page.getByRole("textbox", { name: "Workspace name" })).toHaveValue(LONG_NAME);
+  await expect(page.getByRole("textbox", { name: "Community name" })).toHaveValue(LONG_NAME);
   await screenIsFine({ denseTargets: [SWITCHES] });
 
-  // The conversations under it, where the name wraps.
+  // Back in a room, the conversations under it, where the name wraps.
+  await page.getByRole("link", { name: "Go Back" }).tap();
   if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();
   await expect(page.getByRole("heading", { level: 2, name: LONG_NAME })).toBeVisible();
   await screenIsFine({ denseTargets: [SWITCHES] });
@@ -54,9 +55,9 @@ test("an administrator's workspace settings, with a long name, fit the phone", a
 
 test("an administrator's people list, with Delete by everyone else, fits the phone", async ({ page, session, screenIsFine }) => {
   await useOwnAddress(page);
-  await page.goto("/account/edit");
+  await page.goto("/account/edit#membership-settings");
   await signInAsAdministrator(page);
-  const remove = page.getByRole("list", { name: "People" }).getByRole("button", { name: `Delete ${session.user.name}` }).first();
+  const remove = page.getByRole("region", { name: "Membership" }).getByRole("button", { name: `Delete ${session.user.name}` }).first();
   await remove.scrollIntoViewIfNeeded();
   await expect(remove).toBeInViewport();
   await screenIsFine();
@@ -80,6 +81,7 @@ const linesOf = (text: Locator) =>
 
 test("the longest tagline fits the phone under a long name, in a member's settings and the conversations, clear of the drawer's close button", async ({
   page,
+  room,
   session,
   screenIsFine,
 }) => {
@@ -90,6 +92,8 @@ test("the longest tagline fits the phone under a long name, in a member's settin
   await expect(settingsName.locator("xpath=following-sibling::p")).toHaveText(LONGEST_TAGLINE);
   await screenIsFine();
 
+  // Community settings' links take the conversations' place, so they're a room's.
+  await openRoom(page, room);
   if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();
   const conversations = page.getByRole("complementary", { name: "Conversations" });
   const tagline = conversations.locator("hgroup > h2 + p");

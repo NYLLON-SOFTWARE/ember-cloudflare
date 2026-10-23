@@ -2,6 +2,8 @@ import { useId, useMemo } from "react";
 import type { Me, RoomId, SharedRoom } from "@ember/protocol";
 import { GripVertical } from "@/components/icons/lucide";
 import { RoomIcon } from "@/components/icons/room-icon";
+import { PageLink } from "@/components/page-link";
+import { roomSettingsPath } from "@/hooks/use-route";
 import { useSharedOrder } from "@/hooks/use-shared-order";
 import { cn } from "@/lib/utils";
 
@@ -24,9 +26,10 @@ interface Props {
 }
 
 /**
- * The order rooms come in for everyone, under the Rooms section of workspace settings, as ember-rust's
- * accounts/edit.html stages it (`.mb-admin-room-order` in zz-ember.css): a row per room, dragged by its
- * grip or moved with Alt and an arrow (`useSharedOrder`), then Save order or Cancel. What the list last
+ * The order rooms come in for everyone, in workspace settings' Rooms and permissions, as ember-rust's
+ * pull request #24 stages it (accounts/_room_settings.html, `.mb-admin-room-order` in zz-ember.css): a row
+ * per room, dragged by its grip or moved with Alt and an arrow (`useSharedOrder`), then Save order or
+ * Cancel. The rest of each row links to the room's settings, saying who it's open to. What the list last
  * said about a move shows under it.
  */
 export function RoomOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Props) {
@@ -34,9 +37,9 @@ export function RoomOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Pro
   const byId = useMemo(() => new Map(rooms.map((room) => [room.id, room])), [rooms]);
   const helpId = useId();
   return (
-    <div className="mt-4 border-t pt-1">
+    <div className="border-t">
       <p id={helpId} className="my-[1em] text-[0.8em] text-muted-foreground">
-        Drag rooms into order, then save to update everyone’s sidebar. Starred rooms keep their personal order.
+        Drag a room to reorder your community sidebar. Click a room to set its permissions.
       </p>
       <div
         ref={listRef}
@@ -72,8 +75,18 @@ export function RoomOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Pro
               >
                 <GripVertical className="size-[18px]" />
               </button>
-              <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
-              <span className="min-w-0 truncate">{room.name}</span>
+              {/* `.mb-admin-room-settings`, filling the row beside the grip, with `.mb-room-access-pill` at its end. */}
+              <PageLink
+                href={roomSettingsPath(room.kind, room.id)}
+                aria-label={`Settings for ${room.name}`}
+                className="group flex min-w-0 flex-1 items-center gap-2.5 self-stretch"
+              >
+                <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
+                <span className="min-w-0 truncate group-hover:underline">{room.name}</span>
+                <span className="ml-auto shrink-0 rounded-full border bg-hover px-2 py-[3px] text-[11px] whitespace-nowrap text-muted-foreground">
+                  {room.kind === "closed" ? "Selected people" : "Everyone"}
+                </span>
+              </PageLink>
             </div>
           );
         })}

@@ -5,7 +5,7 @@ import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
 test.describe(feature("accounts.regenerate-join-link"), () => {
   test("the administrator regenerates the join link, and only the new one joins", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
-    await page.goto("/account/edit");
+    await page.goto("/account/edit#membership-settings");
     await signInAsAdministrator(page);
     const link = page.getByRole("textbox", { name: "Share to invite more people" });
     await expect(link).toHaveValue(/\/join\//);
@@ -19,6 +19,7 @@ test.describe(feature("accounts.regenerate-join-link"), () => {
     await expect(page.getByRole("alert")).toHaveCount(0);
 
     // The welcome card in the first room, general, has the new link too.
+    await page.getByRole("link", { name: "Home", exact: true }).click();
     await page.getByRole("complementary", { name: "Conversations" }).getByRole("link", { name: "general" }).click();
     await expect(page.getByRole("log").getByRole("textbox", { name: "Share to invite more people" })).toHaveValue(regenerated);
 

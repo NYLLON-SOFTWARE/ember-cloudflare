@@ -18,16 +18,20 @@ test.describe(feature("accounts.translation-buttons"), () => {
     await expect(page.getByText("Translate", { exact: true })).toHaveCount(0);
     const otherTab = await page.context().newPage();
     await otherTab.goto("/account/edit");
-    await expect(otherTab.getByRole("textbox", { name: "Workspace name" })).toBeVisible();
+    await expect(otherTab.getByRole("textbox", { name: "Community name" })).toBeVisible();
+    const save = page.getByRole("button", { name: "Save changes" });
 
-    // At once, with nothing said after, and in the other tab too, where ember-rust's waits for its next page.
+    // With the name, by Save changes, as ember-rust's pull request #24 saves it, and then in the other tab
+    // too, where ember-rust's waits for its next page.
     await hide.click();
     await expect(hide).not.toBeChecked();
+    await expect(page.getByText("Translate", { exact: true })).toHaveCount(0);
+    await save.click();
+    await expect(page.getByRole("alert")).toHaveText("Changes saved.");
     await expect(page.getByText("Translate", { exact: true })).toHaveCount(1);
     await expect(otherTab.getByText("Translate", { exact: true })).toHaveCount(1);
-    await expect(page.getByRole("alert")).toHaveCount(0);
 
-    // The workspace name's globe, which lists what the field asks in seven languages.
+    // The community name's globe, which lists what the field asks in seven languages.
     const globe = page.locator("summary", { hasText: "Translate" });
     await globe.click();
     const languages = page.locator("details[open] dl");
@@ -36,7 +40,7 @@ test.describe(feature("accounts.translation-buttons"), () => {
     await page.keyboard.press("Escape");
     await expect(languages).toHaveCount(0);
     await globe.click();
-    await page.getByRole("heading", { level: 1 }).click();
+    await page.getByRole("heading", { level: 1, name: "Basic community settings" }).click();
     await expect(languages).toHaveCount(0);
 
     const signedOut = await browser.newContext({ baseURL, ignoreHTTPSErrors: true });
@@ -67,6 +71,7 @@ test.describe(feature("accounts.translation-buttons"), () => {
 
     await hide.click();
     await expect(hide).toBeChecked();
+    await save.click();
     await expect(page.getByText("Translate", { exact: true })).toHaveCount(0);
     await expect(otherTab.getByText("Translate", { exact: true })).toHaveCount(0);
     await signIn.reload();
