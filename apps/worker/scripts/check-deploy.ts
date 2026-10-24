@@ -7,6 +7,7 @@
 //   node apps/worker/scripts/check-deploy.ts http://localhost:8787
 
 import type { Bootstrap } from "@ember/protocol";
+import { workerUrl } from "./worker-url.ts";
 
 /**
  * A new Worker's workers.dev hostname, and a secret set just after its deploy, can take a little
@@ -19,12 +20,17 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** The Worker's recovery token, if the shell has it: /api/health describes the deployment only to whoever sends it, or to an administrator. */
+/**
+ * The Worker's recovery token, if the shell has it: /api/health describes the deployment only to
+ * whoever sends it, or to an administrator. It can take over any account, so it goes only to an
+ * address `workerUrl` takes, and never on to where a redirect points.
+ */
 const recoveryToken = process.env.EMBER_RECOVERY_TOKEN;
 
 async function health(baseUrl: string): Promise<{ storage?: string }> {
   const headers = recoveryToken ? { Authorization: `Bearer ${recoveryToken}` } : undefined;
-  const response = await fetch(new URL("/api/health", baseUrl), { headers, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  const redirect = recoveryToken ? "error" : "follow";
+  const response = await fetch(new URL("/api/health", baseUrl), { headers, redirect, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (!response.ok) {
     // It says what's missing, such as SESSION_SECRET, to whoever sends the token; the Worker's log says so to everyone.
     const { error } = (await response.json().catch(() => ({}))) as { error?: string };
@@ -103,6 +109,10 @@ function explain(error: unknown): string {
 const [baseUrl] = process.argv.slice(2);
 if (!baseUrl) {
   console.error("Usage: node apps/worker/scripts/check-deploy.ts <url>");
+  process.exit(2);
+}
+if (recoveryToken && !workerUrl(baseUrl)) {
+  console.error("✗ With EMBER_RECOVERY_TOKEN set, pass the Worker's https:// address, or an http:// one on this machine.");
   process.exit(2);
 }
 try {

@@ -10,6 +10,7 @@
 
 import { isPasswordTooLong, isPasswordTooShort } from "@ember/protocol";
 import { fileURLToPath } from "node:url";
+import { workerUrl } from "./worker-url.ts";
 
 /** The most of stdin `ember reset-password` takes (admin.rs). */
 const MAX_PASSWORD_BYTES = 4096;
@@ -114,14 +115,6 @@ export async function newPassword(input: NodeJS.ReadStream = process.stdin, outp
   if (isPasswordTooShort(password) || isPasswordTooLong(password)) throw new Error("Password must contain at least eight characters and no more than 72.");
   if ((await askHidden("Repeat new password: ", input, output)) !== password) throw new Error("Passwords do not match.");
   return password;
-}
-
-/** The Worker's address, if it's HTTPS, or plain HTTP on this machine, where `wrangler dev` serves. */
-function workerUrl(given: string): URL | null {
-  if (!URL.canParse(given)) return null;
-  const url = new URL(given);
-  const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  return url.protocol === "https:" || (url.protocol === "http:" && local) ? url : null;
 }
 
 /** Asks the Worker at `baseUrl` to reset the password, answering what it says it did. */
