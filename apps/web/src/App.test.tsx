@@ -291,6 +291,26 @@ describe(feature("auth.sessions"), () => {
     expect(loadPage).not.toHaveBeenCalled();
   });
 
+  it("opens the page asked for once someone signs in, though it preloaded the workspace with a session that had ended", async () => {
+    history.replaceState(null, "", "/rooms/general");
+    const server = serve({ signedIn: false });
+    const answer = server.getMockImplementation()!;
+    // What the browser fetched with the page for the cookie's session, which it gives the first request for each, once.
+    const preloaded = new Map(["/api/sidebar", "/api/users"].map((path) => [path, Response.json({ error: "Not signed in" }, { status: 401 })]));
+    server.mockImplementation(async (input, init) => {
+      const preload = init?.method === undefined ? preloaded.get(String(input)) : undefined;
+      if (!preload) return answer(input, init);
+      preloaded.delete(String(input));
+      return preload;
+    });
+    render(<App />);
+    await signInPage();
+    await signInAsAda();
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+    expect(loadPage).not.toHaveBeenCalled();
+  });
+
   it("keeps asking who's signed in while the server can't be reached", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const fetch = serve({ signedIn: true });

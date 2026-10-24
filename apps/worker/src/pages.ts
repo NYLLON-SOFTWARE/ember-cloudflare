@@ -1,4 +1,4 @@
-import { EMAIL_ADDRESS_TOO_LONG, isAppPage, NAME_TOO_LONG, workspacePageOf } from "@ember/protocol";
+import { EMAIL_ADDRESS_TOO_LONG, isAppPage, NAME_TOO_LONG, WORKSPACE_PRELOADS, workspacePageOf } from "@ember/protocol";
 import { sessionToken } from "./auth";
 import { contentSecurityPolicy, inlineScriptHashes } from "./csp";
 import type { Env } from "./env";
@@ -52,7 +52,7 @@ function appScriptHashes(request: Request, env: Env, etag: string | null): Promi
  */
 function preloadsFor(request: Request): string {
   const paths = ["/api/bootstrap"];
-  if (workspacePageOf(urlOf(request).pathname) && sessionToken(request)) paths.push("/api/sidebar", "/api/users");
+  if (workspacePageOf(urlOf(request).pathname) && sessionToken(request)) paths.push(...WORKSPACE_PRELOADS);
   return paths.map((path) => `<${path}>; rel=preload; as=fetch; crossorigin`).join(", ");
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type Me, type RoomId, type User, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type Me, type RoomId, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
 import { NO_ROOM_LIST, roomListReducer, type RoomAnswer } from "@/lib/room-list";
@@ -20,10 +20,11 @@ const DEPLOY_SPREAD_MS = [2_000, 10_000] as const;
 
 /**
  * How long, at most, a tab waits to load its sidebar again once an administrator has put the rooms in
- * order for everyone, each tab waiting a while at random, so that every tab in the workspace doesn't ask
- * the Workspace at once, as each of ember-rust's reloads its frame on `room_order_changed`.
+ * order for everyone, as each of ember-rust's reloads its frame on `room_order_changed`, or someone is
+ * active again, each tab waiting a while at random, so that every tab in the workspace doesn't ask the
+ * Workspace at once.
  */
-export const REORDER_SPREAD_MS = 5_000;
+export const RELOAD_SPREAD_MS = 5_000;
 
 /**
  * `task`, one run at a time. Called while it runs, it runs again once that run is over, once for all
@@ -49,13 +50,15 @@ export function oneAtATime(task: () => Promise<void>): () => Promise<void> {
 
 /** The people directory, as far as the workspace socket keeps it current. */
 interface Directory {
+  /** Everyone in it, as it lists them now. */
+  people: ReadonlyMap<UserId, DirectoryUser>;
   /** Loads it again, as the sidebar does by itself, settling once it has or failed. */
   reload: () => Promise<void>;
   /** Changes someone in it, as the socket says they are now. */
   update: (user: DirectoryUser) => void;
 }
 
-const NO_DIRECTORY: Directory = { reload: async () => {}, update: () => {} };
+const NO_DIRECTORY: Directory = { people: new Map(), reload: async () => {}, update: () => {} };
 
 /** Whether `you` and `me` are the same person, as they are now. */
 const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && you.administrator === me.administrator;
@@ -69,8 +72,9 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * dismissed in any of them. It loads again when the tab is shown after more than a minute hidden too,
  * as `refresh-room:visible` reloads it (helpers/users.rs), which ember-rust does on a room's page and
  * this does on every page, and, its rooms only, a while after the socket says the shared order has
- * changed, and once it says this person has been given another role. `refresh` asks for it again,
- * settling once a list asked for since has come, or failing as that did.
+ * changed, or that someone the people directory lists as removed, banned or suspended is active again,
+ * whom the sidebar may suggest a DM with now, and once it says this person has been given another role.
+ * `refresh` asks for it again, settling once a list asked for since has come, or failing as that did.
  *
  * `onSessionChanged` hears when who the browser's session signs in changes: null once it has expired,
  * whoever another tab signed in as, or `me` as they are now, once they've been made an administrator,
@@ -113,6 +117,9 @@ export function useSidebar(
   const reloadPeople = useEffectEvent(() => void directory.reload().catch(() => {}));
   const gone = useEffectEvent(onGone);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
+  // Whether `user`, active now, is someone the directory lists as removed, banned or suspended, rather
+  // than someone new, whom it doesn't list yet.
+  const isBack = useEffectEvent((user: DirectoryUser) => user.status === "active" && (directory.people.get(user.id)?.status ?? "active") !== "active");
   // Who the session signs in as last heard, ahead of `me` until the page takes the change: two changes
   // can come before it takes the first.
   const heard = useRef(me);
@@ -135,19 +142,19 @@ export function useSidebar(
     // A session that has expired goes to sign in. Otherwise a list that doesn't come leaves the sidebar
     // as it is, until it loads again.
     const reloadRooms = () => void refresh().catch((error) => !closed && isSignedOut(error) && sessionChanged(null));
-    // The load the shared order waits for, which loading everything again makes needless.
-    let reordering: ReturnType<typeof setTimeout> | undefined;
+    // The load the shared order or someone back waits for, which loading everything again makes needless.
+    let waiting: ReturnType<typeof setTimeout> | undefined;
     const reload = () => {
-      clearTimeout(reordering);
-      reordering = undefined;
+      clearTimeout(waiting);
+      waiting = undefined;
       reloadPeople();
       reloadRooms();
     };
-    const reorder = () => {
-      reordering ??= setTimeout(() => {
-        reordering = undefined;
+    const reloadRoomsSoon = () => {
+      waiting ??= setTimeout(() => {
+        waiting = undefined;
         reloadRooms();
-      }, Math.random() * REORDER_SPREAD_MS);
+      }, Math.random() * RELOAD_SPREAD_MS);
     };
 
     // What this connection has said changed, the person signed in or the workspace, which can come
@@ -186,6 +193,9 @@ export function useSidebar(
             toldOf.you = true;
             // Only administrators are given the welcome card with their rooms, so a new role loads them again.
             if ((frame.user.role === "administrator") !== heard.current.administrator) reloadRooms();
+          } else if (isBack(frame.user)) {
+            // The list suggests only people active when it loaded, as ember-rust's does until it loads again.
+            reloadRoomsSoon();
           }
           return changed(frame.user);
         case "room.involvement":
@@ -196,7 +206,7 @@ export function useSidebar(
         case "invitation.dismissed":
           return change({ type: "invitation dismissed" });
         case "rooms.reordered":
-          return reorder();
+          return reloadRoomsSoon();
         case "account.updated":
           toldOf.account = true;
           return accountChanged(frame.account);
@@ -235,7 +245,7 @@ export function useSidebar(
     document.addEventListener("visibilitychange", visibilityChanged);
     return () => {
       closed = true;
-      clearTimeout(reordering);
+      clearTimeout(waiting);
       workspace.close();
       document.removeEventListener("visibilitychange", visibilityChanged);
     };

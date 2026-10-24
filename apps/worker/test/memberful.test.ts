@@ -531,6 +531,18 @@ describe(feature("auth.memberful-sign-in"), () => {
       expect(new URL(site.requests[1]!.url).searchParams.get("query")).toContain("currentMember");
     });
 
+    it("tells everyone's workspace sockets of someone new, as the people directory lists them", async () => {
+      const administrator = await setUpWithMemberful();
+      fakeMemberful();
+      const workspace = await openWorkspaceSocket(administrator);
+
+      const user = await signedInAs(await signInWithMemberful());
+      const { users } = (await (await api("/api/users", { headers: { Cookie: administrator.cookie } })).json()) as Directory;
+      const listed = users.find((person) => person.id === user.id);
+      expect(listed).toMatchObject({ name: "Katherine Johnson", role: "member", status: "active" });
+      expect(await workspace.next()).toEqual({ type: "user.updated", user: listed });
+    });
+
     it("signs the same person in again by their Memberful account, whatever its name and email address are now", async () => {
       await setUpWithMemberful();
       const site = fakeMemberful();

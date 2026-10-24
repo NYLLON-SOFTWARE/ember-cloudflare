@@ -175,6 +175,17 @@ test.describe(feature("auth.sessions"), () => {
     await page.goto("/");
     await expect(signInHeading(page)).toBeVisible();
   });
+
+  test("opens the page asked for once someone signs in there with a session cookie that's no good", async ({ page, baseURL, rooms }) => {
+    await useOwnAddress(page);
+    // The Worker has the browser preload the room's sidebar and people with the page, for that cookie.
+    await page.context().addCookies([{ name: "session_token", value: "A".repeat(43), url: baseURL! }]);
+    await page.goto(`/rooms/${rooms.general.id}`);
+    await expect(signInHeading(page)).toBeVisible();
+    await signInAsAdministrator(page);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("general");
+    await expect(page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
+  });
 });
 
 test.describe(feature("auth.sign-in-link"), () => {

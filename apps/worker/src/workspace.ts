@@ -651,9 +651,10 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Adds someone who joined with the join link for `code` as a member, in every open room, and the
-   * session their cookie's token opens, as ember-rust's `users#create` does. Answers "not found" if
-   * `code` isn't the join code, "memberful" while members sign in with Memberful, and null if someone
-   * already has their email address.
+   * session their cookie's token opens, as ember-rust's `users#create` does. Everyone's workspace
+   * sockets hear of them, so pages already open know them. Answers "not found" if `code` isn't the join
+   * code, "memberful" while members sign in with Memberful, and null if someone already has their email
+   * address.
    */
   async join(code: string, person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | Exclude<JoinLink, "joins"> | null> {
     // The Worker checked the link before the form arrived, but it may have been regenerated or turned off since.
@@ -668,6 +669,7 @@ export class Workspace extends DurableObject<Env> {
         throw error;
       }
       this.sessions.remember(tokenDigest, session);
+      await this.publishPerson(session.user.id);
       return meOf(session);
     });
   }
@@ -748,7 +750,7 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Adds someone who signs in with just a name, and the session their cookie's token opens, unless
-   * members sign in with Memberful, which answers "memberful".
+   * members sign in with Memberful, which answers "memberful". Everyone's workspace sockets hear of them.
    */
   async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me | "memberful"> {
     // One at a time, as joining is, so that none can overlap turning Memberful sign-in on.
@@ -757,6 +759,7 @@ export class Workspace extends DurableObject<Env> {
       const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: true, lastActiveAt: Date.now() };
       await this.store.createGuest(session.user, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
       this.sessions.remember(tokenDigest, session);
+      await this.publishPerson(session.user.id);
       return meOf(session);
     });
   }
@@ -771,7 +774,7 @@ export class Workspace extends DurableObject<Env> {
    * membership is renewed is let back. Answers "off" unless members sign in with Memberful, "refused" for
    * someone linked who has been removed or banned, "membership" for anyone but an administrator without
    * an active membership, and "taken" when someone here has the email address someone new would have,
-   * which creates nothing.
+   * which creates nothing. Everyone's workspace sockets hear of someone new.
    */
   async signInWithMemberful(issuer: string, member: MemberfulMember, readAt: number, tokenDigest: string, client: Client): Promise<Me | MemberfulRefusal> {
     // One at a time, so that two sign-ins of someone new can't both add them, none can overlap turning
@@ -800,6 +803,7 @@ export class Workspace extends DurableObject<Env> {
         throw error;
       }
       this.sessions.remember(tokenDigest, session);
+      await this.publishPerson(session.user.id);
       return meOf(session);
     });
   }
@@ -1390,8 +1394,8 @@ export class Workspace extends DurableObject<Env> {
    * Adds a bot as the person `credentials` signs in, as ember-rust's `accounts/bots#create` does
    * (`User.create_bot!`, user.rs): with a new token, a webhook if `bot` gives it somewhere to deliver,
    * `avatar`, which R2 has stored under a key `reservePicture` reserved, if it's given one, and in every
-   * open room, as someone who joins is. Answers it as its edit page shows it, "forbidden" unless that's
-   * an administrator, or null without a valid session.
+   * open room, as someone who joins is, and everyone's workspace sockets hear of it. Answers it as its
+   * edit page shows it, "forbidden" unless that's an administrator, or null without a valid session.
    */
   async createBot(credentials: Credentials, { name, webhookUrl }: NewBot, avatar: StoredPicture | null): Promise<BotSettings | "forbidden" | null> {
     const user = await this.authenticate(credentials);
@@ -1400,6 +1404,7 @@ export class Workspace extends DurableObject<Env> {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
       const id = sortableId();
       await this.store.createBot({ id, name, token: newBotToken(), webhookUrl: webhookUrl || null, avatar }, new Date().toISOString());
+      await this.publishPerson(id);
       return (await this.botSettings(id))!;
     });
   }
