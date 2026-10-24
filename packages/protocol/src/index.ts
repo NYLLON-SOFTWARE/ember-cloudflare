@@ -757,7 +757,10 @@ export const CloseCode = {
 } as const;
 export type CloseCode = (typeof CloseCode)[keyof typeof CloseCode];
 
-/** The shortest password first run takes, in characters rather than bytes, as ember-rust counts them. */
+/**
+ * The shortest new password Ember takes, in characters rather than bytes, as ember-rust's first run
+ * counts them; ember-rust takes any password on joining and in your profile.
+ */
 export const MIN_PASSWORD_LENGTH = 8;
 /** The password fields' `maxlength`, which ember-rust's forms keep from bcrypt's 72-byte limit. */
 export const MAX_PASSWORD_LENGTH = 72;
@@ -1400,7 +1403,8 @@ const PROFILE_FIELDS = {
 /**
  * Parses an untrusted change to your profile. Returns why it's refused instead. As in ember-rust
  * (profiles.rs), each field is saved as typed, even a blank name. The server keeps the form's limits
- * too: a password sign-in can take, and a 200-character bio.
+ * too: a new password from the 8 characters first run takes, which ember-rust doesn't ask for here,
+ * to the 72 sign-in can take, and a 200-character bio.
  */
 export function parseProfileChanges(data: unknown): ProfileChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
@@ -1414,6 +1418,8 @@ export function parseProfileChanges(data: unknown): ProfileChanges | string {
   if (changes.name !== undefined && changes.name.length > MAX_USER_NAME_LENGTH) return NAME_TOO_LONG;
   if (changes.emailAddress !== undefined && changes.emailAddress.length > MAX_EMAIL_ADDRESS_LENGTH) return EMAIL_ADDRESS_TOO_LONG;
   if (changes.password !== undefined && isPasswordTooLong(changes.password)) return PASSWORD_TOO_LONG;
+  // A blank one keeps the password you have.
+  if (changes.password && isPasswordTooShort(changes.password)) return PASSWORD_TOO_SHORT;
   if (changes.bio !== undefined && changes.bio.length > MAX_BIO_LENGTH) return `Bio must be at most ${MAX_BIO_LENGTH} characters`;
   if (changes.pushSubscriptionEndpoint !== undefined && changes.pushSubscriptionEndpoint.length > MAX_PUSH_ENDPOINT_LENGTH) {
     return `Endpoint can't be longer than ${MAX_PUSH_ENDPOINT_LENGTH} characters`;
@@ -1450,7 +1456,7 @@ export function parsePasswordReset(data: unknown): PasswordReset | string {
   return { emailAddress, password };
 }
 
-/** Whether a password is shorter than first run takes, counting an emoji as one character. */
+/** Whether a new password is shorter than Ember takes, counting an emoji as one character. */
 export const isPasswordTooShort = (password: string) => [...password].length < MIN_PASSWORD_LENGTH;
 
 /**

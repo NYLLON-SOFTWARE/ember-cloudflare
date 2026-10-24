@@ -4,6 +4,7 @@ import {
   CURRENT_PASSWORD_NEEDED,
   CURRENT_PASSWORD_WRONG,
   MAX_BIO_LENGTH,
+  PASSWORD_TOO_SHORT,
   SIGN_IN_LIMITED,
   type Directory,
   type DirectoryUser,
@@ -402,6 +403,7 @@ describe(feature("users.profile"), () => {
   it.each([
     ["a body that isn't an object", "[]", "Expected a JSON object"],
     ["a name that isn't text", { name: 1 }, "Name must be text"],
+    ["a password shorter than first run takes", { name: "Grace", password: "1234567" }, PASSWORD_TOO_SHORT],
     ["a password longer than sign-in takes", { name: "Grace", password: "x".repeat(73) }, "Password must be at most 72 characters."],
     ["a bio longer than the form takes", { bio: "x".repeat(MAX_BIO_LENGTH + 1) }, `Bio must be at most ${MAX_BIO_LENGTH} characters`],
   ])("refuses %s, saving nothing", async (_, body, error) => {

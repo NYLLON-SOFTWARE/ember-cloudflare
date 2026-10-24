@@ -406,9 +406,10 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
   the remedies if a log is shared, and
   `"logs": { "invocation_logs": false }` under `observability` in `wrangler.jsonc` drops the
   per-request record.
-- Passwords are kept as scrypt digests at OWASP's cost, which takes about a quarter of a second of
-  CPU in a Durable Object of its own; digests from before scrypt are replaced as their passwords
-  sign in.
+- A new password takes at least 8 characters, at setup, on joining, in a profile or in a reset,
+  though a shorter one set before keeps working. Passwords are kept as scrypt digests at OWASP's
+  cost, which takes about a quarter of a second of CPU in a Durable Object of its own; digests from
+  before scrypt are replaced as their passwords sign in.
 - A session lasts until it goes 400 days unused. Changing your email address or password takes
   your current password, so holding someone's session isn't enough to take their account, and a new
   password ends your other sessions and forgets their browsers' push subscriptions. A password reset,

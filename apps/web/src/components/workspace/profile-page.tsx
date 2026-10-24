@@ -6,6 +6,7 @@ import {
   MAX_EMAIL_ADDRESS_LENGTH,
   MAX_PASSWORD_LENGTH,
   MAX_USER_NAME_LENGTH,
+  MIN_PASSWORD_LENGTH,
   type Me,
   type Profile,
   type ProfileAnswer,
@@ -284,6 +285,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
               type="password"
               autoComplete="new-password"
               placeholder="Change password"
+              minLength={MIN_PASSWORD_LENGTH}
               maxLength={MAX_PASSWORD_LENGTH}
               aria-describedby="profile-password-help"
               disabled={!fields}

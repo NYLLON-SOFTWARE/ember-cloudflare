@@ -432,13 +432,14 @@ async function profile(request: Request, env: Env): Promise<Response> {
 
 /**
  * Saves your profile, as its form does (profiles.rs, `update`), answering it as it is then. Who's
- * asking is checked before a new password is hashed, and a blank one keeps the password they have, as
- * ember-rust's `password=` ignores it. An email address someone else has is refused, where ember-rust
- * fails with 500. Changing your email address or password, while you have one, takes your current
+ * asking is checked before a new password is hashed, and a blank one keeps the password they have,
+ * as ember-rust's `password=` ignores it, while one shorter than first run takes is refused (422),
+ * where ember-rust saves it. An email address someone else has is refused, where ember-rust fails
+ * with 500. Changing your email address or password, while you have one, takes your current
  * password too, which ember-rust never asks for, so that holding your session isn't enough to take
- * your account: it's checked as sign-in checks a password, counting against the same limit (429), and
- * refused (422) when it's missing or wrong. A new password ends your other sessions, keeping this
- * browser's push subscription at `pushSubscriptionEndpoint` and forgetting the rest.
+ * your account: it's checked as sign-in checks a password, counting against the same limit (429),
+ * and refused (422) when it's missing or wrong. A new password ends your other sessions, keeping
+ * this browser's push subscription at `pushSubscriptionEndpoint` and forgetting the rest.
  */
 async function changeProfile(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);

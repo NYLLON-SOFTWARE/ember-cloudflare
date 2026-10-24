@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { SIGN_IN_REJECTED } from "@ember/protocol";
+import { PASSWORD_TOO_SHORT, SIGN_IN_REJECTED } from "@ember/protocol";
 import type { Page } from "@playwright/test";
 import { ADMINISTRATOR, administratorOn, drawnPicture, editorField, invitation, logOut, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { expect, test, unique } from "./fixtures";
@@ -89,6 +89,26 @@ test.describe(feature("auth.sign-up"), () => {
     // The variant their browser made of it, within 512×512, which needs no scaling down.
     const avatar = page.getByRole("link", { name: "Your profile" }).locator("img");
     expect(await shownPicture(avatar)).toEqual({ type: "image/webp", width: 256, height: 512 });
+  });
+
+  test("takes a password as long as first run's, saying why one is refused", async ({ page, request, session }) => {
+    await page.goto(`/join/${(await invitation(request, session)).joinCode}`);
+    let joins = 0;
+    page.on("request", (sent) => void (sent.url().includes("/api/join/") && joins++));
+    await page.getByLabel("Name").fill("Grace Hopper");
+    await page.getByLabel("Email address").fill(`grace-${crypto.randomUUID()}@example.com`);
+    const password = page.getByLabel("Password");
+    await password.fill("1234567");
+    await page.getByRole("button", { name: "Create account" }).click();
+    // The browser keeps the form, as it keeps first run's.
+    expect(await password.evaluate((field: HTMLInputElement) => field.validity.tooShort)).toBe(true);
+
+    // Eight UTF-16 units satisfy the browser's minlength, but the server counts four characters.
+    await password.fill("🔐🔐🔐🔐");
+    await page.getByRole("button", { name: "Create account" }).click();
+    await expect(page.getByRole("alert")).toHaveText(PASSWORD_TOO_SHORT);
+    await expect(page.getByLabel("Name")).toHaveValue("Grace Hopper");
+    expect(joins).toBe(1);
   });
 
   test("sends an email address that has an account to sign in with it filled in", async ({ page, request, session }) => {

@@ -28,6 +28,7 @@ import {
   MAX_USER_NAME_LENGTH,
   memberfulProblemOf,
   memberfulSignInPath,
+  MIN_PASSWORD_LENGTH,
   NAVIGATION_ICONS_REFUSED,
   NAVIGATION_SLOTS,
   NOT_A_CUSTOM_DOMAIN,
@@ -47,6 +48,7 @@ import {
   parseSharedOrder,
   parseSignUp,
   parseWorkspaceClientFrame,
+  PASSWORD_TOO_SHORT,
   ROOM_ICON_NAMES,
   ROOM_PROTOCOL,
   roomSocketQuery,
@@ -611,7 +613,7 @@ describe(feature("notifications.levels"), () => {
 
 describe(feature("users.profile"), () => {
   it("takes each field as typed, even blank, leaving out what isn't sent", () => {
-    const typed = { name: " ", emailAddress: "", password: "  ", bio: "Countess of Lovelace\n", currentPassword: " ", pushSubscriptionEndpoint: "" };
+    const typed = { name: " ", emailAddress: "", password: " ".repeat(MIN_PASSWORD_LENGTH), bio: "Countess of Lovelace\n", currentPassword: " ", pushSubscriptionEndpoint: "" };
     expect(parseProfileChanges(typed)).toEqual(typed);
     expect(parseProfileChanges({ name: "Ada", avatar: "" })).toEqual({ name: "Ada" });
     expect(parseProfileChanges({})).toEqual({});
@@ -637,6 +639,8 @@ describe(feature("users.profile"), () => {
     ["a bio that isn't text", { bio: false }, "Bio must be text"],
     ["a name longer than Ember keeps", { name: "x".repeat(MAX_USER_NAME_LENGTH + 1) }, "Name must be at most 100 characters"],
     ["an email address longer than any deliverable one", { emailAddress: `${"x".repeat(MAX_EMAIL_ADDRESS_LENGTH)}@example.com` }, "Email address must be at most 254 characters"],
+    ["a password shorter than first run takes", { password: "1234567" }, PASSWORD_TOO_SHORT],
+    ["four emoji, which the field's minlength counts as eight", { password: "🔐🔐🔐🔐" }, PASSWORD_TOO_SHORT],
     ["a password longer than sign-in takes", { password: "x".repeat(MAX_PASSWORD_LENGTH + 1) }, "Password must be at most 72 characters."],
     ["a bio longer than the form takes", { bio: "x".repeat(MAX_BIO_LENGTH + 1) }, "Bio must be at most 200 characters"],
     ["a current password that isn't text", { currentPassword: 12345678 }, "Current password must be text"],
