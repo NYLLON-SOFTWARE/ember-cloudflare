@@ -69,7 +69,7 @@ function layOut(log: HTMLElement, heights: Record<string, number> = {}) {
     scrollTop: { configurable: true, get: () => scrollTop, set: (top: number) => (scrollTop = Math.min(Math.max(0, top), scrollHeight() - log.clientHeight)) },
   });
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-    if (this === log) return DOMRect.fromRect({ width: 800, height: 400 });
+    if (this === log) return DOMRect.fromRect({ width: 800, height: log.clientHeight });
     const above = rows().indexOf(this);
     if (above < 0) return DOMRect.fromRect();
     return DOMRect.fromRect({ y: total(rows().slice(0, above)) - scrollTop, width: 800, height: heightOf(this) });
@@ -762,6 +762,42 @@ describe(feature("messages.edit"), () => {
     rerender(list({ messages: messages(1, 9), arrivals: 1 }, vi.fn(), null, { editing: new Set(["m8"]) }));
     expect(log.scrollTop).toBe(550);
     expect(screen.queryByRole("button", { name: "Jump to newest message" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a reader at the end there as the timeline itself gets shorter while an editor is open, as a phone's keyboard makes it", () => {
+    const shown = messages(1, 8);
+    const { rerender } = render(list({ messages: shown }));
+    const log = screen.getByRole("log");
+    const { heights, resize } = layOut(log);
+    rerender(list({ messages: shown }, vi.fn(), null, { editing: new Set(["m8"]) }));
+    heights.m8 = 150;
+    resize();
+    expect(log.scrollTop).toBe(400);
+
+    // The keyboard takes 300px of the timeline's 400.
+    setViewHeight(log, 100);
+    resize();
+    expect(log.scrollTop).toBe(750);
+    rerender(list({ messages: messages(1, 9), arrivals: 1 }, vi.fn(), null, { editing: new Set(["m8"]) }));
+    expect(log.scrollTop).toBe(850);
+    expect(screen.queryByRole("button", { name: "Jump to newest message" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the place of a reader away from the end as the timeline itself gets shorter while an editor is open", () => {
+    const shown = messages(1, 8);
+    const { rerender } = render(list({ messages: shown }));
+    const log = screen.getByRole("log");
+    const { heights, resize } = layOut(log);
+    scrollTo(log, 200);
+    rerender(list({ messages: shown }, vi.fn(), null, { editing: new Set(["m3"]) }));
+    heights.m3 = 250;
+    resize();
+    expect(log.scrollTop).toBe(200);
+
+    // m5, the last message that starts in view, keeps its bottom 50px below the view's as the view loses 300px.
+    setViewHeight(log, 100);
+    resize();
+    expect(log.scrollTop).toBe(500);
   });
 
   it("keeps the reader's place again once the editor has closed", () => {

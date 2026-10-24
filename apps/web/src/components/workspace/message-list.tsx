@@ -126,6 +126,7 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
   // How many messages have something open in them that scrolls itself into view, as an editor.
   const open = useRef(0);
   const viewHeight = useRef(0);
+  const viewWidth = useRef(0);
   const focused = useRef<Focus | null>(null);
   const arrivals = useRef(state.arrivals);
   // Whether new messages have come that the reader isn't at the end to see.
@@ -138,12 +139,12 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
 
   const nearEnd = (el: HTMLElement) => !state.hasNewer && el.scrollHeight - el.scrollTop - el.clientHeight <= AT_END_PX;
 
-  // Keeps the reader at the end, or in their place, as what the timeline shows changes, but for a resize while
-  // something's open in a message (`opened`). A short last page of later messages can leave them at the end
-  // without scrolling them, so this asks again.
-  const settle = useEffectEvent((resized = false) => {
+  // Keeps the reader at the end, or in their place, as the timeline or what it shows changes, but not as only what it
+  // shows resizes while something's open in a message (`opened`). A short last page of later messages can leave them
+  // at the end without scrolling them, so this asks again.
+  const settle = useEffectEvent((contentResized = false) => {
     const el = scroller.current!;
-    const scroll = !resized || open.current === 0;
+    const scroll = !contentResized || open.current === 0;
     if (scroll && atEnd.current) el.scrollTop = el.scrollHeight;
     else if (scroll && place.current) restore(el, place.current);
     atEnd.current = nearEnd(el);
@@ -170,10 +171,11 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
   });
 
   // Something open in a message that scrolls itself into view, as its editor or New boost's form, grows and scrolls
-  // as the browser has it, as ember-rust's do: the timeline doesn't scroll as it resizes until it's closed. Following
-  // the end, or keeping the place of a message below it, would push it up by however much it grows, out of view, and
-  // setting the scroll would stop its own to the middle of the timeline, or undo Lexxy's to its caret. New messages
-  // still bring a reader near the end to them, as ember-rust's do.
+  // as the browser has it, as ember-rust's do: the timeline doesn't scroll as what it shows resizes until it's closed.
+  // Following the end, or keeping the place of a message below it, would push it up by however much it grows, out of
+  // view, and setting the scroll would stop its own to the middle of the timeline, or undo Lexxy's to its caret. New
+  // messages still bring a reader near the end to them, as ember-rust's do, and the timeline still keeps the reader
+  // at the end, or in their place, as it resizes itself, as a window or a phone's keyboard resizes it.
   const opened = useCallback(() => {
     open.current++;
     return () => {
@@ -196,13 +198,15 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
     else setDrawnAll(true);
   }, [drawnAll, newestFirst, items.length]);
 
-  // When the timeline gets shorter, as it does when a phone's keyboard opens, or what it shows changes size
-  // after it's drawn, the reader stays where they were.
+  // When the timeline changes size, as it does when a phone's keyboard opens, or what it shows does after it's
+  // drawn, the reader stays where they were.
   useEffect(() => {
     const el = scroller.current!;
     const observer = new ResizeObserver(() => {
+      const contentResized = el.clientHeight === viewHeight.current && el.clientWidth === viewWidth.current;
       viewHeight.current = el.clientHeight;
-      settle(true);
+      viewWidth.current = el.clientWidth;
+      settle(contentResized);
     });
     observer.observe(el);
     observer.observe(content.current!);
