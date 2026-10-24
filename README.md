@@ -354,8 +354,9 @@ answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Ob
 storage), that the page loads through the Worker with its headers, that the API asks for sign-in,
 and whether Ember is set up yet, or waits for its setup link. `/api/health` tells strangers only
 whether Ember is up; with the Worker's `EMBER_RECOVERY_TOKEN` in its environment, the check hears
-which storage it uses too, and why when it's down. The preview's link is on the run's summary and
-under the repository's Deployments.
+which storage it uses too, and why when it's down. It sends the token only to an `https://` address,
+or an `http://` one on this machine, and follows no redirect with it. The preview's link is on the
+run's summary and under the repository's Deployments.
 
 ### Resetting a password
 
