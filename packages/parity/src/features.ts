@@ -565,6 +565,7 @@ export const features = [
       "Remove avatar, shown only while there is one, removes it with no confirmation or notice and brings back the initials.",
       "Any file is accepted. One that can't be resized, such as an SVG or BMP, is stored and Remove avatar shows, but the initials are served.",
       "Uploads are served as WebP within 512×512, keeping their proportions rather than cropped square.",
+      "Wherever an avatar shows, a photo that isn't square fills its square or circle, cropped to the middle, as Campfire's `.avatar img` covers it.",
       "Avatar URLs carry `?v=` with the person's last update, to the second, so a new picture replaces cached ones.",
     ],
     sources: ["crates/ember/src/controllers/users/avatars.rs", "crates/ember/src/controllers/users/profiles.rs", "crates/views/templates/users/profiles/show.html", "reference/app/controllers/users/avatars_controller.rb"],
