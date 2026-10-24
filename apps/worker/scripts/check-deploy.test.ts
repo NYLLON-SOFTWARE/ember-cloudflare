@@ -99,10 +99,15 @@ describe(feature("platform.health"), () => {
   it("never follows a redirect with the token", async () => {
     healthAnswer = { status: 307, body: "", headers: { Location: "/api/health/elsewhere" } };
     const check = start(address);
-    await vi.waitFor(() => expect(requests).not.toEqual([]), { timeout: 5_000 });
-    // A redirect followed is asked for at once, where the check asks again only 5 seconds later.
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    check.kill();
+    const closed = new Promise((resolve) => check.on("close", resolve));
+    try {
+      await vi.waitFor(() => expect(requests).not.toEqual([]), { timeout: 5_000 });
+      // A redirect followed is asked for at once, where the check asks again only 5 seconds later.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } finally {
+      check.kill();
+      await closed;
+    }
     expect(requests).toEqual([{ url: "/api/health", authorization: `Bearer ${TOKEN}` }]);
   }, 10_000);
 });
