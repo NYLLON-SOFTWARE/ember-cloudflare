@@ -292,7 +292,8 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
               className={FIELD_INPUT}
             />
             <p id="profile-password-help" className="text-[0.8em] text-muted-foreground">
-              Leave blank to keep your current password.
+              {/* Everyone in ember-rust has a password, where someone who signed in with Memberful or just a name has none. */}
+              {fields && !hasPassword ? "Leave blank to keep signing in without a password." : "Leave blank to keep your current password."}
             </p>
           </Field>
           {hasPassword && (
