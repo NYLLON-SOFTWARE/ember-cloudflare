@@ -4,7 +4,6 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import messagesOutlined from "@/components/icons/campfire/messages-outlined.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext } from "@/hooks/use-directory";
 import { PushContext, type Push } from "@/hooks/use-push";
@@ -117,11 +116,11 @@ describe(feature("sidebar.favorites"), () => {
 });
 
 describe(feature("dms.naming"), () => {
-  it("shows a DM's name after Campfire's messages icon, saying to screen readers whom it's with", () => {
+  it("shows a DM's name after a chat bubble, saying to screen readers whom it's with", () => {
     renderHeader({ room: adaDirect, name: "Ada" });
     const heading = screen.getByRole("heading", { level: 1 });
     expect(heading).toHaveTextContent(/^Direct message with Ada$/);
-    expect(heading.previousElementSibling).toHaveAttribute("src", messagesOutlined);
+    expect(heading.previousElementSibling).toHaveClass("iconoir-chat-bubble-empty");
     expect(screen.getByRole("navigation", { name: "Page" })).not.toHaveTextContent("#");
   });
 
@@ -219,7 +218,7 @@ describe(feature("notifications.levels"), () => {
     ] as const) {
       const { unmount } = renderHeader({ room, name, involvement });
       const bell = screen.getByRole("checkbox", { name: label });
-      expect(bell).toHaveClass("size-9", "[&>img]:size-5");
+      expect(bell).toHaveClass("size-9", "[&>svg]:size-5");
       const following = (a: Element, b: Element) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
       expect(following(screen.getByRole("link", { name: "Search messages" }), bell)).toBeTruthy();
       expect(following(bell, screen.getByRole("link", { name: /^Settings for this/ }))).toBeTruthy();

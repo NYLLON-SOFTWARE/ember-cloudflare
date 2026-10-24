@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { Alert, Check } from "@/components/icons/campfire";
+import { CheckCircle, WarningTriangle } from "@/components/icons/iconoir";
 import { takeFlashFromLastPage, type FlashMessage } from "@/lib/flash";
 import { cn } from "@/lib/utils";
 
@@ -49,7 +49,7 @@ export function useFlash(): Flasher {
 
 /**
  * ember-rust's flash (crates/views/templates/layouts/application.html, styled in zz-ember.css): a
- * notice in white on green with Campfire's check, or an alert on red with its alert sign, 12px below
+ * notice in white on green with a check, or an alert on red with a warning sign, 12px below
  * the header. A notice of just "✓" shows only the check, read as "Changes saved". It fades in after
  * 0.3s and out again by 3.3s (Campfire's flash.css), and then goes. Unlike ember-rust's, it:
  * - shows at once under reduced motion, without fading, until the fade would have ended, where
@@ -59,7 +59,7 @@ export function useFlash(): Flasher {
  * - keeps 12px below the header, and centered on the page, where they make room for a notch.
  */
 function Flash({ message: { kind, text }, workspace, onDone }: { message: FlashMessage; workspace: boolean; onDone: () => void }) {
-  const Sign = kind === "alert" ? Alert : Check;
+  const Sign = kind === "alert" ? WarningTriangle : CheckCircle;
   return (
     <div
       onAnimationEnd={onDone}
@@ -79,7 +79,7 @@ function Flash({ message: { kind, text }, workspace, onDone }: { message: FlashM
           kind === "alert" ? "bg-negative" : "bg-positive",
         )}
       >
-        <Sign tone="white" width={24} height={24} className="size-6 flex-none" />
+        <Sign className="size-6 flex-none" />
         {text === "✓" ? <span className="sr-only">Changes saved</span> : <span>{text}</span>}
       </div>
     </div>

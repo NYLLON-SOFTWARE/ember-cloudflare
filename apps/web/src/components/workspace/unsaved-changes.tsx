@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { Dismiss, PencilSquare } from "@/components/icons/ember";
+import { Edit, Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useMounted } from "@/hooks/use-mounted";
 import { guardLeaving } from "@/hooks/use-route";
@@ -153,10 +153,10 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
           onClick={keepEditing}
           className="absolute end-3 top-3 inline-flex cursor-pointer items-center justify-center rounded-[9px] px-[1.1em] py-[0.5em] touch:min-h-11 disabled:cursor-default"
         >
-          <Dismiss className="size-[18px]" />
+          <Xmark className="size-[18px]" />
         </button>
         <div aria-hidden="true" className="mb-5 grid size-[46px] place-items-center rounded-xl border bg-surface">
-          <PencilSquare className="size-[22px]" />
+          <Edit className="size-[22px]" />
         </div>
         <DialogTitle className="mb-2.5 text-[22px] leading-[1.25] font-bold">Unsaved Changes</DialogTitle>
         <DialogDescription className="leading-[1.65]">{description}</DialogDescription>

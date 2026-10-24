@@ -34,8 +34,8 @@ export function webManifest(name: string, logo: string | null) {
     background_color: "#ffffff",
     shortcuts: [
       // Relative, as in ember-rust, so it resolves against the manifest's address to /rooms/opens/new.
-      { name: "New chat room", description: "Open Ember and start a new chat room", url: "rooms/opens/new", icons: [{ src: "/shortcuts/add.svg", sizes: "any" }] },
-      { name: "My profile", description: "Open Ember and view your profile", url: "/users/me/profile", icons: [{ src: "/shortcuts/person.svg", sizes: "any" }] },
+      { name: "New chat room", description: "Open Ember and start a new chat room", url: "rooms/opens/new", icons: [{ src: "/shortcuts/plus.svg", sizes: "any" }] },
+      { name: "My profile", description: "Open Ember and view your profile", url: "/users/me/profile", icons: [{ src: "/shortcuts/user.svg", sizes: "any" }] },
     ],
     screenshots: [
       { src: "/screenshots/chat.png", sizes: "1080x2400", form_factor: "narrow", label: "Ember is an installable, self-hosted group chat system." },

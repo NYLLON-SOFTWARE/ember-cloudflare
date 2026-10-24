@@ -151,13 +151,13 @@ describe(feature("dms.picker"), () => {
     const { user } = showDialog();
     await user.click(option("Grace Hopper"));
     await user.click(option("alan Turing"));
-    expect(chips()).toEqual(["Grace Hopper ×", "alan Turing ×"]);
+    expect(chips()).toEqual(["Grace Hopper", "alan Turing"]);
     expect(listed()).toEqual(["Ada Byron", "Barbara Liskov", "Linus Torvalds"]);
     expect(search()).toHaveFocus();
     expect(start()).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "Remove Grace Hopper" }));
-    expect(chips()).toEqual(["alan Turing ×"]);
+    expect(chips()).toEqual(["alan Turing"]);
     expect(listed()).toEqual(["Ada Byron", "Barbara Liskov", "Grace Hopper", "Linus Torvalds"]);
     expect(search()).toHaveFocus();
 
@@ -179,7 +179,7 @@ describe(feature("dms.picker"), () => {
     await user.keyboard("{ArrowDown}");
     expect(highlighted()).toBe("Ada Byron");
     await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
-    expect(chips()).toEqual(["Barbara Liskov ×"]);
+    expect(chips()).toEqual(["Barbara Liskov"]);
     expect(highlighted()).toBeNull();
     expect(search()).not.toHaveAttribute("aria-activedescendant");
 
@@ -243,7 +243,7 @@ describe(feature("dms.picker"), () => {
     await user.click(screen.getByRole("button", { name: "Remove Linus Torvalds" }));
     await user.click(option("Ada Byron"));
     expect(screen.getByRole("dialog", { name: "New direct message" })).toBeInTheDocument();
-    expect(chips()).toEqual(["Linus Torvalds ×", "Grace Hopper ×"]);
+    expect(chips()).toEqual(["Linus Torvalds", "Grace Hopper"]);
 
     const room = directWith("d1", [grace, linus]);
     await answer(Response.json({ room }, { status: 201 }));
@@ -273,7 +273,7 @@ describe(feature("dms.picker"), () => {
     await user.click(start());
     await answer(Response.json({ error: "Something went wrong" }, { status: 500 }));
     expect(status()).toHaveTextContent("Couldn’t start the conversation. Please try again.");
-    expect(chips()).toEqual(["Grace Hopper ×"]);
+    expect(chips()).toEqual(["Grace Hopper"]);
     expect(start()).toBeEnabled();
     expect(location.pathname).toBe("/");
     expect(onFailed).not.toHaveBeenCalled();

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
-import { Check } from "@/components/icons/lucide";
+import { CheckCircle } from "@/components/icons/iconoir";
 
 import { safeAreaBoundary } from "@/lib/safe-area";
 import { cn } from "@/lib/utils";
@@ -80,7 +80,7 @@ function DropdownMenuCheckboxItem({
     >
       <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
         <DropdownMenuPrimitive.ItemIndicator>
-          <Check className="size-4" />
+          <CheckCircle className="size-4" />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}
@@ -108,7 +108,7 @@ function DropdownMenuRadioItem({
     >
       <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
         <DropdownMenuPrimitive.ItemIndicator>
-          <Check className="size-4" />
+          <CheckCircle className="size-4" />
         </DropdownMenuPrimitive.ItemIndicator>
       </span>
       {children}

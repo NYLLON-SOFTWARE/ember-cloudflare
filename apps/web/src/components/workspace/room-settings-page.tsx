@@ -3,7 +3,7 @@ import type { RoomChanges, RoomIconName, RoomId, RoomSettings, User, UserId } fr
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, roomPath, roomSettingsPath, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { Trash } from "@/components/icons/campfire";
+import { Trash } from "@/components/icons/iconoir";
 import { ApiError, changeRoom, deleteRoom, fetchRoomSettings, isSignedOut } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
@@ -195,7 +195,7 @@ export const NEGATIVE_BUTTON =
 export function DeleteButton({ label, text, disabled, onClick }: { label: string; text: string; disabled: boolean; onClick: () => void }) {
   return (
     <button type="button" aria-label={label} disabled={disabled} onClick={onClick} className={NEGATIVE_BUTTON}>
-      <Trash tone="white" width={20} height={20} className="size-[1.3em] shrink-0" />
+      <Trash className="size-[1.3em] shrink-0" />
       <span className="truncate">{text}</span>
     </button>
   );

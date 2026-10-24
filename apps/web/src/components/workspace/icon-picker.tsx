@@ -1,6 +1,6 @@
 import { useEffect, useId, useImperativeHandle, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from "react";
 import type { RoomIconName } from "@ember/protocol";
-import { Dismiss, IconPickerChevron, IconPickerSearch } from "@/components/icons/ember";
+import { CheckCircle, NavArrowRight, Search, Xmark } from "@/components/icons/iconoir";
 import CATALOG_URL from "@/components/icons/picker/catalog.json?url";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { iconLabel, roomIconLabel, type IconContext } from "@/components/icons/room-icon-label";
@@ -246,13 +246,13 @@ export function IconDialog({ ref, context, title, description, group, catalogUrl
           <p className="text-[13px] text-muted-foreground">{description}</p>
         </div>
         <button type="button" aria-label="Close icon picker" onClick={cancel} className="grid size-9 flex-none cursor-pointer place-items-center rounded-[9px] touch:size-11">
-          <Dismiss className="size-5" />
+          <Xmark className="size-5" />
         </button>
       </header>
 
       {/* A label, where ember-rust's is a box, so a tap anywhere on it reaches the field. */}
       <label className="mx-6 mb-4 flex flex-none cursor-text items-center gap-2.5 rounded-[9px] border px-3 py-2.5 focus-within:border-foreground focus-within:ring-1 focus-within:ring-foreground upto-600px:mx-4 short:mb-2">
-        <IconPickerSearch className="size-[18px] flex-[0_0_18px] text-muted-foreground" />
+        <Search className="size-[18px] flex-[0_0_18px] text-muted-foreground" />
         <input
           ref={searchBox}
           type="search"
@@ -306,9 +306,7 @@ export function IconDialog({ ref, context, title, description, group, catalogUrl
         >
           <RoomIcon icon={defaultIcon} size={24} className="w-[26px] text-center text-[23px] leading-none text-muted-foreground" />
           <span>Use default icon</span>
-          <span aria-hidden="true" className="ms-auto opacity-0 group-aria-pressed:opacity-100">
-            ✓
-          </span>
+          <CheckCircle className="ms-auto size-[18px] flex-none opacity-0 group-aria-pressed:opacity-100" />
         </button>
         <p role="status" aria-live="polite" className="mt-[17px] mb-[11px] text-xs text-muted-foreground">
           {status === "loading" ? "Loading icons…" : status === "failed" ? "Icons couldn’t load. Try again; your current icon is unchanged." : resultsLabel(matches.length, shown.length, collection)}
@@ -400,7 +398,7 @@ export function IconTrigger({ label, preview, title, subtitle, disabled, onOpen 
         <strong className="text-sm font-medium wrap-anywhere">{title}</strong>
         <span className="text-xs text-muted-foreground">{subtitle}</span>
       </span>
-      <IconPickerChevron className="size-[18px] flex-[0_0_18px] text-muted-foreground" />
+      <NavArrowRight className="size-[18px] flex-[0_0_18px] text-muted-foreground" />
     </button>
   );
 }

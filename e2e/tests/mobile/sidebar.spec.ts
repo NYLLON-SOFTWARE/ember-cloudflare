@@ -1,6 +1,6 @@
 import { feature } from "@ember/parity";
 import type { Sidebar } from "@ember/protocol";
-import { cookieHeader, createRoom, keepOtherRoomsOut, openRoom, signInAs } from "../../fixtures";
+import { cookieHeader, createRoom, keepOtherRoomsOut, openRoom, rowsWithStars, signInAs } from "../../fixtures";
 import { settle } from "./audits";
 import { expect, hasDrawerLayout, test } from "./fixtures";
 
@@ -24,7 +24,7 @@ test.describe(feature("sidebar.favorite-order"), () => {
     await openRoom(page, rooms[0]!);
     if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();
     const rows = page.getByRole("region", { name: "Rooms" }).getByRole("link");
-    await expect(rows).toHaveText(["#general★", "#random★"]);
+    await expect.poll(() => rowsWithStars(rows)).toEqual(["#general★", "#random★"]);
     // Where the finger goes down is measured once the drawer has slid in, as a person would wait.
     await settle(page);
 
@@ -37,7 +37,7 @@ test.describe(feature("sidebar.favorite-order"), () => {
     await touch("touchStart", x, from.y + from.height / 2);
     await expect(page.getByRole("status").filter({ hasText: "Moving random." })).toBeAttached();
     for (const y of [from.y, to.y + to.height / 2, to.y + 2]) await touch("touchMove", x, y);
-    await expect(rows).toHaveText(["#random★", "#general★"]);
+    await expect.poll(() => rowsWithStars(rows)).toEqual(["#random★", "#general★"]);
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await expect(page.getByRole("status").filter({ hasText: "Starred room order saved." })).toBeAttached();
     // Lifting the finger on the room's row didn't open it.

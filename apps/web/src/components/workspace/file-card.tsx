@@ -1,5 +1,5 @@
 import type { StoredFile } from "@ember/protocol";
-import { CommonFileText, Download, Share } from "@/components/icons/campfire";
+import { Download, Page, ShareAndroid } from "@/components/icons/iconoir";
 import { ShareButton } from "@/components/share-button";
 import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
@@ -18,7 +18,7 @@ const ACTION =
 export function FileCard({ file }: { file: StoredFile }) {
   return (
     <div className="my-[5px] inline-flex w-fit max-w-full items-center gap-2.5 rounded-[10px] border px-2.5 py-2">
-      <CommonFileText className="size-9 flex-none rounded-[7px] bg-surface p-[7px]" />
+      <Page className="size-9 flex-none rounded-[7px] bg-surface p-[7px]" />
       <span className="min-w-0 flex-1 font-medium wrap-anywhere">{file.name}</span>
       <a href={file.downloadUrl} className={cn(ACTION, "ios-pwa:hidden")}>
         <Download className="size-[1.3em]" />
@@ -26,7 +26,7 @@ export function FileCard({ file }: { file: StoredFile }) {
       </a>
       {canShare() && (
         <ShareButton url={file.downloadUrl} className={ACTION}>
-          <Share className="size-[1.3em]" />
+          <ShareAndroid className="size-[1.3em]" />
           <span className="sr-only">Share {file.name}</span>
         </ShareButton>
       )}

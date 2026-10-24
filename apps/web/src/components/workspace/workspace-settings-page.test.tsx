@@ -19,9 +19,6 @@ import {
   type WorkspaceSettings,
 } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
-import cancel from "@/components/icons/campfire/cancel.svg";
-import crown from "@/components/icons/campfire/crown.svg";
-import minus from "@/components/icons/campfire/minus.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
@@ -865,7 +862,7 @@ describe(feature("rooms.creation-permission"), () => {
     const restrict = await restrictSwitch();
     expect(roomsSection()).toContainElement(restrict);
     expect(restrict.parentElement).toHaveTextContent("Must be admin to create new rooms");
-    expect(restrict.parentElement!.querySelector("img")).toHaveAttribute("src", crown);
+    expect(restrict.parentElement!.querySelector("svg")).toHaveClass("iconoir-crown");
     expect(restrict).not.toBeChecked();
 
     await user.click(restrict);
@@ -1324,10 +1321,8 @@ describe(feature("accounts.people"), () => {
   it("shows administrators who's banned, dimmed under a cancel mark, with no crown", async () => {
     showPage();
     const row = await rowOf("Mallory");
-    const [avatar, mark] = row.querySelectorAll("img");
-    expect(avatar!.closest("a")).toHaveClass("[&>img]:opacity-50");
-    expect(mark).toHaveAttribute("src", cancel);
-    expect(mark).toHaveClass("pointer-events-none");
+    expect(row.querySelector("img")!.closest("a")).toHaveClass("[&>img]:opacity-50");
+    expect(row.querySelector("svg.iconoir-prohibition")).toHaveClass("pointer-events-none");
     expect(within(row).queryByRole("checkbox")).not.toBeInTheDocument();
     expect((await rowOf("linus Torvalds")).querySelector("a")).not.toHaveClass("[&>img]:opacity-50");
   });
@@ -1501,10 +1496,8 @@ describe(feature("accounts.remove-person"), () => {
     showPage();
     const remove = await deleteOf("Grace Hopper");
     expect(remove).toBeEnabled();
-    const [icon] = remove!.querySelectorAll("img");
-    expect(icon).toHaveAttribute("src", minus);
-    expect(icon).toHaveClass("invert");
-    expect(remove).toHaveClass("bg-negative-button");
+    expect(remove!.querySelector("svg")).toHaveClass("iconoir-minus");
+    expect(remove).toHaveClass("bg-negative-button", "text-white");
     expect(await deleteOf("linus Torvalds")).toBeInTheDocument();
     expect(await deleteOf("Ada Lovelace")).toBeNull();
     expect(await deleteOf("Mallory")).toBeNull();
@@ -1628,7 +1621,7 @@ describe(feature("auth.memberful-memberships"), () => {
     const row = await rowOf("Sam Lapsed");
     expect(row).toHaveTextContent("Membership lapsed");
     expect(row.querySelector("a")).toHaveClass("[&>img]:opacity-50");
-    expect([...row.querySelectorAll("img")].map((image) => image.getAttribute("src"))).not.toContain(cancel);
+    expect(row.querySelector("svg.iconoir-prohibition")).toBeNull();
     expect(within(row).queryByRole("checkbox")).not.toBeInTheDocument();
     expect(await deleteOf("Sam Lapsed")).toBeEnabled();
   });

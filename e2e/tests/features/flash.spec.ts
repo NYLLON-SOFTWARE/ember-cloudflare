@@ -31,7 +31,7 @@ test.describe(feature("ui.flash"), () => {
       expect(flash.y, `12px below the header at ${width}px`).toBeCloseTo(main.y + 12, 0);
       expect(flash.width).toBeGreaterThanOrEqual(48);
       expect(flash.height).toBeGreaterThanOrEqual(48);
-      await expect(alert.locator("img")).toHaveCount(1);
+      await expect(alert.locator("svg")).toHaveCount(1);
     }
   });
 
@@ -66,7 +66,7 @@ test.describe(feature("ui.flash"), () => {
 
     const flash = await hold(notice);
     expect(flash).toMatchObject({ width: 48, height: 48 });
-    await expect(notice.locator("img")).toHaveCount(1);
+    await expect(notice.locator("svg")).toHaveCount(1);
     const [background, green] = await notice.evaluate((node) => {
       // Campfire's --color-positive, as ember-rust sets it.
       const probe = document.body.appendChild(document.createElement("div"));

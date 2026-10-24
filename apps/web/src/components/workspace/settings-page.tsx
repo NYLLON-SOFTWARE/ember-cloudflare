@@ -1,5 +1,5 @@
 import { useContext, type ComponentProps, type ReactNode } from "react";
-import { ArrowLeft } from "@/components/icons/campfire";
+import { ArrowLeft } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { cn } from "@/lib/utils";

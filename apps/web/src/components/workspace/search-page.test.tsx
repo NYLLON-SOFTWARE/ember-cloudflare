@@ -349,7 +349,7 @@ describe(feature("search.recent"), () => {
     expect(screen.getByRole("button", { name: "Search" })).toBeEnabled();
   });
 
-  it("clears them with the broom once you confirm, going to the page without a search", async () => {
+  it("clears them with the trash can once you confirm, going to the page without a search", async () => {
     let recent = ["eel", "hello"];
     serve((method, url) => {
       if (method !== "DELETE") return Response.json(results(url === "/api/searches" ? null : "eel", [], recent));

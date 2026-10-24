@@ -1,6 +1,6 @@
 import { useContext, useEffect, useEffectEvent, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
 import type { DirectoryUser, UserId } from "@ember/protocol";
-import { Close, Search } from "@/components/icons/ember";
+import { Search, Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
@@ -242,7 +242,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
               <DialogDescription className="text-[13px] leading-normal">Find people by full name. You can also type @name.</DialogDescription>
             </div>
             <button type="button" aria-label="Close" onClick={close} className="grid size-9 flex-none cursor-pointer place-items-center rounded-[9px] touch:size-11">
-              <Close className="size-5" />
+              <Xmark className="size-5" />
             </button>
           </header>
           {picked.length > 0 && (
@@ -253,9 +253,10 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
                   type="button"
                   aria-label={`Remove ${nameOf(person)}`}
                   onClick={() => unpick(person)}
-                  className="min-h-9 max-w-full cursor-pointer rounded-[20px] border bg-surface px-3 py-[7px] text-[13px] text-foreground wrap-anywhere touch:min-h-11"
+                  className="inline-flex min-h-9 max-w-full cursor-pointer items-center gap-1 rounded-[20px] border bg-surface py-[7px] ps-3 pe-2.5 text-[13px] text-foreground wrap-anywhere touch:min-h-11"
                 >
-                  {nameOf(person)} ×
+                  {nameOf(person)}
+                  <Xmark className="size-4 flex-none" />
                 </button>
               ))}
             </div>

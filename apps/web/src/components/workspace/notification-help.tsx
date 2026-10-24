@@ -1,19 +1,19 @@
 import { useSyncExternalStore, type ComponentType, type ReactNode } from "react";
 import type { Platform } from "@ember/protocol";
+import { ExternalSliders } from "@/components/icons/campfire";
 import {
-  Disclosure,
-  ExternalGear,
-  ExternalInstall,
-  ExternalShare,
-  ExternalSliders,
-  ExternalSwitch,
-  ExternalWeb,
-  InstallEdge,
+  BellOff,
+  DownloadDataWindow,
+  GridPlus,
+  Internet,
   Lock,
-  MenuDotsVertical,
-  NotificationBellAlert,
-  type CampfireIconProps,
-} from "@/components/icons/campfire";
+  MoreVert,
+  NavArrowRight,
+  Settings,
+  ShareIos,
+  SwitchOff,
+  type IconoirIconProps,
+} from "@/components/icons/iconoir";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { canInstall, givesInstallSteps, promptInstall, subscribeToInstallPrompt } from "@/lib/install-prompt";
 
@@ -71,7 +71,7 @@ function BrowserSettings({ platform, open }: SectionProps) {
   const browser = capitalize(platform.browser);
   const { firefox, chrome, safari, edge, android, desktop } = platform;
   return (
-    <HelpSection icon={ExternalWeb} title={`Check your ${browser} settings`} open={open}>
+    <HelpSection icon={Internet} title={`Check your ${browser} settings`} open={open}>
       {firefox && android ? (
         <Steps>
           <li>
@@ -141,7 +141,7 @@ function BrowserSettings({ platform, open }: SectionProps) {
       ) : chrome && android ? (
         <Steps>
           <li>
-            Tap the <Pictured icon={MenuDotsVertical} alt="More options" size={16} /> menu button.
+            Tap the <Pictured icon={MoreVert} alt="More options" size={16} /> menu button.
           </li>
           <li>
             Tap <em>Settings</em>.
@@ -150,13 +150,13 @@ function BrowserSettings({ platform, open }: SectionProps) {
             Tap <em>Notifications</em>.
           </li>
           <li>
-            Tap <Pictured icon={ExternalSwitch} alt="the switch" size={22} /> to <em>Allow {browser} notifications</em>.
+            Tap <Pictured icon={SwitchOff} alt="the switch" size={22} /> to <em>Allow {browser} notifications</em>.
           </li>
           <li>
-            Tap <Pictured icon={ExternalSwitch} alt="the switch" size={22} /> next to <em>Web apps</em>.
+            Tap <Pictured icon={SwitchOff} alt="the switch" size={22} /> next to <em>Web apps</em>.
           </li>
           <li>
-            Tap <Pictured icon={NotificationBellAlert} alt="the notification bell" size={16} /> and select <em>Allow</em>.
+            Tap <Pictured icon={BellOff} alt="the notification bell" size={16} /> and select <em>Allow</em>.
           </li>
         </Steps>
       ) : safari && desktop ? (
@@ -193,11 +193,11 @@ function SystemSettings({ platform, open }: SectionProps) {
   const browser = capitalize(platform.browser);
   const { firefox, chrome, safari, edge, android, ios, desktop } = platform;
   return (
-    <HelpSection icon={ExternalGear} title={`Check your ${platform.operatingSystem} settings`} open={open}>
+    <HelpSection icon={Settings} title={`Check your ${platform.operatingSystem} settings`} open={open}>
       {firefox && android ? (
         <Steps>
           <li>
-            Tap the <Pictured icon={MenuDotsVertical} alt="More options" size={16} /> menu button.
+            Tap the <Pictured icon={MoreVert} alt="More options" size={16} /> menu button.
           </li>
           <li>
             Tap <em>Settings</em>.
@@ -206,7 +206,7 @@ function SystemSettings({ platform, open }: SectionProps) {
             Tap <em>Notifications</em>.
           </li>
           <li>
-            Tap <Pictured icon={ExternalSwitch} alt="the toggle button" size={22} /> to <em>Allow {browser} notifications</em>.
+            Tap <Pictured icon={SwitchOff} alt="the toggle button" size={22} /> to <em>Allow {browser} notifications</em>.
           </li>
         </Steps>
       ) : edge && desktop ? (
@@ -218,7 +218,7 @@ function SystemSettings({ platform, open }: SectionProps) {
       ) : (safari || chrome) && ios ? (
         <Steps>
           <li>
-            Open the <Pictured icon={ExternalGear} size={20} /> Settings app.
+            Open the <Pictured icon={Settings} size={20} /> Settings app.
           </li>
           <li>
             Scroll to and tap <em>Ember</em>.
@@ -227,13 +227,13 @@ function SystemSettings({ platform, open }: SectionProps) {
             Tap <em>Notifications</em>.
           </li>
           <li>
-            Tap <Pictured icon={ExternalSwitch} alt="the allow notifications switch button" size={22} /> to <em>Allow Notifications</em>.
+            Tap <Pictured icon={SwitchOff} alt="the allow notifications switch button" size={22} /> to <em>Allow Notifications</em>.
           </li>
         </Steps>
       ) : chrome && android ? (
         <Steps>
           <li>
-            Open the <Pictured icon={ExternalGear} size={20} /> Settings app.
+            Open the <Pictured icon={Settings} size={20} /> Settings app.
           </li>
           <li>
             Tap <em>Notifications</em>.
@@ -245,7 +245,7 @@ function SystemSettings({ platform, open }: SectionProps) {
             Scroll to <em>Ember</em>.
           </li>
           <li>
-            Tap <Pictured icon={ExternalSwitch} alt="the switch" size={22} /> to <em>Allow Notifications</em>.
+            Tap <Pictured icon={SwitchOff} alt="the switch" size={22} /> to <em>Allow Notifications</em>.
           </li>
         </Steps>
       ) : (
@@ -263,11 +263,11 @@ function InstallSteps({ platform, open }: SectionProps) {
   const browser = capitalize(platform.browser);
   const { firefox, chrome, safari, edge, android, ios, desktop } = platform;
   return (
-    <HelpSection icon={ExternalInstall} title="Install Ember as a web app." open={open}>
+    <HelpSection icon={DownloadDataWindow} title="Install Ember as a web app." open={open}>
       {edge ? (
         <Steps>
           <li>
-            Click <Pictured icon={InstallEdge} alt="the app available - install Ember chat button" size={16} /> in the address bar.
+            Click <Pictured icon={GridPlus} alt="the app available - install Ember chat button" size={16} /> in the address bar.
           </li>
           <li>
             Click <em>Install</em>.
@@ -276,7 +276,7 @@ function InstallSteps({ platform, open }: SectionProps) {
       ) : firefox && android ? (
         <Steps>
           <li>
-            Tap the <Pictured icon={MenuDotsVertical} alt="More options" size={16} /> menu button.
+            Tap the <Pictured icon={MoreVert} alt="More options" size={16} /> menu button.
           </li>
           <li>
             Tap <em>Install</em> in the menu.
@@ -298,7 +298,7 @@ function InstallSteps({ platform, open }: SectionProps) {
           </Paragraph>
           <Steps>
             <li>
-              Tap <Pictured icon={ExternalShare} alt="the share button" size={20} />
+              Tap <Pictured icon={ShareIos} alt="the share button" size={20} />
             </li>
             <li>
               Tap <em>Add to Home Screen</em>.
@@ -330,7 +330,7 @@ function InstallNow() {
         onClick={promptInstall}
         className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border bg-foreground px-[1.1em] py-[0.5em] font-medium text-background touch:min-h-11"
       >
-        <ExternalInstall tone="reversed" className="w-[1.3em]" />
+        <DownloadDataWindow className="w-[1.3em]" />
         Install now
       </button>
     </div>
@@ -362,7 +362,7 @@ function SystemSteps({ platform, app, windowsSwitch, macSwitch }: SystemStepsPro
           Go to <em>System &gt; Notification</em>.
         </li>
         <li>
-          Click <Pictured icon={ExternalSwitch} alt={windowsSwitch} size={22} /> <em>ON</em> for {app}.
+          Click <Pictured icon={SwitchOff} alt={windowsSwitch} size={22} /> <em>ON</em> for {app}.
         </li>
       </Steps>
     );
@@ -389,23 +389,23 @@ function SystemSteps({ platform, app, windowsSwitch, macSwitch }: SystemStepsPro
         Click <em>{app}</em>.
       </li>
       <li>
-        Click <Pictured icon={ExternalSwitch} alt={macSwitch} size={22} /> to <em>Allow notifications</em>.
+        Click <Pictured icon={SwitchOff} alt={macSwitch} size={22} /> to <em>Allow notifications</em>.
       </li>
     </Steps>
   );
 }
 
 /** Campfire's `.notifications-help`: a box of steps under a summary that shows and hides them. */
-function HelpSection({ icon: Icon, title, open = false, children }: { icon: ComponentType<CampfireIconProps>; title: string; open?: boolean; children: ReactNode }) {
+function HelpSection({ icon: Icon, title, open = false, children }: { icon: ComponentType<IconoirIconProps>; title: string; open?: boolean; children: ReactNode }) {
   return (
     <details
       open={open}
-      className="group mb-2 rounded-[0.5em] border bg-border px-[var(--inline-space,1ch)] py-4 [&_img]:inline [&_img]:align-text-top"
+      className="group mb-2 rounded-[0.5em] border bg-border px-[var(--inline-space,1ch)] py-4 [&_:is(img,svg)]:inline [&_:is(img,svg)]:align-text-top"
     >
       <summary className="-mx-[var(--inline-space,1ch)] -my-4 flex cursor-pointer list-none items-center gap-[0.5em] rounded-[0.5em] px-[var(--inline-space,1ch)] py-4 font-medium [&::-webkit-details-marker]:hidden">
         <Icon width={20} height={20} className="h-5 w-[1.3em]" />
         <strong>{title}</strong>
-        <Disclosure width={10} height={10} className="ms-auto size-2.5 transition-transform duration-150 ease-[ease] group-open:rotate-90" />
+        <NavArrowRight className="ms-auto size-4 transition-transform duration-150 ease-[ease] group-open:rotate-90" />
       </summary>
       {children}
     </details>
@@ -415,11 +415,14 @@ function HelpSection({ icon: Icon, title, open = false, children }: { icon: Comp
 /** The box each picture in the steps is drawn in, as wide as it's tall, as ember-rust sizes them. */
 const PICTURE_SIZES = { 16: "size-4", 20: "size-5", 22: "size-[22px]" };
 
+/** What a picture in the steps is given, whether it's Iconoir's or Campfire's. */
+type PictureProps = Pick<IconoirIconProps, "aria-label" | "width" | "height" | "className">;
+
 /** A button or icon the steps show, in a step's emphasis, named by `alt` unless it only decorates. */
-function Pictured({ icon: Icon, alt = "", size }: { icon: ComponentType<CampfireIconProps>; alt?: string; size: keyof typeof PICTURE_SIZES }) {
+function Pictured({ icon: Icon, alt, size }: { icon: ComponentType<PictureProps>; alt?: string; size: keyof typeof PICTURE_SIZES }) {
   return (
     <em>
-      <Icon alt={alt} width={size} height={size} className={PICTURE_SIZES[size]} />
+      <Icon aria-label={alt} width={size} height={size} className={PICTURE_SIZES[size]} />
     </em>
   );
 }

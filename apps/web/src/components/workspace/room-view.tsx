@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import type { Favorites, Invitation, Involvement, Me } from "@ember/protocol";
-import { Close } from "@/components/icons/ember";
+import { Xmark } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
 import { useNameOf } from "@/hooks/use-directory";
 import { useRoom } from "@/hooks/use-room";
@@ -140,7 +140,7 @@ export function RoomView({ room, messageId, invitation, onDismissInvitation, me,
           <div role="alert" className="mx-auto mt-3 flex max-w-[calc(100%-24px)] items-center gap-2 rounded-[10px] bg-foreground py-2 pr-1 pl-3 text-sm text-background touch:py-0.5">
             {state.notice}
             <button type="button" aria-label="Dismiss" onClick={dismissNotice} className="flex size-6 shrink-0 items-center justify-center rounded hover:opacity-80 touch:size-11">
-              <Close className="size-4" />
+              <Xmark className="size-4" />
             </button>
           </div>
         )}

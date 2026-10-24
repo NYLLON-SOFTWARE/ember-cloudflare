@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Check } from "@/components/icons/lucide";
+import { CheckCircle } from "@/components/icons/iconoir";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { chooseAppearance, useAppearance } from "@/lib/appearance";
 import { NavigationIcon } from "./navigation-icon";
@@ -69,7 +69,7 @@ export function AppearanceMenu() {
               />
               <NavigationIcon slot={value} size={18} className="size-[18px] shrink-0" />
               <span>{label}</span>
-              <Check className="invisible ml-auto size-[18px] shrink-0 peer-checked:visible" />
+              <CheckCircle className="invisible ml-auto size-[18px] shrink-0 peer-checked:visible" />
             </label>
           ))}
         </fieldset>

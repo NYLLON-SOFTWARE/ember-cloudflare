@@ -1,6 +1,6 @@
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DirectoryUser, Me, Person, PersonAnswer, User, UserId } from "@ember/protocol";
-import { Cancel, Messages, Pencil } from "@/components/icons/campfire";
+import { ChatLines, EditPencil, Prohibition } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
@@ -128,7 +128,7 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
   const transferId = me.administrator ? fetched?.transferId : undefined;
   const editProfile = mine && (
     <PageLink href={PROFILE_PATH} className={HEADER_BUTTON}>
-      <Pencil className="size-5" />
+      <EditPencil className="size-5" />
       <span className="sr-only">Edit my profile</span>
     </PageLink>
   );
@@ -143,7 +143,7 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
               person.status === "active" ? (
                 // ember-rust's `button_to_direct_room_with`, whose `txt--large` Campfire doesn't define, so it's at the page's size.
                 <button type="button" aria-disabled={starting || undefined} onClick={startDirect} className={cn(DIRECT_BUTTON, "bg-background")}>
-                  <Messages className="w-[1.3em]" />
+                  <ChatLines className="size-[1.3em]" />
                   <span className="sr-only">Ping {person.name}</span>
                 </button>
               ) : (
@@ -181,7 +181,7 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
                         onClick={startDirect}
                         className={cn(DIRECT_BUTTON, "border-transparent bg-primary text-[17px] text-primary-foreground hover:not-active:brightness-70")}
                       >
-                        <Messages tone="reversed" className="w-[1.3em]" />
+                        <ChatLines className="size-[1.3em]" />
                         <span className="sr-only">Ping {person.name}</span>
                       </button>
                     </div>
@@ -224,7 +224,7 @@ function BanButton({ person, busy, onClick }: { person: Person; busy: boolean; o
       onClick={onClick}
       className={cn(DIRECT_BUTTON, banned ? "border-transparent bg-negative-button text-white hover:not-active:brightness-70" : "bg-background")}
     >
-      <Cancel tone={banned ? "white" : "black"} className="w-[1.3em]" />
+      <Prohibition className="size-[1.3em]" />
       <span>{banned ? "Remove ban" : `Ban ${person.name}`}</span>
     </button>
   );
@@ -239,7 +239,7 @@ function Avatar({ person }: { person: Person }) {
   return (
     <div className="relative mx-auto grid size-[5ch] place-items-center rounded-full bg-white text-[2.4rem]">
       <UserAvatar user={person} label="Profile avatar" className={cn("col-start-1 row-start-1 size-[5ch]", banned && "opacity-50")} />
-      {banned && <Cancel className="absolute inset-0 size-full" />}
+      {banned && <Prohibition className="absolute inset-0 size-full" />}
     </div>
   );
 }

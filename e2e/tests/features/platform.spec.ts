@@ -3,14 +3,15 @@ import { feature } from "@ember/parity";
 import { expect, test } from "./fixtures";
 
 /**
- * The SHA-256 of each icon the manifest lists, as ember-rust has them: its own app icons
- * (crates/assets/overrides/logos/) and, for the shortcuts, Campfire's (app/assets/images/).
+ * The SHA-256 of each icon the manifest lists: ember-rust's own app icons (crates/assets/overrides/logos/)
+ * and, for the shortcuts, Iconoir's plus and user, as the project's owner chose, where ember-rust lists
+ * Campfire's add and person (app/assets/images/).
  */
 const ICONS: Record<string, string> = {
   "/logos/app-icon-192.png": "49ff9160e2e167043fe948e7b78695c1b55270dff701479ebc6f574eedff6126",
   "/logos/app-icon.png": "d93bfb957863d1aca5ab6ca4e2f81d592e5ed101df6850b89ac792f6f67d88f3",
-  "/shortcuts/add.svg": "c2432767c10fa24794ff0242addab3ddf810662e15ed837ed805394b2a131b74",
-  "/shortcuts/person.svg": "48ac49f6bc4440a0f8888578e8af68f7b4fa3f7b62484a80888d5a473e02b306",
+  "/shortcuts/plus.svg": "dbd0c9ec345745994d219d9bf30252abe534304e8f006316e14c32c8dbf3fb79",
+  "/shortcuts/user.svg": "53e6505904aafd797da6ea432aa148b7858104454e4e9b65895a879e74451ea3",
 };
 
 interface Manifest {

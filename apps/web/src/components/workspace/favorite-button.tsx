@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { Favorites, Me, RoomId } from "@ember/protocol";
-import { Star } from "@/components/icons/lucide";
+import { Star, StarSolid } from "@/components/icons/iconoir";
 import { useMounted } from "@/hooks/use-mounted";
 import { isSignedOut, setFavorite } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -72,7 +72,7 @@ export function FavoriteButton({ roomId, favorite, onSaved, onSessionChanged }: 
           "aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-disabled:grayscale aria-disabled:contrast-50",
         )}
       >
-        <Star className={cn("size-[18px]", favorite && "fill-current")} />
+        {favorite ? <StarSolid className="size-[18px]" /> : <Star className="size-[18px]" />}
       </button>
       {failed && (
         <span ref={note} role="status" className="absolute top-full left-0 z-30 w-[200px] rounded-[8px] border bg-background p-2.5 text-[13px] shadow-[0_4px_12px_var(--color-dialog-shadow-faint)]">

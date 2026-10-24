@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { MAX_CUSTOM_STYLES_LENGTH, type Account } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
-import { Alert, Check } from "@/components/icons/campfire";
+import { CheckCircle, WarningTriangle } from "@/components/icons/iconoir";
 import { TranslationButton } from "@/components/translation-button";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
@@ -85,7 +85,7 @@ export function CustomStylesPage({ askForAccount, onFailed }: Props) {
             </h1>
             <p className="mb-[1em] flex flex-wrap items-center justify-center gap-x-[0.5ch]">
               <span>Add custom CSS styles.</span>
-              <Alert width={16} height={16} className="size-4" />
+              <WarningTriangle className="size-4" />
               <span>Use Caution: you could break things.</span>
             </p>
           </div>
@@ -105,13 +105,13 @@ export function CustomStylesPage({ askForAccount, onFailed }: Props) {
             // Campfire's `.input--code`, in 16px, where ember-rust's phones get 13px, so iOS doesn't zoom in.
             className="w-full resize-none rounded-[9px] border bg-transparent px-[0.8em] py-[0.5em] font-mono text-base break-words whitespace-pre-wrap focus:border-selected-dark"
           />
-          {/* A `.btn--reversed` circle holding Campfire's check, which darkens under the pointer: 36px, or 44px for fingers. */}
+          {/* A `.btn--reversed` circle holding a check, which darkens under the pointer: 36px, or 44px for fingers. */}
           <button
             type="submit"
             disabled={customStyles === null || saving}
-            className="mx-auto grid size-9 cursor-pointer place-items-center rounded-full bg-primary text-[17px] transition-[filter] hover:brightness-[0.7] disabled:cursor-not-allowed disabled:opacity-50 disabled:grayscale touch:size-11"
+            className="mx-auto grid size-9 cursor-pointer place-items-center rounded-full bg-primary text-[17px] text-primary-foreground transition-[filter] hover:brightness-[0.7] disabled:cursor-not-allowed disabled:opacity-50 disabled:grayscale touch:size-11"
           >
-            <Check tone="reversed" width={20} height={20} className="h-5 w-[1.3em]" />
+            <CheckCircle className="h-5 w-[1.3em]" />
             <span className="sr-only">Save changes</span>
           </button>
         </form>

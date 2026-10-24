@@ -28,6 +28,7 @@ describe(feature("sidebar.favorites"), () => {
     const { star, onSaved } = renderStar();
     expect(star).toHaveAttribute("aria-pressed", "false");
     expect(star).toHaveAttribute("title", "Add to favorites");
+    expect(star.querySelector("svg")).toHaveClass("size-[18px]", "iconoir-star");
 
     await userEvent.click(star);
     expect(sent()).toEqual([["/api/rooms/general/favorite", "PUT", { favorite: true }]]);
@@ -39,7 +40,7 @@ describe(feature("sidebar.favorites"), () => {
     const { star, onSaved } = renderStar(true);
     expect(star).toHaveAttribute("aria-pressed", "true");
     expect(star).toHaveAttribute("title", "Remove from favorites");
-    expect(star.querySelector("svg")).toHaveClass("size-[18px]", "fill-current");
+    expect(star.querySelector("svg")).toHaveClass("size-[18px]", "iconoir-star-solid");
     // In the muted color at 65%, as ember-rust's pull request #24 fades it.
     expect(star).toHaveClass("text-muted-foreground/65");
 

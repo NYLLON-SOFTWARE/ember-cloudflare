@@ -135,10 +135,11 @@ function showWorkspace(path = "/") {
 
 const roomHeading = () => screen.findByRole("heading", { level: 1 });
 /** The rooms in the sidebar, in order. */
+/** The sidebar's rooms by name, with a ★ after each starred one. */
 const sidebarRooms = () =>
   within(within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("region", { name: "Rooms" }))
     .getAllByRole("link")
-    .map((link) => link.textContent!.replace(/^#/, ""));
+    .map((link) => link.textContent!.replace(/^#/, "") + (within(link).queryByRole("img", { name: "Favorite" }) ? "★" : ""));
 /** The rail's links for the page shown, if any. */
 const railCurrent = () =>
   within(screen.getByRole("navigation", { name: "Workspace" }))
@@ -273,7 +274,7 @@ describe(feature("rooms.last-visited"), () => {
     showWorkspace("/");
     await waitFor(() => expect(document.title).toBe("No rooms yet"));
     expect(screen.getByRole("main")).toHaveTextContent("Ada");
-    expect(screen.getByRole("main").querySelector("img")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("main").querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(location.pathname).toBe("/");
     expect(railCurrent()).toEqual(["Ember home", "Home"]);
   });
@@ -981,7 +982,7 @@ describe(feature("sidebar.activity-filter"), () => {
   const sidebarRooms = () =>
     within(within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("region", { name: "Rooms" }))
       .getAllByRole("link")
-      .map((link) => link.textContent!.replace(/^#/, ""));
+      .map((link) => link.textContent!.replace(/^#/, "") + (within(link).queryByRole("img", { name: "Favorite" }) ? "★" : ""));
   const roomLink = (name: RegExp) => within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("link", { name });
 
   /** A workspace socket that welcomes Ada, then says random has been marked unread for her. */
@@ -1435,9 +1436,9 @@ describe(feature("ui.mobile-drawer"), () => {
     await waitFor(() => expect(open).toHaveAttribute("aria-hidden", "true"));
     const close = within(drawer).getByRole("button", { name: "Close conversations" });
     expect(close).toHaveFocus();
-    // Lucide's menu and x, as ember-rust's pull request #24 draws them.
-    expect(open.querySelector("svg")).toHaveClass("lucide-menu", "size-[22px]");
-    expect(close.querySelector("svg")).toHaveClass("lucide-x", "size-5");
+    // Iconoir's menu and xmark, where ember-rust's pull request #24 draws Lucide's menu and x.
+    expect(open.querySelector("svg")).toHaveClass("iconoir-menu", "size-[22px]");
+    expect(close.querySelector("svg")).toHaveClass("iconoir-xmark", "size-5");
   });
 
   it("puts its close button first in the conversations' tab order", async () => {

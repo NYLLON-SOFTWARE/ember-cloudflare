@@ -1,5 +1,5 @@
 import type { MouseEvent } from "react";
-import { CopyPaste, QrCode, Share } from "@/components/icons/campfire";
+import { Copy, QrCode, ShareAndroid } from "@/components/icons/iconoir";
 import { QrCodeLink } from "@/components/qr-code-link";
 
 // The buttons ember-rust puts beside a link to hand on, the join link and the sign-in link: its QR code,
@@ -46,7 +46,7 @@ export function LinkButtons({ url, sharing, qrCodeDrawn = false, className }: Li
       {canShare && (
         <button type="button" onClick={() => void share(url, sharing)} className={className}>
           <span className="sr-only">{sharing.shareLabel}</span>
-          <Share className="size-[1.3em]" />
+          <ShareAndroid className="size-[1.3em]" />
         </button>
       )}
     </>
@@ -58,7 +58,7 @@ export function CopyButton({ text, label, className }: { text: string; label: st
   return (
     <button type="button" onClick={(event) => void copy(event, text)} className={className}>
       <span className="sr-only">{label}</span>
-      <CopyPaste className="size-[1.3em]" />
+      <Copy className="size-[1.3em]" />
     </button>
   );
 }

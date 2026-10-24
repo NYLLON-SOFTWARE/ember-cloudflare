@@ -63,8 +63,8 @@ const directRows = () => within(screen.getByRole("region", { name: "DMs" })).que
 
 /** The room rows, top to bottom. */
 const rows = () => within(screen.getByRole("region", { name: "Rooms" })).queryAllByRole("link");
-const listed = () => rows().map((row) => row.textContent?.replace(/★$/, ""));
-const row = (name: string) => rows().find((link) => link.textContent?.replace(/★$/, "") === `#${name}`)!;
+const listed = () => rows().map((row) => row.textContent);
+const row = (name: string) => rows().find((link) => link.textContent === `#${name}`)!;
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -202,13 +202,13 @@ describe(feature("sidebar.favorites"), () => {
     renderSidebar({ rooms: [rooms[0]!, { ...rooms[1]!, unread: true }], favorites: { rooms: ["general", "random"], version: 2 } });
     const [general, random] = rows();
     const star = within(general!).getByRole("img", { name: "Favorite" });
-    expect(star).toHaveTextContent("★");
+    expect(star).toHaveClass("iconoir-star-solid");
     // Faded, as ember-rust's pull request #24 fades it.
-    expect(star).toHaveClass("ml-auto", "text-[14px]", "text-muted-foreground/65");
+    expect(star).toHaveClass("ml-auto", "size-3.5", "text-muted-foreground/65");
     expect(general!.lastElementChild).toBe(star);
     // Without the grip ember-rust shows before it.
     expect(star.previousElementSibling).toHaveTextContent(/^general$/);
-    expect(general!.querySelector("svg")).toBeNull();
+    expect([...general!.querySelectorAll("svg")]).toEqual([star]);
 
     // The dot takes the space before the star.
     const [name, dot, marker] = Array.from(random!.children).slice(-3);

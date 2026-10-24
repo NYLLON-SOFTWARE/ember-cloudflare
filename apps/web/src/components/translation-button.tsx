@@ -1,14 +1,14 @@
 import { TRANSLATIONS, type TranslationKey } from "@ember/protocol";
 import { Fragment, useEffect, useRef, useState } from "react";
-import { Globe } from "@/components/icons/campfire";
+import { Translate } from "@/components/icons/iconoir";
 import { useAccount } from "@/hooks/use-account";
 
 // ember-rust's translation button (crates/views/src/helpers/translations.rs, drawn by Campfire's
-// buttons.css and base.css at zz-ember.css's sizes): a globe beside a field that opens what the field
-// asks for in seven languages. Like ember-rust's, it's a <details>, which opens and closes by itself,
-// and its globe can't be reached with Tab.
+// buttons.css and base.css at zz-ember.css's sizes): a button beside a field that opens what the field
+// asks for in seven languages, with Iconoir's translate where ember-rust's has Campfire's globe. Like
+// ember-rust's, it's a <details>, which opens and closes by itself, and its button can't be reached with Tab.
 
-/** `translations` under a globe, unless the workspace hides translation buttons, as it does until an administrator shows them. */
+/** `translations` under a translate button, unless the workspace hides translation buttons, as it does until an administrator shows them. */
 export function TranslationButton({ translations }: { translations: TranslationKey }) {
   return useAccount().hideTranslationButtons ? null : <Translations translations={translations} />;
 }
@@ -40,11 +40,11 @@ function Translations({ translations }: { translations: TranslationKey }) {
         tabIndex={-1}
         className="grid size-9 cursor-pointer list-none place-items-center rounded-full border bg-background touch:size-11 [&::-webkit-details-marker]:hidden"
       >
-        {/* Campfire's 1.3em wide in the 20px it's given. */}
-        <Globe tone="color" width={20} height={20} className="h-5 w-[1.3em]" />
+        {/* 1.3em wide in the 20px it's given, as Campfire's globe is. */}
+        <Translate className="h-5 w-[1.3em]" />
         <span className="sr-only">Translate</span>
       </summary>
-      {/* Campfire's `.language-list-menu` and `.language-list` (base.css), under the globe, in the text around it. */}
+      {/* Campfire's `.language-list-menu` and `.language-list` (base.css), under the button, in the text around it. */}
       <div
         ref={menu}
         className="absolute z-3 mx-[1ch] w-max max-w-[40ch] overflow-clip [--max-width:40ch] rounded-[0.5em] border border-border bg-border shadow-[0_8px_24px_var(--color-menu-shadow)] max-[100ch]:max-w-[calc(var(--max-width)-1ch)]"

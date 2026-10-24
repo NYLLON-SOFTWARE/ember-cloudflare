@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type MouseEvent } from "react";
 import type { Involvement } from "@ember/protocol";
-import { NotificationBellAlert, NotificationBellLoading, Remove } from "@/components/icons/campfire";
+import { Bell, BellOff, Xmark } from "@/components/icons/iconoir";
 import { usePush } from "@/hooks/use-push";
 import { isSignedOut } from "@/lib/api";
 import { INVOLVEMENT_LABELS } from "@/lib/involvement";
@@ -73,7 +73,7 @@ export function NotificationBell({ className, onFailed, ...props }: ComponentPro
             onClick={enable}
             className={cn("cursor-pointer [&[aria-disabled=true]:not(:hover,:active)]:brightness-75", className)}
           >
-            <NotificationBellLoading width={20} height={20} />
+            <Bell className="size-5" />
             <span className="sr-only">Enable notifications</span>
           </button>
           <NotificationSetup shown={shown} />
@@ -158,7 +158,7 @@ function NotificationSetup({ shown }: { shown: Shown | null }) {
     >
       <div className="flex flex-col text-center">
         <span className="mx-auto">
-          <NotificationBellAlert width={48} height={48} className="size-12" />
+          <BellOff className="size-12" />
           <span className="sr-only">Notifications alert</span>
         </span>
         <section>
@@ -172,7 +172,7 @@ function NotificationSetup({ shown }: { shown: Shown | null }) {
         </section>
         <button ref={close} type="button" onClick={() => dialog.current?.close()} className={cn(HEADER_BUTTON, "absolute top-6 right-4 cursor-pointer")}>
           <span className="sr-only">Close</span>
-          <Remove width={20} height={20} className="w-[1.3em]" />
+          <Xmark className="size-[1.3em]" />
         </button>
       </div>
     </dialog>

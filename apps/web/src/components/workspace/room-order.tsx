@@ -1,6 +1,6 @@
 import { useId, useMemo } from "react";
 import type { Me, RoomId, SharedRoom } from "@ember/protocol";
-import { GripVertical } from "@/components/icons/lucide";
+import { DotsGrid3x3 } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { roomSettingsPath, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
@@ -87,7 +87,7 @@ export function RoomOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Pro
                 title="Drag to reorder, or press Alt + Up / Down"
                 className="inline-flex min-h-11 min-w-9 cursor-grab touch-none items-center justify-center rounded-md p-2 text-muted-foreground touch:min-w-11 hover:bg-hover hover:text-foreground"
               >
-                <GripVertical className="size-[18px]" />
+                <DotsGrid3x3 className="size-[18px]" />
               </button>
               {/* `.mb-admin-room-settings`, filling the row beside the grip, with `.mb-room-access-pill` at its end. */}
               <PageLink

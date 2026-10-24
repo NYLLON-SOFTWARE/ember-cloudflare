@@ -1,6 +1,6 @@
 import { useId, useMemo, useState, type MouseEvent } from "react";
 import type { Favorites, Me, RoomId, SidebarRoom, User, UserId } from "@ember/protocol";
-import { MessagesAdd } from "@/components/icons/campfire";
+import { ChatPlusIn, StarSolid } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { useAccount } from "@/hooks/use-account";
 import { useNameOf } from "@/hooks/use-directory";
@@ -164,11 +164,7 @@ export function Sidebar({
                 {/* The dot and star sit together at the row's end, pushed there by one auto margin. The star's
                     muted at 65%, as ember-rust's pull request #24 fades `.mb-room-favorite-marker`. */}
                 {unread && <span aria-hidden="true" className="ml-auto size-[7px] shrink-0 rounded-full bg-foreground" />}
-                {star && (
-                  <span role="img" aria-label="Favorite" className={cn("shrink-0 text-[14px] text-muted-foreground/65", !unread && "ml-auto")}>
-                    ★
-                  </span>
-                )}
+                {star && <StarSolid aria-label="Favorite" className={cn("size-3.5 shrink-0 text-muted-foreground/65", !unread && "ml-auto")} />}
               </a>
             );
           })}
@@ -189,7 +185,7 @@ export function Sidebar({
             onClick={opensNewDirect(onNewDirect)}
             className="ml-auto flex size-7 items-center justify-center rounded-lg text-foreground hover:bg-hover touch:size-11"
           >
-            <MessagesAdd className="size-[15px]" />
+            <ChatPlusIn className="size-[15px]" />
           </a>
         </div>
         {directsListed.map((room) => (

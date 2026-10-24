@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { SavedPushSubscription } from "@ember/protocol";
-import { Minus, NotificationBellEverything } from "@/components/icons/campfire";
+import { BellNotificationSolid, Minus } from "@/components/icons/iconoir";
 import { useMounted } from "@/hooks/use-mounted";
 import { useTitle } from "@/hooks/use-title";
 import { deletePushSubscription, fetchPushSubscriptions, isSignedOut, sendTestNotification } from "@/lib/api";
@@ -105,11 +105,11 @@ function SubscriptionRow({ subscription: { id, browser, version, platform, endpo
       <span className="flex items-start gap-x-[1ch] gap-y-4 text-[0.8rem]">
         <span className="min-w-0 wrap-anywhere">{endpoint}</span>
         <span className="flex items-center gap-x-[1ch] gap-y-4">
-          <RoundButton label="Send test notification" disabled={testing} onClick={() => send(sendTestNotification, setTesting)} className="bg-primary">
-            <NotificationBellEverything tone="reversed" className="size-[1.3em]" />
+          <RoundButton label="Send test notification" disabled={testing} onClick={() => send(sendTestNotification, setTesting)} className="bg-primary text-primary-foreground">
+            <BellNotificationSolid className="size-[1.3em]" />
           </RoundButton>
-          <RoundButton label="Delete subscription" disabled={deleting} onClick={() => send(remove, setDeleting, onDeleted)} className="bg-negative-button">
-            <Minus tone="white" className="size-[1.3em]" />
+          <RoundButton label="Delete subscription" disabled={deleting} onClick={() => send(remove, setDeleting, onDeleted)} className="bg-negative-button text-white">
+            <Minus className="size-[1.3em]" />
           </RoundButton>
         </span>
       </span>

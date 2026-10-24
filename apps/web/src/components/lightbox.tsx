@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Download, Remove, Share } from "@/components/icons/campfire";
+import { Download, ShareAndroid, Xmark } from "@/components/icons/iconoir";
 import { ShareButton } from "@/components/share-button";
 import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
@@ -48,16 +48,16 @@ export function Lightbox({ src, alt = "", downloadUrl = src ?? undefined, filena
     >
       {src && <img src={src} alt={alt} className="max-h-full max-w-full [grid-area:1/1]" />}
       <button type="button" onClick={() => dialog.current?.close()} className={cn(BUTTON, "self-start justify-self-end")}>
-        <Remove className="w-[1.3em]" />
+        <Xmark className="size-[1.3em]" />
         <span className="sr-only">Close image viewer</span>
       </button>
       <a href={downloadUrl} download={filename} className={cn(BUTTON, "self-end justify-self-end ios-pwa:hidden")}>
-        <Download className="w-[1.3em]" />
+        <Download className="size-[1.3em]" />
         <span className="sr-only">Download file</span>
       </a>
       {canShare() && downloadUrl && (
         <ShareButton url={downloadUrl} className={cn(BUTTON, "self-start justify-self-start")}>
-          <Share className="w-[1.3em]" />
+          <ShareAndroid className="size-[1.3em]" />
           <span className="sr-only">Share file</span>
         </ShareButton>
       )}

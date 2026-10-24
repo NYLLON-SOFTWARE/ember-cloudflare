@@ -1,4 +1,4 @@
-import { PersonAdd, Refresh } from "@/components/icons/campfire";
+import { RefreshDouble, UserPlus } from "@/components/icons/iconoir";
 import { JOIN_LINK, joinUrl } from "./join-link";
 import { LinkButtons, ROUND_BUTTON } from "./link-buttons";
 
@@ -23,7 +23,7 @@ export function InviteLink({ joinCode, onRegenerate, regenerating = false }: Pro
       <label className="flex w-full flex-col gap-y-[0.5em]">
         <strong id="invite_label">Share to invite more people</strong>
         <span className="flex min-h-[42px] items-center gap-[1ch] rounded-[9px] border bg-background px-[0.8em] py-[0.5em] text-base transition-shadow duration-150 focus-within:ring-2 focus-within:ring-selected-dark touch:min-h-11">
-          <PersonAdd width={20} height={20} className="size-5 flex-none" />
+          <UserPlus className="size-5 flex-none" />
           <input
             type="text"
             id="invite_url"
@@ -38,7 +38,7 @@ export function InviteLink({ joinCode, onRegenerate, regenerating = false }: Pro
         <LinkButtons url={url} sharing={JOIN_LINK} className={ROUND_BUTTON} />
         {onRegenerate && (
           <button type="button" onClick={onRegenerate} disabled={regenerating} className={ROUND_BUTTON}>
-            <Refresh className="size-[1.3em]" />
+            <RefreshDouble className="size-[1.3em]" />
             <span className="sr-only">Regenerate join link</span>
           </button>
         )}

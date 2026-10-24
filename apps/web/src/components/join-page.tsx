@@ -4,7 +4,7 @@ import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import avatarPlaceholder from "@/components/avatar-placeholder.svg";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
-import { Camera } from "@/components/icons/campfire";
+import { Camera } from "@/components/icons/iconoir";
 import { Input } from "@/components/ui/input";
 import { useChosenPhoto, type PhotoChoice } from "@/hooks/use-chosen-photo";
 import { useTitle } from "@/hooks/use-title";
@@ -129,7 +129,7 @@ function PhotoField({ photo, disabled }: { photo: PhotoChoice; disabled: boolean
     <div className="mx-auto mb-0.5 flex flex-col items-center justify-center gap-2.5">
       <img src={photo.preview ?? avatarPlaceholder} alt="Your profile photo" width={80} height={80} className="aspect-square w-20 rounded-full object-cover" />
       <label className={UPLOAD_BUTTON}>
-        <Camera width={20} height={20} className="h-5 w-[1.6em]" />
+        <Camera className="h-5 w-[1.6em]" />
         <input
           ref={photo.input}
           id="user_avatar"

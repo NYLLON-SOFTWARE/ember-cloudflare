@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { DirectoryUser, PersonRole, UserId } from "@ember/protocol";
-import { Cancel, Crown, Minus, Pencil } from "@/components/icons/campfire";
+import { Crown, EditPencil, Minus, Prohibition } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import type { People } from "@/hooks/use-directory";
 import { PROFILE_PATH } from "@/hooks/use-route";
@@ -13,7 +13,7 @@ import { AvatarLink } from "./user-avatar";
 // section groups them (accounts/_membership_settings.html): everyone but bots by name, administrators under
 // Admins and members under Members, each group left out while nobody's in it, each avatar linking to the
 // person's page, and your own row to your profile. Administrators also see who's banned, dimmed under
-// Campfire's cancel mark (avatars.css), and on each active person's row a crown that makes them an
+// a cancel mark (Campfire's avatars.css), and on each active person's row a crown that makes them an
 // administrator or a member again, and, but on their own, Delete, which removes them. They see members
 // suspended for their Memberful membership's lapsing too (`auth.memberful-memberships`), which ember-rust
 // has no need of, dimmed and said to be so, with Delete.
@@ -132,23 +132,23 @@ function Avatar({ person, banned, dimmed }: { person: DirectoryUser; banned: boo
   return (
     <span className="relative grid shrink-0">
       {avatar}
-      <Cancel className="pointer-events-none absolute inset-0 size-full" />
+      <Prohibition className="pointer-events-none absolute inset-0 size-full" />
     </span>
   );
 }
 
-/** ember-rust's My settings, a round `.btn.txt-small` with Campfire's pencil, on your own row, which opens your profile. */
+/** ember-rust's My settings, a round `.btn.txt-small` with a pencil, on your own row, which opens your profile. */
 function MySettings() {
   return (
     <PageLink href={PROFILE_PATH} className="grid size-9 shrink-0 place-items-center rounded-full border bg-background text-[0.8rem] touch:size-11">
-      <Pencil className="size-[1.3em]" />
+      <EditPencil className="size-[1.3em]" />
       <span className="sr-only">My settings</span>
     </PageLink>
   );
 }
 
 /**
- * ember-rust's Delete, a round `.btn.txt-small.btn--negative` with Campfire's minus, white on red, which
+ * ember-rust's Delete, a round `.btn.txt-small.btn--negative` with a minus, white on red, which
  * darkens under a mouse (buttons.css, zz-ember.css), and waits while a removal is on its way.
  */
 function RemoveButton({ name, removing, onClick }: { name: string; removing: boolean; onClick: () => void }) {
@@ -157,9 +157,9 @@ function RemoveButton({ name, removing, onClick }: { name: string; removing: boo
       type="button"
       disabled={removing}
       onClick={onClick}
-      className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border border-transparent bg-negative-button text-[0.8rem] touch:size-11 hover:not-active:brightness-70 disabled:pointer-events-none disabled:opacity-50"
+      className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border border-transparent bg-negative-button text-[0.8rem] text-white touch:size-11 hover:not-active:brightness-70 disabled:pointer-events-none disabled:opacity-50"
     >
-      <Minus tone="white" className="size-[1.3em]" />
+      <Minus className="size-[1.3em]" />
       <span className="sr-only">Delete {name}</span>
     </button>
   );
@@ -193,13 +193,13 @@ function RoleCrown({ personId, focused, administrator, mine, onChange }: RoleCro
       className={cn(
         "relative grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border text-[0.8rem] touch:size-11",
         "has-focus-visible:outline-2 has-focus-visible:outline-offset-3 has-focus-visible:outline-foreground",
-        administrator ? "bg-primary" : "bg-background",
+        administrator ? "bg-primary text-primary-foreground" : "bg-background",
         // Your own, as Campfire's disabled checkbox buttons are.
         mine && "pointer-events-none cursor-not-allowed opacity-50 grayscale contrast-50",
       )}
     >
       <span className="sr-only">Role: {administrator ? "Administrator" : "Member"}</span>
-      <Crown tone={administrator ? "reversed" : "black"} className="size-[1.3em]" />
+      <Crown className="size-[1.3em]" />
       <input ref={checkbox} type="checkbox" checked={administrator} disabled={mine} onChange={(event) => onChange(event.target.checked)} className="sr-only" />
     </label>
   );

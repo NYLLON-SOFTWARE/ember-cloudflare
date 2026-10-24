@@ -3,7 +3,6 @@ import type { DirectoryUser, DirectRoom, User } from "@ember/protocol";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import trash from "@/components/icons/campfire/trash.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import type { RoomAnswer } from "@/lib/room-list";
@@ -78,7 +77,7 @@ describe(feature("dms.delete"), () => {
     showPage(withGraceAndLinus);
     const button = deleteButton();
     expect(button).toHaveTextContent(/^Ping$/);
-    expect(button.querySelector("img")).toHaveAttribute("src", trash);
+    expect(button.querySelector("svg")).toHaveClass("iconoir-trash");
   });
 
   it("deletes the DM once you confirm, taking it out of the sidebar and going home", async () => {

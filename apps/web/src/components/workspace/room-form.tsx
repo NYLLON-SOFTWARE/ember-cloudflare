@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode, type Ref } from "react";
 import { MAX_ROOM_NAME_LENGTH, type RoomIconName, type User, type UserId } from "@ember/protocol";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
-import { Check, Everyone } from "@/components/icons/campfire";
+import { CheckCircle, Community } from "@/components/icons/iconoir";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -86,7 +86,7 @@ function People<Person extends User>({ everyone, groups, mark }: Pick<Props<Pers
     <menu className="m-0 flex max-h-[50vh] flex-col gap-x-[1ch] gap-y-4 overflow-y-auto px-[1ch] py-4">
       {everyone && (
         <>
-          <ListRow figure={<Everyone className="size-[4ch] shrink-0" />} name="Everyone">
+          <ListRow figure={<Community className="size-[4ch] shrink-0" />} name="Everyone">
             {everyone.onFlip && (
               <Switch
                 checked={everyone.on}
@@ -143,9 +143,9 @@ function Filter({ onFilter }: { onFilter: (filter: string) => void }) {
   );
 }
 
-/** ember-rust's check mark, for someone a room takes in who has no switch. */
+/** A check, for someone a room takes in who has no switch, where ember-rust draws a check mark. */
 export function CheckMark() {
-  return <Check width={20} height={20} className="size-5 shrink-0" />;
+  return <CheckCircle className="size-5 shrink-0" />;
 }
 
 /** The people `chosen` for a private room, with `person` among them or not. */

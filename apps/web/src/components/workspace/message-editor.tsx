@@ -1,7 +1,7 @@
 import { Suspense, useContext, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import type { Message } from "@ember/protocol";
 import { editableBody } from "@ember/richtext/dom";
-import { Check, Remove, Trash } from "@/components/icons/campfire";
+import { CheckCircle, Trash, Xmark } from "@/components/icons/iconoir";
 import { DirectoryLoaded, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { mentionPromptSrc } from "@/lib/api";
@@ -117,8 +117,8 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
             </Suspense>
           </div>
           <div className="flex items-center justify-between pt-2">
-            <button type="submit" className={cn(ROUND_BUTTON, "bg-foreground")}>
-              <Check tone="reversed" className="size-[1.3em]" />
+            <button type="submit" className={cn(ROUND_BUTTON, "bg-foreground text-background")}>
+              <CheckCircle className="size-[1.3em]" />
               <span className="sr-only">Save changes</span>
             </button>
             <DeleteButton onDelete={onDelete} />
@@ -177,10 +177,10 @@ function DeleteButton({ onDelete, className, autoFocus, ref }: { onDelete: () =>
       ref={ref}
       type="button"
       autoFocus={autoFocus}
-      className={cn(ROUND_BUTTON, "bg-negative-button", className)}
+      className={cn(ROUND_BUTTON, "bg-negative-button text-white", className)}
       onClick={() => confirm("Are you sure you want to delete this message?") && onDelete()}
     >
-      <Trash tone="white" className="size-[1.3em]" />
+      <Trash className="size-[1.3em]" />
       <span className="sr-only">Delete message</span>
     </button>
   );
@@ -195,7 +195,7 @@ function CloseButton({ onClose }: { onClose: () => void }) {
         onClick={onClose}
         className="grid size-9 cursor-pointer place-items-center rounded-full text-[0.8rem] touch:size-11 [@media(hover:hover)_and_(pointer:fine)]:hover:not-active:bg-border"
       >
-        <Remove className="size-[1.3em]" />
+        <Xmark className="size-[1.3em]" />
         <span className="sr-only">Close editor and discard changes</span>
       </button>
     </div>

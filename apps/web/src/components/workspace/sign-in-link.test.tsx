@@ -3,10 +3,6 @@ import { qrCodeSvg } from "@ember/protocol/qr-code";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import crown from "@/components/icons/campfire/crown.svg";
-import laptop from "@/components/icons/campfire/laptop.svg";
-import mobilePhone from "@/components/icons/campfire/mobile-phone.svg";
-import transfer from "@/components/icons/campfire/transfer.svg";
 import { SignInLink } from "./sign-in-link";
 
 const TRANSFER_ID = "u2.mgk3x2a9.Ab-_9z";
@@ -25,16 +21,17 @@ afterEach(() => {
   for (const name of stubbed.splice(0)) delete (navigator as unknown as Record<string, unknown>)[name];
 });
 
-const iconsOf = (element: Element) => [...element.querySelectorAll("img")].map((icon) => icon.getAttribute("src"));
+/** The Iconoir icons in `element`, by the class Iconoir names each with. */
+const iconsOf = (element: Element) => [...element.querySelectorAll("svg")].map((icon) => [...icon.classList].find((name) => name.startsWith("iconoir-")));
 
 describe(feature("auth.sign-in-link"), () => {
-  it("shows your own link, read-only, named for screen readers only, under a laptop, a transfer and a phone", () => {
+  it("shows your own link, read-only, named for screen readers only, under a laptop, an arrow and a phone", () => {
     render(<SignInLink transferId={TRANSFER_ID} mine />);
     const link = screen.getByRole("textbox", { name: YOURS });
     expect(link).toHaveValue(LINK);
     expect(link).toHaveAttribute("readonly");
     expect(screen.getByText(YOURS)).toHaveClass("sr-only");
-    expect(iconsOf(screen.getByRole("group").querySelector("legend")!)).toEqual([laptop, transfer, mobilePhone]);
+    expect(iconsOf(screen.getByRole("group").querySelector("legend")!)).toEqual(["iconoir-laptop", "iconoir-arrow-right", "iconoir-smartphone-device"]);
     expect(screen.queryByText(THEIRS)).toBeNull();
   });
 
@@ -43,7 +40,7 @@ describe(feature("auth.sign-in-link"), () => {
     expect(screen.getByRole("textbox", { name: THEIRS })).toHaveValue(LINK);
     const label = screen.getByText(THEIRS);
     expect(label).not.toHaveClass("sr-only");
-    expect(iconsOf(label.parentElement!)).toEqual([crown]);
+    expect(iconsOf(label.parentElement!)).toEqual(["iconoir-crown"]);
   });
 
   it("has the join link's buttons, named for the sign-in link, and shares it with ember-rust's warning", async () => {

@@ -1,10 +1,10 @@
 import { transferLink } from "@ember/protocol";
-import { Crown, Laptop, MobilePhone, Transfer } from "@/components/icons/campfire";
+import { ArrowRight, Crown, Laptop, SmartphoneDevice } from "@/components/icons/iconoir";
 import { LinkButtons, ROUND_BUTTON, type LinkSharing } from "./link-buttons";
 
 // ember-rust's sign-in link block (crates/views/templates/users/profiles/_transfer.html), at the foot of
 // your profile and, for administrators, of the page of anyone active: Campfire's fieldset (base.css),
-// with a laptop, a transfer and a phone on its top border, over the link and its buttons.
+// with a laptop, an arrow and a phone on its top border, over the link and its buttons.
 
 /** What the sign-in link's buttons are called, and what sharing it sends, as ember-rust words them. */
 const SIGN_IN_LINK: LinkSharing = {
@@ -30,8 +30,8 @@ export function SignInLink({ transferId, mine }: { transferId: string; mine: boo
     <fieldset className="flex w-full flex-col border-t-2 py-4">
       <legend className="mx-auto flex items-center justify-center gap-x-[1ch] px-0.5">
         <Laptop className="size-9" />
-        <Transfer className="size-9" />
-        <MobilePhone className="size-9" />
+        <ArrowRight className="size-9" />
+        <SmartphoneDevice className="size-9" />
       </legend>
       <div className="flex flex-col gap-y-4">
         {mine ? (
