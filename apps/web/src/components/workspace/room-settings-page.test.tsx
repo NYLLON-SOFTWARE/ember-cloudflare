@@ -3,8 +3,6 @@ import type { Room, RoomSettings } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import checkMark from "@/components/icons/campfire/check.svg";
-import trash from "@/components/icons/campfire/trash.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { leave, navigate, useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
@@ -74,7 +72,7 @@ function showPage(room: Room, path = `/rooms/${room.kind}s/${room.id}/edit`) {
 }
 
 const rowOf = (name: string) => screen.getByText(name).closest("li")!;
-const hasCheckMark = (name: string) => [...rowOf(name).querySelectorAll("img")].some((img) => img.getAttribute("src") === checkMark);
+const hasCheckMark = (name: string) => rowOf(name).querySelector("svg.iconoir-check-circle") !== null;
 /** The names listed, in order, not counting the avatars' initials. */
 const names = () => screen.getAllByRole("listitem").map((row) => row.querySelector("strong")!.textContent);
 const roomName = () => screen.findByRole("textbox", { name: "Room name" });
@@ -393,7 +391,7 @@ describe(feature("rooms.delete"), () => {
     showPage(design);
     const button = await deleteButton();
     expect(button).toHaveTextContent(/^Design$/);
-    expect(button.querySelector("img")).toHaveAttribute("src", trash);
+    expect(button.querySelector("svg")).toHaveClass("iconoir-trash");
     expect(button.closest("section")).not.toBe((await roomName()).closest("section"));
   });
 

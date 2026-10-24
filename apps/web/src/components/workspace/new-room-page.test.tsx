@@ -5,7 +5,6 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
-import checkMark from "@/components/icons/campfire/check.svg";
 import { leave, navigate, useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { NewRoomPage } from "./new-room-page";
@@ -53,7 +52,7 @@ function showPage(path = "/rooms/opens/new") {
 
 const roomName = () => screen.findByRole("textbox", { name: "Room name" });
 const rowOf = (name: string) => screen.getByText(name).closest("li")!;
-const hasCheckMark = (name: string) => [...rowOf(name).querySelectorAll("img")].some((img) => img.getAttribute("src") === checkMark);
+const hasCheckMark = (name: string) => rowOf(name).querySelector("svg.iconoir-check-circle") !== null;
 /** The names listed, in order, not counting the avatars' initials. */
 const names = () => screen.getAllByRole("listitem").map((row) => row.querySelector("strong")!.textContent);
 const asking = () => screen.queryByRole("dialog", { name: "Unsaved Changes" });

@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Me } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AuthLogo } from "@/components/auth-page";
-import { ArrowRight, User as UserIcon } from "@/components/icons/ember";
+import { ArrowRight, User as UserIcon } from "@/components/icons/iconoir";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { signInAsGuest } from "@/lib/api";

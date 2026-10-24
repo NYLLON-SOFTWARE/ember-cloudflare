@@ -1,7 +1,7 @@
 import { useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type MouseEvent, type Ref, type RefObject } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { Copy, Download, Ellipsis, FaceSlightlySmilingPlus, Link, MessageCirclePlus, Pencil, Reply, Share, Trash } from "@/components/icons/lucide";
+import { ChatPlusIn, Copy, Download, Edit, Emoji, MoreHoriz, ShareAndroid, Trash, Undo } from "@/components/icons/iconoir";
 import { ShareButton } from "@/components/share-button";
 import { mentionedPerson, PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -351,7 +351,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
           pinned && actionsOpen && "bg-hover",
         )}
       >
-        <Ellipsis />
+        <MoreHoriz />
       </button>
       {rendered && (
         <div
@@ -376,12 +376,12 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
               <ReplyButton message={message} nodes={nodes} onClick={reply} />
             )}
             <button type="button" title="Copy link" aria-label="Copy link" className={ACTION} onClick={(event) => void copyLink(event, message)}>
-              <Link />
+              <Copy />
             </button>
             {/* As ember-rust's `.message__edit-btn` shows (Campfire's messages.css). */}
             {editable && (
               <button type="button" title="Edit" aria-label="Edit" className={ACTION} onClick={edit}>
-                <Pencil />
+                <Edit />
               </button>
             )}
             <button
@@ -394,7 +394,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
               className={cn(ACTION, "aria-expanded:bg-hover")}
               onClick={toggleTray}
             >
-              <FaceSlightlySmilingPlus />
+              <Emoji />
             </button>
           </div>
           <div
@@ -411,7 +411,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
                 <Reaction key={emoji} emoji={emoji} title={title} onClick={() => react(emoji)} />
               ))}
               <button type="button" title="New boost" className={ACTION} onClick={newBoost}>
-                <MessageCirclePlus />
+                <ChatPlusIn />
                 <span className="sr-only">New boost</span>
               </button>
             </div>
@@ -430,7 +430,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
               </button>
             )}
             <button type="button" className={ITEM} onClick={(event) => void copyLink(event, message)}>
-              <Link />
+              <Copy />
               Copy link
             </button>
             {editable && (
@@ -439,7 +439,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
                 {/* The text of a file message, or of a bot's cards, can't be changed, so only the bar's Edit opens their editor. */}
                 {!message.attachment && !message.cards && (
                   <button type="button" className={ITEM} onClick={edit}>
-                    <Pencil />
+                    <Edit />
                     Edit message
                   </button>
                 )}
@@ -481,7 +481,7 @@ function FileActions({ file }: { file: StoredFile }) {
       </a>
       {canShare() && (
         <ShareButton url={file.url} sharedTitle={file.name} title="Share" aria-label="Share" className={ACTION}>
-          <Share />
+          <ShareAndroid />
         </ShareButton>
       )}
     </>
@@ -502,7 +502,7 @@ function ReplyButton({ message, nodes, onClick }: { message: Message; nodes: Dis
   };
   return (
     <button type="button" title="Reply" aria-label="Reply" className={ACTION} onClick={reply}>
-      <Reply />
+      <Undo />
     </button>
   );
 }

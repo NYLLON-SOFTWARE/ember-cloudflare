@@ -1,24 +1,18 @@
 import { useId, useState, type ComponentType, type MouseEvent } from "react";
 import type { Involvement, Room } from "@ember/protocol";
-import {
-  NotificationBellEverything,
-  NotificationBellInvisible,
-  NotificationBellMentions,
-  NotificationBellNothing,
-  type CampfireIconProps,
-} from "@/components/icons/campfire";
+import { AtSign, BellNotificationSolid, BellOff, EyeClosed, type IconoirIconProps } from "@/components/icons/iconoir";
 import { useMounted } from "@/hooks/use-mounted";
 import { isSignedOut, setInvolvement } from "@/lib/api";
 import { INVOLVEMENT_LABELS, nextInvolvement } from "@/lib/involvement";
 import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 
-/** Campfire's bell for each level (notification-bell-*.svg). */
-const BELLS: Record<Involvement, ComponentType<CampfireIconProps>> = {
-  mentions: NotificationBellMentions,
-  everything: NotificationBellEverything,
-  nothing: NotificationBellNothing,
-  invisible: NotificationBellInvisible,
+/** The icon for each level, where Campfire draws a bell for each (notification-bell-*.svg). */
+const BELLS: Record<Involvement, ComponentType<IconoirIconProps>> = {
+  mentions: AtSign,
+  everything: BellNotificationSolid,
+  nothing: BellOff,
+  invisible: EyeClosed,
 };
 
 interface Props {
@@ -37,9 +31,9 @@ interface Props {
 }
 
 /**
- * ember-rust's notification bell (`button_to_change_involvement`, helpers/rooms.rs): Campfire's bell for
- * your level in a room, as a checkbox that's always checked, named for what the level does, which a
- * press moves on to the next level. It shows what the server answers rather than what was asked, unless
+ * ember-rust's notification bell (`button_to_change_involvement`, helpers/rooms.rs): the icon for your
+ * level in a room, as a checkbox that's always checked, named for what the level does, which a press
+ * moves on to the next level. It shows what the server answers rather than what was asked, unless
  * another tab saves a newer level before the answer comes. While it saves it's dimmed and ignores presses,
  * as the star does.
  */
@@ -77,7 +71,7 @@ export function InvolvementButton({ room, involvement, askForRoom, onFailed, onS
       onClick={save}
       className={cn("cursor-pointer aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-disabled:grayscale aria-disabled:contrast-50", className)}
     >
-      <Bell width={20} height={20} className="size-[1.3em]" />
+      <Bell className="size-[1.3em]" />
       <span id={label} className="sr-only">
         {INVOLVEMENT_LABELS[involvement]}
       </span>

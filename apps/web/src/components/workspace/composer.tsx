@@ -2,7 +2,7 @@ import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffe
 import { flushSync } from "react-dom";
 import { MAX_FILE_SIZE, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
-import { ArrowUp, Attachment, CommonFileText, RemoveCircle, TextOptions } from "@/components/icons/campfire";
+import { ArrowUp, Attachment, Page, TextSquare, XmarkCircle } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { dropTarget } from "@/lib/drop-target";
@@ -177,8 +177,8 @@ const isImage = (file: File) => file.type.startsWith("image/");
 
 /**
  * A file picked to send, as ember-rust's composer lists it (composer_controller.js#updateFileList,
- * Campfire's composer.css, zz-ember.css): a picture's thumbnail, or Campfire's file icon, over its name
- * and a remove-circle. Pressing it takes the file back out, which it says to screen readers too, where
+ * Campfire's composer.css, zz-ember.css): a picture's thumbnail, or a file icon, over its name and
+ * a circled ×. Pressing it takes the file back out, which it says to screen readers too, where
  * ember-rust's gives only the name.
  */
 function FileChip({ file, onRemove }: { file: File; onRemove: () => void }) {
@@ -190,15 +190,14 @@ function FileChip({ file, onRemove }: { file: File; onRemove: () => void }) {
       {isImage(file) ? (
         <img src={thumbnail} alt="" className={cn(tile, "object-cover")} />
       ) : (
-        // `colorize--black` darkens the tile's border along with its icon in dark mode.
-        <span className={cn(tile, "flex items-center justify-center dark:invert")}>
-          <CommonFileText tone="color" className="w-[55%]" />
+        <span className={cn(tile, "flex items-center justify-center")}>
+          <Page className="h-auto w-[55%]" />
         </span>
       )}
       <span className="flex max-w-full items-center px-[1ch] text-[0.8rem]">
         <span className="truncate">{name}</span>
         <span className="shrink-0">{extension}</span>
-        <RemoveCircle className="ms-[0.5em] -me-[0.5em] size-[1.3em] shrink-0" />
+        <XmarkCircle className="ms-[0.5em] -me-[0.5em] size-[1.3em] shrink-0" />
       </span>
     </button>
   );
@@ -472,7 +471,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
               }}
               className={cn(BUTTON, "rounded-[7px] hover:not-active:brightness-85 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-hover")}
             >
-              <TextOptions className="size-[18px] opacity-70" />
+              <TextSquare className="size-[18px] opacity-70" />
               <span className="sr-only">Rich text</span>
             </button>
             <button
@@ -487,7 +486,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
                 "disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50",
               )}
             >
-              <ArrowUp tone="reversed" className="size-[18px]" />
+              <ArrowUp className="size-[18px]" />
               <span className="sr-only">Send Message</span>
             </button>
           </div>

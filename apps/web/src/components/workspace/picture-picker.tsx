@@ -1,5 +1,5 @@
 import type { ChangeEvent } from "react";
-import { Camera } from "@/components/icons/campfire";
+import { Camera } from "@/components/icons/iconoir";
 
 /** `.btn.txt-small.mb-logo-remove`: Campfire's `.btn` in small, muted text, 44px tall for fingers. */
 const REMOVE_BUTTON =
@@ -49,7 +49,7 @@ export function PicturePicker({ id, src, alt, label, description, onChoose, disa
           aria-hidden="true"
           className="absolute -end-0.5 -bottom-0.5 flex size-9 items-center justify-center rounded-full border bg-background shadow-[0_1px_3px_#0002] group-hover:bg-hover"
         >
-          <Camera width={20} height={20} className="size-[18px]" />
+          <Camera className="size-[18px]" />
         </span>
         <input
           id={id}

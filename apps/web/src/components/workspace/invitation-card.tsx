@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AccountLogo } from "@/components/account-logo";
-import { Dismiss, Link } from "@/components/icons/ember";
+import { Link, Xmark } from "@/components/icons/iconoir";
 import { TranslationButton } from "@/components/translation-button";
 import { useAccount } from "@/hooks/use-account";
 import { JOIN_LINK, joinUrl } from "./join-link";
@@ -46,7 +46,7 @@ export function InvitationCard({ joinCode, onDismiss }: Props) {
           <span id="invite_label" className="sr-only">
             Share to invite more people
           </span>
-          <Link width={17} height={20} className="flex-none text-muted-foreground" />
+          <Link className="size-5 flex-none text-muted-foreground" />
           {/* 16px for fingers, where ember-rust keeps 13px, so iOS doesn't zoom in when it's tapped. */}
           <input
             type="text"
@@ -92,7 +92,7 @@ function DismissButton({ onDismiss }: Pick<Props, "onDismiss">) {
       onClick={dismiss}
       className="-mt-1.5 -mr-1.5 ml-auto grid size-9 flex-none cursor-pointer place-items-center rounded-[9px] text-muted-foreground hover:bg-hover hover:text-foreground touch:size-11 aria-disabled:pointer-events-none aria-disabled:opacity-50"
     >
-      <Dismiss className="size-5" />
+      <Xmark className="size-5" />
     </button>
   );
 }

@@ -16,7 +16,7 @@ import {
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { Logout } from "@/components/icons/campfire";
+import { LogOut } from "@/components/icons/iconoir";
 import { Input } from "@/components/ui/input";
 import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
@@ -228,7 +228,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
 
   const logOut = (
     <button type="button" onClick={() => leave(onSignOut)} className={HEADER_TEXT_BUTTON}>
-      <Logout width={20} height={20} className="h-5 w-[1.3em]" />
+      <LogOut className="h-5 w-[1.3em]" />
       <span>Log out</span>
     </button>
   );

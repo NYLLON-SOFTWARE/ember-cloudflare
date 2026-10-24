@@ -1,5 +1,5 @@
 import { createContext, useLayoutEffect, useRef, type ComponentType } from "react";
-import { Bot, Hash, Palette, SlidersHorizontal, Users } from "@/components/icons/lucide";
+import { BrainElectricity, Group, Hashtag, Palette, Settings } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { BOTS_PATH, CUSTOM_STYLES_PATH, WORKSPACE_SETTINGS_PATH, type Route } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
@@ -62,14 +62,14 @@ interface SectionLink {
 }
 
 const LINKS: SectionLink[] = [
-  { section: "community-settings", href: workspaceSectionPath("community-settings"), icon: SlidersHorizontal, label: "Community" },
-  { section: "channel-settings", href: workspaceSectionPath("channel-settings"), icon: Hash, label: "Rooms and permissions" },
-  { section: "membership-settings", href: workspaceSectionPath("membership-settings"), icon: Users, label: "Membership" },
+  { section: "community-settings", href: workspaceSectionPath("community-settings"), icon: Settings, label: "Community" },
+  { section: "channel-settings", href: workspaceSectionPath("channel-settings"), icon: Hashtag, label: "Rooms and permissions" },
+  { section: "membership-settings", href: workspaceSectionPath("membership-settings"), icon: Group, label: "Membership" },
 ];
 
 /** And the pages only administrators can open. */
 const ADMINISTRATOR_LINKS: SectionLink[] = [
-  { section: "chat-bots", href: BOTS_PATH, icon: Bot, label: "Chat bots" },
+  { section: "chat-bots", href: BOTS_PATH, icon: BrainElectricity, label: "Chat bots" },
   { section: "custom-styles", href: CUSTOM_STYLES_PATH, icon: Palette, label: "Custom styles" },
 ];
 

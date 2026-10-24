@@ -73,7 +73,7 @@ test("the room's star, and a starred room's row in the drawer, fit the phone", a
 
   if (!hasDrawerLayout(page)) return;
   await page.getByRole("button", { name: "Open conversations" }).tap();
-  await expect(page.getByRole("dialog").getByRole("link", { name: room.name })).toContainText("★");
+  await expect(page.getByRole("dialog").getByRole("link", { name: room.name }).getByRole("img", { name: "Favorite" })).toBeVisible();
   await screenIsFine();
 });
 

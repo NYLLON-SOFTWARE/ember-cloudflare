@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { startingInvolvement, type Account, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
-import { X } from "@/components/icons/lucide";
+import { Xmark } from "@/components/icons/iconoir";
 import { MainContent, SkipLink } from "@/components/main-content";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -704,13 +704,13 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             {!settings && (
               <aside aria-label="Conversations" className="relative w-sidebar min-w-0 overflow-hidden border-r pt-[env(safe-area-inset-top)]">
                 {/* ember-rust's .mb-sidebar-close: a 44px button clear of the status bar, first in the sidebar's tab order,
-                    with Lucide's x, as its pull request #24 draws it. */}
+                    with Iconoir's xmark, where its pull request #24 draws Lucide's x. */}
                 <SheetClose
                   ref={closeDrawerButton}
                   aria-label="Close conversations"
                   className="absolute top-[max(7px,env(safe-area-inset-top))] right-1 z-[2] flex size-11 items-center justify-center rounded-lg bg-surface hover:bg-hover"
                 >
-                  <X className="size-5" />
+                  <Xmark className="size-5" />
                 </SheetClose>
                 {sidebar}
               </aside>

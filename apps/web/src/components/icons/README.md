@@ -1,26 +1,27 @@
 # Icons
 
-ember-cloudflare draws exactly the icons ember-rust draws, from the same sources, except the rail's
-navigation icons (its links and appearance button), which are Iconoir's, as the project's owner
-chose. Import them from this folder, never from `lucide-react` directly: `icons.test.tsx` fails
-`pnpm test`, and so CI, if any other file does, and it checks every Lucide icon here against
-ember-rust's catalog, copied into `lucide/`, and every Iconoir icon against its file in `iconoir/`.
+Every icon Ember draws is Iconoir's, from its 7.12.1 release, as the project's owner chose, picking one
+for each place, where ember-rust draws its own line icons, Lucide's and Campfire's. Three kinds stay as
+ember-rust has them: the icons people choose for rooms and the rail, from ember-rust's catalog; the setup
+help's picture of Chrome's View site information button, which shows what Chrome draws there; and the
+brand images. Import icons from this folder, never from `lucide-react`: `icons.test.tsx` fails
+`pnpm test`, and so CI, if any other file does, and it checks every icon here, every icon the formatting
+toolbar and the error pages draw, and the copies in `apps/web/public`, against Iconoir's files in
+`iconoir/`.
 
-| Module | What it holds | Where ember-rust gets it |
+| Module | What it holds | What ember-rust draws there |
 |---|---|---|
-| `ember.tsx` | Ember's own line icons (24px grid, 1.7 stroke, `currentColor`): close buttons other than the drawer's, New direct message's search, the sign-in form, the welcome card's link, and the room icon picker's and unsaved changes dialog's drawings (1.75 stroke) | `crates/views/templates/components/icons.html`, drawn with `{% call icons::icon("name") %}`; the others are inline in `rooms/show/_invitation.html`, `rooms/layouts/_icon_picker.html` and `components/unsaved_changes.html` |
-| `iconoir.tsx`, `iconoir/*.svg` | Iconoir's regular icons, pinned to 7.12.1 (24px grid, 1.5 stroke, `currentColor`), each named `iconoir-<name>`: the rail's Home (Home), DMs (Multi Bubble), Activity (Bell), Search (Search) and Admin or Workspace (Box), and its appearance button and menu's Light (Sun Light), Dark (Half Moon) and System (Computer). `iconoir/` holds their files from the `iconoir` package's `icons/regular/`, byte for byte, with Iconoir's license | Nowhere: ember-rust draws its own line icons on the rail (`icons.html`) and Lucide's sun, moon and monitor for appearance, and the project's owner chose Iconoir's over them |
-| `lucide.ts` | Lucide, pinned to 1.53.0: message actions, the appearance menu's check, the star in a room's header, which is filled while the room is starred, the grip that moves a room in community settings' room order, the icons of community settings' navigation (ember-rust PR #24's accounts/_navigation.html), and the top bar's menu and the drawer's close button, which PR #24 draws with Lucide's menu and x | `h::lucide_icon("name")`, from the generated `crates/assets/overrides/lucide/catalog.json` (lucide-static 1.53.0); the star is `h::channel_icon(Some("star"))`, the catalog's drawing written into the page, so this draws it as an SVG rather than `room-icon.tsx`'s mask, which can't be filled |
-| `lucide/catalog.json`, `lucide/LICENSE.txt` | ember-rust's catalog of Lucide's 1,869 icons (`{name, label, svg}`, 991 KB), which `icons.test.tsx` checks `lucide.ts` against, with Lucide's license | `crates/assets/overrides/lucide/`, generated from lucide-static 1.53.0 and copied byte for byte |
+| `iconoir.tsx`, `iconoir/*.svg`, `iconoir/solid/*.svg` | Iconoir's icons, pinned to 7.12.1 (24px grid, 1.5 stroke, `currentColor`), each named `iconoir-<name>`, or `iconoir-<name>-solid` for a solid one, as Iconoir's stylesheet names them. `iconoir/` holds their files from the `iconoir` package's `icons/regular/`, and `iconoir/solid/` those from its `icons/solid/`, byte for byte, with Iconoir's license. A few have no component: the formatting toolbar's, which `workspace/rich-text-editor.css` paints over Lexxy's own, and the error pages', which `apps/web/public/404.html`, `422.html` and `500.html` draw inline | Its own line icons (`crates/views/templates/components/icons.html`), Lucide's (`h::lucide_icon`, pinned to lucide-static 1.53.0), Campfire's (`ctx.asset("name.svg")`, from once-campfire's `app/assets/images/`) and, in the formatting toolbar, Lexxy's |
+| `campfire.tsx`, `campfire/external/sliders.svg` | Campfire's picture of Chrome's View site information button, for the notification setup help, drawn as a black `<img>` inverted where the background is dark and named by its `aria-label` | The same file, `ctx.asset("external/sliders.svg")`, from once-campfire `app/assets/images/` at `90b3300`, copied byte for byte |
+| `lucide/catalog.json`, `lucide/LICENSE.txt` | ember-rust's catalog of Lucide's 1,869 icons (`{name, label, svg}`, 991 KB), which `catalog.test.ts` checks the pickers' Lucide icons against, with Lucide's license | `crates/assets/overrides/lucide/`, generated from lucide-static 1.53.0 and copied byte for byte |
 | `picker/catalog.json` | Every icon a room can have: the icon pickers' catalog of Lucide's 1,869 icons, drawn as `lucide/catalog.json` draws them, and Iconoir 7.12.1's 1,671, regular and solid, under its license in `iconoir/`. Each has its label, its collection, the tags search finds it by and, for the 120 suggested for rooms, what a room with it is for (`roomLabel`), and the catalog orders them once for rooms and once for navigation (3.2 MB). `ROOM_ICON_NAMES` in `@ember/protocol` lists their names and `room-labels.ts` their rooms' labels, both generated by `catalog.test.ts`. `vite.config.ts` writes each icon to a file of its own, `/lucide/icons/<name>.svg` or `/iconoir/icons/<variant>/<name>.svg`, and a picker loads the whole catalog when it first opens | `crates/assets/overrides/icons/catalog.json` from ember-rust's pull request #24 (d49621e), which its `basecoat/rank-icons.mjs` generates from the two collections, copied byte for byte |
 | `room-icon.tsx`, `room-icon-label.ts` | A room's icon, from its own file, as a mask in the color of the text around it, or `#` for the default, and what the pickers call it, crediting Iconoir's | `h::channel_icon` and `channel_icon_label`, `crates/views/src/helpers/icons.rs`, which writes the catalog's SVG into the page |
-| `campfire.tsx`, `campfire/*.svg` | Campfire's filled icons, drawn as black `<img>`s and inverted where the background is dark, or named by their `alt` text where they stand for a button in the notification setup help. `campfire/external/` holds those from Campfire's `external/` folder, and `campfire/install-edge.svg` is ember-rust's own copy of Campfire's `external/install-edge.svg` | `ctx.asset("name.svg")` or `h::image_tag(ctx, "name.svg", …)`, served from its `reference/` submodule: basecamp/once-campfire `app/assets/images/` at `90b3300`; `install-edge.svg` from `crates/assets/overrides/` |
 
 The brand images live in `apps/web/public`, with the icons the web app manifest lists.
 `logos/app-icon.png` and `logos/app-icon-192.png` are ember-rust's `crates/assets/overrides/logos/`
-icons, byte for byte: the home-screen icon and the installed app's. `shortcuts/add.svg` and
-`shortcuts/person.svg` are Campfire's, for the installed app's New chat room and My profile
-shortcuts. The favicon,
+icons, byte for byte: the home-screen icon and the installed app's. `shortcuts/plus.svg` and
+`shortcuts/user.svg` are Iconoir's, byte for byte, for the installed app's New chat room and My profile
+shortcuts, where ember-rust's are Campfire's add and person. The favicon,
 `logos/app-icon-48.png`, is the same image scaled from 512px down to 48px: browsers fetch the favicon
 while the page loads, and in Lighthouse the 121 KB original delayed a room's largest paint by about
 390 ms on mobile and 80 ms on desktop. For the same reason, while the workspace has a logo the app
@@ -29,39 +30,28 @@ one (`hooks/use-account-logo.ts`).
 `ember-icon.png` is ember-rust's `crates/assets/overrides/ember-icon.png` (the flame on the rail and the
 sign-in card) scaled from 1254px down to 192px, so the page doesn't load 595 KB for a 44px mark.
 `browsers/` holds Campfire's browser logos, byte for byte, for the Worker's "Upgrade to a supported web
-browser" page, and `globe.svg` is Campfire's globe for that page's translation button, as `campfire/` has
-it. They're static files rather than icons here because that page is plain HTML from the Worker, which
-old browsers can read without the app. Whatever goes in `public` is also left out of
-`run_worker_first` in `wrangler.jsonc`, as these are, so it's served without the Worker.
+browser" page, and `globe.svg` is Iconoir's globe, byte for byte, for that page's translation button.
+They're static files rather than icons here because that page is plain HTML from the Worker, which
+old browsers can read without the app; an `<img>` draws Iconoir's lines black, so the page inverts the
+globe in dark mode. Whatever goes in `public` is also left out of `run_worker_first` in
+`wrangler.jsonc`, as these are, so it's served without the Worker.
 
 ## Adding an icon
 
-Find the element you're porting in ember-rust's templates and see how it draws its icon:
+Use Iconoir's, from the release `iconoir.tsx` names, and ask the project's owner which, as they chose
+each one there is. Copy the icon's file from that release's `icons/regular/` into `iconoir/`, or from its
+`icons/solid/` into `iconoir/solid/`, byte for byte, then draw it in `iconoir.tsx` with the file's
+shapes and attributes, under the file's name in PascalCase (`multi-bubble.svg` is `MultiBubble`, and
+`solid/star.svg` is `StarSolid`), spreading `LINE`, `DOT`, `ROUND_ENDS` or `OUTLINE` where a shape's
+attributes are one of those sets, and `icons.test.tsx` compares the two. An icon is `aria-hidden`
+unless it's given an `aria-label`, as the setup help's pictures of buttons are.
 
-- **`icons::icon("name")`**, or an `<svg>` written into the template: copy its shapes from `icons.html`, or
-  the template, into `ember.tsx` verbatim.
-- **`h::lucide_icon("name")`**: add the icon's PascalCase name to the export in `lucide.ts` (Lucide's
-  own name, not an alias: `face-slightly-smiling-plus` is `FaceSlightlySmilingPlus`), and
-  `icons.test.tsx` compares its drawing with the catalog's. Keep `lucide-react` on 1.53.0 until
-  ember-rust moves its pin.
-- **`ctx.asset("name.svg")`**: copy the file byte for byte from once-campfire's `app/assets/images/`
-  into `campfire/` (check `crates/assets/overrides/` first, since a file there replaces Campfire's),
-  then export it from `campfire.tsx`. Choose its tone from how ember-rust colors it
-  (`zz-ember.css`, the `--mb-icon-invert` rules):
-  - `colorize--black`, or a plain `<img>` in a `.btn`: `tone="black"` (the default).
-  - `colorize--white`, or an `<img>` in a `btn--reversed` button: `tone="reversed"`.
-  - An `<img>` in a `btn--negative` button or a flash: `tone="white"`, white in both modes.
-  - `color-icon`, which keeps a colored icon such as the translation buttons' globe out of those
-    rules: `tone="color"`, in its own colors in both modes.
-
-The rail's navigation icons are the exception: they're Iconoir's, from the release `iconoir.tsx`
-names. To give the rail another, copy the icon's file from that release's `icons/regular/` into `iconoir/` byte for byte, then
-draw it in `iconoir.tsx` with the file's shapes and attributes, under the file's name in PascalCase
-(`multi-bubble.svg` is `MultiBubble`), and `icons.test.tsx` compares the two.
-
-Size icons as `zz-ember.css` sizes that element (the rail's are 22px, sidebar headings 15px, message
-actions 16px, composer buttons 18px). Adding a shadcn/ui component brings `lucide-react` imports with
-it, so swap those for icons from here.
+The icons draw in the color of the text around them, so a button that's white on red or reversed
+sets its own text color (`text-white`, `text-primary-foreground`), and a faint picture its opacity.
+Size an icon as `zz-ember.css` sizes that element (the rail's are 22px, sidebar headings 15px, message
+actions 16px, composer buttons 18px), setting both its width and its height, since an icon is 24px
+square until it's told otherwise. Adding a shadcn/ui component brings `lucide-react` imports with it,
+so swap those for icons from here.
 
 ## Updating the catalogs
 
@@ -69,6 +59,6 @@ When ember-rust changes its picker's catalog, copy its `crates/assets/overrides/
 into `picker/` byte for byte and put its SHA-256 hash and ember-rust's commit in `catalog.test.ts`.
 When it moves `lucide-static` (`crates/assets/overrides/basecoat/package.json`), copy its
 `crates/assets/overrides/lucide/catalog.json` and `LICENSE.txt` into `lucide/` the same way, with the
-picker's catalog, which holds Lucide's icons too, and move `lucide-react` to the same version. Then
+picker's catalog, which holds Lucide's icons too. Then
 `pnpm --filter @ember/web exec vitest run catalog --update` rewrites the room icons' names in
 `packages/protocol/src/room-icons.ts` and their rooms' labels in `room-labels.ts`.

@@ -260,6 +260,13 @@ export async function nextSecond(): Promise<void> {
   await expect.poll(() => Math.floor(Date.now() / 1000), { intervals: [100] }).toBeGreaterThan(second);
 }
 
+/** How the sidebar's room rows read: each row's text, with a ★ after a starred room's, whose star is a picture. */
+export function rowsWithStars(rows: Locator): Promise<string[]> {
+  return rows.evaluateAll((links) =>
+    links.map((link) => `${link.textContent!.replace(/\s+/g, " ").trim()}${link.querySelector('[role="img"][aria-label="Favorite"]') ? "★" : ""}`),
+  );
+}
+
 /** A picture `width` by `height`, drawn in `page`'s browser as a PNG, as Playwright picks a file. */
 export async function drawnPicture(page: Page, name: string, width: number, height: number) {
   const bytes = await page.evaluate(

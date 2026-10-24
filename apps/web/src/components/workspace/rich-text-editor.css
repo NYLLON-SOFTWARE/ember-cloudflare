@@ -80,9 +80,10 @@ lexxy-toolbar {
   /* Wide, airy button spacing like the Trix toolbar */
   --lexxy-toolbar-gap: 1.3em;
 
-  /* Match the compact size of the Trix toolbar buttons */
+  /* Match the compact size of the Trix toolbar buttons, with Iconoir's 24px grid at the scale Lexxy
+     draws its 18px one, 1.125em */
   --lexxy-toolbar-button-size: 1.7em;
-  --lexxy-toolbar-icon-size: 1.125em;
+  --lexxy-toolbar-icon-size: 1.5em;
 
   display: none;
   border-block-end: 0;
@@ -123,6 +124,103 @@ lexxy-toolbar {
 
   .lexxy-editor__toolbar-dropdown > .lexxy-editor__toolbar-button[aria-expanded="true"] {
     border-radius: var(--lexxy-radius);
+  }
+}
+
+/*
+ * Iconoir's icons in place of Lexxy's, as the project's owner chose for every icon Ember draws. Lexxy
+ * writes its own into each button, so each is painted over: in the button's text color, through the
+ * Iconoir file in apps/web/src/components/icons/iconoir/ named for the button, with Lexxy's shapes
+ * hidden. The paint is kept in forced colors, which would otherwise turn it the canvas's color.
+ */
+:is(
+    lexxy-toolbar
+      :is(
+        button[name="bold"],
+        button[name="italic"],
+        button[name="strikethrough"],
+        button[name="format"],
+        button[data-heading],
+        button[name="paragraph"],
+        button[name="clear-formatting"],
+        button[name="link"],
+        button[name="quote"],
+        button[name="code"],
+        button[name="unordered-list"],
+        button[name="ordered-list"],
+        .lexxy-editor__toolbar-overflow > [data-dropdown-trigger]
+      ),
+    .lexxy-node-delete
+  )
+  > svg {
+  background-color: currentColor;
+  forced-color-adjust: none;
+  mask: var(--iconoir) center / contain no-repeat;
+
+  > * {
+    display: none;
+  }
+}
+
+lexxy-toolbar {
+  button[name="bold"] {
+    --iconoir: url("../icons/iconoir/bold.svg");
+  }
+
+  button[name="italic"] {
+    --iconoir: url("../icons/iconoir/italic.svg");
+  }
+
+  button[name="strikethrough"] {
+    --iconoir: url("../icons/iconoir/strikethrough.svg");
+  }
+
+  /* Text formatting, and its menu's heading. */
+  button:is([name="format"], [data-heading]) {
+    --iconoir: url("../icons/iconoir/h-square.svg");
+  }
+
+  button[name="paragraph"] {
+    --iconoir: url("../icons/iconoir/text.svg");
+  }
+
+  button[name="clear-formatting"] {
+    --iconoir: url("../icons/iconoir/erase.svg");
+  }
+
+  button[name="link"] {
+    --iconoir: url("../icons/iconoir/link.svg");
+  }
+
+  button[name="quote"] {
+    --iconoir: url("../icons/iconoir/quote.svg");
+  }
+
+  button[name="code"] {
+    --iconoir: url("../icons/iconoir/code.svg");
+  }
+
+  button[name="unordered-list"] {
+    --iconoir: url("../icons/iconoir/list.svg");
+  }
+
+  button[name="ordered-list"] {
+    --iconoir: url("../icons/iconoir/numbered-list-left.svg");
+  }
+
+  /* The … that holds the buttons a narrow toolbar has no room for. */
+  .lexxy-editor__toolbar-overflow > [data-dropdown-trigger] {
+    --iconoir: url("../icons/iconoir/more-horiz.svg");
+  }
+}
+
+/* The remove button on a link preview or an attachment while it's selected, at the toolbar's scale. */
+.lexxy-node-delete {
+  --iconoir: url("../icons/iconoir/trash.svg");
+
+  > svg {
+    block-size: 1.5em;
+    inline-size: 1.5em;
   }
 }
 

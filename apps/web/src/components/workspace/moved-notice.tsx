@@ -1,5 +1,5 @@
 import { useState, type MouseEvent } from "react";
-import { Close } from "@/components/icons/ember";
+import { Xmark } from "@/components/icons/iconoir";
 import { useAccount } from "@/hooks/use-account";
 import { useVisit } from "@/hooks/use-route";
 import { moveTo, staysAtAnyAddress, thisPageAt } from "@/lib/custom-domain";
@@ -33,7 +33,7 @@ export function MovedNotice() {
           </a>
         </p>
         <button type="button" aria-label="Close" onClick={() => setClosedFor(customDomain)} className="flex size-11 flex-none items-center justify-center rounded-lg hover:bg-hover">
-          <Close className="size-5" />
+          <Xmark className="size-5" />
         </button>
       </div>
     </div>

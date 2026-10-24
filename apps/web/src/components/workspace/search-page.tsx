@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { sanitizeSearch, searchPath, type Me, type RoomId, type SearchResults } from "@ember/protocol";
-import { ArrowLeft, ArrowUp, Broom, Remove, Search } from "@/components/icons/campfire";
+import { ArrowLeft, ArrowUp, Search, Trash, Xmark } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { useNameOf } from "@/hooks/use-directory";
@@ -189,18 +189,18 @@ export function SearchPage({ me, back, onFailed }: Props) {
               {/* Hidden while the field is empty, as Campfire's `.searches__input:required:invalid ~ .searches__reset` is,
                   and 44px for fingers, as the button beside it is, where ember-rust's is only its 14px icon. */}
               <PageLink href={SEARCHES_PATH} role="button" className="grid shrink-0 place-items-center peer-invalid:hidden touch:-my-[0.4em] touch:size-11">
-                <Remove className="size-3.5" />
+                <Xmark className="size-5" />
                 <span className="sr-only">Clear search field</span>
               </PageLink>
               <button
                 type="submit"
                 disabled={searching}
                 className={cn(
-                  "-my-[0.4em] -mr-[0.7em] grid size-9 shrink-0 cursor-pointer place-items-center rounded-[0.5em] bg-foreground text-[0.8rem] hover:not-active:brightness-70 touch:size-11",
+                  "-my-[0.4em] -mr-[0.7em] grid size-9 shrink-0 cursor-pointer place-items-center rounded-[0.5em] bg-foreground text-[0.8rem] text-background hover:not-active:brightness-70 touch:size-11",
                   "disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50",
                 )}
               >
-                <ArrowUp tone="reversed" className="w-[1em]" />
+                <ArrowUp className="size-[1.3em]" />
                 <span className="sr-only">Search</span>
               </button>
             </div>
@@ -229,7 +229,7 @@ function SearchedFor({ query, count }: { query: string; count: number }) {
  * ember-rust's recent searches (searches/_recents.html; `.mb-search-recents` in zz-ember.css, over
  * Campfire's `.searches__recents` in sidebar.css): a row of your recent searches, newest first, each at
  * most 20 characters wide and spread across the row, that scrolls sideways under a fading left edge, then
- * the broom, which clears them.
+ * the trash can, which clears them.
  */
 function RecentSearches({ searches, onClear }: { searches: string[]; onClear: () => void }) {
   return (
@@ -248,7 +248,7 @@ function RecentSearches({ searches, onClear }: { searches: string[]; onClear: ()
         </PageLink>
       ))}
       <button type="button" onClick={onClear} className={cn(ROUND_BUTTON, "mr-[2ch]")}>
-        <Broom className="size-[1.3em]" />
+        <Trash className="size-[1.3em]" />
         <span className="sr-only">Clear recent searches</span>
       </button>
     </div>
@@ -257,15 +257,15 @@ function RecentSearches({ searches, onClear }: { searches: string[]; onClear: ()
 
 /**
  * ember-rust's `.message-area--empty` (searches/index.html, zz-ember.css), centred where the results would
- * be: Campfire's magnifying glass, faded, over what to do, which tells a search that found nothing from no
- * search at all.
+ * be: a magnifying glass, faded, over what to do, which tells a search that found nothing from no search
+ * at all.
  */
 function NoResults({ searched }: { searched: boolean }) {
   return (
     <div className="grid min-h-0 flex-1 content-center justify-items-center">
       <div className="min-w-0 p-6 text-center text-muted-foreground">
         <figure className="px-[1ch] py-4">
-          <Search className="mx-auto w-16 max-w-[25vw] opacity-20" />
+          <Search className="mx-auto h-auto w-16 max-w-[25vw] text-foreground opacity-20" />
         </figure>
         <h2 className="mb-1.5 text-xl font-bold text-foreground">{searched ? "No messages found" : "Find a conversation"}</h2>
         <p>{searched ? "Try a different word or phrase." : "Search messages across your rooms and direct messages."}</p>

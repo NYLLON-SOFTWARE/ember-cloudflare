@@ -10,7 +10,7 @@ import {
   type SetupPlaceholders,
 } from "@ember/protocol";
 import avatarPlaceholder from "@/components/avatar-placeholder.svg";
-import { ArrowRight, Camera, Eye, Lock, Mail, User as UserIcon, type EmberIconProps } from "@/components/icons/ember";
+import { ArrowRight, Camera, Eye, Lock, Mail, User as UserIcon, type IconoirIconProps } from "@/components/icons/iconoir";
 import { MainContent, SkipLink } from "@/components/main-content";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -280,7 +280,7 @@ function AvatarField({ photo, disabled }: { photo: PhotoChoice; disabled: boolea
   );
 }
 
-function Field({ id, label, icon: Icon, children }: { id: string; label: string; icon: ComponentType<EmberIconProps>; children: ReactNode }) {
+function Field({ id, label, icon: Icon, children }: { id: string; label: string; icon: ComponentType<IconoirIconProps>; children: ReactNode }) {
   return (
     <div className="grid min-w-0 gap-2">
       <label htmlFor={id} className="text-base leading-normal font-medium">

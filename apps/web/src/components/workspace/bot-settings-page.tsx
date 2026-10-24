@@ -4,7 +4,7 @@ import { BOTS_FORBIDDEN, MAX_WEBHOOK_URL_LENGTH, type BotChanges, type BotSettin
 import { AUTH_FORM } from "@/components/auth-page";
 import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
-import { Camera, Refresh } from "@/components/icons/campfire";
+import { Camera, RefreshDouble } from "@/components/icons/iconoir";
 import { Input } from "@/components/ui/input";
 import { useChosenPhoto, type PhotoChoice } from "@/hooks/use-chosen-photo";
 import { useMounted } from "@/hooks/use-mounted";
@@ -160,7 +160,7 @@ export function BotSettingsPage({ botId, onMissing, onFailed }: SettingsProps) {
             <div className="flex flex-wrap items-center justify-between gap-x-[1ch] gap-y-4">
               <DeleteButton label="Delete this chat bot" text="Delete bot" disabled={busy} onClick={remove} />
               <button type="button" aria-label="Generate a new key" disabled={busy} onClick={newKey} className={NEGATIVE_BUTTON}>
-                <Refresh tone="white" width={20} height={20} className="size-[1.3em] shrink-0" />
+                <RefreshDouble className="size-[1.3em] shrink-0" />
                 <span className="truncate">Generate a new key</span>
               </button>
             </div>
@@ -240,7 +240,7 @@ function AvatarField({ src, photo, disabled }: { src: string; photo: PhotoChoice
     <div className="mb-3 grid justify-items-center gap-2">
       <label className="grid cursor-pointer grid-cols-[1fr_auto_1fr] items-center gap-x-[1ch] has-[input:disabled]:cursor-default">
         <span className="relative grid size-9 place-items-center rounded-full border bg-background touch:size-11 has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-solid has-[input:focus-visible]:outline-foreground">
-          <Camera width={20} height={20} className="h-5 w-[1.6em]" />
+          <Camera className="h-5 w-[1.6em]" />
           <input
             ref={photo.input}
             id="user_avatar"

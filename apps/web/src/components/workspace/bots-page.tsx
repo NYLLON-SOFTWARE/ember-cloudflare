@@ -2,7 +2,7 @@ import { useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 import { botMessagesPath, botSlackPath, type Bot, type BotRoom } from "@ember/protocol/bots";
 import { PRIMARY_BUTTON } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { Add, Attachment, ExternalWeb, MessagesOutlined, Pencil } from "@/components/icons/campfire";
+import { Attachment, ChatBubbleEmpty, EditPencil, Internet, Plus } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { TranslationButton } from "@/components/translation-button";
 import { Button } from "@/components/ui/button";
@@ -79,7 +79,7 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
           <p className="text-muted-foreground">With Chat bots, other sites and services can post updates directly to Ember.</p>
           <Button asChild className={PRIMARY_BUTTON}>
             <PageLink href={NEW_BOT_PATH} aria-label="Add a chat bot">
-              <Add tone="reversed" width={20} height={20} className="h-5 w-[1.3em]" />
+              <Plus className="h-5 w-[1.3em]" />
               <span>Add a chat bot</span>
             </PageLink>
           </Button>
@@ -113,7 +113,7 @@ function BotItem({ bot }: { bot: Bot }) {
           </div>
         </div>
         <PageLink href={botSettingsPath(bot.id)} className={cn(ROUND_BUTTON, "ml-auto")}>
-          <Pencil width={20} height={20} className="size-[1.3em]" />
+          <EditPencil className="size-[1.3em]" />
           <span className="sr-only">Edit {bot.name}</span>
         </PageLink>
       </div>
@@ -136,19 +136,19 @@ function RoomCommands({ room, botKey }: { room: BotRoom; botKey: string }) {
         <strong className="truncate">{room.name}</strong>
       </legend>
       <Command
-        icon={<MessagesOutlined width={24} height={24} className="size-6 flex-none" />}
+        icon={<ChatBubbleEmpty className="size-6 flex-none" />}
         command={curlTextLine(url)}
         label="curl command for posting messages"
         copyLabel="Copy message command"
       />
       <Command
-        icon={<Attachment width={24} height={24} className="size-6 flex-none" />}
+        icon={<Attachment className="size-6 flex-none" />}
         command={curlUploadLine(url)}
         label="curl command for posting attachments"
         copyLabel="Copy attachment command"
       />
       <Command
-        icon={<ExternalWeb width={24} height={24} className="size-6 flex-none" />}
+        icon={<Internet className="size-6 flex-none" />}
         command={new URL(botSlackPath(room.id, botKey), location.origin).href}
         label="Slack-compatible webhook URL"
         copyLabel="Copy Slack-compatible webhook URL"

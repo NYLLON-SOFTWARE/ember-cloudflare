@@ -136,9 +136,9 @@ test.describe(feature("search.recent"), () => {
     await expect(grace.page.getByRole("heading", { name: "Find a conversation" })).toBeVisible();
     await expect(recentSearches(grace.page)).toBeHidden();
 
-    const broom = recentSearches(ada.page).getByRole("button", { name: "Clear recent searches" });
+    const clear = recentSearches(ada.page).getByRole("button", { name: "Clear recent searches" });
     ada.page.once("dialog", (dialog) => void dialog.dismiss());
-    await broom.click();
+    await clear.click();
     await expect(recent).toHaveCount(2);
     const asked = new Promise<string>((resolve) =>
       ada.page.once("dialog", (dialog) => {
@@ -146,7 +146,7 @@ test.describe(feature("search.recent"), () => {
         void dialog.accept();
       }),
     );
-    await broom.click();
+    await clear.click();
     expect(await asked).toBe("Are you sure you want to clear your recent searches?");
     await expect(ada.page).toHaveURL("/searches");
     await expect(recentSearches(ada.page)).toBeHidden();

@@ -1,5 +1,5 @@
 import type { Favorites, Involvement, Me, Room, User } from "@ember/protocol";
-import { MenuDotsHorizontal, MessagesOutlined, Search } from "@/components/icons/campfire";
+import { ChatBubbleEmpty, MoreHoriz, Search } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useNameOf } from "@/hooks/use-directory";
@@ -38,7 +38,7 @@ interface Props {
 /**
  * ember-rust's room header (rooms/show/_nav.html): the room's name, its star, who's here, Search, the
  * bell, which turns notifications on until they're on and is then your notification level's, and its
- * settings. A DM's has Campfire's `messages-outlined` in place of the room's icon, and no star.
+ * settings. A DM's has a chat bubble in place of the room's icon, and no star.
  */
 export function RoomHeader({ room, name, present, status, offline, favorite, onStarred, involvement, askForRoom, onSessionChanged, onFailed }: Props) {
   const nameOf = useNameOf();
@@ -47,7 +47,7 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
     <PageHeader>
       <div className="flex min-w-0 flex-1 items-center gap-2.5 max-md:gap-[7px]">
         {direct ? (
-          <MessagesOutlined width={20} height={20} className="size-5 shrink-0" />
+          <ChatBubbleEmpty className="size-5 shrink-0" />
         ) : (
           <RoomIcon icon={room.icon} size={22} className="shrink-0 text-[23px] text-muted-foreground" />
         )}
@@ -87,9 +87,9 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
           <Search className="size-5" />
           <span className="sr-only">Search messages</span>
         </PageLink>
-        <NotificationBell room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} className={cn(HEADER_BUTTON, "[&>img]:size-5")} />
+        <NotificationBell room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} className={cn(HEADER_BUTTON, "[&>svg]:size-5")} />
         <PageLink href={roomSettingsPath(room.kind, room.id)} title="Conversation settings" className={HEADER_BUTTON}>
-          <MenuDotsHorizontal className="size-5" />
+          <MoreHoriz className="size-5" />
           <span className="sr-only">Settings for this {direct ? "Ping" : "room"}</span>
         </PageLink>
       </div>

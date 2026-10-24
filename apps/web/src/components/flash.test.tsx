@@ -3,8 +3,6 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { flashOnNextPage, type FlashMessage } from "@/lib/flash";
-import alertSign from "./icons/campfire/alert.svg";
-import check from "./icons/campfire/check.svg";
 import { FlashProvider, useFlash } from "./flash";
 
 /** A page with a button for each message it flashes. */
@@ -36,24 +34,22 @@ async function flashFirst(messages: FlashMessage[], { workspace = false } = {}) 
 afterEach(() => sessionStorage.clear());
 
 describe(feature("ui.flash"), () => {
-  it("alerts in white on red with Campfire's alert sign, fading in and out", async () => {
+  it("alerts in white on red with a warning sign, fading in and out", async () => {
     await flashFirst([REFUSED]);
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("Too many requests or unauthorized.");
     expect(alert).toHaveAttribute("aria-atomic", "true");
     expect(alert).toHaveClass("animate-flash", "bg-negative", "text-white");
-    expect(alert.querySelector("img")).toHaveAttribute("src", alertSign);
-    expect(alert.querySelector("img")).toHaveClass("invert");
+    expect(alert.querySelector("svg")).toHaveClass("iconoir-warning-triangle");
   });
 
-  it("gives notices Campfire's check in white on green", async () => {
+  it("gives notices a check in white on green", async () => {
     await flashFirst([SAVED]);
     const notice = screen.getByRole("alert");
     expect(notice).toHaveTextContent("Changes saved.");
     expect(notice).toHaveClass("animate-flash", "bg-positive", "text-white");
-    expect(notice.querySelectorAll("img")).toHaveLength(1);
-    expect(notice.querySelector("img")).toHaveAttribute("src", check);
-    expect(notice.querySelector("img")).toHaveClass("invert");
+    expect(notice.querySelectorAll("svg")).toHaveLength(1);
+    expect(notice.querySelector("svg")).toHaveClass("iconoir-check-circle");
   });
 
   it("shows a notice of just ✓ as the check alone, read as Changes saved", async () => {
@@ -61,7 +57,7 @@ describe(feature("ui.flash"), () => {
     const notice = screen.getByRole("alert");
     expect(notice).toHaveTextContent(/^Changes saved$/);
     expect(notice.querySelector("span")).toHaveClass("sr-only");
-    expect(notice.querySelectorAll("img")).toHaveLength(1);
+    expect(notice.querySelectorAll("svg")).toHaveLength(1);
   });
 
   it("shows without fading, for as long, to people who ask for reduced motion", async () => {

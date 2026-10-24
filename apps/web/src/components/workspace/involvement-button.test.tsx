@@ -3,10 +3,6 @@ import type { Involvement, Room } from "@ember/protocol";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import everythingBell from "@/components/icons/campfire/notification-bell-everything.svg";
-import invisibleBell from "@/components/icons/campfire/notification-bell-invisible.svg";
-import mentionsBell from "@/components/icons/campfire/notification-bell-mentions.svg";
-import nothingBell from "@/components/icons/campfire/notification-bell-nothing.svg";
 import { InvolvementButton } from "./involvement-button";
 
 const general: Room = { id: "general", name: "general", kind: "open", icon: null };
@@ -36,16 +32,16 @@ afterEach(() => vi.restoreAllMocks());
 
 describe(feature("notifications.levels"), () => {
   it.each([
-    ["mentions", "Notifying about @ mentions", mentionsBell],
-    ["everything", "Notifying about all messages", everythingBell],
-    ["nothing", "Notifications are off", nothingBell],
-    ["invisible", "Notifications are off and room invisible in sidebar", invisibleBell],
-  ] as const)("is a checked checkbox named for what %s does, with its bell", (involvement, label, bell) => {
+    ["mentions", "Notifying about @ mentions", "iconoir-at-sign"],
+    ["everything", "Notifying about all messages", "iconoir-bell-notification-solid"],
+    ["nothing", "Notifications are off", "iconoir-bell-off"],
+    ["invisible", "Notifications are off and room invisible in sidebar", "iconoir-eye-closed"],
+  ] as const)("is a checked checkbox named for what %s does, with its icon", (involvement, label, icon) => {
     const { bell: button } = renderBell(involvement);
     expect(button).toHaveAccessibleName(label);
     expect(button).toBeChecked();
     expect(button).not.toHaveAttribute("title");
-    expect(button.querySelector("img")).toHaveAttribute("src", bell);
+    expect(button.querySelector("svg")).toHaveClass(icon);
   });
 
   it("goes round a room's levels, @mentions, all messages, off, then hidden, saving the next", async () => {

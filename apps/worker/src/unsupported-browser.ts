@@ -27,10 +27,10 @@ const browserList = SUPPORTED_BROWSERS.map(
 
 /**
  * ember-rust's `translation_button(ctx, "incompatible_browser_messsage")` (crates/views/src/helpers/translations.rs):
- * Campfire's globe on a `<details>` whose summary Tab skips, listing the message in seven languages.
- * Escape or a click elsewhere closes it, as Campfire's popup_controller.js does. The summary opens
- * and closes it too, by its `open` attribute, as Internet Explorer has no details element, and the
- * list hides itself while that's missing.
+ * a globe, Iconoir's where ember-rust's is Campfire's, on a `<details>` whose summary Tab skips, listing the
+ * message in seven languages. Escape or a click elsewhere closes it, as Campfire's popup_controller.js does.
+ * The summary opens and closes it too, by its `open` attribute, as Internet Explorer has no details element,
+ * and the list hides itself while that's missing.
  */
 const globe = `<details class="translations">
               <summary tabindex="-1"><img src="/globe.svg" alt="" aria-hidden="true"><span class="for-screen-reader">Translate</span></summary>
@@ -58,9 +58,10 @@ const togglesGlobe = `<script>
  * The page. It applies the app's saved appearance, or the system's, before it paints, as index.html
  * does. Its styles are the palette (zz-ember.css's canvas, surface, border and ink, as index.css has
  * them), the signed-out panel from zz-ember.css, Campfire's `.browser-list` from signup.css, and the
- * globe as the app draws it (translation-button.tsx), with margins for the gaps, which older browsers
- * lay out, and the list kept to a narrow screen by its own width. Internet Explorer has no
- * `max-content`, so there the menu takes the width a narrow screen leaves it, up to 40ch.
+ * globe as the app draws its translation buttons (translation-button.tsx), turned white in dark mode, as
+ * an image draws Iconoir's lines in black, with margins for the gaps, which older browsers lay out, and
+ * the list kept to a narrow screen by its own width. Internet Explorer has no `max-content`, so there the
+ * menu takes the width a narrow screen leaves it, up to 40ch.
  */
 const page = (title: string, translations: boolean) => `<!DOCTYPE html>
 <html lang="en">
@@ -126,6 +127,7 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
       }
       .translations summary::-webkit-details-marker { display: none; }
       .translations img { display: block; width: 1.3em; height: 20px; }
+      .dark .translations img { filter: invert(1); }
       .dark .translations summary { background: #171717; border-color: #343434; }
       .translations:not([open]) .language-list-menu { display: none; }
       .language-list-menu {

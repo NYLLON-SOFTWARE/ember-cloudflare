@@ -3,8 +3,6 @@ import type { DirectoryUser, Me, Person, PersonAnswer, User } from "@ember/proto
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import cancel from "@/components/icons/campfire/cancel.svg";
-import messages from "@/components/icons/campfire/messages.svg";
 import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { guardLeaving, navigate } from "@/hooks/use-route";
@@ -179,7 +177,7 @@ describe(feature("users.show"), () => {
     expect(await heading()).toHaveTextContent("Grace Hopper");
     expect(screen.getByText("Wrote the first compiler")).toBeVisible();
     expect(await avatar()).toHaveClass("opacity-50");
-    expect(document.querySelector(`img[src="${cancel}"]`)).toBeInTheDocument();
+    expect(document.querySelector("svg.iconoir-prohibition")).toBeInTheDocument();
     expect(directButton("Grace Hopper")).toBeNull();
   });
 
@@ -190,16 +188,16 @@ describe(feature("users.show"), () => {
     expect(screen.getByText("Grace Hopper is no longer on this account")).toBeVisible();
     expect(screen.queryByText("Wrote the first compiler")).toBeNull();
     expect(directButton("Grace Hopper")).toBeNull();
-    expect(document.querySelector(`img[src="${cancel}"]`)).toBeNull();
+    expect(document.querySelector("svg.iconoir-prohibition")).toBeNull();
   });
 
-  it("starts a DM with them, or opens yours, with the messages icon, which a second click doesn't start again", async () => {
+  it("starts a DM with them, or opens yours, with a chat bubble, which a second click doesn't start again", async () => {
     serve(found(grace));
     let settle = (_: boolean) => {};
     const { onStartDirect, user } = showPage(grace, { started: () => new Promise((resolve) => (settle = resolve)) });
     await heading();
     const button = directButton("Grace Hopper")!;
-    expect(button.querySelector("img")).toHaveAttribute("src", messages);
+    expect(button.querySelector("svg")).toHaveClass("iconoir-chat-lines");
     await user.click(button);
     expect(onStartDirect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: grace.id, name: grace.name }));
     expect(button).toHaveAttribute("aria-disabled", "true");
@@ -263,7 +261,7 @@ describe(feature("bots.profile"), () => {
     expect(screen.queryByRole("button", { name: /\bban\b/i })).toBeNull();
 
     const button = directButton("Bender")!;
-    expect(button.querySelector("img")).toHaveAttribute("src", messages);
+    expect(button.querySelector("svg")).toHaveClass("iconoir-chat-lines");
     await user.click(button);
     expect(onStartDirect).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: bender.id, name: bender.name }));
   });
@@ -345,7 +343,7 @@ describe(feature("accounts.ban"), () => {
     await heading();
     const button = banButton()!;
     expect(button).toHaveClass("bg-background");
-    expect(button.querySelector("img")).toHaveAttribute("src", cancel);
+    expect(button.querySelector("svg")).toHaveClass("iconoir-prohibition");
     expect(screen.getByRole("textbox").compareDocumentPosition(button)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(unbanButton()).toBeNull();
   });

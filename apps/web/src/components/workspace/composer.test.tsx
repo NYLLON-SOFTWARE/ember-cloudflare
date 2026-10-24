@@ -4,7 +4,6 @@ import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/do
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import commonFileText from "@/components/icons/campfire/common-file-text.svg";
 import { PeopleContext } from "@/hooks/use-directory";
 import { createRef } from "react";
 import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
@@ -243,7 +242,7 @@ describe(feature("attachments.upload"), () => {
     expect(attachFiles()).toHaveValue("");
   });
 
-  it("shows a picture's thumbnail, and Campfire's file icon for anything else, over its name up to its last dot and its extension", async () => {
+  it("shows a picture's thumbnail, and a file icon for anything else, over its name up to its last dot and its extension", async () => {
     const { made } = thumbnails();
     const { user } = await showComposer();
     await user.upload(attachFiles(), [fileOf("moon.jpg", { type: "image/jpeg" }), fileOf("archive.tar.gz", { type: "application/gzip" }), fileOf("README")]);
@@ -252,7 +251,8 @@ describe(feature("attachments.upload"), () => {
     expect(made).toEqual(["blob:moon.jpg"]);
     expect(moon.querySelector("img")).toHaveAttribute("src", "blob:moon.jpg");
     const archive = screen.getByRole("button", { name: "Remove archive.tar.gz" });
-    expect(archive.querySelector("img")).toHaveAttribute("src", commonFileText);
+    expect(archive.querySelector("img")).toBeNull();
+    expect(archive.querySelector("svg")).toHaveClass("iconoir-page");
     // The name runs to an ellipsis, and the extension doesn't.
     expect(within(archive).getByText("archive.tar.")).toHaveClass("truncate");
     expect(within(archive).getByText("gz")).toHaveClass("shrink-0");

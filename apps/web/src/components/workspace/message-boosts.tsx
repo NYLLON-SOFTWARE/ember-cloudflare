@@ -1,7 +1,7 @@
 import { useContext, useId, useLayoutEffect, useRef, useState, type FormEvent, type Ref } from "react";
 import { MAX_BOOST_LENGTH, type Boost, type Me, type Message } from "@ember/protocol";
 import { isAllEmoji } from "@ember/richtext/dom";
-import { Boost as BoostIcon, Minus } from "@/components/icons/campfire";
+import { Emoji, Minus } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
@@ -95,7 +95,7 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, cus
             className="mt-1 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border bg-background text-[0.66em] text-foreground touch:size-11 hover:not-active:border-muted-foreground"
             onClick={(event) => onAddBoost(event.currentTarget)}
           >
-            <BoostIcon className="h-5 w-[1.3em]" />
+            <Emoji className="h-5 w-[1.3em]" />
             <span className="sr-only">Add a boost</span>
           </button>
         )
@@ -167,12 +167,12 @@ function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDe
         <button
           ref={remove}
           type="button"
-          className="relative ml-auto grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border border-transparent bg-negative-button text-[0.55rem] touch:size-11 hover:not-active:brightness-70"
+          className="relative ml-auto grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border border-transparent bg-negative-button text-[0.55rem] text-white touch:size-11 hover:not-active:brightness-70"
           onClick={() => {
             if (onDelete()) setDeletedAt({ connection, refusals });
           }}
         >
-          <Minus tone="white" className="h-5 w-[1.3em]" />
+          <Minus className="h-5 w-[1.3em]" />
           <span className="sr-only">Delete this boost</span>
         </button>
       )}

@@ -17,7 +17,7 @@ import {
 import { AccountLogo, STOCK_LOGO } from "@/components/account-logo";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { Add, Crown } from "@/components/icons/campfire";
+import { Crown, Plus } from "@/components/icons/iconoir";
 import { scrollMainContentToTop } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { Input } from "@/components/ui/input";
@@ -426,7 +426,7 @@ export function WorkspaceSettingsPage({
               href={newRoomPath("open")}
               className="inline-flex min-h-11 items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-3.5 py-2.5 font-medium"
             >
-              <Add width={18} height={18} className="size-[18px]" />
+              <Plus className="size-[18px]" />
               <span>New room</span>
             </PageLink>
           )}
@@ -436,7 +436,7 @@ export function WorkspaceSettingsPage({
             {/* `.mb-channel-settings-permissions`. */}
             <div className="flex items-center gap-x-[1ch] gap-y-4 border-t pt-5">
               <div className="flex min-w-0 grow items-center gap-x-[1ch] text-start">
-                <Crown width={18} height={18} className="size-[18px]" />
+                <Crown className="size-[18px]" />
                 Must be admin to create new rooms
               </div>
               <Switch
