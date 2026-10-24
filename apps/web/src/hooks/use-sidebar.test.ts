@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { CloseCode, type Account, type DirectoryUser, type Me, type SharedRoom, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RELOAD_AFTER_HIDDEN_MS, REORDER_SPREAD_MS, useSidebar } from "./use-sidebar";
+import { RELOAD_AFTER_HIDDEN_MS, RELOAD_SPREAD_MS, useSidebar } from "./use-sidebar";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const grace: Me = { id: "u2", name: "Grace", administrator: true };
@@ -206,7 +206,7 @@ describe(feature("sidebar.live-updates"), () => {
 
   it("says each time it loads again by itself, for the people directory to load again too, failing or not", async () => {
     const onReload = vi.fn(() => Promise.reject(new TypeError("Failed to fetch")));
-    const { result } = renderHook(() => useSidebar(ada, () => {}, { reload: onReload, update: () => {} }));
+    const { result } = renderHook(() => useSidebar(ada, () => {}, { people: new Map(), reload: onReload, update: () => {} }));
     await settle();
     expect(onReload).toHaveBeenCalledOnce();
     socket().connect();
@@ -384,7 +384,7 @@ describe(feature("accounts.roles"), () => {
   /** Ada's sidebar, connected, telling `onSessionChanged` and the directory's `update`. */
   async function connected() {
     const [onSessionChanged, update] = [vi.fn(), vi.fn()];
-    renderHook(() => useSidebar(ada, onSessionChanged, { reload: async () => {}, update }));
+    renderHook(() => useSidebar(ada, onSessionChanged, { people: new Map(), reload: async () => {}, update }));
     await settle();
     socket().connect();
     await settle();
@@ -416,7 +416,7 @@ describe(feature("accounts.roles"), () => {
 
   it("takes a change heard before the welcome over the welcome, which may be older, until it connects again", async () => {
     const [onSessionChanged, update] = [vi.fn(), vi.fn()];
-    renderHook(() => useSidebar(ada, onSessionChanged, { reload: async () => {}, update }));
+    renderHook(() => useSidebar(ada, onSessionChanged, { people: new Map(), reload: async () => {}, update }));
     await settle();
     socket().open();
     socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
@@ -433,7 +433,7 @@ describe(feature("accounts.roles"), () => {
 
   it("takes the next connection's welcome again after one that stopped answering", async () => {
     const [onSessionChanged, update] = [vi.fn(), vi.fn()];
-    renderHook(() => useSidebar(ada, onSessionChanged, { reload: async () => {}, update }));
+    renderHook(() => useSidebar(ada, onSessionChanged, { people: new Map(), reload: async () => {}, update }));
     await settle();
     socket().open();
     socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
@@ -537,7 +537,7 @@ describe(feature("rooms.invitation-dismissal"), () => {
 describe(feature("sidebar.shared-order"), () => {
   it("loads its rooms again a while after the workspace socket says the shared order changed, once for the news that comes meanwhile", async () => {
     const onReload = vi.fn(async () => {});
-    const { result } = renderHook(() => useSidebar(ada, () => {}, { reload: onReload, update: () => {} }));
+    const { result } = renderHook(() => useSidebar(ada, () => {}, { people: new Map(), reload: onReload, update: () => {} }));
     socket().connect();
     await settle();
     expect(sidebarRequests()).toHaveLength(2);
@@ -545,7 +545,7 @@ describe(feature("sidebar.shared-order"), () => {
     server.change({ ...unstarred([design, general]), sharedOrder: [general.id, design.id] });
     socket().receive({ type: "rooms.reordered" });
     // Math.random says halfway.
-    await wait(REORDER_SPREAD_MS / 2 - 1);
+    await wait(RELOAD_SPREAD_MS / 2 - 1);
     socket().receive({ type: "rooms.reordered" });
     await settle();
     expect(sidebarRequests()).toHaveLength(2);
@@ -556,7 +556,7 @@ describe(feature("sidebar.shared-order"), () => {
     // The people haven't changed.
     expect(onReload).toHaveBeenCalledTimes(2);
 
-    await wait(REORDER_SPREAD_MS);
+    await wait(RELOAD_SPREAD_MS);
     await settle();
     expect(sidebarRequests()).toHaveLength(3);
   });
@@ -567,7 +567,7 @@ describe(feature("sidebar.shared-order"), () => {
     await settle();
     vi.mocked(Math.random).mockReturnValue(0.999);
     socket().receive({ type: "rooms.reordered" });
-    await wait(0.999 * REORDER_SPREAD_MS - 1);
+    await wait(0.999 * RELOAD_SPREAD_MS - 1);
     await settle();
     expect(sidebarRequests()).toHaveLength(2);
     await wait(1);
@@ -585,7 +585,7 @@ describe(feature("sidebar.shared-order"), () => {
     socket().connect();
     await settle();
     expect(sidebarRequests()).toHaveLength(3);
-    await wait(REORDER_SPREAD_MS);
+    await wait(RELOAD_SPREAD_MS);
     await settle();
     expect(sidebarRequests()).toHaveLength(3);
   });
@@ -596,7 +596,44 @@ describe(feature("sidebar.shared-order"), () => {
     await settle();
     socket().receive({ type: "rooms.reordered" });
     unmount();
-    await wait(REORDER_SPREAD_MS);
+    await wait(RELOAD_SPREAD_MS);
+    await settle();
+    expect(sidebarRequests()).toHaveLength(2);
+  });
+});
+
+describe(feature("dms.suggestions"), () => {
+  const hedy: Me = { id: "u3", name: "Hedy", administrator: false };
+  /** A people directory that lists Hedy as `status`. */
+  const listingHedy = (status: DirectoryUser["status"]) => ({ people: new Map([[hedy.id, { ...listed(hedy, "member"), status }]]), reload: async () => {}, update: () => {} });
+
+  it.each(["deactivated", "banned", "suspended"] as const)(
+    "loads its rooms again a while after the workspace socket says someone %s is active again, whom it may suggest now",
+    async (status) => {
+      renderHook(() => useSidebar(ada, () => {}, listingHedy(status)));
+      socket().connect();
+      await settle();
+      expect(sidebarRequests()).toHaveLength(2);
+
+      socket().receive({ type: "user.updated", user: listed(hedy, "member") });
+      // Math.random says halfway.
+      await wait(RELOAD_SPREAD_MS / 2 - 1);
+      await settle();
+      expect(sidebarRequests()).toHaveLength(2);
+      await wait(1);
+      await settle();
+      expect(sidebarRequests()).toHaveLength(3);
+    },
+  );
+
+  it("doesn't for someone new, someone changing who was active already, or someone no longer active", async () => {
+    renderHook(() => useSidebar(ada, () => {}, listingHedy("active")));
+    socket().connect();
+    await settle();
+    socket().receive({ type: "user.updated", user: listed(grace, "member") });
+    socket().receive({ type: "user.updated", user: { ...listed(hedy, "member"), bio: "Inventor" } });
+    socket().receive({ type: "user.updated", user: { ...listed(hedy, "member"), status: "banned" } });
+    await wait(RELOAD_SPREAD_MS);
     await settle();
     expect(sidebarRequests()).toHaveLength(2);
   });
