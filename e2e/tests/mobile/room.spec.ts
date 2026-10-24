@@ -18,7 +18,7 @@ test("the page for someone in no rooms fits the phone", async ({ page, screenIsF
   await keepOtherRoomsOut(page, []);
   await page.goto("/");
   await expect(page).toHaveTitle("No rooms yet");
-  await expect(page.getByRole("main").locator("img")).toBeVisible();
+  await expect(page.getByRole("main").locator("svg")).toBeVisible();
   await screenIsFine();
 });
 

@@ -153,7 +153,9 @@ test.describe(feature("dms.picker"), () => {
     await expect(newDirect(ada)).toBeVisible();
     await expect(newDirect(ada).getByRole("combobox", { name: "Search people" })).toBeFocused();
     await pick(ada, [grace, linus]);
-    await expect(newDirect(ada).getByRole("group", { name: "Selected people" }).getByRole("button")).toHaveText([`${grace.name} ×`, `${linus.name} ×`]);
+    const picked = newDirect(ada).getByRole("group", { name: "Selected people" }).getByRole("button");
+    await expect(picked).toHaveText([grace.name, linus.name]);
+    await expect(picked.locator("svg")).toHaveCount(2);
     await newDirect(ada).getByRole("button", { name: "Start conversation" }).click();
 
     await expect(newDirect(ada)).toBeHidden();

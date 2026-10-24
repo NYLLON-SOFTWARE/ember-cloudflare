@@ -299,7 +299,7 @@ test.describe(feature("rooms.last-visited"), () => {
     await page.goto("/");
     await expect(page).toHaveTitle("No rooms yet");
     const main = page.getByRole("main");
-    await expect(main.locator("img")).toBeVisible();
+    await expect(main.locator("svg")).toBeVisible();
     await expect(main).toHaveText(session.user.name);
     await expect(page).toHaveURL(/\/$/);
   });
