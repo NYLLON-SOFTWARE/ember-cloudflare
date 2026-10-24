@@ -1282,7 +1282,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 
 **More actions on a message** (`messages.more-actions`) ✅
 
-- With a mouse, Message options, the open bar's last button, titled "More actions", opens More actions under the bar, or over it where there's more room there, focusing its first item and keeping the bar open as the pointer leaves. Clicking it again shuts More actions, as Escape does, handing focus back to Message options.
+- With a mouse, Message options, the open bar's last button, titled "More actions", opens More actions under the bar, or over it where there's more room there, focusing its first item and keeping the bar open as the pointer leaves. Clicking it again shuts More actions, as Escape does, handing focus back to Message options, even on a bar Add a boost opened, which Escape otherwise closes at once.
 - It holds Copy text, but on file messages, and Copy link, then, on your own messages and on everyone's for administrators, Edit message, but on file messages and bots' cards, whose text can't be changed, and Delete message, in red.
 - Copy text copies the message's plain text, a bot's cards' included, and Copy link its address, each turning green as the bar's Copy link does and leaving the actions open.
 - Edit message opens the message's editor, closing the actions. Delete message asks "Are you sure you want to delete this message?", then deletes the message for everyone, closing the actions, and the composer takes focus, or Message options does where the deletion can't be sent.

@@ -802,6 +802,24 @@ describe(feature("messages.more-actions"), () => {
     expect(optionsOn("Hello")).toHaveFocus();
   });
 
+  it("closes on Escape as Message options opened it on a bar Add a boost opened, rather than closing the bar", async () => {
+    withMouse();
+    const { user } = show(message({ boosts: [boost("b1", grace, "👍")] }));
+    await user.click(screen.getByRole("button", { name: "Add a boost" }));
+    await user.click(optionsOn("Hello"));
+    expect(within(moreActions()).getByRole("button", { name: "Copy text" })).toHaveFocus();
+    expect(screen.queryByRole("group", { name: "More reactions" })).not.toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
+    expect(optionsOn("Hello")).toHaveFocus();
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "true");
+
+    await user.keyboard("{Escape}");
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
+    expect(optionsOn("Hello")).toHaveFocus();
+  });
+
   it("opens from the keyboard once Message options has opened the bar", async () => {
     withMouse();
     const { user } = show(message());

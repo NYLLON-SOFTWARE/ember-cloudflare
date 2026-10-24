@@ -86,7 +86,8 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
   // Whether hovering opened the bar, which leaving then closes, unless Message options pinned it.
   const hoverOpened = useRef(false);
   const leaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  // The Add a boost that opened the bar, if one did, and whether its first reaction is still to be focused.
+  // The Add a boost that opened the bar, if one did and More actions hasn't opened since, and whether its first
+  // reaction is still to be focused.
   const boostTrigger = useRef<HTMLElement | null>(null);
   const focusingTray = useRef(false);
   // Whether More actions' first item is still to be focused, as it opens.
@@ -172,10 +173,12 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     setTrayOpen((shown) => !shown);
   };
 
-  // Opening More actions keeps the bar open, as clicking Message options alone does in ember-rust.
+  // Opening More actions keeps the bar open, as clicking Message options alone does in ember-rust, and makes it
+  // Message options' bar, so Escape shuts More actions first even where Add a boost opened the bar.
   const toggleActions = () => {
     clearTimeout(leaveTimer.current);
     hoverOpened.current = false;
+    boostTrigger.current = null;
     focusingActions.current = !actionsOpen;
     setTrayOpen(false);
     setActionsOpen(!actionsOpen);
