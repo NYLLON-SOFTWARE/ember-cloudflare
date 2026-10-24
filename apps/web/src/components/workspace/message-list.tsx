@@ -1,8 +1,9 @@
-import { startTransition, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import type { Invitation, Me } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/campfire";
 import { useAccount } from "@/hooks/use-account";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
+import { ScrollIntoViewContext } from "@/hooks/use-scroll-into-view";
 import { dropTarget } from "@/lib/drop-target";
 import { dateLabel, dateTimeLabel, timeline } from "@/lib/messages";
 import type { Focus, RoomState } from "@/lib/room-state";
@@ -62,10 +63,13 @@ function placeIn(scroller: HTMLElement): Place | null {
   return found ? { row: found.dataset.row!, offset: bottom - found.getBoundingClientRect().bottom } : null;
 }
 
-/** Scrolls the timeline so the reader is at `place` again, if its message is still there. */
+/** Scrolls the timeline so the reader is at `place` again, if its message is still there and has moved. */
 function restore(scroller: HTMLElement, { row, offset }: Place) {
   const element = rowsIn(scroller).find((r) => r.dataset.row === row);
-  if (element) scroller.scrollTop += offset - (scroller.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom);
+  if (!element) return;
+  const moved = offset - (scroller.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom);
+  // Setting where the timeline is scrolled to stops a smooth scroll, as an editor's to the middle, even to where it is.
+  if (moved !== 0) scroller.scrollTop += moved;
 }
 
 /**
@@ -119,7 +123,10 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
   const bottom = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
   const place = useRef<Place | null>(null);
+  // How many messages have something open in them that scrolls itself into view, as an editor.
+  const open = useRef(0);
   const viewHeight = useRef(0);
+  const viewWidth = useRef(0);
   const focused = useRef<Focus | null>(null);
   const arrivals = useRef(state.arrivals);
   // Whether new messages have come that the reader isn't at the end to see.
@@ -132,12 +139,14 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
 
   const nearEnd = (el: HTMLElement) => !state.hasNewer && el.scrollHeight - el.scrollTop - el.clientHeight <= AT_END_PX;
 
-  // Keeps the reader at the end, or in their place, as what the timeline shows changes. A short last page
-  // of later messages can leave them at the end without scrolling them, so this asks again.
-  const settle = useEffectEvent(() => {
+  // Keeps the reader at the end, or in their place, as the timeline or what it shows changes, but not as only what it
+  // shows resizes while something's open in a message (`opened`). A short last page of later messages can leave them
+  // at the end without scrolling them, so this asks again.
+  const settle = useEffectEvent((contentResized = false) => {
     const el = scroller.current!;
-    if (atEnd.current) el.scrollTop = el.scrollHeight;
-    else if (place.current) restore(el, place.current);
+    const scroll = !contentResized || open.current === 0;
+    if (scroll && atEnd.current) el.scrollTop = el.scrollHeight;
+    else if (scroll && place.current) restore(el, place.current);
     atEnd.current = nearEnd(el);
     if (atEnd.current) setBehind(false);
     place.current = placeIn(el);
@@ -161,6 +170,19 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
     setBehind(false);
   });
 
+  // Something open in a message that scrolls itself into view, as its editor or New boost's form, grows and scrolls
+  // as the browser has it, as ember-rust's do: the timeline doesn't scroll as what it shows resizes until it's closed.
+  // Following the end, or keeping the place of a message below it, would push it up by however much it grows, out of
+  // view, and setting the scroll would stop its own to the middle of the timeline, or undo Lexxy's to its caret. New
+  // messages still bring a reader near the end to them, as ember-rust's do, and the timeline still keeps the reader
+  // at the end, or in their place, as it resizes itself, as a window or a phone's keyboard resizes it.
+  const opened = useCallback(() => {
+    open.current++;
+    return () => {
+      open.current--;
+    };
+  }, []);
+
   useLayoutEffect(() => {
     const moved = state.focus !== focused.current;
     focused.current = state.focus;
@@ -176,13 +198,15 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
     else setDrawnAll(true);
   }, [drawnAll, newestFirst, items.length]);
 
-  // When the timeline gets shorter, as it does when a phone's keyboard opens, or what it shows changes size
-  // after it's drawn, the reader stays where they were.
+  // When the timeline changes size, as it does when a phone's keyboard opens, or what it shows does after it's
+  // drawn, the reader stays where they were.
   useEffect(() => {
     const el = scroller.current!;
     const observer = new ResizeObserver(() => {
+      const contentResized = el.clientHeight === viewHeight.current && el.clientWidth === viewWidth.current;
       viewHeight.current = el.clientHeight;
-      settle();
+      viewWidth.current = el.clientWidth;
+      settle(contentResized);
     });
     observer.observe(el);
     observer.observe(content.current!);
@@ -259,16 +283,18 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
 
           <RoomConnection value={state.connections}>
             <RefusedUnboosts value={state.refusedUnboosts}>
-              {(newestFirst ? items.slice(-FIRST_DRAWN) : items).map(({ message, firstOfDay, threaded }) => {
-                // Stable from optimistic copy to stored message, and distinct across senders.
-                const key = `${message.creator.id}:${message.clientMessageId}`;
-                return (
-                  <div key={key} data-row={key} data-message-id={message.id}>
-                    {firstOfDay && <DaySeparator at={message.createdAt} />}
-                    <MessageItem message={message} me={me} threaded={threaded} editing={editing.has(message.id)} actions={actions} editors={editors} />
-                  </div>
-                );
-              })}
+              <ScrollIntoViewContext value={opened}>
+                {(newestFirst ? items.slice(-FIRST_DRAWN) : items).map(({ message, firstOfDay, threaded }) => {
+                  // Stable from optimistic copy to stored message, and distinct across senders.
+                  const key = `${message.creator.id}:${message.clientMessageId}`;
+                  return (
+                    <div key={key} data-row={key} data-message-id={message.id}>
+                      {firstOfDay && <DaySeparator at={message.createdAt} />}
+                      <MessageItem message={message} me={me} threaded={threaded} editing={editing.has(message.id)} actions={actions} editors={editors} />
+                    </div>
+                  );
+                })}
+              </ScrollIntoViewContext>
             </RefusedUnboosts>
           </RoomConnection>
           <div ref={bottom} aria-hidden className="h-px" />

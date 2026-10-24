@@ -90,6 +90,29 @@ export class Member {
     return this.page.getByRole("log", { name: /^Messages (in|with) / });
   }
 
+  /** What `pattern` matches in each message whose top is in view, from the top of the timeline down. */
+  inView(pattern: RegExp): Promise<string[]> {
+    return this.timeline().evaluate((log, source) => {
+      const top = log.getBoundingClientRect().top;
+      const shown = [...log.querySelectorAll("article")].filter((article) => article.getBoundingClientRect().top >= top);
+      return shown.flatMap((article) => new RegExp(source).exec(article.textContent!)?.[0] ?? []);
+    }, pattern.source);
+  }
+
+  /** How far the middle of `locator` is from the middle of the timeline. */
+  async offCentre(locator: Locator): Promise<number> {
+    const [log, box] = [await this.timeline().boundingBox(), await locator.boundingBox()];
+    if (!log || !box) throw new Error("Not visible");
+    return Math.abs(box.y + box.height / 2 - (log.y + log.height / 2));
+  }
+
+  /** How much of `locator` is above or below the timeline's view. */
+  async outOfView(locator: Locator): Promise<number> {
+    const [log, box] = [await this.timeline().boundingBox(), await locator.boundingBox()];
+    if (!log || !box) throw new Error("Not visible");
+    return Math.max(0, log.y - box.y) + Math.max(0, box.y + box.height - (log.y + log.height));
+  }
+
   /** Waits until the room's history has loaded and its socket is open. */
   async connected(): Promise<void> {
     await expect(this.timeline()).toBeVisible();

@@ -1,9 +1,10 @@
-import { useContext, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type Ref } from "react";
+import { useContext, useId, useLayoutEffect, useRef, useState, type FormEvent, type Ref } from "react";
 import { MAX_BOOST_LENGTH, type Boost, type Me, type Message } from "@ember/protocol";
 import { isAllEmoji } from "@ember/richtext/dom";
 import { Boost as BoostIcon, Minus } from "@/components/icons/campfire";
 import { useNameOf } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
+import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { pressedAlone } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 import type { MessageActions } from "./message-item";
@@ -189,10 +190,7 @@ function CustomReaction({ me, fieldRef, onAdd, onCancel }: { me: Me; fieldRef?: 
   const field = useId();
   const hint = useId();
 
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => form.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
-    return () => cancelAnimationFrame(frame);
-  }, []);
+  useScrollIntoView(form);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

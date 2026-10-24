@@ -1,8 +1,9 @@
-import { Suspense, useContext, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
+import { Suspense, useContext, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from "react";
 import type { Message } from "@ember/protocol";
 import { editableBody } from "@ember/richtext/dom";
 import { Check, Remove, Trash } from "@/components/icons/campfire";
 import { DirectoryLoaded, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
+import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { mentionPromptSrc } from "@/lib/api";
 import { pressedAlone, savesEdit } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
@@ -28,14 +29,6 @@ interface Props {
 export interface MessageEditorHandle {
   /** Focuses the text, keeping what's written in it, or a file message's Delete message. */
   focus(): void;
-}
-
-/** ember-rust's scroll-into-view controller: once it's shown, the editor scrolls to the middle of the timeline. */
-function useScrollIntoView(container: RefObject<HTMLElement | null>) {
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => container.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
-    return () => cancelAnimationFrame(frame);
-  }, [container]);
 }
 
 /**
