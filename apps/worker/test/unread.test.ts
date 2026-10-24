@@ -329,13 +329,15 @@ describe(feature("sidebar.unread"), () => {
     const room = await freshRoom("restarted");
     await connect(room, "Ada", { visible: false });
     const hopper = await signIn("Hopper");
+    // Signed in before the tab opens, as every open tab hears of someone new.
+    const grace = await signIn("Grace");
     const tab = await openWorkspaceSocket(hopper);
     // As a deploy can leave it: a message logged, the room restarted in the middle of sending it, and no alarm set.
     await roomSql(room, "INSERT INTO room_events (room_id, kind, user_id, at) VALUES (?, 'message', 'someone', ?)", room, new Date().toISOString());
     await evictDurableObject(roomStub(room));
     expect(await alarmOf(room)).toBeNull();
 
-    await connect(room, "Grace", { visible: false });
+    await connect(room, grace, { visible: false });
     expect(await heard(tab, room)).toEqual([unread(room)]);
   });
 

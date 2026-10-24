@@ -219,6 +219,15 @@ describe(feature("bots.create-edit"), () => {
     expect((await webhookOf(bot.id))!.updated_at).not.toBe("before");
   });
 
+  it("tells everyone's workspace sockets of a new bot, as the people directory lists it, without its key", async () => {
+    const administrator = await setUp();
+    const member = await joinAsGrace();
+    const workspace = await openWorkspaceSocket(member);
+
+    const bot = await added(administrator, { name: "Build Bot" });
+    expect(await workspace.next()).toEqual({ type: "user.updated", user: await inDirectory(member, bot.id) });
+  });
+
   it("tells everyone's workspace sockets of a new name, as for anyone, without the bot's key", async () => {
     const administrator = await setUp();
     const member = await joinAsGrace();

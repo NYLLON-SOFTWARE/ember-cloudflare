@@ -9,6 +9,7 @@ import {
   PASSWORD_TOO_LONG,
   PASSWORD_TOO_SHORT,
   type Bootstrap,
+  type Directory,
   type NewWorkspace,
   type Sidebar,
   type User,
@@ -17,7 +18,7 @@ import { evictDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { verifyPassword } from "../src/passwords";
 import { ORIGINAL_ROOM } from "../src/workspace-store";
-import { api, apiWith, builtPages, cookieOf, createRoom, freshDeploy, origin, signIn, workspaceSql, workspaceStub, type Session } from "./support";
+import { api, apiWith, builtPages, cookieOf, createRoom, freshDeploy, openWorkspaceSocket, origin, signIn, workspaceSql, workspaceStub, type Session } from "./support";
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler" };
@@ -56,6 +57,17 @@ describe(feature("auth.sign-up"), () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe("page /");
     expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("tells everyone's workspace sockets of someone who joins, as the people directory lists them, so pages already open know them", async () => {
+    const administrator = await setUp();
+    const workspace = await openWorkspaceSocket(administrator);
+
+    const { user } = (await (await join(await joinCode(), grace)).json()) as { user: User };
+    const { users } = (await (await api("/api/users", { headers: { Cookie: administrator.cookie } })).json()) as Directory;
+    const listed = users.find((person) => person.id === user.id);
+    expect(listed).toMatchObject({ name: "Grace Hopper", role: "member", status: "active" });
+    expect(await workspace.next()).toEqual({ type: "user.updated", user: listed });
   });
 
   it("adds a member in every open room, but no closed one, and signs them in", async () => {

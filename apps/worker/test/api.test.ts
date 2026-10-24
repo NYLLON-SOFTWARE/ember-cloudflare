@@ -1,10 +1,11 @@
 import { feature } from "@ember/parity";
+import type { Directory } from "@ember/protocol";
 import { listDurableObjectIds } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
 import { KEYS_MISSING } from "../src/push/keys";
-import { api, apiWith, cookieOf, signIn, upgrade } from "./support";
+import { api, apiWith, cookieOf, openWorkspaceSocket, signIn, upgrade } from "./support";
 
 const bindings = env as unknown as Env;
 const withCookie = (cookie: string) => ({ headers: { Cookie: cookie } });
@@ -21,6 +22,17 @@ describe(feature("auth.guest-sign-in"), () => {
 
     const me = await api("/api/me", withCookie(cookieOf(response)));
     expect(await me.json()).toEqual({ user });
+  });
+
+  it("tells everyone's workspace sockets of someone who signs in with just a name, as the people directory lists them", async () => {
+    const ada = await signIn("Ada");
+    const workspace = await openWorkspaceSocket(ada);
+
+    const grace = await signIn("Grace");
+    const { users } = (await (await api("/api/users", withCookie(ada.cookie))).json()) as Directory;
+    const listed = users.find((person) => person.id === grace.user.id);
+    expect(listed).toMatchObject({ name: "Grace", role: "member", status: "active" });
+    expect(await workspace.next()).toEqual({ type: "user.updated", user: listed });
   });
 
   it("gives everyone who signs in a distinct identity, even with the same name", async () => {

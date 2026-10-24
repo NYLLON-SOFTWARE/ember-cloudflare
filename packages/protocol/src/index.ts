@@ -78,6 +78,7 @@ export {
   SEARCHES_PATH,
   TRANSFER_PATH,
   transferLink,
+  WORKSPACE_PRELOADS,
   WORKSPACE_SETTINGS_PATH,
   workspacePageOf,
   type RoomAccess,

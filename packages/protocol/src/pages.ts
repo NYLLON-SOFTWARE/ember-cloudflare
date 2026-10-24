@@ -128,6 +128,13 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
  */
 export const isAppPage = (pathname: string) => pathname === SIGN_IN_PATH || workspacePageOf(pathname) !== null;
 
+/**
+ * What the Worker has the browser fetch with a workspace page, for a browser with a session cookie,
+ * beside who's signed in: the sidebar and the people directory, which the app's first requests for
+ * them take.
+ */
+export const WORKSPACE_PRELOADS = ["/api/sidebar", "/api/users"] as const;
+
 /** The page a sign-in link opens, which signs whoever opens it in as the person the link was made for, until it expires. */
 export const TRANSFER_PATH = "/session/transfers";
 

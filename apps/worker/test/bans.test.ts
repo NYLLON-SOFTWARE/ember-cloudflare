@@ -454,7 +454,9 @@ describe(feature("accounts.ban"), () => {
     await delivered(lobby);
     await workspaceSql("UPDATE users SET updated_at = ? WHERE id = ?", "2026-01-01T00:00:00.000Z", member.user.id);
     const banned = await listed(administrator, member.user.id);
-    const sockets = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(await signIn("Linus Torvalds"))];
+    // Signed in first, as every open tab hears of someone new.
+    const linus = await signIn("Linus Torvalds");
+    const sockets = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(linus)];
 
     const response = await unban(administrator, member.user.id);
     expect(response.status).toBe(200);

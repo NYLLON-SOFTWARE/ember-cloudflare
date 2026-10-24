@@ -13,7 +13,7 @@ import { PushProvider } from "@/hooks/use-push";
 import { openRoomSocketAhead } from "@/hooks/use-room";
 import { joinCodeFromPath, navigate, useIsAt, useJoinRoute } from "@/hooks/use-route";
 import { useSelectOnEntry } from "@/hooks/use-select-on-entry";
-import { fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
+import { dropWorkspacePreloads, fetchBootstrap, forgetStoredSession, signOut } from "@/lib/api";
 import { followAppearance } from "@/lib/appearance";
 import { moveTo, movesTo } from "@/lib/custom-domain";
 import { replaceInstallPromptsFor } from "@/lib/install-prompt";
@@ -78,6 +78,8 @@ export function App() {
           if (user && atJoin) navigate("/", { replace: true });
           // Someone signed out goes to sign in, and comes back here afterwards. A sign-in link signs them in itself.
           if (workspace.setup === "complete" && !user && location.pathname !== SIGN_IN_PATH && !atJoin && location.pathname !== TRANSFER_PATH) {
+            // What the page preloaded with the session that has ended is no use once they've signed in.
+            dropWorkspacePreloads();
             rememberThisPage();
             navigate(SIGN_IN_PATH, { replace: true });
           }

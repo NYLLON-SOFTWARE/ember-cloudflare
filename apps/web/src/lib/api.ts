@@ -3,6 +3,7 @@ import {
   LOGO_PATH,
   MEMBERFUL_CONNECTIONS_PATH,
   roomSocketQuery,
+  WORKSPACE_PRELOADS,
   type Account,
   type AccountChanges,
   type Bootstrap,
@@ -118,6 +119,16 @@ const userBody = (fields: UserFields, photo: ChosenPhoto | null) => (photo ? pho
 /** Whether Ember is set up yet, and who this browser is signed in as. */
 export async function fetchBootstrap(): Promise<Bootstrap> {
   return request<Bootstrap>("/api/bootstrap");
+}
+
+/**
+ * Takes what the page preloaded of the workspace (`WORKSPACE_PRELOADS`) and drops it, once the page
+ * finds that the session its cookie named has ended, so that what was preloaded only says so. A request
+ * takes a preloaded answer once, so otherwise the workspace's first, once someone signs in on this page,
+ * would take those and go straight back to sign in.
+ */
+export function dropWorkspacePreloads(): void {
+  for (const path of WORKSPACE_PRELOADS) void fetch(path).then((response) => response.body?.cancel(), () => {});
 }
 
 /**
