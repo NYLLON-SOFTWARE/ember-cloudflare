@@ -36,6 +36,28 @@ test.describe(feature("dms.picker"), () => {
     await expect(dialog).toBeHidden();
     await expect(menu).toBeFocused();
   });
+
+  test("New direct message, opened from the drawer, keeps focus and what's typed as the drawer goes", async ({ page }) => {
+    test.skip(!hasDrawerLayout(page), "Wider than 900px the rail and sidebar are always on screen");
+    await page.getByRole("button", { name: "Open conversations" }).tap();
+    // Where focus is sent each time it leaves something: the dialog's focus trap can turn it back before it gets there.
+    await page.evaluate(() => {
+      const sentTo: (string | null)[] = ((window as unknown as { sentTo: (string | null)[] }).sentTo = []);
+      document.addEventListener("focusout", (event) => sentTo.push((event.relatedTarget as Element | null)?.getAttribute("aria-label") ?? null));
+    });
+    await page.getByRole("dialog", { name: "Conversations" }).getByRole("link", { name: "DMs" }).tap();
+    const search = page.getByRole("dialog", { name: "New direct message" }).getByRole("combobox", { name: "Search people" });
+    await expect(search).toBeFocused();
+    await page.keyboard.type("Ad");
+    // Radix gives focus back a timer tick after the drawer goes.
+    await expect(page.locator("[data-slot=sheet-content]")).toHaveCount(0);
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    // Never to the menu button behind the dialog, which the dialog took it back from, selecting what was typed.
+    expect(await page.evaluate(() => (window as unknown as { sentTo: (string | null)[] }).sentTo)).not.toContain("Open conversations");
+    await expect(search).toBeFocused();
+    await page.keyboard.type("a");
+    await expect(search).toHaveValue("Ada");
+  });
 });
 
 test.describe(feature("dms.suggestions"), () => {
