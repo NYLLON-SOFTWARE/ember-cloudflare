@@ -629,7 +629,7 @@ describe(feature("messages.actions"), () => {
     act(() => vi.advanceTimersByTime(200));
     expect(options).toHaveAttribute("aria-expanded", "false");
 
-    // Message options keeps actions that hovering opened, rather than closing them.
+    // Message options keeps actions that hovering opened, rather than closing them, as it opens More actions.
     fireEvent.pointerEnter(article, { pointerType: "mouse" });
     fireEvent.click(options);
     fireEvent.pointerLeave(article, { pointerType: "mouse" });
@@ -677,6 +677,162 @@ describe(feature("messages.actions"), () => {
     const { user } = show(message());
     await pressAction(user, "Edit");
     expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("messages.more-actions"), () => {
+  /** More actions, while it's open. */
+  const moreActions = () => screen.getByRole("group", { name: "More actions" });
+
+  /** The names of More actions' items. */
+  const items = () => within(moreActions()).getAllByRole("button").map((item) => item.textContent);
+
+  /** Opens More actions on the message `article` as a mouse does: hovering the message, then clicking Message options. */
+  async function openMoreActions(user: UserEvent, article: HTMLElement) {
+    fireEvent.pointerEnter(article, { pointerType: "mouse" });
+    await user.click(within(article).getByRole("button", { name: "Message options" }));
+    return moreActions();
+  }
+
+  it("opens from Message options, the bar's last button with a mouse, focusing its first item and keeping the bar open", async () => {
+    withMouse();
+    const { article, user } = show(message(), { me: grace });
+    const options = optionsOn("Hello");
+    fireEvent.pointerEnter(article, { pointerType: "mouse" });
+    expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
+    expect(options).toHaveAttribute("title", "More actions");
+
+    await user.click(options);
+    expect(items()).toEqual(["Copy text", "Copy link"]);
+    expect(within(moreActions()).getByRole("button", { name: "Copy text" })).toHaveFocus();
+    expect(options).toHaveClass("bg-hover");
+    // The pointer leaving no longer closes the bar.
+    fireEvent.pointerLeave(article, { pointerType: "mouse" });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(actionBar()).toBeVisible();
+
+    await user.click(options);
+    expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
+    expect(options).toHaveAttribute("aria-expanded", "true");
+    expect(options).not.toHaveClass("bg-hover");
+  });
+
+  it("offers Edit message and Delete message on messages you can change, and copies no file's text", async () => {
+    withMouse();
+    const { article, user } = show(message());
+    await openMoreActions(user, article);
+    expect(items()).toEqual(["Copy text", "Copy link", "Edit message", "Delete message"]);
+    expect(within(moreActions()).getByRole("button", { name: "Delete message" })).toHaveClass("text-negative");
+    cleanup();
+
+    const file = show(fileMessage(), { me: grace, administrator: true });
+    await openMoreActions(file.user, file.article);
+    expect(items()).toEqual(["Copy link", "Delete message"]);
+    cleanup();
+
+    // A bot's cards can't be edited either, but their text can be copied.
+    const cards = show(cardMessage(), { me: grace, administrator: true });
+    await openMoreActions(cards.user, cards.article);
+    expect(items()).toEqual(["Copy text", "Copy link", "Delete message"]);
+  });
+
+  it("copies the message's text, or its address, turning the item green and leaving the actions open", async () => {
+    withMouse();
+    const { article, user } = show(message({ plainText: "Copy me, please" }));
+    await openMoreActions(user, article);
+    const copyText = within(moreActions()).getByRole("button", { name: "Copy text" });
+    await user.click(copyText);
+    expect(await navigator.clipboard.readText()).toBe("Copy me, please");
+    expect(copyText).toHaveClass("text-positive");
+
+    const copyLink = within(moreActions()).getByRole("button", { name: "Copy link" });
+    await user.click(copyLink);
+    expect(await navigator.clipboard.readText()).toBe(`${location.origin}/rooms/general/@m1`);
+    expect(copyLink).toHaveClass("text-positive");
+    expect(moreActions()).toBeVisible();
+  });
+
+  it("edits from Edit message, closing the actions", async () => {
+    withMouse();
+    const { article, editors, user } = show(message());
+    await openMoreActions(user, article);
+    await user.click(within(moreActions()).getByRole("button", { name: "Edit message" }));
+    expect(editors.open).toHaveBeenCalledWith("m1");
+    expect(await editBox()).toHaveFocus();
+  });
+
+  it("deletes from Delete message after asking, handing focus to the composer", async () => {
+    withMouse();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const { actions, article, editors, user } = show(message({ creator: grace }), { administrator: true });
+    await openMoreActions(user, article);
+    await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
+    expect(confirm).toHaveBeenCalledWith("Are you sure you want to delete this message?");
+    expect(actions.remove).not.toHaveBeenCalled();
+    expect(moreActions()).toBeVisible();
+
+    await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
+    expect(actions.remove).toHaveBeenCalledWith("m1");
+    expect(editors.returnFocus).toHaveBeenCalled();
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+  });
+
+  it("hands focus back to Message options when the deletion can't be sent", async () => {
+    withMouse();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { actions, article, editors, user } = show(message(), { sent: false });
+    await openMoreActions(user, article);
+    await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
+    expect(actions.remove).toHaveBeenCalledWith("m1");
+    expect(editors.returnFocus).not.toHaveBeenCalled();
+    expect(optionsOn("Hello")).toHaveFocus();
+  });
+
+  it("closes on Escape, handing focus to Message options, then the bar", async () => {
+    withMouse();
+    const { article, user } = show(message());
+    await openMoreActions(user, article);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
+    expect(optionsOn("Hello")).toHaveFocus();
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "true");
+
+    await user.keyboard("{Escape}");
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
+    expect(optionsOn("Hello")).toHaveFocus();
+  });
+
+  it("opens from the keyboard once Message options has opened the bar", async () => {
+    withMouse();
+    const { user } = show(message());
+    act(() => optionsOn("Hello").focus());
+    await user.keyboard("{Enter}");
+    expect(actionBar()).toBeVisible();
+    expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(within(moreActions()).getByRole("button", { name: "Copy text" })).toHaveFocus();
+  });
+
+  it("shares its place under the bar with More reactions, one open at a time", async () => {
+    withMouse();
+    const { article, user } = show(message());
+    await openMoreActions(user, article);
+    await user.click(within(actionBar()).getByRole("button", { name: "More reactions" }));
+    expect(screen.getByRole("group", { name: "More reactions" })).toBeVisible();
+    expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
+
+    await user.click(optionsOn("Hello"));
+    expect(moreActions()).toBeVisible();
+    expect(screen.queryByRole("group", { name: "More reactions" })).not.toBeInTheDocument();
+  });
+
+  it("isn't offered without a mouse, where Message options opens and closes the bar", async () => {
+    const { user } = show(message());
+    await user.click(optionsOn("Hello"));
+    await user.click(optionsOn("Hello"));
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
+    expect(optionsOn("Hello")).not.toHaveAttribute("title");
+    expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
   });
 });
 

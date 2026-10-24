@@ -527,6 +527,94 @@ test.describe(feature("messages.actions"), () => {
   });
 });
 
+test.describe(feature("messages.more-actions"), () => {
+  const moreActions = (message: Locator) => message.getByRole("group", { name: "More actions" });
+
+  /** Hovers the message that says `text`, then clicks Message options, the bar's last button, and returns More actions. */
+  async function openMoreActions(member: Member, text: string): Promise<Locator> {
+    await member.actions(text);
+    await member.message(text).getByRole("button", { name: "Message options" }).click();
+    return moreActions(member.message(text));
+  }
+
+  test("opens under the bar from its last button, keeping the bar open, and Escape shuts it, then the bar", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: { viewport: { width: 1311, height: 900 } } });
+    await ada.send("Show me more.");
+    const message = ada.message("Show me more.");
+    const actions = await ada.actions("Show me more.");
+    const options = message.getByRole("button", { name: "Message options" });
+    await expect(options).toHaveAttribute("title", "More actions");
+    const bar = await box(actions);
+    const quick = await box(actions.getByRole("group", { name: "Quick reactions" }));
+
+    await options.click();
+    const panel = moreActions(message);
+    await expect(panel.getByRole("button")).toHaveText(["Copy text", "Copy link", "Edit message", "Delete message"]);
+    await expect(panel.getByRole("button", { name: "Copy text" })).toBeFocused();
+    // Under the bar, at its right end, where Message options is, without moving the bar.
+    const panelBox = await box(panel);
+    expect(Math.abs(panelBox.x + panelBox.width - (bar.x + bar.width))).toBeLessThan(1);
+    expect(panelBox.y).toBeGreaterThan(bar.y + bar.height);
+    expect(Math.abs((await box(actions.getByRole("group", { name: "Quick reactions" }))).y - quick.y)).toBeLessThan(1);
+
+    await ada.page.getByRole("heading", { level: 1 }).hover();
+    await ada.page.waitForTimeout(250);
+    await expect(panel).toBeVisible();
+    await ada.page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+    await expect(options).toBeFocused();
+    await expect(actions).toBeVisible();
+    await ada.page.keyboard.press("Escape");
+    await expect(actions).toBeHidden();
+  });
+
+  test("opens over the bar near the composer, keeping the bar where it was", async ({ members, participant }) => {
+    const grace = await participant("Grace");
+    for (let i = 1; i <= 8; i++) await grace.say(`Earlier message ${i}`);
+    await grace.say("Near the composer");
+    const ada = await members.signIn("Ada", { context: { viewport: { width: 1311, height: 500 } } });
+    const actions = await ada.actions("Near the composer");
+    const quick = await box(actions.getByRole("group", { name: "Quick reactions" }));
+    await ada.message("Near the composer").getByRole("button", { name: "Message options" }).click();
+    const panel = await box(moreActions(ada.message("Near the composer")));
+    expect(Math.abs((await box(actions.getByRole("group", { name: "Quick reactions" }))).y - quick.y)).toBeLessThan(1);
+    expect(panel.y + panel.height).toBeLessThan(quick.y);
+    expect(panel.y).toBeGreaterThanOrEqual((await box(ada.timeline())).y);
+  });
+
+  test("copies a message's text, leaving the actions open", async ({ members, participant }) => {
+    await (await participant("Grace")).say("Copy my words");
+    const ada = await members.signIn("Ada");
+    await ada.page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    const panel = await openMoreActions(ada, "Copy my words");
+    await expect(panel.getByRole("button")).toHaveText(["Copy text", "Copy link"]);
+    await panel.getByRole("button", { name: "Copy text" }).click();
+    await expect.poll(() => ada.page.evaluate(() => navigator.clipboard.readText())).toBe("Copy my words");
+    await expect(panel).toBeVisible();
+  });
+
+  test("deletes a message for everyone from Delete message, after asking", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await ada.send("Delete me from the menu");
+    await expect(grace.message("Delete me from the menu")).toBeVisible();
+    const remove = (await openMoreActions(ada, "Delete me from the menu")).getByRole("button", { name: "Delete message" });
+
+    ada.page.once("dialog", (dialog) => dialog.dismiss());
+    await remove.click();
+    await expect(remove).toBeVisible();
+
+    ada.page.once("dialog", (dialog) => {
+      expect(dialog.message()).toBe("Are you sure you want to delete this message?");
+      void dialog.accept();
+    });
+    await remove.click();
+    await expect(grace.message("Delete me from the menu")).toHaveCount(0);
+    await expect(ada.message("Delete me from the menu")).toHaveCount(0);
+    await expect(ada.composer()).toBeFocused();
+  });
+});
+
 test.describe(feature("messages.reply"), () => {
   test("quotes the message in the composer in place of what's written there, citing its author with a link to it", async ({ members, participant, rooms }) => {
     await (await participant("Grace")).say("Third time's a charm.");
