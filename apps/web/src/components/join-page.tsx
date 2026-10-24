@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { MAX_EMAIL_ADDRESS_LENGTH, MAX_PASSWORD_LENGTH, MAX_USER_NAME_LENGTH, type Me } from "@ember/protocol";
+import { MAX_EMAIL_ADDRESS_LENGTH, MAX_PASSWORD_LENGTH, MAX_USER_NAME_LENGTH, MIN_PASSWORD_LENGTH, type Me } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import avatarPlaceholder from "@/components/avatar-placeholder.svg";
@@ -107,6 +107,7 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
               required
               autoComplete="new-password"
               placeholder="Password"
+              minLength={MIN_PASSWORD_LENGTH}
               maxLength={MAX_PASSWORD_LENGTH}
               className={FIELD_INPUT}
             />

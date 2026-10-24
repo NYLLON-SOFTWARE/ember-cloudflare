@@ -177,6 +177,8 @@ describe(feature("users.profile"), () => {
     expect(password).toHaveAttribute("type", "password");
     expect(password).toHaveAttribute("autocomplete", "new-password");
     expect(password).toHaveAttribute("placeholder", "Change password");
+    // At least as long as first run's, where ember-rust's form takes any.
+    expect(password).toHaveAttribute("minlength", "8");
     expect(password).toHaveAttribute("maxlength", "72");
     expect(password).toHaveAccessibleDescription("Leave blank to keep your current password.");
 

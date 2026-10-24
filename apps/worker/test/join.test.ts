@@ -4,8 +4,10 @@ import {
   MAX_EMAIL_ADDRESS_LENGTH,
   MAX_PASSWORD_LENGTH,
   MAX_USER_NAME_LENGTH,
+  MIN_PASSWORD_LENGTH,
   NAME_TOO_LONG,
   PASSWORD_TOO_LONG,
+  PASSWORD_TOO_SHORT,
   type Bootstrap,
   type NewWorkspace,
   type Sidebar,
@@ -136,14 +138,17 @@ describe(feature("auth.sign-up"), () => {
     expect(await count("users")).toBe(1);
   });
 
-  it("takes any password the form can send, however short", async () => {
+  it("takes a password as short as first run does, counting an emoji as one character, or as long as the form sends", async () => {
     await setUp();
-    expect((await join(await joinCode(), { ...grace, password: "x" })).status).toBe(201);
-    expect((await join(await joinCode(), { ...grace, emailAddress: "katherine@example.com", password: "x".repeat(MAX_PASSWORD_LENGTH) })).status).toBe(201);
+    expect((await join(await joinCode(), { ...grace, password: "x".repeat(MIN_PASSWORD_LENGTH) })).status).toBe(201);
+    expect((await join(await joinCode(), { ...grace, emailAddress: "katherine@example.com", password: "🔐".repeat(MIN_PASSWORD_LENGTH) })).status).toBe(201);
+    expect((await join(await joinCode(), { ...grace, emailAddress: "mary@example.com", password: "x".repeat(MAX_PASSWORD_LENGTH) })).status).toBe(201);
   });
 
   it.each([
-    ["a blank password", { ...grace, password: "" }, 422, { error: "Password can't be blank.", field: "password" }],
+    ["a blank password", { ...grace, password: "" }, 422, { error: PASSWORD_TOO_SHORT, field: "password" }],
+    ["a password shorter than first run takes", { ...grace, password: "1234567" }, 422, { error: PASSWORD_TOO_SHORT, field: "password" }],
+    ["four emoji, which the field's minlength counts as eight", { ...grace, password: "🔐🔐🔐🔐" }, 422, { error: PASSWORD_TOO_SHORT, field: "password" }],
     ["a password longer than the form sends", { ...grace, password: "x".repeat(MAX_PASSWORD_LENGTH + 1) }, 422, { error: PASSWORD_TOO_LONG, field: "password" }],
     ["a name longer than Ember keeps", { ...grace, name: "x".repeat(MAX_USER_NAME_LENGTH + 1) }, 422, { error: NAME_TOO_LONG, field: "name" }],
     ["an email address longer than any deliverable one", { ...grace, emailAddress: `${"x".repeat(MAX_EMAIL_ADDRESS_LENGTH - 11)}@example.com` }, 422, { error: EMAIL_ADDRESS_TOO_LONG, field: "emailAddress" }],

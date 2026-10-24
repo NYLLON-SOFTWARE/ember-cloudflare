@@ -1,4 +1,4 @@
-import { isPasswordTooLong, MEMBERFUL_SIGN_IN_NEEDED, parseSignUp, PASSWORD_TOO_LONG, type Me } from "@ember/protocol";
+import { isPasswordTooLong, isPasswordTooShort, MEMBERFUL_SIGN_IN_NEEDED, parseSignUp, PASSWORD_TOO_LONG, PASSWORD_TOO_SHORT, type Me } from "@ember/protocol";
 import { authenticate, clientOf, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import { userFormOf, userFormPhoto } from "./avatars";
 import type { Env } from "./env";
@@ -16,9 +16,6 @@ const MEMBERFUL_INSTEAD = {
   error: MEMBERFUL_SIGN_IN_NEEDED,
   redirect: "/session/new",
 };
-
-/** Rails' message for a blank password, which ember-rust's form doesn't let anyone send. */
-const PASSWORD_BLANK = "Password can't be blank.";
 
 /**
  * The join code in a join link's path, `/join/<code>`, or null if `pathname` isn't one. Codes are
@@ -58,10 +55,10 @@ export async function join(request: Request, env: Env, code: string): Promise<Re
   if ("error" in sent) return formAnswer({ error: sent.error, field: "avatar" }, sent.status);
   const form = parseSignUp(sent.fields);
   if (typeof form === "string") return signUpRefusal(form);
-  // Unlike ember-rust, which takes an empty password and makes an account nobody can sign in to. A
-  // long one is refused for the reason first run's is.
-  if (form.password === "") return formAnswer({ error: PASSWORD_BLANK, field: "password" }, 422);
+  // Refused as first run refuses it, though ember-rust takes any password here, even an empty one,
+  // which makes an account nobody can sign in to.
   if (isPasswordTooLong(form.password)) return formAnswer({ error: PASSWORD_TOO_LONG, field: "password" }, 422);
+  if (isPasswordTooShort(form.password)) return formAnswer({ error: PASSWORD_TOO_SHORT, field: "password" }, 422);
   const avatar = await userFormPhoto(env, sent.photo);
   if (avatar && "error" in avatar) return formAnswer({ error: avatar.error, field: "avatar" }, avatar.status);
 

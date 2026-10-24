@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, MAX_PASSWORD_LENGTH, PASSWORD_TOO_LONG, type Bootstrap } from "@ember/protocol";
+import { AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, PASSWORD_TOO_LONG, type Bootstrap } from "@ember/protocol";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -72,6 +72,8 @@ describe(feature("auth.sign-up"), () => {
     expect(password).toHaveAttribute("type", "password");
     expect(password).toHaveAttribute("autocomplete", "new-password");
     expect(password).toHaveAttribute("placeholder", "Password");
+    // At least as long as first run's, where ember-rust's join page takes any.
+    expect(password).toHaveAttribute("minlength", String(MIN_PASSWORD_LENGTH));
     expect(password).toHaveAttribute("maxlength", String(MAX_PASSWORD_LENGTH));
     expect(password).toBeRequired();
     expect(screen.getByRole("button", { name: "Create account" })).toBeInTheDocument();
