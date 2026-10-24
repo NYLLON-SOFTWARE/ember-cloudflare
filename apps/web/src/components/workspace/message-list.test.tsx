@@ -733,6 +733,22 @@ describe(feature("messages.edit"), () => {
     expect(log.scrollTop).toBe(446);
   });
 
+  it("doesn't set the scroll as messages change while an editor is open away from the end, which would stop its scroll to the middle", () => {
+    const shown = messages(1, 8);
+    const { rerender } = render(list({ messages: shown }));
+    const log = screen.getByRole("log");
+    const { heights, resize } = layOut(log);
+    scrollTo(log, 200);
+    rerender(list({ messages: shown }, vi.fn(), null, { editing: new Set(["m3"]) }));
+    heights.m3 = 250;
+    resize();
+    const scrolled = vi.spyOn(log, "scrollTop", "set");
+
+    // Someone reacts to a message as the editor scrolls itself to the middle of the timeline.
+    rerender(list({ messages: messages(1, 8) }, vi.fn(), null, { editing: new Set(["m3"]) }));
+    expect(scrolled).not.toHaveBeenCalled();
+  });
+
   it("still brings a reader near the end to new messages while an editor is open, as ember-rust's does", () => {
     const shown = messages(1, 8);
     const { rerender } = render(list({ messages: shown }));
