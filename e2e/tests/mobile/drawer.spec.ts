@@ -54,6 +54,23 @@ test("the drawer opens on its close button, which closes it and returns focus to
   await expect(menu).toBeFocused();
 });
 
+test("focus moved on as the drawer slides away stays where it went", async ({ page }) => {
+  const composer = editorField(page, "Write a message");
+  // Found now, since the drawer hides the page from assistive tech, and so from role queries, till it's gone.
+  const field = await composer.elementHandle();
+  await page.getByRole("button", { name: "Open conversations" }).tap();
+  const drawer = page.getByRole("dialog", { name: "Conversations" });
+  await expect(drawer).toBeVisible();
+  await settle(page);
+  await drawer.getByRole("button", { name: "Close conversations" }).tap();
+  // Straight away, as a quick tap on the message box would, before the drawer has slid away.
+  await field.focus();
+  // Radix gives focus back a timer tick after the drawer goes.
+  await expect(page.locator("[data-slot=sheet-content]")).toHaveCount(0);
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  await expect(composer).toBeFocused();
+});
+
 test("choosing a room closes the drawer", async ({ page, room }) => {
   await page.getByRole("button", { name: "Open conversations" }).tap();
   await page.getByRole("dialog").getByRole("link", { name: room.name }).tap();

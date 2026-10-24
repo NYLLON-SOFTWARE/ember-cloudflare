@@ -682,6 +682,13 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               event.preventDefault();
               (settings ? drawerRail.current?.querySelector<HTMLElement>("a[href]") : closeDrawerButton.current)?.focus();
             }}
+            // Closing gives focus back to the menu button once the drawer has slid away, but only if focus went
+            // with it: by then New direct message's search, or whatever was tapped as it slid, can have it, and
+            // ember-rust's shell.js closes the drawer for New direct message without giving focus back.
+            onCloseAutoFocus={(event) => {
+              const focused = document.activeElement;
+              if (focused && focused !== document.body) event.preventDefault();
+            }}
             onClick={(event) => {
               closeForLinkHere(event);
               showAllForLink(event);
