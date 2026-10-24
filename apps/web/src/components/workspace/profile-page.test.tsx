@@ -291,11 +291,13 @@ describe(feature("users.profile"), () => {
     const { user } = showPage();
     await loaded();
     expect(screen.queryByLabelText("Current password")).toBeNull();
+    expect(field("New password")).toHaveAccessibleDescription("Leave blank to keep signing in without a password.");
 
     await user.type(field("New password"), "difference engine");
     await user.click(saveButton());
     expect(await screen.findByLabelText("Current password")).toHaveValue("");
     expect(saved()).toEqual([{ password: "difference engine" }]);
+    expect(field("New password")).toHaveAccessibleDescription("Leave blank to keep your current password.");
   });
 
   it("names this browser's push subscription with a new password, which forgets your other browsers'", async () => {
