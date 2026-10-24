@@ -102,7 +102,9 @@ export function AvatarLink({ user, className, square = false, lazy, label, reach
       href={personPath(user.id)}
       title={userTitle(listed ?? user)}
       className={cn(
-        "relative grid shrink-0 bg-background hover:not-active:brightness-70",
+        // One row and column the link's size: a row sized by its content would grow to a portrait photo's
+        // height, past the link.
+        "relative grid shrink-0 grid-cols-1 grid-rows-1 bg-background hover:not-active:brightness-70",
         square ? "rounded-[6px]" : "rounded-full",
         TOUCH_REACH[reach],
         className,

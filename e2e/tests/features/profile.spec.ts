@@ -146,4 +146,24 @@ test.describe(feature("users.avatar-upload"), () => {
     await expect(remove).toHaveCount(0);
     expect(await shownPicture(avatar)).toMatchObject({ type: expect.stringMatching(/^image\/svg\+xml/) });
   });
+
+  test("crops a photo taller than it's wide to the avatar's square", async ({ members }) => {
+    const ada = await members.signIn(unique("Ada"));
+    const grace = await members.signIn(unique("Grace"), { context: { viewport: { width: 1280, height: 800 } } });
+    await ada.send("Tall portrait check");
+    const gracesView = grace.message("Tall portrait check").locator("img[aria-hidden=true]").first();
+
+    await openYourProfile(ada.page);
+    await nextSecond();
+    await ada.page.getByLabel("Upload avatar").setInputFiles(await drawnPicture(ada.page, "tall.png", 800, 1200));
+    await expect(ada.page.getByRole("alert")).toHaveText("It may take up to 30 minutes to change everywhere.");
+    await expect(gracesView).toHaveAttribute("src", (await ada.page.getByRole("img", { name: "Your avatar" }).getAttribute("src"))!);
+    expect(await shownPicture(gracesView)).toEqual({ type: "image/webp", width: 341, height: 512 });
+
+    // The picture fills its link, a message's 36px square, rather than running below it.
+    const shown = await gracesView.boundingBox();
+    expect(shown).toMatchObject({ width: 36, height: 36 });
+    expect(await gracesView.locator("..").boundingBox()).toEqual(shown);
+    await expect(gracesView).toHaveCSS("object-fit", "cover");
+  });
 });
