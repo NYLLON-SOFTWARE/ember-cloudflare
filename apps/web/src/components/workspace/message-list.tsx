@@ -1,8 +1,9 @@
-import { startTransition, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
 import type { Invitation, Me } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/campfire";
 import { useAccount } from "@/hooks/use-account";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
+import { ScrollIntoViewContext } from "@/hooks/use-scroll-into-view";
 import { dropTarget } from "@/lib/drop-target";
 import { dateLabel, dateTimeLabel, timeline } from "@/lib/messages";
 import type { Focus, RoomState } from "@/lib/room-state";
@@ -62,10 +63,24 @@ function placeIn(scroller: HTMLElement): Place | null {
   return found ? { row: found.dataset.row!, offset: bottom - found.getBoundingClientRect().bottom } : null;
 }
 
-/** Scrolls the timeline so the reader is at `place` again, if its message is still there. */
+/**
+ * Where the reader is as something opens in `row`, as its message's editor does: the message before it, whose
+ * bottom is the row's top, so the row stays where it was as it grows, which an editor goes on doing once it's
+ * drawn, as Lexxy fills it in. Nothing, for the first message, keeps the timeline where it is.
+ */
+function placeBefore(scroller: HTMLElement, row: HTMLElement): Place | null {
+  const rows = rowsIn(scroller);
+  const before = rows[rows.indexOf(row) - 1];
+  return before ? { row: before.dataset.row!, offset: scroller.getBoundingClientRect().bottom - before.getBoundingClientRect().bottom } : null;
+}
+
+/** Scrolls the timeline so the reader is at `place` again, if its message is still there and has moved. */
 function restore(scroller: HTMLElement, { row, offset }: Place) {
   const element = rowsIn(scroller).find((r) => r.dataset.row === row);
-  if (element) scroller.scrollTop += offset - (scroller.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom);
+  if (!element) return;
+  const moved = offset - (scroller.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom);
+  // Setting where the timeline is scrolled to stops a smooth scroll, as an editor's to the middle, even to where it is.
+  if (moved !== 0) scroller.scrollTop += moved;
 }
 
 /**
@@ -160,6 +175,14 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
     place.current = placeIn(el);
     setBehind(false);
   });
+
+  // Something opening in a message to scroll itself into view, as its editor or New boost's form, leaves the reader
+  // where they are, rather than at the end, where it would go up by however much taller it makes the message and
+  // its scroll to the middle of the timeline would stop, so it scrolls from where it opened, as ember-rust's do.
+  const opened = useCallback((element: HTMLElement) => {
+    atEnd.current = false;
+    place.current = placeBefore(scroller.current!, element.closest<HTMLElement>("[data-row]")!);
+  }, []);
 
   useLayoutEffect(() => {
     const moved = state.focus !== focused.current;
@@ -259,16 +282,18 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
 
           <RoomConnection value={state.connections}>
             <RefusedUnboosts value={state.refusedUnboosts}>
-              {(newestFirst ? items.slice(-FIRST_DRAWN) : items).map(({ message, firstOfDay, threaded }) => {
-                // Stable from optimistic copy to stored message, and distinct across senders.
-                const key = `${message.creator.id}:${message.clientMessageId}`;
-                return (
-                  <div key={key} data-row={key} data-message-id={message.id}>
-                    {firstOfDay && <DaySeparator at={message.createdAt} />}
-                    <MessageItem message={message} me={me} threaded={threaded} editing={editing.has(message.id)} actions={actions} editors={editors} />
-                  </div>
-                );
-              })}
+              <ScrollIntoViewContext value={opened}>
+                {(newestFirst ? items.slice(-FIRST_DRAWN) : items).map(({ message, firstOfDay, threaded }) => {
+                  // Stable from optimistic copy to stored message, and distinct across senders.
+                  const key = `${message.creator.id}:${message.clientMessageId}`;
+                  return (
+                    <div key={key} data-row={key} data-message-id={message.id}>
+                      {firstOfDay && <DaySeparator at={message.createdAt} />}
+                      <MessageItem message={message} me={me} threaded={threaded} editing={editing.has(message.id)} actions={actions} editors={editors} />
+                    </div>
+                  );
+                })}
+              </ScrollIntoViewContext>
             </RefusedUnboosts>
           </RoomConnection>
           <div ref={bottom} aria-hidden className="h-px" />

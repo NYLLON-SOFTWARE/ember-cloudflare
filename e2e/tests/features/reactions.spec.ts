@@ -139,6 +139,17 @@ test.describe(feature("boosts.custom"), () => {
     await expect(ada.message(text).getByRole("button", { name: "Message options" })).toBeFocused();
   });
 
+  test("scrolls its form to the middle of the timeline as it opens, from the newest messages too", async ({ members, participant }) => {
+    const archivist = await participant("Archivist");
+    for (let n = 1; n <= 40; n++) await archivist.say(`Entry #${String(n).padStart(2, "0")}`);
+    const ada = await members.signIn("Ada");
+    // The room opens at its newest messages. The form's message is near the top of the view, so the form would
+    // go up by however much it adds under the message, if the timeline stayed at the end.
+    const [, entry] = await ada.inView(/Entry #\d+/);
+    await newBoost(ada, entry!);
+    await expect.poll(() => ada.offCentre(ada.message(entry!).locator("form"))).toBeLessThanOrEqual(1);
+  });
+
   test("closes on Cancel or Escape, adding nothing", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const text = "Never mind.";

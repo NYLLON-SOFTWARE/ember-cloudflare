@@ -647,3 +647,42 @@ describe(feature("messages.permalink"), () => {
     expect(screen.getByRole("button", { name: "Jump to newest message" })).toBeInTheDocument();
   });
 });
+
+describe(feature("messages.edit"), () => {
+  it("leaves the reader where they are as an editor opens at the end, which following the end would push up and stop scrolling to the middle", () => {
+    const shown = messages(1, 8);
+    const { rerender } = render(list({ messages: shown }));
+    const log = screen.getByRole("log");
+    const { heights, resize } = layOut(log);
+    expect(log.scrollTop).toBe(400);
+    // Any scroll set stops the editor's own, smooth one.
+    const scrolled = vi.spyOn(log, "scrollTop", "set");
+
+    // m5, at the top of the view, opens an editor that's 150px taller than it once Lexxy has filled it in.
+    rerender(list({ messages: shown }, vi.fn(), null, { editing: new Set(["m5"]) }));
+    heights.m5 = 250;
+    resize();
+    expect(log.scrollTop).toBe(400);
+    expect(scrolled).not.toHaveBeenCalled();
+  });
+
+  it("keeps an editor that opens away from the end where its message was, the first message's too", () => {
+    const shown = messages(1, 8);
+    const { rerender } = render(list({ messages: shown }));
+    const log = screen.getByRole("log");
+    const { heights, resize } = layOut(log);
+
+    // m3 is at the top of the view, above m6, the last message that starts in view.
+    scrollTo(log, 200);
+    rerender(list({ messages: shown }, vi.fn(), null, { editing: new Set(["m3"]) }));
+    heights.m3 = 250;
+    resize();
+    expect(log.scrollTop).toBe(200);
+
+    scrollTo(log, 0);
+    rerender(list({ messages: shown }, vi.fn(), null, { editing: new Set(["m1", "m3"]) }));
+    heights.m1 = 250;
+    resize();
+    expect(log.scrollTop).toBe(0);
+  });
+});
