@@ -4,6 +4,7 @@
 export {
   Bot,
   Check,
+  Copy,
   Download,
   Ellipsis,
   FaceSlightlySmilingPlus,
@@ -18,6 +19,7 @@ export {
   Share,
   SlidersHorizontal,
   Star,
+  Trash,
   Users,
   X,
 } from "lucide-react";

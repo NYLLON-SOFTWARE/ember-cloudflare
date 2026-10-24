@@ -36,7 +36,7 @@ export interface MessageEditors {
   open: (messageId: string) => void;
   /** Closes a message's editor, returning focus to the composer. */
   close: (messageId: string) => void;
-  /** Returns focus to the composer from an editor, as a message deleted from its editor goes. */
+  /** Returns focus to the composer, as a message deleted from its editor or More actions goes. */
   returnFocus: () => void;
   /** Keeps a message's editor while it's open, for `open` to focus; called with null as it goes. */
   attach: (messageId: string, editor: MessageEditorHandle | null) => void;
@@ -270,6 +270,12 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded, ed
           onReact={(emoji) => actions.boost(message.id, emoji)}
           onReply={editors.reply}
           onEdit={() => editors.open(message.id)}
+          // As from the editor, the composer takes focus as the message goes.
+          onDelete={() => {
+            if (!actions.remove(message.id)) return false;
+            editors.returnFocus();
+            return true;
+          }}
           // The form opens with its field focused, or, open already, keeps what's written in it and focuses it.
           onNewBoost={() => (customizing ? customField.current?.focus() : setCustomizing(true))}
         />

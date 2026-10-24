@@ -13,7 +13,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 **Status:** ✅ ported · 🟡 partial (the note says what's missing) · ⬜ not started · ➖ not applicable to this port<br>
 **Origin:** Campfire (inherited by ember-rust) · Ember (added or changed by Ember) · This port (Cloudflare only)
 
-**Overall:** 174 ported and 1 partial of 181 features; 0 not started, 6 not applicable.
+**Overall:** 175 ported and 1 partial of 182 features; 0 not started, 6 not applicable.
 
 | Area | ✅ | 🟡 | ⬜ | ➖ | Features |
 |---|--:|--:|--:|--:|--:|
@@ -23,7 +23,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Rooms](#rooms) | 19 | 0 | 0 | 0 | 19 |
 | [Direct messages](#direct-messages) | 5 | 0 | 0 | 0 | 5 |
 | [Sidebar and navigation](#sidebar-and-navigation) | 10 | 0 | 0 | 0 | 10 |
-| [Messages](#messages) | 18 | 0 | 0 | 1 | 19 |
+| [Messages](#messages) | 19 | 0 | 0 | 1 | 20 |
 | [Reactions](#reactions) | 3 | 0 | 0 | 0 | 3 |
 | [Mentions](#mentions) | 3 | 0 | 0 | 0 | 3 |
 | [Attachments](#attachments) | 10 | 0 | 0 | 1 | 11 |
@@ -35,7 +35,7 @@ or when this file is out of date. Tests name the feature they cover with `descri
 | [Composer](#composer) | 5 | 0 | 0 | 0 | 5 |
 | [Workspace interface](#workspace-interface) | 11 | 0 | 0 | 0 | 11 |
 | [Platform](#platform) | 11 | 1 | 0 | 3 | 15 |
-| **Total** | **174** | **1** | **0** | **6** | **181** |
+| **Total** | **175** | **1** | **0** | **6** | **182** |
 
 ## Sign-in and sessions
 
@@ -1136,6 +1136,7 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 | Message rows | `messages.layout` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Times on follow-up messages | `messages.follow-up-times` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Message action bar | `messages.actions` | Ember | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
+| More actions on a message | `messages.more-actions` | This port | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Reply with a quote | `messages.reply` | Campfire | ✅ Ported | Rich text: [display](packages/richtext/src/display.test.ts)<br>Web: [composer](apps/web/src/components/workspace/composer.test.tsx), [message-item](apps/web/src/components/workspace/message-item.test.tsx), [messages](apps/web/src/lib/messages.test.ts)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Copy a link to a message | `messages.copy-link` | Campfire | ✅ Ported | Web: [message-item](apps/web/src/components/workspace/message-item.test.tsx)<br>E2E: [messages](e2e/tests/features/messages.spec.ts) |
 | Link to a message | `messages.permalink` | Campfire | ✅ Ported | Protocol: [index](packages/protocol/src/index.test.ts), [pages](packages/protocol/src/pages.test.ts)<br>Worker: [messages](apps/worker/test/messages.test.ts)<br>Web: [message-list](apps/web/src/components/workspace/message-list.test.tsx), [workspace](apps/web/src/components/workspace/workspace.test.tsx), [use-room](apps/web/src/hooks/use-room.test.ts), [use-route](apps/web/src/hooks/use-route.test.ts), [room-state](apps/web/src/lib/room-state.test.ts)<br>E2E: [history](e2e/tests/features/history.spec.ts), [messages](e2e/tests/features/messages.spec.ts) |
@@ -1208,7 +1209,7 @@ ember-rust tests: [`reference/test/controllers/messages_controller_test.rb`](htt
 - It disappears for everyone in the room at once and leaves search.
 - Delete message is a button in the message's editor, not on its action bar, and asks "Are you sure you want to delete this message?" A file message's editor holds only the file and this button.
 
-Note: Delete message is in the editor, as in ember-rust, and the room checks an administrator's role as it does for an edit; the socket refuses anyone else's deletion rather than answering 403. The editor stays until the message goes, and focus goes back to the composer, except on touch screens. A deleted message drops out of search results at once, as they're read from its room, and out of the index a moment later (`search.messages`). A file message's editor holds only its file and Delete message (`messages.edit`). Deleting a file message has R2 delete its file a moment later (`attachments.purge`).
+Note: Delete message is in the editor, as in ember-rust, and the room checks an administrator's role as it does for an edit; the socket refuses anyone else's deletion rather than answering 403. The editor stays until the message goes, and focus goes back to the composer, except on touch screens. A deleted message drops out of search results at once, as they're read from its room, and out of the index a moment later (`search.messages`). A file message's editor holds only its file and Delete message (`messages.edit`). Deleting a file message has R2 delete its file a moment later (`attachments.purge`). With a mouse, More actions offers Delete message too, asking the same (`messages.more-actions`).
 
 Sources: [`crates/ember/src/controllers/messages.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/ember/src/controllers/messages.rs) · [`crates/db/src/models/message.rs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/db/src/models/message.rs) · [`crates/views/templates/messages/edit.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/edit.html)
 
@@ -1273,11 +1274,21 @@ ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SO
 - Escape closes More reactions first, returning focus to its button, then the bar, returning focus to Message options. When Add a boost opened them, Escape closes both and returns focus to Add a boost.
 - Without a mouse, Message options opens the bar 6px below it, or above it when there's no room. On phones the button is 44px and the bar stays on screen at 320px wide.
 
-Note: The bar, its tray and Message options are ember-rust's, measured against its own with a mouse, except that on touch screens the bar's buttons are 44px square, as Ember's controls are, where ember-rust's are 34px wide, and that a bar too tall to fit below or above Message options, as on a phone held sideways with More reactions open, opens to the left of it, where ember-rust's covers it. Focus leaving the bar closes it, where ember-rust's closes as focus lands anywhere else, so the composer taking focus as it becomes ready, a moment after the messages show, leaves a bar the pointer opened alone. Escape from outside the bar, as in the composer under a bar the pointer opened, only closes it, where ember-rust's takes focus to Message options. The bar follows its message as messages above it change, where ember-rust's stays where it opened, and it opens as the pointer first moves over a message whose editor just shut under it, where ember-rust's waits for the pointer to come back. On touch screens a message's reactions stop short of the next message's Message options, which rises 11px into it, where ember-rust's run under it, and a bar Add a boost opened opens beside Add a boost, as one Message options opened does beside it, where ember-rust's opens at Message options and can cover Add a boost. A file message's bar has Download in place of Reply, hidden in Ember added to an iPhone's or iPad's home screen, as Campfire's `.hide-in-ios-pwa` hides it, then Share (`attachments.download-share`).
+Note: The bar, its tray and Message options are ember-rust's, measured against its own with a mouse, except that on touch screens the bar's buttons are 44px square, as Ember's controls are, where ember-rust's are 34px wide, and that a bar too tall to fit below or above Message options, as on a phone held sideways with More reactions open, opens to the left of it, where ember-rust's covers it. Focus leaving the bar closes it, where ember-rust's closes as focus lands anywhere else, so the composer taking focus as it becomes ready, a moment after the messages show, leaves a bar the pointer opened alone. Escape from outside the bar, as in the composer under a bar the pointer opened, only closes it, where ember-rust's takes focus to Message options. The bar follows its message as messages above it change, where ember-rust's stays where it opened, and it opens as the pointer first moves over a message whose editor just shut under it, where ember-rust's waits for the pointer to come back. On touch screens a message's reactions stop short of the next message's Message options, which rises 11px into it, where ember-rust's run under it, and a bar Add a boost opened opens beside Add a boost, as one Message options opened does beside it, where ember-rust's opens at Message options and can cover Add a boost. A file message's bar has Download in place of Reply, hidden in Ember added to an iPhone's or iPad's home screen, as Campfire's `.hide-in-ios-pwa` hides it, then Share (`attachments.download-share`). With a mouse, Message options in an open bar opens or shuts More actions under it (`messages.more-actions`), keeping the bar open as ember-rust's does, rather than closing a bar it kept open, which a click elsewhere or Escape closes.
 
 Sources: [`crates/assets/overrides/controllers/message_actions_controller.js`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/controllers/message_actions_controller.js) · [`crates/views/templates/messages/_actions.html`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/views/templates/messages/_actions.html) · [`crates/assets/overrides/zz-ember.css`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/crates/assets/overrides/zz-ember.css)
 
 ember-rust tests: [`parity/kro/workspace.test.mjs`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/kro/workspace.test.mjs) · [`parity/screens.yml`](https://github.com/NYLLON-SOFTWARE/ember-rust/blob/cfeb4c289f9ab3042248777f29a103294ff3de87/parity/screens.yml)
+
+**More actions on a message** (`messages.more-actions`) ✅
+
+- With a mouse, Message options, the open bar's last button, titled "More actions", opens More actions under the bar, or over it where there's more room there, focusing its first item and keeping the bar open as the pointer leaves. Clicking it again shuts More actions, as Escape does, handing focus back to Message options, even on a bar Add a boost opened, which Escape otherwise closes at once.
+- It holds Copy text, but on file messages, and Copy link, then, on your own messages and on everyone's for administrators, Edit message, but on file messages and bots' cards, whose text can't be changed, and Delete message, in red.
+- Copy text copies the message's plain text, a bot's cards' included, and Copy link its address, each turning green as the bar's Copy link does and leaving the actions open.
+- Edit message opens the message's editor, closing the actions. Delete message asks "Are you sure you want to delete this message?", then deletes the message for everyone, closing the actions, and the composer takes focus, or Message options does where the deletion can't be sent.
+- More actions and the tray of More reactions open in the same place, so one shuts as the other opens. Without a mouse, Message options opens and closes the bar, and there's no More actions.
+
+Note: ember-rust has no such menu. With a mouse its Message options, pinned as the bar's last button, only keeps a bar that hovering opened from closing as the pointer leaves (message_actions_controller.js), which shows nothing, so the project's owner found it did nothing. More actions is Slack's: the bar's Copy link and Edit named in words, with Copy text, and Delete message, which ember-rust offers only in the editor (`messages.delete`).
 
 **Reply with a quote** (`messages.reply`) ✅
 

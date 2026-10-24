@@ -1,7 +1,7 @@
 import { useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type MouseEvent, type Ref, type RefObject } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { Download, Ellipsis, FaceSlightlySmilingPlus, Link, MessageCirclePlus, Pencil, Reply, Share } from "@/components/icons/lucide";
+import { Copy, Download, Ellipsis, FaceSlightlySmilingPlus, Link, MessageCirclePlus, Pencil, Reply, Share, Trash } from "@/components/icons/lucide";
 import { ShareButton } from "@/components/share-button";
 import { mentionedPerson, PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -30,6 +30,10 @@ const ACTION =
 /** The bar and the tray of more reactions (`.mb-message-action-bar`, `.mb-message-reaction-tray`). */
 const PANEL = "rounded-[11px] border border-message-border bg-background shadow-[0_1px_3px_#0000001a]";
 
+/** An item of More actions: its icon, as the bar draws it, then its name, the panel's whole width. */
+const ITEM =
+  "flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[6px] px-2 text-left text-sm whitespace-nowrap text-message-ink transition-colors duration-150 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground touch:h-11 [&_svg]:size-4 [&_svg]:shrink-0";
+
 /** Campfire's `btn--success` (buttons.css) in ember-rust's colors: Copy link turns green as it copies. */
 const COPIED = ["text-positive", "motion-safe:animate-success"];
 
@@ -39,12 +43,14 @@ interface Props {
   nodes: DisplayNode[];
   /** The message's row: hovering it opens the bar with a mouse, and the bar overlaps its top edge. */
   row: RefObject<HTMLElement | null>;
-  /** Whether Edit shows: on your own messages, and on everyone's for administrators. */
+  /** Whether Edit and Delete message show: on your own messages, and on everyone's for administrators. */
   editable: boolean;
   onReact: (emoji: string) => void;
   /** Writes a reply in the composer, given the quote it starts with. */
   onReply: (quote: string) => void;
   onEdit: () => void;
+  /** Deletes the message, from More actions, answering whether the deletion was sent. */
+  onDelete: () => boolean;
   /** Opens the message's Custom reaction form, from New boost. */
   onNewBoost: () => void;
   ref?: Ref<MessageActionsHandle>;
@@ -67,26 +73,38 @@ export interface MessageActionsHandle {
  * too, laid over the message's top edge at the timeline's right, with Message options pinned as its last
  * button. On touch screens it opens beside Message options. Once opened, the bar stays in the page while
  * it's shut, as ember-rust's does, so Copy link keeps its color.
+ *
+ * With a mouse, Message options then opens More actions under the bar, as Slack's does: Copy text, Copy
+ * link, and on messages you can change, Edit message and Delete message. ember-rust has no such menu, and
+ * clicking its Message options there only keeps the bar open, which shows nothing.
  */
-export function MessageActionsMenu({ message, nodes, row, editable, onReact, onReply, onEdit, onNewBoost, ref }: Props) {
+export function MessageActionsMenu({ message, nodes, row, editable, onReact, onReply, onEdit, onDelete, onNewBoost, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [rendered, setRendered] = useState(false);
   // Whether hovering opened the bar, which leaving then closes, unless Message options pinned it.
   const hoverOpened = useRef(false);
   const leaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  // The Add a boost that opened the bar, if one did, and whether its first reaction is still to be focused.
+  // The Add a boost that opened the bar, if one did and More actions hasn't opened since, and whether its first
+  // reaction is still to be focused.
   const boostTrigger = useRef<HTMLElement | null>(null);
   const focusingTray = useRef(false);
+  // Whether More actions' first item is still to be focused, as it opens.
+  const focusingActions = useRef(false);
   const container = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const bar = useRef<HTMLDivElement>(null);
   const tray = useRef<HTMLDivElement>(null);
   const more = useRef<HTMLButtonElement>(null);
+  const actionsPanel = useRef<HTMLDivElement>(null);
   const overlapping = useMediaQuery(OVERLAPPING);
   const menuId = useId();
   const trayId = useId();
+  // What Copy text copies: the message's plain text, which holds a bot's cards' too. A file message has none
+  // but its file's name.
+  const text = message.attachment ? null : message.plainText;
 
   const show = (byHovering: boolean) => {
     hoverOpened.current = byHovering;
@@ -100,6 +118,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     boostTrigger.current = null;
     setOpen(false);
     setTrayOpen(false);
+    setActionsOpen(false);
   };
 
   // As ember-rust's bar closes once a reaction is sent (messages/_reaction.html), handing focus to Message options.
@@ -130,9 +149,39 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     onNewBoost();
   };
 
+  // Delete message asks first, as the editor's does. The composer takes focus as the message goes, or Message
+  // options does where the deletion can't be sent.
+  const deleteMessage = () => {
+    if (!confirm("Are you sure you want to delete this message?")) return;
+    close();
+    if (!onDelete()) trigger.current?.focus({ preventScroll: true });
+  };
+
   const focusFirstReaction = () => {
     focusingTray.current = false;
     tray.current?.querySelector("button")?.focus({ preventScroll: true });
+  };
+
+  const focusFirstAction = () => {
+    focusingActions.current = false;
+    actionsPanel.current?.querySelector("button")?.focus({ preventScroll: true });
+  };
+
+  // The tray and More actions open in the same place, under the bar, so one shuts as the other opens.
+  const toggleTray = () => {
+    setActionsOpen(false);
+    setTrayOpen((shown) => !shown);
+  };
+
+  // Opening More actions keeps the bar open, as clicking Message options alone does in ember-rust, and makes it
+  // Message options' bar, so Escape shuts More actions first even where Add a boost opened the bar.
+  const toggleActions = () => {
+    clearTimeout(leaveTimer.current);
+    hoverOpened.current = false;
+    boostTrigger.current = null;
+    focusingActions.current = !actionsOpen;
+    setTrayOpen(false);
+    setActionsOpen(!actionsOpen);
   };
 
   useImperativeHandle(ref, () => ({
@@ -144,6 +193,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
       focusingTray.current = true;
       setRendered(true);
       setOpen(true);
+      setActionsOpen(false);
       setTrayOpen(true);
       // An open bar with its tray showing doesn't render again, so its reaction is focused here.
       if (open && trayOpen) focusFirstReaction();
@@ -153,10 +203,9 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
 
   const toggle = () => {
     if (!open) return show(false);
-    if (!hoverOpened.current) return close();
-    // Clicking Message options pins a bar that hovering opened, rather than closing it.
-    hoverOpened.current = false;
-    clearTimeout(leaveTimer.current);
+    // With a mouse, Message options is the open bar's last button, and opens More actions.
+    if (overlapping) return toggleActions();
+    close();
   };
 
   const place = () => {
@@ -165,7 +214,8 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     if (!open || !container.current) return;
     // Add a boost goes if the message's last reaction does while the bar is open.
     const anchor = boostTrigger.current?.isConnected ? boostTrigger.current : trigger.current!;
-    if (!placeMenu({ row: row.current!, container: container.current, trigger: trigger.current!, anchor, menu: menu.current!, bar: bar.current!, tray: tray.current!, overlapping })) close();
+    const panel = actionsOpen ? actionsPanel.current! : tray.current!;
+    if (!placeMenu({ row: row.current!, container: container.current, trigger: trigger.current!, anchor, menu: menu.current!, bar: bar.current!, panel, overlapping })) close();
   };
 
   const hovered = useEffectEvent((event: PointerEvent) => {
@@ -210,9 +260,9 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
   });
 
   // Escape closes a bar Add a boost opened, handing focus back to it. Otherwise it closes the tray first,
-  // handing focus to More reactions, then the bar, handing it to Message options. While you're elsewhere,
-  // as in the composer under a bar the pointer opened, it only closes the bar, where ember-rust's takes
-  // your focus to Message options.
+  // handing focus to More reactions, or More actions, handing it to Message options, then the bar, handing
+  // it to Message options. While you're elsewhere, as in the composer under a bar the pointer opened, it
+  // only closes the bar, where ember-rust's takes your focus to Message options.
   const keyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.key !== "Escape" || event.defaultPrevented) return;
     const from = boostTrigger.current;
@@ -226,6 +276,9 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     if (trayOpen) {
       setTrayOpen(false);
       more.current?.focus({ preventScroll: true });
+    } else if (actionsOpen) {
+      setActionsOpen(false);
+      trigger.current?.focus({ preventScroll: true });
     } else {
       close();
       trigger.current?.focus({ preventScroll: true });
@@ -263,11 +316,12 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     };
   }, [open]);
 
-  // Placed before it's painted, and again as the tray opens or shuts.
+  // Placed before it's painted, and again as the tray or More actions opens or shuts.
   useLayoutEffect(() => {
     place();
     if (open && trayOpen && focusingTray.current) focusFirstReaction();
-  }, [open, trayOpen, overlapping]);
+    if (open && actionsOpen && focusingActions.current) focusFirstAction();
+  }, [open, trayOpen, actionsOpen, overlapping]);
 
   const pinned = open && overlapping;
 
@@ -279,6 +333,8 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
         aria-label="Message options"
         aria-expanded={open}
         aria-controls={rendered ? menuId : undefined}
+        // As the bar's last button, it's named for what it opens, as the bar's other buttons are.
+        title={pinned ? "More actions" : undefined}
         onClick={toggle}
         className={cn(
           "flex size-8 cursor-pointer items-center justify-center rounded-[9px] text-[0.8rem] font-medium text-message-muted hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground touch:size-11 [&_svg]:size-4",
@@ -287,10 +343,12 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
           "opacity-0 touch:opacity-50 group-hover/message:opacity-100! group-focus-within/message:opacity-100! aria-expanded:opacity-100!",
           "[@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:delay-150 [@media(hover:hover)_and_(pointer:fine)]:duration-150 [@media(hover:hover)_and_(pointer:fine)]:ease-in-out",
           // `.message__options-btn` (zz-ember.css): at the top right of the message's text, 6px further out
-          // for fingers. With a mouse, the open bar keeps room for it as its last button.
+          // for fingers. With a mouse, the open bar keeps room for it as its last button, which stays shaded
+          // while More actions is open, as More reactions does while its tray is.
           pinned
             ? "fixed top-(--trigger-top) left-(--trigger-left) z-31"
             : "absolute -top-1.5 right-5 max-md:right-3 touch:-top-[11px] touch:translate-x-1.5",
+          pinned && actionsOpen && "bg-hover",
         )}
       >
         <Ellipsis />
@@ -334,7 +392,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
               aria-expanded={trayOpen}
               aria-controls={trayId}
               className={cn(ACTION, "aria-expanded:bg-hover")}
-              onClick={() => setTrayOpen((shown) => !shown)}
+              onClick={toggleTray}
             >
               <FaceSlightlySmilingPlus />
             </button>
@@ -345,7 +403,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
             role="group"
             aria-label="More reactions"
             hidden={!trayOpen}
-            className={cn(PANEL, "w-max max-w-full justify-self-end overflow-y-auto overscroll-contain p-2 group-data-[tray-above]/menu:-order-1")}
+            className={cn(PANEL, "w-max max-w-full justify-self-end overflow-y-auto overscroll-contain p-2 group-data-[panel-above]/menu:-order-1")}
           >
             <span className="mx-[3px] mb-[5px] block text-[11px] leading-normal font-medium text-muted-foreground">More reactions</span>
             <div className="flex flex-wrap">
@@ -357,6 +415,40 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
                 <span className="sr-only">New boost</span>
               </button>
             </div>
+          </div>
+          <div
+            ref={actionsPanel}
+            role="group"
+            aria-label="More actions"
+            hidden={!actionsOpen}
+            className={cn(PANEL, "w-max max-w-full justify-self-end overflow-y-auto overscroll-contain p-1 group-data-[panel-above]/menu:-order-1")}
+          >
+            {text !== null && (
+              <button type="button" className={ITEM} onClick={(event) => void copy(event, text)}>
+                <Copy />
+                Copy text
+              </button>
+            )}
+            <button type="button" className={ITEM} onClick={(event) => void copyLink(event, message)}>
+              <Link />
+              Copy link
+            </button>
+            {editable && (
+              <>
+                <hr className="my-1 border-message-border" />
+                {/* The text of a file message, or of a bot's cards, can't be changed, so only the bar's Edit opens their editor. */}
+                {!message.attachment && !message.cards && (
+                  <button type="button" className={ITEM} onClick={edit}>
+                    <Pencil />
+                    Edit message
+                  </button>
+                )}
+                <button type="button" className={cn(ITEM, "text-negative")} onClick={deleteMessage}>
+                  <Trash />
+                  Delete message
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -416,21 +508,25 @@ function ReplyButton({ message, nodes, onClick }: { message: Message; nodes: Dis
 }
 
 /**
- * Copies the message's address, then turns Copy link green and plays its success animation from the
- * start, as ember-rust's copy_to_clipboard_controller.js does. It stays green until it's clicked again,
- * and a clipboard that refuses leaves it as it was.
+ * Copies `text`, then turns the button clicked green and plays its success animation from the start, as
+ * ember-rust's copy_to_clipboard_controller.js does. It stays green until it's clicked again, and a
+ * clipboard that refuses leaves it as it was.
  */
-async function copyLink({ currentTarget: button }: MouseEvent<HTMLButtonElement>, message: Message) {
+async function copy({ currentTarget: button }: MouseEvent<HTMLButtonElement>, text: string) {
   button.classList.remove(...COPIED);
   // Reading the layout ends the last run of the animation, so adding the classes starts it again.
   void button.offsetWidth;
   try {
-    // Pages carry only the path, made absolute against the page, as ember-rust's do.
-    await navigator.clipboard.writeText(new URL(messagePath(message.roomId, message.id), document.baseURI).href);
+    await navigator.clipboard.writeText(text);
     button.classList.add(...COPIED);
   } catch {
     // Nothing to show.
   }
+}
+
+/** Copies the message's address, as Copy link does. Pages carry only the path, made absolute against the page, as ember-rust's do. */
+function copyLink(event: MouseEvent<HTMLButtonElement>, message: Message) {
+  return copy(event, new URL(messagePath(message.roomId, message.id), document.baseURI).href);
 }
 
 interface Placed {
@@ -441,7 +537,8 @@ interface Placed {
   anchor: HTMLElement;
   menu: HTMLElement;
   bar: HTMLElement;
-  tray: HTMLElement;
+  /** What opens under the bar, or over it: More actions while it's open, or else the tray of more reactions. */
+  panel: HTMLElement;
   overlapping: boolean;
 }
 
@@ -449,12 +546,12 @@ interface Placed {
  * Places an open bar as ember-rust's message_actions_controller.js#position does, within the timeline
  * less 8px on each side, and within what's on screen. With a mouse, it overlaps the row, its top 17px
  * above the row's and its right 16px in from the timeline's, with Message options pinned as its last
- * button, and the tray opens below it, or above when there's more room there. For fingers, it opens 6px
- * below its anchor, lined up with its right edge, or above when it doesn't fit, or beside it when it
- * fits neither, so it doesn't cover what opened it, as ember-rust's covers Add a boost. Answers false,
- * placing nothing, once the row is out of the timeline's sight, when the bar should close.
+ * button, and the tray or More actions opens below it, or above when there's more room there. For
+ * fingers, it opens 6px below its anchor, lined up with its right edge, or above when it doesn't fit, or
+ * beside it when it fits neither, so it doesn't cover what opened it, as ember-rust's covers Add a boost.
+ * Answers false, placing nothing, once the row is out of the timeline's sight, when the bar should close.
  */
-function placeMenu({ row, container, trigger, anchor, menu, bar, tray, overlapping }: Placed): boolean {
+function placeMenu({ row, container, trigger, anchor, menu, bar, panel, overlapping }: Placed): boolean {
   const viewport = window.visualViewport;
   const top = viewport?.offsetTop || 0;
   const left = viewport?.offsetLeft || 0;
@@ -471,7 +568,7 @@ function placeMenu({ row, container, trigger, anchor, menu, bar, tray, overlappi
   const rowBox = row.getBoundingClientRect();
   if (rowBox.bottom < bounds.top || rowBox.top > bounds.bottom) return false;
   menu.style.maxWidth = `${Math.max(0, bounds.right - bounds.left)}px`;
-  tray.style.maxHeight = "";
+  panel.style.maxHeight = "";
   let menuBox = menu.getBoundingClientRect();
   let y: number;
   let right: number;
@@ -483,17 +580,17 @@ function placeMenu({ row, container, trigger, anchor, menu, bar, tray, overlappi
     barTop = Math.max(bounds.top, Math.min(rowBox.top - 17, bounds.bottom - barHeight));
     const below = bounds.bottom - barTop - barHeight;
     const above = barTop - bounds.top;
-    const trayAbove = !tray.hidden && menuBox.height - barHeight > below && above > below;
-    menu.toggleAttribute("data-tray-above", trayAbove);
-    if (!tray.hidden) {
-      tray.style.maxHeight = `${Math.max(0, (trayAbove ? above : below) - 7)}px`;
+    const panelAbove = !panel.hidden && menuBox.height - barHeight > below && above > below;
+    menu.toggleAttribute("data-panel-above", panelAbove);
+    if (!panel.hidden) {
+      panel.style.maxHeight = `${Math.max(0, (panelAbove ? above : below) - 7)}px`;
       menuBox = menu.getBoundingClientRect();
     }
-    // Opening the tray mustn't move the bar off its row or out from under the pointer.
-    y = trayAbove ? barTop - (menuBox.height - barHeight) : barTop;
+    // Opening the tray or More actions mustn't move the bar off its row or out from under the pointer.
+    y = panelAbove ? barTop - (menuBox.height - barHeight) : barTop;
     right = bounds.right - 8;
   } else {
-    menu.removeAttribute("data-tray-above");
+    menu.removeAttribute("data-panel-above");
     const anchorBox = anchor.getBoundingClientRect();
     const below = anchorBox.bottom + 6;
     const above = anchorBox.top - menuBox.height - 6;
