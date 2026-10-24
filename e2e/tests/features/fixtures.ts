@@ -106,6 +106,13 @@ export class Member {
     return Math.abs(box.y + box.height / 2 - (log.y + log.height / 2));
   }
 
+  /** How much of `locator` is above or below the timeline's view. */
+  async outOfView(locator: Locator): Promise<number> {
+    const [log, box] = [await this.timeline().boundingBox(), await locator.boundingBox()];
+    if (!log || !box) throw new Error("Not visible");
+    return Math.max(0, log.y - box.y) + Math.max(0, box.y + box.height - (log.y + log.height));
+  }
+
   /** Waits until the room's history has loaded and its socket is open. */
   async connected(): Promise<void> {
     await expect(this.timeline()).toBeVisible();

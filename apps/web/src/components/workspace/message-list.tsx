@@ -63,17 +63,6 @@ function placeIn(scroller: HTMLElement): Place | null {
   return found ? { row: found.dataset.row!, offset: bottom - found.getBoundingClientRect().bottom } : null;
 }
 
-/**
- * Where the reader is as something opens in `row`, as its message's editor does: the message before it, whose
- * bottom is the row's top, so the row stays where it was as it grows, which an editor goes on doing once it's
- * drawn, as Lexxy fills it in. Nothing, for the first message, keeps the timeline where it is.
- */
-function placeBefore(scroller: HTMLElement, row: HTMLElement): Place | null {
-  const rows = rowsIn(scroller);
-  const before = rows[rows.indexOf(row) - 1];
-  return before ? { row: before.dataset.row!, offset: scroller.getBoundingClientRect().bottom - before.getBoundingClientRect().bottom } : null;
-}
-
 /** Scrolls the timeline so the reader is at `place` again, if its message is still there and has moved. */
 function restore(scroller: HTMLElement, { row, offset }: Place) {
   const element = rowsIn(scroller).find((r) => r.dataset.row === row);
@@ -134,6 +123,8 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
   const bottom = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
   const place = useRef<Place | null>(null);
+  // How many messages have something open in them that scrolls itself into view, as an editor.
+  const open = useRef(0);
   const viewHeight = useRef(0);
   const focused = useRef<Focus | null>(null);
   const arrivals = useRef(state.arrivals);
@@ -147,12 +138,14 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
 
   const nearEnd = (el: HTMLElement) => !state.hasNewer && el.scrollHeight - el.scrollTop - el.clientHeight <= AT_END_PX;
 
-  // Keeps the reader at the end, or in their place, as what the timeline shows changes. A short last page
-  // of later messages can leave them at the end without scrolling them, so this asks again.
-  const settle = useEffectEvent(() => {
+  // Keeps the reader at the end, or in their place, as what the timeline shows changes, but for a resize while
+  // something's open in a message (`opened`). A short last page of later messages can leave them at the end
+  // without scrolling them, so this asks again.
+  const settle = useEffectEvent((resized = false) => {
     const el = scroller.current!;
-    if (atEnd.current) el.scrollTop = el.scrollHeight;
-    else if (place.current) restore(el, place.current);
+    const scroll = !resized || open.current === 0;
+    if (scroll && atEnd.current) el.scrollTop = el.scrollHeight;
+    else if (scroll && place.current) restore(el, place.current);
     atEnd.current = nearEnd(el);
     if (atEnd.current) setBehind(false);
     place.current = placeIn(el);
@@ -176,12 +169,16 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
     setBehind(false);
   });
 
-  // Something opening in a message to scroll itself into view, as its editor or New boost's form, leaves the reader
-  // where they are, rather than at the end, where it would go up by however much taller it makes the message and
-  // its scroll to the middle of the timeline would stop, so it scrolls from where it opened, as ember-rust's do.
-  const opened = useCallback((element: HTMLElement) => {
-    atEnd.current = false;
-    place.current = placeBefore(scroller.current!, element.closest<HTMLElement>("[data-row]")!);
+  // Something open in a message that scrolls itself into view, as its editor or New boost's form, grows and scrolls
+  // as the browser has it, as ember-rust's do: the timeline doesn't scroll as it resizes until it's closed. Following
+  // the end, or keeping the place of a message below it, would push it up by however much it grows, out of view, and
+  // setting the scroll would stop its own to the middle of the timeline, or undo Lexxy's to its caret. New messages
+  // still bring a reader near the end to them, as ember-rust's do.
+  const opened = useCallback(() => {
+    open.current++;
+    return () => {
+      open.current--;
+    };
   }, []);
 
   useLayoutEffect(() => {
@@ -205,7 +202,7 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
     const el = scroller.current!;
     const observer = new ResizeObserver(() => {
       viewHeight.current = el.clientHeight;
-      settle();
+      settle(true);
     });
     observer.observe(el);
     observer.observe(content.current!);

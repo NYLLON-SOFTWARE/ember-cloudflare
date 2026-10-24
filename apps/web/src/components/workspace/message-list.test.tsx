@@ -685,4 +685,84 @@ describe(feature("messages.edit"), () => {
     resize();
     expect(log.scrollTop).toBe(0);
   });
+
+  it("leaves an editor where it is as it grows again once the timeline has scrolled, which keeping the place of a message below it would push up", () => {
+    const shown = messages(1, 8);
+    const { rerender } = render(list({ messages: shown }));
+    const log = screen.getByRole("log");
+    const { heights, resize } = layOut(log);
+    scrollTo(log, 200);
+    rerender(list({ messages: shown }, vi.fn(), null, { editing: new Set(["m3"]) }));
+    heights.m3 = 150;
+    resize();
+
+    // The editor's scroll to the middle of the timeline is under way as it grows again, as Lexxy fills it in.
+    scrollTo(log, 150);
+    heights.m3 = 250;
+    resize();
+    expect(log.scrollTop).toBe(150);
+  });
+
+  it("leaves an editor that opens at the end where it is as its link's preview loads, though the browser has scrolled back to the end", () => {
+    const shown = messages(1, 8);
+    const { rerender } = render(list({ messages: shown }));
+    const log = screen.getByRole("log");
+    const { heights, resize } = layOut(log);
+
+    // m6's editor comes out shorter than the message, so the browser scrolls the timeline back to its end.
+    rerender(list({ messages: shown }, vi.fn(), null, { editing: new Set(["m6"]) }));
+    heights.m6 = 92;
+    resize();
+    scrollTo(log, 392);
+    heights.m6 = 282;
+    resize();
+    expect(log.scrollTop).toBe(392);
+  });
+
+  it("leaves the scroll Lexxy makes to bring an editor's caret into view, though its event hasn't come", () => {
+    const shown = messages(1, 8);
+    const { rerender } = render(list({ messages: shown }));
+    const log = screen.getByRole("log");
+    const { heights, resize } = layOut(log);
+
+    // The newest message's editor goes on below the view, so Lexxy scrolls the timeline to show its caret.
+    rerender(list({ messages: shown }, vi.fn(), null, { editing: new Set(["m8"]) }));
+    heights.m8 = 250;
+    log.scrollTop = 446;
+    resize();
+    expect(log.scrollTop).toBe(446);
+  });
+
+  it("still brings a reader near the end to new messages while an editor is open, as ember-rust's does", () => {
+    const shown = messages(1, 8);
+    const { rerender } = render(list({ messages: shown }));
+    const log = screen.getByRole("log");
+    const { heights, resize } = layOut(log);
+    rerender(list({ messages: shown }, vi.fn(), null, { editing: new Set(["m8"]) }));
+    heights.m8 = 150;
+    resize();
+    expect(log.scrollTop).toBe(400);
+
+    rerender(list({ messages: messages(1, 9), arrivals: 1 }, vi.fn(), null, { editing: new Set(["m8"]) }));
+    expect(log.scrollTop).toBe(550);
+    expect(screen.queryByRole("button", { name: "Jump to newest message" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the reader's place again once the editor has closed", () => {
+    const shown = messages(1, 8);
+    const { rerender } = render(list({ messages: shown }));
+    const log = screen.getByRole("log");
+    const { heights, resize } = layOut(log);
+    scrollTo(log, 200);
+    rerender(list({ messages: shown }, vi.fn(), null, { editing: new Set(["m3"]) }));
+    heights.m3 = 250;
+    resize();
+    expect(log.scrollTop).toBe(200);
+
+    // m5, the last message that starts in view, stays where it was as the message goes back to its size.
+    rerender(list({ messages: shown }));
+    heights.m3 = 100;
+    resize();
+    expect(log.scrollTop).toBe(50);
+  });
 });

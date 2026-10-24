@@ -759,6 +759,19 @@ test.describe(feature("messages.edit"), () => {
     await expect.poll(() => ada.offCentre(ada.message(entry!).locator(".message-edit"))).toBeLessThanOrEqual(1);
   });
 
+  test("shows all of your newest message's editor as it opens at the newest messages", async ({ members, participant }) => {
+    const archivist = await participant("Archivist");
+    for (let n = 1; n <= 40; n++) await archivist.say(`Entry #${String(n).padStart(2, "0")}`);
+    const ada = await members.signIn("Ada");
+    await ada.send("My newest");
+    await expect(ada.message("My newest")).not.toHaveAttribute("aria-busy");
+    // The editor goes on below the view, so Lexxy scrolls the timeline to its caret, and its own scroll to the middle
+    // of the timeline ends at the end.
+    await ada.composer().press("ArrowUp");
+    await expect(ada.editor()).toBeFocused();
+    await expect.poll(() => ada.outOfView(ada.message("My newest").locator(".message-edit"))).toBe(0);
+  });
+
   test("saves from Save changes with the Link field open, as Lexxy checks that itself", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.send("Draft");

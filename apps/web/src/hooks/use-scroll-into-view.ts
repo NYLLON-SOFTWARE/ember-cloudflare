@@ -1,17 +1,16 @@
 import { createContext, useContext, useEffect, useLayoutEffect, type RefObject } from "react";
 
 /**
- * What the timeline does as something opens in a message to scroll itself into view, as the message's editor does:
- * it leaves the reader where they are, so that it scrolls from where it opened.
+ * What the timeline does as something opens in a message to scroll itself into view, as the message's editor does,
+ * answering what it does once that's gone: while it's open, the timeline leaves it to grow and scroll as the browser
+ * has it, so that it scrolls from where it opened.
  */
-export const ScrollIntoViewContext = createContext<(element: HTMLElement) => void>(() => {});
+export const ScrollIntoViewContext = createContext<() => () => void>(() => () => {});
 
 /** ember-rust's scroll-into-view controller: once it's shown, an element scrolls to the middle of the timeline. */
 export function useScrollIntoView(element: RefObject<HTMLElement | null>) {
   const opened = useContext(ScrollIntoViewContext);
-  useLayoutEffect(() => {
-    if (element.current) opened(element.current);
-  }, [opened, element]);
+  useLayoutEffect(() => opened(), [opened]);
   useEffect(() => {
     const frame = requestAnimationFrame(() => element.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
     return () => cancelAnimationFrame(frame);
