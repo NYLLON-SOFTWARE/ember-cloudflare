@@ -326,8 +326,10 @@ describe(feature("auth.email-domain-sign-up"), () => {
       const sent: EmailMessageBuilder[] = [];
       for (let n = 1; n <= EMAIL_LINKS_PER_ADDRESS + 2; n++) sent.push(...(await asked(n % 2 ? "hal@example.org" : "Hal@Example.org", { ip: `203.0.113.${n}` })));
       expect(sent).toHaveLength(EMAIL_LINKS_PER_ADDRESS);
-      // The last link it sent still works.
+      // The last link it sent still works, and the asks past the limit aren't counted, so that an email
+      // being sent as they came that the provider then refuses would free a place.
       expect((await lookUp(tokenIn(linkIn(sent.at(-1)!)))).status).toBe(200);
+      expect(await workspaceSql("SELECT count FROM email_link_requests")).toEqual([{ count: EMAIL_LINKS_PER_ADDRESS }]);
 
       // An hour on, the count starts again, and asking forgets the counts whose hour is over.
       const anHourAgo = new Date(Date.now() - HOUR_MS - 1000).toISOString();
@@ -356,6 +358,25 @@ describe(feature("auth.email-domain-sign-up"), () => {
       expect(more).toHaveLength(EMAIL_LINKS_PER_ADDRESS - 1);
       await expectGone(await lookUp(sent));
       expect((await lookUp(tokenIn(linkIn(more.at(-1)!)))).status).toBe(200);
+    });
+
+    it("gives no link to join with to someone who joins while it's being emailed", async () => {
+      await setUpEmailDomain();
+      const first = await linkFor("hal@example.org");
+      // The provider takes the second email only once Hal has joined with the first link.
+      const sent: EmailMessageBuilder[] = [];
+      let joined: number | undefined;
+      const binding = {
+        send: async (message: EmailMessageBuilder) => {
+          sent.push(message);
+          joined = (await joinWith(first)).status;
+          return { messageId: `<${crypto.randomUUID()}@example.com>` };
+        },
+      } as unknown as SendEmail;
+      await withWorkspaceEnv({ EMAIL: binding }, async () => expect((await ask("hal@example.org")).status).toBe(202));
+      expect(joined).toBe(201);
+      await expectGone(await lookUp(tokenIn(linkIn(sent[0]!))));
+      expect(await count("email_links")).toBe(0);
     });
 
     it("emails an international domain's address at the ASCII form it's listed in", async () => {

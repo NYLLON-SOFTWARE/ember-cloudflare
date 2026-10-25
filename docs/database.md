@@ -512,7 +512,8 @@ search index. On top of that schema it adds indexes and query changes for speed.
   administrators to send again. How often each address was asked for in the last hour is a row in
   `email_link_requests` (the same migration), by its lowercase: asking counts it in one batch with
   deleting the counts whose hour is over, through the index on `counted_since`, so the table holds only
-  the last hour's addresses, and an email the provider refuses is taken off the count it was added to.
+  the last hour's addresses. An ask past the limit, or an email the provider refuses, is taken off the
+  count it was added to, so that it counts the emails sent or being sent.
 - **A bot's cards are part of its message's row.** ember-rust has no cards. Ours, what a
   Slack-compatible webhook's legacy attachments show, are kept as JSON in `messages.cards` (room
   migration 0034), as a file is, rather than in the body as Action Text attachments, which the rich
