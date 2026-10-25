@@ -72,6 +72,30 @@ test.describe(feature("ui.layout"), () => {
     await expect(ada.composer()).toBeInViewport({ ratio: 1 });
   });
 
+  test("scrolls a long page's content but never the layout around it, also when the address's fragment changes", async ({ members }) => {
+    const ada = await members.signIn("Ada", { administrator: true, context: { viewport: { width: 1280, height: 800 } } });
+    const header = ada.page.getByRole("navigation", { name: "Page" });
+    // Both run past the window, with icon buttons far down them whose names only screen readers get.
+    // Scrolling the page itself, as a mouse wheel over the header would, moves nothing.
+    for (const [path, shown] of [
+      ["/users/me/profile", ada.page.getByLabel("Name", { exact: true })],
+      ["/account/edit#membership-settings", ada.page.getByRole("region", { name: "Membership" })],
+    ] as const) {
+      await ada.page.goto(path);
+      await expect(shown).toBeVisible();
+      await ada.page.evaluate(() => window.scrollBy(0, 400));
+      expect(await box(header), path).toMatchObject({ y: 0 });
+    }
+
+    // Going to another section by the address's fragment, as typing it in does, leaves the layout where it is too.
+    await ada.page.evaluate(() => void (location.hash = "#community-settings"));
+    await expect(ada.page.getByRole("heading", { name: "Basic community settings" })).toBeVisible();
+    await ada.page.evaluate(() => void (location.hash = "#membership-settings"));
+    await expect(ada.page.getByRole("region", { name: "Membership" })).toBeVisible();
+    await ada.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect(await box(header)).toMatchObject({ y: 0 });
+  });
+
   test("uses ember-rust's palette and 14px text, light and dark", async ({ members }) => {
     const palettes = {
       light: { canvas: "rgb(255, 255, 255)", surface: "rgb(250, 250, 250)", hover: "rgb(242, 242, 242)", border: "rgb(229, 229, 229)", muted: "rgb(115, 115, 115)", ink: "rgb(23, 23, 23)" },
