@@ -65,6 +65,14 @@ export interface Env {
   /** The secret Memberful signs its webhooks to `/webhooks/memberful` with, which its Webhooks settings show. */
   MEMBERFUL_WEBHOOK_SECRET?: string;
   /**
+   * The site key of a Cloudflare Turnstile widget, which the open sign-up form shows, to check that
+   * whoever signs up is a person (turnstile.ts). Without it, or the secret key below, the form has no
+   * check, and only the sign-up limits hold bots back.
+   */
+  TURNSTILE_SITE_KEY?: string;
+  /** That widget's secret key, with which the Worker asks Cloudflare whether a check passed. */
+  TURNSTILE_SECRET_KEY?: string;
+  /**
    * The public half of the P-256 key pair that signs push notifications (VAPID), as ember-rust takes
    * it: the point, compressed or not, in URL-safe Base64. `pnpm vapid:keys` makes a pair. Without both
    * halves, or with a pair that doesn't match, push notifications are off. Browsers subscribe with it,

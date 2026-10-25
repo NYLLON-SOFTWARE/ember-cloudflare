@@ -4,6 +4,9 @@ import {
   isRoomId,
   NAVIGATION_SLOTS,
   parseWorkspaceClientFrame,
+  SIGN_UPS_PER_ADDRESS,
+  SIGN_UPS_PER_HOUR,
+  signsUpOpenly,
   withNavigationIcons,
   type Account,
   type AccountChanges,
@@ -92,6 +95,12 @@ const CACHED_SESSIONS = 10_000;
 const SIGN_IN_ATTEMPTS = 10;
 const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
 /**
+ * Open sign-up's limits' hour: the sign-ups from an IP address are counted in a fixed one, before the
+ * password is hashed, which takes more CPU than the rest of a request, and the new people in the
+ * workspace in the last one, counted from the people kept, whatever the Workspace's memory forgets.
+ */
+const SIGN_UP_WINDOW_MS = 60 * 60 * 1000;
+/**
  * Link previews someone may ask for in a minute. ember-rust only runs 16 at once, queueing the rest,
  * but a preview fetches any page someone names, which would make the Worker anyone's fetcher.
  */
@@ -148,6 +157,8 @@ const accountOf = ({
   customStyles,
   restrictRoomCreation,
   customDomain,
+  joinLink,
+  openSignUp,
   memberfulSignIn,
   navigationIcons,
   updatedAt,
@@ -160,6 +171,8 @@ const accountOf = ({
   restrictRoomCreation,
   logo: storedLogo && accountLogoPath(updatedAt),
   customDomain,
+  joinLink,
+  openSignUp,
   memberfulSignIn,
   navigationIcons,
 });
@@ -251,8 +264,11 @@ export interface WebhookAccess extends BotAccess, BotWebhook {}
  */
 export type MemberfulRefusal = "off" | "refused" | "membership" | "taken" | "claimed" | "another";
 
-/** What a join link does: joins, is off while members sign in with Memberful, or isn't the join link. */
-export type JoinLink = "joins" | "memberful" | "not found";
+/** What a join link does: joins, is off while an administrator has turned it off or members sign in with Memberful, or isn't the join link. */
+export type JoinLink = "joins" | "off" | "memberful" | "not found";
+
+/** Why open sign-up lets nobody in: it's off, or the workspace has let in as many new people as it does in an hour. */
+export type SignUpRefusal = "closed" | "full";
 
 /** The workspace as pages show it before first run: named "Ember" and looking as a new one does, as in ember-rust. */
 export const ACCOUNT_BEFORE_SETUP: Account = { name: ACCOUNT_NAME, ...NEW_ACCOUNT_LOOKS, logo: null };
@@ -330,6 +346,7 @@ export class Workspace extends DurableObject<Env> {
   /** Counts the starts and ends of bans and lifted bans, so a read of the banned addresses that overlapped one isn't kept. */
   private banChanges = 0;
   private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
+  private readonly signUps = new FixedWindowLimit(SIGN_UPS_PER_ADDRESS, SIGN_UP_WINDOW_MS);
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
   /** The probes custom domain checks send, each with its answer and when it's no longer waited for (see `expectProbe`). */
   private readonly probes = new Map<string, { answer: string; until: number }>();
@@ -461,12 +478,14 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * What the join link with `code` does: "not found" unless `code` is the workspace's join code, which it
-   * can't be before first run, and "memberful" while members sign in with Memberful, which turns it off.
+   * can't be before first run, "memberful" while members sign in with Memberful, which turns it off, and
+   * "off" while an administrator has turned it off.
    */
   async joinLink(code: string): Promise<JoinLink> {
     const account = await this.joinableAccount();
     if (account === null || !isCode(code, account.joinCode)) return "not found";
-    return account.memberfulSignIn ? "memberful" : "joins";
+    if (account.memberfulSignIn) return "memberful";
+    return account.joinLink ? "joins" : "off";
   }
 
   /** What the app asks first: the account, if it's set up, and who `credentials` signs in, if anyone. */
@@ -478,9 +497,9 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Workspace settings as the person `credentials` signs in sees them, which ember-rust shows anyone
    * signed in (accounts.rs, `edit`): "not set up" before first run, or null without a valid session. The
-   * Worker adds what it knows of the Memberful site from its keys.
+   * Worker adds what it knows of the Memberful site and Turnstile from its keys.
    */
-  async workspaceSettings(credentials: Credentials): Promise<Omit<WorkspaceSettings, "memberfulSite" | "memberfulWebhooks"> | "not set up" | null> {
+  async workspaceSettings(credentials: Credentials): Promise<Omit<WorkspaceSettings, "memberfulSite" | "memberfulWebhooks" | "turnstile"> | "not set up" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const [account, canAdminister] = await Promise.all([this.joinableAccount(), this.store.isAdministrator(user.id)]);
@@ -490,13 +509,17 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Makes `changes` to the workspace as the person `credentials` signs in, answering the account as it
    * is then: "forbidden" unless they're an administrator, as ember-rust's `update` insists
-   * (accounts.rs), or null without a valid session. Everyone's workspace sockets hear of a change, a
+   * (accounts.rs), "conflict" for turning on Open or Memberful sign-in while the other is on, which
+   * changes nothing, or null without a valid session. Everyone's workspace sockets hear of a change, a
    * new custom domain included, which tabs open at another address then point to.
    */
-  async changeAccount(credentials: Credentials, { name, tagline, settings, customDomain, navigationIcons }: AccountChanges): Promise<Account | "forbidden" | null> {
+  async changeAccount(
+    credentials: Credentials,
+    { name, tagline, settings, customDomain, navigationIcons }: AccountChanges,
+  ): Promise<Account | "forbidden" | "conflict" | null> {
     return this.administerAccount(credentials, async (account) => {
       // As ember-rust's `Account::update` writes only what differs (account.rs).
-      const { hideTranslationButtons, restrictRoomCreation, memberfulSignIn } = settings ?? {};
+      const { hideTranslationButtons, restrictRoomCreation, joinLink, openSignUp, memberfulSignIn } = settings ?? {};
       const icons = changedNavigationIcons(account.navigationIcons, navigationIcons ?? {});
       const change: AccountChange = {
         ...(name !== undefined && name !== account.name && { name }),
@@ -504,9 +527,15 @@ export class Workspace extends DurableObject<Env> {
         ...(hideTranslationButtons !== undefined && hideTranslationButtons !== account.hideTranslationButtons && { hideTranslationButtons }),
         ...(restrictRoomCreation !== undefined && restrictRoomCreation !== account.restrictRoomCreation && { restrictRoomCreation }),
         ...(customDomain !== undefined && customDomain !== account.customDomain && { customDomain }),
+        ...(joinLink !== undefined && joinLink !== account.joinLink && { joinLink }),
+        ...(openSignUp !== undefined && openSignUp !== account.openSignUp && { openSignUp }),
         ...(memberfulSignIn !== undefined && memberfulSignIn !== account.memberfulSignIn && { memberfulSignIn }),
         ...(icons && { navigationIcons: icons }),
       };
+      // Open lets anyone in, and Memberful sign-in only its members, so neither is turned on while the other is.
+      const open = change.openSignUp ?? account.openSignUp;
+      const memberful = change.memberfulSignIn ?? account.memberfulSignIn;
+      if (open && memberful && (change.openSignUp || change.memberfulSignIn)) return "conflict";
       if (Object.keys(change).length === 0) return accountOf(account);
       const changed = { ...account, ...change, navigationIcons: withNavigationIcons(account.navigationIcons, icons ?? {}) };
       const shown = await this.publishAccount(changed, (now) => this.store.changeAccount(change, now));
@@ -653,25 +682,68 @@ export class Workspace extends DurableObject<Env> {
    * Adds someone who joined with the join link for `code` as a member, in every open room, and the
    * session their cookie's token opens, as ember-rust's `users#create` does. Everyone's workspace
    * sockets hear of them, so pages already open know them. Answers "not found" if `code` isn't the join
-   * code, "memberful" while members sign in with Memberful, and null if someone already has their email
-   * address.
+   * code, "memberful" while members sign in with Memberful, "off" while the link is off, and null if
+   * someone already has their email address.
    */
   async join(code: string, person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | Exclude<JoinLink, "joins"> | null> {
     // The Worker checked the link before the form arrived, but it may have been regenerated or turned off since.
     return this.oneAtATime(async () => {
       const link = await this.joinLink(code);
-      if (link !== "joins") return link;
-      const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: person.name }, administrator: false, guest: false, lastActiveAt: Date.now() };
-      try {
-        await this.store.createMember({ ...person, id: session.user.id }, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
-      } catch (error) {
-        if (await this.store.hasEmailAddress(person.emailAddress)) return null;
-        throw error;
-      }
-      this.sessions.remember(tokenDigest, session);
-      await this.publishPerson(session.user.id);
-      return meOf(session);
+      return link === "joins" ? this.addMember(person, tokenDigest, client) : link;
     });
+  }
+
+  /**
+   * Counts an open sign-up from `ip` against its limit, then checks it can go on, all before the Worker
+   * hashes its password (`auth.open-sign-up`): "closed" unless anyone may sign up, "limited" past the
+   * address's limit, "full" once the workspace has let in as many new people as it does in an hour,
+   * "taken" if someone has the email address already, and else "begun".
+   */
+  async beginSignUp(ip: string, emailAddress: string): Promise<SignUpRefusal | "limited" | "taken" | "begun"> {
+    const account = await this.joinableAccount();
+    if (account === null || !signsUpOpenly(account)) return "closed";
+    if (!this.signUps.attempt(ip)) return "limited";
+    if (await this.signUpsFull()) return "full";
+    return (await this.store.hasEmailAddress(emailAddress)) ? "taken" : "begun";
+  }
+
+  /**
+   * Adds someone who signed up while anyone may as a member, as `join` adds someone with the join link.
+   * Answers "closed" if sign-up has closed since it began, "full" if the hour's new people have filled
+   * it since, and null if someone already has their email address.
+   */
+  async signUp(person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | SignUpRefusal | null> {
+    // One at a time, so that the hour's sign-ups never pass the limit together.
+    return this.oneAtATime(async () => {
+      const account = await this.joinableAccount();
+      if (account === null || !signsUpOpenly(account)) return "closed";
+      if (await this.signUpsFull()) return "full";
+      return this.addMember(person, tokenDigest, client);
+    });
+  }
+
+  /** Whether the workspace has let in as many new people in the last hour as open sign-up lets in, bots aside. */
+  private async signUpsFull(): Promise<boolean> {
+    const since = new Date(Date.now() - SIGN_UP_WINDOW_MS).toISOString();
+    return (await this.store.peopleJoinedSince(since, SIGN_UPS_PER_HOUR)) >= SIGN_UPS_PER_HOUR;
+  }
+
+  /**
+   * Adds `person` as a member, in every open room, with the session their cookie's token opens, and tells
+   * everyone's workspace sockets, as joining does, answering who they are, or null if someone already
+   * has their email address.
+   */
+  private async addMember(person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | null> {
+    const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: person.name }, administrator: false, guest: false, lastActiveAt: Date.now() };
+    try {
+      await this.store.createMember({ ...person, id: session.user.id }, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
+    } catch (error) {
+      if (await this.store.hasEmailAddress(person.emailAddress)) return null;
+      throw error;
+    }
+    this.sessions.remember(tokenDigest, session);
+    await this.publishPerson(session.user.id);
+    return meOf(session);
   }
 
   /**

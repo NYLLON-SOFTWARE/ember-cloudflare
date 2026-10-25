@@ -19,7 +19,7 @@ const TRANSFER_ID = "u2.mgk3x2a9.Ab-_9z";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 /** The workspace as it's set up. */
-const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false, navigationIcons: {} };
+const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} };
 /** What the deployment's Set up Ember form suggests. */
 const PLACEHOLDERS = { name: "Grace Hopper", emailAddress: "grace@example.com" };
 const general = { id: "general", name: "general", kind: "open", icon: null };
@@ -117,7 +117,7 @@ function serve({
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const route = `${init?.method ?? "GET"} ${String(input)}`;
     if (route === "GET /api/bootstrap") {
-      return Response.json({ setup, setupAccess, setupPlaceholders: PLACEHOLDERS, guestSignIn, account, version: "0.1", vapidPublicKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
+      return Response.json({ setup, setupAccess, setupPlaceholders: PLACEHOLDERS, guestSignIn, account, version: "0.1", vapidPublicKey: null, turnstileSiteKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
     }
     if (route === "POST /api/first_run") {
       [setup, signedIn, rooms] = ["complete", true, firstRooms];
@@ -140,7 +140,7 @@ function serve({
       [signedIn, me] = [true, grace];
       return Response.json({ user: grace }, { status: 201 });
     }
-    if (route === `POST /api/join/${JOIN_CODE}`) {
+    if (route === `POST /api/join/${JOIN_CODE}` || (route === "POST /api/join" && account.openSignUp)) {
       const { emailAddress } = JSON.parse(String(init?.body)) as Record<string, string>;
       if (emailAddress === "ada@example.com") return Response.json({ error: "That email address has an account already", redirect: ADA_SIGNS_IN }, { status: 409 });
       [signedIn, me] = [true, grace];
@@ -801,6 +801,33 @@ describe(feature("auth.sign-up"), () => {
     render(<App />);
     expect(await roomHeading()).toBeInTheDocument();
     // Home, which goes on to the last room visited.
+    expect(location.pathname).toBe("/rooms/general");
+  });
+});
+
+describe(feature("auth.open-sign-up"), () => {
+  it("opens open sign-up's page, and goes home signed in once the account is made", async () => {
+    history.replaceState(null, "", "/join");
+    const fetch = serve({ signedIn: false, account: { ...EMBER, openSignUp: true } });
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Join Ember" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/join");
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Name"), "Grace");
+    await user.type(screen.getByLabelText("Email address"), "grace@example.com");
+    await user.type(screen.getByLabelText("Password"), "compiler{Enter}");
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith("/api/join", expect.objectContaining({ method: "POST" }));
+    expect(location.pathname).toBe("/rooms/general");
+    expect(screen.getAllByRole("link", { name: "Your profile" })[0]).toHaveAttribute("title", "Grace");
+  });
+
+  it("sends someone who's signed in home from it", async () => {
+    history.replaceState(null, "", "/join");
+    serve({ signedIn: true, account: { ...EMBER, openSignUp: true } });
+    render(<App />);
+    expect(await roomHeading()).toBeInTheDocument();
     expect(location.pathname).toBe("/rooms/general");
   });
 });

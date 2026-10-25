@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { NAVIGATION_SLOTS, TRANSFER_PATH, type Account, type Bootstrap, type Me, type NewWorkspace } from "@ember/protocol";
+import { NAVIGATION_SLOTS, SIGN_UP_PATH, TRANSFER_PATH, type Account, type Bootstrap, type Me, type NewWorkspace } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { JoinPage } from "@/components/join-page";
 import { SetupPage } from "@/components/setup-page";
@@ -35,6 +35,8 @@ const isSameAccount = (a: Account, b: Account) =>
   a.restrictRoomCreation === b.restrictRoomCreation &&
   a.logo === b.logo &&
   a.customDomain === b.customDomain &&
+  a.joinLink === b.joinLink &&
+  a.openSignUp === b.openSignUp &&
   a.memberfulSignIn === b.memberfulSignIn &&
   NAVIGATION_SLOTS.every((slot) => a.navigationIcons[slot] === b.navigationIcons[slot]);
 
@@ -45,6 +47,7 @@ export function App() {
   // As in ember-rust, the sign-in page opens even for someone who's signed in.
   const atSignIn = useIsAt(SIGN_IN_PATH);
   const joinCode = useJoinRoute();
+  const atSignUp = useIsAt(SIGN_UP_PATH);
   const atTransfer = useIsAt(TRANSFER_PATH);
   const signingOut = useRef(false);
   // Before any page has fields, so even one focused as it opens is selected.
@@ -73,8 +76,9 @@ export function App() {
           // Until Ember is set up, every page is setup's, which says what it takes where it isn't open.
           if (workspace.setup === "pending" && !atSetup) return loadPage(SETUP_PATH);
           if (workspace.setup === "complete" && atSetup) history.replaceState(history.state, "", "/");
-          // The join page is for someone signed out, as in ember-rust, which sends anyone else home.
-          const atJoin = joinCodeFromPath(location.pathname) !== null;
+          // The join page is for someone signed out, as in ember-rust, which sends anyone else home, and so
+          // is open sign-up's.
+          const atJoin = joinCodeFromPath(location.pathname) !== null || location.pathname === SIGN_UP_PATH;
           if (user && atJoin) navigate("/", { replace: true });
           // Someone signed out goes to sign in, and comes back here afterwards. A sign-in link signs them in itself.
           if (workspace.setup === "complete" && !user && location.pathname !== SIGN_IN_PATH && !atJoin && location.pathname !== TRANSFER_PATH) {
@@ -172,7 +176,7 @@ export function App() {
           />
         </PushProvider>
       );
-    if (joinCode !== null) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
+    if (joinCode !== null || atSignUp) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
     return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
   };
   // Keyed by who's signed in, so whoever signs in, or in another tab, doesn't see the last page's

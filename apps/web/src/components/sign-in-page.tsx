@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { MAX_PASSWORD_LENGTH, MEMBERFUL_CONNECTED, MEMBERFUL_SIGN_IN_PROBLEMS, memberfulSignInPath, SIGN_IN_LIMITED, SIGN_IN_REJECTED, type Me } from "@ember/protocol";
+import {
+  MAX_PASSWORD_LENGTH,
+  MEMBERFUL_CONNECTED,
+  MEMBERFUL_SIGN_IN_PROBLEMS,
+  memberfulSignInPath,
+  SIGN_IN_LIMITED,
+  SIGN_IN_REJECTED,
+  SIGN_UP_PATH,
+  signsUpOpenly,
+  type Me,
+} from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import { FIELD_INPUT, Field, PRIMARY_BUTTON, SubmitButton } from "@/components/field";
@@ -8,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTitle } from "@/hooks/use-title";
 import { ApiError, signIn } from "@/lib/api";
+import { forgetJoiningProblem, joiningProblemOnArrival } from "@/lib/joining";
 import { forgetMemberfulOutcome, memberfulOutcomeOnArrival } from "@/lib/memberful";
 import { returnPath } from "@/lib/return-path";
 
@@ -16,7 +27,9 @@ import { returnPath } from "@/lib/return-path";
 // pull request #24 does in place of its flash, keeping the email address and emptying the password, as
 // its page does when it's shown again. While members sign in with Memberful, this port's own, the card offers that
 // instead, and the email and password form to those who ask for it: administrators, and members with an
-// account from before, whose password then asks them to connect their Memberful account.
+// account from before, whose password then asks them to connect their Memberful account. While anyone may
+// sign up, it links to the page for that (`auth.open-sign-up`), and it says why a way to join that's off
+// sent someone here (`accounts.ways-to-join`).
 
 /** What a Memberful sign-in that came back here says went wrong, as this page's address names it, if it does. */
 function memberfulProblemOnArrival() {
@@ -38,7 +51,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
   const [emailAddress, setEmailAddress] = useState(() => new URLSearchParams(location.search).get("email_address") ?? "");
   const [busy, setBusy] = useState(false);
   const [shaking, setShaking] = useState(false);
-  const [problem, setProblem] = useState<string | null>(arrival && MEMBERFUL_SIGN_IN_PROBLEMS[arrival]);
+  const [problem, setProblem] = useState<string | null>(() => (arrival ? MEMBERFUL_SIGN_IN_PROBLEMS[arrival] : joiningProblemOnArrival()));
   /** Why the last sign-in was refused, said at the top of the form. */
   const [refusal, setRefusal] = useState<string | null>(null);
   /** Where to connect your Memberful account, once your password has checked out but you have yet to connect one. */
@@ -46,7 +59,10 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
   const passwordInput = useRef<HTMLInputElement>(null);
 
   useTitle("Sign in");
-  useEffect(forgetMemberfulOutcome, []);
+  useEffect(() => {
+    forgetMemberfulOutcome();
+    forgetJoiningProblem();
+  }, []);
 
   async function submit() {
     setBusy(true);
@@ -141,6 +157,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
               ) : (
                 <AuthAlternative question="Have a password?" action="Sign in with a password" onClick={() => setWithPassword(true)} />
               ))}
+            {signsUpOpenly(workspace.account) && <AuthAlternative question="New here?" action="Create an account" href={SIGN_UP_PATH} />}
             {workspace.guestSignIn && <AuthAlternative question="No account?" action="Join with just a name" onClick={() => setAsGuest(true)} disabled={busy} />}
           </>
         )}

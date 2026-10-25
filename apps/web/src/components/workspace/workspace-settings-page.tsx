@@ -33,13 +33,13 @@ import { apart } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { CustomDomainSettings } from "./custom-domain-settings";
 import { InviteLink } from "./invite-link";
-import { MemberfulSettings } from "./memberful-settings";
 import { NavigationIconSettings } from "./navigation-icon-settings";
 import { PeopleList } from "./people-list";
 import { PicturePicker } from "./picture-picker";
 import { RoomOrder } from "./room-order";
 import { workspaceSectionOf } from "./settings-navigation";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
+import { HowPeopleJoin, WaysToJoin } from "./ways-to-join";
 
 /** What ember-rust's redirect back to settings says once the name is saved, changed or not (accounts.rs). */
 export const CHANGES_SAVED = "Changes saved.";
@@ -87,10 +87,10 @@ interface Props {
  * - Rooms and permissions (accounts/_room_settings.html): New room, which members don't get while only
  *   administrators can create rooms, then for administrators, the switch that says so and the rooms'
  *   order for everyone, each linking to its settings.
- * - Membership (accounts/_membership_settings.html): for administrators, Memberful sign-in, this port's own,
- *   then the join link, which administrators can regenerate, or while members sign in with Memberful, a
- *   note that it's off, then the administrators and members, whom administrators can make administrators
- *   or members and remove.
+ * - Membership (accounts/_membership_settings.html): for administrators, who can join, this port's own,
+ *   with switches for Open, the join link, which they can regenerate, and Memberful sign-in, or for
+ *   members, the links that let people in, then the administrators and members, whom administrators can
+ *   make administrators or members and remove.
  */
 export function WorkspaceSettingsPage({
   me,
@@ -121,9 +121,8 @@ export function WorkspaceSettingsPage({
   // The navigation icons chosen until Save changes saves them. Only these are sent, where ember-rust's
   // form sends all eight, so that saving never puts back what another tab changed in the others.
   const [iconChanges, setIconChanges] = useState<NavigationIconChanges>({});
-  // Where Must be admin to create new rooms and Members sign in with Memberful were moved to, while that's saved.
+  // Where Must be admin to create new rooms was moved to, while that's saved.
   const [restrictingCreation, setRestrictingCreation] = useState<boolean | null>(null);
-  const [switchingMemberful, setSwitchingMemberful] = useState<boolean | null>(null);
   const account = useAccount();
   const name = typedName ?? account.name;
   const tagline = typedTagline ?? account.tagline;
@@ -260,11 +259,6 @@ export function WorkspaceSettingsPage({
     if (restrictingCreation !== null) return;
     setRestrictingCreation(restrict);
     saveSwitch({ restrictRoomCreation: restrict }, () => setRestrictingCreation(null));
-  };
-  const switchMemberful = (on: boolean) => {
-    if (switchingMemberful !== null) return;
-    setSwitchingMemberful(on);
-    saveSwitch({ memberfulSignIn: on }, () => setSwitchingMemberful(null));
   };
   const sharedRooms = useMemo(() => rooms && apart(rooms).shared, [rooms]);
 
@@ -458,25 +452,14 @@ export function WorkspaceSettingsPage({
         {settings && (
           // `.mb-membership-content`.
           <div className="min-w-0">
-            {settings.canAdminister && (
-              <div className="mb-4">
-                <MemberfulSettings
-                  site={settings.memberfulSite}
-                  webhooks={settings.memberfulWebhooks}
-                  checked={switchingMemberful ?? account.memberfulSignIn}
-                  onCheckedChange={switchMemberful}
-                />
-              </div>
-            )}
-            {account.memberfulSignIn ? (
-              <p className="text-start">
-                <strong>Members sign in with Memberful</strong>, so the join link is off.
-              </p>
+            {settings.canAdminister ? (
+              <WaysToJoin
+                settings={settings}
+                saveSwitch={saveSwitch}
+                joinLink={<InviteLink joinCode={settings.joinCode} onRegenerate={regenerate} regenerating={regenerating} />}
+              />
             ) : (
-              // `#account_invitation`, a card on the surface.
-              <div className="rounded-[10px] border bg-surface p-5 upto-500px:p-3.5">
-                <InviteLink joinCode={settings.joinCode} onRegenerate={settings.canAdminister ? regenerate : undefined} regenerating={regenerating} />
-              </div>
+              <HowPeopleJoin joinLink={<InviteLink joinCode={settings.joinCode} />} />
             )}
             <hr className="my-4 w-full" />
             <PeopleList

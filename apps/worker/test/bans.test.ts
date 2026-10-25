@@ -830,6 +830,7 @@ describe(feature("accounts.ban-enforcement"), () => {
       ["DELETE", "/api/session"],
       ["POST", "/api/session/transfers", { transferId }],
       ["POST", `/api/join/${joinCode}`, { name: "Hal", emailAddress: "hal@example.com", password: "heuristically" }],
+      ["POST", "/api/join", { name: "Hal", emailAddress: "hal@example.com", password: "heuristically" }],
       ["PATCH", "/api/account", { name: "Banned" }],
       ["POST", "/api/account/join_code"],
       ["PATCH", "/api/account/custom_styles", { customStyles: "body { color: red }" }],

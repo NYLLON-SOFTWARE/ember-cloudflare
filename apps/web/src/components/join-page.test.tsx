@@ -1,13 +1,26 @@
 import { feature } from "@ember/parity";
-import { AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH, PASSWORD_TOO_LONG, type Bootstrap } from "@ember/protocol";
-import { render, screen, waitFor } from "@testing-library/react";
+import {
+  AVATAR_TOO_LARGE,
+  JOINING_PROBLEMS,
+  MAX_AVATAR_SIZE,
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  PASSWORD_TOO_LONG,
+  SIGN_UP_FULL,
+  SIGN_UP_LIMITED,
+  TURNSTILE_FAILED,
+  signInSaying,
+  type Bootstrap,
+} from "@ember/protocol";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { loadPage } from "@/lib/page";
 import { CHROME_MAC } from "@/test-platforms";
 import avatarPlaceholder from "./avatar-placeholder.svg";
-import { JoinPage } from "./join-page";
+import { JoinPage, TURNSTILE_UNAVAILABLE } from "./join-page";
+import type { Turnstile } from "./turnstile-check";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
@@ -18,7 +31,8 @@ const workspace: Omit<Bootstrap, "user"> = {
   setupAccess: "link",
   setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
   guestSignIn: false,
-  account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false, navigationIcons: {} },
+  turnstileSiteKey: null,
+  account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} },
   version: "0.1",
   vapidPublicKey: null,
   platform: CHROME_MAC,
@@ -44,6 +58,9 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.mocked(loadPage).mockClear();
   history.replaceState(null, "", "/");
+  delete window.turnstile;
+  for (const script of document.head.querySelectorAll("script")) script.remove();
+  document.documentElement.classList.remove("dark");
 });
 
 const photo = () => screen.getByRole("img", { name: "Your profile photo" });
@@ -191,6 +208,131 @@ describe(feature("auth.sign-up"), () => {
     expect(screen.getByRole("button", { name: "Create account" })).toBeDisabled();
     expect(photoField()).toBeDisabled();
     await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  });
+});
+
+describe(feature("auth.open-sign-up"), () => {
+  const open = { ...workspace, account: { ...workspace.account, openSignUp: true } };
+  const SITE_KEY = "1x00000000000000000000AA";
+  const checked = { ...open, turnstileSiteKey: SITE_KEY };
+  const createAccount = () => screen.getByRole("button", { name: "Create account" });
+
+  /** Plays Turnstile's script, whose checks are drawn as `w1`, `w2` and so on, and pass or expire as the test says. */
+  function fakeTurnstile() {
+    const drawn: Parameters<Turnstile["render"]>[] = [];
+    const turnstile = { render: vi.fn<Turnstile["render"]>((...check) => `w${drawn.push(check)}`), remove: vi.fn<Turnstile["remove"]>() };
+    window.turnstile = turnstile;
+    const latest = () => drawn.at(-1)![1];
+    return { turnstile, drawn, pass: (token: string) => act(() => latest().callback(token)), expire: () => act(() => latest()["expired-callback"]()) };
+  }
+
+  it("signs up without a link, posting to sign-up's own address", async () => {
+    const fetch = respond(201, { user: grace });
+    const onJoined = vi.fn();
+    render(<JoinPage workspace={open} joinCode={null} onJoined={onJoined} />);
+    expect(screen.getByRole("heading", { level: 1, name: "Join Ember" })).toBeInTheDocument();
+    await join();
+    await waitFor(() => expect(onJoined).toHaveBeenCalledWith(grace));
+    const [path, init] = fetch.mock.calls[0]!;
+    expect(path).toBe("/api/join");
+    expect(JSON.parse(String(init!.body))).toEqual({ name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler" });
+  });
+
+  it("waits for Turnstile's check, drawn in the page's appearance and as wide as the form, then sends its token", async () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(352);
+    document.documentElement.classList.add("dark");
+    const fetch = respond(201, { user: grace });
+    const { turnstile, pass } = fakeTurnstile();
+    const onJoined = vi.fn();
+    render(<JoinPage workspace={checked} joinCode={null} onJoined={onJoined} />);
+    await waitFor(() => expect(turnstile.render).toHaveBeenCalledOnce());
+    const [container, options] = turnstile.render.mock.calls[0]!;
+    expect(container.compareDocumentPosition(createAccount())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(options).toMatchObject({ sitekey: SITE_KEY, theme: "dark", size: "flexible", "response-field": false });
+    expect(createAccount()).toBeDisabled();
+
+    pass("passed-token");
+    expect(createAccount()).toBeEnabled();
+    await join();
+    await waitFor(() => expect(onJoined).toHaveBeenCalledWith(grace));
+    expect(JSON.parse(String(fetch.mock.calls[0]![1]!.body))).toEqual({ name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler", turnstileToken: "passed-token" });
+  });
+
+  it("draws the check compact where the form is narrower than its flexible size, in light", async () => {
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(280);
+    const { turnstile } = fakeTurnstile();
+    render(<JoinPage workspace={checked} joinCode={null} onJoined={vi.fn()} />);
+    await waitFor(() => expect(turnstile.render).toHaveBeenCalledOnce());
+    expect(turnstile.render.mock.calls[0]![1]).toMatchObject({ theme: "light", size: "compact" });
+  });
+
+  it("waits again once the check's token expires", async () => {
+    const { turnstile, pass, expire } = fakeTurnstile();
+    render(<JoinPage workspace={checked} joinCode={null} onJoined={vi.fn()} />);
+    await waitFor(() => expect(turnstile.render).toHaveBeenCalledOnce());
+    pass("passed-token");
+    expire();
+    expect(createAccount()).toBeDisabled();
+  });
+
+  it("draws the check afresh after a try that fails, as a token is good once, and says why", async () => {
+    const fetch = respond(422, { error: TURNSTILE_FAILED, field: "turnstile" });
+    const { turnstile, pass } = fakeTurnstile();
+    render(<JoinPage workspace={checked} joinCode={null} onJoined={vi.fn()} />);
+    await waitFor(() => expect(turnstile.render).toHaveBeenCalledOnce());
+    pass("spent-token");
+    await join();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(TURNSTILE_FAILED);
+    await waitFor(() => expect(turnstile.render).toHaveBeenCalledTimes(2));
+    expect(turnstile.remove).toHaveBeenCalledWith("w1");
+    expect(createAccount()).toBeDisabled();
+    expect(screen.getByLabelText("Name")).toHaveValue("Grace Hopper");
+
+    fetch.mockResolvedValue(Response.json({ user: grace }, { status: 201 }));
+    pass("fresh-token");
+    await userEvent.click(createAccount());
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(String(fetch.mock.calls[1]![1]!.body))).toMatchObject({ turnstileToken: "fresh-token" });
+  });
+
+  it("loads Turnstile's script from Cloudflare, and says so if it doesn't load", async () => {
+    render(<JoinPage workspace={checked} joinCode={null} onJoined={vi.fn()} />);
+    const script = document.head.querySelector("script")!;
+    expect(script.src).toBe("https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit");
+    act(() => script.dispatchEvent(new Event("error")));
+    expect(await screen.findByRole("alert")).toHaveTextContent(TURNSTILE_UNAVAILABLE);
+    expect(createAccount()).toBeDisabled();
+  });
+
+  it("takes the check away as the page goes", async () => {
+    const { turnstile } = fakeTurnstile();
+    const { unmount } = render(<JoinPage workspace={checked} joinCode={null} onJoined={vi.fn()} />);
+    await waitFor(() => expect(turnstile.render).toHaveBeenCalledOnce());
+    unmount();
+    expect(turnstile.remove).toHaveBeenCalledWith("w1");
+  });
+
+  it("shows no check on a join link's page, which has no limits to keep", async () => {
+    const { turnstile } = fakeTurnstile();
+    render(<JoinPage workspace={checked} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
+    expect(createAccount()).toBeEnabled();
+    await Promise.resolve();
+    expect(turnstile.render).not.toHaveBeenCalled();
+  });
+
+  it.each([SIGN_UP_LIMITED, SIGN_UP_FULL])("says when there have been too many sign-ups: %s", async (error) => {
+    respond(429, { error });
+    render(<JoinPage workspace={open} joinCode={null} onJoined={vi.fn()} />);
+    await join();
+    expect(await screen.findByRole("alert")).toHaveTextContent(error);
+  });
+
+  it("goes to sign in, which says why, once signing up has closed", async () => {
+    respond(403, { error: JOINING_PROBLEMS.closed, redirect: signInSaying("closed") });
+    render(<JoinPage workspace={open} joinCode={null} onJoined={vi.fn()} />);
+    await join();
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/session/new?joining=closed"));
   });
 });
 

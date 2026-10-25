@@ -261,6 +261,8 @@ const account = (memberfulSignIn: boolean): Account => ({
   restrictRoomCreation: false,
   logo: null,
   customDomain: null,
+  joinLink: true,
+  openSignUp: false,
   memberfulSignIn,
   navigationIcons: {},
 });

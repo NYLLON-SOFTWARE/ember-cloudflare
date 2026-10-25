@@ -8,6 +8,7 @@ import { urlOf } from "./request-url";
 // this origin or inline, which React's style attributes, Lexxy and an administrator's custom CSS
 // need; images from this origin, any HTTPS host, since a preview shows its page's image, and data
 // and blob URLs, which SVG previews and photos being picked use; and sockets open to this host alone.
+// The open sign-up page alone may load Turnstile's script and frame, while the deployment has its keys.
 
 /** Where browsers send what the policy blocked, which the Worker logs. */
 export const CSP_REPORT_PATH = "/csp-report";
@@ -20,29 +21,34 @@ const policies = new Map<string, string>();
 /** More than a deployment has hosts and builds in use; past it, the oldest policy is forgotten. */
 const MAX_POLICIES = 32;
 
+/** Where Turnstile's script and the frame it draws its check in come from. */
+const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
+
 /**
  * The policy for an answer to `request`, letting its page run the inline scripts whose SHA-256
- * hashes, in base64, are `scriptHashes`. Sockets name the host, since Safari reads `'self'` as the
- * page's own scheme alone, and on plain HTTP, as `wrangler dev` serves it, previews' images may load
- * over plain HTTP too. Written once for each host, scheme and set of hashes, since every answer gets one.
+ * hashes, in base64, are `scriptHashes`, and, with `turnstile`, Turnstile's check. Sockets name the
+ * host, since Safari reads `'self'` as the page's own scheme alone, and on plain HTTP, as `wrangler dev`
+ * serves it, previews' images may load over plain HTTP too. Written once for each host, scheme, set of
+ * hashes and check, since every answer gets one.
  */
-export function contentSecurityPolicy(request: Request, scriptHashes: readonly string[] = []): string {
+export function contentSecurityPolicy(request: Request, scriptHashes: readonly string[] = [], turnstile = false): string {
   const { host } = urlOf(request);
   const https = isHttps(request);
-  const key = `${https ? "https" : "http"} ${host} ${scriptHashes.join(" ")}`;
+  const key = `${https ? "https" : "http"} ${host} ${scriptHashes.join(" ")}${turnstile ? " turnstile" : ""}`;
   let policy = policies.get(key);
   if (policy === undefined) {
-    policy = writePolicy(host, https, scriptHashes);
+    policy = writePolicy(host, https, scriptHashes, turnstile);
     if (policies.size >= MAX_POLICIES) policies.delete(policies.keys().next().value!);
     policies.set(key, policy);
   }
   return policy;
 }
 
-function writePolicy(host: string, https: boolean, scriptHashes: readonly string[]): string {
+function writePolicy(host: string, https: boolean, scriptHashes: readonly string[], turnstile: boolean): string {
   return [
     "default-src 'self'",
-    ["script-src 'self'", ...scriptHashes.map((hash) => `'sha256-${hash}'`)].join(" "),
+    ["script-src 'self'", ...scriptHashes.map((hash) => `'sha256-${hash}'`), ...(turnstile ? [TURNSTILE_ORIGIN] : [])].join(" "),
+    ...(turnstile ? [`frame-src ${TURNSTILE_ORIGIN}`] : []),
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' https:${https ? "" : " http:"} data: blob:`,
     "media-src 'self' blob:",

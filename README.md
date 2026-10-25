@@ -225,6 +225,37 @@ record is why the address must be a name under the domain, such as chat.example.
 itself can't be a CNAME. Once Custom Hostnames shows the address and its certificate active, carry
 on from Check DNS.
 
+### Who can join
+
+New people join with the join link until an administrator changes how under Who can join, in
+Workspace settings' Membership, where each way has a switch:
+
+- Open, off until it's turned on, lets anyone create an account at `https://<Ember's address>/join`,
+  which the sign-in page links to as Create an account. Each network can sign up 5 people an hour,
+  and once 50 people have joined in an hour, however they joined, signing up waits, so a flood can't
+  use up the rows Workers Free writes in a day. Nobody checks that an email address is the owner's.
+- Join link, on until it's turned off, lets in anyone with the link. Off, the link sends people to
+  sign in, and on again, it's the same link.
+- Memberful, below, lets in the members of a Memberful site. Open and Memberful can't both be on, and
+  while either is, the other ways are set aside.
+
+With all three off, nobody new can join.
+
+To have open sign-up check that whoever signs up is a person, make a
+[Turnstile](https://developers.cloudflare.com/turnstile/) widget for Ember's hostname in Managed mode,
+under Turnstile in the Cloudflare dashboard or with wrangler, which prints its site key and secret key,
+and give the Worker both as secrets:
+
+```sh
+pnpm exec wrangler turnstile widget create Ember --domain chat.example.com --mode managed
+pnpm exec wrangler secret put TURNSTILE_SITE_KEY     # add --name <worker> for a Worker not named in wrangler.jsonc
+pnpm exec wrangler secret put TURNSTILE_SECRET_KEY
+```
+
+The sign-up page then shows Turnstile's check, and the Worker asks Turnstile about each form before
+it makes the account. `pnpm run deploy` uploads the two when its environment has them, as it does
+Memberful's keys, so the Preview workflow passes repository secrets of the same names through.
+
 ### Memberful sign-in
 
 The members of a [Memberful](https://memberful.com) site can sign in with their Memberful accounts
@@ -419,6 +450,10 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
   without a setup token, setup is open or closed as [Deploying](#deploying) says.
 - `EMBER_GUEST_SIGN_IN=true` lets anyone with the address in with just a name, so keep it to
   `wrangler dev`, as `.dev.vars.example` says.
+- With Open on, anyone who finds the address can make an account, with any email address, and
+  create rooms unless Must be admin to create new rooms is on. Its limits keep a flood from filling
+  the free plan, and Turnstile, given its keys, keeps most bots out. The join link has no limits,
+  since its secrecy is the gate: regenerate it if it gets out.
 - With Memberful sign-in on, the Memberful site vouches for its members, so whoever runs it can sign
   in here as any of them. Administrators keep their passwords, so the site being down never locks
   them out. A webhook whose signature `MEMBERFUL_WEBHOOK_SECRET` doesn't check is refused, and even a

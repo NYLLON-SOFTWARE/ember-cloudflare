@@ -5,14 +5,20 @@ import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWork
 import avatarPlaceholder from "@/components/avatar-placeholder.svg";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { Camera } from "@/components/icons/iconoir";
+import { TurnstileCheck } from "@/components/turnstile-check";
 import { Input } from "@/components/ui/input";
 import { useChosenPhoto, type PhotoChoice } from "@/hooks/use-chosen-photo";
 import { useTitle } from "@/hooks/use-title";
-import { ApiError, joinWorkspace } from "@/lib/api";
+import { ApiError, joinWorkspace, signUp } from "@/lib/api";
 import { loadPage } from "@/lib/page";
 
 // ember-rust's join page (crates/views/templates/users/new.html), which the workspace's join link
-// opens for someone signed out.
+// opens for someone signed out. Without a code it's open sign-up's page, this port's own
+// (`auth.open-sign-up`), which shows Turnstile's check while the deployment has its keys.
+
+/** What the page says when Turnstile's script doesn't load, so there's no check to pass. */
+export const TURNSTILE_UNAVAILABLE =
+  "Ember couldn't load Cloudflare's check that you're a person. Check your connection, and anything that blocks challenges.cloudflare.com, then reload the page.";
 
 /**
  * `.mb-auth-avatar .input--file`: Campfire's `.btn` as ember-rust's zz-ember.css sets it, holding the
@@ -23,12 +29,16 @@ const UPLOAD_BUTTON =
 
 interface Props {
   workspace: SignedOutWorkspace;
-  /** The code from the join link, which the Worker checked before serving the page. */
-  joinCode: string;
+  /** The code from the join link, which the Worker checked before serving the page, or null for signing up without one. */
+  joinCode: string | null;
   onJoined: (me: Me) => void;
 }
 
-/** Creates an account with the join link, with the photo chosen, as a member in every open room, and signs in as it. */
+/**
+ * Creates an account with the join link, or without one while anyone may sign up, with the photo chosen,
+ * as a member in every open room, and signs in as it. Signing up without a link waits for Turnstile's
+ * check to pass while the deployment has its keys, and draws it afresh for each try.
+ */
 export function JoinPage({ workspace, joinCode, onJoined }: Props) {
   const [name, setName] = useState("");
   const [emailAddress, setEmailAddress] = useState("");
@@ -36,16 +46,27 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
   const [problem, setProblem] = useState<string | null>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
   const photo = useChosenPhoto();
+  const siteKey = joinCode === null ? workspace.turnstileSiteKey : null;
+  // The token of the check passed, which is good for one try, and how many tries the check has been drawn for.
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [tries, setTries] = useState(0);
 
   useTitle("Sign up");
 
   async function submit() {
     setBusy(true);
     setProblem(null);
+    const person = { name, emailAddress, password: passwordInput.current?.value ?? "" };
     try {
-      onJoined(await joinWorkspace(joinCode, { name, emailAddress, password: passwordInput.current?.value ?? "" }, await photo.photo()));
+      const chosen = await photo.photo();
+      const user = joinCode === null ? await signUp(siteKey === null ? person : { ...person, turnstileToken: turnstileToken ?? "" }, chosen) : await joinWorkspace(joinCode, person, chosen);
+      onJoined(user);
     } catch (error) {
       setBusy(false);
+      if (siteKey !== null) {
+        setTurnstileToken(null);
+        setTries((tries) => tries + 1);
+      }
       if (!(error instanceof ApiError)) return setProblem("Couldn't reach Ember. Check your connection and try again.");
       // An email address with an account goes to sign in with it filled in, and someone who signed in
       // elsewhere meanwhile goes home, as ember-rust redirects both.
@@ -112,7 +133,8 @@ export function JoinPage({ workspace, joinCode, onJoined }: Props) {
               className={FIELD_INPUT}
             />
           </Field>
-          <SubmitButton disabled={busy}>Create account</SubmitButton>
+          {siteKey !== null && <TurnstileCheck key={tries} siteKey={siteKey} onToken={setTurnstileToken} onUnavailable={() => setProblem(TURNSTILE_UNAVAILABLE)} />}
+          <SubmitButton disabled={busy || (siteKey !== null && turnstileToken === null)}>Create account</SubmitButton>
         </form>
         <AuthAlternative question="Already have an account?" action="Sign in" href="/session/new" />
       </AuthCard>
