@@ -49,6 +49,7 @@ import {
   type ProfileAnswer,
   type RoomId,
   type RoomSettings,
+  type SentTestEmail,
   type Sidebar,
   type StartedDirect,
   type UserId,
@@ -84,7 +85,7 @@ import { fileAddressOf, serveFile } from "./files/serving";
 import { pictureFormOf } from "./files/pictures";
 import { NO_STORAGE, startUpload, uploadPart, uploadPreview } from "./files/uploads";
 import { CSP_REPORT_PATH, cspReport } from "./csp";
-import { answerProbe, customDomainRefusal, probeOf, reachOf } from "./custom-domain";
+import { answerProbe, customDomainRefusal, originFor, probeOf, reachOf } from "./custom-domain";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { join, joinCodeOf, joinPage, signUp, signUpPage } from "./join";
@@ -243,6 +244,19 @@ async function workspaceSettings(request: Request, env: Env): Promise<Response> 
   if (settings === "not set up") return problem(404, "Ember isn't set up yet");
   const deployment = { memberfulSite: memberfulKeysOf(env)?.site ?? null, memberfulWebhooks: memberfulWebhooksOf(env) !== null, turnstile: turnstileKeysOf(env) !== null };
   return json({ ...settings, ...deployment } satisfies WorkspaceSettings, { headers: { "Cache-Control": "no-store" } });
+}
+
+/**
+ * Sends the administrator asking a test email, as Membership's Send me a test email does, answering the
+ * address it went to, or why it wasn't sent, with the status the Workspace gives that.
+ */
+async function sendTestEmail(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const ember = workspace(env);
+  const sent = credentials && (await ember.sendTestEmail(credentials, originFor(request, (await ember.account())?.customDomain ?? null)));
+  if (!sent) return problem(401, "Not signed in");
+  if (sent === "forbidden") return problem(403, "Only administrators can change the workspace");
+  return "refusal" in sent ? problem(sent.status, sent.refusal) : json(sent satisfies SentTestEmail);
 }
 
 /** Gives the join link a new code, as an administrator's Regenerate join link does, answering it. */
@@ -833,6 +847,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account" && request.method === "GET") return () => workspaceSettings(request, env);
   if (pathname === "/api/account" && request.method === "PATCH") return () => changeAccount(request, env);
   if (pathname === "/api/account/join_code" && request.method === "POST") return () => regenerateJoinCode(request, env);
+  if (pathname === "/api/account/test_email" && request.method === "POST") return () => sendTestEmail(request, env);
   if (pathname === "/api/account/custom_domain_checks" && request.method === "POST") return () => checkCustomDomain(request, env);
   if (pathname === LOGO_PATH && request.method === "PUT") return () => changeLogo(request, env);
   if (pathname === LOGO_PATH && request.method === "DELETE") return () => removeLogo(request, env);

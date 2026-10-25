@@ -6,6 +6,8 @@ import {
   RECENT_SEARCHES,
   SUGGESTED_PEOPLE,
   isRoomIcon,
+  mailboxOf,
+  mailboxText,
   suggestedCount,
   type Account,
   type BotChanges,
@@ -92,6 +94,8 @@ export interface JoinableAccount extends Omit<Account, "logo"> {
   joinCode: string;
   updatedAt: string;
   storedLogo: StoredPicture | null;
+  /** The address Ember's email comes from, as `mailboxText` writes it, or null while an administrator hasn't given one. */
+  emailFrom: string | null;
 }
 
 /** The account first run creates. */
@@ -103,10 +107,10 @@ export interface NewAccount {
 
 /**
  * What `WorkspaceStore.changeAccount` changes: the name, the tagline, the settings workspace settings'
- * switches change, the custom domain, and the navigation icons whose slots change. Memberful's two
- * settings change together, or not at all, as `memberful`.
+ * switches change, the custom domain, the navigation icons whose slots change, and the From address.
+ * Memberful's two settings change together, or not at all, as `memberful`.
  */
-export type AccountChange = Partial<Pick<Account, "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "joinLink" | "openSignUp">> & {
+export type AccountChange = Partial<Pick<JoinableAccount, "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "joinLink" | "openSignUp" | "emailFrom">> & {
   memberful?: Pick<Account, "memberfulJoin" | "memberfulSignIn">;
   navigationIcons?: NavigationIconChanges;
 };
@@ -533,6 +537,12 @@ const taglineIn = (settings: Record<string, unknown> | null) => (typeof settings
 
 /** The account's custom domain, which its settings keep as `custom_domain`, ember-rust having none, or null while it has none. */
 const customDomainIn = (settings: Record<string, unknown> | null) => (typeof settings?.custom_domain === "string" ? settings.custom_domain : null);
+
+/** The address Ember's email comes from, which the account's settings keep as `email_from`, this port's own, as `mailboxText` writes it, or null while it has none. */
+function emailFromIn(settings: Record<string, unknown> | null): string | null {
+  const mailbox = typeof settings?.email_from === "string" ? mailboxOf(settings.email_from) : null;
+  return mailbox && mailboxText(mailbox);
+}
 
 /**
  * Whether the join link lets people in, which the account's settings keep as `join_link`, this port's
@@ -1007,6 +1017,7 @@ const SET_JOIN_LINK = setSetting("join_link");
 const SET_OPEN_SIGN_UP = setSetting("open_sign_up");
 const SET_MEMBERFUL_JOIN = setSetting("memberful_join");
 const SET_MEMBERFUL_SIGN_IN = setSetting("memberful_sign_in");
+const SET_EMAIL_FROM = setSetting("email_from");
 
 /** Navigation icon changes as the merge patch `CHANGE_NAVIGATION_ICONS` takes them: null for a slot's default. */
 const navigationIconsPatch = (changes: NavigationIconChanges) => Object.fromEntries(Object.entries(changes).map(([slot, icon]) => [slot, icon || null]));
@@ -1462,16 +1473,17 @@ export class WorkspaceStore {
       navigationIcons: navigationIconsIn(settings),
       updatedAt: row.updated_at,
       storedLogo: row.logo_key === null ? null : { key: row.logo_key, variant: row.logo_variant },
+      emailFrom: emailFromIn(settings),
     };
   }
 
   /**
-   * Changes the workspace's name, tagline, settings, custom domain and navigation icons, as `change` has
-   * them, in one batch. Memberful's settings are stored both at once, so that an account from before
-   * `memberful_join` reads as they're saved.
+   * Changes the workspace's name, tagline, settings, custom domain, navigation icons and From address, as
+   * `change` has them, in one batch. Memberful's settings are stored both at once, so that an account
+   * from before `memberful_join` reads as they're saved.
    */
   async changeAccount(
-    { name, tagline, hideTranslationButtons, restrictRoomCreation, customDomain, joinLink, openSignUp, memberful, navigationIcons }: AccountChange,
+    { name, tagline, hideTranslationButtons, restrictRoomCreation, customDomain, joinLink, openSignUp, memberful, navigationIcons, emailFrom }: AccountChange,
     now: string,
   ): Promise<void> {
     await this.db.batch([
@@ -1486,6 +1498,7 @@ export class WorkspaceStore {
         ? []
         : [statement(SET_MEMBERFUL_JOIN, JSON.stringify(memberful.memberfulJoin), now), statement(SET_MEMBERFUL_SIGN_IN, JSON.stringify(memberful.memberfulSignIn), now)]),
       ...(navigationIcons === undefined ? [] : [statement(CHANGE_NAVIGATION_ICONS, JSON.stringify(navigationIconsPatch(navigationIcons)), now)]),
+      ...(emailFrom === undefined ? [] : [statement(SET_EMAIL_FROM, JSON.stringify(emailFrom), now)]),
     ]);
   }
 

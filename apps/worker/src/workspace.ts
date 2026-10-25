@@ -1,7 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  CANT_SEND_EMAIL,
   CloseCode,
   isRoomId,
+  mailboxOf,
   NAVIGATION_SLOTS,
   parseWorkspaceClientFrame,
   SIGN_UPS_PER_ADDRESS,
@@ -35,6 +37,7 @@ import {
   type RoomChanges,
   type RoomId,
   type RoomSettings,
+  type SentTestEmail,
   type SharedRoom,
   type Sidebar,
   type User,
@@ -48,9 +51,11 @@ import { directoryOf, versionOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
 import { botKeyOf, isBotToken, newBotToken } from "./bots/keys";
 import { openDb, type Db } from "./db";
+import { testEmail } from "./emails";
 import { guestSignIn, type Env } from "./env";
 import { pictureObjects, type StoredPicture } from "./files/pictures";
 import { alphanumeric, sortableId } from "./ids";
+import { emailProviderOf, sendEmail } from "./mail";
 import { memberfulApiOf, membershipsOf, type MemberfulMember } from "./memberful-api";
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
@@ -283,6 +288,18 @@ export type JoinLink = "joins" | "off" | "memberful" | "not found";
 
 /** Why open sign-up lets nobody in: it's off, or the workspace has let in as many new people as it does in an hour. */
 export type SignUpRefusal = "closed" | "full";
+
+/**
+ * What Send me a test email came to: the address it went to, or why it wasn't sent, with the status that
+ * says so: 503 while the deployment can't send email, 422 without a From address or an email address of
+ * one's own, and 502 when the provider refused it.
+ */
+export type TestEmail = SentTestEmail | { status: 422 | 502 | 503; refusal: string };
+
+/** Why there's no test email without a From address. */
+const NO_EMAIL_FROM = "Give Ember a From address first.";
+/** Why there's no test email to an administrator without an email address. */
+const NO_EMAIL_ADDRESS = "Your profile has no email address to send it to.";
 
 /** The workspace as pages show it before first run: named "Ember" and looking as a new one does, as in ember-rust. */
 export const ACCOUNT_BEFORE_SETUP: Account = { name: ACCOUNT_NAME, ...NEW_ACCOUNT_LOOKS, logo: null };
@@ -531,13 +548,15 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Workspace settings as the person `credentials` signs in sees them, which ember-rust shows anyone
    * signed in (accounts.rs, `edit`): "not set up" before first run, or null without a valid session. The
-   * Worker adds what it knows of the Memberful site and Turnstile from its keys.
+   * Worker adds what it knows of the Memberful site and Turnstile from its keys, and the Workspace says
+   * how it sends email, since it's what sends it.
    */
   async workspaceSettings(credentials: Credentials): Promise<Omit<WorkspaceSettings, "memberfulSite" | "memberfulWebhooks" | "turnstile"> | "not set up" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const [account, canAdminister] = await Promise.all([this.joinableAccount(), this.store.isAdministrator(user.id)]);
-    return account ? { account: accountOf(account), joinCode: account.joinCode, canAdminister } : "not set up";
+    if (!account) return "not set up";
+    return { account: accountOf(account), joinCode: account.joinCode, canAdminister, email: { provider: emailProviderOf(this.env), from: account.emailFrom } };
   }
 
   /**
@@ -550,7 +569,7 @@ export class Workspace extends DurableObject<Env> {
    */
   async changeAccount(
     credentials: Credentials,
-    { name, tagline, settings, customDomain, navigationIcons }: AccountChanges,
+    { name, tagline, settings, customDomain, navigationIcons, emailFrom }: AccountChanges,
   ): Promise<Account | "forbidden" | "conflict" | null> {
     return this.administerAccount(credentials, async (account) => {
       // As ember-rust's `Account::update` writes only what differs (account.rs).
@@ -567,6 +586,7 @@ export class Workspace extends DurableObject<Env> {
         ...(openSignUp !== undefined && openSignUp !== account.openSignUp && { openSignUp }),
         ...(memberful && { memberful }),
         ...(icons && { navigationIcons: icons }),
+        ...(emailFrom !== undefined && emailFrom !== account.emailFrom && { emailFrom }),
       };
       // Open lets anyone in, and Members only only Memberful's members, so neither is turned on while the other is.
       const open = change.openSignUp ?? account.openSignUp;
@@ -575,7 +595,10 @@ export class Workspace extends DurableObject<Env> {
       if (Object.keys(change).length === 0) return accountOf(account);
       const { memberful: _, ...settled } = change;
       const changed = { ...account, ...settled, ...memberful, navigationIcons: withNavigationIcons(account.navigationIcons, icons ?? {}) };
-      return this.publishAccount(changed, (now) => this.store.changeAccount(change, now));
+      const save = (now: string) => this.store.changeAccount(change, now);
+      // Pages don't show the From address, so a change to it alone, like a new join code, tells no one.
+      if (Object.keys(change).every((key) => key === "emailFrom")) return accountOf(await this.saveAccount(changed, save));
+      return this.publishAccount(changed, save);
     });
   }
 
@@ -614,6 +637,25 @@ export class Workspace extends DurableObject<Env> {
       await this.saveAccount({ ...account, joinCode }, (now) => this.store.changeJoinCode(joinCode, now));
       return { joinCode };
     });
+  }
+
+  /**
+   * Sends the person `credentials` signs in a test email, at their email address, from the workspace's
+   * From address, as Membership's Send me a test email does, answering the address it went to, or why it
+   * wasn't sent, as `TestEmail` has it: "forbidden" unless they're an administrator, or null without a
+   * valid session. `origin` is Ember's address, which the email names.
+   */
+  async sendTestEmail(credentials: Credentials, origin: string): Promise<TestEmail | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const [account, administrator, person] = await Promise.all([this.joinableAccount(), this.store.isAdministrator(user.id), this.store.personWithProfile(user.id)]);
+    if (!account || !administrator) return "forbidden";
+    if (emailProviderOf(this.env) === null) return { status: 503, refusal: CANT_SEND_EMAIL };
+    const from = account.emailFrom === null ? null : mailboxOf(account.emailFrom);
+    if (!from) return { status: 422, refusal: NO_EMAIL_FROM };
+    if (!person?.emailAddress) return { status: 422, refusal: NO_EMAIL_ADDRESS };
+    const refusal = await sendEmail(this.env, from, testEmail(person.emailAddress, account.name, origin));
+    return refusal === null ? { to: person.emailAddress } : { status: 502, refusal };
   }
 
   /**
@@ -707,7 +749,7 @@ export class Workspace extends DurableObject<Env> {
       if (await this.store.account()) return null;
       throw error;
     }
-    this.knownAccount = { name: account.name, joinCode: account.joinCode, ...NEW_ACCOUNT_LOOKS, updatedAt: now, storedLogo: null };
+    this.knownAccount = { name: account.name, joinCode: account.joinCode, ...NEW_ACCOUNT_LOOKS, updatedAt: now, storedLogo: null, emailFrom: null };
     this.sessions.remember(tokenDigest, session);
     return { user: meOf(session), room };
   }

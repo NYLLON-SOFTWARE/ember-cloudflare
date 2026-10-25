@@ -48,6 +48,7 @@ import {
   type RoomSocketParams,
   type SavedPushSubscription,
   type SearchResults,
+  type SentTestEmail,
   type SharedRoom,
   type Sidebar,
   type SignOut,
@@ -360,6 +361,16 @@ export async function resetBotKey(botId: UserId): Promise<void> {
 /** Gives the join link a new code, answering it. Fails with a 403 ApiError for anyone but an administrator. */
 export async function regenerateJoinCode(): Promise<string> {
   return (await request<NewJoinCode>("/api/account/join_code", { method: "POST" })).joinCode;
+}
+
+/**
+ * Sends you a test email from the workspace's From address, answering the address it went to. Fails
+ * with an ApiError saying why it wasn't sent: 503 while Ember can't send email, 422 without a From
+ * address or an email address of yours, 502 when the provider refused it, and 403 for anyone but an
+ * administrator.
+ */
+export async function sendTestEmail(): Promise<string> {
+  return (await request<SentTestEmail>("/api/account/test_email", { method: "POST" })).to;
 }
 
 /**

@@ -52,6 +52,12 @@
   // keeps them on this machine.
   "r2_buckets": [{ "binding": "FILES", "bucket_name": "ember" }],
 
+  // Cloudflare Email Service, which sends Ember's email from the address an administrator gives in
+  // Membership. It delivers once the account is on Workers Paid and has a domain onboarded under Email
+  // Service, Email Sending; until then sending fails, and Membership says why. A RESEND_API_KEY secret
+  // sends with Resend instead. `wrangler dev` sends nothing: it logs each email and saves it to a file.
+  "send_email": [{ "name": "EMAIL" }],
+
   "vars": {
     // "do-sqlite" keeps each room's messages in its Durable Object's SQLite storage.
     // "d1" writes them to the shared D1 database below instead.

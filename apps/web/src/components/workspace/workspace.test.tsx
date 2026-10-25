@@ -39,6 +39,7 @@ const workspaceSettings: WorkspaceSettings = {
   memberfulSite: null,
   memberfulWebhooks: false,
   turnstile: false,
+  email: { provider: "cloudflare", from: null },
 };
 
 /**

@@ -330,6 +330,37 @@ members dimmed in Workspace settings, where they can remove them, and everyone e
 removed. All of this goes on whether Memberful is on or not, since its members keep signing in with
 it once it's off.
 
+### Sending email
+
+Ember sends email with [Cloudflare Email Service](https://developers.cloudflare.com/email-service/),
+which wrangler.jsonc binds as `EMAIL`, or with [Resend](https://resend.com) once the Worker has a
+`RESEND_API_KEY`. Either way it sends from the address an administrator gives under Email, in
+Workspace settings' Membership, which walks them through setting it up and sends them a test email.
+
+With Cloudflare Email Service, in beta since April 2026:
+
+1. Put the Cloudflare account that runs Ember on the Workers Paid plan, which includes 3,000 emails a
+   month. On Workers Free it sends only to the account's own verified addresses.
+2. In the Cloudflare dashboard, under Email Service, Email Sending, choose Onboard Domain and pick a
+   domain on Cloudflare DNS, such as the one Ember's custom domain is on. Cloudflare adds the records
+   sending takes.
+3. Under Email in Membership, give a From address on that domain, such as `Ember <ember@example.com>`,
+   save it, and choose Send me a test email.
+
+With Resend, which sends 3,000 emails a month, at most 100 a day, for free, on Workers Free too: add
+the domain under Domains in Resend until it's verified, make an API key that can send, and give it to
+the Worker, then give the From address and send the test email as above:
+
+```sh
+pnpm exec wrangler secret put RESEND_API_KEY     # add --name <worker> for a Worker not named in wrangler.jsonc
+```
+
+With a key, Ember sends with Resend rather than Cloudflare. `pnpm run deploy` uploads it when its
+environment has it, so the Preview workflow passes a repository secret of the same name through.
+When the provider refuses the test email, Membership says why, such as a domain that isn't onboarded
+or a day's quota used up. `wrangler dev` sends nothing with Cloudflare's binding: it logs each email
+and saves it to a file.
+
 ### Push notifications
 
 Push notifications need a VAPID key pair, which the first deploy makes. `pnpm vapid:keys` prints a

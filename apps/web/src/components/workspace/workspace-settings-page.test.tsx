@@ -43,6 +43,7 @@ const asAdministrator: WorkspaceSettings = {
   memberfulSite: null,
   memberfulWebhooks: false,
   turnstile: false,
+  email: { provider: "cloudflare", from: null },
 };
 const asMember: WorkspaceSettings = { ...asAdministrator, canAdminister: false };
 
@@ -1119,6 +1120,32 @@ describe(feature("accounts.ways-to-join"), () => {
     expect(await screen.findByText("No one new can join right now.")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
     expect(signUpLink()).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("platform.email"), () => {
+  showingSection("membership-settings");
+
+  it("gives administrators the Email card after Who can join, saying Changes saved once the From address is", async () => {
+    const { user } = showPage();
+    const email = await screen.findByRole("region", { name: "Email" });
+    const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(following(screen.getByRole("region", { name: "Who can join" }), email)).toBe(true);
+    expect(email).toHaveTextContent("Ember sends email with Cloudflare Email Service.");
+
+    await user.type(within(email).getByRole("textbox", { name: "From" }), "Ember <ember@example.com>");
+    await user.click(within(email).getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
+    expect(saved()).toEqual([{ emailFrom: "Ember <ember@example.com>" }]);
+    expect(within(email).getByRole("textbox", { name: "From" })).toHaveValue("Ember <ember@example.com>");
+    expect(within(email).getByRole("button", { name: "Send me a test email" })).toBeEnabled();
+  });
+
+  it("shows members no Email card", async () => {
+    serve({ ...asMember, email: { provider: "cloudflare", from: "Ember <ember@example.com>" } });
+    showPage(asLinus);
+    expect(await joinLink()).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Email" })).not.toBeInTheDocument();
   });
 });
 

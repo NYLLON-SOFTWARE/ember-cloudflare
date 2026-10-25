@@ -4,6 +4,7 @@ import {
   canBeCustomDomain,
   CUSTOM_DOMAIN_NOT_A_HOST,
   DEFAULT_NAVIGATION_ICONS,
+  EMAIL_FROM_REFUSED,
   INVOLVEMENTS,
   isInvolvement,
   isMessageTooLong,
@@ -13,6 +14,8 @@ import {
   isRoomId,
   joiningProblemOf,
   joinsWithLink,
+  mailboxOf,
+  mailboxText,
   MAX_ACCOUNT_NAME_LENGTH,
   MAX_BIO_LENGTH,
   MAX_BOOST_LENGTH,
@@ -497,6 +500,47 @@ describe(feature("accounts.custom-domain"), () => {
     for (const domain of ["ember.kro.workers.dev", "localhost:8787", "127.0.0.1"]) expect(parseCustomDomainCheck({ domain })).toBe(NOT_A_CUSTOM_DOMAIN);
     for (const body of [{ domain: "https://chat.example.com" }, { domain: "Chat.Example.com" }, { domain: "chat.example.com:99999" }, { domain: "[::1]" }, { domain: 42 }, {}, null, ["chat.example.com"]])
       expect(parseCustomDomainCheck(body)).toBe(CUSTOM_DOMAIN_NOT_A_HOST);
+  });
+});
+
+describe(feature("platform.email"), () => {
+  it("reads a From address as an address, or a name, in quotes or not, and an address in angle brackets", () => {
+    expect(mailboxOf("ember@example.com")).toEqual({ name: null, address: "ember@example.com" });
+    expect(mailboxOf("  Ember <ember@example.com> ")).toEqual({ name: "Ember", address: "ember@example.com" });
+    expect(mailboxOf("Ember<ember@example.com>")).toEqual({ name: "Ember", address: "ember@example.com" });
+    expect(mailboxOf('"Acme, Inc." <chat@acme.example>')).toEqual({ name: "Acme, Inc.", address: "chat@acme.example" });
+    expect(mailboxOf("<ember@example.com>")).toEqual({ name: null, address: "ember@example.com" });
+    expect(mailboxOf("Café Ember <o'brien+chat@mail.example.co.uk>")).toEqual({ name: "Café Ember", address: "o'brien+chat@mail.example.co.uk" });
+  });
+
+  it.each([
+    ["nothing", ""],
+    ["a name alone", "Ember"],
+    ["an address without a domain", "ember@"],
+    ["one whose domain has no dot", "ember@localhost"],
+    ["one with a space", "em ber@example.com"],
+    ["two addresses", "ember@example.com, chat@example.com"],
+    ["a name with a line break, which would add a header", "Ember\nBcc: everyone@example.com <ember@example.com>"],
+    ["a name with a quote inside", 'Ember "Chat" <ember@example.com>'],
+    ["an address too long to deliver", `${"a".repeat(MAX_EMAIL_ADDRESS_LENGTH - 11)}@example.com`],
+    ["a name longer than a person's", `${"a".repeat(MAX_USER_NAME_LENGTH + 1)} <ember@example.com>`],
+  ])("refuses %s", (_, text) => {
+    expect(mailboxOf(text)).toBeNull();
+  });
+
+  it("writes a From address with its name in quotes where a From line needs them", () => {
+    expect(mailboxText({ name: null, address: "ember@example.com" })).toBe("ember@example.com");
+    expect(mailboxText({ name: "Ember", address: "ember@example.com" })).toBe("Ember <ember@example.com>");
+    expect(mailboxText({ name: "Acme, Inc.", address: "chat@acme.example" })).toBe('"Acme, Inc." <chat@acme.example>');
+    expect(mailboxText(mailboxOf('"Acme, Inc." <chat@acme.example>')!)).toBe('"Acme, Inc." <chat@acme.example>');
+  });
+
+  it("takes the From address as a workspace change, as it writes it, with null or blank for none", () => {
+    expect(parseAccountChanges({ emailFrom: " Ember <ember@example.com>" })).toEqual({ emailFrom: "Ember <ember@example.com>" });
+    expect(parseAccountChanges({ emailFrom: "Acme, Inc. <chat@acme.example>" })).toEqual({ emailFrom: '"Acme, Inc." <chat@acme.example>' });
+    expect(parseAccountChanges({ emailFrom: null })).toEqual({ emailFrom: null });
+    expect(parseAccountChanges({ emailFrom: "  " })).toEqual({ emailFrom: null });
+    for (const emailFrom of ["Ember", 42, ["ember@example.com"], { address: "ember@example.com" }]) expect(parseAccountChanges({ emailFrom })).toBe(EMAIL_FROM_REFUSED);
   });
 });
 
