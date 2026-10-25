@@ -9,13 +9,15 @@ import { TurnstileCheck } from "@/components/turnstile-check";
 import { Input } from "@/components/ui/input";
 import { useChosenPhoto, type PhotoChoice } from "@/hooks/use-chosen-photo";
 import { useTitle } from "@/hooks/use-title";
-import { ApiError, joinWithInvitation, joinWorkspace, signUp, type ChosenPhoto } from "@/lib/api";
+import type { EmailLink } from "@/hooks/use-email-link";
+import { ApiError, joinWithEmailLink, joinWorkspace, signUp, type ChosenPhoto } from "@/lib/api";
 import { loadPage } from "@/lib/page";
 
 // ember-rust's join page (crates/views/templates/users/new.html), which the workspace's join link
 // opens for someone signed out. Without a code it's open sign-up's page, this port's own
-// (`auth.open-sign-up`), which shows Turnstile's check while the deployment has its keys, and with an
-// invitation it's the invitation's (`auth.invitation-sign-up`), which joins with its email address.
+// (`auth.open-sign-up`), which shows Turnstile's check while the deployment has its keys, and with a
+// link Ember emailed, an invitation's (`auth.invitation-sign-up`) or one asked for at the workspace's
+// email domains (`auth.email-domain-sign-up`), it's the link's, which joins with its email address.
 
 /** What the page says when Turnstile's script doesn't load, so there's no check to pass. */
 export const TURNSTILE_UNAVAILABLE =
@@ -28,35 +30,34 @@ export const TURNSTILE_UNAVAILABLE =
 const UPLOAD_BUTTON =
   "relative inline-flex cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-[1.1em] py-[0.5em] font-medium text-foreground focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-solid focus-within:outline-foreground touch:min-h-11";
 
-/** An invitation to join with: its link's secret, and the email address it's for. */
-export interface Invitation {
-  token: string;
-  emailAddress: string;
-}
-
 interface Props {
   workspace: SignedOutWorkspace;
   /** The code from the join link, which the Worker checked before serving the page, or null for signing up without one. */
   joinCode: string | null;
-  /** The invitation to join with, which its page has looked up, in place of a join code. */
-  invitation?: Invitation;
+  /** The link Ember emailed to join with, which its page has looked up, in place of a join code. */
+  emailLink?: EmailLink;
+  /** What the link's page does once the link stops working while the form is open. */
+  onGone?: () => void;
   onJoined: (me: Me) => void;
 }
 
+/** What the address field says it's fixed by, for each kind of link Ember emails. */
+const ADDRESS_FIXED_BY = { invitation: "Your invitation is for this address.", email_domain: "Your link is for this address." } as const;
+
 /**
- * Creates an account with the join link, or an invitation, with its email address, or without either
- * while anyone may sign up, with the photo chosen, as a member in every open room, and signs in as it.
+ * Creates an account with the join link, or a link Ember emailed, with its email address, or without
+ * either while anyone may sign up, with the photo chosen, as a member in every open room, and signs in as it.
  * Signing up without a link waits for Turnstile's check to pass while the deployment has its keys, and
  * draws it afresh for each try.
  */
-export function JoinPage({ workspace, joinCode, invitation, onJoined }: Props) {
+export function JoinPage({ workspace, joinCode, emailLink, onGone, onJoined }: Props) {
   const [name, setName] = useState("");
-  const [emailAddress, setEmailAddress] = useState(invitation?.emailAddress ?? "");
+  const [emailAddress, setEmailAddress] = useState(emailLink?.emailAddress ?? "");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
   const photo = useChosenPhoto();
-  const siteKey = joinCode === null && !invitation ? workspace.turnstileSiteKey : null;
+  const siteKey = joinCode === null && !emailLink ? workspace.turnstileSiteKey : null;
   // The token of the check passed, which is good for one try, and how many tries the check has been drawn for.
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const [tries, setTries] = useState(0);
@@ -65,7 +66,7 @@ export function JoinPage({ workspace, joinCode, invitation, onJoined }: Props) {
 
   /** Joins as the person the form describes, with the photo chosen, by the way the page is for. */
   function join(password: string, chosen: ChosenPhoto | null): Promise<Me> {
-    if (invitation) return joinWithInvitation({ token: invitation.token, name, password }, chosen);
+    if (emailLink) return joinWithEmailLink(emailLink.kind, { token: emailLink.token, name, password }, chosen);
     const person = { name, emailAddress, password };
     if (joinCode !== null) return joinWorkspace(joinCode, person, chosen);
     return signUp(siteKey === null ? person : { ...person, turnstileToken: turnstileToken ?? "" }, chosen);
@@ -86,9 +87,9 @@ export function JoinPage({ workspace, joinCode, invitation, onJoined }: Props) {
       // An email address with an account goes to sign in with it filled in, and someone who signed in
       // elsewhere meanwhile goes home, as ember-rust redirects both.
       if (error.redirect) return loadPage(error.redirect);
-      // The link stopped working while the page was open, and loading it again says so, as it does an
-      // invitation's, whose secret has left the address.
-      if (error.status === 404) return loadPage(location.pathname);
+      // The link stopped working while the page was open: its page says so, as loading the join link's
+      // page again does.
+      if (error.status === 404) return onGone ? onGone() : loadPage(location.pathname);
       // A photo that's refused goes, so the form can be sent without it.
       if (error.field === "avatar") return photo.refuse(error.message);
       setProblem(error.message);
@@ -127,8 +128,8 @@ export function JoinPage({ workspace, joinCode, invitation, onJoined }: Props) {
               id="user_email_address"
               type="email"
               required
-              readOnly={invitation !== undefined}
-              aria-describedby={invitation ? "user_email_address_description" : undefined}
+              readOnly={emailLink !== undefined}
+              aria-describedby={emailLink ? "user_email_address_description" : undefined}
               autoComplete="username"
               placeholder="Email address"
               maxLength={MAX_EMAIL_ADDRESS_LENGTH}
@@ -136,9 +137,9 @@ export function JoinPage({ workspace, joinCode, invitation, onJoined }: Props) {
               onChange={(event) => setEmailAddress(event.target.value)}
               className={FIELD_INPUT}
             />
-            {invitation && (
+            {emailLink && (
               <span id="user_email_address_description" className="text-[0.8rem] text-muted-foreground">
-                Your invitation is for this address.
+                {ADDRESS_FIXED_BY[emailLink.kind]}
               </span>
             )}
           </Field>

@@ -31,16 +31,17 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
 `message_deletions` and `blobs`, the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
-`bans`, `email_links`, `searches`, `rooms`, `memberships`, `favorites`, `pending_revocations`, `pending_purges`,
-`pending_reindexes` and `deleted_rooms`, and the search
+`bans`, `email_links`, `email_link_requests`, `searches`, `rooms`, `memberships`, `favorites`,
+`pending_revocations`, `pending_purges`, `pending_reindexes` and `deleted_rooms`, and the search
 index keeps `search_messages`, `search_rooms` and the FTS5 table `search_index`. A room's id also
 names its Durable Object, and the Worker asks the Workspace whether someone is a member before it
 wakes the room for their socket. First run creates the account and its administrator, who signs in
 with an email address and password, found through the unique index on `users.email_address`, as do
 the people who join with the join link; where it's allowed, anyone can sign in with just a display
 name instead, and the members of a Memberful site sign in with Memberful, once an administrator lets
-them, found through `identities`, and the people administrators invite join with their invitation's
-address. Presence and typing live in each room object's memory.
+them, found through `identities`, and the people administrators invite, or who ask for a link with an
+address at the workspace's email domains, join with that address. Presence and typing live in each
+room object's memory.
 
 ## Compared with ember-rust
 
@@ -502,7 +503,17 @@ search index. On top of that schema it adds indexes and query changes for speed.
   `users.invited_by` keeps who invited someone, which lets them sign in with a password while
   Memberful is members only, and an index on `lower(users.email_address)` finds the accounts an
   invitation skips, since the unique index tells the cases apart. A request's addresses are one JSON
-  parameter read with `json_each`, so it binds one value however many there are.
+  parameter read with `json_each`, so it binds one value however many there are. The links someone
+  asks for with an address at the email domains (`auth.email-domain-sign-up`) are rows of kind
+  `email_domain` in the same table, one an address, which asking again replaces once the provider has
+  the email, and joining by any way deletes the address's links of both kinds, in one statement.
+  Saving one deletes, in its batch, those that have expired, which nobody joined with, through an
+  index on `(kind, expires_at)` (workspace migration 0042), while expired invitations stay for
+  administrators to send again. How often each address was asked for in the last hour is a row in
+  `email_link_requests` (the same migration), by its lowercase: asking counts it in one batch with
+  deleting the counts whose hour is over, through the index on `counted_since`, so the table holds only
+  the last hour's addresses. An ask past the limit, or an email the provider refuses, is taken off the
+  count it was added to, so that it counts the emails sent or being sent.
 - **A bot's cards are part of its message's row.** ember-rust has no cards. Ours, what a
   Slack-compatible webhook's legacy attachments show, are kept as JSON in `messages.cards` (room
   migration 0034), as a file is, rather than in the body as Action Text attachments, which the rich

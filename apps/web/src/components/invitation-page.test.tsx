@@ -18,7 +18,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   guestSignIn: false,
   signInWithMemberful: false,
   turnstileSiteKey: "1x00000000000000000000AA",
-  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: false, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} },
+  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: false, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} },
   version: "0.1",
   vapidPublicKey: null,
   platform: CHROME_MAC,
@@ -99,13 +99,15 @@ describe(feature("auth.invitation-sign-up"), () => {
     expect(emailField()).toHaveValue("hal@example.com");
   });
 
-  it("loads the page again when the link stops working while it's open, which then says so", async () => {
+  it("says so when the link stops working while it's open", async () => {
     serve(forHal, gone);
     open();
     const user = userEvent.setup();
     await user.type(await screen.findByLabelText("Name"), "Hal");
     await user.type(screen.getByLabelText("Password"), "heuristically{Enter}");
-    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/join/invitation"));
+    expect(await screen.findByText(INVITATION_GONE)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+    expect(loadPage).not.toHaveBeenCalled();
   });
 
   it("says a link doesn't work, offering sign-in instead", async () => {

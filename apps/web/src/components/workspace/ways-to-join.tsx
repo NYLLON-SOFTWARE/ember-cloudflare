@@ -1,19 +1,30 @@
 import { useState, type ReactNode } from "react";
-import { joinsWithLink, signsUpOpenly, SIGN_UPS_PER_ADDRESS, SIGN_UPS_PER_HOUR, type AccountSettings, type WorkspaceSettings } from "@ember/protocol";
+import {
+  domainsInWords,
+  joinsWithLink,
+  signsUpOpenly,
+  signsUpWithEmailDomain,
+  SIGN_UPS_PER_ADDRESS,
+  SIGN_UPS_PER_HOUR,
+  type AccountSettings,
+  type WorkspaceSettings,
+} from "@ember/protocol";
 import { PageLink } from "@/components/page-link";
 import { Switch } from "@/components/ui/switch";
 import { useAccount } from "@/hooks/use-account";
 import { cn } from "@/lib/utils";
+import { EmailDomainSettings } from "./email-domain-settings";
 import { ShareableLink } from "./invite-link";
-import { SIGN_UP_LINK, signUpUrl } from "./join-link";
+import { EMAIL_SIGN_UP_LINK, emailSignUpUrl, SIGN_UP_LINK, signUpUrl } from "./join-link";
 import { MemberfulSettings } from "./memberful-settings";
 import { workspaceSectionPath } from "./settings-navigation";
+import { TurnstileSetup } from "./turnstile-setup";
 
 // This port's own ways for new people to join (`accounts.ways-to-join`), at the top of Membership: for
-// administrators, a card for each, Open, Join link and Memberful, whose switch saves as it's flipped, as
-// the Memberful card's did, and which shows the way's settings while it's on. Open lets anyone in, and
-// Memberful's Members only only its members, so while either is on the ways it overrides are greyed out,
-// keeping their settings for when it's off. Members see the links that let people in.
+// administrators, a card for each, Open, Join link, Email domain and Memberful, whose switch saves as
+// it's flipped, as the Memberful card's did, and which shows the way's settings while it's on. Open lets
+// anyone in, and Memberful's Members only only its members, so while either is on the ways it overrides
+// are greyed out, keeping their settings for when it's off. Members see the links that let people in.
 
 /** What turning on Open asks first, since it lets anyone in. */
 export const CONFIRM_OPEN = "Are you sure you want to let anyone create an account? Ember doesn't check that the email addresses people sign up with are theirs.";
@@ -28,13 +39,10 @@ const OPEN_OVERRIDES = "Set aside while Open lets anyone join.";
 /** Why a way is greyed out while Memberful is members only. */
 const MEMBERS_ONLY_OVERRIDES = "Off while Memberful is members only.";
 
-/** Where Turnstile's widgets are made, in the Cloudflare dashboard. */
-const TURNSTILE_DASHBOARD = "https://dash.cloudflare.com/?to=/:account/turnstile";
-
 const CARD = "flex flex-col gap-3 rounded-[10px] border bg-surface px-[2ch] py-4 text-start max-md:px-3";
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
-type WaySetting = keyof Pick<AccountSettings, "openSignUp" | "joinLink" | "memberfulJoin" | "memberfulSignIn">;
+type WaySetting = keyof Pick<AccountSettings, "openSignUp" | "joinLink" | "emailDomainSignUp" | "memberfulJoin" | "memberfulSignIn">;
 
 const ASKS_FIRST: Partial<Record<WaySetting, string>> = { openSignUp: CONFIRM_OPEN, memberfulSignIn: CONFIRM_MEMBERS_ONLY };
 
@@ -42,17 +50,25 @@ interface Props {
   settings: WorkspaceSettings;
   /** Saves a switch, as the page saves its others, then calls `settled`. */
   saveSwitch: (settings: AccountSettings, settled: () => void) => void;
+  /** Saves Email domain's domains, turning it on with them if `turnOn`, then calls `settled` with whether it did. */
+  saveEmailDomains: (domains: string[], turnOn: boolean, settled: (saved: boolean) => void) => void;
   /** The join link, with its buttons, which its card shows while it's on. */
   joinLink: ReactNode;
 }
 
 /** Who can join, for administrators: a card for each way, with its switch, and its settings while it's on. */
-export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
+export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, joinLink }: Props) {
   const account = useAccount();
+  // The domains Email domain keeps, which the workspace shows only while it's on: as it last showed them,
+  // saved here or in another tab, or else as the page loaded them. Set as it renders, rather than after,
+  // so that the card never shows those it had before.
+  const [keptDomains, setKeptDomains] = useState(settings.emailDomains);
+  if (account.emailDomainSignUp && account.emailDomains !== keptDomains) setKeptDomains(account.emailDomains);
   // Where each switch was moved to, while that's saved.
   const [moved, setMoved] = useState<Pick<AccountSettings, WaySetting>>({});
   const open = moved.openSignUp ?? account.openSignUp;
   const link = moved.joinLink ?? account.joinLink;
+  const emailDomain = moved.emailDomainSignUp ?? account.emailDomainSignUp;
   const memberful = moved.memberfulJoin ?? account.memberfulJoin;
   // Off with Memberful, as the server turns it.
   const membersOnly = memberful && (moved.memberfulSignIn ?? account.memberfulSignIn);
@@ -102,12 +118,7 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
           ) : (
             <>
               Until Cloudflare Turnstile checks that whoever signs up is a person, {SIGN_UPS_PER_ADDRESS} people can sign up from a network in an hour, and
-              signing up waits once {SIGN_UPS_PER_HOUR} people have joined in an hour. To lift these limits, add a Turnstile widget for Ember's address in
-              the Cloudflare dashboard, then give this Worker its site key and secret key as the secrets <code>TURNSTILE_SITE_KEY</code> and{" "}
-              <code>TURNSTILE_SECRET_KEY</code>.{" "}
-              <a href={TURNSTILE_DASHBOARD} target="_blank" rel="noopener" className="underline">
-                Open Turnstile in the Cloudflare dashboard
-              </a>
+              signing up waits once {SIGN_UPS_PER_HOUR} people have joined in an hour. To lift these limits, <TurnstileSetup />
             </>
           )}
         </p>
@@ -122,6 +133,15 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
       >
         {joinLink}
       </Way>
+      <EmailDomainSettings
+        domains={keptDomains}
+        emails={settings.email.provider !== null && settings.email.from !== null}
+        turnstile={settings.turnstile}
+        checked={emailDomain}
+        onCheckedChange={switchTo("emailDomainSignUp")}
+        saveDomains={saveEmailDomains}
+        setAside={membersOnlyOverrides ? MEMBERS_ONLY_OVERRIDES : openOverrides ? OPEN_OVERRIDES : null}
+      />
       <MemberfulSettings
         site={settings.memberfulSite}
         webhooks={settings.memberfulWebhooks}
@@ -135,7 +155,7 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
         membersOnlySaving={moved.memberfulSignIn !== undefined}
         setAside={openOverrides && !membersOnly ? OPEN_OVERRIDES : null}
       />
-      {!open && !link && !memberful && <p className="text-start">With all of these off, only the people you invite can join.</p>}
+      {!open && !link && !emailDomain && !memberful && <p className="text-start">With all of these off, only the people you invite can join.</p>}
     </section>
   );
 }
@@ -180,15 +200,18 @@ function Way({ id, title, description, checked, onCheckedChange, setAside, child
 }
 
 /**
- * How new people join, for members: open sign-up's link while it's on, and the join link while it lets
- * people in, or else a line saying how they join with Memberful, if they do, at `memberfulSite`, or that
- * only the people administrators invite can (`accounts.invitations`).
+ * How new people join, for members: open sign-up's link while it's on, or else Email domain's while it
+ * lets people in, and the join link while it does, or else a line saying how they join with Memberful,
+ * if they do, at `memberfulSite`, or that only the people administrators invite can
+ * (`accounts.invitations`).
  */
 export function HowPeopleJoin({ joinLink, memberfulSite }: { joinLink: ReactNode; memberfulSite: string | null }) {
   const account = useAccount();
   const open = signsUpOpenly(account);
   const link = joinsWithLink(account);
-  if (!open && !link) {
+  // Open lets anyone in, people at the email domains too.
+  const emailDomain = !open && signsUpWithEmailDomain(account);
+  if (!open && !link && !emailDomain) {
     if (account.memberfulSignIn)
       return (
         <p className="text-start">
@@ -208,6 +231,16 @@ export function HowPeopleJoin({ joinLink, memberfulSite }: { joinLink: ReactNode
       {open && (
         <div className="rounded-[10px] border bg-surface p-5 upto-500px:p-3.5">
           <ShareableLink id="sign_up" label="Share so anyone can sign up" url={signUpUrl()} sharing={SIGN_UP_LINK} />
+        </div>
+      )}
+      {emailDomain && (
+        <div className="rounded-[10px] border bg-surface p-5 upto-500px:p-3.5">
+          <ShareableLink
+            id="email_sign_up"
+            label={`Share with people at ${domainsInWords(account.emailDomains)}`}
+            url={emailSignUpUrl()}
+            sharing={EMAIL_SIGN_UP_LINK}
+          />
         </div>
       )}
       {/* `#account_invitation`, a card on the surface. */}

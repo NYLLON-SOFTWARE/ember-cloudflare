@@ -18,9 +18,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { loadPage } from "@/lib/page";
 import { CHROME_MAC } from "@/test-platforms";
+import { fakeTurnstile } from "@/test-turnstile";
 import avatarPlaceholder from "./avatar-placeholder.svg";
 import { JoinPage, TURNSTILE_UNAVAILABLE } from "./join-page";
-import type { Turnstile } from "./turnstile-check";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
@@ -33,7 +33,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   guestSignIn: false,
   signInWithMemberful: false,
   turnstileSiteKey: null,
-  account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} },
+  account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} },
   version: "0.1",
   vapidPublicKey: null,
   platform: CHROME_MAC,
@@ -59,7 +59,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.mocked(loadPage).mockClear();
   history.replaceState(null, "", "/");
-  delete window.turnstile;
   for (const script of document.head.querySelectorAll("script")) script.remove();
   document.documentElement.classList.remove("dark");
 });
@@ -217,15 +216,6 @@ describe(feature("auth.open-sign-up"), () => {
   const SITE_KEY = "1x00000000000000000000AA";
   const checked = { ...open, turnstileSiteKey: SITE_KEY };
   const createAccount = () => screen.getByRole("button", { name: "Create account" });
-
-  /** Plays Turnstile's script, whose checks are drawn as `w1`, `w2` and so on, and pass or expire as the test says. */
-  function fakeTurnstile() {
-    const drawn: Parameters<Turnstile["render"]>[] = [];
-    const turnstile = { render: vi.fn<Turnstile["render"]>((...check) => `w${drawn.push(check)}`), remove: vi.fn<Turnstile["remove"]>() };
-    window.turnstile = turnstile;
-    const latest = () => drawn.at(-1)![1];
-    return { turnstile, drawn, pass: (token: string) => act(() => latest().callback(token)), expire: () => act(() => latest()["expired-callback"]()) };
-  }
 
   it("signs up without a link, posting to sign-up's own address", async () => {
     const fetch = respond(201, { user: grace });

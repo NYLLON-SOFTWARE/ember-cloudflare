@@ -30,7 +30,7 @@ const labelOf = ([method, path]: Route) => `${method} ${path}`;
 /** Setting Ember up, which reads its form only before it's set up. */
 const FIRST_RUN: Route = ["POST", "/api/first_run", {}];
 
-/** What the other routes need once Ember is set up, with Open on: Ada, signed in as its administrator, a bot and a room, and the join code. */
+/** What the other routes need once Ember is set up, with Open and Email domain on: Ada, signed in as its administrator, a bot and a room, and the join code. */
 interface Ember {
   ada: Session;
   bot: UserId;
@@ -38,10 +38,17 @@ interface Ember {
   joinCode: string;
 }
 
-/** Sets Ember up, with a bot and a room, letting anyone sign up so that open sign-up's form is read. */
+/**
+ * Sets Ember up, with a bot and a room, letting anyone sign up, and people at an email domain ask for a
+ * link, so that open sign-up's form and Email domain's are read.
+ */
 async function setUpEmber(): Promise<Ember> {
   const ada = await setUp();
-  const opened = await api("/api/account", { method: "PATCH", headers: { Cookie: ada.cookie }, body: JSON.stringify({ settings: { openSignUp: true } }) });
+  const opened = await api("/api/account", {
+    method: "PATCH",
+    headers: { Cookie: ada.cookie },
+    body: JSON.stringify({ emailFrom: "ember@example.com", emailDomains: ["example.org"], settings: { openSignUp: true, emailDomainSignUp: true } }),
+  });
   expect(opened.status).toBe(200);
   const added = await api("/api/account/bots", { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify({ name: "Deploys" }) });
   expect(added.status).toBe(201);
@@ -76,6 +83,8 @@ function jsonRoutes({ ada, bot, room, joinCode }: Ember): Route[] {
     ["POST", `/api/join/${joinCode}`, {}],
     ["POST", "/api/join", {}],
     ["POST", "/api/join/invitation", {}],
+    ["POST", "/api/join/email", {}],
+    ["POST", "/api/email_links", {}],
     ["POST", "/api/email_links/lookup", {}],
     ["POST", "/api/invitations", signedIn],
     ["POST", "/api/unfurl", signedIn],

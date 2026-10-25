@@ -68,6 +68,8 @@ export {
 export {
   BOTS_PATH,
   CUSTOM_STYLES_PATH,
+  EMAIL_SIGN_UP_PATH,
+  emailSignUpLink,
   INVITATION_PATH,
   invitationLink,
   isAppPage,
@@ -386,11 +388,24 @@ export interface Account {
   memberfulJoin: boolean;
   /**
    * Whether only Memberful's members sign in, and administrators, which an administrator turns on in
-   * Membership as Memberful's Members only: then the join link, open sign-up and signing in with just a
-   * name are off, and only administrators and the people they invite sign in with a password. Off until
-   * one turns it on, and never on while Memberful is off.
+   * Membership as Memberful's Members only: then the join link, open sign-up, Email domain and signing in
+   * with just a name are off, and only administrators and the people they invite sign in with a
+   * password. Off until one turns it on, and never on while Memberful is off.
    */
   memberfulSignIn: boolean;
+  /**
+   * Whether people with an email address at one of `emailDomains` may join with a link Ember emails
+   * them, which they ask for at `/join/email`, and which an administrator turns on in Membership as Email
+   * domain. Off until one does, and off whatever this says while Memberful is members only
+   * (`signsUpWithEmailDomain`).
+   */
+  emailDomainSignUp: boolean;
+  /**
+   * The domains whose email addresses join while Email domain is on, as signed-out pages name them, each
+   * as `emailDomainOf` has domains. None while it's off, though administrators see the ones kept for when
+   * it's on again (`WorkspaceSettings.emailDomains`).
+   */
+  emailDomains: string[];
   /**
    * The icons an administrator chose in Community settings for the rail's buttons and the appearance
    * modes, as ember-rust's pull request #24 lets them. A slot without one shows its default.
@@ -426,6 +441,8 @@ export interface WorkspaceSettings {
   email: EmailSettings;
   /** The invitations no one has accepted yet, newest first, for administrators, and none for anyone else. */
   invitations: EmailInvitation[];
+  /** The domains Email domain lets in, as kept, whether it's on or not, for administrators, and none for anyone else. */
+  emailDomains: string[];
 }
 
 /**
@@ -503,8 +520,8 @@ export interface NewJoinCode {
 /**
  * What `PATCH /api/account` changes, as workspace settings save it: the workspace's name, its tagline,
  * its settings, its custom domain, which can only be the address the request comes to, or null for
- * none, the icons of the rail's buttons and the appearance modes, and the address Ember's email comes
- * from, or null for none.
+ * none, the icons of the rail's buttons and the appearance modes, the address Ember's email comes from,
+ * or null for none, and the domains Email domain lets in, in place of those it had.
  */
 export interface AccountChanges {
   name?: string;
@@ -513,13 +530,15 @@ export interface AccountChanges {
   customDomain?: string | null;
   navigationIcons?: NavigationIconChanges;
   emailFrom?: string | null;
+  emailDomains?: string[];
 }
 
 /**
  * The workspace's settings that workspace settings' switches change, each as ember-rust's `account[settings]`
- * names it, but the ways to join, this port's own: the join link's switch, Open, Memberful, and its
- * Members only, which the Worker turns on only with the deployment's Memberful keys. Members only turns
- * Memberful on with it, turning Memberful off turns it off, and it's never on together with Open.
+ * names it, but the ways to join, this port's own: the join link's switch, Open, Memberful, its Members
+ * only, which the Worker turns on only with the deployment's Memberful keys, and Email domain, which it
+ * turns on only with a domain to let in, while Ember can send email. Members only turns Memberful on with
+ * it, turning Memberful off turns it off, and it's never on together with Open.
  */
 export interface AccountSettings {
   hideTranslationButtons?: boolean;
@@ -528,6 +547,7 @@ export interface AccountSettings {
   openSignUp?: boolean;
   memberfulJoin?: boolean;
   memberfulSignIn?: boolean;
+  emailDomainSignUp?: boolean;
 }
 
 /** Whether the join link lets people in: its switch is on, and Memberful isn't members only, which turns it off. */
@@ -536,8 +556,59 @@ export const joinsWithLink = ({ joinLink, memberfulSignIn }: Pick<Account, "join
 /** Whether anyone may create an account at `/join`: Open is on, and Memberful isn't members only, which it can't be on with. */
 export const signsUpOpenly = ({ openSignUp, memberfulSignIn }: Pick<Account, "openSignUp" | "memberfulSignIn">) => openSignUp && !memberfulSignIn;
 
+/**
+ * Whether people may join with an email address at the workspace's email domains: Email domain is on,
+ * with a domain to let in, and Memberful isn't members only, which turns it off.
+ */
+export const signsUpWithEmailDomain = ({ emailDomainSignUp, emailDomains, memberfulSignIn }: Pick<Account, "emailDomainSignUp" | "emailDomains" | "memberfulSignIn">) =>
+  emailDomainSignUp && emailDomains.length > 0 && !memberfulSignIn;
+
 /** Why turning on Open, or Memberful's Members only, is refused while the other is on: Members only lets only Memberful's members in. */
 export const OPEN_WITH_MEMBERFUL = "Open and Members only can't both be on. Turn one off first.";
+
+/** The most domains Email domain lets in, which every page carries while it's on. */
+export const MAX_EMAIL_DOMAINS = 100;
+
+/** Why `PATCH /api/account` refuses the domains it's given for Email domain. */
+export const EMAIL_DOMAINS_REFUSED = `Email domains must be a list of at most ${MAX_EMAIL_DOMAINS} domains, such as example.com`;
+
+/** Why Email domain can't be on without a domain to let in. */
+export const NO_EMAIL_DOMAINS = "Add a domain whose email addresses can join.";
+
+/** Why Email domain can't be turned on while Ember can't send email, since it emails people the links they join with. */
+export const EMAIL_DOMAIN_NEEDS_EMAIL = "Email domain emails people a link to join with, so Ember has to send email first. Set up Email in Membership.";
+
+/**
+ * Domains anyone can have an email address at, for free, which Email domain warns would let almost
+ * anyone in.
+ */
+export const FREE_EMAIL_DOMAINS: readonly string[] = [
+  "aol.com",
+  "duck.com",
+  "fastmail.com",
+  "gmail.com",
+  "gmx.com",
+  "gmx.net",
+  "googlemail.com",
+  "hey.com",
+  "hotmail.com",
+  "icloud.com",
+  "live.com",
+  "mac.com",
+  "mail.com",
+  "me.com",
+  "msn.com",
+  "outlook.com",
+  "pm.me",
+  "proton.me",
+  "protonmail.com",
+  "qq.com",
+  "tuta.com",
+  "tutanota.com",
+  "yahoo.com",
+  "yandex.com",
+  "zoho.com",
+];
 
 /** What `GET /api/account/custom_styles` answers, and `PATCH` sets, as the Custom CSS page saves it. */
 export interface CustomStyles {
@@ -728,23 +799,62 @@ export interface OpenSignUp extends SignUp {
 export const MAX_TURNSTILE_TOKEN_LENGTH = 2048;
 
 /**
- * Someone joining with an invitation's link, as its form sends them to `POST /api/join/invitation`: the
- * secret in the link's fragment, and a name and password. The email address is the invitation's.
+ * Someone joining with a link Ember emailed them, as its form sends them to `POST /api/join/invitation`
+ * for an invitation's, or `POST /api/join/email` for one they asked for with an address at the
+ * workspace's email domains: the secret in the link's fragment, and a name and password. The email
+ * address is the link's.
  */
-export interface InvitationSignUp {
+export interface EmailLinkSignUp {
   token: string;
   name: string;
   password: string;
 }
 
+/**
+ * What a link Ember emails people to join with is: an administrator's invitation (`accounts.invitations`),
+ * or one someone asked for with an address at the workspace's email domains (`auth.email-domain-sign-up`).
+ */
+export type EmailLinkKind = "invitation" | "email_domain";
+
 /** What `POST /api/email_links/lookup` answers for a link that works: whom it's for, which looking spends nothing of. */
 export interface EmailLinkFor {
-  kind: "invitation";
+  kind: EmailLinkKind;
   emailAddress: string;
 }
 
 /** Why an invitation's link doesn't work, whatever the reason, as its page and its form say. */
 export const INVITATION_GONE = "This invitation has expired, been used, or been replaced by a newer one. Ask whoever invited you to send another.";
+
+/** Why a link someone asked for with their email address doesn't work, whatever the reason, as its page and its form say. */
+export const EMAIL_LINK_GONE = "This link has expired, been used, or been replaced by a newer one.";
+
+/**
+ * Someone asking for a link to join with their email address, at one of the workspace's email domains,
+ * as `/join/email`'s form sends it to `POST /api/email_links`, with the token Turnstile's check gave the
+ * page while the deployment has its keys.
+ */
+export interface EmailLinkRequest {
+  emailAddress: string;
+  turnstileToken?: string;
+}
+
+/**
+ * Email domain's limits, this port's own: how many times an address is emailed in an hour, at most,
+ * whoever asks, so that nobody can have Ember email someone over and over, and how many links a network
+ * may ask for in an hour while the deployment lacks Turnstile's keys, whose check stops the scripts that
+ * would ask for many addresses at once.
+ */
+export const EMAIL_LINKS_PER_ADDRESS = 3;
+export const EMAIL_LINKS_PER_NETWORK = 10;
+
+/** Why `/join/email` sends no link to a network that has asked for as many as it may in an hour. */
+export const EMAIL_LINKS_LIMITED = "Too many links asked for from your network. Try again in an hour.";
+
+/** Why `/join/email` sends no link while Ember can't send email. */
+export const CANT_EMAIL_LINKS = "Ember can't email links right now. Try again later, or ask an administrator to invite you.";
+
+/** Why `/join/email` sent no link when the email provider refused to send it. */
+export const EMAIL_LINK_UNSENT = "Ember couldn't email you just now. Try again later.";
 
 /**
  * Whose password to reset, and to what, as `POST /api/recovery/reset-password` takes it from
@@ -901,11 +1011,13 @@ export const MEMBERFUL_SIGN_IN_NEEDED = "Members sign in with Memberful. Only ad
 
 /**
  * Why a page for joining sent the browser to sign in instead, which the address names as `?joining=`,
- * and what the sign-in page then says: the join link is off, though its code is right, or Open is.
+ * and what the sign-in page then says: the join link is off, though its code is right, Open is, or
+ * Email domain is.
  */
 export const JOINING_PROBLEMS = {
   link_off: "Joining by link is off.",
   closed: "Signing up is closed.",
+  email_off: "Joining with an email address is off.",
 } as const;
 export type JoiningProblem = keyof typeof JOINING_PROBLEMS;
 
@@ -1436,6 +1548,7 @@ const SETTING_NAMES: Record<keyof AccountSettings, string> = {
   openSignUp: "Open",
   memberfulJoin: "Memberful",
   memberfulSignIn: "Members only",
+  emailDomainSignUp: "Email domain",
 };
 
 /**
@@ -1558,6 +1671,55 @@ function emailFromOf(value: unknown): string | null | undefined {
   return mailbox === null ? undefined : mailboxText(mailbox);
 }
 
+/**
+ * The part of the URL parser that reading a domain needs, which every runtime Ember runs in has, though
+ * the protocol, made for every runtime, names it itself, as it does `SearchParams`.
+ */
+declare const URL: new (url: string) => { readonly hostname: string };
+
+/**
+ * A domain as DNS has it, in ASCII: letters, digits and hyphens between dots, in labels of at most 63,
+ * and at most 253 in all, with a top-level domain that isn't all digits, as an IP address's would be.
+ */
+const EMAIL_DOMAIN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?=[a-z0-9-]*[a-z])[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/**
+ * The email domain `text` names, as an administrator lists one for Email domain, with an "@" before it
+ * or not: in lowercase, an international name in the ASCII form the URL parser gives a host, so that a
+ * look-alike is just another domain. Null for anything else.
+ */
+export function emailDomainOf(text: string): string | null {
+  const typed = text.trim().replace(/^@/, "");
+  // Nothing but a host, so that the parser finds no path, port or user in it.
+  if (typed === "" || /[\s/\\?#@:[\]%]/.test(typed)) return null;
+  let host: string;
+  try {
+    host = new URL(`http://${typed}`).hostname;
+  } catch {
+    return null;
+  }
+  return EMAIL_DOMAIN.test(host) ? host : null;
+}
+
+/** The domain of `emailAddress`, as `emailDomainOf` has domains, or null for an address without one. */
+export function domainOfEmailAddress(emailAddress: string): string | null {
+  const at = emailAddress.lastIndexOf("@");
+  return at > 0 ? emailDomainOf(emailAddress.slice(at + 1)) : null;
+}
+
+/** The domains `PATCH /api/account` may give Email domain, each as `emailDomainOf` has it and once, or undefined for anything else. */
+function emailDomainsOf(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.length > MAX_EMAIL_DOMAINS) return undefined;
+  const domains = value.map((text: unknown) => (typeof text === "string" ? emailDomainOf(text) : null));
+  return domains.every((domain) => domain !== null) ? [...new Set(domains)] : undefined;
+}
+
+/** `domains` in words, as pages name the ones Email domain lets in: "example.com", or "example.com or example.org", and so on. */
+export const domainsInWords = (domains: readonly string[]) => (domains.length < 2 ? (domains[0] ?? "") : `${domains.slice(0, -1).join(", ")} or ${domains.at(-1)}`);
+
+/** Why `/join/email` sends no link to an address at a domain Email domain doesn't let in. */
+export const onlyAddressesAt = (domains: readonly string[]) => `Only email addresses at ${domainsInWords(domains)} can join this way.`;
+
 /** A tagline as it's kept: on one line, with a single space between words and none at either end. */
 const taglineOf = (text: string) => text.replace(/\s+/g, " ").trim();
 
@@ -1585,11 +1747,11 @@ function navigationIconsOf(data: unknown): NavigationIconChanges | undefined {
  * without space at its ends, and blank is none. Each setting is true or false, and one it doesn't know
  * is refused, where ember-rust fails (account.rs, `assign`). A custom domain is a host or null, which
  * the Worker then checks is the address the request came to. Navigation icons are as `navigationIconsOf`
- * reads them, and the From address as `emailFromOf` does.
+ * reads them, the From address as `emailFromOf` does, and Email domain's domains as `emailDomainsOf` does.
  */
 export function parseAccountChanges(data: unknown): AccountChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
-  const { name, tagline, settings, customDomain, navigationIcons, emailFrom } = data;
+  const { name, tagline, settings, customDomain, navigationIcons, emailFrom, emailDomains } = data;
   if (name !== undefined && (typeof name !== "string" || name.length > MAX_ACCOUNT_NAME_LENGTH)) return `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;
   const kept = typeof tagline === "string" ? taglineOf(tagline) : undefined;
   if (tagline !== undefined && (kept === undefined || kept.length > MAX_TAGLINE_LENGTH)) return TAGLINE_TOO_LONG;
@@ -1599,12 +1761,15 @@ export function parseAccountChanges(data: unknown): AccountChanges | string {
   if (navigationIcons !== undefined && icons === undefined) return NAVIGATION_ICONS_REFUSED;
   const from = emailFromOf(emailFrom);
   if (emailFrom !== undefined && from === undefined) return EMAIL_FROM_REFUSED;
+  const domains = emailDomainsOf(emailDomains);
+  if (emailDomains !== undefined && domains === undefined) return EMAIL_DOMAINS_REFUSED;
   const changes: AccountChanges = {
     ...(name !== undefined && { name }),
     ...(kept !== undefined && { tagline: kept }),
     ...(domain !== undefined && { customDomain: domain }),
     ...(icons !== undefined && { navigationIcons: icons }),
     ...(from !== undefined && { emailFrom: from }),
+    ...(domains !== undefined && { emailDomains: domains }),
   };
   if (settings === undefined) return changes;
   if (!isJsonObject(settings)) return "Settings must be a JSON object";
@@ -1716,16 +1881,37 @@ export function parseOpenSignUp(data: unknown): OpenSignUp | string {
 }
 
 /**
- * Parses an untrusted join with an invitation's link, as `parseSignUp` does a join, but for the email
- * address, which is the invitation's, and with the link's secret, which the Worker checks. Returns why
- * it's refused instead.
+ * Parses an untrusted join with a link Ember emailed, as `parseSignUp` does a join, but for the email
+ * address, which is the link's, and with the link's secret, which the Worker checks. Returns why it's
+ * refused instead.
  */
-export function parseInvitationSignUp(data: unknown): InvitationSignUp | string {
+export function parseEmailLinkSignUp(data: unknown): EmailLinkSignUp | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
   const name = typeof data.name === "string" ? data.name.trim() : "";
   if (!name || typeof data.password !== "string" || typeof data.token !== "string") return "Name and password are required";
   if (name.length > MAX_USER_NAME_LENGTH) return NAME_TOO_LONG;
   return { token: data.token, name, password: data.password };
+}
+
+/** Why `POST /api/email_links` is refused an address it can't send to. */
+export const EMAIL_ADDRESS_NEEDED = "Enter your email address, such as ann@example.com";
+
+/**
+ * Parses an untrusted `POST /api/email_links`, answering the address to email, with its domain, as
+ * `emailDomainOf` has domains, and Turnstile's token if it has one, or why it's refused instead: no
+ * address Ember can send to. The address is kept as given, as joining keeps one, but for an
+ * international domain, which goes in its ASCII form, as Ember sends to it.
+ */
+export function parseEmailLinkRequest(data: unknown): (EmailLinkRequest & { domain: string }) | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { emailAddress, turnstileToken } = data;
+  const given = typeof emailAddress === "string" ? emailAddress.trim() : "";
+  const domain = domainOfEmailAddress(given);
+  const address = domain !== null && !isEmailAddress(given) ? `${given.slice(0, given.lastIndexOf("@"))}@${domain}` : given;
+  if (domain === null || !isEmailAddress(address)) return EMAIL_ADDRESS_NEEDED;
+  if (turnstileToken === undefined) return { emailAddress: address, domain };
+  if (typeof turnstileToken !== "string" || turnstileToken.length > MAX_TURNSTILE_TOKEN_LENGTH) return `Turnstile's token must be at most ${MAX_TURNSTILE_TOKEN_LENGTH} characters`;
+  return { emailAddress: address, domain, turnstileToken };
 }
 
 /** Why `POST /api/invitations` is refused without an email address to invite. */

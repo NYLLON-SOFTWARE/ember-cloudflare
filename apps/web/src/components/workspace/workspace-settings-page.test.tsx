@@ -8,6 +8,7 @@ import {
   LOGO_TOO_LARGE,
   MAX_LOGO_SIZE,
   MAX_TAGLINE_LENGTH,
+  NO_EMAIL_DOMAINS,
   OPEN_WITH_MEMBERFUL,
   withNavigationIcons,
   type Account,
@@ -39,7 +40,7 @@ vi.mock("@/lib/previews", () => ({
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
 const asAdministrator: WorkspaceSettings = {
-  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} },
+  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} },
   joinCode: JOIN_CODE,
   canAdminister: true,
   memberfulSite: null,
@@ -47,6 +48,7 @@ const asAdministrator: WorkspaceSettings = {
   turnstile: false,
   email: { provider: "cloudflare", from: null },
   invitations: [],
+  emailDomains: [],
 };
 const asMember: WorkspaceSettings = { ...asAdministrator, canAdminister: false };
 
@@ -111,7 +113,7 @@ const CATALOG = {
 
 /** Answers the page's requests as the server would for `settings`, or as `answers` says. */
 function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed, ordered, logoSaved }: Answers = {}) {
-  let { account } = settings;
+  let { account, emailDomains: keptDomains } = settings;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
     if (request.endsWith("catalog.json")) return Response.json(CATALOG);
@@ -124,12 +126,21 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
     if (removing) return removed ? removed() : Response.json({ user: { ...everyone.find((user) => user.id === removing[1]), status: "deactivated" } });
     switch (request) {
       case "GET /api/account":
-        return Response.json({ ...settings, account });
+        return Response.json({ ...settings, account, emailDomains: keptDomains });
       case "PATCH /api/account": {
         if (saved) return saved();
-        const { name = account.name, tagline = account.tagline, settings: changed, customDomain = account.customDomain, navigationIcons = {} } = JSON.parse(String(init?.body)) as AccountChanges;
+        const {
+          name = account.name,
+          tagline = account.tagline,
+          settings: changed,
+          customDomain = account.customDomain,
+          navigationIcons = {},
+          emailDomains = keptDomains,
+        } = JSON.parse(String(init?.body)) as AccountChanges;
         // Members only turns Memberful on with it, and turning Memberful off turns it off, as the Worker does.
         const memberfulJoin = changed?.memberfulJoin ?? (changed?.memberfulSignIn || account.memberfulJoin);
+        const emailDomainSignUp = changed?.emailDomainSignUp ?? account.emailDomainSignUp;
+        keptDomains = emailDomains;
         account = {
           ...account,
           name,
@@ -141,6 +152,9 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
           openSignUp: changed?.openSignUp ?? account.openSignUp,
           memberfulJoin,
           memberfulSignIn: memberfulJoin && (changed?.memberfulSignIn ?? account.memberfulSignIn),
+          // The workspace shows Email domain's domains only while it's on, as the Worker does.
+          emailDomainSignUp,
+          emailDomains: emailDomainSignUp ? keptDomains : [],
           navigationIcons: withNavigationIcons(account.navigationIcons, navigationIcons),
         };
         return Response.json({ account });
@@ -921,18 +935,23 @@ describe(feature("accounts.ways-to-join"), () => {
   const OPEN_OVERRIDES = "Set aside while Open lets anyone join.";
   const MEMBERS_ONLY_OVERRIDES = "Off while Memberful is members only.";
 
-  it("gives administrators Who can join: Open, Join link and Memberful, each with a switch and whom it lets in", async () => {
+  it("gives administrators Who can join: Open, Join link, Email domain and Memberful, each with a switch and whom it lets in", async () => {
     serve(withKeys);
     showPage();
     const ways = await screen.findByRole("region", { name: "Who can join" });
     expect(within(ways).getByRole("heading", { level: 2, name: "Who can join" })).toBeInTheDocument();
-    expect(within(ways).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Open", "Join link", "Memberful"]);
+    expect(within(ways).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Open", "Join link", "Email domain", "Memberful"]);
     const open = await way("Open");
     expect(open).not.toBeChecked();
     expect(open).toHaveAccessibleDescription("Anyone can create an account at Ember's sign-up page.");
     const link = await way("Join link");
     expect(link).toBeChecked();
     expect(link).toHaveAccessibleDescription("Anyone with the link can create an account.");
+    // Ember emails its links, so until Email has a From address it can't be turned on.
+    const emailDomain = await way("Email domain");
+    expect(emailDomain).not.toBeChecked();
+    expect(emailDomain).toBeDisabled();
+    expect(emailDomain).toHaveAccessibleDescription("People with an email address at your domains join with a link Ember emails them, once Email is set up below.");
     expect(await way("Memberful")).not.toBeChecked();
     // Each shows its settings while it's on.
     expect(within(screen.getByRole("region", { name: "Join link" })).getByRole("textbox", { name: "Share to invite more people" })).toBeInTheDocument();
@@ -1134,6 +1153,204 @@ describe(feature("accounts.ways-to-join"), () => {
     expect(await screen.findByText("Only the people administrators invite can join.")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
     expect(signUpLink()).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("auth.email-domain-sign-up"), () => {
+  showingSection("membership-settings");
+  const sending: WorkspaceSettings = { ...asAdministrator, email: { provider: "cloudflare", from: "Ember <ember@example.com>" } };
+  /** `settings` with Email domain on, letting in `domains`. */
+  const letsIn = (domains: string[], settings = sending): WorkspaceSettings => ({
+    ...settings,
+    account: { ...settings.account, emailDomainSignUp: true, emailDomains: domains },
+    emailDomains: domains,
+  });
+  const emailDomain = () => screen.findByRole("switch", { name: "Email domain" });
+  const card = () => screen.getByRole("region", { name: "Email domain" });
+  const domainField = () => within(card()).getByRole("textbox", { name: "Add a domain" });
+  const domainsListed = () =>
+    within(within(card()).getByRole("list", { name: "Domains that can join" }))
+      .getAllByRole("button")
+      .map((chip) => chip.textContent);
+  const saveButton = () => within(card()).queryByRole("button", { name: /^Save/ });
+
+  it("opens its list as it's turned on without a domain, which saving turns it on with, saying Changes saved.", async () => {
+    serve(sending);
+    const { onAccountChanged, user } = showPage();
+    const toggle = await emailDomain();
+    expect(toggle).toBeEnabled();
+    expect(toggle).toHaveAccessibleDescription("People with an email address at your domains join with a link Ember emails them.");
+    await user.click(toggle);
+    expect(toggle).toBeChecked();
+    expect(saved()).toEqual([]);
+    expect(domainField()).toHaveFocus();
+    expect(card()).toHaveTextContent(NO_EMAIL_DOMAINS);
+    expect(saveButton()).toHaveAccessibleName("Save and turn on");
+    expect(saveButton()).toBeDisabled();
+    // Until it's on, it has no link to share.
+    expect(within(card()).queryByRole("textbox", { name: "Share with people at your domains" })).not.toBeInTheDocument();
+
+    await user.type(domainField(), " @Example.ORG, analytical.example{Enter}");
+    expect(domainsListed()).toEqual(["example.org", "analytical.example"]);
+    expect(domainField()).toHaveValue("");
+    await user.click(saveButton()!);
+    expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
+    expect(saved()).toEqual([{ emailDomains: ["example.org", "analytical.example"], settings: { emailDomainSignUp: true } }]);
+    expect(onAccountChanged).toHaveBeenLastCalledWith({ ...sending.account, emailDomainSignUp: true, emailDomains: ["example.org", "analytical.example"] });
+    expect(toggle).toBeChecked();
+    expect(saveButton()).not.toBeInTheDocument();
+    expect(within(card()).getByRole("textbox", { name: "Share with people at your domains" })).toHaveValue(`${location.origin}/join/email`);
+    expect(within(card()).getByRole("button", { name: "Copy email sign-up link" })).toBeInTheDocument();
+  });
+
+  it("turns off again without saving anything while its first domains aren't saved", async () => {
+    serve(sending);
+    const { user } = showPage();
+    const toggle = await emailDomain();
+    await user.click(toggle);
+    await user.type(domainField(), "example.org{Enter}");
+    await user.click(toggle);
+    expect(toggle).not.toBeChecked();
+    expect(within(card()).queryByRole("textbox", { name: "Add a domain" })).not.toBeInTheDocument();
+    expect(saved()).toEqual([]);
+  });
+
+  it("keeps in the field what isn't a domain, saying so, and warns of domains anyone can have an address at", async () => {
+    serve(letsIn(["example.org"]));
+    const { user } = showPage();
+    await emailDomain();
+    expect(domainsListed()).toEqual(["example.org"]);
+    expect(saveButton()).not.toBeInTheDocument();
+
+    await user.type(domainField(), "gmail.com not_a_domain example.org{Enter}");
+    const refusal = "not_a_domain isn't a domain, such as example.com.";
+    expect(within(card()).getByRole("alert")).toHaveTextContent(refusal);
+    expect(domainField()).toHaveValue("not_a_domain");
+    expect(domainField()).toHaveAccessibleDescription(refusal);
+    expect(domainsListed()).toEqual(["example.org", "gmail.com"]);
+    expect(card()).toHaveTextContent("Anyone can get an address at gmail.com, so listing it lets almost anyone join.");
+
+    await user.click(within(card()).getByRole("button", { name: "Save domains" }));
+    expect(await screen.findByText(CHANGES_SAVED)).toBeInTheDocument();
+    expect(saved()).toEqual([{ emailDomains: ["example.org", "gmail.com"] }]);
+    expect(saveButton()).not.toBeInTheDocument();
+  });
+
+  it("takes a domain off with its button, keeping one while it's on, and has nothing to save once it's as kept", async () => {
+    serve(letsIn(["example.org", "example.com"]));
+    const { user } = showPage();
+    await emailDomain();
+    await user.click(within(card()).getByRole("button", { name: "Remove example.com" }));
+    expect(domainsListed()).toEqual(["example.org"]);
+    expect(saveButton()).toHaveAccessibleName("Save domains");
+    await user.type(domainField(), "example.com{Enter}");
+    expect(domainsListed()).toEqual(["example.org", "example.com"]);
+    expect(saveButton()).not.toBeInTheDocument();
+
+    for (const domain of ["example.org", "example.com"]) await user.click(within(card()).getByRole("button", { name: `Remove ${domain}` }));
+    expect(card()).toHaveTextContent(NO_EMAIL_DOMAINS);
+    expect(saveButton()).toBeDisabled();
+    await user.type(domainField(), "example.org{Enter}");
+    await user.click(saveButton()!);
+    await waitFor(() => expect(saved()).toEqual([{ emailDomains: ["example.org"] }]));
+  });
+
+  it("turns on with the domains it kept, saved at once with no notice, and off again", async () => {
+    serve({ ...sending, emailDomains: ["example.org"] });
+    const { onAccountChanged, user } = showPage();
+    const toggle = await emailDomain();
+    await user.click(toggle);
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...sending.account, emailDomainSignUp: true, emailDomains: ["example.org"] }));
+    expect(domainsListed()).toEqual(["example.org"]);
+    await user.click(toggle);
+    await waitFor(() => expect(saved()).toEqual([{ settings: { emailDomainSignUp: true } }, { settings: { emailDomainSignUp: false } }]));
+    expect(toggle).not.toBeChecked();
+    expect(screen.queryByText(CHANGES_SAVED)).not.toBeInTheDocument();
+  });
+
+  it("says when it's on but Ember can email nobody a link until Email is set up, and can still be turned off", async () => {
+    serve(letsIn(["example.org"], asAdministrator));
+    showPage();
+    const toggle = await emailDomain();
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeEnabled();
+    expect(toggle).toHaveAccessibleDescription("It's on, but Ember can't send email, so nobody gets a link to join with until Email is set up below.");
+  });
+
+  it.each([
+    { way: "Open", changes: { openSignUp: true }, says: "Set aside while Open lets anyone join." },
+    { way: "Members only", changes: { memberfulJoin: true, memberfulSignIn: true }, says: "Off while Memberful is members only." },
+  ])("greys it out while $way is on, keeping its domains for later", async ({ changes, says }) => {
+    const settings = letsIn(["example.org"]);
+    serve({ ...settings, memberfulSite: "https://example.memberful.com", account: { ...settings.account, ...changes } });
+    showPage();
+    const toggle = await emailDomain();
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeDisabled();
+    expect(toggle).toHaveAccessibleDescription(says);
+    expect(within(card()).queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("says how often Ember emails an address a link, and what limits asking until the deployment has Turnstile's keys", async () => {
+    serve(letsIn(["example.org"]));
+    showPage();
+    await emailDomain();
+    expect(card()).toHaveTextContent("Ember emails an address at most 3 links an hour, whoever asks, so nobody can use it to fill someone's inbox.");
+    expect(card()).toHaveTextContent(
+      "Until Cloudflare Turnstile checks that whoever asks is a person, 10 links can be asked for from a network in an hour. To lift that limit, add a Turnstile widget for Ember's address in the Cloudflare dashboard, then give this Worker its site key and secret key as the secrets TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY.",
+    );
+    expect(within(card()).getByRole("link", { name: "Open Turnstile in the Cloudflare dashboard" })).toHaveAttribute("target", "_blank");
+  });
+
+  it("says Turnstile checks whoever asks once the deployment has its keys, with no limit on a network", async () => {
+    serve({ ...letsIn(["example.org"]), turnstile: true });
+    showPage();
+    await emailDomain();
+    expect(card()).toHaveTextContent("Cloudflare Turnstile checks that whoever asks for a link is a person.");
+    expect(card()).not.toHaveTextContent("from a network");
+  });
+
+  it("follows the workspace socket, for domains saved in another tab", async () => {
+    serve(letsIn(["example.org"]));
+    showPage();
+    await emailDomain();
+    act(() => workspaceSays({ ...sending.account, emailDomainSignUp: true, emailDomains: ["example.org", "example.com"] }));
+    expect(domainsListed()).toEqual(["example.org", "example.com"]);
+  });
+
+  it("keeps the domains another tab turned it on with once it's turned off here, turning on with them again", async () => {
+    serve(sending);
+    const { onAccountChanged, user } = showPage();
+    const toggle = await emailDomain();
+    // Another tab saves the first domain, turning it on, and the workspace socket says so.
+    const changes = { emailDomains: ["example.org"], settings: { emailDomainSignUp: true } };
+    const { account } = (await (await fetch("/api/account", { method: "PATCH", body: JSON.stringify(changes) })).json()) as { account: Account };
+    act(() => workspaceSays(account));
+    expect(domainsListed()).toEqual(["example.org"]);
+
+    await user.click(toggle);
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...sending.account, emailDomainSignUp: false, emailDomains: [] }));
+    await user.click(toggle);
+    await waitFor(() => expect(saved()).toEqual([changes, { settings: { emailDomainSignUp: false } }, { settings: { emailDomainSignUp: true } }]));
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...sending.account, emailDomainSignUp: true, emailDomains: ["example.org"] }));
+    expect(domainsListed()).toEqual(["example.org"]);
+    expect(saveButton()).not.toBeInTheDocument();
+  });
+
+  it("shows members its link while it lets people in, naming the domains, with no switch", async () => {
+    serve({ ...letsIn(["example.org", "example.com"], asMember), emailDomains: [] });
+    showPage(asLinus);
+    expect(await screen.findByRole("textbox", { name: "Share with people at example.org or example.com" })).toHaveValue(`${location.origin}/join/email`);
+    expect(await joinLink()).toBeInTheDocument();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+  });
+
+  it("shows members only open sign-up's link while Open lets anyone in", async () => {
+    const settings = letsIn(["example.org"], asMember);
+    serve({ ...settings, account: { ...settings.account, openSignUp: true }, emailDomains: [] });
+    showPage(asLinus);
+    expect(await screen.findByRole("textbox", { name: "Share so anyone can sign up" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /^Share with people at/ })).not.toBeInTheDocument();
   });
 });
 

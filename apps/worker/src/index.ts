@@ -3,6 +3,8 @@ import {
   CloseCode,
   CURRENT_PASSWORD_NEEDED,
   CURRENT_PASSWORD_WRONG,
+  EMAIL_DOMAIN_NEEDS_EMAIL,
+  EMAIL_SIGN_UP_PATH,
   INVITATION_PATH,
   LOGO_PATH,
   LOGO_TOO_LARGE,
@@ -14,6 +16,7 @@ import {
   MEMBERFUL_SIGN_IN_PATH,
   MEMBERFUL_SIGN_IN_PROBLEMS,
   MEMBERFUL_WEBHOOK_PATH,
+  NO_EMAIL_DOMAINS,
   isPasswordTooLong,
   isRoomId,
   OPEN_WITH_MEMBERFUL,
@@ -90,7 +93,7 @@ import { answerProbe, customDomainRefusal, originFor, probeOf, reachOf } from ".
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { invite, lookUpEmailLink, resendInvitation, revokeInvitation } from "./invitations";
-import { invitationPage, join, joinCodeOf, joinPage, joinWithInvitation, signUp, signUpPage } from "./join";
+import { askForEmailLink, emailSignUpPage, invitationPage, join, joinCodeOf, joinPage, joinWithEmailLink, signUp, signUpPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
 import { finishMemberfulSignIn, memberfulConnectionFor, memberfulRefusal, memberfulWebhook, memberfulWebhooksOf, startMemberfulSignIn } from "./memberful";
 import { memberfulKeysOf } from "./memberful-api";
@@ -273,8 +276,9 @@ async function regenerateJoinCode(request: Request, env: Env): Promise<Response>
 /**
  * Changes the workspace, as its settings save it. As in ember-rust, someone who isn't an administrator
  * hears so before anything they sent is checked (accounts.rs). A custom domain can only be the address
- * the request came to (`customDomainRefusal`), and Memberful, or its Members only, can only be turned
- * on with the deployment's Memberful keys. Turning either off always works.
+ * the request came to (`customDomainRefusal`), Memberful, or its Members only, can only be turned on
+ * with the deployment's Memberful keys, and Email domain only with a domain to let in, while Ember can
+ * send email. Turning any of them off always works.
  */
 async function changeAccount(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -286,6 +290,8 @@ async function changeAccount(request: Request, env: Env): Promise<Response> {
   if (!account) return problem(401, "Not signed in");
   if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
   if (account === "conflict") return problem(422, OPEN_WITH_MEMBERFUL);
+  if (account === "no email domains") return problem(422, NO_EMAIL_DOMAINS);
+  if (account === "no email") return problem(422, EMAIL_DOMAIN_NEEDS_EMAIL);
   return refusal ? problem(422, refusal) : json({ account });
 }
 
@@ -889,7 +895,9 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/rooms/new" && request.method === "GET") return () => newRoomForm(request, env);
   if (pathname === "/api/directs" && request.method === "POST") return () => startDirect(request, env);
   if (pathname === "/api/join" && request.method === "POST") return () => signUp(request, env);
-  if (pathname === "/api/join/invitation" && request.method === "POST") return () => joinWithInvitation(request, env);
+  if (pathname === "/api/join/invitation" && request.method === "POST") return () => joinWithEmailLink(request, env, "invitation");
+  if (pathname === "/api/join/email" && request.method === "POST") return () => joinWithEmailLink(request, env, "email_domain");
+  if (pathname === "/api/email_links" && request.method === "POST") return () => askForEmailLink(request, env);
   if (pathname === "/api/email_links/lookup" && request.method === "POST") return () => lookUpEmailLink(request, env);
   if (pathname === "/api/invitations" && request.method === "POST") return () => invite(request, env);
   // Invitations' ids are sortable ids, which never need percent-encoding, so an encoded segment names none.
@@ -983,6 +991,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (isSetupPath(pathname)) return setupPage(request, env);
   if (pathname === SIGN_UP_PATH) return signUpPage(request, env);
   if (pathname === INVITATION_PATH) return invitationPage(request, env);
+  if (pathname === EMAIL_SIGN_UP_PATH) return emailSignUpPage(request, env);
   const joinCode = joinCodeOf(pathname);
   if (joinCode !== null) return joinPage(request, env, joinCode);
   if (pathname === TRANSFER_PATH) return transferPage(request, env);

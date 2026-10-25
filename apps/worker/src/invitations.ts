@@ -1,4 +1,4 @@
-import { INVITATION_GONE, parseInvitationRequest, type EmailLinkFor, type Invited, type ResentInvitation } from "@ember/protocol";
+import { EMAIL_LINK_GONE, parseInvitationRequest, type EmailLinkFor, type Invited, type ResentInvitation } from "@ember/protocol";
 import { credentialsOf, newSessionToken, tokenDigest } from "./auth";
 import { jsonBodyOf } from "./bodies";
 import { originFor } from "./custom-domain";
@@ -8,7 +8,9 @@ import { workspace, type NewEmailLink } from "./workspace";
 // Invitations to join by email (`accounts.invitations`), this port's own, since ember-rust sends no
 // email: administrators invite addresses, which Membership sends `INVITATIONS_AT_ONCE` at a time, give
 // an invitation a new link, or revoke it. Each link is a secret in the address's fragment, which only
-// its digest is kept in place of, and looking one up spends nothing (`auth.invitation-sign-up`).
+// its digest is kept in place of, and looking one up spends nothing (`auth.invitation-sign-up`), as
+// looking up one someone asked for with an address at the workspace's email domains spends nothing
+// (`auth.email-domain-sign-up`).
 
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
 
@@ -19,7 +21,7 @@ const ADMINISTRATORS_ONLY = "Only administrators can invite people";
 const EMAIL_LINK_TOKEN = /^[\w-]{43}$/;
 
 /** A new link for Ember to email: a secret, as random as a session token, and its digest under SESSION_SECRET. */
-async function newEmailLink(env: Env): Promise<NewEmailLink> {
+export async function newEmailLink(env: Env): Promise<NewEmailLink> {
   const token = newSessionToken();
   return { token, digest: await tokenDigest(token, env.SESSION_SECRET) };
 }
@@ -73,13 +75,13 @@ export async function emailLinkDigest(token: unknown, env: Env): Promise<string 
 }
 
 /**
- * `POST /api/email_links/lookup`, with a link's secret, `{ token }`, as its page sends it: whom the link
- * is for, while it works, for anyone, signed in or not, which spends nothing, or 404.
+ * `POST /api/email_links/lookup`, with a link's secret, `{ token }`, as its page sends it: what the link
+ * is and whom it's for, while it works, for anyone, signed in or not, which spends nothing, or 404.
  */
 export async function lookUpEmailLink(request: Request, env: Env): Promise<Response> {
   const body = await jsonBodyOf(request);
   const digest = await emailLinkDigest(typeof body === "object" && body !== null ? (body as Record<string, unknown>).token : undefined, env);
-  const link = digest && (await workspace(env).invitationFor(digest));
-  if (!link) return problem(404, INVITATION_GONE);
+  const link = digest && (await workspace(env).emailLinkFor(digest));
+  if (!link) return problem(404, EMAIL_LINK_GONE);
   return Response.json(link satisfies EmailLinkFor, { headers: { "Cache-Control": "no-store" } });
 }

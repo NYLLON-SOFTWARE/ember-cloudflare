@@ -5,6 +5,7 @@ import {
   NAVIGATION_SLOTS,
   RECENT_SEARCHES,
   SUGGESTED_PEOPLE,
+  emailDomainOf,
   isRoomIcon,
   mailboxOf,
   mailboxText,
@@ -14,8 +15,9 @@ import {
   type BotRoom,
   type CloseCode,
   type DirectRoom,
-  type Favorites,
   type EmailInvitation,
+  type EmailLinkKind,
+  type Favorites,
   type Involvement,
   type NavigationIconChanges,
   type NavigationIcons,
@@ -71,7 +73,8 @@ const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administ
 /**
  * What a new account's settings and custom CSS read as: no tagline, translation buttons hidden, no CSS,
  * anyone may create rooms, no custom domain, people join with the join link but can't sign up without
- * it, nor join with Memberful, members sign in with passwords, and the rail has its own icons.
+ * it, nor join with Memberful or an email domain, members sign in with passwords, and the rail has its
+ * own icons.
  */
 export const NEW_ACCOUNT_LOOKS = {
   tagline: "",
@@ -83,13 +86,16 @@ export const NEW_ACCOUNT_LOOKS = {
   openSignUp: false,
   memberfulJoin: false,
   memberfulSignIn: false,
+  emailDomainSignUp: false,
+  emailDomains: [] as string[],
   navigationIcons: {},
 } as const;
 
 /**
  * The workspace's account as the Workspace keeps it: as every page shows it, but for its logo's address,
  * with the code in its join link, which only the people in it see, when it last changed, which the
- * logo's address goes by, and the logo as R2 keeps it.
+ * logo's address goes by, and the logo as R2 keeps it. Its email domains are the ones kept, whether Email
+ * domain is on or not.
  */
 export interface JoinableAccount extends Omit<Account, "logo"> {
   joinCode: string;
@@ -108,10 +114,15 @@ export interface NewAccount {
 
 /**
  * What `WorkspaceStore.changeAccount` changes: the name, the tagline, the settings workspace settings'
- * switches change, the custom domain, the navigation icons whose slots change, and the From address.
- * Memberful's two settings change together, or not at all, as `memberful`.
+ * switches change, the custom domain, the navigation icons whose slots change, the From address, and the
+ * domains Email domain lets in. Memberful's two settings change together, or not at all, as `memberful`.
  */
-export type AccountChange = Partial<Pick<JoinableAccount, "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "joinLink" | "openSignUp" | "emailFrom">> & {
+export type AccountChange = Partial<
+  Pick<
+    JoinableAccount,
+    "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "joinLink" | "openSignUp" | "emailDomainSignUp" | "emailDomains" | "emailFrom"
+  >
+> & {
   memberful?: Pick<Account, "memberfulJoin" | "memberfulSignIn">;
   navigationIcons?: NavigationIconChanges;
 };
@@ -375,8 +386,9 @@ const REHASH_PASSWORD = `UPDATE users SET password_digest = ? WHERE id = ? AND p
 const INSERT_LINKED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
   SELECT ?1, id, ?2, ?3, ?4, ?5, ?5, ?5 FROM users WHERE id = ?6 AND status = ${ACTIVE}`;
 
-/** What `email_links.kind` holds for an invitation. */
+/** What `email_links.kind` holds for an invitation, and for a link someone asked for with an address at the email domains. */
 const INVITATION = "'invitation'";
+const EMAIL_DOMAIN = "'email_domain'";
 
 /** An invitation's row, with the name of who sent it. */
 interface InvitationRow {
@@ -423,10 +435,38 @@ const RENEW_INVITATION = `UPDATE email_links SET token_digest = ?2, created_at =
 const RECORD_DELIVERY = `UPDATE email_links SET sent_at = ?2, send_error = ?3 WHERE token_digest = ?1`;
 
 /**
- * Takes the invitation to ?1, whatever its case, out of the list, as someone joins with that address,
- * however they join, spending its link. Matches none for no address.
+ * Gives the address ?3 a new link to join with at the email domains, whose digest is ?2, made at ?4 and
+ * working until ?5, in place of any it had. An address has one, whatever its case, kept as given last.
  */
-const ACCEPT_INVITATION = `DELETE FROM email_links WHERE kind = ${INVITATION} AND lower(email_address) = lower(?)`;
+const SAVE_EMAIL_DOMAIN_LINK = `INSERT INTO email_links (id, token_digest, kind, email_address, created_at, expires_at) VALUES (?1, ?2, ${EMAIL_DOMAIN}, ?3, ?4, ?5)
+  ON CONFLICT (kind, lower(email_address)) DO UPDATE SET token_digest = excluded.token_digest, email_address = excluded.email_address,
+    created_at = excluded.created_at, expires_at = excluded.expires_at`;
+
+/**
+ * Spends the links to ?1, whatever its case, as someone joins with that address, however they join: its
+ * invitation, which leaves the list, and any link it was sent to join with at the email domains. Matches
+ * none for no address.
+ */
+const SPEND_EMAIL_LINKS = `DELETE FROM email_links WHERE kind IN (${INVITATION}, ${EMAIL_DOMAIN}) AND lower(email_address) = lower(?)`;
+
+/** Deletes the links to join with at the email domains that stopped working at ?1 or before, which nobody joined with. */
+const FORGET_EXPIRED_EMAIL_DOMAIN_LINKS = `DELETE FROM email_links WHERE kind = ${EMAIL_DOMAIN} AND expires_at <= ?1`;
+
+/** Forgets the counts of the times addresses were asked for whose hour began at ?1 or before. */
+const FORGET_EMAIL_LINK_REQUESTS = `DELETE FROM email_link_requests WHERE counted_since <= ?1`;
+
+/**
+ * Counts a time the address ?1 was asked for, at ?2, answering how many it's had in the hour its count
+ * is of, which starts again at ?2 once it began at ?3 or before, and when that hour began.
+ */
+const COUNT_EMAIL_LINK_REQUEST = `INSERT INTO email_link_requests (email_address, counted_since, count) VALUES (lower(?1), ?2, 1)
+  ON CONFLICT (email_address) DO UPDATE SET
+    counted_since = CASE WHEN email_link_requests.counted_since > ?3 THEN email_link_requests.counted_since ELSE excluded.counted_since END,
+    count = CASE WHEN email_link_requests.counted_since > ?3 THEN email_link_requests.count + 1 ELSE 1 END
+  RETURNING count, counted_since`;
+
+/** Takes back a time the address ?1 was counted in the hour that began at ?2, while its count is of that hour still. */
+const UNCOUNT_EMAIL_LINK_REQUEST = `UPDATE email_link_requests SET count = count - 1 WHERE email_address = lower(?1) AND counted_since = ?2 AND count > 0`;
 
 /** The lowercase email addresses, among those in ?1, a JSON array, that someone has whatever their case. */
 const TAKEN_EMAIL_ADDRESSES = `SELECT lower(email_address) AS email_address FROM users WHERE lower(email_address) IN (SELECT lower(value) FROM json_each(?1))`;
@@ -640,6 +680,19 @@ const signsInWithMemberful = (settings: Record<string, unknown> | null) => isPre
 function joinsWithMemberfulIn(settings: Record<string, unknown> | null): boolean {
   const on = settings?.memberful_join;
   return isPresent(on === undefined ? settings?.memberful_sign_in : on);
+}
+
+/** Whether people may join with an address at the email domains, which the account's settings keep as `email_domain_sign_up`, this port's own: only while the setting is present. */
+const signsUpWithEmailDomainIn = (settings: Record<string, unknown> | null) => isPresent(settings?.email_domain_sign_up);
+
+/**
+ * The domains Email domain lets in, which the account's settings keep as `email_domains`, this port's
+ * own, each as `emailDomainOf` has domains and once, leaving out anything else, or none while they keep none.
+ */
+function emailDomainsIn(settings: Record<string, unknown> | null): string[] {
+  const kept = settings?.email_domains;
+  if (!Array.isArray(kept)) return [];
+  return [...new Set(kept.map((domain: unknown) => (typeof domain === "string" ? emailDomainOf(domain) : null)).filter((domain) => domain !== null))];
 }
 
 /**
@@ -1086,6 +1139,8 @@ const SET_JOIN_LINK = setSetting("join_link");
 const SET_OPEN_SIGN_UP = setSetting("open_sign_up");
 const SET_MEMBERFUL_JOIN = setSetting("memberful_join");
 const SET_MEMBERFUL_SIGN_IN = setSetting("memberful_sign_in");
+const SET_EMAIL_DOMAIN_SIGN_UP = setSetting("email_domain_sign_up");
+const SET_EMAIL_DOMAINS = setSetting("email_domains");
 const SET_EMAIL_FROM = setSetting("email_from");
 
 /** Navigation icon changes as the merge patch `CHANGE_NAVIGATION_ICONS` takes them: null for a slot's default. */
@@ -1539,6 +1594,8 @@ export class WorkspaceStore {
       openSignUp: signsUpOpenlyIn(settings),
       memberfulJoin: joinsWithMemberfulIn(settings),
       memberfulSignIn: signsInWithMemberful(settings),
+      emailDomainSignUp: signsUpWithEmailDomainIn(settings),
+      emailDomains: emailDomainsIn(settings),
       navigationIcons: navigationIconsIn(settings),
       updatedAt: row.updated_at,
       storedLogo: row.logo_key === null ? null : { key: row.logo_key, variant: row.logo_variant },
@@ -1547,12 +1604,25 @@ export class WorkspaceStore {
   }
 
   /**
-   * Changes the workspace's name, tagline, settings, custom domain, navigation icons and From address, as
-   * `change` has them, in one batch. Memberful's settings are stored both at once, so that an account
-   * from before `memberful_join` reads as they're saved.
+   * Changes the workspace's name, tagline, settings, custom domain, navigation icons, From address and
+   * email domains, as `change` has them, in one batch. Memberful's settings are stored both at once, so
+   * that an account from before `memberful_join` reads as they're saved.
    */
   async changeAccount(
-    { name, tagline, hideTranslationButtons, restrictRoomCreation, customDomain, joinLink, openSignUp, memberful, navigationIcons, emailFrom }: AccountChange,
+    {
+      name,
+      tagline,
+      hideTranslationButtons,
+      restrictRoomCreation,
+      customDomain,
+      joinLink,
+      openSignUp,
+      memberful,
+      emailDomainSignUp,
+      emailDomains,
+      navigationIcons,
+      emailFrom,
+    }: AccountChange,
     now: string,
   ): Promise<void> {
     await this.db.batch([
@@ -1566,6 +1636,8 @@ export class WorkspaceStore {
       ...(memberful === undefined
         ? []
         : [statement(SET_MEMBERFUL_JOIN, JSON.stringify(memberful.memberfulJoin), now), statement(SET_MEMBERFUL_SIGN_IN, JSON.stringify(memberful.memberfulSignIn), now)]),
+      ...(emailDomainSignUp === undefined ? [] : [statement(SET_EMAIL_DOMAIN_SIGN_UP, JSON.stringify(emailDomainSignUp), now)]),
+      ...(emailDomains === undefined ? [] : [statement(SET_EMAIL_DOMAINS, JSON.stringify(emailDomains), now)]),
       ...(navigationIcons === undefined ? [] : [statement(CHANGE_NAVIGATION_ICONS, JSON.stringify(navigationIconsPatch(navigationIcons)), now)]),
       ...(emailFrom === undefined ? [] : [statement(SET_EMAIL_FROM, JSON.stringify(emailFrom), now)]),
     ]);
@@ -1628,9 +1700,9 @@ export class WorkspaceStore {
   /**
    * Adds someone who joined with the join link as a member, with their session, in every open room,
    * as ember-rust's `User::create` does (user.rs), recording who invited them, if they joined with an
-   * invitation. Any invitation to their email address is accepted, and its link spent, whichever way
-   * they joined. If someone has their email address already, the address's unique index refuses the
-   * first statement, and so the whole batch, which leaves the invitation as it was.
+   * invitation. Any invitation to their email address is accepted, and the links to it spent, whichever
+   * way they joined. If someone has their email address already, the address's unique index refuses the
+   * first statement, and so the whole batch, which leaves the links as they were.
    */
   async createMember(person: NewPerson, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<void> {
     await this.db.batch([
@@ -1649,14 +1721,14 @@ export class WorkspaceStore {
       ...keeping(person.avatar),
       statement(INSERT_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, now, now),
       statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now),
-      statement(ACCEPT_INVITATION, person.emailAddress),
+      statement(SPEND_EMAIL_LINKS, person.emailAddress),
     ]);
   }
 
   /**
    * Adds someone who signed in with an account elsewhere, the one `issuer` and `subject` name, as a
-   * member with no password, linked to it, with their session, in every open room, accepting any
-   * invitation to their email address, as `createMember` adds someone who joins. If someone has their
+   * member with no password, linked to it, with their session, in every open room, spending the links to
+   * their email address, as `createMember` adds someone who joins. If someone has their
    * email address already, or the account is linked to someone already, a unique index refuses its
    * statement, and so the whole batch.
    */
@@ -1683,7 +1755,7 @@ export class WorkspaceStore {
       ),
       statement(INSERT_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, now, now),
       statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now),
-      statement(ACCEPT_INVITATION, person.emailAddress),
+      statement(SPEND_EMAIL_LINKS, person.emailAddress),
     ]);
   }
 
@@ -1811,14 +1883,44 @@ export class WorkspaceStore {
     return (await this.db.all(`DELETE FROM email_links WHERE id = ? AND kind = ${INVITATION} RETURNING id`, id)).length > 0;
   }
 
-  /** The invitation whose link's digest is `tokenDigest`, if it works still at `now`: its id, the address it's for and who sent it. */
-  async invitationFor(tokenDigest: string, now: string): Promise<{ id: string; emailAddress: string; invitedBy: UserId } | null> {
-    const [row] = await this.db.all<{ id: string; email_address: string; invited_by: UserId }>(
-      `SELECT id, email_address, invited_by FROM email_links WHERE token_digest = ? AND kind = ${INVITATION} AND expires_at > ?`,
+  /**
+   * The link whose digest is `tokenDigest`, if it hasn't expired at `now`: what it is, the address it's
+   * for, and who sent it, if it's an invitation.
+   */
+  async emailLinkFor(tokenDigest: string, now: string): Promise<{ kind: EmailLinkKind; emailAddress: string; invitedBy: UserId | null } | null> {
+    const [row] = await this.db.all<{ kind: EmailLinkKind; email_address: string; invited_by: UserId | null }>(
+      `SELECT kind, email_address, invited_by FROM email_links WHERE token_digest = ? AND expires_at > ?`,
       tokenDigest,
       now,
     );
-    return row ? { id: row.id, emailAddress: row.email_address, invitedBy: row.invited_by } : null;
+    return row ? { kind: row.kind, emailAddress: row.email_address, invitedBy: row.invited_by } : null;
+  }
+
+  /**
+   * Counts a time someone asked for a link to join with `emailAddress` at the email domains, whatever its
+   * case, at `now`, answering how many times it's been asked for in the hour its count is of, and when
+   * that hour began, which starts again once `since` is past, when the counts whose hour is over are
+   * forgotten.
+   */
+  async countEmailLinkRequest(emailAddress: string, now: string, since: string): Promise<{ count: number; countedSince: string }> {
+    const [, counted] = await this.db.batch([statement(FORGET_EMAIL_LINK_REQUESTS, since), statement(COUNT_EMAIL_LINK_REQUEST, emailAddress, now, since)]);
+    const [row] = counted as Array<{ count: number; counted_since: string }>;
+    return { count: row!.count, countedSince: row!.counted_since };
+  }
+
+  /** Takes back a time `countEmailLinkRequest` counted `emailAddress` in the hour that began at `countedSince`, unless its count has started again since. */
+  async uncountEmailLinkRequest(emailAddress: string, countedSince: string): Promise<void> {
+    await this.db.run(UNCOUNT_EMAIL_LINK_REQUEST, emailAddress, countedSince);
+  }
+
+  /**
+   * Gives `emailAddress` a new link to join with at the email domains, whose digest is `tokenDigest`,
+   * made at `now` and working until `expiresAt`, in place of any it had, keeping that one's id, or else
+   * with `id`, deleting in the same batch the links that stopped working by `now`, which nobody joined
+   * with, so that those nobody uses don't pile up.
+   */
+  async saveEmailDomainLink(id: string, emailAddress: string, tokenDigest: string, now: string, expiresAt: string): Promise<void> {
+    await this.db.batch([statement(FORGET_EXPIRED_EMAIL_DOMAIN_LINKS, now), statement(SAVE_EMAIL_DOMAIN_LINK, id, tokenDigest, emailAddress, now, expiresAt)]);
   }
 
   /** Whether `userId` may sign in with a password while Memberful is members only, as an active administrator, or someone who joined with an invitation, may. */

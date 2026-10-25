@@ -182,7 +182,7 @@ describe(feature("users.avatars"), () => {
 
 describe(feature("accounts.logo"), () => {
   it("shows Ember's flame, or the workspace's logo, filling a 56px square with rounded corners, as ember-rust's `.mb-rail__brand`", () => {
-    const account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} };
+    const account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} };
     const { rerender } = render(<AccountContext value={account}>{railAt("home")}</AccountContext>);
     const brand = screen.getByRole("link", { name: "Ember home" });
     expect(brand.querySelector("img")).toHaveAttribute("src", "/ember-icon.png");
@@ -212,6 +212,8 @@ describe(feature("accounts.navigation-icons"), () => {
       openSignUp: false,
       memberfulJoin: false,
       memberfulSignIn: false,
+      emailDomainSignUp: false,
+      emailDomains: [],
       navigationIcons: { home: "coffee", search: "iconoir:solid:heart" },
     };
     render(<AccountContext value={account}>{railAt("home", activityOff, { ...ada, administrator: true })}</AccountContext>);

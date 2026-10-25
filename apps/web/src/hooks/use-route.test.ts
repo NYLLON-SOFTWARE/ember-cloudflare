@@ -245,6 +245,11 @@ describe(feature("auth.sign-up"), () => {
     expect(joinCodeFromPath("/rooms/aB3d-Ef5h-iJ7k")).toBeNull();
   });
 
+  it("reads no join code from the pages that links Ember emails open", () => {
+    expect(joinCodeFromPath("/join/invitation")).toBeNull();
+    expect(joinCodeFromPath("/join/email")).toBeNull();
+  });
+
   it("leaves the join page when the app goes home", () => {
     history.replaceState(null, "", "/join/aB3d-Ef5h-iJ7k");
     const { result } = renderHook(() => useJoinRoute());

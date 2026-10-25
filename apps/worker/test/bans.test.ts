@@ -828,7 +828,9 @@ describe(feature("accounts.ban-enforcement"), () => {
     const token = new URL(link!).hash.slice("#token=".length);
     const everything = () =>
       Promise.all(
-        ["accounts", "bans", "email_links", "favorites", "memberships", "rooms", "sessions", "users"].map((table) => workspaceSql(`SELECT * FROM ${table} ORDER BY rowid`)),
+        ["accounts", "bans", "email_link_requests", "email_links", "favorites", "memberships", "rooms", "sessions", "users"].map((table) =>
+          workspaceSql(`SELECT * FROM ${table} ORDER BY rowid`),
+        ),
       );
     const before = await everything();
     const writes: Array<[method: string, path: string, body?: unknown]> = [
@@ -841,6 +843,8 @@ describe(feature("accounts.ban-enforcement"), () => {
       ["POST", "/api/join", { name: "Hal", emailAddress: "hal@example.com", password: "heuristically" }],
       ["POST", "/api/email_links/lookup", { token }],
       ["POST", "/api/join/invitation", { name: "Hal", password: "heuristically", token }],
+      ["POST", "/api/email_links", { emailAddress: "hal@example.org" }],
+      ["POST", "/api/join/email", { name: "Hal", password: "heuristically", token }],
       ["PATCH", "/api/account", { name: "Banned" }],
       ["POST", "/api/invitations", { emailAddresses: ["linus@example.com"] }],
       ["POST", `/api/invitations/${invitation.id}/resend`],

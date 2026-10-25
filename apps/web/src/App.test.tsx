@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, INVITATION_GONE, SIGN_IN_REJECTED, type Account, type AccountChanges, type Bootstrap, type Message, type WorkspaceSettings } from "@ember/protocol";
+import { CloseCode, EMAIL_LINK_GONE, SIGN_IN_REJECTED, type Account, type AccountChanges, type Bootstrap, type Message, type WorkspaceSettings } from "@ember/protocol";
 import { flashOnNextPage } from "@/lib/flash";
 import { loadPage } from "@/lib/page";
 import { setPrefersDark } from "@/test-media";
@@ -18,10 +18,12 @@ const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const TRANSFER_ID = "u2.mgk3x2a9.Ab-_9z";
 /** The secret in Grace's invitation's link. */
 const INVITATION_TOKEN = "Gr-_ce".repeat(7) + "H";
+/** The secret in the link Ember emailed Grace to join with her address at the email domains. */
+const EMAIL_LINK_TOKEN = "Gr-_em".repeat(7) + "D";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 /** The workspace as it's set up. */
-const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} };
+const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} };
 /** What the deployment's Set up Ember form suggests. */
 const PLACEHOLDERS = { name: "Grace Hopper", emailAddress: "grace@example.com" };
 const general = { id: "general", name: "general", kind: "open", icon: null };
@@ -143,11 +145,12 @@ function serve({
       return Response.json({ user: grace }, { status: 201 });
     }
     if (route === "POST /api/email_links/lookup") {
-      const { token } = JSON.parse(String(init?.body)) as Record<string, string>;
-      if (token !== INVITATION_TOKEN) return Response.json({ error: INVITATION_GONE }, { status: 404 });
-      return Response.json({ kind: "invitation", emailAddress: "grace@example.com" });
+      const { token } = JSON.parse(String(init?.body)) as { token: string };
+      const kind = { [INVITATION_TOKEN]: "invitation", [EMAIL_LINK_TOKEN]: "email_domain" }[token];
+      if (!kind) return Response.json({ error: EMAIL_LINK_GONE }, { status: 404 });
+      return Response.json({ kind, emailAddress: "grace@example.com" });
     }
-    if (route === "POST /api/join/invitation") {
+    if (route === "POST /api/join/invitation" || route === "POST /api/join/email") {
       [signedIn, me] = [true, grace];
       return Response.json({ user: grace }, { status: 201 });
     }
@@ -169,6 +172,7 @@ function serve({
         turnstile: false,
         email: { provider: "cloudflare", from: null },
         invitations: [],
+        emailDomains: [],
       } satisfies WorkspaceSettings);
     if (route === "GET /api/users") return Response.json({ users: [] });
     if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null } });
@@ -872,6 +876,42 @@ describe(feature("auth.invitation-sign-up"), () => {
   it("sends someone who's signed in home from it, leaving its secret behind", async () => {
     history.replaceState(null, "", `/join/invitation#token=${INVITATION_TOKEN}`);
     const fetch = serve({ signedIn: true });
+    render(<App />);
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+    expect(location.hash).toBe("");
+    expect(fetch).not.toHaveBeenCalledWith("/api/email_links/lookup", expect.anything());
+  });
+});
+
+describe(feature("auth.email-domain-sign-up"), () => {
+  const atDomains: Account = { ...EMBER, joinLink: false, emailDomainSignUp: true, emailDomains: ["example.com"] };
+
+  it("opens the page to ask for a link without signing in", async () => {
+    history.replaceState(null, "", "/join/email");
+    serve({ signedIn: false, account: atDomains });
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "Email me a link" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/join/email");
+  });
+
+  it("opens a link's page, with its secret out of the address, and goes home signed in once the account is made", async () => {
+    history.replaceState(null, "", `/join/email#token=${EMAIL_LINK_TOKEN}`);
+    serve({ signedIn: false, account: atDomains });
+    render(<App />);
+    expect(await screen.findByRole("textbox", { name: "Email address" })).toHaveValue("grace@example.com");
+    expect(`${location.pathname}${location.hash}`).toBe("/join/email");
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Name"), "Grace");
+    await user.type(screen.getByLabelText("Password"), "compiler{Enter}");
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+  });
+
+  it("sends someone who's signed in home from it, leaving a link's secret behind", async () => {
+    history.replaceState(null, "", `/join/email#token=${EMAIL_LINK_TOKEN}`);
+    const fetch = serve({ signedIn: true, account: atDomains });
     render(<App />);
     expect(await roomHeading()).toBeInTheDocument();
     expect(location.pathname).toBe("/rooms/general");

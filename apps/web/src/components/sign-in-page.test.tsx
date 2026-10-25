@@ -25,7 +25,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   guestSignIn: false,
   signInWithMemberful: false,
   turnstileSiteKey: null,
-  account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} },
+  account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} },
   version: "0.1",
   vapidPublicKey: null,
   platform: CHROME_MAC,
@@ -337,6 +337,34 @@ describe(feature("auth.open-sign-up"), () => {
     cleanup();
     render(<SignInPage workspace={{ ...open, account: { ...open.account, memberfulJoin: true, memberfulSignIn: true } }} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     expect(screen.queryByRole("link", { name: "Create an account" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("auth.email-domain-sign-up"), () => {
+  const atDomains = { ...workspace, account: { ...workspace.account, emailDomainSignUp: true, emailDomains: ["example.org", "example.com"] } };
+  const joinWithIt = () => screen.queryByRole("link", { name: "Join with it" });
+
+  it("offers joining with an address at the email domains, naming them, while Email domain lets people in", () => {
+    render(<SignInPage workspace={atDomains} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(joinWithIt()).toHaveAttribute("href", "/join/email");
+    expect(joinWithIt()!.parentElement).toHaveTextContent("Have an address at example.org or example.com? Join with it");
+  });
+
+  it("offers Create an account in its place while Open lets anyone in, and neither while Memberful is members only", () => {
+    render(<SignInPage workspace={{ ...atDomains, account: { ...atDomains.account, openSignUp: true } }} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByRole("link", { name: "Create an account" })).toBeInTheDocument();
+    expect(joinWithIt()).not.toBeInTheDocument();
+    cleanup();
+    render(<SignInPage workspace={{ ...atDomains, account: { ...atDomains.account, memberfulJoin: true, memberfulSignIn: true } }} onSignedIn={vi.fn()} />, {
+      wrapper: FlashProvider,
+    });
+    expect(joinWithIt()).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Create an account" })).not.toBeInTheDocument();
+  });
+
+  it("doesn't while it's off", () => {
+    render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(joinWithIt()).not.toBeInTheDocument();
   });
 });
 
