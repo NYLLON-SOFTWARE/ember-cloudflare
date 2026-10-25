@@ -88,7 +88,7 @@ interface Props {
  *   administrators can create rooms, then for administrators, the switch that says so and the rooms'
  *   order for everyone, each linking to its settings.
  * - Membership (accounts/_membership_settings.html): for administrators, who can join, this port's own,
- *   with switches for Open, the join link, which they can regenerate, and Memberful sign-in, or for
+ *   with switches for Open, the join link, which they can regenerate, and Memberful, or for
  *   members, the links that let people in, then the administrators and members, whom administrators can
  *   make administrators or members and remove.
  */
@@ -459,7 +459,7 @@ export function WorkspaceSettingsPage({
                 joinLink={<InviteLink joinCode={settings.joinCode} onRegenerate={regenerate} regenerating={regenerating} />}
               />
             ) : (
-              <HowPeopleJoin joinLink={<InviteLink joinCode={settings.joinCode} />} />
+              <HowPeopleJoin joinLink={<InviteLink joinCode={settings.joinCode} />} memberfulSite={settings.memberfulSite} />
             )}
             <hr className="my-4 w-full" />
             <PeopleList

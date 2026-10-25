@@ -19,7 +19,7 @@ const TRANSFER_ID = "u2.mgk3x2a9.Ab-_9z";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 /** The workspace as it's set up. */
-const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} };
+const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} };
 /** What the deployment's Set up Ember form suggests. */
 const PLACEHOLDERS = { name: "Grace Hopper", emailAddress: "grace@example.com" };
 const general = { id: "general", name: "general", kind: "open", icon: null };
@@ -117,7 +117,7 @@ function serve({
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const route = `${init?.method ?? "GET"} ${String(input)}`;
     if (route === "GET /api/bootstrap") {
-      return Response.json({ setup, setupAccess, setupPlaceholders: PLACEHOLDERS, guestSignIn, account, version: "0.1", vapidPublicKey: null, turnstileSiteKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
+      return Response.json({ setup, setupAccess, setupPlaceholders: PLACEHOLDERS, guestSignIn, signInWithMemberful: false, account, version: "0.1", vapidPublicKey: null, turnstileSiteKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
     }
     if (route === "POST /api/first_run") {
       [setup, signedIn, rooms] = ["complete", true, firstRooms];

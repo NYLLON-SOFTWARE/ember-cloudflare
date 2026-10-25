@@ -221,7 +221,7 @@ describe(feature("notifications.levels"), () => {
 });
 
 describe(feature("accounts.custom-domain"), () => {
-  const MOVED: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: "chat.example.com", joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} };
+  const MOVED: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: "chat.example.com", joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} };
   /** The bell in general's header, at this address while Ember's custom domain is `customDomain`. */
   const bellWhile = (customDomain: string | null) => (
     <AccountContext value={{ ...MOVED, customDomain }}>

@@ -31,7 +31,7 @@ const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Ada's avatar as the profile loads it: her initials, until she uploads one. */
 const INITIALS = "/users/t0k3n/avatar?v=1";
 const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, memberful: null };
-const account: Account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} };
+const account: Account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} };
 /** The sign-in links loading and saving the profile give. */
 const [LOADED_LINK, SAVED_LINK] = ["u1.mgk3x2a9.loaded", "u1.mgk3x2b0.saved"];
 

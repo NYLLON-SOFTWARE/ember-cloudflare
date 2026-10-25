@@ -12,20 +12,20 @@ import { workspaceSectionPath } from "./settings-navigation";
 // This port's own ways for new people to join (`accounts.ways-to-join`), at the top of Membership: for
 // administrators, a card for each, Open, Join link and Memberful, whose switch saves as it's flipped, as
 // the Memberful card's did, and which shows the way's settings while it's on. Open lets anyone in, and
-// Memberful only its members, so while either is on the ways it overrides are greyed out, keeping their
-// settings for when it's off. Members see the links that let people in.
+// Memberful's Members only only its members, so while either is on the ways it overrides are greyed out,
+// keeping their settings for when it's off. Members see the links that let people in.
 
 /** What turning on Open asks first, since it lets anyone in. */
 export const CONFIRM_OPEN = "Are you sure you want to let anyone create an account? Ember doesn't check that the email addresses people sign up with are theirs.";
 
-/** What turning on Memberful sign-in asks first, since it keeps everyone but administrators from signing in with a password. */
-export const CONFIRM_MEMBERFUL = "Are you sure you want members to sign in with Memberful? Everyone but administrators will need a Memberful membership to sign in.";
+/** What turning on Memberful's Members only asks first, since it keeps everyone but administrators from signing in with a password. */
+export const CONFIRM_MEMBERS_ONLY = "Are you sure only Memberful's members should sign in? Everyone but administrators will need a Memberful membership to sign in.";
 
 /** Why a way is greyed out while Open is on. */
 const OPEN_OVERRIDES = "Set aside while Open lets anyone join.";
 
-/** Why a way is greyed out while members sign in with Memberful. */
-const MEMBERFUL_OVERRIDES = "Off while members sign in with Memberful.";
+/** Why a way is greyed out while Memberful is members only. */
+const MEMBERS_ONLY_OVERRIDES = "Off while Memberful is members only.";
 
 /** Where Turnstile's widgets are made, in the Cloudflare dashboard. */
 const TURNSTILE_DASHBOARD = "https://dash.cloudflare.com/?to=/:account/turnstile";
@@ -33,9 +33,9 @@ const TURNSTILE_DASHBOARD = "https://dash.cloudflare.com/?to=/:account/turnstile
 const CARD = "flex flex-col gap-3 rounded-[10px] border bg-surface px-[2ch] py-4 text-start max-md:px-3";
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
-type WaySetting = keyof Pick<AccountSettings, "openSignUp" | "joinLink" | "memberfulSignIn">;
+type WaySetting = keyof Pick<AccountSettings, "openSignUp" | "joinLink" | "memberfulJoin" | "memberfulSignIn">;
 
-const ASKS_FIRST: Partial<Record<WaySetting, string>> = { openSignUp: CONFIRM_OPEN, memberfulSignIn: CONFIRM_MEMBERFUL };
+const ASKS_FIRST: Partial<Record<WaySetting, string>> = { openSignUp: CONFIRM_OPEN, memberfulSignIn: CONFIRM_MEMBERS_ONLY };
 
 interface Props {
   settings: WorkspaceSettings;
@@ -52,11 +52,13 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
   const [moved, setMoved] = useState<Pick<AccountSettings, WaySetting>>({});
   const open = moved.openSignUp ?? account.openSignUp;
   const link = moved.joinLink ?? account.joinLink;
-  const memberful = moved.memberfulSignIn ?? account.memberfulSignIn;
+  const memberful = moved.memberfulJoin ?? account.memberfulJoin;
+  // Off with Memberful, as the server turns it.
+  const membersOnly = memberful && (moved.memberfulSignIn ?? account.memberfulSignIn);
   // A way sets the others aside while it's on, until turning it off is saved, so that none is turned on
   // while the server still has the way that overrides it on, which would refuse it.
   const openOverrides = open || account.openSignUp;
-  const memberfulOverrides = memberful || account.memberfulSignIn;
+  const membersOnlyOverrides = membersOnly || account.memberfulSignIn;
 
   const switchTo = (setting: WaySetting) => (on: boolean) => {
     if (moved[setting] !== undefined) return;
@@ -74,14 +76,14 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
         </h2>
         <p className="text-[13px] text-muted-foreground">Choose how new people can make an account.</p>
       </header>
-      {/* Open and Memberful can't both be on, but should both be, each can still be turned off. */}
+      {/* Open and Members only can't both be on, but should both be, each can still be turned off. */}
       <Way
         id="open-sign-up"
         title="Open"
         description="Anyone can create an account at Ember's sign-up page."
         checked={open}
         onCheckedChange={switchTo("openSignUp")}
-        setAside={memberfulOverrides && !open ? MEMBERFUL_OVERRIDES : null}
+        setAside={membersOnlyOverrides && !open ? MEMBERS_ONLY_OVERRIDES : null}
       >
         <ShareableLink id="sign_up" label="Share so anyone can sign up" url={signUpUrl()} sharing={SIGN_UP_LINK} />
         {!account.restrictRoomCreation && (
@@ -115,7 +117,7 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
         description="Anyone with the link can create an account."
         checked={link}
         onCheckedChange={switchTo("joinLink")}
-        setAside={memberfulOverrides ? MEMBERFUL_OVERRIDES : openOverrides ? OPEN_OVERRIDES : null}
+        setAside={membersOnlyOverrides ? MEMBERS_ONLY_OVERRIDES : openOverrides ? OPEN_OVERRIDES : null}
       >
         {joinLink}
       </Way>
@@ -123,8 +125,14 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
         site={settings.memberfulSite}
         webhooks={settings.memberfulWebhooks}
         checked={memberful}
-        onCheckedChange={switchTo("memberfulSignIn")}
-        setAside={openOverrides && !memberful ? OPEN_OVERRIDES : null}
+        onCheckedChange={switchTo("memberfulJoin")}
+        membersOnly={membersOnly}
+        onMembersOnlyChange={switchTo("memberfulSignIn")}
+        // Saving either changes the other's setting too, so each waits for the other's move, lest saves
+        // arriving out of order undo the later one.
+        memberfulSaving={moved.memberfulJoin !== undefined}
+        membersOnlySaving={moved.memberfulSignIn !== undefined}
+        setAside={openOverrides && !membersOnly ? OPEN_OVERRIDES : null}
       />
       {!open && !link && !memberful && <p className="text-start">With all of these off, no one new can join.</p>}
     </section>
@@ -170,19 +178,30 @@ function Way({ id, title, description, checked, onCheckedChange, setAside, child
   );
 }
 
-/** How new people join, for members: open sign-up's link while it's on, and the join link while it lets people in, or a line saying why neither does. */
-export function HowPeopleJoin({ joinLink }: { joinLink: ReactNode }) {
+/**
+ * How new people join, for members: open sign-up's link while it's on, and the join link while it lets
+ * people in, or else a line saying how they join with Memberful, if they do, at `memberfulSite`, or that
+ * nobody new can.
+ */
+export function HowPeopleJoin({ joinLink, memberfulSite }: { joinLink: ReactNode; memberfulSite: string | null }) {
   const account = useAccount();
   const open = signsUpOpenly(account);
   const link = joinsWithLink(account);
-  if (!open && !link)
-    return account.memberfulSignIn ? (
+  if (!open && !link) {
+    if (account.memberfulSignIn)
+      return (
+        <p className="text-start">
+          <strong>Members sign in with Memberful</strong>, so the join link is off.
+        </p>
+      );
+    return account.memberfulJoin && memberfulSite !== null ? (
       <p className="text-start">
-        <strong>Members sign in with Memberful</strong>, so the join link is off.
+        Members of <strong className="wrap-anywhere">{memberfulSite}</strong> join by signing in with Memberful.
       </p>
     ) : (
       <p className="text-start">No one new can join right now.</p>
     );
+  }
   return (
     <div className="flex flex-col gap-4">
       {open && (

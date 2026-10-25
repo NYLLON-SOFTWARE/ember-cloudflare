@@ -7,8 +7,8 @@ import { useMounted } from "@/hooks/use-mounted";
 import { connectMemberful, isSignedOut } from "@/lib/api";
 import { openPage } from "@/lib/page";
 
-// This port's own Memberful section of your profile (`auth.memberful-connect`): while members sign in
-// with Memberful, someone with an account from before connects their Memberful account to it, with their
+// This port's own Memberful section of your profile (`auth.memberful-connect`): while Memberful is
+// members only, someone with an account from before connects their Memberful account to it, with their
 // password, as changing their email address takes it, and signs in with Memberful from then on. Boxed
 // as workspace settings' Memberful section is.
 

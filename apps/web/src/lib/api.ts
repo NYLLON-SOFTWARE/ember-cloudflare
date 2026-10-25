@@ -162,7 +162,7 @@ export async function signUp(person: OpenSignUp, photo: ChosenPhoto | null = nul
 
 /**
  * Signs in with an email address and password: who signed in, or, for a member whose password checks out
- * while members sign in with Memberful, until they've connected their Memberful account, where to connect
+ * while Memberful is members only, until they've connected their Memberful account, where to connect
  * it (`auth.memberful-connect`), which signs them in and opens the page `credentials.returnTo` names.
  */
 export async function signIn(credentials: PasswordSignIn): Promise<Me | MemberfulConnection> {

@@ -23,8 +23,9 @@ const workspace: Omit<Bootstrap, "user"> = {
   setupAccess: "link",
   setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
   guestSignIn: false,
+  signInWithMemberful: false,
   turnstileSiteKey: null,
-  account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} },
+  account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} },
   version: "0.1",
   vapidPublicKey: null,
   platform: CHROME_MAC,
@@ -228,9 +229,9 @@ describe(feature("accounts.custom-css"), () => {
 });
 
 describe(feature("auth.memberful-sign-in"), () => {
-  const withMemberful = { ...workspace, account: { ...workspace.account, memberfulSignIn: true } };
+  const withMemberful = { ...workspace, signInWithMemberful: true, account: { ...workspace.account, memberfulJoin: true, memberfulSignIn: true } };
 
-  it("offers Sign in with Memberful in place of the password form, coming back to the page this tab was sent from", async () => {
+  it("offers Sign in with Memberful in place of the password form while Memberful is members only, coming back to the page this tab was sent from", async () => {
     // As the app remembers the page it was on before it sends a tab to sign in.
     sessionStorage.setItem("ember:return-to", "/rooms/abc?tab=pins");
     history.replaceState(null, "", "/session/new");
@@ -292,10 +293,29 @@ describe(feature("auth.memberful-sign-in"), () => {
     expect(location.search).toBe("");
   });
 
-  it("asks only for a password while it's off", () => {
+  it("offers it under the password form while Memberful lets its members in beside everyone else, coming back to the page this tab was sent from", () => {
+    sessionStorage.setItem("ember:return-to", "/rooms/abc?tab=pins");
+    const alongside = { ...workspace, signInWithMemberful: true, account: { ...workspace.account, memberfulJoin: true } };
+    render(<SignInPage workspace={alongside} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByLabelText("Email address")).toBeInTheDocument();
+    expect(screen.getByText("Member?")).toBeInTheDocument();
+    const memberful = screen.getByRole("link", { name: "Sign in with Memberful" });
+    expect(memberful).toHaveAttribute("href", "/auth/memberful?return_to=%2Frooms%2Fabc%3Ftab%3Dpins");
+    expect(screen.getByRole("button", { name: "Sign in" }).compareDocumentPosition(memberful)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.queryByRole("button", { name: "Sign in with a password" })).not.toBeInTheDocument();
+  });
+
+  it("offers it while anyone here signs in with Memberful, as those who joined with it do once it's off", () => {
+    render(<SignInPage workspace={{ ...workspace, signInWithMemberful: true }} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByLabelText("Email address")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sign in with Memberful" })).toHaveAttribute("href", "/auth/memberful");
+  });
+
+  it("asks only for a password while nobody here signs in with Memberful", () => {
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     expect(screen.queryByRole("link", { name: "Sign in with Memberful" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign in with Memberful" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Member?")).not.toBeInTheDocument();
     expect(screen.queryByText("Have a password?")).not.toBeInTheDocument();
   });
 });
@@ -311,11 +331,11 @@ describe(feature("auth.open-sign-up"), () => {
     expect(create.compareDocumentPosition(screen.getByRole("button", { name: "Join with just a name" }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it("doesn't while it's off, or members sign in with Memberful", () => {
+  it("doesn't while it's off, or Memberful is members only", () => {
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     expect(screen.queryByRole("link", { name: "Create an account" })).not.toBeInTheDocument();
     cleanup();
-    render(<SignInPage workspace={{ ...open, account: { ...open.account, memberfulSignIn: true } }} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    render(<SignInPage workspace={{ ...open, account: { ...open.account, memberfulJoin: true, memberfulSignIn: true } }} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     expect(screen.queryByRole("link", { name: "Create an account" })).not.toBeInTheDocument();
   });
 });
@@ -341,7 +361,7 @@ describe(feature("accounts.ways-to-join"), () => {
 });
 
 describe(feature("auth.memberful-connect"), () => {
-  const withMemberful = { ...workspace, account: { ...workspace.account, memberfulSignIn: true } };
+  const withMemberful = { ...workspace, signInWithMemberful: true, account: { ...workspace.account, memberfulJoin: true, memberfulSignIn: true } };
   /** Where the Memberful site signs someone in to connect their account there. */
   const MEMBERFUL_OAUTH = "https://example.memberful.com/oauth?response_type=code&client_id=ember&state=s7a7e";
 
@@ -362,9 +382,12 @@ describe(feature("auth.memberful-connect"), () => {
     expect(onSignedIn).not.toHaveBeenCalled();
   });
 
-  it("asks for a password at once when someone here has the Memberful email address already", () => {
+  it.each([
+    ["is members only", withMemberful],
+    ["lets its members in beside everyone else", { ...withMemberful, account: { ...withMemberful.account, memberfulSignIn: false } }],
+  ])("asks for a password at once when someone here has the Memberful email address already, while Memberful %s", (_, workspace) => {
     history.replaceState(null, "", "/session/new?memberful=taken");
-    render(<SignInPage workspace={withMemberful} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     expect(screen.getByRole("alert")).toHaveTextContent(MEMBERFUL_SIGN_IN_PROBLEMS.taken);
     expect(screen.getByLabelText("Email address")).toHaveFocus();
     expect(screen.getByLabelText("Password")).toBeInTheDocument();

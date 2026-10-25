@@ -10,6 +10,7 @@ import {
   withNavigationIcons,
   type Account,
   type AccountChanges,
+  type AccountSettings,
   type Bot,
   type BotChanges,
   type BotSettings,
@@ -149,6 +150,17 @@ function changedNavigationIcons(icons: NavigationIcons, changes: NavigationIconC
   return changed.length > 0 ? Object.fromEntries(changed.map((slot) => [slot, changes[slot]])) : undefined;
 }
 
+/**
+ * What `settings` changes of the account's two Memberful settings, `account` having them as they are,
+ * both at once, or undefined when it changes neither: Members only turns Memberful on with it, and
+ * turning Memberful off turns Members only off.
+ */
+function memberfulChange(account: Pick<Account, "memberfulJoin" | "memberfulSignIn">, { memberfulJoin, memberfulSignIn }: AccountSettings) {
+  const join = memberfulJoin ?? (memberfulSignIn || account.memberfulJoin);
+  const membersOnly = join && (memberfulSignIn ?? account.memberfulSignIn);
+  return join === account.memberfulJoin && membersOnly === account.memberfulSignIn ? undefined : { memberfulJoin: join, memberfulSignIn: membersOnly };
+}
+
 /** The account as every page shows it, without its join code, which only the people in it see. */
 const accountOf = ({
   name,
@@ -159,6 +171,7 @@ const accountOf = ({
   customDomain,
   joinLink,
   openSignUp,
+  memberfulJoin,
   memberfulSignIn,
   navigationIcons,
   updatedAt,
@@ -173,6 +186,7 @@ const accountOf = ({
   customDomain,
   joinLink,
   openSignUp,
+  memberfulJoin,
   memberfulSignIn,
   navigationIcons,
 });
@@ -203,7 +217,7 @@ export interface YourProfile {
   transfer: Transfer;
   profile: Omit<Profile, "memberful">;
   /**
-   * The issuers of the accounts elsewhere you've connected, while members sign in with Memberful and you
+   * The issuers of the accounts elsewhere you've connected, while Memberful is members only and you
    * aren't a guest, of which the Worker, which knows the Memberful site, tells your profile
    * (`Profile.memberful`), or else null.
    */
@@ -257,14 +271,14 @@ export interface BotKeyAccess extends BotAccess {
 export interface WebhookAccess extends BotAccess, BotWebhook {}
 
 /**
- * Why signing in with Memberful signed nobody in, or connected no account: members don't sign in with
- * Memberful, the person the account is linked to was removed or banned, it has no active membership,
- * someone new would have someone's email address, or, connecting one, it's connected to someone else, or
- * they're connected to another.
+ * Why signing in with Memberful signed nobody in, or connected no account: Memberful is off for someone
+ * new, the person the account is linked to was removed or banned, it has no active membership, someone
+ * new would have someone's email address, or, connecting one, Memberful isn't members only, the account
+ * is connected to someone else, or they're connected to another.
  */
-export type MemberfulRefusal = "off" | "refused" | "membership" | "taken" | "claimed" | "another";
+export type MemberfulRefusal = "off" | "unneeded" | "refused" | "membership" | "taken" | "claimed" | "another";
 
-/** What a join link does: joins, is off while an administrator has turned it off or members sign in with Memberful, or isn't the join link. */
+/** What a join link does: joins, is off while an administrator has turned it off or Memberful is members only, or isn't the join link. */
 export type JoinLink = "joins" | "off" | "memberful" | "not found";
 
 /** Why open sign-up lets nobody in: it's off, or the workspace has let in as many new people as it does in an hour. */
@@ -341,6 +355,8 @@ export class Workspace extends DurableObject<Env> {
   private knownAccount: JoinableAccount | null = null;
   /** Counts the starts and ends of changes to the account, so a read that overlapped one isn't kept: on D1, queries interleave. */
   private accountChanges = 0;
+  /** The Memberful sites someone here is known to be linked to an account at (see `offersMemberfulSignIn`). */
+  private readonly linkedSites = new Set<string>();
   /** Every IP address a ban blocks, once read. Banning someone and lifting a ban forget it. */
   private knownBannedAddresses: Set<string> | null = null;
   /** Counts the starts and ends of bans and lifted bans, so a read of the banned addresses that overlapped one isn't kept. */
@@ -478,8 +494,8 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * What the join link with `code` does: "not found" unless `code` is the workspace's join code, which it
-   * can't be before first run, "memberful" while members sign in with Memberful, which turns it off, and
-   * "off" while an administrator has turned it off.
+   * can't be before first run, "memberful" while Memberful is members only, which turns it off, and "off"
+   * while an administrator has turned it off.
    */
   async joinLink(code: string): Promise<JoinLink> {
     const account = await this.joinableAccount();
@@ -488,10 +504,28 @@ export class Workspace extends DurableObject<Env> {
     return account.joinLink ? "joins" : "off";
   }
 
-  /** What the app asks first: the account, if it's set up, and who `credentials` signs in, if anyone. */
-  async bootstrap(credentials: Credentials | null): Promise<{ account: Account | null; user: Me | null }> {
-    const [account, user] = await Promise.all([this.account(), credentials && this.me(credentials)]);
-    return { account, user };
+  /**
+   * What the app asks first: the account, if it's set up, who `credentials` signs in, if anyone, and
+   * whether the sign-in page offers Sign in with Memberful at `memberfulSite`, the deployment's Memberful
+   * site, or null without its keys (`offersMemberfulSignIn`).
+   */
+  async bootstrap(credentials: Credentials | null, memberfulSite: string | null): Promise<{ account: Account | null; user: Me | null; signInWithMemberful: boolean }> {
+    const [account, user, signInWithMemberful] = await Promise.all([this.account(), credentials && this.me(credentials), this.offersMemberfulSignIn(memberfulSite)]);
+    return { account, user, signInWithMemberful };
+  }
+
+  /**
+   * Whether Sign in with Memberful is offered at `site`, the deployment's Memberful site, or null without
+   * its keys, when it never is: while Memberful lets its members join, or anyone here is linked to an
+   * account there, since they keep signing in with it once it's off.
+   */
+  async offersMemberfulSignIn(site: string | null): Promise<boolean> {
+    if (site === null) return false;
+    if ((await this.joinableAccount())?.memberfulJoin || this.linkedSites.has(site)) return true;
+    // Accounts elsewhere are never unlinked, so once someone is linked at a site, someone always is.
+    if (!(await this.store.anyoneLinked(site))) return false;
+    this.linkedSites.add(site);
+    return true;
   }
 
   /**
@@ -509,9 +543,10 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Makes `changes` to the workspace as the person `credentials` signs in, answering the account as it
    * is then: "forbidden" unless they're an administrator, as ember-rust's `update` insists
-   * (accounts.rs), "conflict" for turning on Open or Memberful sign-in while the other is on, which
-   * changes nothing, or null without a valid session. Everyone's workspace sockets hear of a change, a
-   * new custom domain included, which tabs open at another address then point to.
+   * (accounts.rs), "conflict" for turning on Open or Memberful's Members only while the other is on,
+   * which changes nothing, or null without a valid session. Members only turns Memberful on with it, and
+   * turning Memberful off turns Members only off. Everyone's workspace sockets hear of a change, a new
+   * custom domain included, which tabs open at another address then point to.
    */
   async changeAccount(
     credentials: Credentials,
@@ -519,7 +554,8 @@ export class Workspace extends DurableObject<Env> {
   ): Promise<Account | "forbidden" | "conflict" | null> {
     return this.administerAccount(credentials, async (account) => {
       // As ember-rust's `Account::update` writes only what differs (account.rs).
-      const { hideTranslationButtons, restrictRoomCreation, joinLink, openSignUp, memberfulSignIn } = settings ?? {};
+      const { hideTranslationButtons, restrictRoomCreation, joinLink, openSignUp } = settings ?? {};
+      const memberful = memberfulChange(account, settings ?? {});
       const icons = changedNavigationIcons(account.navigationIcons, navigationIcons ?? {});
       const change: AccountChange = {
         ...(name !== undefined && name !== account.name && { name }),
@@ -529,19 +565,17 @@ export class Workspace extends DurableObject<Env> {
         ...(customDomain !== undefined && customDomain !== account.customDomain && { customDomain }),
         ...(joinLink !== undefined && joinLink !== account.joinLink && { joinLink }),
         ...(openSignUp !== undefined && openSignUp !== account.openSignUp && { openSignUp }),
-        ...(memberfulSignIn !== undefined && memberfulSignIn !== account.memberfulSignIn && { memberfulSignIn }),
+        ...(memberful && { memberful }),
         ...(icons && { navigationIcons: icons }),
       };
-      // Open lets anyone in, and Memberful sign-in only its members, so neither is turned on while the other is.
+      // Open lets anyone in, and Members only only Memberful's members, so neither is turned on while the other is.
       const open = change.openSignUp ?? account.openSignUp;
-      const memberful = change.memberfulSignIn ?? account.memberfulSignIn;
-      if (open && memberful && (change.openSignUp || change.memberfulSignIn)) return "conflict";
+      const membersOnly = memberful?.memberfulSignIn ?? account.memberfulSignIn;
+      if (open && membersOnly && (change.openSignUp || !account.memberfulSignIn)) return "conflict";
       if (Object.keys(change).length === 0) return accountOf(account);
-      const changed = { ...account, ...change, navigationIcons: withNavigationIcons(account.navigationIcons, icons ?? {}) };
-      const shown = await this.publishAccount(changed, (now) => this.store.changeAccount(change, now));
-      // Memberships may have lapsed or been renewed while it was off, so turning it on checks everyone's.
-      if (change.memberfulSignIn) await this.keepCatchingUp(Date.now());
-      return shown;
+      const { memberful: _, ...settled } = change;
+      const changed = { ...account, ...settled, ...memberful, navigationIcons: withNavigationIcons(account.navigationIcons, icons ?? {}) };
+      return this.publishAccount(changed, (now) => this.store.changeAccount(change, now));
     });
   }
 
@@ -682,7 +716,7 @@ export class Workspace extends DurableObject<Env> {
    * Adds someone who joined with the join link for `code` as a member, in every open room, and the
    * session their cookie's token opens, as ember-rust's `users#create` does. Everyone's workspace
    * sockets hear of them, so pages already open know them. Answers "not found" if `code` isn't the join
-   * code, "memberful" while members sign in with Memberful, "off" while the link is off, and null if
+   * code, "memberful" while Memberful is members only, "off" while the link is off, and null if
    * someone already has their email address.
    */
   async join(code: string, person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | Exclude<JoinLink, "joins"> | null> {
@@ -792,9 +826,9 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Signs in someone whose password checked out against `passwordDigest`, unless they've stopped being
-   * active since, or their password has been reset while it was checked. While members sign in with
-   * Memberful, only administrators sign in with a password, and anyone else hears "memberful", which
-   * only someone who knows their password can, so it says nothing about who has an account.
+   * active since, or their password has been reset while it was checked. While Memberful is members
+   * only, only administrators sign in with a password, and anyone else hears "memberful", which only
+   * someone who knows their password can, so it says nothing about who has an account.
    */
   async startSession(userId: UserId, passwordDigest: string, rehash: string | null, tokenDigest: string, client: Client): Promise<Me | "memberful" | null> {
     const administratorsOnly = (await this.joinableAccount())?.memberfulSignIn ?? false;
@@ -823,10 +857,10 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Adds someone who signs in with just a name, and the session their cookie's token opens, unless
-   * members sign in with Memberful, which answers "memberful". Everyone's workspace sockets hear of them.
+   * Memberful is members only, which answers "memberful". Everyone's workspace sockets hear of them.
    */
   async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me | "memberful"> {
-    // One at a time, as joining is, so that none can overlap turning Memberful sign-in on.
+    // One at a time, as joining is, so that none can overlap turning Members only on.
     return this.oneAtATime(async () => {
       if ((await this.joinableAccount())?.memberfulSignIn) return "memberful";
       const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: true, lastActiveAt: Date.now() };
@@ -839,25 +873,25 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Signs in `member`, who signed in to the Memberful site `issuer`, with the session their cookie's
-   * token opens: as the person their Memberful account is linked to, or else as someone new, a member in
-   * every open room, linked to it, as joining adds someone. Accounts are linked by the site and the
-   * member's id there, never matched by email address. What Memberful said of their membership, as of
-   * `readAt`, is gone by as a check's is (`settleMembership`), unless the Workspace has gone by a newer
-   * read: a member whose membership has lapsed is suspended, their sessions elsewhere ending, and one whose
-   * membership is renewed is let back. Answers "off" unless members sign in with Memberful, "refused" for
-   * someone linked who has been removed or banned, "membership" for anyone but an administrator without
-   * an active membership, and "taken" when someone here has the email address someone new would have,
-   * which creates nothing. Everyone's workspace sockets hear of someone new.
+   * token opens: as the person their Memberful account is linked to, whether Memberful is on or not, or
+   * else, while it's on, as someone new, a member in every open room, linked to it, as joining adds
+   * someone. Accounts are linked by the site and the member's id there, never matched by email address.
+   * What Memberful said of their membership, as of `readAt`, is gone by as a check's is
+   * (`settleMembership`), unless the Workspace has gone by a newer read: a member whose membership has
+   * lapsed is suspended, their sessions elsewhere ending, and one whose membership is renewed is let back.
+   * Answers "off" for someone new while Memberful is off, "refused" for someone linked who has been
+   * removed or banned, "membership" for anyone but an administrator without an active membership, and
+   * "taken" when someone here has the email address someone new would have, which creates nothing.
+   * Everyone's workspace sockets hear of someone new.
    */
   async signInWithMemberful(issuer: string, member: MemberfulMember, readAt: number, tokenDigest: string, client: Client): Promise<Me | MemberfulRefusal> {
     // One at a time, so that two sign-ins of someone new can't both add them, none can overlap turning
-    // Memberful sign-in off, or a check of the same membership, and a suspension closes the sockets it
-    // ends before answering.
+    // Memberful off, or a check of the same membership, and a suspension closes the sockets it ends
+    // before answering.
     return this.closingSockets(async () => {
-      if (!(await this.joinableAccount())?.memberfulSignIn) return "off";
-      await this.keepCatchingUp(Date.now() + MEMBERSHIP_CATCH_UP_MS);
       const linked = await this.store.linkedPerson(issuer, member.id);
       if (linked) {
+        await this.keepCatchingUp(Date.now() + MEMBERSHIP_CATCH_UP_MS);
         if (linked.status === "deactivated" || linked.status === "banned") return "refused";
         if ((await this.settleMembership(issuer, member.id, linked, member.subscribed, readAt)) !== "active") return "membership";
         // On D1 a role change can overlap it, so it's remembered only if none did.
@@ -866,6 +900,7 @@ export class Workspace extends DurableObject<Env> {
         );
         return session ? meOf(session) : "refused";
       }
+      if (!(await this.joinableAccount())?.memberfulJoin) return "off";
       if (!member.subscribed) return "membership";
       const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name: member.name }, administrator: false, guest: false, lastActiveAt: Date.now() };
       const person = { ...session.user, emailAddress: member.emailAddress };
@@ -875,6 +910,8 @@ export class Workspace extends DurableObject<Env> {
         if (member.emailAddress !== null && (await this.store.hasEmailAddress(member.emailAddress))) return "taken";
         throw error;
       }
+      this.linkedSites.add(issuer);
+      await this.keepCatchingUp(Date.now() + MEMBERSHIP_CATCH_UP_MS);
       this.sessions.remember(tokenDigest, session);
       await this.publishPerson(session.user.id);
       return meOf(session);
@@ -886,17 +923,17 @@ export class Workspace extends DurableObject<Env> {
    * `issuer` from their profile checks first (`auth.memberful-connect`): whose account it is, and the
    * digest of their password, or "" without one, which the Worker checks the password they give against,
    * counting it against sign-in's limit for `ip`, as changing their email address or password does:
-   * "limited" past it. "off" unless members sign in with Memberful, "forbidden" for a guest, "connected"
+   * "limited" past it. "unneeded" unless Memberful is members only, "forbidden" for a guest, "connected"
    * when they're connected to an account at the site already, and null without a valid session.
    */
   async memberfulConnectionCheck(
     credentials: Credentials,
     ip: string,
     issuer: string,
-  ): Promise<{ userId: UserId; passwordDigest: string } | "limited" | "off" | "forbidden" | "connected" | null> {
+  ): Promise<{ userId: UserId; passwordDigest: string } | "limited" | "unneeded" | "forbidden" | "connected" | null> {
     const session = await this.session(credentials);
     if (!session) return null;
-    if (!(await this.joinableAccount())?.memberfulSignIn) return "off";
+    if (!(await this.joinableAccount())?.memberfulSignIn) return "unneeded";
     if (session.guest) return "forbidden";
     const person = await this.store.connectingPerson(session.user.id, issuer);
     if (!person) return null;
@@ -910,8 +947,8 @@ export class Workspace extends DurableObject<Env> {
    * Starts connecting the account of `userId`, whose password's digest was `passwordDigest` as the Worker
    * checked it, or "" without one, to one at the Memberful site `issuer` (`auth.memberful-connect`): keeps
    * `stateDigest`, the digest of the state their browser goes there with, for the callback to take within
-   * ten minutes. Whether it's kept: not unless members sign in with Memberful, and they're active, neither
-   * a guest nor a bot, have that password still, and aren't connected to an account at the site already.
+   * ten minutes. Whether it's kept: not unless Memberful is members only, and they're active, neither a
+   * guest nor a bot, have that password still, and aren't connected to an account at the site already.
    */
   async startMemberfulConnection(userId: UserId, passwordDigest: string, stateDigest: string, issuer: string): Promise<boolean> {
     if (!(await this.joinableAccount())?.memberfulSignIn) return false;
@@ -929,7 +966,7 @@ export class Workspace extends DurableObject<Env> {
    * connection on its way as it ends their sessions. A member needs an active membership to connect one,
    * as to sign in with it, which an administrator doesn't, and an account connected to them already signs
    * them in as signing in with it does, going by what Memberful said of its membership as of `readAt`
-   * (`settleMembership`). Answers "off" unless members sign in with Memberful, "claimed" for an account
+   * (`settleMembership`). Answers "unneeded" unless Memberful is members only, "claimed" for an account
    * connected to someone else, "another" when they're connected to another account at the site,
    * "membership" for a member without an active membership, and "refused" when they've been removed or
    * banned, or their password has changed.
@@ -945,8 +982,7 @@ export class Workspace extends DurableObject<Env> {
     const { userId } = connecting;
     // One at a time, as signing in with Memberful is, so that two can't connect the same account.
     return this.closingSockets(async () => {
-      if (!(await this.joinableAccount())?.memberfulSignIn) return "off";
-      await this.keepCatchingUp(Date.now() + MEMBERSHIP_CATCH_UP_MS);
+      if (!(await this.joinableAccount())?.memberfulSignIn) return "unneeded";
       const linked = await this.store.linkedPerson(issuer, member.id);
       if (linked && linked.userId !== userId) return "claimed";
       if (linked) {
@@ -958,7 +994,9 @@ export class Workspace extends DurableObject<Env> {
         if (person.subject !== null) return "another";
         if (!person.administrator && !member.subscribed) return "membership";
         if (!(await this.store.connectIdentity(connecting, issuer, member.id, readAt, new Date().toISOString()))) return "refused";
+        this.linkedSites.add(issuer);
       }
+      await this.keepCatchingUp(Date.now() + MEMBERSHIP_CATCH_UP_MS);
       if (tokenDigest === null) return "connected";
       // On D1 a role change can overlap it, so it's remembered only if none did.
       const session = await this.sessions.keep(tokenDigest, () => this.store.startLinkedSession(userId, sortableId(), tokenDigest, client, new Date().toISOString()));
@@ -968,11 +1006,11 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Queues checking the membership of the account with `subject` at the Memberful site `issuer` with its
-   * admin API, as the site's webhook says it changed, if it's linked to a member whose membership counts,
-   * while members sign in with Memberful (`auth.memberful-memberships`). The alarm checks it.
+   * admin API, as the site's webhook says it changed, if it's linked to a member whose membership counts
+   * (`auth.memberful-memberships`), whether Memberful is on or not, since the members who joined with it
+   * keep signing in with it. The alarm checks it.
    */
   async queueMembershipCheck(issuer: string, subject: string): Promise<void> {
-    if (!(await this.joinableAccount())?.memberfulSignIn) return;
     const now = Date.now();
     await this.store.queueMembershipCheck(issuer, subject, now, now + MEMBERSHIP_CATCH_UP_MS);
     await this.scheduleDelivery();
@@ -980,7 +1018,8 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Makes the daily check of every membership at the deployment's Memberful site due by `dueAt`, if it
-   * can ask the site's admin API, and sets the alarm for it.
+   * can ask the site's admin API, and sets the alarm for it. Called once someone here is linked to an
+   * account there, since the check isn't kept while nobody is.
    */
   private async keepCatchingUp(dueAt: number): Promise<void> {
     const api = memberfulApiOf(this.env);
@@ -2089,12 +2128,12 @@ export class Workspace extends DurableObject<Env> {
    * queued everyone's if the daily catch-up is due, as many as one request asks after, and goes by what it
    * says, as a sign-in goes by what it reads (`settleMembership`). A check Memberful failed to answer
    * before is asked alone, so that a member it can't answer for holds up nobody else, and one it fails to
-   * answer now is put off, as a revocation is. While members don't sign in with Memberful, or the
-   * deployment can't ask its admin API, nothing is checked, and whatever was queued is forgotten, and
-   * once it's turned off, what Memberful answers changes nobody.
+   * answer now is put off, as a revocation is. Memberships are checked whether Memberful is on or not,
+   * since the members who joined with it keep signing in with it, but while the deployment can't ask its
+   * admin API, nothing is checked, and whatever was queued is forgotten.
    */
   private async checkMemberships(): Promise<void> {
-    const api = (await this.joinableAccount())?.memberfulSignIn ? memberfulApiOf(this.env) : null;
+    const api = memberfulApiOf(this.env);
     const now = Date.now();
     const due = await this.store.dueMembershipChecks(api?.site ?? null, now, now + MEMBERSHIP_CATCH_UP_MS, MEMBERSHIPS_PER_CHECK);
     if (!api || due.length === 0) return;
@@ -2102,12 +2141,7 @@ export class Workspace extends DurableObject<Env> {
     const subjects = checks.map(({ subject }) => subject);
     const readAt = Date.now();
     const memberships = await membershipsOf(api, subjects);
-    if (memberships) {
-      await this.oneAtATime(async () => {
-        // Turning it off waits its turn too, so this sees it if it came while Memberful answered.
-        if ((await this.joinableAccount())?.memberfulSignIn) await this.applyMemberships(api.site, memberships, readAt);
-      });
-    }
+    if (memberships) await this.oneAtATime(() => this.applyMemberships(api.site, memberships, readAt));
     await this.store.settleMembershipChecks(api.site, subjects, memberships ? readAt : null, Date.now());
   }
 
@@ -2240,12 +2274,13 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Sets the alarm for the outbox's next delivery due, as the Workspace starts, having made the daily
-   * check of memberships due at once if members sign in with Memberful and none is due, as when the
-   * deployment has only just been given the admin API's key (`auth.memberful-memberships`).
+   * check of memberships due at once if the deployment can ask Memberful's admin API, anyone here is
+   * linked to an account at its site, and none is due, as when it has only just been given the API's key
+   * (`auth.memberful-memberships`).
    */
   private async resumeDeliveries(): Promise<void> {
     const api = memberfulApiOf(this.env);
-    if (api && (await this.joinableAccount())?.memberfulSignIn) await this.store.startMembershipCatchUp(api.site, Date.now());
+    if (api) await this.store.startMembershipCatchUp(api.site, Date.now());
     await this.scheduleDelivery();
   }
 

@@ -38,8 +38,8 @@ names its Durable Object, and the Worker asks the Workspace whether someone is a
 wakes the room for their socket. First run creates the account and its administrator, who signs in
 with an email address and password, found through the unique index on `users.email_address`, as do
 the people who join with the join link; where it's allowed, anyone can sign in with just a display
-name instead, and while an administrator has turned it on, members sign in with Memberful, found
-through `identities`. Presence and typing live in each room object's memory.
+name instead, and the members of a Memberful site sign in with Memberful, once an administrator lets
+them, found through `identities`. Presence and typing live in each room object's memory.
 
 ## Compared with ember-rust
 
@@ -458,19 +458,20 @@ search index. On top of that schema it adds indexes and query changes for speed.
   most. Email addresses never link accounts, since Memberful makes an account for whoever registers
   an address, without checking it's theirs: someone new whose Memberful email address someone here
   has is refused by `users.email_address`'s unique index, and their person, identity, session and
-  open rooms are one batch, so nothing is left behind. Whether members sign in with Memberful is one
-  more of the account's settings (`memberful_sign_in`), and the site's keys are Worker secrets, so the
-  client secret is never stored. The table names no provider but by its issuer, so another provider
-  would need no migration. People who sign in this way have no `password_digest`. Someone with an
-  account from before connects one once their password checks out (`auth.memberful-connect`):
-  `pending_identities` (workspace migration 0039) keeps the connection's OAuth state, as its HMAC under
-  SESSION_SECRET, whose account it's for, and the digest of the password that checked out, for ten
-  minutes, and the callback takes the row with `DELETE … RETURNING` before Memberful is asked
-  anything, so each is good for one try. A new password deletes that person's rows, and the identity
-  is inserted only while `users.password_digest` is still the one the row kept, so a new password
-  while the callback waits on Memberful connects nothing either. That insert, which `identities`'
-  unique indexes guard, runs one at a time with sign-ins, then a session starts unless the browser
-  is signed in as them.
+  open rooms are one batch, so nothing is left behind. Whether Memberful's members join with it, and
+  whether only they sign in, are two more of the account's settings (`memberful_join` and
+  `memberful_sign_in`, the first read as the second while it's absent, as in a workspace saved
+  before it), and the site's keys are Worker secrets, so the client secret is never stored. The
+  table names no provider but by its issuer, so another provider would need no migration. People who
+  sign in this way have no `password_digest`. Someone with an account from before connects one once
+  their password checks out (`auth.memberful-connect`): `pending_identities` (workspace migration
+  0039) keeps the connection's OAuth state, as its HMAC under SESSION_SECRET, whose account it's
+  for, and the digest of the password that checked out, for ten minutes, and the callback takes the
+  row with `DELETE … RETURNING` before Memberful is asked anything, so each is good for one try. A
+  new password deletes that person's rows, and the identity is inserted only while
+  `users.password_digest` is still the one the row kept, so a new password while the callback waits
+  on Memberful connects nothing either. That insert, which `identities`' unique indexes guard, runs
+  one at a time with sign-ins, then a session starts unless the browser is signed in as them.
 - **Memberships are asked about, not taken from webhooks.** ember-rust has no memberships. Memberful
   sends its webhooks in no particular order, so one only queues a check of a linked member in
   `membership_checks` (workspace migration 0038), keyed by issuer and subject, as `identities` is,
@@ -479,13 +480,15 @@ search index. On top of that schema it adds indexes and query changes for speed.
   `queued_at` past the check's start, so settling the check keeps it to ask again, and
   `identities.checked_at` keeps when the membership the Workspace went by was read, by its own clock
   as the read began, so an older answer, a check's or a sign-in's, changes nothing.
-  `membership_catch_ups` keeps when everyone linked to a site is next checked, once a day, and the
-  Workspace makes one due as it starts if Memberful sign-in is on and none is. Someone whose
-  membership lapsed is suspended, `users.status` 3, in one batch that queues closing their sockets
-  and ends their sessions and push subscriptions, but keeps their memberships, which saving a private
-  room's settings leaves too, since they list only people active, so a renewal brings them back with
-  their rooms, and grants them the open rooms made meanwhile. Making an open room private takes them
-  out, as it does anyone else nobody chose, so that statement reads the room's kind before it changes.
+  `membership_catch_ups` keeps when everyone linked to a site is next checked, once a day, while
+  anyone is linked there: the statements that start one check `identities` first, and the alarm
+  forgets one with nobody to check. The Workspace makes one due as it starts if none is, whether
+  Memberful is on or not. Someone whose membership lapsed is suspended, `users.status` 3, in one
+  batch that queues closing their sockets and ends their sessions and push subscriptions, but keeps
+  their memberships, which saving a private room's settings leaves too, since they list only people
+  active, so a renewal brings them back with their rooms, and grants them the open rooms made
+  meanwhile. Making an open room private takes them out, as it does anyone else nobody chose, so
+  that statement reads the room's kind before it changes.
 - **A bot's cards are part of its message's row.** ember-rust has no cards. Ours, what a
   Slack-compatible webhook's legacy attachments show, are kept as JSON in `messages.cards` (room
   migration 0034), as a file is, rather than in the body as Action Text attachments, which the rich

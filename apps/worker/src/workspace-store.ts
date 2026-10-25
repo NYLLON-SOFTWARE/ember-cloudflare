@@ -68,7 +68,7 @@ const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administ
 /**
  * What a new account's settings and custom CSS read as: no tagline, translation buttons hidden, no CSS,
  * anyone may create rooms, no custom domain, people join with the join link but can't sign up without
- * it, members sign in with passwords rather than Memberful, and the rail has its own icons.
+ * it, nor join with Memberful, members sign in with passwords, and the rail has its own icons.
  */
 export const NEW_ACCOUNT_LOOKS = {
   tagline: "",
@@ -78,6 +78,7 @@ export const NEW_ACCOUNT_LOOKS = {
   customDomain: null,
   joinLink: true,
   openSignUp: false,
+  memberfulJoin: false,
   memberfulSignIn: false,
   navigationIcons: {},
 } as const;
@@ -102,11 +103,11 @@ export interface NewAccount {
 
 /**
  * What `WorkspaceStore.changeAccount` changes: the name, the tagline, the settings workspace settings'
- * switches change, the custom domain, and the navigation icons whose slots change.
+ * switches change, the custom domain, and the navigation icons whose slots change. Memberful's two
+ * settings change together, or not at all, as `memberful`.
  */
-export type AccountChange = Partial<
-  Pick<Account, "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "joinLink" | "openSignUp" | "memberfulSignIn">
-> & {
+export type AccountChange = Partial<Pick<Account, "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "joinLink" | "openSignUp">> & {
+  memberful?: Pick<Account, "memberfulJoin" | "memberfulSignIn">;
   navigationIcons?: NavigationIconChanges;
 };
 
@@ -389,12 +390,15 @@ const QUEUE_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_checks (issuer, subjec
   WHERE identities.issuer = ?1 AND ${MEMBERSHIP_COUNTS} AND EXISTS (SELECT 1 FROM membership_catch_ups WHERE issuer = ?1 AND due_at <= ?2)
   ON CONFLICT DO NOTHING`;
 
-/** Makes the catch-up at issuer ?1 due at ?2, unless it's due sooner. */
-const SCHEDULE_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due_at) VALUES (?1, ?2)
+/** Whether anyone here is linked to an account at issuer ?1, without whom a catch-up has nobody to check. */
+const ANYONE_LINKED = `EXISTS (SELECT 1 FROM identities WHERE issuer = ?1)`;
+
+/** Makes the catch-up at issuer ?1 due at ?2, unless it's due sooner, while anyone is linked to an account there. */
+const SCHEDULE_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due_at) SELECT ?1, ?2 WHERE ${ANYONE_LINKED}
   ON CONFLICT (issuer) DO UPDATE SET due_at = min(due_at, excluded.due_at)`;
 
-/** Makes the catch-up at issuer ?1 due at ?2, unless one is due already, however much later. */
-const START_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due_at) VALUES (?1, ?2) ON CONFLICT (issuer) DO NOTHING`;
+/** Makes the catch-up at issuer ?1 due at ?2, unless one is due already, however much later, while anyone is linked to an account there. */
+const START_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due_at) SELECT ?1, ?2 WHERE ${ANYONE_LINKED} ON CONFLICT (issuer) DO NOTHING`;
 
 /** Records that the memberships of the accounts at issuer ?1 with the subjects ?2, a JSON array, were read at ?3, unless they were since. */
 const STAMP_MEMBERSHIPS = `UPDATE identities SET checked_at = ?3 WHERE issuer = ?1 AND subject IN (SELECT value FROM json_each(?2)) AND checked_at < ?3`;
@@ -544,10 +548,20 @@ function joinsWithLinkIn(settings: Record<string, unknown> | null): boolean {
 const signsUpOpenlyIn = (settings: Record<string, unknown> | null) => isPresent(settings?.open_sign_up);
 
 /**
- * Whether members sign in with Memberful, which the account's settings keep as `memberful_sign_in`, this
- * port's own: only while the setting is present.
+ * Whether Memberful is members only, which the account's settings keep as `memberful_sign_in`, this
+ * port's own: only while the setting is present, and Memberful is on (`joinsWithMemberfulIn`).
  */
-const signsInWithMemberful = (settings: Record<string, unknown> | null) => isPresent(settings?.memberful_sign_in);
+const signsInWithMemberful = (settings: Record<string, unknown> | null) => isPresent(settings?.memberful_sign_in) && joinsWithMemberfulIn(settings);
+
+/**
+ * Whether Memberful's members join with it, which the account's settings keep as `memberful_join`, this
+ * port's own: only while the setting is present, or, until it's stored, as for an account from before it,
+ * while `memberful_sign_in` is, which let them join while it was Memberful's only setting.
+ */
+function joinsWithMemberfulIn(settings: Record<string, unknown> | null): boolean {
+  const on = settings?.memberful_join;
+  return isPresent(on === undefined ? settings?.memberful_sign_in : on);
+}
 
 /**
  * The navigation icons the account's settings keep as `ember_navigation_icons`, as ember-rust reads them
@@ -991,6 +1005,7 @@ const SET_RESTRICT_ROOM_CREATION = setSetting("restrict_room_creation_to_adminis
 const SET_CUSTOM_DOMAIN = setSetting("custom_domain");
 const SET_JOIN_LINK = setSetting("join_link");
 const SET_OPEN_SIGN_UP = setSetting("open_sign_up");
+const SET_MEMBERFUL_JOIN = setSetting("memberful_join");
 const SET_MEMBERFUL_SIGN_IN = setSetting("memberful_sign_in");
 
 /** Navigation icon changes as the merge patch `CHANGE_NAVIGATION_ICONS` takes them: null for a slot's default. */
@@ -1442,6 +1457,7 @@ export class WorkspaceStore {
       customDomain: customDomainIn(settings),
       joinLink: joinsWithLinkIn(settings),
       openSignUp: signsUpOpenlyIn(settings),
+      memberfulJoin: joinsWithMemberfulIn(settings),
       memberfulSignIn: signsInWithMemberful(settings),
       navigationIcons: navigationIconsIn(settings),
       updatedAt: row.updated_at,
@@ -1449,9 +1465,13 @@ export class WorkspaceStore {
     };
   }
 
-  /** Changes the workspace's name, tagline, settings, custom domain and navigation icons, as `change` has them, in one batch. */
+  /**
+   * Changes the workspace's name, tagline, settings, custom domain and navigation icons, as `change` has
+   * them, in one batch. Memberful's settings are stored both at once, so that an account from before
+   * `memberful_join` reads as they're saved.
+   */
   async changeAccount(
-    { name, tagline, hideTranslationButtons, restrictRoomCreation, customDomain, joinLink, openSignUp, memberfulSignIn, navigationIcons }: AccountChange,
+    { name, tagline, hideTranslationButtons, restrictRoomCreation, customDomain, joinLink, openSignUp, memberful, navigationIcons }: AccountChange,
     now: string,
   ): Promise<void> {
     await this.db.batch([
@@ -1462,7 +1482,9 @@ export class WorkspaceStore {
       ...(customDomain === undefined ? [] : [statement(SET_CUSTOM_DOMAIN, JSON.stringify(customDomain), now)]),
       ...(joinLink === undefined ? [] : [statement(SET_JOIN_LINK, JSON.stringify(joinLink), now)]),
       ...(openSignUp === undefined ? [] : [statement(SET_OPEN_SIGN_UP, JSON.stringify(openSignUp), now)]),
-      ...(memberfulSignIn === undefined ? [] : [statement(SET_MEMBERFUL_SIGN_IN, JSON.stringify(memberfulSignIn), now)]),
+      ...(memberful === undefined
+        ? []
+        : [statement(SET_MEMBERFUL_JOIN, JSON.stringify(memberful.memberfulJoin), now), statement(SET_MEMBERFUL_SIGN_IN, JSON.stringify(memberful.memberfulSignIn), now)]),
       ...(navigationIcons === undefined ? [] : [statement(CHANGE_NAVIGATION_ICONS, JSON.stringify(navigationIconsPatch(navigationIcons)), now)]),
     ]);
   }
@@ -1646,6 +1668,11 @@ export class WorkspaceStore {
    */
   async connectIdentity({ userId, passwordDigest }: Connecting, issuer: string, subject: string, checkedAt: number, now: string): Promise<boolean> {
     return (await this.db.all(CONNECT_IDENTITY, issuer, subject, checkedAt, now, userId, passwordDigest)).length > 0;
+  }
+
+  /** Whether anyone, whatever their status, has an account at `issuer` linked to them. */
+  async anyoneLinked(issuer: string): Promise<boolean> {
+    return (await this.db.all(`SELECT 1 FROM identities WHERE issuer = ? LIMIT 1`, issuer)).length > 0;
   }
 
   /** Whether anyone has exactly this email address, whatever their status. */
@@ -1986,32 +2013,33 @@ export class WorkspaceStore {
   /**
    * Queues checking the membership of the account at the Memberful site `issuer` with `subject`, due at
    * `now`, as a webhook about it came then, if it's linked to a member whose membership counts, and makes
-   * the site's catch-up due by `nextCatchUp`.
+   * the site's catch-up due by `nextCatchUp`, if anyone here is linked to an account there.
    */
   async queueMembershipCheck(issuer: string, subject: string, now: number, nextCatchUp: number): Promise<void> {
     await this.db.batch([statement(QUEUE_MEMBERSHIP_CHECK, issuer, subject, now), statement(SCHEDULE_MEMBERSHIP_CATCH_UP, issuer, nextCatchUp)]);
   }
 
-  /** Makes the catch-up of the memberships at the Memberful site `issuer` due by `dueAt`. */
+  /** Makes the catch-up of the memberships at the Memberful site `issuer` due by `dueAt`, if anyone here is linked to an account there. */
   async scheduleMembershipCatchUp(issuer: string, dueAt: number): Promise<void> {
     await this.db.run(SCHEDULE_MEMBERSHIP_CATCH_UP, issuer, dueAt);
   }
 
-  /** Makes the catch-up of the memberships at the Memberful site `issuer` due at `dueAt`, unless one is due already. */
+  /** Makes the catch-up of the memberships at the Memberful site `issuer` due at `dueAt`, unless one is due already, if anyone here is linked to an account there. */
   async startMembershipCatchUp(issuer: string, dueAt: number): Promise<void> {
     await this.db.run(START_MEMBERSHIP_CATCH_UP, issuer, dueAt);
   }
 
   /**
    * Forgets the membership checks and catch-ups of every Memberful site but `site`, all of them for null,
-   * as nothing checks them, then, if the catch-up of `site` is due by `now`, queues checking every
-   * membership there that counts and makes the next due at `nextCatchUp`, and answers up to `limit` of
-   * its checks due by `now`, those due longest first.
+   * as nothing checks them, and the catch-up of `site` while nobody here is linked to an account there,
+   * as one started before anyone was may be, then, if the catch-up of `site` is due by `now`, queues
+   * checking every membership there that counts and makes the next due at `nextCatchUp`, and answers up
+   * to `limit` of its checks due by `now`, those due longest first.
    */
   async dueMembershipChecks(site: string | null, now: number, nextCatchUp: number, limit: number): Promise<MembershipCheck[]> {
     const results = await this.db.batch([
       statement(`DELETE FROM membership_checks WHERE issuer IS NOT ?`, site),
-      statement(`DELETE FROM membership_catch_ups WHERE issuer IS NOT ?`, site),
+      statement(`DELETE FROM membership_catch_ups WHERE issuer IS NOT ?1 OR NOT ${ANYONE_LINKED}`, site),
       statement(QUEUE_MEMBERSHIP_CATCH_UP, site, now),
       statement(`UPDATE membership_catch_ups SET due_at = ? WHERE issuer = ? AND due_at <= ?`, nextCatchUp, site, now),
       statement(`SELECT subject, attempts FROM membership_checks WHERE issuer = ? AND due_at <= ? ORDER BY due_at, subject LIMIT ?`, site, now, limit),
