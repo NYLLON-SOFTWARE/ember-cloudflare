@@ -174,6 +174,24 @@ describe(feature("platform.email"), () => {
     expect(testButton()).toBeEnabled();
   });
 
+  it("clears what a test email came to when the From address is saved, but not a test email still sending", async () => {
+    const answer = held(() => Response.json({ to: "ada@example.com" }));
+    serve({ tested: answer.answered });
+    const { user, onFromSaved } = showCard({ provider: "cloudflare", from: "chat@example.com" });
+    await user.click(testButton());
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onFromSaved).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("status")).toHaveTextContent("Sending a test email…");
+    expect(testButton()).toBeDisabled();
+
+    await answer.answer();
+    expect(screen.getByRole("status")).toHaveTextContent("Sent to ada@example.com. If it isn't in your inbox, look in spam.");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onFromSaved).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("status")).toHaveTextContent("");
+    expect(saved()).toEqual(["chat@example.com", "chat@example.com"]);
+  });
+
   it.each([
     [502, "Resend refused it: The example.com domain is not verified."],
     [503, CANT_SEND_EMAIL],

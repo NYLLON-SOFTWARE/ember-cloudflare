@@ -71,7 +71,8 @@ export function EmailSettings({ email, askForAccount, onFromSaved, onFailed }: P
         setSaving(false);
         // Unless it's been typed over since.
         setTyped((typed) => (typed === from ? null : typed));
-        setTest(null);
+        // What a test email came to was for the address before, but one still sending stays until it's answered.
+        setTest((test) => (test === "sending" ? test : null));
         onFromSaved(emailFrom);
       },
       (error: unknown) => {
