@@ -24,7 +24,7 @@ async function openEmail(page: Page) {
   await useOwnAddress(page);
   await page.goto("/account/edit#membership-settings");
   await signInAsAdministrator(page);
-  return page.getByRole("region", { name: "Email" });
+  return page.getByRole("region", { name: "Email", exact: true });
 }
 
 test.describe(feature("platform.email"), () => {
@@ -53,7 +53,7 @@ test.describe(feature("platform.email"), () => {
 
     // Membership shows the From address as it was kept.
     await page.reload();
-    await expect(page.getByRole("region", { name: "Email" }).getByRole("textbox", { name: "From" })).toHaveValue('"Acme, Inc." <chat@acme.example>');
+    await expect(page.getByRole("region", { name: "Email", exact: true }).getByRole("textbox", { name: "From" })).toHaveValue('"Acme, Inc." <chat@acme.example>');
   });
 
   test("the card refuses a From address that isn't one, and says why Resend refused a test email", async ({ page, request }) => {
@@ -67,8 +67,8 @@ test.describe(feature("platform.email"), () => {
     await page.reload();
     resend.refuseNext({ status: 403, name: "validation_error", message: "The acme.example domain is not verified. Please, add and verify your domain on https://resend.com/domains" });
     const sent = resend.sent.length;
-    await page.getByRole("region", { name: "Email" }).getByRole("button", { name: "Send me a test email" }).click();
-    await expect(page.getByRole("region", { name: "Email" }).getByRole("status")).toHaveText(
+    await page.getByRole("region", { name: "Email", exact: true }).getByRole("button", { name: "Send me a test email" }).click();
+    await expect(page.getByRole("region", { name: "Email", exact: true }).getByRole("status")).toHaveText(
       "Resend refused it: The acme.example domain is not verified. Please, add and verify your domain on https://resend.com/domains",
     );
     expect(resend.sent).toHaveLength(sent);

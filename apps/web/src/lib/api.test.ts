@@ -110,7 +110,7 @@ describe(feature("auth.protected-setup"), () => {
 
 describe(feature("users.avatar-upload"), () => {
   it("changes your avatar with a form of the photo and its variant, and removes it", async () => {
-    const answer = { profile: { name: "Ada", emailAddress: null, bio: null, avatarUrl: "/users/t/avatar", avatar: true, password: false, memberful: null }, transferId: "u1.t" } satisfies ProfileAnswer;
+    const answer = { profile: { name: "Ada", emailAddress: null, bio: null, avatarUrl: "/users/t/avatar", avatar: true, password: false, membershipNeeded: true, memberful: null }, transferId: "u1.t" } satisfies ProfileAnswer;
     const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(answer));
     const file = new File(["ada"], "ada.jpg", { type: "image/jpeg" });
     expect(await changeAvatar({ file, variant: new Blob(["variant"], { type: "image/webp" }) })).toEqual(answer);

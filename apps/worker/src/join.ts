@@ -1,8 +1,10 @@
 import {
+  INVITATION_GONE,
   isPasswordTooLong,
   isPasswordTooShort,
   JOINING_PROBLEMS,
   MEMBERFUL_SIGN_IN_NEEDED,
+  parseInvitationSignUp,
   parseOpenSignUp,
   parseSignUp,
   PASSWORD_TOO_LONG,
@@ -19,6 +21,7 @@ import {
 import { authenticate, clientOf, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import { userFormOf, userFormPhoto } from "./avatars";
 import type { Env } from "./env";
+import { emailLinkDigest } from "./invitations";
 import { appPage, empty, formAnswer, home, signInFirst, signUpRefusal } from "./pages";
 import { passwordHasher } from "./passwords";
 import { passedTurnstile, turnstileKeysOf } from "./turnstile";
@@ -31,7 +34,8 @@ import type { NewPerson } from "./workspace-store";
 // can turn the link off, and while Memberful is members only (memberful.ts) it's off too: either
 // way it sends people to sign in. Signing up at /join, with no code, is this port's own: anyone may
 // while an administrator lets them (`auth.open-sign-up`), within its limits, and with Turnstile's check
-// while the deployment has its keys.
+// while the deployment has its keys. So is joining with an invitation's link (`auth.invitation-sign-up`),
+// whichever ways to join are on, with the address it was sent to.
 
 /** What the join form answers while Memberful is members only: why, and where to go instead. */
 const MEMBERFUL_INSTEAD = {
@@ -78,6 +82,16 @@ export async function signUpPage(request: Request, env: Env): Promise<Response> 
   if (session) return home(request);
   if (account === null || !signsUpOpenly(account)) return signInSayingWhy(request, "closed");
   return pageForJoining(request, env, turnstileKeysOf(env) !== null);
+}
+
+/**
+ * `GET /join/invitation`: the join page for an invitation's link, which holds its secret in the
+ * fragment, out of the Worker's sight, so the page looks it up. It goes home for someone signed in, as
+ * the app sends them, once the secret is out of the address.
+ */
+export async function invitationPage(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET" && request.method !== "HEAD") return empty(404);
+  return pageForJoining(request, env);
 }
 
 /** The app's page for joining, which no cache keeps, since what it shows depends on the workspace's switches. */
@@ -152,6 +166,34 @@ export async function signUp(request: Request, env: Env): Promise<Response> {
   const user = await workspace(env).signUp(person, await tokenDigest(token, env.SESSION_SECRET), client, limited);
   if (user === "closed" || user === "full") return signUpRefused(user, form.emailAddress);
   if (!user) return emailAddressTaken(form.emailAddress);
+  return formAnswer({ user } satisfies { user: Me }, 201, sessionCookie(request, token));
+}
+
+/**
+ * `POST /api/join/invitation`: adds the person an invitation's join form describes as a member, with
+ * the address it was sent to, in every open room, with the photo they chose, and signs this browser in
+ * as them, spending the link, whichever ways to join are on. A link that doesn't work answers 404
+ * before the photo is stored or the password hashed, and an address with an account goes to sign in
+ * with it filled in, leaving the link be.
+ */
+export async function joinWithInvitation(request: Request, env: Env): Promise<Response> {
+  if (await authenticate(request, env)) return signedInAlready();
+  const sent = await userFormOf(request);
+  if ("error" in sent) return formAnswer({ error: sent.error, field: "avatar" }, sent.status);
+  const form = parseInvitationSignUp(sent.fields);
+  if (typeof form === "string") return signUpRefusal(form);
+  const refusal = passwordRefusal(form.password);
+  if (refusal) return refusal;
+  const linkDigest = await emailLinkDigest(form.token, env);
+  const invitation = linkDigest && (await workspace(env).invitationFor(linkDigest));
+  if (!linkDigest || !invitation) return formAnswer({ error: INVITATION_GONE }, 404);
+  const person = await personOf(env, { ...form, emailAddress: invitation.emailAddress }, sent.photo);
+  if (person instanceof Response) return person;
+
+  const token = newSessionToken();
+  const user = await workspace(env).joinWithInvitation(linkDigest, person, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
+  if (user === "gone") return formAnswer({ error: INVITATION_GONE }, 404);
+  if (!user) return emailAddressTaken(invitation.emailAddress);
   return formAnswer({ user } satisfies { user: Me }, 201, sessionCookie(request, token));
 }
 

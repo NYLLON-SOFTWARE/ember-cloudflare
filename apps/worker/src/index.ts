@@ -3,6 +3,7 @@ import {
   CloseCode,
   CURRENT_PASSWORD_NEEDED,
   CURRENT_PASSWORD_WRONG,
+  INVITATION_PATH,
   LOGO_PATH,
   LOGO_TOO_LARGE,
   MAX_EMAIL_ADDRESS_LENGTH,
@@ -88,7 +89,8 @@ import { CSP_REPORT_PATH, cspReport } from "./csp";
 import { answerProbe, customDomainRefusal, originFor, probeOf, reachOf } from "./custom-domain";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
-import { join, joinCodeOf, joinPage, signUp, signUpPage } from "./join";
+import { invite, lookUpEmailLink, resendInvitation, revokeInvitation } from "./invitations";
+import { invitationPage, join, joinCodeOf, joinPage, joinWithInvitation, signUp, signUpPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
 import { finishMemberfulSignIn, memberfulConnectionFor, memberfulRefusal, memberfulWebhook, memberfulWebhooksOf, startMemberfulSignIn } from "./memberful";
 import { memberfulKeysOf } from "./memberful-api";
@@ -887,6 +889,14 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/rooms/new" && request.method === "GET") return () => newRoomForm(request, env);
   if (pathname === "/api/directs" && request.method === "POST") return () => startDirect(request, env);
   if (pathname === "/api/join" && request.method === "POST") return () => signUp(request, env);
+  if (pathname === "/api/join/invitation" && request.method === "POST") return () => joinWithInvitation(request, env);
+  if (pathname === "/api/email_links/lookup" && request.method === "POST") return () => lookUpEmailLink(request, env);
+  if (pathname === "/api/invitations" && request.method === "POST") return () => invite(request, env);
+  // Invitations' ids are sortable ids, which never need percent-encoding, so an encoded segment names none.
+  const invitation = pathname.match(/^\/api\/invitations\/([^/]+)$/);
+  if (invitation && request.method === "DELETE") return () => revokeInvitation(request, env, invitation[1]!);
+  const resend = pathname.match(/^\/api\/invitations\/([^/]+)\/resend$/);
+  if (resend && request.method === "POST") return () => resendInvitation(request, env, resend[1]!);
   const joining = pathname.match(/^\/api\/join\/([^/]+)$/);
   if (joining && request.method === "POST") return () => join(request, env, joining[1]!);
   if (pathname === "/api/unfurl" && request.method === "POST") return () => unfurlLink(request, env);
@@ -972,6 +982,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === MEMBERFUL_CALLBACK_PATH) return (await isFromBannedAddress(request, env)) ? tooManyRequests() : finishMemberfulSignIn(request, env);
   if (isSetupPath(pathname)) return setupPage(request, env);
   if (pathname === SIGN_UP_PATH) return signUpPage(request, env);
+  if (pathname === INVITATION_PATH) return invitationPage(request, env);
   const joinCode = joinCodeOf(pathname);
   if (joinCode !== null) return joinPage(request, env, joinCode);
   if (pathname === TRANSFER_PATH) return transferPage(request, env);

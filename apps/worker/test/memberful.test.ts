@@ -467,17 +467,17 @@ describe(feature("auth.memberful-sign-in"), () => {
       );
       const [signedIn, signedInNow] = await runInDurableObject(workspaceStub(), async (workspace: Workspace) => {
         const store = (workspace as unknown as { store: WorkspaceStore }).store;
-        const isAdministrator = store.isAdministrator.bind(store);
+        const signsInWhileMembersOnly = store.signsInWhileMembersOnly.bind(store);
         let read!: () => void;
         const reading = new Promise<void>((resolve) => (read = resolve));
         let answer!: () => void;
         const answering = new Promise<void>((resolve) => (answer = resolve));
         // On D1 a sign-in can read Grace as an administrator, and start her session only once she's a member.
-        vi.spyOn(store, "isAdministrator").mockImplementationOnce(async (userId) => {
-          const was = await isAdministrator(userId);
+        vi.spyOn(store, "signsInWhileMembersOnly").mockImplementationOnce(async (userId) => {
+          const did = await signsInWhileMembersOnly(userId);
           read();
           await answering;
-          return was;
+          return did;
         });
 
         const signingIn = workspace.startSession(member.user.id, "checked", null, laptop!.tokenDigest, laptop!.client);

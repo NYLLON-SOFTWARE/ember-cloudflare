@@ -18,8 +18,9 @@ import { workspaceSectionPath } from "./settings-navigation";
 /** What turning on Open asks first, since it lets anyone in. */
 export const CONFIRM_OPEN = "Are you sure you want to let anyone create an account? Ember doesn't check that the email addresses people sign up with are theirs.";
 
-/** What turning on Memberful's Members only asks first, since it keeps everyone but administrators from signing in with a password. */
-export const CONFIRM_MEMBERS_ONLY = "Are you sure only Memberful's members should sign in? Everyone but administrators will need a Memberful membership to sign in.";
+/** What turning on Memberful's Members only asks first, since it keeps everyone but administrators, and the people they invite, from signing in with a password. */
+export const CONFIRM_MEMBERS_ONLY =
+  "Are you sure only Memberful's members should sign in? Everyone but administrators and the people they invite will need a Memberful membership to sign in.";
 
 /** Why a way is greyed out while Open is on. */
 const OPEN_OVERRIDES = "Set aside while Open lets anyone join.";
@@ -134,7 +135,7 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
         membersOnlySaving={moved.memberfulSignIn !== undefined}
         setAside={openOverrides && !membersOnly ? OPEN_OVERRIDES : null}
       />
-      {!open && !link && !memberful && <p className="text-start">With all of these off, no one new can join.</p>}
+      {!open && !link && !memberful && <p className="text-start">With all of these off, only the people you invite can join.</p>}
     </section>
   );
 }
@@ -181,7 +182,7 @@ function Way({ id, title, description, checked, onCheckedChange, setAside, child
 /**
  * How new people join, for members: open sign-up's link while it's on, and the join link while it lets
  * people in, or else a line saying how they join with Memberful, if they do, at `memberfulSite`, or that
- * nobody new can.
+ * only the people administrators invite can (`accounts.invitations`).
  */
 export function HowPeopleJoin({ joinLink, memberfulSite }: { joinLink: ReactNode; memberfulSite: string | null }) {
   const account = useAccount();
@@ -199,7 +200,7 @@ export function HowPeopleJoin({ joinLink, memberfulSite }: { joinLink: ReactNode
         Members of <strong className="wrap-anywhere">{memberfulSite}</strong> join by signing in with Memberful.
       </p>
     ) : (
-      <p className="text-start">No one new can join right now.</p>
+      <p className="text-start">Only the people administrators invite can join.</p>
     );
   }
   return (

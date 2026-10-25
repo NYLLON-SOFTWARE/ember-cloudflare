@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { NAVIGATION_SLOTS, SIGN_UP_PATH, TRANSFER_PATH, type Account, type Bootstrap, type Me, type NewWorkspace } from "@ember/protocol";
+import { INVITATION_PATH, NAVIGATION_SLOTS, SIGN_UP_PATH, TRANSFER_PATH, type Account, type Bootstrap, type Me, type NewWorkspace } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
+import { InvitationPage } from "@/components/invitation-page";
 import { JoinPage } from "@/components/join-page";
 import { SetupPage } from "@/components/setup-page";
 import { SignInPage } from "@/components/sign-in-page";
@@ -49,6 +50,7 @@ export function App() {
   const atSignIn = useIsAt(SIGN_IN_PATH);
   const joinCode = useJoinRoute();
   const atSignUp = useIsAt(SIGN_UP_PATH);
+  const atInvitation = useIsAt(INVITATION_PATH);
   const atTransfer = useIsAt(TRANSFER_PATH);
   const signingOut = useRef(false);
   // Before any page has fields, so even one focused as it opens is selected.
@@ -78,8 +80,8 @@ export function App() {
           if (workspace.setup === "pending" && !atSetup) return loadPage(SETUP_PATH);
           if (workspace.setup === "complete" && atSetup) history.replaceState(history.state, "", "/");
           // The join page is for someone signed out, as in ember-rust, which sends anyone else home, and so
-          // is open sign-up's.
-          const atJoin = joinCodeFromPath(location.pathname) !== null || location.pathname === SIGN_UP_PATH;
+          // are open sign-up's and an invitation's, whose secret leaves the address as they go.
+          const atJoin = joinCodeFromPath(location.pathname) !== null || location.pathname === SIGN_UP_PATH || location.pathname === INVITATION_PATH;
           if (user && atJoin) navigate("/", { replace: true });
           // Someone signed out goes to sign in, and comes back here afterwards. A sign-in link signs them in itself.
           if (workspace.setup === "complete" && !user && location.pathname !== SIGN_IN_PATH && !atJoin && location.pathname !== TRANSFER_PATH) {
@@ -177,6 +179,7 @@ export function App() {
           />
         </PushProvider>
       );
+    if (atInvitation) return <InvitationPage workspace={workspace} onJoined={joined} />;
     if (joinCode !== null || atSignUp) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
     return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
   };

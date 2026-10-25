@@ -5,7 +5,12 @@ import {
   CUSTOM_DOMAIN_NOT_A_HOST,
   DEFAULT_NAVIGATION_ICONS,
   EMAIL_FROM_REFUSED,
+  emailAddressesIn,
+  INVITATION_PATH,
+  invitationLink,
+  INVITATIONS_AT_ONCE,
   INVOLVEMENTS,
+  isEmailAddress,
   isInvolvement,
   isMessageTooLong,
   isPasswordTooLong,
@@ -37,11 +42,16 @@ import {
   MIN_PASSWORD_LENGTH,
   NAVIGATION_ICONS_REFUSED,
   NAVIGATION_SLOTS,
+  NAME_TOO_LONG,
+  NO_EMAIL_ADDRESSES,
   NOT_A_CUSTOM_DOMAIN,
+  NOT_AN_EMAIL_ADDRESS,
   parseAccountChanges,
   parseClientFrame,
   parseCustomDomainCheck,
   parseCustomStyles,
+  parseInvitationRequest,
+  parseInvitationSignUp,
   parseInvolvementChange,
   parseNewDirect,
   parseNewRoom,
@@ -604,6 +614,70 @@ describe(feature("auth.open-sign-up"), () => {
     ],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseOpenSignUp(body)).toBe(error);
+  });
+});
+
+describe(feature("accounts.invitations"), () => {
+  it("takes 1 to 20 email addresses to invite, each once whatever its case, as first given", () => {
+    expect(parseInvitationRequest({ emailAddresses: ["ann@example.com", "Bob@Example.com", "ANN@example.com", "bob@example.com"] })).toEqual(["ann@example.com", "Bob@Example.com"]);
+    const most = Array.from({ length: INVITATIONS_AT_ONCE }, (_, n) => `person${n}@example.com`);
+    expect(parseInvitationRequest({ emailAddresses: most })).toEqual(most);
+  });
+
+  it.each([
+    ["no list", {}, NO_EMAIL_ADDRESSES],
+    ["an empty list", { emailAddresses: [] }, NO_EMAIL_ADDRESSES],
+    ["an address alone", { emailAddresses: "ann@example.com" }, NO_EMAIL_ADDRESSES],
+    ["more than 20", { emailAddresses: Array.from({ length: INVITATIONS_AT_ONCE + 1 }, (_, n) => `person${n}@example.com`) }, "Invite at most 20 email addresses at once"],
+    ["something that isn't an address", { emailAddresses: ["ann@example.com", "ann"] }, NOT_AN_EMAIL_ADDRESS],
+    ["an address with a name", { emailAddresses: ["Ann <ann@example.com>"] }, NOT_AN_EMAIL_ADDRESS],
+    ["one that isn't text", { emailAddresses: [7] }, NOT_AN_EMAIL_ADDRESS],
+    ["one too long to keep", { emailAddresses: [`${"a".repeat(MAX_EMAIL_ADDRESS_LENGTH - 11)}@example.com`] }, NOT_AN_EMAIL_ADDRESS],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseInvitationRequest(body)).toBe(error);
+  });
+
+  it("finds the email addresses in a list as it's pasted, apart by commas, semicolons, spaces or lines, or with names, saying what else it found", () => {
+    expect(emailAddressesIn("ann@example.com, bob@example.com;cy@example.com\ndee@example.com  eve@example.com")).toEqual({
+      emailAddresses: ["ann@example.com", "bob@example.com", "cy@example.com", "dee@example.com", "eve@example.com"],
+      refused: [],
+    });
+    expect(emailAddressesIn('Ann Smith <ann@example.com>, "Bob, Jr." <bob@example.com>\r\nCy <cy@example.com>')).toEqual({
+      emailAddresses: ["ann@example.com", "bob@example.com", "cy@example.com"],
+      refused: [],
+    });
+    expect(emailAddressesIn("Ann Smith ann@example.com")).toEqual({ emailAddresses: ["ann@example.com"], refused: ["Ann", "Smith"] });
+    expect(emailAddressesIn("Ann <ann@example.com>; ANN@example.com")).toEqual({ emailAddresses: ["ann@example.com"], refused: [] });
+    expect(emailAddressesIn("ann bob@example cy@example.com")).toEqual({ emailAddresses: ["cy@example.com"], refused: ["ann", "bob@example"] });
+    expect(emailAddressesIn(" \n , ")).toEqual({ emailAddresses: [], refused: [] });
+  });
+
+  it("knows an email address Ember can send to", () => {
+    expect(isEmailAddress("o'brien+chat@mail.example.co.uk")).toBe(true);
+    for (const address of ["", "ann", "ann@", "ann@localhost", "an n@example.com", "<ann@example.com>", `${"a".repeat(MAX_EMAIL_ADDRESS_LENGTH - 11)}@example.com`]) {
+      expect(isEmailAddress(address), address).toBe(false);
+    }
+  });
+});
+
+describe(feature("auth.invitation-sign-up"), () => {
+  it("puts an invitation's secret in its link's fragment", () => {
+    expect(invitationLink("Ab-_9z")).toBe(`${INVITATION_PATH}#token=Ab-_9z`);
+    expect(INVITATION_PATH).toBe("/join/invitation");
+  });
+
+  it("takes a join with an invitation as its form sends it, with the link's secret and no email address", () => {
+    expect(parseInvitationSignUp({ token: "secret", name: " Hal ", password: "heuristically", emailAddress: "someone@else.example" })).toEqual({ token: "secret", name: "Hal", password: "heuristically" });
+  });
+
+  it.each([
+    ["something that isn't an object", "Hal", "Expected a JSON object"],
+    ["one without a name", { token: "secret", name: " ", password: "heuristically" }, "Name and password are required"],
+    ["one without a password", { token: "secret", name: "Hal" }, "Name and password are required"],
+    ["one without the link's secret", { name: "Hal", password: "heuristically" }, "Name and password are required"],
+    ["a name too long", { token: "secret", name: "H".repeat(MAX_USER_NAME_LENGTH + 1), password: "heuristically" }, NAME_TOO_LONG],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseInvitationSignUp(body)).toBe(error);
   });
 });
 

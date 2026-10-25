@@ -15,6 +15,7 @@ import {
   type CloseCode,
   type DirectRoom,
   type Favorites,
+  type EmailInvitation,
   type Involvement,
   type NavigationIconChanges,
   type NavigationIcons,
@@ -123,6 +124,8 @@ export interface NewPerson {
   passwordDigest: string;
   /** The avatar they chose, which R2 has stored under a key the Workspace reserved, or null. */
   avatar: StoredPicture | null;
+  /** The administrator whose invitation they joined with, if they did (`auth.invitation-sign-up`). */
+  invitedBy?: UserId;
 }
 
 /** A session and the person it signs in. */
@@ -155,6 +158,8 @@ export interface OwnProfileEntry extends ProfileEntry {
   avatar: StoredPicture | null;
   /** Whether they have a password, which changing their email address or password then asks for. */
   password: boolean;
+  /** Whether they need a Memberful membership to sign in while Memberful is members only, as everyone does but administrators and the people they invited. */
+  membershipNeeded: boolean;
   /** The issuers of the accounts elsewhere they've connected, such as the Memberful site's address. */
   issuers: string[];
 }
@@ -349,12 +354,18 @@ const INSERT_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_addr
   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
 
 /**
+ * Whether someone may sign in with a password while Memberful is members only: an administrator, or
+ * someone who joined with an invitation, who needs no membership.
+ */
+const SIGNS_IN_WHILE_MEMBERS_ONLY = `(role = ${ADMINISTRATOR} OR invited_by IS NOT NULL)`;
+
+/**
  * The same, for someone who signed in, unless they've stopped being active since, or their password
  * has been reset since it was checked, or they're no longer an administrator while the last value says
- * only administrators sign in with a password.
+ * only administrators, and the people they invited, sign in with a password.
  */
 const INSERT_SESSION_IF_UNCHANGED = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
-  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND password_digest = ? AND (? = 0 OR role = ${ADMINISTRATOR})`;
+  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND password_digest = ? AND (? = 0 OR ${SIGNS_IN_WHILE_MEMBERS_ONLY})`;
 
 /** Keeps a digest made now of the password someone signed in with, in place of the one checked, unless it has changed since. */
 const REHASH_PASSWORD = `UPDATE users SET password_digest = ? WHERE id = ? AND password_digest = ?`;
@@ -362,6 +373,62 @@ const REHASH_PASSWORD = `UPDATE users SET password_digest = ? WHERE id = ? AND p
 /** The same, for someone signing in with an account elsewhere that's linked to them, unless they've stopped being active. */
 const INSERT_LINKED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
   SELECT ?1, id, ?2, ?3, ?4, ?5, ?5, ?5 FROM users WHERE id = ?6 AND status = ${ACTIVE}`;
+
+/** What `email_links.kind` holds for an invitation. */
+const INVITATION = "'invitation'";
+
+/** An invitation's row, with the name of who sent it. */
+interface InvitationRow {
+  id: string;
+  email_address: string;
+  invited_by: string;
+  created_at: string;
+  expires_at: string;
+  sent_at: string | null;
+  send_error: string | null;
+}
+
+/** The invitation `row` holds, as administrators see it. */
+const invitationOf = (row: InvitationRow): EmailInvitation => ({
+  id: row.id,
+  emailAddress: row.email_address,
+  invitedBy: row.invited_by,
+  createdAt: row.created_at,
+  expiresAt: row.expires_at,
+  delivery: row.sent_at !== null ? "sent" : row.send_error !== null ? { refusal: row.send_error } : null,
+});
+
+/** The invitations no one has accepted, newest first, each with the name of who sent it last. */
+const INVITATIONS = `SELECT email_links.id, email_links.email_address, users.name AS invited_by, email_links.created_at, email_links.expires_at,
+    email_links.sent_at, email_links.send_error
+  FROM email_links JOIN users ON users.id = email_links.invited_by WHERE email_links.kind = ${INVITATION}
+  ORDER BY email_links.created_at DESC, email_links.id DESC`;
+
+/**
+ * Invites an address, or gives the invitation it has already a new link, which the old one no longer
+ * joins with, from whoever sends it now, as unsent, answering its id. An address has one invitation,
+ * whatever its case, and is kept as given last.
+ */
+const SAVE_INVITATION = `INSERT INTO email_links (id, token_digest, kind, email_address, invited_by, created_at, expires_at) VALUES (?, ?, ${INVITATION}, ?, ?, ?, ?)
+  ON CONFLICT (kind, lower(email_address)) DO UPDATE SET token_digest = excluded.token_digest, email_address = excluded.email_address,
+    invited_by = excluded.invited_by, created_at = excluded.created_at, expires_at = excluded.expires_at, sent_at = NULL, send_error = NULL
+  RETURNING id`;
+
+/** Gives an invitation's link ?1 a new one, ?2, which works until ?4, from ?5, as unsent, unless it's gone. */
+const RENEW_INVITATION = `UPDATE email_links SET token_digest = ?2, created_at = ?3, expires_at = ?4, invited_by = ?5, sent_at = NULL, send_error = NULL
+  WHERE id = ?1 AND kind = ${INVITATION} RETURNING email_address`;
+
+/** Records what came of emailing the link with digest ?1: when it was sent, ?2, or why not, ?3, unless a newer link has taken its place. */
+const RECORD_DELIVERY = `UPDATE email_links SET sent_at = ?2, send_error = ?3 WHERE token_digest = ?1`;
+
+/**
+ * Takes the invitation to ?1, whatever its case, out of the list, as someone joins with that address,
+ * however they join, spending its link. Matches none for no address.
+ */
+const ACCEPT_INVITATION = `DELETE FROM email_links WHERE kind = ${INVITATION} AND lower(email_address) = lower(?)`;
+
+/** The lowercase email addresses, among those in ?1, a JSON array, that someone has whatever their case. */
+const TAKEN_EMAIL_ADDRESSES = `SELECT lower(email_address) AS email_address FROM users WHERE lower(email_address) IN (SELECT lower(value) FROM json_each(?1))`;
 
 /** The people the accounts at issuer ?1 with the subjects ?2, a JSON array, are linked to, with when each account's membership was last read. */
 const LINKED_PEOPLE = `SELECT identities.subject, users.id, users.status, users.role, identities.checked_at
@@ -1316,7 +1383,7 @@ const PERSON_WITH_PROFILE = `SELECT id, name, email_address, bio, role, status, 
 
 /** The same, with the avatar they've uploaded, and whether they have a password, which people without one keep as none or blank. */
 const OWN_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at, avatar_key, avatar_variant,
-    coalesce(password_digest, '') <> '' AS password,
+    coalesce(password_digest, '') <> '' AS password, NOT ${SIGNS_IN_WHILE_MEMBERS_ONLY} AS membership_needed,
     (SELECT json_group_array(issuer) FROM identities WHERE identities.user_id = users.id) AS issuers
   FROM users WHERE id = ?`;
 
@@ -1558,33 +1625,38 @@ export class WorkspaceStore {
 
   /**
    * Adds someone who joined with the join link as a member, with their session, in every open room,
-   * as ember-rust's `User::create` does (user.rs). If someone has their email address already, the
-   * address's unique index refuses the first statement, and so the whole batch.
+   * as ember-rust's `User::create` does (user.rs), recording who invited them, if they joined with an
+   * invitation. Any invitation to their email address is accepted, and its link spent, whichever way
+   * they joined. If someone has their email address already, the address's unique index refuses the
+   * first statement, and so the whole batch, which leaves the invitation as it was.
    */
   async createMember(person: NewPerson, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<void> {
     await this.db.batch([
       statement(
-        `INSERT INTO users (id, name, email_address, password_digest, avatar_key, avatar_variant, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO users (id, name, email_address, password_digest, avatar_key, avatar_variant, invited_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         person.id,
         person.name,
         person.emailAddress,
         person.passwordDigest,
         person.avatar?.key ?? null,
         person.avatar?.variant ?? null,
+        person.invitedBy ?? null,
         now,
         now,
       ),
       ...keeping(person.avatar),
       statement(INSERT_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, now, now),
       statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now),
+      statement(ACCEPT_INVITATION, person.emailAddress),
     ]);
   }
 
   /**
    * Adds someone who signed in with an account elsewhere, the one `issuer` and `subject` name, as a
-   * member with no password, linked to it, with their session, in every open room, as `createMember`
-   * adds someone who joins. If someone has their email address already, or the account is linked to
-   * someone already, a unique index refuses its statement, and so the whole batch.
+   * member with no password, linked to it, with their session, in every open room, accepting any
+   * invitation to their email address, as `createMember` adds someone who joins. If someone has their
+   * email address already, or the account is linked to someone already, a unique index refuses its
+   * statement, and so the whole batch.
    */
   async createLinkedMember(
     person: NewLinkedPerson,
@@ -1609,6 +1681,7 @@ export class WorkspaceStore {
       ),
       statement(INSERT_SESSION, sessionId, person.id, tokenDigest, client.ip, client.userAgent, now, now, now),
       statement(GRANT_OPEN_ROOMS_TO_USER, person.id, now, now),
+      statement(ACCEPT_INVITATION, person.emailAddress),
     ]);
   }
 
@@ -1693,6 +1766,64 @@ export class WorkspaceStore {
     return (await this.db.all(`SELECT 1 FROM users WHERE email_address = ?`, emailAddress)).length > 0;
   }
 
+  /** Which of `emailAddresses`, no more than `INVITATIONS_AT_ONCE`, someone has, whatever its case or their status, in lowercase. */
+  async takenEmailAddresses(emailAddresses: string[]): Promise<Set<string>> {
+    const rows = await this.db.all<{ email_address: string }>(TAKEN_EMAIL_ADDRESSES, JSON.stringify(emailAddresses));
+    return new Set(rows.map((row) => row.email_address));
+  }
+
+  /** The invitations no one has accepted, newest first (`accounts.invitations`). */
+  async invitations(): Promise<EmailInvitation[]> {
+    return (await this.db.all<InvitationRow>(INVITATIONS)).map(invitationOf);
+  }
+
+  /**
+   * Invites each address in `links` from `invitedBy`, with a link whose digest it gives, made at `now`
+   * and working until `expiresAt`, in place of the link of any invitation it has already. Answers each
+   * invitation's id, in order: the one given, or the one it had.
+   */
+  async saveInvitations(links: Array<{ id: string; emailAddress: string; tokenDigest: string }>, invitedBy: UserId, now: string, expiresAt: string): Promise<string[]> {
+    if (links.length === 0) return [];
+    const saved = await this.db.batch(links.map(({ id, emailAddress, tokenDigest }) => statement(SAVE_INVITATION, id, tokenDigest, emailAddress, invitedBy, now, expiresAt)));
+    return saved.map((rows) => (rows as Array<{ id: string }>)[0]!.id);
+  }
+
+  /**
+   * Gives the invitation with `id` a link whose digest is `tokenDigest`, made at `now` and working until
+   * `expiresAt`, from `invitedBy`, in place of the one it had, answering its address, or null once it's
+   * been accepted or revoked.
+   */
+  async renewInvitation(id: string, tokenDigest: string, invitedBy: UserId, now: string, expiresAt: string): Promise<string | null> {
+    const [row] = await this.db.all<{ email_address: string }>(RENEW_INVITATION, id, tokenDigest, now, expiresAt, invitedBy);
+    return row?.email_address ?? null;
+  }
+
+  /** Records what came of emailing each link, by its digest: sent at `now`, or the refusal, unless a newer link has taken its place. */
+  async recordDeliveries(deliveries: Array<{ tokenDigest: string; refusal: string | null }>, now: string): Promise<void> {
+    if (deliveries.length === 0) return;
+    await this.db.batch(deliveries.map(({ tokenDigest, refusal }) => statement(RECORD_DELIVERY, tokenDigest, refusal === null ? now : null, refusal)));
+  }
+
+  /** Revokes the invitation with `id`, answering whether there was one to revoke. */
+  async revokeInvitation(id: string): Promise<boolean> {
+    return (await this.db.all(`DELETE FROM email_links WHERE id = ? AND kind = ${INVITATION} RETURNING id`, id)).length > 0;
+  }
+
+  /** The invitation whose link's digest is `tokenDigest`, if it works still at `now`: its id, the address it's for and who sent it. */
+  async invitationFor(tokenDigest: string, now: string): Promise<{ id: string; emailAddress: string; invitedBy: UserId } | null> {
+    const [row] = await this.db.all<{ id: string; email_address: string; invited_by: UserId }>(
+      `SELECT id, email_address, invited_by FROM email_links WHERE token_digest = ? AND kind = ${INVITATION} AND expires_at > ?`,
+      tokenDigest,
+      now,
+    );
+    return row ? { id: row.id, emailAddress: row.email_address, invitedBy: row.invited_by } : null;
+  }
+
+  /** Whether `userId` may sign in with a password while Memberful is members only, as an active administrator, or someone who joined with an invitation, may. */
+  async signsInWhileMembersOnly(userId: UserId): Promise<boolean> {
+    return (await this.db.all(`SELECT 1 FROM users WHERE id = ? AND status = ${ACTIVE} AND ${SIGNS_IN_WHILE_MEMBERS_ONLY}`, userId)).length > 0;
+  }
+
   /** How many people, bots aside, have joined since `since`, whatever their status, counting no further than `most`. */
   async peopleJoinedSince(since: string, most: number): Promise<number> {
     const [row] = await this.db.all<{ joined: number }>(PEOPLE_JOINED_SINCE, since, BOT, most);
@@ -1728,22 +1859,22 @@ export class WorkspaceStore {
 
   /**
    * Starts a session for someone who signed in with the password `passwordDigest` is the digest of,
-   * unless they've stopped being active since, or their password has been reset, or they're not an
-   * administrator while `administratorsOnly` says only administrators sign in with a password, and keeps
-   * `rehash`, a digest made now of the same password, in its place when there is one.
+   * unless they've stopped being active since, or their password has been reset, or, while `membersOnly`
+   * says Memberful is members only, they're neither an administrator nor someone who joined with an
+   * invitation, and keeps `rehash`, a digest made now of the same password, in its place when there is one.
    */
   async startSession(
     userId: UserId,
     passwordDigest: string,
     rehash: string | null,
-    administratorsOnly: boolean,
+    membersOnly: boolean,
     sessionId: string,
     tokenDigest: string,
     client: Client,
     now: string,
   ): Promise<StoredSession | null> {
     const results = await this.db.batch([
-      statement(INSERT_SESSION_IF_UNCHANGED, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId, passwordDigest, administratorsOnly ? 1 : 0),
+      statement(INSERT_SESSION_IF_UNCHANGED, sessionId, tokenDigest, client.ip, client.userAgent, now, now, now, userId, passwordDigest, membersOnly ? 1 : 0),
       ...(rehash === null ? [] : [statement(REHASH_PASSWORD, rehash, userId, passwordDigest)]),
       statement(SESSION, tokenDigest),
     ]);
@@ -2496,10 +2627,13 @@ export class WorkspaceStore {
 
   /** Someone with their profile and the avatar they've uploaded, whatever their status, or null if nobody has id `userId`. */
   async ownProfile(userId: UserId): Promise<OwnProfileEntry | null> {
-    const [row] = await this.db.all<DirectoryRow & AvatarColumns & { email_address: string | null; password: number; issuers: string }>(OWN_PROFILE, userId);
+    const [row] = await this.db.all<DirectoryRow & AvatarColumns & { email_address: string | null; password: number; membership_needed: number; issuers: string }>(
+      OWN_PROFILE,
+      userId,
+    );
     if (!row) return null;
     const issuers = JSON.parse(row.issuers) as string[];
-    return { ...directoryEntry(row), emailAddress: row.email_address, avatar: avatarOf(row), password: row.password === 1, issuers };
+    return { ...directoryEntry(row), emailAddress: row.email_address, avatar: avatarOf(row), password: row.password === 1, membershipNeeded: row.membership_needed === 1, issuers };
   }
 
   /**

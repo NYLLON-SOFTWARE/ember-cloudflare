@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, SIGN_IN_REJECTED, type Account, type AccountChanges, type Bootstrap, type Message, type WorkspaceSettings } from "@ember/protocol";
+import { CloseCode, INVITATION_GONE, SIGN_IN_REJECTED, type Account, type AccountChanges, type Bootstrap, type Message, type WorkspaceSettings } from "@ember/protocol";
 import { flashOnNextPage } from "@/lib/flash";
 import { loadPage } from "@/lib/page";
 import { setPrefersDark } from "@/test-media";
@@ -16,6 +16,8 @@ const grace = { id: "u2", name: "Grace", administrator: false };
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 /** The id in Grace's sign-in link. */
 const TRANSFER_ID = "u2.mgk3x2a9.Ab-_9z";
+/** The secret in Grace's invitation's link. */
+const INVITATION_TOKEN = "Gr-_ce".repeat(7) + "H";
 /** Where joining with Ada's email address sends the browser. */
 const ADA_SIGNS_IN = "/session/new?email_address=ada%40example.com";
 /** The workspace as it's set up. */
@@ -140,6 +142,15 @@ function serve({
       [signedIn, me] = [true, grace];
       return Response.json({ user: grace }, { status: 201 });
     }
+    if (route === "POST /api/email_links/lookup") {
+      const { token } = JSON.parse(String(init?.body)) as Record<string, string>;
+      if (token !== INVITATION_TOKEN) return Response.json({ error: INVITATION_GONE }, { status: 404 });
+      return Response.json({ kind: "invitation", emailAddress: "grace@example.com" });
+    }
+    if (route === "POST /api/join/invitation") {
+      [signedIn, me] = [true, grace];
+      return Response.json({ user: grace }, { status: 201 });
+    }
     if (route === `POST /api/join/${JOIN_CODE}` || (route === "POST /api/join" && account.openSignUp)) {
       const { emailAddress } = JSON.parse(String(init?.body)) as Record<string, string>;
       if (emailAddress === "ada@example.com") return Response.json({ error: "That email address has an account already", redirect: ADA_SIGNS_IN }, { status: 409 });
@@ -157,6 +168,7 @@ function serve({
         memberfulWebhooks: false,
         turnstile: false,
         email: { provider: "cloudflare", from: null },
+        invitations: [],
       } satisfies WorkspaceSettings);
     if (route === "GET /api/users") return Response.json({ users: [] });
     if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null } });
@@ -838,6 +850,33 @@ describe(feature("auth.open-sign-up"), () => {
     render(<App />);
     expect(await roomHeading()).toBeInTheDocument();
     expect(location.pathname).toBe("/rooms/general");
+  });
+});
+
+describe(feature("auth.invitation-sign-up"), () => {
+  it("opens an invitation's page, with its secret out of the address, and goes home signed in once the account is made", async () => {
+    history.replaceState(null, "", `/join/invitation#token=${INVITATION_TOKEN}`);
+    serve({ signedIn: false, account: { ...EMBER, joinLink: false } });
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Join Ember" })).toBeInTheDocument();
+    expect(`${location.pathname}${location.hash}`).toBe("/join/invitation");
+    expect(await screen.findByRole("textbox", { name: "Email address" })).toHaveValue("grace@example.com");
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Name"), "Grace");
+    await user.type(screen.getByLabelText("Password"), "compiler{Enter}");
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+  });
+
+  it("sends someone who's signed in home from it, leaving its secret behind", async () => {
+    history.replaceState(null, "", `/join/invitation#token=${INVITATION_TOKEN}`);
+    const fetch = serve({ signedIn: true });
+    render(<App />);
+    expect(await roomHeading()).toBeInTheDocument();
+    expect(location.pathname).toBe("/rooms/general");
+    expect(location.hash).toBe("");
+    expect(fetch).not.toHaveBeenCalledWith("/api/email_links/lookup", expect.anything());
   });
 });
 

@@ -23,9 +23,9 @@ const sent = () =>
     .mock.calls.filter(([input, init]) => String(input) === MEMBERFUL_CONNECTIONS_PATH && init?.method === "POST")
     .map(([, init]) => JSON.parse(String(init?.body)) as MemberfulConnectionStart);
 
-function showSection({ connected = false, hasPassword = true, administrator = false } = {}) {
+function showSection({ connected = false, hasPassword = true, membershipNeeded = true } = {}) {
   const onFailed = vi.fn();
-  render(<MemberfulConnection connected={connected} hasPassword={hasPassword} administrator={administrator} onFailed={onFailed} />);
+  render(<MemberfulConnection connected={connected} hasPassword={hasPassword} membershipNeeded={membershipNeeded} onFailed={onFailed} />);
   return { onFailed, user: userEvent.setup() };
 }
 
@@ -52,8 +52,8 @@ describe(feature("auth.memberful-connect"), () => {
     expect(connectButton()).toBeEnabled();
   });
 
-  it("tells an administrator they can sign in with it too", () => {
-    showSection({ administrator: true });
+  it("tells an administrator, or someone they invited, who needs no membership, that they can sign in with it too", () => {
+    showSection({ membershipNeeded: false });
     expect(section()).toHaveTextContent("Members sign in with Memberful. Connect your Memberful account to sign in with it too.");
   });
 
@@ -95,8 +95,8 @@ describe(feature("auth.memberful-connect"), () => {
     expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
   });
 
-  it("tells an administrator who has that they can sign in with it too", () => {
-    showSection({ connected: true, administrator: true });
+  it("tells someone who needs no membership, and has connected one, that they can sign in with it too", () => {
+    showSection({ connected: true, membershipNeeded: false });
     expect(section()).toHaveTextContent("Your Memberful account is connected, so you can sign in with it too.");
   });
 });

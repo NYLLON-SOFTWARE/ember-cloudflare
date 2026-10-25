@@ -120,6 +120,8 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const [hasPassword, setHasPassword] = useState(false);
   /** Whether you've connected a Memberful account, or null while there's none to connect. */
   const [memberful, setMemberful] = useState<boolean | null>(null);
+  /** Whether you need Memberful to sign in while it's members only, unlike administrators and the people they invite. */
+  const [membershipNeeded, setMembershipNeeded] = useState(true);
   const [saving, setSaving] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
   const currentPasswordInput = useRef<HTMLInputElement>(null);
@@ -151,8 +153,8 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   useEffect(() => () => void (picked && URL.revokeObjectURL(picked)), [picked]);
 
   /**
-   * Shows your avatar, whether you have a password, whether you've connected Memberful, and a new sign-in
-   * link, as an answer has them. An answer can arrive after a later one, as a profile's save can after a
+   * Shows your avatar, whether you have a password, whether you've connected Memberful and need it, and a
+   * new sign-in link, as an answer has them. An answer can arrive after a later one, as a profile's save can after a
    * photo's, and the later avatar stays then.
    */
   function showAnswer({ profile, transferId }: ProfileAnswer) {
@@ -161,6 +163,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     // Nothing takes a password away, so an answer arriving late doesn't hide the field.
     setHasPassword((had) => had || profile.password);
     setMemberful(profile.memberful);
+    setMembershipNeeded(profile.membershipNeeded);
     setTransferId(transferId);
   }
 
@@ -330,7 +333,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
           </Field>
           <SubmitButton disabled={!fields || saving}>Save changes</SubmitButton>
         </form>
-        {memberful !== null && <MemberfulConnection connected={memberful} hasPassword={hasPassword} administrator={me.administrator} onFailed={onFailed} />}
+        {memberful !== null && <MemberfulConnection connected={memberful} hasPassword={hasPassword} membershipNeeded={membershipNeeded} onFailed={onFailed} />}
         {rooms && <ConversationNotifications me={me} rooms={rooms} askForRoom={askForRoom} onFailed={onFailed} />}
         {transferId && <SignInLink transferId={transferId} mine />}
       </Panel>

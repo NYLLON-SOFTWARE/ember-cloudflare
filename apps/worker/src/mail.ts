@@ -33,9 +33,30 @@ export function emailProviderOf(env: Env): EmailProvider | null {
 /** Sends `email` from `from`, answering null once the provider has taken it, or else why it wasn't sent. */
 export async function sendEmail(env: Env, from: Mailbox, email: Email): Promise<string | null> {
   const apiKey = env.RESEND_API_KEY?.trim();
-  if (apiKey) return sendWithResend(apiKey, resendApiOf(env), from, email);
+  if (apiKey) return askResend(apiKey, resendApiOf(env), "/emails", resendEmail(from, email), 1);
   if (env.EMAIL) return sendWithCloudflare(env.EMAIL, from, email);
   return CANT_SEND_EMAIL;
+}
+
+/**
+ * Sends each of `emails` from `from`, answering for each, in order, null once the provider has taken it,
+ * or else why it wasn't sent. Resend takes them in one request, which it takes or refuses whole
+ * (https://resend.com/docs/api-reference/emails/send-batch-emails), so that sending many never passes
+ * its limit on requests a second, nor Workers Free's on requests out; Cloudflare's binding takes them
+ * one at a time.
+ */
+export async function sendEmails(env: Env, from: Mailbox, emails: Email[]): Promise<Array<string | null>> {
+  const apiKey = env.RESEND_API_KEY?.trim();
+  if (emails.length === 0) return [];
+  if (apiKey) {
+    const refusal = await askResend(apiKey, resendApiOf(env), "/emails/batch", emails.map((email) => resendEmail(from, email)), emails.length);
+    return emails.map(() => refusal);
+  }
+  const binding = env.EMAIL;
+  if (!binding) return emails.map(() => CANT_SEND_EMAIL);
+  const refusals: Array<string | null> = [];
+  for (const email of emails) refusals.push(await sendWithCloudflare(binding, from, email));
+  return refusals;
 }
 
 /** Where Resend's API is: the browser tests' stand-in, which `RESEND_API_URL` names at a loopback address, or Resend's own. */
@@ -75,21 +96,26 @@ function codeOf(error: unknown): string | null {
   return typeof code === "string" && /^E_[A-Z_]{1,64}$/.test(code) ? code : null;
 }
 
-async function sendWithResend(apiKey: string, api: string, from: Mailbox, { to, subject, text, html }: Email): Promise<string | null> {
+/** `email`, from `from`, as Resend's API takes it. */
+const resendEmail = (from: Mailbox, { to, subject, text, html }: Email) => ({ from: mailboxText(from), to: [to], subject, text, html });
+
+/** Asks Resend's API at `path` to send `count` emails, the body, answering null once it has taken them, or else why it hasn't. */
+async function askResend(apiKey: string, api: string, path: string, body: unknown, count: number): Promise<string | null> {
+  const emails = count === 1 ? "an email" : `${count} emails`;
   try {
-    const answer = await fetch(`${api}/emails`, {
+    const answer = await fetch(`${api}${path}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: mailboxText(from), to: [to], subject, text, html }),
+      body: JSON.stringify(body),
       redirect: "manual",
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
     if (answer.ok) return null;
     const { name, message } = refusalOf(await answer.json().catch(() => null));
-    console.error("Resend didn't send an email:", answer.status, name ?? "unreadable answer");
+    console.error(`Resend didn't send ${emails}:`, answer.status, name ?? "unreadable answer");
     return resendRefusal(answer.status, name, message);
   } catch (error) {
-    console.error("Sending an email with Resend failed:", error instanceof Error ? error.name : "unknown error");
+    console.error(`Sending ${emails} with Resend failed:`, error instanceof Error ? error.name : "unknown error");
     return "Resend didn't answer. Try again later.";
   }
 }

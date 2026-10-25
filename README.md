@@ -243,7 +243,7 @@ Workspace settings' Membership, where each way has a switch:
 
 While Open is on, Join link and Memberful are set aside, keeping their settings, and while Memberful
 is members only, Open and Join link are, so Open and Members only can't both be on. With all three
-off, nobody new can join.
+off, only the people administrators invite by email, below, can join.
 
 To have open sign-up check that whoever signs up is a person, make a
 [Turnstile](https://developers.cloudflare.com/turnstile/) widget for Ember's hostname in Managed mode,
@@ -308,16 +308,16 @@ signing in with it, and the sign-in page keeps offering it, while the Worker has
 
 Members only, under Memberful, keeps Ember to the site's members: the sign-in page offers Sign in
 with Memberful in place of its form, Open, the join link and signing in with just a name are off,
-and only administrators sign in with a password, who need no membership. Sessions people have go
-on, and turning it off brings the other ways and passwords back.
+and only administrators and the people they invite sign in with a password, who need no membership.
+Sessions people have go on, and turning it off brings the other ways and passwords back.
 
 While Memberful is members only, someone with an account from before connects their Memberful
 account to it with their password: from the Memberful section of their profile, or as they sign in
 with their password, which asks them to connect one until they have. Memberful sends them back
 signed in as themselves, and from then on they sign in with Memberful, and their membership counts
 as anyone's. A connection is good for one try within ten minutes, and a new password, theirs or a
-reset, forgets the ones the old one started. Administrators can connect one too, and sign in either
-way.
+reset, forgets the ones the old one started. Administrators, and the people they invite, can connect
+one too, and sign in either way.
 
 A member whose membership lapses can't sign in with Memberful again. With the webhook, they're suspended too: their
 sessions end, their sockets close and their browsers' push subscriptions are forgotten, but their
@@ -360,6 +360,17 @@ environment has it, so the Preview workflow passes a repository secret of the sa
 When the provider refuses the test email, Membership says why, such as a domain that isn't onboarded
 or a day's quota used up. `wrangler dev` sends nothing with Cloudflare's binding: it logs each email
 and saves it to a file.
+
+### Inviting people by email
+
+Under Invite by email, in Workspace settings' Membership, an administrator gives the email addresses
+of the people to invite, and Ember emails each a link that joins with that address, once, within 7
+days, whichever ways to join are on, Members only included. Until Ember can send email, the card
+makes the links for the administrator to copy and send. The invitations nobody has accepted are
+listed there, each to send again, which replaces its link, or revoke, and joining with an invited
+address, however someone joins, spends its invitation. A link keeps its secret in the address's
+fragment, which never reaches a server, and Ember keeps only its digest. Each invitation is an email,
+so the provider's limits apply, such as Resend's 100 a day for free.
 
 ### Push notifications
 

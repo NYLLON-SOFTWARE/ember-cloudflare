@@ -7,6 +7,7 @@ import {
   type Account,
   type AccountSettings,
   type DirectoryUser,
+  type EmailInvitation,
   type Me,
   type NavigationIconChanges,
   type PersonRole,
@@ -33,6 +34,7 @@ import { apart } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { CustomDomainSettings } from "./custom-domain-settings";
 import { EmailSettings } from "./email-settings";
+import { InviteByEmail } from "./invite-by-email";
 import { InviteLink } from "./invite-link";
 import { NavigationIconSettings } from "./navigation-icon-settings";
 import { PeopleList } from "./people-list";
@@ -263,6 +265,12 @@ export function WorkspaceSettingsPage({
   };
   const sharedRooms = useMemo(() => rooms && apart(rooms).shared, [rooms]);
 
+  /** Changes the invitations shown as `change` says, which only workspace settings shows. */
+  const changeInvitations = useCallback(
+    (change: (invitations: EmailInvitation[]) => EmailInvitation[]) => setSettings((settings) => settings && { ...settings, invitations: change(settings.invitations) }),
+    [],
+  );
+
   /** Shows the From address as it's saved, which only workspace settings shows. */
   const showFromSaved = (from: string | null) => {
     setSettings((settings) => settings && { ...settings, email: { ...settings.email, from } });
@@ -465,6 +473,12 @@ export function WorkspaceSettingsPage({
                   settings={settings}
                   saveSwitch={saveSwitch}
                   joinLink={<InviteLink joinCode={settings.joinCode} onRegenerate={regenerate} regenerating={regenerating} />}
+                />
+                <InviteByEmail
+                  invitations={settings.invitations}
+                  emails={settings.email.provider !== null && settings.email.from !== null}
+                  onInvitationsChanged={changeInvitations}
+                  onFailed={onFailed}
                 />
                 <EmailSettings email={settings.email} askForAccount={askForAccount} onFromSaved={showFromSaved} onFailed={onFailed} />
               </div>

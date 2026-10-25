@@ -1,8 +1,10 @@
+import { INVITATION_DAYS } from "@ember/protocol";
 import { escapeHtml } from "./encoding";
 import type { Email } from "./mail";
 
 // The emails Ember sends (`platform.email`), each as plain text and as simple HTML, with nothing that
-// tracks whether it was opened. All an administrator wrote in them is the workspace's name.
+// tracks whether it was opened. All an administrator wrote in them is the workspace's name, and in an
+// invitation their own.
 
 /** `text` on one line, as a subject must be: line breaks and other control characters become spaces. */
 const oneLine = (text: string) => text.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
@@ -19,5 +21,21 @@ export function testEmail(to: string, workspace: string, origin: string): Email 
     subject: `Test email from ${name}`,
     text: `This is a test email from ${name}, at ${origin}.\n\nIt reached you, so Ember can send email.\n`,
     html: htmlOf([`This is a test email from ${escapeHtml(name)}, at <a href="${escapeHtml(origin)}">${escapeHtml(origin)}</a>.`, "It reached you, so Ember can send email."]),
+  };
+}
+
+/**
+ * The email inviting `to` to join the workspace named `workspace`, from the administrator named
+ * `inviter`, with `link`, the invitation's, which joins with that address once, for `INVITATION_DAYS` days.
+ */
+export function invitationEmail(to: string, workspace: string, inviter: string, link: string): Email {
+  const name = oneLine(workspace) || "Ember";
+  const who = oneLine(inviter) || "An administrator";
+  const terms = (address: string) => `The link works once, for ${INVITATION_DAYS} days, and joins with ${address}. If you weren't expecting this, you can ignore it.`;
+  return {
+    to,
+    subject: `${who} invited you to ${name}`,
+    text: `${who} invited you to join ${name}.\n\nJoin here: ${link}\n\n${terms(to)}\n`,
+    html: htmlOf([`${escapeHtml(who)} invited you to join ${escapeHtml(name)}.`, `<a href="${escapeHtml(link)}">Join ${escapeHtml(name)}</a>`, terms(escapeHtml(to))]),
   };
 }

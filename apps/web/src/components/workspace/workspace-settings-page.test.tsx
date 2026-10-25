@@ -13,6 +13,8 @@ import {
   type Account,
   type AccountChanges,
   type DirectoryUser,
+  type EmailInvitation,
+  type Invited,
   type Me,
   type RoleChange,
   type RoomId,
@@ -44,6 +46,7 @@ const asAdministrator: WorkspaceSettings = {
   memberfulWebhooks: false,
   turnstile: false,
   email: { provider: "cloudflare", from: null },
+  invitations: [],
 };
 const asMember: WorkspaceSettings = { ...asAdministrator, canAdminister: false };
 
@@ -151,12 +154,23 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         return Response.json({ account });
       case "POST /api/account/join_code":
         return regenerated ? regenerated() : Response.json({ joinCode: NEW_JOIN_CODE });
+      case "POST /api/invitations": {
+        const { emailAddresses } = JSON.parse(String(init?.body)) as { emailAddresses: string[] };
+        const outcomes = emailAddresses.map((emailAddress) => ({ emailAddress, invitation: invitationTo(emailAddress), link: `https://ember.test/join/invitation#token=${emailAddress}` }));
+        return Response.json({ outcomes } satisfies Invited);
+      }
       case "PUT /api/account/room_order":
         return ordered ? ordered() : Response.json({ sharedOrder: (JSON.parse(String(init?.body)) as { roomIds: RoomId[] }).roomIds });
       default:
         throw new Error(`Unexpected request for ${request}`);
     }
   });
+}
+
+/** An invitation to `emailAddress`, as the server answers one Ember couldn't email. */
+function invitationTo(emailAddress: string): EmailInvitation {
+  const createdAt = Date.now();
+  return { id: `id-${emailAddress}`, emailAddress, invitedBy: "Ada Lovelace", createdAt: new Date(createdAt).toISOString(), expiresAt: new Date(createdAt + 7 * 86_400_000).toISOString(), delivery: null };
 }
 
 const spies = () => ({
@@ -771,7 +785,7 @@ describe(feature("auth.memberful-sign-in"), () => {
     const membersOnly = membersOnlySwitch()!;
     expect(membersOnly).not.toBeChecked();
     expect(membersOnly).toHaveAccessibleDescription(
-      "Nobody else can join, and only administrators sign in with a password. Members who have one connect their Memberful account as they next sign in.",
+      "Nobody else can join but the people you invite, and only they and administrators sign in with a password. Members who have one connect their Memberful account as they next sign in.",
     );
 
     await user.click(membersOnly);
@@ -892,7 +906,7 @@ describe(feature("auth.memberful-sign-in"), () => {
     serve({ ...memberful, canAdminister: false, account: { ...memberful.account, joinLink: false } });
     showPage(asLinus);
     expect(await screen.findByText(/join by signing in with Memberful/)).toHaveTextContent(`Members of ${SITE} join by signing in with Memberful.`);
-    expect(screen.queryByText("No one new can join right now.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Only the people administrators invite can join.")).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Memberful" })).not.toBeInTheDocument();
   });
 });
@@ -923,7 +937,7 @@ describe(feature("accounts.ways-to-join"), () => {
     // Each shows its settings while it's on.
     expect(within(screen.getByRole("region", { name: "Join link" })).getByRole("textbox", { name: "Share to invite more people" })).toBeInTheDocument();
     expect(signUpLink()).not.toBeInTheDocument();
-    expect(screen.queryByText("With all of these off, no one new can join.")).not.toBeInTheDocument();
+    expect(screen.queryByText("With all of these off, only the people you invite can join.")).not.toBeInTheDocument();
   });
 
   it("turns Open on once you confirm, saved at once with no notice, showing its address and setting the others aside", async () => {
@@ -1046,12 +1060,12 @@ describe(feature("accounts.ways-to-join"), () => {
     expect(confirm).not.toHaveBeenCalled();
     await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, joinLink: false }));
     expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
-    expect(screen.getByText("With all of these off, no one new can join.")).toBeInTheDocument();
+    expect(screen.getByText("With all of these off, only the people you invite can join.")).toBeInTheDocument();
 
     await user.click(link);
     expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${JOIN_CODE}`);
     expect(saved()).toEqual([{ settings: { joinLink: false } }, { settings: { joinLink: true } }]);
-    expect(screen.queryByText("With all of these off, no one new can join.")).not.toBeInTheDocument();
+    expect(screen.queryByText("With all of these off, only the people you invite can join.")).not.toBeInTheDocument();
   });
 
   it("greys out Open and Join link while Memberful is members only", async () => {
@@ -1080,7 +1094,7 @@ describe(feature("accounts.ways-to-join"), () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = showPage();
     // Memberful still lets its members in.
-    expect(screen.queryByText("With all of these off, no one new can join.")).not.toBeInTheDocument();
+    expect(screen.queryByText("With all of these off, only the people you invite can join.")).not.toBeInTheDocument();
     const link = await way("Join link");
     expect(link).toBeEnabled();
     await user.click(link);
@@ -1114,10 +1128,10 @@ describe(feature("accounts.ways-to-join"), () => {
     expect(screen.queryByRole("region", { name: "Who can join" })).not.toBeInTheDocument();
   });
 
-  it("tells members when no one new can join", async () => {
+  it("tells members when only the people administrators invite can join", async () => {
     serve(withAccount(asMember, { joinLink: false }));
     showPage(asLinus);
-    expect(await screen.findByText("No one new can join right now.")).toBeInTheDocument();
+    expect(await screen.findByText("Only the people administrators invite can join.")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
     expect(signUpLink()).not.toBeInTheDocument();
   });
@@ -1146,6 +1160,46 @@ describe(feature("platform.email"), () => {
     showPage(asLinus);
     expect(await joinLink()).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Email" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.invitations"), () => {
+  showingSection("membership-settings");
+
+  const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+  it("gives administrators Invite by email between Who can join and Email, with the invitations waiting, which it adds to", async () => {
+    serve({ ...asAdministrator, invitations: [invitationTo("ann@example.com")] });
+    const { user } = showPage();
+    const invite = await screen.findByRole("region", { name: "Invite by email" });
+    expect(following(screen.getByRole("region", { name: "Who can join" }), invite)).toBe(true);
+    expect(following(invite, screen.getByRole("region", { name: "Email" }))).toBe(true);
+    expect(within(invite).getByRole("region", { name: "Pending invitations" })).toHaveTextContent("ann@example.com");
+
+    // Without a From address, Ember can't email them.
+    await user.type(within(invite).getByRole("textbox", { name: "Email addresses" }), "bob@example.com");
+    await user.click(within(invite).getByRole("button", { name: "Create invite links" }));
+    expect(await within(invite).findByRole("button", { name: "Copy the invite link for bob@example.com" })).toBeInTheDocument();
+    expect(within(invite).getAllByRole("listitem")).toHaveLength(2);
+  });
+
+  it("emails invitations once Ember can send email and has a From address", async () => {
+    serve({ ...asAdministrator, email: { provider: "resend", from: "Ember <ember@example.com>" } });
+    const { user } = showPage();
+    const invite = await screen.findByRole("region", { name: "Invite by email" });
+    expect(within(invite).getByRole("button", { name: "Send invitations" })).toBeInTheDocument();
+
+    const email = screen.getByRole("region", { name: "Email" });
+    await user.clear(within(email).getByRole("textbox", { name: "From" }));
+    await user.click(within(email).getByRole("button", { name: "Save" }));
+    expect(await within(invite).findByRole("button", { name: "Create invite links" })).toBeInTheDocument();
+  });
+
+  it("shows members no Invite by email card", async () => {
+    serve(asMember);
+    showPage(asLinus);
+    expect(await joinLink()).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Invite by email" })).not.toBeInTheDocument();
   });
 });
 

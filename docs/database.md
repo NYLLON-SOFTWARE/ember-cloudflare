@@ -31,7 +31,7 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
 `message_deletions` and `blobs`, the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
-`bans`, `searches`, `rooms`, `memberships`, `favorites`, `pending_revocations`, `pending_purges`,
+`bans`, `email_links`, `searches`, `rooms`, `memberships`, `favorites`, `pending_revocations`, `pending_purges`,
 `pending_reindexes` and `deleted_rooms`, and the search
 index keeps `search_messages`, `search_rooms` and the FTS5 table `search_index`. A room's id also
 names its Durable Object, and the Worker asks the Workspace whether someone is a member before it
@@ -39,7 +39,8 @@ wakes the room for their socket. First run creates the account and its administr
 with an email address and password, found through the unique index on `users.email_address`, as do
 the people who join with the join link; where it's allowed, anyone can sign in with just a display
 name instead, and the members of a Memberful site sign in with Memberful, once an administrator lets
-them, found through `identities`. Presence and typing live in each room object's memory.
+them, found through `identities`, and the people administrators invite join with their invitation's
+address. Presence and typing live in each room object's memory.
 
 ## Compared with ember-rust
 
@@ -489,6 +490,19 @@ search index. On top of that schema it adds indexes and query changes for speed.
   active, so a renewal brings them back with their rooms, and grants them the open rooms made
   meanwhile. Making an open room private takes them out, as it does anyone else nobody chose, so
   that statement reads the room's kind before it changes.
+- **Invitations are links kept by their digest.** ember-rust sends no email. An administrator's
+  invitation (`accounts.invitations`) is a row in `email_links` (workspace migration 0041), found by
+  the HMAC of its link's secret under SESSION_SECRET, as a session is by its token's, with the address
+  it's for, who sent it last, when it stops working, and whether it was emailed or why not, so no link
+  is stored, and a lost one is replaced rather than shown again. A unique index on
+  `(kind, lower(email_address))` gives an address one invitation whatever its case, which inviting it
+  again gives a new link with `ON CONFLICT … DO UPDATE`. Looking a link up spends nothing, since mail
+  filters open the links in incoming mail; joining by any way deletes the address's invitation in the
+  batch that adds the person, and joins run one at a time, so two with one link add one person.
+  `users.invited_by` keeps who invited someone, which lets them sign in with a password while
+  Memberful is members only, and an index on `lower(users.email_address)` finds the accounts an
+  invitation skips, since the unique index tells the cases apart. A request's addresses are one JSON
+  parameter read with `json_each`, so it binds one value however many there are.
 - **A bot's cards are part of its message's row.** ember-rust has no cards. Ours, what a
   Slack-compatible webhook's legacy attachments show, are kept as JSON in `messages.cards` (room
   migration 0034), as a file is, rather than in the body as Action Text attachments, which the rich

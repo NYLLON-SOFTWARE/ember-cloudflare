@@ -17,8 +17,8 @@ interface Props {
   connected: boolean;
   /** Whether you have a password, which connecting one asks for then. */
   hasPassword: boolean;
-  /** Whether you're an administrator, who signs in with a password too. */
-  administrator: boolean;
+  /** Whether you need Memberful to sign in, as everyone does but administrators and the people they invite, who sign in with a password too. */
+  membershipNeeded: boolean;
   /** Says why connecting didn't start, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
@@ -27,7 +27,7 @@ interface Props {
  * That you've connected a Memberful account, or Connect Memberful, which sends the browser to sign in at
  * the Memberful site once your password checks out, and Memberful sends it back here.
  */
-export function MemberfulConnection({ connected, hasPassword, administrator, onFailed }: Props) {
+export function MemberfulConnection({ connected, hasPassword, membershipNeeded, onFailed }: Props) {
   const [connecting, setConnecting] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
   const mounted = useMounted();
@@ -53,12 +53,12 @@ export function MemberfulConnection({ connected, hasPassword, administrator, onF
         Memberful
       </h2>
       {connected ? (
-        <p>{administrator ? "Your Memberful account is connected, so you can sign in with it too." : "Your Memberful account is connected, so you sign in with it."}</p>
+        <p>{membershipNeeded ? "Your Memberful account is connected, so you sign in with it." : "Your Memberful account is connected, so you can sign in with it too."}</p>
       ) : (
         <form onSubmit={connect} aria-describedby="memberful-connection-help" className={AUTH_FORM}>
           <p id="memberful-connection-help">
             Members sign in with Memberful.{" "}
-            {administrator ? "Connect your Memberful account to sign in with it too." : "Connect your Memberful account to keep signing in as yourself."}
+            {membershipNeeded ? "Connect your Memberful account to keep signing in as yourself." : "Connect your Memberful account to sign in with it too."}
           </p>
           {hasPassword && (
             <Field id="memberful_password" label="Password" translation="password">
