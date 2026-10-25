@@ -20,9 +20,11 @@ import {
   type Directory,
   type DirectoryUser,
   type EmailLinkFor,
+  type EmailLinkKind,
+  type EmailLinkRequest,
+  type EmailLinkSignUp,
   type Favorites,
   type InvitationOutcome,
-  type InvitationSignUp,
   type Invited,
   type Involvement,
   type LinkPreview,
@@ -106,7 +108,7 @@ export interface ChosenPhoto {
 }
 
 /** The fields of a form that can bring a photo with them: a sign-up form's, or a bot form's. */
-type UserFields = SignUp | InvitationSignUp | NewBot | BotChanges;
+type UserFields = SignUp | EmailLinkSignUp | NewBot | BotChanges;
 
 /**
  * A form bringing `photo` as its `avatar` and `variant`, as the Worker reads one, and with `fields` as
@@ -166,19 +168,33 @@ export async function signUp(person: OpenSignUp, photo: ChosenPhoto | null = nul
   return (await request<{ user: Me }>("/api/join", { method: "POST", body: userBody(person, photo) })).user;
 }
 
-/** Whom the invitation whose link's secret is `token` is for, while it works. Fails with a 404 ApiError saying so once it doesn't. */
+/** What the link Ember emailed whose secret is `token` is, and whom it's for, while it works. Fails with a 404 ApiError saying so once it doesn't. */
 export async function lookUpEmailLink(token: string): Promise<EmailLinkFor> {
   return request<EmailLinkFor>("/api/email_links/lookup", { method: "POST", body: JSON.stringify({ token }) });
 }
 
+/** Where each kind of link Ember emails posts its join form. */
+const EMAIL_LINK_JOINS: Record<EmailLinkKind, string> = { invitation: "/api/join/invitation", email_domain: "/api/join/email" };
+
 /**
- * Joins with an invitation (`auth.invitation-sign-up`), as the person `person` describes, with the email
- * address it was sent to and the photo they chose, if any, and signs this browser in as them. A link
- * that has stopped working fails with a 404 ApiError, and an address with an account since with one
- * that names the sign-in page to go to.
+ * Joins with a link Ember emailed, of `kind`: an invitation (`auth.invitation-sign-up`), or one asked for
+ * with an address at the workspace's email domains (`auth.email-domain-sign-up`), as the person `person`
+ * describes, with the email address it was sent to and the photo they chose, if any, and signs this
+ * browser in as them. A link that has stopped working fails with a 404 ApiError, and an address with an
+ * account since with one that names the sign-in page to go to.
  */
-export async function joinWithInvitation(person: InvitationSignUp, photo: ChosenPhoto | null = null): Promise<Me> {
-  return (await request<{ user: Me }>("/api/join/invitation", { method: "POST", body: userBody(person, photo) })).user;
+export async function joinWithEmailLink(kind: EmailLinkKind, person: EmailLinkSignUp, photo: ChosenPhoto | null = null): Promise<Me> {
+  return (await request<{ user: Me }>(EMAIL_LINK_JOINS[kind], { method: "POST", body: userBody(person, photo) })).user;
+}
+
+/**
+ * Asks Ember to email a link to join with an address at the workspace's email domains
+ * (`auth.email-domain-sign-up`), with the token of Turnstile's check while the page shows one. It
+ * answers the same whether or not the address has an account. A check that didn't pass fails with an
+ * ApiError for the `turnstile` field, and an address Ember won't email with one for `emailAddress`.
+ */
+export async function askForEmailLink(asked: EmailLinkRequest): Promise<void> {
+  await request<unknown>("/api/email_links", { method: "POST", body: JSON.stringify(asked) });
 }
 
 /**

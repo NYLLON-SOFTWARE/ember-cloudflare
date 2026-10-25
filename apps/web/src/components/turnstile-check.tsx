@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 
-// Cloudflare Turnstile's check on the open sign-up page (`auth.open-sign-up`), while the deployment has
-// its keys: Turnstile's script, which only that page's policy lets load, draws the check in a frame of
+// Cloudflare Turnstile's check on the open sign-up page (`auth.open-sign-up`), and where someone asks
+// for a link to join with their email address (`auth.email-domain-sign-up`), while the deployment has
+// its keys: Turnstile's script, which only those pages' policy lets load, draws the check in a frame of
 // its own and gives the page a token once it passes, which the form sends for the Worker to ask
 // siteverify about (https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/).
 // A token is good once, so the page draws the check afresh for each try.

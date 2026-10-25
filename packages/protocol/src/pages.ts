@@ -151,6 +151,15 @@ export const INVITATION_PATH = "/join/invitation";
 export const invitationLink = (token: string) => `${INVITATION_PATH}#token=${token}`;
 
 /**
+ * The page where someone with an email address at the workspace's email domains asks for a link to join
+ * with it, which the link opens too (`auth.email-domain-sign-up`), and which the Worker answers itself.
+ */
+export const EMAIL_SIGN_UP_PATH = "/join/email";
+
+/** A link someone asked for to join with their email address: its page, with the link's secret as the fragment's `token`, as an invitation's link keeps it. */
+export const emailSignUpLink = (token: string) => `${EMAIL_SIGN_UP_PATH}#token=${token}`;
+
+/**
  * A sign-in link's address: its page, with the link's id as the fragment's `token`, where ember-rust's
  * `session_transfer` route puts the id in the path. Browsers never send a fragment, so no request holds
  * the id, nor any log of one, as ember-rust's setup link keeps its token (setup_access.js). Ids are

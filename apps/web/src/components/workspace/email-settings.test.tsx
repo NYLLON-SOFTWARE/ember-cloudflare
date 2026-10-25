@@ -7,7 +7,7 @@ import { CANT_SEND_EMAIL, EMAIL_FROM_REFUSED, type Account, type AccountChanges,
 import { ApiError } from "@/lib/api";
 import { EMAIL_SENDING_DASHBOARD, EmailSettings } from "./email-settings";
 
-const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} };
+const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} };
 
 interface Answers {
   /** What saving the From address answers, rather than the workspace. */

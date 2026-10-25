@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  domainsInWords,
+  EMAIL_SIGN_UP_PATH,
   MAX_PASSWORD_LENGTH,
   MEMBERFUL_CONNECTED,
   MEMBERFUL_SIGN_IN_PROBLEMS,
@@ -8,6 +10,7 @@ import {
   SIGN_IN_REJECTED,
   SIGN_UP_PATH,
   signsUpOpenly,
+  signsUpWithEmailDomain,
   type Me,
 } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
@@ -162,7 +165,14 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
             ) : (
               workspace.signInWithMemberful && <AuthAlternative question="Member?" action="Sign in with Memberful" href={memberfulSignInPath(returnPath())} />
             )}
-            {signsUpOpenly(workspace.account) && <AuthAlternative question="New here?" action="Create an account" href={SIGN_UP_PATH} />}
+            {signsUpOpenly(workspace.account) ? (
+              <AuthAlternative question="New here?" action="Create an account" href={SIGN_UP_PATH} />
+            ) : (
+              // Open lets anyone in, addresses at the email domains too, so this is for when it's off.
+              signsUpWithEmailDomain(workspace.account) && (
+                <AuthAlternative question={`Have an address at ${domainsInWords(workspace.account.emailDomains)}?`} action="Join with it" href={EMAIL_SIGN_UP_PATH} />
+              )
+            )}
             {workspace.guestSignIn && <AuthAlternative question="No account?" action="Join with just a name" onClick={() => setAsGuest(true)} disabled={busy} />}
           </>
         )}

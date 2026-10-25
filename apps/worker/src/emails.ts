@@ -39,3 +39,35 @@ export function invitationEmail(to: string, workspace: string, inviter: string, 
     html: htmlOf([`${escapeHtml(who)} invited you to join ${escapeHtml(name)}.`, `<a href="${escapeHtml(link)}">Join ${escapeHtml(name)}</a>`, terms(escapeHtml(to))]),
   };
 }
+
+/**
+ * The email with a link to join the workspace named `workspace` with `to`, an address at its email
+ * domains, which someone asked for at `/join/email`: `link`, which joins with that address once, for an
+ * hour.
+ */
+export function emailDomainLinkEmail(to: string, workspace: string, link: string): Email {
+  const name = oneLine(workspace) || "Ember";
+  const terms = (address: string) => `The link works once, for an hour, and joins with ${address}. If you didn't ask for it, you can ignore this email: nobody joins without the link.`;
+  return {
+    to,
+    subject: `Your link to join ${name}`,
+    text: `Someone asked to join ${name} with this email address.\n\nJoin here: ${link}\n\n${terms(to)}\n`,
+    html: htmlOf([`Someone asked to join ${escapeHtml(name)} with this email address.`, `<a href="${escapeHtml(link)}">Join ${escapeHtml(name)}</a>`, terms(escapeHtml(to))]),
+  };
+}
+
+/**
+ * The email someone asking to join the workspace named `workspace` with `to` gets in place of a link,
+ * since the address has an account there already: `signIn`, where it signs in, so that `/join/email`
+ * says the same whoever has an account.
+ */
+export function alreadyAMemberEmail(to: string, workspace: string, signIn: string): Email {
+  const name = oneLine(workspace) || "Ember";
+  const asked = (workspaceName: string) => `Someone asked to join ${workspaceName} with this email address, which has an account there already.`;
+  return {
+    to,
+    subject: `You already have an account at ${name}`,
+    text: `${asked(name)}\n\nSign in here: ${signIn}\n\nIf you didn't ask, you can ignore this email.\n`,
+    html: htmlOf([asked(escapeHtml(name)), `<a href="${escapeHtml(signIn)}">Sign in to ${escapeHtml(name)}</a>`, "If you didn't ask, you can ignore this email."]),
+  };
+}

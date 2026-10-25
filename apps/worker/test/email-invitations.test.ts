@@ -1,5 +1,6 @@
 import { feature } from "@ember/parity";
 import {
+  EMAIL_LINK_GONE,
   INVITATION_GONE,
   INVITATIONS_AT_ONCE,
   MEMBERFUL_SIGN_IN_NEEDED,
@@ -94,10 +95,10 @@ const lookUp = (token: unknown) => api("/api/email_links/lookup", { method: "POS
 const joinWith = (token: unknown, person: Record<string, unknown> = hal, session?: Session) =>
   api("/api/join/invitation", { method: "POST", headers: { "CF-Connecting-IP": "203.0.113.30", "User-Agent": "Hal's laptop", ...as(session) }, body: JSON.stringify({ ...person, token }) });
 
-/** The answer to a link that doesn't work. */
-async function expectGone(response: Response): Promise<void> {
+/** The answer to a link that doesn't work: its join form's, or the lookup's, which says the same for every kind of link. */
+async function expectGone(response: Response, error = INVITATION_GONE): Promise<void> {
   expect(response.status).toBe(404);
-  expect(await response.json()).toEqual({ error: INVITATION_GONE });
+  expect(await response.json()).toEqual({ error });
 }
 
 /** Signs in with an email address and password, as the sign-in form does. */
@@ -248,7 +249,7 @@ describe(feature("accounts.invitations"), () => {
     const again = await inviteOne(administrator, "Hal@example.com");
     expect(again.invitation).toMatchObject({ id: first.invitation.id, emailAddress: "Hal@example.com" });
     expect(again.link).not.toBe(first.link);
-    await expectGone(await lookUp(tokenIn(first.link)));
+    await expectGone(await lookUp(tokenIn(first.link)), EMAIL_LINK_GONE);
     expect(await (await lookUp(tokenIn(again.link))).json()).toEqual({ kind: "invitation", emailAddress: "Hal@example.com" });
     expect(await count("email_links")).toBe(1);
   });
@@ -348,7 +349,7 @@ describe(feature("accounts.invitations"), () => {
       const again = (await response.json()) as ResentInvitation;
       expect(again.invitation).toMatchObject({ id: first.invitation.id, emailAddress: "hal@example.com", invitedBy: "Ada Lovelace", delivery: null });
       expect(Date.parse(again.invitation.expiresAt) - Date.parse(again.invitation.createdAt)).toBe(7 * DAY_MS);
-      await expectGone(await lookUp(tokenIn(first.link)));
+      await expectGone(await lookUp(tokenIn(first.link)), EMAIL_LINK_GONE);
       expect((await lookUp(tokenIn(again.link))).status).toBe(200);
       expect(await invitations(administrator)).toEqual([again.invitation]);
     });
@@ -391,7 +392,7 @@ describe(feature("accounts.invitations"), () => {
       const response = await revoke(administrator, invitation.id);
       expect(response.status).toBe(204);
       expect(await invitations(administrator)).toEqual([]);
-      await expectGone(await lookUp(tokenIn(link)));
+      await expectGone(await lookUp(tokenIn(link)), EMAIL_LINK_GONE);
       await expectGone(await joinWith(tokenIn(link)));
       expect((await revoke(administrator, invitation.id)).status).toBe(404);
     });
@@ -432,11 +433,11 @@ describe(feature("auth.invitation-sign-up"), () => {
     it("says a link doesn't work when nothing's invited with it, it isn't one, or it has expired", async () => {
       const administrator = await setUp();
       const { link } = await inviteOne(administrator, "hal@example.com");
-      for (const token of ["A".repeat(43), "short", 42, null, `${tokenIn(link)}x`]) await expectGone(await lookUp(token));
-      await expectGone(await api("/api/email_links/lookup", { method: "POST", body: "not JSON" }));
+      for (const token of ["A".repeat(43), "short", 42, null, `${tokenIn(link)}x`]) await expectGone(await lookUp(token), EMAIL_LINK_GONE);
+      await expectGone(await api("/api/email_links/lookup", { method: "POST", body: "not JSON" }), EMAIL_LINK_GONE);
 
       await workspaceSql("UPDATE email_links SET expires_at = ?", new Date(Date.now() - 1000).toISOString());
-      await expectGone(await lookUp(tokenIn(link)));
+      await expectGone(await lookUp(tokenIn(link)), EMAIL_LINK_GONE);
       await expectGone(await joinWith(tokenIn(link)));
       expect(await count("users")).toBe(1);
     });
@@ -467,7 +468,7 @@ describe(feature("auth.invitation-sign-up"), () => {
       expect(rooms.map((room) => room.id)).not.toContain(leads.id);
 
       expect(await invitations(administrator)).toEqual([]);
-      await expectGone(await lookUp(tokenIn(link)));
+      await expectGone(await lookUp(tokenIn(link)), EMAIL_LINK_GONE);
       await expectGone(await joinWith(tokenIn(link), { name: "Someone else", password: "another password" }));
       expect(await count("users")).toBe(2);
     });
@@ -546,7 +547,7 @@ describe(feature("auth.invitation-sign-up"), () => {
       await inviteOne(administrator, "hal@example.com");
       await joinAsGrace();
       expect((await invitations(administrator)).map((invitation) => invitation.emailAddress)).toEqual(["hal@example.com"]);
-      await expectGone(await lookUp(tokenIn(link)));
+      await expectGone(await lookUp(tokenIn(link)), EMAIL_LINK_GONE);
     });
   });
 });

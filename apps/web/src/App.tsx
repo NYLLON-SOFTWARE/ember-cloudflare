@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { INVITATION_PATH, NAVIGATION_SLOTS, SIGN_UP_PATH, TRANSFER_PATH, type Account, type Bootstrap, type Me, type NewWorkspace } from "@ember/protocol";
+import { EMAIL_SIGN_UP_PATH, INVITATION_PATH, NAVIGATION_SLOTS, SIGN_UP_PATH, TRANSFER_PATH, type Account, type Bootstrap, type Me, type NewWorkspace } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
+import { EmailSignUpPage } from "@/components/email-sign-up-page";
 import { InvitationPage } from "@/components/invitation-page";
 import { JoinPage } from "@/components/join-page";
 import { SetupPage } from "@/components/setup-page";
@@ -40,6 +41,9 @@ const isSameAccount = (a: Account, b: Account) =>
   a.openSignUp === b.openSignUp &&
   a.memberfulJoin === b.memberfulJoin &&
   a.memberfulSignIn === b.memberfulSignIn &&
+  a.emailDomainSignUp === b.emailDomainSignUp &&
+  a.emailDomains.length === b.emailDomains.length &&
+  a.emailDomains.every((domain, index) => domain === b.emailDomains[index]) &&
   NAVIGATION_SLOTS.every((slot) => a.navigationIcons[slot] === b.navigationIcons[slot]);
 
 export function App() {
@@ -51,6 +55,7 @@ export function App() {
   const joinCode = useJoinRoute();
   const atSignUp = useIsAt(SIGN_UP_PATH);
   const atInvitation = useIsAt(INVITATION_PATH);
+  const atEmailSignUp = useIsAt(EMAIL_SIGN_UP_PATH);
   const atTransfer = useIsAt(TRANSFER_PATH);
   const signingOut = useRef(false);
   // Before any page has fields, so even one focused as it opens is selected.
@@ -80,8 +85,9 @@ export function App() {
           if (workspace.setup === "pending" && !atSetup) return loadPage(SETUP_PATH);
           if (workspace.setup === "complete" && atSetup) history.replaceState(history.state, "", "/");
           // The join page is for someone signed out, as in ember-rust, which sends anyone else home, and so
-          // are open sign-up's and an invitation's, whose secret leaves the address as they go.
-          const atJoin = joinCodeFromPath(location.pathname) !== null || location.pathname === SIGN_UP_PATH || location.pathname === INVITATION_PATH;
+          // are open sign-up's, an invitation's and Email domain's, whose links' secrets leave the address as they go.
+          const { pathname } = location;
+          const atJoin = joinCodeFromPath(pathname) !== null || pathname === SIGN_UP_PATH || pathname === INVITATION_PATH || pathname === EMAIL_SIGN_UP_PATH;
           if (user && atJoin) navigate("/", { replace: true });
           // Someone signed out goes to sign in, and comes back here afterwards. A sign-in link signs them in itself.
           if (workspace.setup === "complete" && !user && location.pathname !== SIGN_IN_PATH && !atJoin && location.pathname !== TRANSFER_PATH) {
@@ -180,6 +186,7 @@ export function App() {
         </PushProvider>
       );
     if (atInvitation) return <InvitationPage workspace={workspace} onJoined={joined} />;
+    if (atEmailSignUp) return <EmailSignUpPage workspace={workspace} onJoined={joined} />;
     if (joinCode !== null || atSignUp) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
     return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
   };

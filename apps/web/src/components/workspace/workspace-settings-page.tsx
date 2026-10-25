@@ -258,6 +258,24 @@ export function WorkspaceSettingsPage({
       },
     );
   };
+  /** Saves Email domain's domains, turning it on with them if `turnOn`, flashing a notice once they're saved. */
+  const saveEmailDomains = (emailDomains: string[], turnOn: boolean, settled: (saved: boolean) => void) => {
+    const answered = askForAccount();
+    changeAccount({ emailDomains, ...(turnOn && { settings: { emailDomainSignUp: true } }) }).then(
+      (account) => {
+        answered(account);
+        if (!mounted.current) return;
+        setSettings((settings) => settings && { ...settings, account, emailDomains });
+        settled(true);
+        flash("notice", CHANGES_SAVED);
+      },
+      (error: unknown) => {
+        if (!mounted.current && !isSignedOut(error)) return;
+        settled(false);
+        onFailed(error);
+      },
+    );
+  };
   const switchRoomCreation = (restrict: boolean) => {
     if (restrictingCreation !== null) return;
     setRestrictingCreation(restrict);
@@ -472,6 +490,7 @@ export function WorkspaceSettingsPage({
                 <WaysToJoin
                   settings={settings}
                   saveSwitch={saveSwitch}
+                  saveEmailDomains={saveEmailDomains}
                   joinLink={<InviteLink joinCode={settings.joinCode} onRegenerate={regenerate} regenerating={regenerating} />}
                 />
                 <InviteByEmail

@@ -1,4 +1,4 @@
-import { SIGN_UP_PATH } from "@ember/protocol";
+import { EMAIL_SIGN_UP_PATH, SIGN_UP_PATH } from "@ember/protocol";
 import type { LinkSharing } from "./link-buttons";
 
 // The join link, which ember-rust's invite block on workspace settings
@@ -26,4 +26,16 @@ export const SIGN_UP_LINK: LinkSharing = {
   qrCodeLabel: "Show sign-up link QR code",
   copyLabel: "Copy sign-up link",
   shareLabel: "Share sign-up link",
+};
+
+/** Email domain's page, absolute, where people with an address at the workspace's email domains ask for a link to join. */
+export const emailSignUpUrl = () => new URL(EMAIL_SIGN_UP_PATH, location.origin).href;
+
+/** What Email domain's link's buttons are called, and what sharing it sends, as the join link does. */
+export const EMAIL_SIGN_UP_LINK: LinkSharing = {
+  ...JOIN_LINK,
+  qrCodeLabel: "Show email sign-up link QR code",
+  copyLabel: "Copy email sign-up link",
+  shareLabel: "Share email sign-up link",
+  text: "Hit this link to join me in Ember with your email address.",
 };

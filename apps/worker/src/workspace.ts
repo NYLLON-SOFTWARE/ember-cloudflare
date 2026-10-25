@@ -2,6 +2,10 @@ import { DurableObject } from "cloudflare:workers";
 import {
   CANT_SEND_EMAIL,
   CloseCode,
+  domainOfEmailAddress,
+  EMAIL_LINKS_PER_ADDRESS,
+  EMAIL_LINKS_PER_NETWORK,
+  emailSignUpLink,
   INVITATION_DAYS,
   invitationLink,
   isRoomId,
@@ -11,6 +15,7 @@ import {
   SIGN_UPS_PER_ADDRESS,
   SIGN_UPS_PER_HOUR,
   signsUpOpenly,
+  signsUpWithEmailDomain,
   withNavigationIcons,
   type Account,
   type AccountChanges,
@@ -23,7 +28,9 @@ import {
   type DirectRoom,
   type EmailInvitation,
   type EmailLinkFor,
+  type EmailLinkKind,
   type Favorites,
+  type Mailbox,
   type Invited,
   type Involvement,
   type Me,
@@ -57,7 +64,7 @@ import { directoryOf, versionOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
 import { botKeyOf, isBotToken, newBotToken } from "./bots/keys";
 import { openDb, type Db } from "./db";
-import { invitationEmail, testEmail } from "./emails";
+import { alreadyAMemberEmail, emailDomainLinkEmail, invitationEmail, testEmail } from "./emails";
 import { guestSignIn, type Env } from "./env";
 import { pictureObjects, type StoredPicture } from "./files/pictures";
 import { alphanumeric, sortableId } from "./ids";
@@ -113,6 +120,13 @@ const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
  */
 const SIGN_UP_WINDOW_MS = 60 * 60 * 1000;
 /**
+ * Email domain's limits' hour: the links asked for from an IP address are counted in a fixed one, and
+ * the times an address is emailed in one that starts as it's first asked for, which the Workspace keeps.
+ */
+const EMAIL_LINK_WINDOW_MS = 60 * 60 * 1000;
+/** How long a link someone asks for to join with their address at the email domains works: an hour, as its email and page say. */
+const EMAIL_DOMAIN_LINK_MS = 60 * 60 * 1000;
+/**
  * Link previews someone may ask for in a minute. ember-rust only runs 16 at once, queueing the rest,
  * but a preview fetches any page someone names, which would make the Worker anyone's fetcher.
  */
@@ -161,6 +175,13 @@ function changedNavigationIcons(icons: NavigationIcons, changes: NavigationIconC
   return changed.length > 0 ? Object.fromEntries(changed.map((slot) => [slot, changes[slot]])) : undefined;
 }
 
+/** Whether `domains` lists the same domains as `kept`, in the same order. */
+const sameDomains = (domains: string[], kept: string[]) => domains.length === kept.length && domains.every((domain, index) => domain === kept[index]);
+
+/** Whether Email domain lets people at `domain` join `account`. */
+const letsInEmailDomain = (account: Pick<Account, "emailDomainSignUp" | "emailDomains" | "memberfulSignIn">, domain: string) =>
+  signsUpWithEmailDomain(account) && account.emailDomains.includes(domain);
+
 /**
  * What `settings` changes of the account's two Memberful settings, `account` having them as they are,
  * both at once, or undefined when it changes neither: Members only turns Memberful on with it, and
@@ -172,7 +193,7 @@ function memberfulChange(account: Pick<Account, "memberfulJoin" | "memberfulSign
   return join === account.memberfulJoin && membersOnly === account.memberfulSignIn ? undefined : { memberfulJoin: join, memberfulSignIn: membersOnly };
 }
 
-/** The account as every page shows it, without its join code, which only the people in it see. */
+/** The account as every page shows it, without its join code, which only the people in it see, nor its email domains while Email domain is off. */
 const accountOf = ({
   name,
   tagline,
@@ -184,6 +205,8 @@ const accountOf = ({
   openSignUp,
   memberfulJoin,
   memberfulSignIn,
+  emailDomainSignUp,
+  emailDomains,
   navigationIcons,
   updatedAt,
   storedLogo,
@@ -199,6 +222,8 @@ const accountOf = ({
   openSignUp,
   memberfulJoin,
   memberfulSignIn,
+  emailDomainSignUp,
+  emailDomains: emailDomainSignUp ? emailDomains : [],
   navigationIcons,
 });
 
@@ -294,6 +319,20 @@ export type JoinLink = "joins" | "off" | "memberful" | "not found";
 
 /** Why open sign-up lets nobody in: it's off, or the workspace has let in as many new people as it does in an hour. */
 export type SignUpRefusal = "closed" | "full";
+
+/**
+ * Why a change to the account changes nothing: Open and Memberful's Members only can't both be on
+ * ("conflict"), and Email domain can't be on without a domain to let in, nor be turned on while Ember
+ * can't send email, since it emails people the links they join with.
+ */
+export type AccountRefusal = "conflict" | "no email domains" | "no email";
+
+/**
+ * What asking for a link to join with an address at the email domains came to: "asked", whatever Ember
+ * emailed, if anything, "off" while Email domain doesn't let the address's domain in, "limited" past the
+ * network's limit, "unsendable" while Ember can't send email, and "unsent" when the provider refused to.
+ */
+export type EmailLinkAsk = "asked" | "off" | "limited" | "unsendable" | "unsent";
 
 /**
  * What Send me a test email came to: the address it went to, or why it wasn't sent, with the status that
@@ -408,6 +447,7 @@ export class Workspace extends DurableObject<Env> {
   private banChanges = 0;
   private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
   private readonly signUps = new FixedWindowLimit(SIGN_UPS_PER_ADDRESS, SIGN_UP_WINDOW_MS);
+  private readonly emailLinkAsks = new FixedWindowLimit(EMAIL_LINKS_PER_NETWORK, EMAIL_LINK_WINDOW_MS);
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
   /** The probes custom domain checks send, each with its answer and when it's no longer waited for (see `expectProbe`). */
   private readonly probes = new Map<string, { answer: string; until: number }>();
@@ -585,24 +625,31 @@ export class Workspace extends DurableObject<Env> {
     const [account, canAdminister] = await Promise.all([this.joinableAccount(), this.store.isAdministrator(user.id)]);
     if (!account) return "not set up";
     const invitations = canAdminister ? await this.store.invitations() : [];
-    return { account: accountOf(account), joinCode: account.joinCode, canAdminister, email: { provider: emailProviderOf(this.env), from: account.emailFrom }, invitations };
+    return {
+      account: accountOf(account),
+      joinCode: account.joinCode,
+      canAdminister,
+      email: { provider: emailProviderOf(this.env), from: account.emailFrom },
+      invitations,
+      emailDomains: canAdminister ? account.emailDomains : [],
+    };
   }
 
   /**
    * Makes `changes` to the workspace as the person `credentials` signs in, answering the account as it
    * is then: "forbidden" unless they're an administrator, as ember-rust's `update` insists
-   * (accounts.rs), "conflict" for turning on Open or Memberful's Members only while the other is on,
-   * which changes nothing, or null without a valid session. Members only turns Memberful on with it, and
-   * turning Memberful off turns Members only off. Everyone's workspace sockets hear of a change, a new
-   * custom domain included, which tabs open at another address then point to.
+   * (accounts.rs), why it changes nothing, as `AccountRefusal` has it, or null without a valid session.
+   * Members only turns Memberful on with it, and turning Memberful off turns Members only off.
+   * Everyone's workspace sockets hear of a change, a new custom domain included, which tabs open at
+   * another address then point to.
    */
   async changeAccount(
     credentials: Credentials,
-    { name, tagline, settings, customDomain, navigationIcons, emailFrom }: AccountChanges,
-  ): Promise<Account | "forbidden" | "conflict" | null> {
+    { name, tagline, settings, customDomain, navigationIcons, emailFrom, emailDomains }: AccountChanges,
+  ): Promise<Account | AccountRefusal | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
       // As ember-rust's `Account::update` writes only what differs (account.rs).
-      const { hideTranslationButtons, restrictRoomCreation, joinLink, openSignUp } = settings ?? {};
+      const { hideTranslationButtons, restrictRoomCreation, joinLink, openSignUp, emailDomainSignUp } = settings ?? {};
       const memberful = memberfulChange(account, settings ?? {});
       const icons = changedNavigationIcons(account.navigationIcons, navigationIcons ?? {});
       const change: AccountChange = {
@@ -614,6 +661,8 @@ export class Workspace extends DurableObject<Env> {
         ...(joinLink !== undefined && joinLink !== account.joinLink && { joinLink }),
         ...(openSignUp !== undefined && openSignUp !== account.openSignUp && { openSignUp }),
         ...(memberful && { memberful }),
+        ...(emailDomainSignUp !== undefined && emailDomainSignUp !== account.emailDomainSignUp && { emailDomainSignUp }),
+        ...(emailDomains !== undefined && !sameDomains(emailDomains, account.emailDomains) && { emailDomains }),
         ...(icons && { navigationIcons: icons }),
         ...(emailFrom !== undefined && emailFrom !== account.emailFrom && { emailFrom }),
       };
@@ -624,9 +673,16 @@ export class Workspace extends DurableObject<Env> {
       if (Object.keys(change).length === 0) return accountOf(account);
       const { memberful: _, ...settled } = change;
       const changed = { ...account, ...settled, ...memberful, navigationIcons: withNavigationIcons(account.navigationIcons, icons ?? {}) };
+      // Email domain lets in no one without a domain, and emails the links people join with.
+      const domainsChange = change.emailDomainSignUp !== undefined || change.emailDomains !== undefined;
+      if (domainsChange && changed.emailDomainSignUp && changed.emailDomains.length === 0) return "no email domains";
+      if (change.emailDomainSignUp && this.emailSender(changed) === null) return "no email";
       const save = (now: string) => this.store.changeAccount(change, now);
-      // Pages don't show the From address, so a change to it alone, like a new join code, tells no one.
-      if (Object.keys(change).every((key) => key === "emailFrom")) return accountOf(await this.saveAccount(changed, save));
+      // Pages show neither the From address nor, while Email domain is off, its domains, so a change to
+      // them alone, like a new join code, tells no one.
+      if (Object.keys(change).every((key) => key === "emailFrom" || (key === "emailDomains" && !changed.emailDomainSignUp))) {
+        return accountOf(await this.saveAccount(changed, save));
+      }
       return this.publishAccount(changed, save);
     });
   }
@@ -666,6 +722,11 @@ export class Workspace extends DurableObject<Env> {
       await this.saveAccount({ ...account, joinCode }, (now) => this.store.changeJoinCode(joinCode, now));
       return { joinCode };
     });
+  }
+
+  /** The mailbox the workspace's email comes from, while Ember can send email from the From address `account` has, or else null. */
+  private emailSender(account: Pick<JoinableAccount, "emailFrom">): Mailbox | null {
+    return emailProviderOf(this.env) !== null && account.emailFrom !== null ? mailboxOf(account.emailFrom) : null;
   }
 
   /**
@@ -758,7 +819,7 @@ export class Workspace extends DurableObject<Env> {
     invitations: SavedInvitation[],
     origin: string,
   ): Promise<Array<{ invitation: EmailInvitation; link: string | null }>> {
-    const from = emailProviderOf(this.env) !== null && account.emailFrom !== null ? mailboxOf(account.emailFrom) : null;
+    const from = this.emailSender(account);
     const links = invitations.map(({ link }) => `${origin}${invitationLink(link.token)}`);
     const emails = invitations.map(({ emailAddress }, index) => invitationEmail(emailAddress, account.name, inviter.name, links[index]!));
     const refusals = from ? await sendEmails(this.env, from, emails) : null;
@@ -771,12 +832,22 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Whom the invitation whose link's secret has the digest `linkDigest` is for, while its link works,
-   * which looking spends nothing of (`auth.invitation-sign-up`), or else null.
+   * What the link whose secret has the digest `linkDigest` is, and whom it's for, while it works, which
+   * looking spends nothing of, or else null: an invitation's (`auth.invitation-sign-up`) until it
+   * expires, or one someone asked for with an address at the email domains (`auth.email-domain-sign-up`)
+   * while Email domain still lets its domain in, too.
    */
-  async invitationFor(linkDigest: string): Promise<EmailLinkFor | null> {
-    const invitation = await this.store.invitationFor(linkDigest, new Date().toISOString());
-    return invitation && { kind: "invitation", emailAddress: invitation.emailAddress };
+  async emailLinkFor(linkDigest: string): Promise<EmailLinkFor | null> {
+    const link = await this.workingEmailLink(linkDigest);
+    return link && { kind: link.kind, emailAddress: link.emailAddress };
+  }
+
+  /** The link whose secret has the digest `linkDigest`, while it works, as `emailLinkFor` says, with who sent it, if it's an invitation. */
+  private async workingEmailLink(linkDigest: string): Promise<{ kind: EmailLinkKind; emailAddress: string; invitedBy: UserId | null } | null> {
+    const [link, account] = await Promise.all([this.store.emailLinkFor(linkDigest, new Date().toISOString()), this.joinableAccount()]);
+    if (link?.kind !== "email_domain") return link;
+    const domain = domainOfEmailAddress(link.emailAddress);
+    return account !== null && domain !== null && letsInEmailDomain(account, domain) ? link : null;
   }
 
   /**
@@ -891,19 +962,62 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Adds someone who joined with the invitation whose link's secret has the digest `linkDigest`, with the
-   * email address it's for, as `join` adds someone with the join link, spending the link, whichever ways
-   * to join are on (`auth.invitation-sign-up`): "gone" once it's expired, been accepted, replaced or
-   * revoked, and null if someone has its email address already, whatever its case, which leaves it be.
+   * Adds someone who joined with the link of `kind` whose secret has the digest `linkDigest`, with the
+   * email address it's for, as `join` adds someone with the join link, spending the link: an invitation's
+   * whichever ways to join are on (`auth.invitation-sign-up`), recording who sent it, or one they asked
+   * for at the email domains while Email domain lets its domain in (`auth.email-domain-sign-up`).
+   * Answers "gone" once the link doesn't work, having expired, been used or replaced, an invitation's
+   * having been revoked, and null if someone has its email address already, whatever its case, which
+   * leaves it be.
    */
-  async joinWithInvitation(linkDigest: string, person: Omit<NewPerson, "id" | "emailAddress">, tokenDigest: string, client: Client): Promise<Me | "gone" | null> {
+  async joinWithEmailLink(
+    kind: EmailLinkKind,
+    linkDigest: string,
+    person: Omit<NewPerson, "id" | "emailAddress">,
+    tokenDigest: string,
+    client: Client,
+  ): Promise<Me | "gone" | null> {
     // One at a time, so that two joins with the same link can't both add someone.
     return this.oneAtATime(async () => {
-      const invitation = await this.store.invitationFor(linkDigest, new Date().toISOString());
-      if (!invitation) return "gone";
-      if ((await this.store.takenEmailAddresses([invitation.emailAddress])).size > 0) return null;
-      return this.addMember({ ...person, emailAddress: invitation.emailAddress, invitedBy: invitation.invitedBy }, tokenDigest, client);
+      const link = await this.workingEmailLink(linkDigest);
+      if (link?.kind !== kind) return "gone";
+      if ((await this.store.takenEmailAddresses([link.emailAddress])).size > 0) return null;
+      return this.addMember({ ...person, emailAddress: link.emailAddress, ...(link.invitedBy !== null && { invitedBy: link.invitedBy }) }, tokenDigest, client);
     });
+  }
+
+  /**
+   * Emails `emailAddress` a link to join with it, the one `link`'s secret makes, at `origin`, in place of
+   * any it was sent before, while Email domain lets in `domain`, its domain (`auth.email-domain-sign-up`),
+   * or, if someone has an account with it already, whatever its case, an email saying so, with a link to
+   * sign in. Asks from `ip` count against its limit while they're `limited`, as they are while the
+   * deployment lacks Turnstile's keys. Once the address has been emailed as often as it is in an hour, an
+   * ask sends nothing, though it answers "asked", as it does for an address with an account, so that the
+   * answer never says who has one, and the link sent last still works.
+   */
+  async askForEmailLink(ip: string, emailAddress: string, domain: string, link: NewEmailLink, origin: string, limited: boolean): Promise<EmailLinkAsk> {
+    const account = await this.joinableAccount();
+    if (account === null || !letsInEmailDomain(account, domain)) return "off";
+    const from = this.emailSender(account);
+    if (from === null) return "unsendable";
+    if (limited && !this.emailLinkAsks.attempt(ip)) return "limited";
+    const now = Date.now();
+    // Saved one at a time, as people join, but sent afterwards, so that sending never holds up a join.
+    const asked = await this.oneAtATime(async () => {
+      const current = (await this.joinableAccount())!;
+      if (!letsInEmailDomain(current, domain)) return "off";
+      const times = await this.store.countEmailLinkRequest(emailAddress, new Date(now).toISOString(), new Date(now - EMAIL_LINK_WINDOW_MS).toISOString());
+      if (times > EMAIL_LINKS_PER_ADDRESS) return "enough";
+      if ((await this.store.takenEmailAddresses([emailAddress])).size > 0) return { name: current.name, member: true };
+      await this.store.saveEmailDomainLink(sortableId(), emailAddress, link.digest, new Date(now).toISOString(), new Date(now + EMAIL_DOMAIN_LINK_MS).toISOString());
+      return { name: current.name, member: false };
+    });
+    if (asked === "off") return "off";
+    if (asked === "enough") return "asked";
+    const email = asked.member
+      ? alreadyAMemberEmail(emailAddress, asked.name, `${origin}/session/new?${new URLSearchParams({ email_address: emailAddress })}`)
+      : emailDomainLinkEmail(emailAddress, asked.name, `${origin}${emailSignUpLink(link.token)}`);
+    return (await sendEmail(this.env, from, email)) === null ? "asked" : "unsent";
   }
 
   /**

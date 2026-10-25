@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
-import { INVITATION_PATH, KIND_SEGMENTS, workspacePageOf, type RoomAccess, type RoomId, type RoomKind, type UserId, type WorkspacePage } from "@ember/protocol";
+import { EMAIL_SIGN_UP_PATH, INVITATION_PATH, KIND_SEGMENTS, workspacePageOf, type RoomAccess, type RoomId, type RoomKind, type UserId, type WorkspacePage } from "@ember/protocol";
 
 // The app's few pages, at ember-rust's addresses, which @ember/protocol lists for the Worker too: a
 // small typed router over the History API rather than a library. A page with changes to lose can
@@ -236,8 +236,9 @@ export function useQueryParam(name: string): string | null {
  * Worker matched it before serving the page: codes are letters, digits and dashes, which nothing escapes.
  */
 export function joinCodeFromPath(pathname: string): string | null {
-  // An invitation's link has a page of its own there, and no join code is ever "invitation".
-  if (pathname === INVITATION_PATH) return null;
+  // An invitation's link and Email domain's have pages of their own there, and no join code is ever
+  // "invitation" or "email".
+  if (pathname === INVITATION_PATH || pathname === EMAIL_SIGN_UP_PATH) return null;
   return pathname.match(/^\/join\/([^/]+)$/)?.[1] ?? null;
 }
 

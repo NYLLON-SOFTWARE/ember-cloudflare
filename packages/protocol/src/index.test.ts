@@ -4,8 +4,15 @@ import {
   canBeCustomDomain,
   CUSTOM_DOMAIN_NOT_A_HOST,
   DEFAULT_NAVIGATION_ICONS,
+  domainOfEmailAddress,
+  domainsInWords,
+  EMAIL_ADDRESS_NEEDED,
+  EMAIL_DOMAINS_REFUSED,
   EMAIL_FROM_REFUSED,
+  EMAIL_SIGN_UP_PATH,
   emailAddressesIn,
+  emailDomainOf,
+  emailSignUpLink,
   INVITATION_PATH,
   invitationLink,
   INVITATIONS_AT_ONCE,
@@ -46,12 +53,14 @@ import {
   NO_EMAIL_ADDRESSES,
   NOT_A_CUSTOM_DOMAIN,
   NOT_AN_EMAIL_ADDRESS,
+  onlyAddressesAt,
   parseAccountChanges,
   parseClientFrame,
   parseCustomDomainCheck,
   parseCustomStyles,
+  parseEmailLinkRequest,
   parseInvitationRequest,
-  parseInvitationSignUp,
+  parseEmailLinkSignUp,
   parseInvolvementChange,
   parseNewDirect,
   parseNewRoom,
@@ -71,6 +80,7 @@ import {
   roomSocketQuery,
   signInSaying,
   signsUpOpenly,
+  signsUpWithEmailDomain,
   startingInvolvement,
   suggestedCount,
   TAGLINE_TOO_LONG,
@@ -214,7 +224,7 @@ describe(feature("platform.live-socket"), () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} },
+      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -672,7 +682,7 @@ describe(feature("auth.invitation-sign-up"), () => {
   });
 
   it("takes a join with an invitation as its form sends it, with the link's secret and no email address", () => {
-    expect(parseInvitationSignUp({ token: "secret", name: " Hal ", password: "heuristically", emailAddress: "someone@else.example" })).toEqual({ token: "secret", name: "Hal", password: "heuristically" });
+    expect(parseEmailLinkSignUp({ token: "secret", name: " Hal ", password: "heuristically", emailAddress: "someone@else.example" })).toEqual({ token: "secret", name: "Hal", password: "heuristically" });
   });
 
   it.each([
@@ -682,7 +692,104 @@ describe(feature("auth.invitation-sign-up"), () => {
     ["one without the link's secret", { name: "Hal", password: "heuristically" }, "Name and password are required"],
     ["a name too long", { token: "secret", name: "H".repeat(MAX_USER_NAME_LENGTH + 1), password: "heuristically" }, NAME_TOO_LONG],
   ])("refuses %s and says why", (_, body, error) => {
-    expect(parseInvitationSignUp(body)).toBe(error);
+    expect(parseEmailLinkSignUp(body)).toBe(error);
+  });
+});
+
+describe(feature("auth.email-domain-sign-up"), () => {
+  it("puts the secret of a link someone asked for in its fragment, at its page", () => {
+    expect(emailSignUpLink("Ab-_9z")).toBe(`${EMAIL_SIGN_UP_PATH}#token=Ab-_9z`);
+    expect(EMAIL_SIGN_UP_PATH).toBe("/join/email");
+  });
+
+  it("lets people in at the email domains while Email domain is on with a domain, but never while Memberful is members only", () => {
+    const on = { emailDomainSignUp: true, emailDomains: ["example.org"], memberfulSignIn: false };
+    expect(signsUpWithEmailDomain(on)).toBe(true);
+    expect(signsUpWithEmailDomain({ ...on, emailDomainSignUp: false })).toBe(false);
+    expect(signsUpWithEmailDomain({ ...on, emailDomains: [] })).toBe(false);
+    expect(signsUpWithEmailDomain({ ...on, memberfulSignIn: true })).toBe(false);
+  });
+
+  it.each([
+    ["example.org", "example.org"],
+    ["  Example.ORG ", "example.org"],
+    ["@example.org", "example.org"],
+    ["mail.example.co.uk", "mail.example.co.uk"],
+    ["bücher.example", "xn--bcher-kva.example"],
+    ["XN--BCHER-KVA.example", "xn--bcher-kva.example"],
+    ["my-team.example", "my-team.example"],
+    ["example.org.", null],
+    ["", null],
+    ["localhost", null],
+    ["192.0.2.1", null],
+    ["ann@example.org", null],
+    ["example.org/path", null],
+    ["https://example.org", null],
+    ["example.org:443", null],
+    ["exa mple.org", null],
+    ["-example.org", null],
+    ["example-.org", null],
+    ["example..org", null],
+    ["example.123", null],
+    ["[::1]", null],
+    ["%65xample.org", null],
+    [`${"a".repeat(64)}.example`, null],
+    [`${"a.".repeat(126)}example`, null],
+  ])("reads %j as the domain %j", (typed, domain) => {
+    expect(emailDomainOf(typed)).toBe(domain);
+  });
+
+  it("reads an email address's domain as it reads a domain", () => {
+    expect(domainOfEmailAddress("Ann@Example.ORG")).toBe("example.org");
+    expect(domainOfEmailAddress("ann@bücher.example")).toBe("xn--bcher-kva.example");
+    expect(domainOfEmailAddress("ann")).toBeNull();
+    expect(domainOfEmailAddress("@example.org")).toBeNull();
+  });
+
+  it("takes Email domain's switch, and its domains as DNS has them, once each", () => {
+    expect(parseAccountChanges({ settings: { emailDomainSignUp: true } })).toEqual({ settings: { emailDomainSignUp: true } });
+    expect(parseAccountChanges({ settings: { emailDomainSignUp: "on" } })).toBe("Email domain must be true or false");
+    expect(parseAccountChanges({ emailDomains: ["Example.org", "@example.org", "bücher.example"] })).toEqual({ emailDomains: ["example.org", "xn--bcher-kva.example"] });
+    expect(parseAccountChanges({ emailDomains: [] })).toEqual({ emailDomains: [] });
+    expect(parseAccountChanges({ emailDomains: Array.from({ length: 100 }, (_, n) => `team${n}.example`) })).toMatchObject({ emailDomains: expect.any(Array) });
+  });
+
+  it.each([
+    ["a domain that isn't in a list", "example.org"],
+    ["one that isn't a domain", ["example.org", "not a domain"]],
+    ["one that isn't text", [null]],
+    ["more than 100", Array.from({ length: 101 }, (_, n) => `team${n}.example`)],
+  ])("refuses %s for Email domain's domains", (_, emailDomains) => {
+    expect(parseAccountChanges({ name: "Ember", emailDomains })).toBe(EMAIL_DOMAINS_REFUSED);
+  });
+
+  it("names the domains in words", () => {
+    expect(domainsInWords([])).toBe("");
+    expect(domainsInWords(["example.org"])).toBe("example.org");
+    expect(domainsInWords(["example.org", "example.net"])).toBe("example.org or example.net");
+    expect(domainsInWords(["example.org", "example.net", "example.com"])).toBe("example.org, example.net or example.com");
+    expect(onlyAddressesAt(["example.org", "example.net"])).toBe("Only email addresses at example.org or example.net can join this way.");
+  });
+
+  it("takes an ask for a link as its form sends it, with the address's domain, keeping the address as given but for an international domain", () => {
+    expect(parseEmailLinkRequest({ emailAddress: " Ann@Example.org " })).toEqual({ emailAddress: "Ann@Example.org", domain: "example.org" });
+    expect(parseEmailLinkRequest({ emailAddress: "ann@bücher.example" })).toEqual({ emailAddress: "ann@xn--bcher-kva.example", domain: "xn--bcher-kva.example" });
+    expect(parseEmailLinkRequest({ emailAddress: "ann@example.org", turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" })).toEqual({
+      emailAddress: "ann@example.org",
+      domain: "example.org",
+      turnstileToken: "XXXX.DUMMY.TOKEN.XXXX",
+    });
+  });
+
+  it.each([
+    ["something that isn't an object", "ann@example.org", "Expected a JSON object"],
+    ["no address", {}, EMAIL_ADDRESS_NEEDED],
+    ["what isn't an address", { emailAddress: "ann" }, EMAIL_ADDRESS_NEEDED],
+    ["an address at what isn't a domain", { emailAddress: "ann@localhost" }, EMAIL_ADDRESS_NEEDED],
+    ["an address too long", { emailAddress: `${"a".repeat(MAX_EMAIL_ADDRESS_LENGTH)}@example.org` }, EMAIL_ADDRESS_NEEDED],
+    ["a token longer than Turnstile's", { emailAddress: "ann@example.org", turnstileToken: "x".repeat(MAX_TURNSTILE_TOKEN_LENGTH + 1) }, "Turnstile's token must be at most 2048 characters"],
+  ])("refuses an ask with %s and says why", (_, body, error) => {
+    expect(parseEmailLinkRequest(body)).toBe(error);
   });
 });
 

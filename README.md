@@ -237,15 +237,23 @@ Workspace settings' Membership, where each way has a switch:
   up the rows Workers Free writes in a day.
 - Join link, on until it's turned off, lets in anyone with the link. Off, the link sends people to
   sign in, and on again, it's the same link.
+- Email domain, off until it's turned on, lets in people with an email address at the domains an
+  administrator lists, such as their company's. They ask for a link at
+  `https://<Ember's address>/join/email`, which the sign-in page offers as "Have an address at
+  example.com? Join with it", and Ember emails them one that joins with that address, once, within
+  an hour, so it can't be turned on until Ember sends email, below. Ember emails an address at most
+  3 links an hour, whoever asks, so nobody can fill someone's inbox with them, and until Ember has
+  Turnstile's keys, each network can ask for 10 links an hour. Each link is an email, so the
+  provider's limits apply.
 - Memberful, below, lets in the members of a Memberful site, who sign in with their Memberful
   accounts while everyone else keeps a password. Its Members only switch keeps signing in to them
   and administrators.
 
-While Open is on, Join link and Memberful are set aside, keeping their settings, and while Memberful
-is members only, Open and Join link are, so Open and Members only can't both be on. With all three
-off, only the people administrators invite by email, below, can join.
+While Open is on, Join link, Email domain and Memberful are set aside, keeping their settings, and
+while Memberful is members only, Open, Join link and Email domain are, so Open and Members only can't
+both be on. With all four off, only the people administrators invite by email, below, can join.
 
-To have open sign-up check that whoever signs up is a person, make a
+To have open sign-up, and Email domain's page, check that whoever uses them is a person, make a
 [Turnstile](https://developers.cloudflare.com/turnstile/) widget for Ember's hostname in Managed mode,
 under Turnstile in the Cloudflare dashboard or with wrangler, which prints its site key and secret key,
 and give the Worker both as secrets:
@@ -256,10 +264,11 @@ pnpm exec wrangler secret put TURNSTILE_SITE_KEY     # add --name <worker> for a
 pnpm exec wrangler secret put TURNSTILE_SECRET_KEY
 ```
 
-The sign-up page then shows Turnstile's check, and the Worker asks Turnstile about each form before
-it makes the account, in place of the limits, which a room full of people on one network, or a
-launch, would soon reach. `pnpm run deploy` uploads the two when its environment has them, as it does
-Memberful's keys, so the Preview workflow passes repository secrets of the same names through.
+The sign-up page and Email domain's then show Turnstile's check, and the Worker asks Turnstile about
+each form before it makes the account or emails the link, in place of the limits on a network, which
+a room full of people on one network, or a launch, would soon reach. `pnpm run deploy` uploads the
+two when its environment has them, as it does Memberful's keys, so the Preview workflow passes
+repository secrets of the same names through.
 
 ### Memberful sign-in
 
@@ -506,6 +515,10 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
   create rooms unless Must be admin to create new rooms is on. Turnstile, given its keys, keeps most
   bots out, and until then its limits keep a flood from filling the free plan. The join link has no
   limits, since its secrecy is the gate: regenerate it if it gets out.
+- Email domain lets in whoever can read mail at its domains, so list only domains whose addresses
+  your organization hands out: Membership warns of ones anyone can have an address at, such as
+  gmail.com. Its page answers the same whether or not an address has an account, emailing someone
+  who has one a way to sign in instead, so it tells strangers nothing of who's here.
 - The Memberful site vouches for its members, so whoever runs it can sign in here as any of them who
   have, and while Memberful is on, add new ones. Administrators keep their passwords, so the site being down never locks
   them out. A webhook whose signature `MEMBERFUL_WEBHOOK_SECRET` doesn't check is refused, and even a
