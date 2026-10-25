@@ -420,6 +420,31 @@ export interface WorkspaceSettings {
    * `TURNSTILE_SECRET_KEY`), so that open sign-up's form checks that whoever fills it in is a person.
    */
   turnstile: boolean;
+  /** How Ember sends email, which Membership's Email card shows administrators. */
+  email: EmailSettings;
+}
+
+/** What Ember sends email with: Cloudflare Email Service's binding, or Resend's API. */
+export type EmailProvider = "cloudflare" | "resend";
+
+/** How Ember sends email. */
+export interface EmailSettings {
+  /**
+   * What the deployment sends email with: Resend while it has the secret `RESEND_API_KEY`, or else
+   * Cloudflare Email Service while the Worker has its `EMAIL` binding, or null while it has neither, when
+   * Ember can't send any.
+   */
+  provider: EmailProvider | null;
+  /** The address an administrator gave Ember's email to come from, as `mailboxText` writes it, or null while there's none. */
+  from: string | null;
+}
+
+/** Why Ember can't send email while the deployment has neither Resend's key nor Cloudflare's binding. */
+export const CANT_SEND_EMAIL = "Ember can't send email yet: this Worker has neither Cloudflare Email Service's EMAIL binding nor a RESEND_API_KEY.";
+
+/** What `POST /api/account/test_email` answers once it has sent a test email: the address it went to, the administrator's own. */
+export interface SentTestEmail {
+  to: string;
 }
 
 /** What `POST /api/account/join_code` answers: the join link's new code, which the old one no longer joins with. */
@@ -430,7 +455,8 @@ export interface NewJoinCode {
 /**
  * What `PATCH /api/account` changes, as workspace settings save it: the workspace's name, its tagline,
  * its settings, its custom domain, which can only be the address the request comes to, or null for
- * none, and the icons of the rail's buttons and the appearance modes.
+ * none, the icons of the rail's buttons and the appearance modes, and the address Ember's email comes
+ * from, or null for none.
  */
 export interface AccountChanges {
   name?: string;
@@ -438,6 +464,7 @@ export interface AccountChanges {
   settings?: AccountSettings;
   customDomain?: string | null;
   navigationIcons?: NavigationIconChanges;
+  emailFrom?: string | null;
 }
 
 /**
@@ -1408,6 +1435,54 @@ export function parseCustomDomainCheck(data: unknown): { domain: string } | stri
   return canBeCustomDomain(HOST.exec(domain)![1]!) ? { domain } : NOT_A_CUSTOM_DOMAIN;
 }
 
+/** An email address, and the name its email is sent under, if any, as a From line gives them. */
+export interface Mailbox {
+  name: string | null;
+  address: string;
+}
+
+/**
+ * An email address Ember can send from: a local part of the characters RFC 5322 lets one have unquoted,
+ * then a domain of letters, digits and hyphens between dots, as DNS has its names.
+ */
+const MAILBOX_ADDRESS =
+  /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
+/** A name, in quotes or not, then an address in angle brackets. */
+const NAMED_MAILBOX = /^(.*?)\s*<([^<>]*)>$/s;
+/** What a From line's name can't hold: line breaks and other control characters, quotes, backslashes and angle brackets. */
+const NOT_IN_A_NAME = /[\u0000-\u001f\u007f"\\<>]/;
+/** What has a From line put its name in quotes, since the line's syntax would read it otherwise. */
+const QUOTED_IN_A_NAME = /[()[\]:;@,.]/;
+
+/** Why a From address is refused. */
+export const EMAIL_FROM_REFUSED = "From must be an email address, such as ember@example.com, or a name and one, such as Ember <ember@example.com>";
+
+/**
+ * The mailbox `text` gives, as an administrator types a From address: an email address, or a name, in
+ * quotes or not, and an address in angle brackets. Null for anything else, as for an address Ember can't
+ * send from, or a name a From line can't hold.
+ */
+export function mailboxOf(text: string): Mailbox | null {
+  const typed = text.trim();
+  const named = NAMED_MAILBOX.exec(typed);
+  const given = named?.[1]?.trim() ?? "";
+  const name = /^".*"$/s.test(given) ? given.slice(1, -1).trim() : given;
+  const address = named ? named[2]!.trim() : typed;
+  if (address.length > MAX_EMAIL_ADDRESS_LENGTH || !MAILBOX_ADDRESS.test(address)) return null;
+  if (name.length > MAX_USER_NAME_LENGTH || NOT_IN_A_NAME.test(name)) return null;
+  return { name: name || null, address };
+}
+
+/** `mailbox` as a From line writes it: its name, in quotes where the line's syntax needs them, then its address in angle brackets, or the address alone. */
+export const mailboxText = ({ name, address }: Mailbox) => (name === null ? address : `${QUOTED_IN_A_NAME.test(name) ? `"${name}"` : name} <${address}>`);
+
+/** A From address as `PATCH /api/account` may send one, as `mailboxText` writes it, null for none, as blank is, or undefined when it's neither. */
+function emailFromOf(value: unknown): string | null | undefined {
+  if (value === null || (typeof value === "string" && value.trim() === "")) return null;
+  const mailbox = typeof value === "string" ? mailboxOf(value) : null;
+  return mailbox === null ? undefined : mailboxText(mailbox);
+}
+
 /** A tagline as it's kept: on one line, with a single space between words and none at either end. */
 const taglineOf = (text: string) => text.replace(/\s+/g, " ").trim();
 
@@ -1434,11 +1509,12 @@ function navigationIconsOf(data: unknown): NavigationIconChanges | undefined {
  * ember-rust, the name is saved as typed, even blank. The tagline, this port's own, is kept on one line
  * without space at its ends, and blank is none. Each setting is true or false, and one it doesn't know
  * is refused, where ember-rust fails (account.rs, `assign`). A custom domain is a host or null, which
- * the Worker then checks is the address the request came to. Navigation icons are as `navigationIconsOf` reads them.
+ * the Worker then checks is the address the request came to. Navigation icons are as `navigationIconsOf`
+ * reads them, and the From address as `emailFromOf` does.
  */
 export function parseAccountChanges(data: unknown): AccountChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
-  const { name, tagline, settings, customDomain, navigationIcons } = data;
+  const { name, tagline, settings, customDomain, navigationIcons, emailFrom } = data;
   if (name !== undefined && (typeof name !== "string" || name.length > MAX_ACCOUNT_NAME_LENGTH)) return `Name must be at most ${MAX_ACCOUNT_NAME_LENGTH} characters`;
   const kept = typeof tagline === "string" ? taglineOf(tagline) : undefined;
   if (tagline !== undefined && (kept === undefined || kept.length > MAX_TAGLINE_LENGTH)) return TAGLINE_TOO_LONG;
@@ -1446,11 +1522,14 @@ export function parseAccountChanges(data: unknown): AccountChanges | string {
   if (customDomain !== undefined && domain === undefined) return CUSTOM_DOMAIN_NOT_A_HOST;
   const icons = navigationIconsOf(navigationIcons);
   if (navigationIcons !== undefined && icons === undefined) return NAVIGATION_ICONS_REFUSED;
+  const from = emailFromOf(emailFrom);
+  if (emailFrom !== undefined && from === undefined) return EMAIL_FROM_REFUSED;
   const changes: AccountChanges = {
     ...(name !== undefined && { name }),
     ...(kept !== undefined && { tagline: kept }),
     ...(domain !== undefined && { customDomain: domain }),
     ...(icons !== undefined && { navigationIcons: icons }),
+    ...(from !== undefined && { emailFrom: from }),
   };
   if (settings === undefined) return changes;
   if (!isJsonObject(settings)) return "Settings must be a JSON object";

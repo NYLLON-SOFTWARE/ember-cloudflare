@@ -32,6 +32,7 @@ import { logoVariantsOf } from "@/lib/previews";
 import { apart } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { CustomDomainSettings } from "./custom-domain-settings";
+import { EmailSettings } from "./email-settings";
 import { InviteLink } from "./invite-link";
 import { NavigationIconSettings } from "./navigation-icon-settings";
 import { PeopleList } from "./people-list";
@@ -88,9 +89,9 @@ interface Props {
  *   administrators can create rooms, then for administrators, the switch that says so and the rooms'
  *   order for everyone, each linking to its settings.
  * - Membership (accounts/_membership_settings.html): for administrators, who can join, this port's own,
- *   with switches for Open, the join link, which they can regenerate, and Memberful, or for
- *   members, the links that let people in, then the administrators and members, whom administrators can
- *   make administrators or members and remove.
+ *   with switches for Open, the join link, which they can regenerate, and Memberful, and how Ember sends
+ *   email, its own too, or for members, the links that let people in, then the administrators and
+ *   members, whom administrators can make administrators or members and remove.
  */
 export function WorkspaceSettingsPage({
   me,
@@ -261,6 +262,12 @@ export function WorkspaceSettingsPage({
     saveSwitch({ restrictRoomCreation: restrict }, () => setRestrictingCreation(null));
   };
   const sharedRooms = useMemo(() => rooms && apart(rooms).shared, [rooms]);
+
+  /** Shows the From address as it's saved, which only workspace settings shows. */
+  const showFromSaved = (from: string | null) => {
+    setSettings((settings) => settings && { ...settings, email: { ...settings.email, from } });
+    flash("notice", CHANGES_SAVED);
+  };
 
   // As ember-rust's Regenerate join link does: no confirmation first, and no notice after.
   const regenerate = () => {
@@ -453,11 +460,14 @@ export function WorkspaceSettingsPage({
           // `.mb-membership-content`.
           <div className="min-w-0">
             {settings.canAdminister ? (
-              <WaysToJoin
-                settings={settings}
-                saveSwitch={saveSwitch}
-                joinLink={<InviteLink joinCode={settings.joinCode} onRegenerate={regenerate} regenerating={regenerating} />}
-              />
+              <div className="flex flex-col gap-6">
+                <WaysToJoin
+                  settings={settings}
+                  saveSwitch={saveSwitch}
+                  joinLink={<InviteLink joinCode={settings.joinCode} onRegenerate={regenerate} regenerating={regenerating} />}
+                />
+                <EmailSettings email={settings.email} askForAccount={askForAccount} onFromSaved={showFromSaved} onFailed={onFailed} />
+              </div>
             ) : (
               <HowPeopleJoin joinLink={<InviteLink joinCode={settings.joinCode} />} memberfulSite={settings.memberfulSite} />
             )}

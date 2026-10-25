@@ -74,6 +74,20 @@ export interface Env {
   /** That widget's secret key, with which the Worker asks Cloudflare whether a check passed. */
   TURNSTILE_SECRET_KEY?: string;
   /**
+   * Cloudflare Email Service's binding, which Ember sends its email with, from the address an
+   * administrator gives in Membership (mail.ts). wrangler.jsonc declares it, but it only delivers from a
+   * domain onboarded to Email Sending, and to anyone but the account's own verified addresses only on
+   * the Workers Paid plan.
+   */
+  EMAIL?: SendEmail;
+  /**
+   * An API key of Resend's, which Ember sends its email with in place of Cloudflare's binding, as an
+   * account on Workers Free can, from a domain verified in Resend.
+   */
+  RESEND_API_KEY?: string;
+  /** Where Resend's API is, for the browser tests' stand-in, which only a loopback address can be. */
+  RESEND_API_URL?: string;
+  /**
    * The public half of the P-256 key pair that signs push notifications (VAPID), as ember-rust takes
    * it: the point, compressed or not, in URL-safe Base64. `pnpm vapid:keys` makes a pair. Without both
    * halves, or with a pair that doesn't match, push notifications are off. Browsers subscribe with it,

@@ -81,6 +81,7 @@ function deploy(listing: Listing, args: string[] = [], { deployStatus = 0, env =
     MEMBERFUL_WEBHOOK_SECRET: _webhookSecret,
     TURNSTILE_SITE_KEY: _siteKey,
     TURNSTILE_SECRET_KEY: _turnstileSecret,
+    RESEND_API_KEY: _resendKey,
     ...shell
   } = process.env;
   const run = spawnSync(process.execPath, [SCRIPT, ...args], {
@@ -325,6 +326,16 @@ describe(feature("auth.open-sign-up"), () => {
     expect(secrets).toEqual(keys);
     expect(logs).toContain("Deploying with TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY from the environment");
     expect(logs).not.toContain("0x4AAAAAAA");
+  });
+});
+
+describe(feature("platform.email"), () => {
+  it("uploads the Resend API key the environment gives with every deploy, and never prints it", () => {
+    const { status, secrets, logs } = deploy(EVERY_SECRET, [], { env: { RESEND_API_KEY: "re_e2e-only-not-a-key", CI: "true", GITHUB_ACTIONS: "true" } });
+    expect(status).toBe(0);
+    expect(secrets).toEqual({ RESEND_API_KEY: "re_e2e-only-not-a-key" });
+    expect(logs).toContain("Deploying with RESEND_API_KEY from the environment");
+    expect(logs).not.toContain("re_e2e");
   });
 });
 

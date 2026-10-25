@@ -13,7 +13,8 @@ name: Preview
 # and MEMBERFUL_API_KEY and MEMBERFUL_WEBHOOK_SECRET the app's API key and its site's webhook secret,
 # with which Ember hears when a membership lapses. TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY
 # repository secrets, if set, are a Turnstile widget's keys, with which open sign-up checks that
-# whoever signs up is a person.
+# whoever signs up is a person, and a RESEND_API_KEY repository secret, if set, has Ember send its
+# email with Resend rather than Cloudflare Email Service.
 on:
   push:
     branches: [main]
@@ -84,6 +85,8 @@ jobs:
           # Optional: a Turnstile widget's keys, for open sign-up to check that whoever signs up is a person.
           TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY }}
           TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          # Optional: a Resend API key, for Ember to send its email with Resend.
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           # Optional, and not secret: what the setup form suggests.
           EMBER_SETUP_NAME_PLACEHOLDER: ${{ vars.EMBER_SETUP_NAME_PLACEHOLDER }}
           EMBER_SETUP_EMAIL_PLACEHOLDER: ${{ vars.EMBER_SETUP_EMAIL_PLACEHOLDER }}

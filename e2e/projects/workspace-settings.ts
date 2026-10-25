@@ -15,6 +15,10 @@ export const MEMBERFUL_KEYS = {
   apiKey: "e2e-only-not-an-api-key",
   webhookSecret: "e2e-only-not-a-webhook-secret",
 };
+/** Where the Resend API the email spec fakes listens, which the second server's RESEND_API_URL names. */
+export const RESEND_API_PORT = Number(process.env.E2E_RESEND_PORT ?? 8791);
+/** The second server's Resend API key, which that API checks. It isn't a secret. */
+export const RESEND_KEY = "re_e2e-only-not-a-key";
 /** The project that sets the second server up. */
 const SETTINGS_FIRST_RUN = "workspace-settings-first-run";
 

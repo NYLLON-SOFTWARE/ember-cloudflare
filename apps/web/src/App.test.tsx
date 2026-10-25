@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, SIGN_IN_REJECTED, type Account, type AccountChanges, type Bootstrap, type Message } from "@ember/protocol";
+import { CloseCode, SIGN_IN_REJECTED, type Account, type AccountChanges, type Bootstrap, type Message, type WorkspaceSettings } from "@ember/protocol";
 import { flashOnNextPage } from "@/lib/flash";
 import { loadPage } from "@/lib/page";
 import { setPrefersDark } from "@/test-media";
@@ -148,7 +148,16 @@ function serve({
     }
     if (!signedIn) return Response.json({ error: "Not signed in" }, { status: 401 });
     if (route === "GET /api/me") return Response.json({ user: me });
-    if (route === "GET /api/account") return Response.json({ account, joinCode: JOIN_CODE, canAdminister: me.administrator });
+    if (route === "GET /api/account")
+      return Response.json({
+        account,
+        joinCode: JOIN_CODE,
+        canAdminister: me.administrator,
+        memberfulSite: null,
+        memberfulWebhooks: false,
+        turnstile: false,
+        email: { provider: "cloudflare", from: null },
+      } satisfies WorkspaceSettings);
     if (route === "GET /api/users") return Response.json({ users: [] });
     if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null } });
     if (route === "PATCH /api/account") {

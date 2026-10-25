@@ -75,7 +75,7 @@ const inPublicLog = () => !!process.env.CI && !process.env.WORKERS_CI;
 
 /**
  * The keys of a Memberful custom app, and the secret its site signs webhooks with, then a Turnstile
- * widget's, which only the deployer can give.
+ * widget's, and a Resend API key, which only the deployer can give.
  */
 const GIVEN_KEYS = [
   "MEMBERFUL_URL",
@@ -85,6 +85,7 @@ const GIVEN_KEYS = [
   "MEMBERFUL_WEBHOOK_SECRET",
   "TURNSTILE_SITE_KEY",
   "TURNSTILE_SECRET_KEY",
+  "RESEND_API_KEY",
 ];
 
 /**
