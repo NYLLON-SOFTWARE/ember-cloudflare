@@ -301,6 +301,26 @@ describe(feature("auth.email-domain-sign-up"), () => {
       expect(await count("email_links")).toBe(1);
     });
 
+    it("deletes the links nobody joined with once they stop working, as it saves another, keeping expired invitations", async () => {
+      const administrator = await setUpEmailDomain();
+      await emailing(async () => {
+        const response = await api("/api/invitations", { method: "POST", headers: as(administrator), body: JSON.stringify({ emailAddresses: ["linus@example.com"] }) });
+        expect(response.status).toBe(200);
+      });
+      const expired = await linkFor("hal@example.org");
+      await linkFor("ann@example.org");
+      const aMomentAgo = new Date(Date.now() - 1000).toISOString();
+      await workspaceSql("UPDATE email_links SET expires_at = ? WHERE email_address IN ('hal@example.org', 'linus@example.com')", aMomentAgo);
+      await expectGone(await lookUp(expired));
+
+      await linkFor("bob@example.org");
+      expect(await workspaceSql("SELECT kind, email_address FROM email_links ORDER BY email_address")).toEqual([
+        { kind: "email_domain", email_address: "ann@example.org" },
+        { kind: "email_domain", email_address: "bob@example.org" },
+        { kind: "invitation", email_address: "linus@example.com" },
+      ]);
+    });
+
     it(`emails an address at most ${EMAIL_LINKS_PER_ADDRESS} times an hour, whoever asks, answering the same once it has, and again after the hour`, async () => {
       await setUpEmailDomain();
       const sent: EmailMessageBuilder[] = [];
@@ -315,6 +335,27 @@ describe(feature("auth.email-domain-sign-up"), () => {
       await workspaceSql("INSERT INTO email_link_requests (email_address, counted_since, count) VALUES ('ann@example.org', ?, 2)", anHourAgo);
       expect(await asked("hal@example.org")).toHaveLength(1);
       expect(await workspaceSql("SELECT email_address, count FROM email_link_requests")).toEqual([{ email_address: "hal@example.org", count: 1 }]);
+    });
+
+    it("counts no email the provider refuses, which leaves the link it sent before working", async () => {
+      await setUpEmailDomain();
+      const sent = await linkFor("hal@example.org");
+      for (let n = 1; n <= EMAIL_LINKS_PER_ADDRESS; n++) {
+        const refused = await emailing(
+          async () => expect((await ask("hal@example.org")).status).toBe(502),
+          () => new Error("the provider is down"),
+        );
+        expect(refused).toHaveLength(1);
+      }
+      expect(await (await lookUp(sent)).json()).toEqual({ kind: "email_domain", emailAddress: "hal@example.org" });
+      expect(await workspaceSql("SELECT count FROM email_link_requests")).toEqual([{ count: 1 }]);
+
+      // Once the provider sends again, the address has the rest of its hour's emails, the newest link replacing the first.
+      const more: EmailMessageBuilder[] = [];
+      for (let n = 1; n <= EMAIL_LINKS_PER_ADDRESS; n++) more.push(...(await asked("hal@example.org")));
+      expect(more).toHaveLength(EMAIL_LINKS_PER_ADDRESS - 1);
+      await expectGone(await lookUp(sent));
+      expect((await lookUp(tokenIn(linkIn(more.at(-1)!)))).status).toBe(200);
     });
 
     it("emails an international domain's address at the ASCII form it's listed in", async () => {
@@ -363,6 +404,7 @@ describe(feature("auth.email-domain-sign-up"), () => {
         () => new Error("destination address is not a verified address"),
       );
       expect(refused).toHaveLength(1);
+      expect(await count("email_links")).toBe(0);
 
       await changed(administrator, { emailFrom: null });
       const response = await ask("hal@example.org");

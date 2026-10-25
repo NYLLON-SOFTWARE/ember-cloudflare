@@ -242,9 +242,9 @@ Workspace settings' Membership, where each way has a switch:
   `https://<Ember's address>/join/email`, which the sign-in page offers as "Have an address at
   example.com? Join with it", and Ember emails them one that joins with that address, once, within
   an hour, so it can't be turned on until Ember sends email, below. Ember emails an address at most
-  3 links an hour, whoever asks, so nobody can fill someone's inbox with them, and until Ember has
-  Turnstile's keys, each network can ask for 10 links an hour. Each link is an email, so the
-  provider's limits apply.
+  3 links an hour, whoever asks, so nobody can fill someone's inbox with them, counting only the
+  emails the provider takes, and until Ember has Turnstile's keys, each network can ask for 10 links
+  an hour. Each link is an email, so the provider's limits apply.
 - Memberful, below, lets in the members of a Memberful site, who sign in with their Memberful
   accounts while everyone else keeps a password. Its Members only switch keeps signing in to them
   and administrators.

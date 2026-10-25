@@ -1318,6 +1318,25 @@ describe(feature("auth.email-domain-sign-up"), () => {
     expect(domainsListed()).toEqual(["example.org", "example.com"]);
   });
 
+  it("keeps the domains another tab turned it on with once it's turned off here, turning on with them again", async () => {
+    serve(sending);
+    const { onAccountChanged, user } = showPage();
+    const toggle = await emailDomain();
+    // Another tab saves the first domain, turning it on, and the workspace socket says so.
+    const changes = { emailDomains: ["example.org"], settings: { emailDomainSignUp: true } };
+    const { account } = (await (await fetch("/api/account", { method: "PATCH", body: JSON.stringify(changes) })).json()) as { account: Account };
+    act(() => workspaceSays(account));
+    expect(domainsListed()).toEqual(["example.org"]);
+
+    await user.click(toggle);
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...sending.account, emailDomainSignUp: false, emailDomains: [] }));
+    await user.click(toggle);
+    await waitFor(() => expect(saved()).toEqual([changes, { settings: { emailDomainSignUp: false } }, { settings: { emailDomainSignUp: true } }]));
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...sending.account, emailDomainSignUp: true, emailDomains: ["example.org"] }));
+    expect(domainsListed()).toEqual(["example.org"]);
+    expect(saveButton()).not.toBeInTheDocument();
+  });
+
   it("shows members its link while it lets people in, naming the domains, with no switch", async () => {
     serve({ ...letsIn(["example.org", "example.com"], asMember), emailDomains: [] });
     showPage(asLinus);

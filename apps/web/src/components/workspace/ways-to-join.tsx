@@ -59,6 +59,11 @@ interface Props {
 /** Who can join, for administrators: a card for each way, with its switch, and its settings while it's on. */
 export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, joinLink }: Props) {
   const account = useAccount();
+  // The domains Email domain keeps, which the workspace shows only while it's on: as it last showed them,
+  // saved here or in another tab, or else as the page loaded them. Set as it renders, rather than after,
+  // so that the card never shows those it had before.
+  const [keptDomains, setKeptDomains] = useState(settings.emailDomains);
+  if (account.emailDomainSignUp && account.emailDomains !== keptDomains) setKeptDomains(account.emailDomains);
   // Where each switch was moved to, while that's saved.
   const [moved, setMoved] = useState<Pick<AccountSettings, WaySetting>>({});
   const open = moved.openSignUp ?? account.openSignUp;
@@ -129,8 +134,7 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, joinLink }:
         {joinLink}
       </Way>
       <EmailDomainSettings
-        // The workspace has its domains while it's on, as they were last saved, here or in another tab.
-        domains={account.emailDomainSignUp ? account.emailDomains : settings.emailDomains}
+        domains={keptDomains}
         emails={settings.email.provider !== null && settings.email.from !== null}
         turnstile={settings.turnstile}
         checked={emailDomain}

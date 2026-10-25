@@ -987,13 +987,14 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Emails `emailAddress` a link to join with it, the one `link`'s secret makes, at `origin`, in place of
-   * any it was sent before, while Email domain lets in `domain`, its domain (`auth.email-domain-sign-up`),
-   * or, if someone has an account with it already, whatever its case, an email saying so, with a link to
-   * sign in. Asks from `ip` count against its limit while they're `limited`, as they are while the
-   * deployment lacks Turnstile's keys. Once the address has been emailed as often as it is in an hour, an
-   * ask sends nothing, though it answers "asked", as it does for an address with an account, so that the
-   * answer never says who has one, and the link sent last still works.
+   * Emails `emailAddress` a link to join with it, the one `link`'s secret makes, at `origin`, while Email
+   * domain lets in `domain`, its domain (`auth.email-domain-sign-up`), which takes the place of any it was
+   * sent before once the provider has the email, or, if someone has an account with it already, whatever
+   * its case, an email saying so, with a link to sign in. Asks from `ip` count against its limit while
+   * they're `limited`, as they are while the deployment lacks Turnstile's keys. Once the address has been
+   * emailed as often as it is in an hour, an ask sends nothing, though it answers "asked", as it does for
+   * an address with an account, so that the answer never says who has one, and the link sent last still
+   * works. An email the provider refuses reaches nobody, so it isn't counted, and changes no link.
    */
   async askForEmailLink(ip: string, emailAddress: string, domain: string, link: NewEmailLink, origin: string, limited: boolean): Promise<EmailLinkAsk> {
     const account = await this.joinableAccount();
@@ -1002,22 +1003,25 @@ export class Workspace extends DurableObject<Env> {
     if (from === null) return "unsendable";
     if (limited && !this.emailLinkAsks.attempt(ip)) return "limited";
     const now = Date.now();
-    // Saved one at a time, as people join, but sent afterwards, so that sending never holds up a join.
+    // Counted one at a time, as people join, but sent afterwards, so that sending never holds up a join.
     const asked = await this.oneAtATime(async () => {
       const current = (await this.joinableAccount())!;
       if (!letsInEmailDomain(current, domain)) return "off";
-      const times = await this.store.countEmailLinkRequest(emailAddress, new Date(now).toISOString(), new Date(now - EMAIL_LINK_WINDOW_MS).toISOString());
-      if (times > EMAIL_LINKS_PER_ADDRESS) return "enough";
-      if ((await this.store.takenEmailAddresses([emailAddress])).size > 0) return { name: current.name, member: true };
-      await this.store.saveEmailDomainLink(sortableId(), emailAddress, link.digest, new Date(now).toISOString(), new Date(now + EMAIL_DOMAIN_LINK_MS).toISOString());
-      return { name: current.name, member: false };
+      const { count, countedSince } = await this.store.countEmailLinkRequest(emailAddress, new Date(now).toISOString(), new Date(now - EMAIL_LINK_WINDOW_MS).toISOString());
+      if (count > EMAIL_LINKS_PER_ADDRESS) return "enough";
+      return { name: current.name, member: (await this.store.takenEmailAddresses([emailAddress])).size > 0, countedSince };
     });
     if (asked === "off") return "off";
     if (asked === "enough") return "asked";
     const email = asked.member
       ? alreadyAMemberEmail(emailAddress, asked.name, `${origin}/session/new?${new URLSearchParams({ email_address: emailAddress })}`)
       : emailDomainLinkEmail(emailAddress, asked.name, `${origin}${emailSignUpLink(link.token)}`);
-    return (await sendEmail(this.env, from, email)) === null ? "asked" : "unsent";
+    if ((await sendEmail(this.env, from, email)) !== null) {
+      await this.store.uncountEmailLinkRequest(emailAddress, asked.countedSince);
+      return "unsent";
+    }
+    if (!asked.member) await this.store.saveEmailDomainLink(sortableId(), emailAddress, link.digest, new Date(now).toISOString(), new Date(now + EMAIL_DOMAIN_LINK_MS).toISOString());
+    return "asked";
   }
 
   /**

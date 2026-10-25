@@ -449,18 +449,24 @@ const SAVE_EMAIL_DOMAIN_LINK = `INSERT INTO email_links (id, token_digest, kind,
  */
 const SPEND_EMAIL_LINKS = `DELETE FROM email_links WHERE kind IN (${INVITATION}, ${EMAIL_DOMAIN}) AND lower(email_address) = lower(?)`;
 
+/** Deletes the links to join with at the email domains that stopped working at ?1 or before, which nobody joined with. */
+const FORGET_EXPIRED_EMAIL_DOMAIN_LINKS = `DELETE FROM email_links WHERE kind = ${EMAIL_DOMAIN} AND expires_at <= ?1`;
+
 /** Forgets the counts of the times addresses were asked for whose hour began at ?1 or before. */
 const FORGET_EMAIL_LINK_REQUESTS = `DELETE FROM email_link_requests WHERE counted_since <= ?1`;
 
 /**
  * Counts a time the address ?1 was asked for, at ?2, answering how many it's had in the hour its count
- * is of, which starts again at ?2 once it began at ?3 or before.
+ * is of, which starts again at ?2 once it began at ?3 or before, and when that hour began.
  */
 const COUNT_EMAIL_LINK_REQUEST = `INSERT INTO email_link_requests (email_address, counted_since, count) VALUES (lower(?1), ?2, 1)
   ON CONFLICT (email_address) DO UPDATE SET
     counted_since = CASE WHEN email_link_requests.counted_since > ?3 THEN email_link_requests.counted_since ELSE excluded.counted_since END,
     count = CASE WHEN email_link_requests.counted_since > ?3 THEN email_link_requests.count + 1 ELSE 1 END
-  RETURNING count`;
+  RETURNING count, counted_since`;
+
+/** Takes back a time the address ?1 was counted in the hour that began at ?2, while its count is of that hour still. */
+const UNCOUNT_EMAIL_LINK_REQUEST = `UPDATE email_link_requests SET count = count - 1 WHERE email_address = lower(?1) AND counted_since = ?2 AND count > 0`;
 
 /** The lowercase email addresses, among those in ?1, a JSON array, that someone has whatever their case. */
 const TAKEN_EMAIL_ADDRESSES = `SELECT lower(email_address) AS email_address FROM users WHERE lower(email_address) IN (SELECT lower(value) FROM json_each(?1))`;
@@ -1892,21 +1898,29 @@ export class WorkspaceStore {
 
   /**
    * Counts a time someone asked for a link to join with `emailAddress` at the email domains, whatever its
-   * case, at `now`, answering how many times it's been asked for in the hour its count is of, which
-   * starts again once `since` is past, when the counts whose hour is over are forgotten.
+   * case, at `now`, answering how many times it's been asked for in the hour its count is of, and when
+   * that hour began, which starts again once `since` is past, when the counts whose hour is over are
+   * forgotten.
    */
-  async countEmailLinkRequest(emailAddress: string, now: string, since: string): Promise<number> {
+  async countEmailLinkRequest(emailAddress: string, now: string, since: string): Promise<{ count: number; countedSince: string }> {
     const [, counted] = await this.db.batch([statement(FORGET_EMAIL_LINK_REQUESTS, since), statement(COUNT_EMAIL_LINK_REQUEST, emailAddress, now, since)]);
-    return (counted as Array<{ count: number }>)[0]!.count;
+    const [row] = counted as Array<{ count: number; counted_since: string }>;
+    return { count: row!.count, countedSince: row!.counted_since };
+  }
+
+  /** Takes back a time `countEmailLinkRequest` counted `emailAddress` in the hour that began at `countedSince`, unless its count has started again since. */
+  async uncountEmailLinkRequest(emailAddress: string, countedSince: string): Promise<void> {
+    await this.db.run(UNCOUNT_EMAIL_LINK_REQUEST, emailAddress, countedSince);
   }
 
   /**
    * Gives `emailAddress` a new link to join with at the email domains, whose digest is `tokenDigest`,
    * made at `now` and working until `expiresAt`, in place of any it had, keeping that one's id, or else
-   * with `id`.
+   * with `id`, deleting in the same batch the links that stopped working by `now`, which nobody joined
+   * with, so that those nobody uses don't pile up.
    */
   async saveEmailDomainLink(id: string, emailAddress: string, tokenDigest: string, now: string, expiresAt: string): Promise<void> {
-    await this.db.run(SAVE_EMAIL_DOMAIN_LINK, id, tokenDigest, emailAddress, now, expiresAt);
+    await this.db.batch([statement(FORGET_EXPIRED_EMAIL_DOMAIN_LINKS, now), statement(SAVE_EMAIL_DOMAIN_LINK, id, tokenDigest, emailAddress, now, expiresAt)]);
   }
 
   /** Whether `userId` may sign in with a password while Memberful is members only, as an active administrator, or someone who joined with an invitation, may. */

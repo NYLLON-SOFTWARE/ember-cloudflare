@@ -2,7 +2,7 @@
 -- email domains (`auth.email-domain-sign-up`), kept by the Workspace (scope "workspace" in
 -- src/migrations.ts), this port's own: an address is emailed only so many times an hour, whoever asks,
 -- so that nobody can have Ember email someone over and over. A count starts again once its hour is
--- over, and asking deletes the counts whose hour is.
+-- over, and asking deletes the counts whose hour is. An email the provider refuses isn't counted.
 CREATE TABLE IF NOT EXISTS email_link_requests (
   -- The address asked for, in lowercase, so that its case keeps no count of its own.
   email_address TEXT PRIMARY KEY,
@@ -11,3 +11,8 @@ CREATE TABLE IF NOT EXISTS email_link_requests (
   count INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS index_email_link_requests_on_counted_since ON email_link_requests (counted_since);
+
+-- Saving a link someone asked for deletes, through this, the links of its kind that stopped working,
+-- which nobody joined with, so that they don't pile up. Expired invitations stay, for administrators to
+-- send again.
+CREATE INDEX IF NOT EXISTS index_email_links_on_kind_and_expires_at ON email_links (kind, expires_at);

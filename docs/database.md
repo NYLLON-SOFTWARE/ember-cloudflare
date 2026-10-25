@@ -505,11 +505,14 @@ search index. On top of that schema it adds indexes and query changes for speed.
   invitation skips, since the unique index tells the cases apart. A request's addresses are one JSON
   parameter read with `json_each`, so it binds one value however many there are. The links someone
   asks for with an address at the email domains (`auth.email-domain-sign-up`) are rows of kind
-  `email_domain` in the same table, one an address, which asking again replaces, and joining by
-  any way deletes the address's links of both kinds, in one statement. How often each address was asked for in the last hour
-  is a row in `email_link_requests` (workspace migration 0042), by its lowercase: asking counts it in
-  one batch with deleting the counts whose hour is over, through the index on `counted_since`, so the
-  table holds only the last hour's addresses.
+  `email_domain` in the same table, one an address, which asking again replaces once the provider has
+  the email, and joining by any way deletes the address's links of both kinds, in one statement.
+  Saving one deletes, in its batch, those that have expired, which nobody joined with, through an
+  index on `(kind, expires_at)` (workspace migration 0042), while expired invitations stay for
+  administrators to send again. How often each address was asked for in the last hour is a row in
+  `email_link_requests` (the same migration), by its lowercase: asking counts it in one batch with
+  deleting the counts whose hour is over, through the index on `counted_since`, so the table holds only
+  the last hour's addresses, and an email the provider refuses is taken off the count it was added to.
 - **A bot's cards are part of its message's row.** ember-rust has no cards. Ours, what a
   Slack-compatible webhook's legacy attachments show, are kept as JSON in `messages.cards` (room
   migration 0034), as a file is, rather than in the body as Action Text attachments, which the rich
