@@ -46,9 +46,10 @@ export interface Env {
    */
   EMBER_RECOVERY_TOKEN?: string;
   /**
-   * The address of the Memberful site whose members may sign in, such as https://example.memberful.com,
-   * once an administrator turns Memberful sign-in on (memberful.ts). Without it, or either of the two
-   * keys of the site's custom app below, Memberful sign-in can't be turned on.
+   * The address of the Memberful site whose members may join and sign in, such as
+   * https://example.memberful.com, once an administrator turns Memberful on (memberful.ts). Without it,
+   * or either of the two keys of the site's custom app below, Memberful can't be turned on, and nobody
+   * signs in with it.
    */
   MEMBERFUL_URL?: string;
   /** The OAuth identifier of the Memberful site's custom app, a server-side one. */

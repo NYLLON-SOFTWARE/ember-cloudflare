@@ -68,7 +68,7 @@ const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administ
 /**
  * What a new account's settings and custom CSS read as: no tagline, translation buttons hidden, no CSS,
  * anyone may create rooms, no custom domain, people join with the join link but can't sign up without
- * it, members sign in with passwords rather than Memberful, and the rail has its own icons.
+ * it, nor join with Memberful, members sign in with passwords, and the rail has its own icons.
  */
 export const NEW_ACCOUNT_LOOKS = {
   tagline: "",
@@ -78,6 +78,7 @@ export const NEW_ACCOUNT_LOOKS = {
   customDomain: null,
   joinLink: true,
   openSignUp: false,
+  memberfulJoin: false,
   memberfulSignIn: false,
   navigationIcons: {},
 } as const;
@@ -102,11 +103,11 @@ export interface NewAccount {
 
 /**
  * What `WorkspaceStore.changeAccount` changes: the name, the tagline, the settings workspace settings'
- * switches change, the custom domain, and the navigation icons whose slots change.
+ * switches change, the custom domain, and the navigation icons whose slots change. Memberful's two
+ * settings change together, or not at all, as `memberful`.
  */
-export type AccountChange = Partial<
-  Pick<Account, "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "joinLink" | "openSignUp" | "memberfulSignIn">
-> & {
+export type AccountChange = Partial<Pick<Account, "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "joinLink" | "openSignUp">> & {
+  memberful?: Pick<Account, "memberfulJoin" | "memberfulSignIn">;
   navigationIcons?: NavigationIconChanges;
 };
 
@@ -544,10 +545,20 @@ function joinsWithLinkIn(settings: Record<string, unknown> | null): boolean {
 const signsUpOpenlyIn = (settings: Record<string, unknown> | null) => isPresent(settings?.open_sign_up);
 
 /**
- * Whether members sign in with Memberful, which the account's settings keep as `memberful_sign_in`, this
- * port's own: only while the setting is present.
+ * Whether Memberful is members only, which the account's settings keep as `memberful_sign_in`, this
+ * port's own: only while the setting is present, and Memberful is on (`joinsWithMemberfulIn`).
  */
-const signsInWithMemberful = (settings: Record<string, unknown> | null) => isPresent(settings?.memberful_sign_in);
+const signsInWithMemberful = (settings: Record<string, unknown> | null) => isPresent(settings?.memberful_sign_in) && joinsWithMemberfulIn(settings);
+
+/**
+ * Whether Memberful's members join with it, which the account's settings keep as `memberful_join`, this
+ * port's own: only while the setting is present, or, until it's stored, as for an account from before it,
+ * while `memberful_sign_in` is, which let them join while it was Memberful's only setting.
+ */
+function joinsWithMemberfulIn(settings: Record<string, unknown> | null): boolean {
+  const on = settings?.memberful_join;
+  return isPresent(on === undefined ? settings?.memberful_sign_in : on);
+}
 
 /**
  * The navigation icons the account's settings keep as `ember_navigation_icons`, as ember-rust reads them
@@ -991,6 +1002,7 @@ const SET_RESTRICT_ROOM_CREATION = setSetting("restrict_room_creation_to_adminis
 const SET_CUSTOM_DOMAIN = setSetting("custom_domain");
 const SET_JOIN_LINK = setSetting("join_link");
 const SET_OPEN_SIGN_UP = setSetting("open_sign_up");
+const SET_MEMBERFUL_JOIN = setSetting("memberful_join");
 const SET_MEMBERFUL_SIGN_IN = setSetting("memberful_sign_in");
 
 /** Navigation icon changes as the merge patch `CHANGE_NAVIGATION_ICONS` takes them: null for a slot's default. */
@@ -1442,6 +1454,7 @@ export class WorkspaceStore {
       customDomain: customDomainIn(settings),
       joinLink: joinsWithLinkIn(settings),
       openSignUp: signsUpOpenlyIn(settings),
+      memberfulJoin: joinsWithMemberfulIn(settings),
       memberfulSignIn: signsInWithMemberful(settings),
       navigationIcons: navigationIconsIn(settings),
       updatedAt: row.updated_at,
@@ -1449,9 +1462,13 @@ export class WorkspaceStore {
     };
   }
 
-  /** Changes the workspace's name, tagline, settings, custom domain and navigation icons, as `change` has them, in one batch. */
+  /**
+   * Changes the workspace's name, tagline, settings, custom domain and navigation icons, as `change` has
+   * them, in one batch. Memberful's settings are stored both at once, so that an account from before
+   * `memberful_join` reads as they're saved.
+   */
   async changeAccount(
-    { name, tagline, hideTranslationButtons, restrictRoomCreation, customDomain, joinLink, openSignUp, memberfulSignIn, navigationIcons }: AccountChange,
+    { name, tagline, hideTranslationButtons, restrictRoomCreation, customDomain, joinLink, openSignUp, memberful, navigationIcons }: AccountChange,
     now: string,
   ): Promise<void> {
     await this.db.batch([
@@ -1462,7 +1479,9 @@ export class WorkspaceStore {
       ...(customDomain === undefined ? [] : [statement(SET_CUSTOM_DOMAIN, JSON.stringify(customDomain), now)]),
       ...(joinLink === undefined ? [] : [statement(SET_JOIN_LINK, JSON.stringify(joinLink), now)]),
       ...(openSignUp === undefined ? [] : [statement(SET_OPEN_SIGN_UP, JSON.stringify(openSignUp), now)]),
-      ...(memberfulSignIn === undefined ? [] : [statement(SET_MEMBERFUL_SIGN_IN, JSON.stringify(memberfulSignIn), now)]),
+      ...(memberful === undefined
+        ? []
+        : [statement(SET_MEMBERFUL_JOIN, JSON.stringify(memberful.memberfulJoin), now), statement(SET_MEMBERFUL_SIGN_IN, JSON.stringify(memberful.memberfulSignIn), now)]),
       ...(navigationIcons === undefined ? [] : [statement(CHANGE_NAVIGATION_ICONS, JSON.stringify(navigationIconsPatch(navigationIcons)), now)]),
     ]);
   }
@@ -1646,6 +1665,11 @@ export class WorkspaceStore {
    */
   async connectIdentity({ userId, passwordDigest }: Connecting, issuer: string, subject: string, checkedAt: number, now: string): Promise<boolean> {
     return (await this.db.all(CONNECT_IDENTITY, issuer, subject, checkedAt, now, userId, passwordDigest)).length > 0;
+  }
+
+  /** Whether anyone, whatever their status, has an account at `issuer` linked to them. */
+  async anyoneLinked(issuer: string): Promise<boolean> {
+    return (await this.db.all(`SELECT 1 FROM identities WHERE issuer = ? LIMIT 1`, issuer)).length > 0;
   }
 
   /** Whether anyone has exactly this email address, whatever their status. */

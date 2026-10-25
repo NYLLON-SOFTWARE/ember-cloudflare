@@ -146,7 +146,7 @@ describe(feature("accounts.qr-codes"), () => {
 describe(feature("accounts.translation-buttons"), () => {
   it("has a translation button for its invitation once an administrator shows them", () => {
     render(
-      <AccountContext value={{ name: "Ember", tagline: "", hideTranslationButtons: false, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} }}>
+      <AccountContext value={{ name: "Ember", tagline: "", hideTranslationButtons: false, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} }}>
         <InvitationCard joinCode={JOIN_CODE} onDismiss={dismiss} />
       </AccountContext>,
     );
@@ -159,7 +159,7 @@ describe(feature("accounts.logo"), () => {
   it("shows the workspace's logo in place of Ember's flame, as ember-rust's welcome card does", () => {
     const logo = "/account/logo?v=20261017120000";
     render(
-      <AccountContext value={{ name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} }}>
+      <AccountContext value={{ name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} }}>
         <InvitationCard joinCode={JOIN_CODE} onDismiss={dismiss} />
       </AccountContext>,
     );

@@ -23,7 +23,7 @@ import { api, cookieOf, freshDeploy, openWorkspaceSocket, origin, shown, signIn,
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 
 /** The workspace named `name`, as pages show a new one: translation buttons hidden, no custom CSS, and rooms anyone can create. */
-const named = (name: string): Account => ({ name, tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} });
+const named = (name: string): Account => ({ name, tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} });
 
 /** Sets Ember up with Ada as its administrator, signed in. */
 async function setUp(): Promise<Session> {
@@ -211,7 +211,7 @@ describe(feature("accounts.name"), () => {
       // On D1 a read can start before the rename and finish after it, with the name from before.
       let finishReading!: (account: JoinableAccount | null) => void;
       vi.spyOn(storeOf(workspace), "account").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
-      const reading = workspace.bootstrap(null);
+      const reading = workspace.bootstrap(null, null);
       expect(await workspace.changeAccount(credentials, { name: "Ember Studio" })).toEqual(named("Ember Studio"));
       finishReading({ ...named("Ember"), joinCode: "aB3d-Ef5h-iJ7k", updatedAt: new Date().toISOString(), storedLogo: null });
       await reading;
@@ -633,7 +633,7 @@ describe(feature("accounts.regenerate-join-link"), () => {
       // On D1 a read can start before the change and finish after it, with the code from before.
       let finishReading!: (account: JoinableAccount | null) => void;
       vi.spyOn(storeOf(workspace), "account").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
-      const reading = workspace.bootstrap(null);
+      const reading = workspace.bootstrap(null, null);
       const regenerated = await workspace.regenerateJoinCode(credentials);
       finishReading({ ...named("Ember"), joinCode: old, updatedAt: new Date().toISOString(), storedLogo: null });
       await reading;

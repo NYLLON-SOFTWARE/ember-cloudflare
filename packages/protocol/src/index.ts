@@ -129,7 +129,7 @@ export type Role = "member" | "administrator" | "bot";
 
 /**
  * Whether someone can still sign in: people who were removed are deactivated, and banned people are
- * banned. While members sign in with Memberful, a member whose membership lapses is suspended until it's
+ * banned. A member who signs in with Memberful is suspended while their membership has lapsed, until it's
  * renewed (`auth.memberful-memberships`), which ember-rust has no need of.
  */
 export type UserStatus = "active" | "deactivated" | "banned" | "suspended";
@@ -367,19 +367,26 @@ export interface Account {
   customDomain: string | null;
   /**
    * Whether the join link lets people in, which an administrator turns off in Membership: then it sends
-   * them to sign in, keeping its code for when it's on again. On until one turns it off. While members
-   * sign in with Memberful it's off whatever this says (`joinsWithLink`).
+   * them to sign in, keeping its code for when it's on again. On until one turns it off. While Memberful
+   * is members only it's off whatever this says (`joinsWithLink`).
    */
   joinLink: boolean;
   /**
    * Whether anyone may create an account at `/join`, with no link, which an administrator turns on in
-   * Membership as Open. Off until one does, and never on while members sign in with Memberful.
+   * Membership as Open. Off until one does, and never on while Memberful is members only.
    */
   openSignUp: boolean;
   /**
-   * Whether members sign in with Memberful, which an administrator turns on in workspace settings: then
-   * the join link, open sign-up and signing in with just a name are off, and only administrators sign in
-   * with a password. Off until one turns it on.
+   * Whether the members of the deployment's Memberful site join, and sign in, with their Memberful
+   * account, which an administrator turns on in Membership as Memberful. Off until one does. Members who
+   * joined with it keep signing in with it once it's off, while the deployment has its keys.
+   */
+  memberfulJoin: boolean;
+  /**
+   * Whether only Memberful's members sign in, and administrators, which an administrator turns on in
+   * Membership as Memberful's Members only: then the join link, open sign-up and signing in with just a
+   * name are off, and only administrators sign in with a password. Off until one turns it on, and never
+   * on while Memberful is off.
    */
   memberfulSignIn: boolean;
   /**
@@ -399,7 +406,7 @@ export interface WorkspaceSettings {
   /**
    * The address of the Memberful site whose members can sign in, such as https://example.memberful.com,
    * once the deployment has the keys of its custom app (`MEMBERFUL_URL` and the rest), or null while it
-   * hasn't, when Memberful sign-in can't be turned on.
+   * hasn't, when Memberful can't be turned on.
    */
   memberfulSite: string | null;
   /**
@@ -435,25 +442,27 @@ export interface AccountChanges {
 
 /**
  * The workspace's settings that workspace settings' switches change, each as ember-rust's `account[settings]`
- * names it, but the ways to join, this port's own: the join link's switch, Open, and Memberful sign-in,
- * which the Worker turns on only with the deployment's Memberful keys, and never together with Open.
+ * names it, but the ways to join, this port's own: the join link's switch, Open, Memberful, and its
+ * Members only, which the Worker turns on only with the deployment's Memberful keys. Members only turns
+ * Memberful on with it, turning Memberful off turns it off, and it's never on together with Open.
  */
 export interface AccountSettings {
   hideTranslationButtons?: boolean;
   restrictRoomCreation?: boolean;
   joinLink?: boolean;
   openSignUp?: boolean;
+  memberfulJoin?: boolean;
   memberfulSignIn?: boolean;
 }
 
-/** Whether the join link lets people in: its switch is on, and members don't sign in with Memberful, which turns it off. */
+/** Whether the join link lets people in: its switch is on, and Memberful isn't members only, which turns it off. */
 export const joinsWithLink = ({ joinLink, memberfulSignIn }: Pick<Account, "joinLink" | "memberfulSignIn">) => joinLink && !memberfulSignIn;
 
-/** Whether anyone may create an account at `/join`: Open is on, and members don't sign in with Memberful, which it can't be on with. */
+/** Whether anyone may create an account at `/join`: Open is on, and Memberful isn't members only, which it can't be on with. */
 export const signsUpOpenly = ({ openSignUp, memberfulSignIn }: Pick<Account, "openSignUp" | "memberfulSignIn">) => openSignUp && !memberfulSignIn;
 
-/** Why turning on Open, or Memberful sign-in, is refused while the other is on: Memberful's lets only its members in. */
-export const OPEN_WITH_MEMBERFUL = "Open and Memberful sign-in can't both be on. Turn one off first.";
+/** Why turning on Open, or Memberful's Members only, is refused while the other is on: Members only lets only Memberful's members in. */
+export const OPEN_WITH_MEMBERFUL = "Open and Members only can't both be on. Turn one off first.";
 
 /** What `GET /api/account/custom_styles` answers, and `PATCH` sets, as the Custom CSS page saves it. */
 export interface CustomStyles {
@@ -508,7 +517,7 @@ export interface Profile {
   password: boolean;
   /**
    * Whether you've connected your account to an account at the Memberful site, which you can sign in with
-   * then (`auth.memberful-connect`), or null while members don't sign in with Memberful, or the deployment
+   * then (`auth.memberful-connect`), or null while Memberful isn't members only, or the deployment
    * lacks its keys, or for a guest, who has nothing to connect.
    */
   memberful: boolean | null;
@@ -566,6 +575,12 @@ export interface Bootstrap {
   setupPlaceholders: SetupPlaceholders;
   /** Whether people may sign in with just a name (`EMBER_GUEST_SIGN_IN`). */
   guestSignIn: boolean;
+  /**
+   * Whether the sign-in page offers Sign in with Memberful, once the deployment has the keys of its
+   * Memberful site's custom app: while Memberful lets that site's members join, or while anyone here signs
+   * in with an account there, as members who joined with it keep doing once it's off.
+   */
+  signInWithMemberful: boolean;
   /**
    * The site key of the Turnstile widget the open sign-up form shows, to check that whoever signs up is a
    * person, while the deployment has Turnstile's keys (`TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`),
@@ -729,7 +744,7 @@ export interface MemberfulConnectionStart {
 /**
  * Where to sign in at the Memberful site, within ten minutes, to connect the account you sign in to there
  * to yours here (`auth.memberful-connect`): what connecting from your profile answers, and what signing in
- * with a password answers a member whose password checks out while members sign in with Memberful, until
+ * with a password answers a member whose password checks out while Memberful is members only, until
  * they've connected one. Memberful sends the browser back, which connects it. Asked at an address Ember
  * has moved from to its custom domain (`accounts.custom-domain`), where Memberful doesn't send it back, it's
  * the page to come back to at the custom domain instead, to sign in and connect there.
@@ -748,14 +763,19 @@ export const MEMBERFUL_SIGN_IN_PROBLEMS = {
   failed: "Signing in with Memberful didn't work. Try again.",
   /** The Memberful account has no active subscription, nor the all access pass. */
   membership: "Your Memberful account has no active membership.",
-  /** Someone here has the Memberful account's email address already, and accounts are never matched by it, but connected by its owner. */
-  taken: "Someone here has your Memberful email address already. If that's you, sign in with your password to connect your Memberful account.",
+  /**
+   * Someone here has the Memberful account's email address already, and accounts are never matched by it,
+   * but connected by its owner, as signing in with that password does while Memberful is members only.
+   */
+  taken: "Someone here has your Memberful email address already. If that's you, sign in with your password.",
   /** The Memberful account is connected to someone else here already. */
   claimed: "That Memberful account is connected to someone else here.",
   /** Your account is connected to another account at the Memberful site already. */
   another: "Your account is connected to another Memberful account already.",
-  /** An administrator has turned Memberful sign-in off. */
-  off: "Memberful sign-in is off.",
+  /** Someone new signed in with Memberful while an administrator has Memberful off. */
+  off: "Joining with Memberful is off.",
+  /** Someone connected their account to one at Memberful once Memberful stopped being members only, when their password signs them in. */
+  unneeded: "Memberful isn't members only anymore, so there's nothing to connect. Your password signs you in.",
   /** It's on, but the deployment has no Memberful keys. */
   unavailable: "Memberful sign-in isn't set up. Ask an administrator for help.",
   /** Too many sign-ins from the address, or the account was removed or banned, which this doesn't tell apart. */
@@ -777,7 +797,7 @@ export const memberfulProblemOf = (value: string | null): MemberfulSignInProblem
 /** Why connecting Memberful from your profile is refused without your password, while you have one. */
 export const MEMBERFUL_PASSWORD_NEEDED = "Enter your password to connect Memberful.";
 
-/** Why signing in with a password, joining with the join link, or signing in with just a name is refused while members sign in with Memberful. */
+/** Why signing in with a password, joining with the join link, or signing in with just a name is refused while Memberful is members only. */
 export const MEMBERFUL_SIGN_IN_NEEDED = "Members sign in with Memberful. Only administrators sign in with a password.";
 
 /**
@@ -1315,7 +1335,8 @@ const SETTING_NAMES: Record<keyof AccountSettings, string> = {
   restrictRoomCreation: "Must be admin to create new rooms",
   joinLink: "Join link",
   openSignUp: "Open",
-  memberfulSignIn: "Members sign in with Memberful",
+  memberfulJoin: "Memberful",
+  memberfulSignIn: "Members only",
 };
 
 /**

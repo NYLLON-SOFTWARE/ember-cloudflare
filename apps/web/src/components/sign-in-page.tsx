@@ -25,11 +25,12 @@ import { returnPath } from "@/lib/return-path";
 // ember-rust's sign-in page (crates/views/templates/sessions/new.html, styled by the .mb-auth-* rules
 // in zz-ember.css). A refused sign-in shakes the card and says why at the top of the form, as ember-rust's
 // pull request #24 does in place of its flash, keeping the email address and emptying the password, as
-// its page does when it's shown again. While members sign in with Memberful, this port's own, the card offers that
-// instead, and the email and password form to those who ask for it: administrators, and members with an
-// account from before, whose password then asks them to connect their Memberful account. While anyone may
-// sign up, it links to the page for that (`auth.open-sign-up`), and it says why a way to join that's off
-// sent someone here (`accounts.ways-to-join`).
+// its page does when it's shown again. While Memberful is members only, this port's own, the card offers
+// signing in with Memberful instead, and the email and password form to those who ask for it:
+// administrators, and members with an account from before, whose password then asks them to connect their
+// Memberful account. Otherwise, while Memberful's members sign in with it, the card links to that under
+// the form. While anyone may sign up, it links to the page for that (`auth.open-sign-up`), and it says why a
+// way to join that's off sent someone here (`accounts.ways-to-join`).
 
 /** What a Memberful sign-in that came back here says went wrong, as this page's address names it, if it does. */
 function memberfulProblemOnArrival() {
@@ -38,16 +39,17 @@ function memberfulProblemOnArrival() {
 }
 
 /**
- * Signs in with an email address and password, or with just a name when the workspace allows it, or,
- * while members sign in with Memberful, with Memberful, or a password for administrators, which asks
- * anyone else to connect their Memberful account (`auth.memberful-connect`) until they have.
+ * Signs in with an email address and password, or with Memberful while its members sign in with it, or
+ * with just a name when the workspace allows it, or, while Memberful is members only, with Memberful, or
+ * a password for administrators, which asks anyone else to connect their Memberful account
+ * (`auth.memberful-connect`) until they have.
  */
 export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWorkspace; onSignedIn: (me: Me) => void }) {
-  const { memberfulSignIn } = workspace.account;
+  const { memberfulSignIn: membersOnly } = workspace.account;
   const [arrival] = useState(memberfulProblemOnArrival);
   const [asGuest, setAsGuest] = useState(false);
   // Someone whose Memberful email address is someone's here is asked for that someone's password.
-  const [withPassword, setWithPassword] = useState(!memberfulSignIn || arrival === "taken");
+  const [withPassword, setWithPassword] = useState(!membersOnly || arrival === "taken");
   const [emailAddress, setEmailAddress] = useState(() => new URLSearchParams(location.search).get("email_address") ?? "");
   const [busy, setBusy] = useState(false);
   const [shaking, setShaking] = useState(false);
@@ -151,12 +153,15 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
                 <a href={memberfulSignInPath(returnPath())}>Sign in with Memberful</a>
               </Button>
             )}
-            {memberfulSignIn &&
-              (withPassword ? (
+            {membersOnly ? (
+              withPassword ? (
                 <AuthAlternative question="Member?" action="Sign in with Memberful" onClick={() => setWithPassword(false)} disabled={busy} />
               ) : (
                 <AuthAlternative question="Have a password?" action="Sign in with a password" onClick={() => setWithPassword(true)} />
-              ))}
+              )
+            ) : (
+              workspace.signInWithMemberful && <AuthAlternative question="Member?" action="Sign in with Memberful" href={memberfulSignInPath(returnPath())} />
+            )}
             {signsUpOpenly(workspace.account) && <AuthAlternative question="New here?" action="Create an account" href={SIGN_UP_PATH} />}
             {workspace.guestSignIn && <AuthAlternative question="No account?" action="Join with just a name" onClick={() => setAsGuest(true)} disabled={busy} />}
           </>

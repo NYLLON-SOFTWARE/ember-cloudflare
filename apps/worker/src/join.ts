@@ -28,12 +28,12 @@ import type { NewPerson } from "./workspace-store";
 // Joining with the workspace's join link, ported from ember-rust's crates/ember/src/controllers/users.rs
 // (`new` and `create`), except that the form posts to /api/join/<code>. Where ember-rust fails with
 // 500 before first run, there's no join code to match yet, so every link is a 404. An administrator
-// can turn the link off, and while members sign in with Memberful (memberful.ts) it's off too: either
+// can turn the link off, and while Memberful is members only (memberful.ts) it's off too: either
 // way it sends people to sign in. Signing up at /join, with no code, is this port's own: anyone may
 // while an administrator lets them (`auth.open-sign-up`), within its limits, and with Turnstile's check
 // while the deployment has its keys.
 
-/** What the join form answers while members sign in with Memberful: why, and where to go instead. */
+/** What the join form answers while Memberful is members only: why, and where to go instead. */
 const MEMBERFUL_INSTEAD = {
   error: MEMBERFUL_SIGN_IN_NEEDED,
   redirect: "/session/new",
@@ -54,7 +54,7 @@ export const joinCodeOf = (pathname: string) => pathname.match(/^\/join\/([^/]+)
 
 /**
  * `GET /join/<code>`: the join page, which is the app's own, for someone signed out with the current
- * code, unless members sign in with Memberful, or the link is off, when it sends them to sign in.
+ * code, unless Memberful is members only, or the link is off, when it sends them to sign in.
  */
 export async function joinPage(request: Request, env: Env, code: string): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return empty(404);

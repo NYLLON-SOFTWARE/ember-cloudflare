@@ -24,11 +24,12 @@ import { MEMBERFUL_ROUND_TRIP_MS, workspace } from "./workspace";
 // a server-side custom app (memberful.com/docs/api-reference/sign-in-for-apps-via-oauth): Sign in with
 // Memberful sends the browser to the site's `/oauth` with a random state, which a cookie keeps, and the
 // site sends it back to the callback with that state and a code, which the Worker exchanges, with the
-// app's client secret, for an access token to ask the member API who signed in. It works only while an
-// administrator has turned Memberful sign-in on, and the deployment has the app's keys. Someone who has an
-// account here already connects their Memberful account to it the same way (`auth.memberful-connect`),
-// once their password has checked out, from their profile, or as they sign in: the Workspace keeps the
-// state's digest for the callback, which connects the account to theirs.
+// app's client secret, for an access token to ask the member API who signed in. It works only while the
+// deployment has the app's keys, and lets someone new in only while an administrator has Memberful on, but
+// signs in the members who joined with it once it's off too, since they have no password. While it's
+// members only, someone who has an account here already connects their Memberful account to it the same
+// way (`auth.memberful-connect`), once their password has checked out, from their profile, or as they sign
+// in: the Workspace keeps the state's digest for the callback, which connects the account to theirs.
 
 /** The cookie that keeps a sign-in's state, and the page to come back to, until Memberful sends the browser back. */
 const STATE_COOKIE = "memberful_state";
@@ -42,12 +43,12 @@ const SIGNATURE_HEADER = "X-Memberful-Webhook-Signature";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 
-/** Why Memberful sign-in can't be turned on: the deployment lacks the keys of a Memberful site's custom app. */
-export const MEMBERFUL_KEYS_NEEDED = "Memberful sign-in needs MEMBERFUL_URL, MEMBERFUL_CLIENT_ID and MEMBERFUL_CLIENT_SECRET set first";
+/** Why Memberful can't be turned on: the deployment lacks the keys of a Memberful site's custom app. */
+export const MEMBERFUL_KEYS_NEEDED = "Memberful needs MEMBERFUL_URL, MEMBERFUL_CLIENT_ID and MEMBERFUL_CLIENT_SECRET set first";
 
-/** Why `settings` can't be saved with the keys the deployment has: turning Memberful sign-in on takes them all. Null when they can. */
+/** Why `settings` can't be saved with the keys the deployment has: turning Memberful, or its Members only, on takes them all. Null when they can. */
 export const memberfulRefusal = (settings: AccountSettings | undefined, env: Env) =>
-  settings?.memberfulSignIn && !memberfulKeysOf(env) ? MEMBERFUL_KEYS_NEEDED : null;
+  (settings?.memberfulJoin || settings?.memberfulSignIn) && !memberfulKeysOf(env) ? MEMBERFUL_KEYS_NEEDED : null;
 
 /** A redirect to `location`, which no cache keeps, since it signs someone in, or starts to. */
 const redirect = (location: string, ...cookies: string[]) =>
@@ -113,15 +114,16 @@ function keptStateOf(request: Request): { state: string; returnPath: string; con
  * `GET /auth/memberful`, Sign in with Memberful: sends the browser to sign in at the Memberful site,
  * keeping a new state and the page `return_to` names in a cookie, to come back to Ember's address, its
  * custom domain if it has one, where Memberful sends the browser back. Before first run it goes home,
- * and while Memberful sign-in is off, or the deployment lacks its keys, back to sign in, which says so.
+ * and while it isn't offered (`Workspace.offersMemberfulSignIn`), back to sign in, which says Memberful
+ * is off, or isn't set up while it's on without the deployment's keys.
  */
 export async function startMemberfulSignIn(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return notFound(request);
   const account = await workspace(env).account();
   if (!account) return home(request);
-  if (!account.memberfulSignIn) return backToSignIn(request, "off");
   const keys = memberfulKeysOf(env);
-  if (!keys) return backToSignIn(request, "unavailable");
+  if (!keys) return backToSignIn(request, account.memberfulJoin ? "unavailable" : "off");
+  if (!(await workspace(env).offersMemberfulSignIn(keys.site))) return backToSignIn(request, "off");
   const url = urlOf(request);
   // The cookie is only sent back to the address that set it.
   const origin = originFor(request, account.customDomain);

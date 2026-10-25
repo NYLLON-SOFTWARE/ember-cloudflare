@@ -237,10 +237,13 @@ Workspace settings' Membership, where each way has a switch:
   up the rows Workers Free writes in a day.
 - Join link, on until it's turned off, lets in anyone with the link. Off, the link sends people to
   sign in, and on again, it's the same link.
-- Memberful, below, lets in the members of a Memberful site. Open and Memberful can't both be on, and
-  while either is, the other ways are set aside.
+- Memberful, below, lets in the members of a Memberful site, who sign in with their Memberful
+  accounts while everyone else keeps a password. Its Members only switch keeps signing in to them
+  and administrators.
 
-With all three off, nobody new can join.
+While Open is on, Join link and Memberful are set aside, keeping their settings, and while Memberful
+is members only, Open and Join link are, so Open and Members only can't both be on. With all three
+off, nobody new can join.
 
 To have open sign-up check that whoever signs up is a person, make a
 [Turnstile](https://developers.cloudflare.com/turnstile/) widget for Ember's hostname in Managed mode,
@@ -260,9 +263,9 @@ Memberful's keys, so the Preview workflow passes repository secrets of the same 
 
 ### Memberful sign-in
 
-The members of a [Memberful](https://memberful.com) site can sign in with their Memberful accounts
-instead of passwords. It's off until an administrator turns it on under Memberful in Workspace
-settings, which walks them through it:
+The members of a [Memberful](https://memberful.com) site can join and sign in with their Memberful
+accounts instead of passwords. It's off until an administrator turns it on under Memberful in
+Workspace settings, which walks them through it:
 
 1. In Memberful, under Settings, Custom applications, add an app with Include OAuth tokens with
    this application checked, choose Server-side, and give it the OAuth redirect URL
@@ -290,28 +293,33 @@ settings, which walks them through it:
    pnpm exec wrangler secret put MEMBERFUL_WEBHOOK_SECRET
    pnpm exec wrangler secret put MEMBERFUL_API_KEY
    ```
-4. Turn on Members sign in with Memberful in Workspace settings.
+4. Turn on Memberful in Workspace settings.
 
-While it's on, the sign-in page offers Sign in with Memberful. Someone with an active subscription,
-or the all access pass, signs in as the person their Memberful account is linked to, or else joins
-as a new member, in every open room. Accounts are linked by the Memberful site and the member's id
-there, never by email address, since Memberful lets anyone register an address without proving it's
-theirs: someone new whose Memberful email address someone here has already is turned away, and asked
-to sign in with their password to connect it, if it's theirs. The site is `MEMBERFUL_URL`'s address,
-so keep it once people have signed in: at another address, even the same site's, every member would
-be someone new. The join link and signing in with just a name are off, and only administrators sign
-in with a password, who need no membership. Sessions people have go on, and turning it off brings
-the join link and passwords back; the people who joined with Memberful have no password, so they
-can't sign in until it's on again or their password is reset.
+While it's on, the sign-in page offers Member? Sign in with Memberful under its form. Someone with an
+active subscription, or the all access pass, signs in as the person their Memberful account is
+linked to, or else joins as a new member, in every open room, and everyone else joins and signs in
+as before. Accounts are linked by the Memberful site and the member's id there, never by email
+address, since Memberful lets anyone register an address without proving it's theirs: someone new
+whose Memberful email address someone here has already is turned away, and asked to sign in with
+their password. The site is `MEMBERFUL_URL`'s address, so keep it once people have signed in: at
+another address, even the same site's, every member would be someone new. Turning Memberful off
+stops anyone new joining with it, but whoever signed in with it has no password, so they keep
+signing in with it, and the sign-in page keeps offering it, while the Worker has the keys.
 
-Someone with an account from before connects their Memberful account to it with their password: from
-the Memberful section of their profile, or as they sign in with their password, which asks them to
-connect one while members sign in with Memberful, until they have. Memberful sends them back signed
-in as themselves, and from then on they sign in with Memberful, and their membership counts as
-anyone's. A connection is good for one try within ten minutes, and a new password, theirs or a reset,
-forgets the ones the old one started. Administrators can connect one too, and sign in either way.
+Members only, under Memberful, keeps Ember to the site's members: the sign-in page offers Sign in
+with Memberful in place of its form, Open, the join link and signing in with just a name are off,
+and only administrators sign in with a password, who need no membership. Sessions people have go
+on, and turning it off brings the other ways and passwords back.
 
-A member whose membership lapses can't sign in again. With the webhook, they're suspended too: their
+While Memberful is members only, someone with an account from before connects their Memberful
+account to it with their password: from the Memberful section of their profile, or as they sign in
+with their password, which asks them to connect one until they have. Memberful sends them back
+signed in as themselves, and from then on they sign in with Memberful, and their membership counts
+as anyone's. A connection is good for one try within ten minutes, and a new password, theirs or a
+reset, forgets the ones the old one started. Administrators can connect one too, and sign in either
+way.
+
+A member whose membership lapses can't sign in with Memberful again. With the webhook, they're suspended too: their
 sessions end, their sockets close and their browsers' push subscriptions are forgotten, but their
 rooms, private ones too, messages and role stay, and they're back as they were once it's renewed and
 they sign in. Making an open room private leaves them out of it, as it does anyone not chosen. A
@@ -319,8 +327,8 @@ webhook only tells Ember whom to ask about: Memberful sends them in no particula
 Workspace asks Memberful's API what that member's membership is now, and asks about everyone linked
 once a day too, in case one never came. Administrators are never suspended. They see suspended
 members dimmed in Workspace settings, where they can remove them, and everyone else sees them as
-removed. Turning Memberful sign-in off leaves suspended members as they are, until it's on again
-and their membership is checked, and suspends nobody else, even with a check under way.
+removed. All of this goes on whether Memberful is on or not, since its members keep signing in with
+it once it's off.
 
 ### Push notifications
 
@@ -456,8 +464,8 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
   create rooms unless Must be admin to create new rooms is on. Turnstile, given its keys, keeps most
   bots out, and until then its limits keep a flood from filling the free plan. The join link has no
   limits, since its secrecy is the gate: regenerate it if it gets out.
-- With Memberful sign-in on, the Memberful site vouches for its members, so whoever runs it can sign
-  in here as any of them. Administrators keep their passwords, so the site being down never locks
+- The Memberful site vouches for its members, so whoever runs it can sign in here as any of them who
+  have, and while Memberful is on, add new ones. Administrators keep their passwords, so the site being down never locks
   them out. A webhook whose signature `MEMBERFUL_WEBHOOK_SECRET` doesn't check is refused, and even a
   signed one only has Ember ask Memberful's API about a member, so one forged or sent again changes
   nothing.

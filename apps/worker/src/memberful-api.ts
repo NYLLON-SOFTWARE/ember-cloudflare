@@ -54,7 +54,7 @@ export function memberfulKeysOf(env: Env): MemberfulKeys | null {
   if (!url || !clientId || !clientSecret) return null;
   const site = URL.parse(url);
   if (site?.protocol === "https:" || (site?.protocol === "http:" && isLoopback(site))) return { site: site.origin, clientId, clientSecret };
-  console.error("MEMBERFUL_URL must be a Memberful site's https address, such as https://example.memberful.com, so Memberful sign-in is off");
+  console.error("MEMBERFUL_URL must be a Memberful site's https address, such as https://example.memberful.com, so nobody signs in with Memberful");
   return null;
 }
 

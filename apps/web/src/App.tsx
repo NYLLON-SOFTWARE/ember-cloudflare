@@ -37,6 +37,7 @@ const isSameAccount = (a: Account, b: Account) =>
   a.customDomain === b.customDomain &&
   a.joinLink === b.joinLink &&
   a.openSignUp === b.openSignUp &&
+  a.memberfulJoin === b.memberfulJoin &&
   a.memberfulSignIn === b.memberfulSignIn &&
   NAVIGATION_SLOTS.every((slot) => a.navigationIcons[slot] === b.navigationIcons[slot]);
 

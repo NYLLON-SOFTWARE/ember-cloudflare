@@ -135,8 +135,8 @@ async function signIn(request: Request, env: Env): Promise<Response> {
 /**
  * ember-rust's sign-in (crates/ember/src/controllers/sessions.rs): every attempt counts against its IP
  * address's limit before anything is checked, and an unknown email address costs a password check
- * too, so the answer's timing doesn't say who has an account. While members sign in with Memberful,
- * only an administrator signs in with a password. Anyone else whose password checks out goes on to
+ * too, so the answer's timing doesn't say who has an account. While Memberful is members only, only
+ * an administrator signs in with a password. Anyone else whose password checks out goes on to
  * connect their Memberful account (`auth.memberful-connect`), as 202 says, to come back to `returnTo`
  * signed in, until they have one connected, and hears 403 once they have.
  */
@@ -179,7 +179,7 @@ async function signInWithPassword({ emailAddress, password, returnTo }: Record<s
 
 /**
  * Signs someone in with just a name, as someone new every time, when EMBER_GUEST_SIGN_IN allows it,
- * unless members sign in with Memberful.
+ * unless Memberful is members only.
  */
 async function signInGuest(given: unknown, request: Request, env: Env): Promise<Response> {
   if (!guestSignIn(env)) return problem(403, "Signing in with just a name is turned off");
@@ -199,8 +199,8 @@ async function signInGuest(given: unknown, request: Request, env: Env): Promise<
  */
 async function bootstrap(request: Request, env: Env): Promise<Response> {
   const token = sessionToken(request);
-  const [{ account, user }, push] = await Promise.all([
-    workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null),
+  const [{ account, user, signInWithMemberful }, push] = await Promise.all([
+    workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null, memberfulKeysOf(env)?.site ?? null),
     webPush(env),
   ]);
   const body: Bootstrap = {
@@ -208,6 +208,7 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
     setupAccess: setupAccessOf(request, env),
     setupPlaceholders: setupPlaceholdersOf(env),
     guestSignIn: guestSignIn(env) && !account?.memberfulSignIn,
+    signInWithMemberful,
     turnstileSiteKey: turnstileKeysOf(env)?.siteKey ?? null,
     account: account ?? ACCOUNT_BEFORE_SETUP,
     version: versionOf(env),
@@ -256,8 +257,8 @@ async function regenerateJoinCode(request: Request, env: Env): Promise<Response>
 /**
  * Changes the workspace, as its settings save it. As in ember-rust, someone who isn't an administrator
  * hears so before anything they sent is checked (accounts.rs). A custom domain can only be the address
- * the request came to (`customDomainRefusal`), and Memberful sign-in can only be turned on with the
- * deployment's Memberful keys. Turning it off always works.
+ * the request came to (`customDomainRefusal`), and Memberful, or its Members only, can only be turned
+ * on with the deployment's Memberful keys. Turning either off always works.
  */
 async function changeAccount(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -475,8 +476,8 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
  * out, while you have one, so that holding your session isn't enough to add a way into your account, as
  * for changing your email address or password, answers where to sign in at the Memberful site to connect
  * your account there to yours, with the cookie that keeps the state it goes with, to come back to your
- * profile. 401 without a valid session; 403 while members don't sign in with Memberful, or the deployment
- * lacks its keys, or to a guest; 409 once you've connected one; 422 without your password, or with one that
+ * profile. 401 without a valid session; 403 while Memberful isn't members only, or the deployment lacks
+ * its keys, or to a guest; 409 once you've connected one; 422 without your password, or with one that
  * isn't yours; and 429 past sign-in's limit, which checking the password counts against.
  */
 async function connectMemberful(request: Request, env: Env): Promise<Response> {
@@ -489,7 +490,7 @@ async function connectMemberful(request: Request, env: Env): Promise<Response> {
   const check = await workspace(env).memberfulConnectionCheck(credentials, request.headers.get("CF-Connecting-IP") ?? "unknown", site);
   if (!check) return problem(401, "Not signed in");
   if (check === "limited") return problem(429, SIGN_IN_LIMITED);
-  if (check === "off") return problem(403, MEMBERFUL_SIGN_IN_PROBLEMS.off);
+  if (check === "unneeded") return problem(403, MEMBERFUL_SIGN_IN_PROBLEMS.unneeded);
   if (check === "forbidden") return problem(403, "Guests can't connect Memberful");
   if (check === "connected") return problem(409, "You've connected Memberful already");
   if (check.passwordDigest !== "") {

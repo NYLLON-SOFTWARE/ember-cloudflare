@@ -201,7 +201,7 @@ describe(feature("platform.live-socket"), () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} },
+      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -517,13 +517,13 @@ describe(feature("accounts.ways-to-join"), () => {
     expect(parseAccountChanges({ settings: { openSignUp: null } })).toBe("Open must be true or false");
   });
 
-  it("lets people in with the join link while its switch is on, but never while members sign in with Memberful", () => {
+  it("lets people in with the join link while its switch is on, but never while Memberful is members only", () => {
     expect(joinsWithLink({ joinLink: true, memberfulSignIn: false })).toBe(true);
     expect(joinsWithLink({ joinLink: false, memberfulSignIn: false })).toBe(false);
     expect(joinsWithLink({ joinLink: true, memberfulSignIn: true })).toBe(false);
   });
 
-  it("lets anyone sign up while Open is on, but never while members sign in with Memberful", () => {
+  it("lets anyone sign up while Open is on, but never while Memberful is members only", () => {
     expect(signsUpOpenly({ openSignUp: true, memberfulSignIn: false })).toBe(true);
     expect(signsUpOpenly({ openSignUp: false, memberfulSignIn: false })).toBe(false);
     expect(signsUpOpenly({ openSignUp: true, memberfulSignIn: true })).toBe(false);
@@ -564,12 +564,14 @@ describe(feature("auth.open-sign-up"), () => {
 });
 
 describe(feature("auth.memberful-sign-in"), () => {
-  it("takes Members sign in with Memberful as true or false, beside the other settings", () => {
+  it("takes Memberful and its Members only as true or false, beside the other settings", () => {
+    expect(parseAccountChanges({ settings: { memberfulJoin: true } })).toEqual({ settings: { memberfulJoin: true } });
     expect(parseAccountChanges({ settings: { memberfulSignIn: true } })).toEqual({ settings: { memberfulSignIn: true } });
-    expect(parseAccountChanges({ settings: { memberfulSignIn: false, restrictRoomCreation: true } })).toEqual({
-      settings: { memberfulSignIn: false, restrictRoomCreation: true },
+    expect(parseAccountChanges({ settings: { memberfulJoin: false, memberfulSignIn: false, restrictRoomCreation: true } })).toEqual({
+      settings: { memberfulJoin: false, memberfulSignIn: false, restrictRoomCreation: true },
     });
-    expect(parseAccountChanges({ settings: { memberfulSignIn: 1 } })).toBe("Members sign in with Memberful must be true or false");
+    expect(parseAccountChanges({ settings: { memberfulJoin: "on" } })).toBe("Memberful must be true or false");
+    expect(parseAccountChanges({ settings: { memberfulSignIn: 1 } })).toBe("Members only must be true or false");
   });
 
   it("names the page to come back to, if any, in Sign in with Memberful's address", () => {

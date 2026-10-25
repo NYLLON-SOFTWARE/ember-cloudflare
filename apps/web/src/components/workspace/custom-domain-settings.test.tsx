@@ -12,7 +12,7 @@ import { CustomDomainSettings, DNS_ELSEWHERE, WORKERS_DASHBOARD, workerDomains }
 /** The test environment's jsdom, whose address the section reads as the page's. */
 declare const jsdom: { reconfigure(options: { url: string }): void };
 
-const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} };
+const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} };
 
 /** Where Workspace settings would be at `host`. */
 const settingsAt = (host: string) => `https://${host}/account/edit`;
