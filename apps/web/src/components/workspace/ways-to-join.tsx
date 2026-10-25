@@ -53,6 +53,10 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
   const open = moved.openSignUp ?? account.openSignUp;
   const link = moved.joinLink ?? account.joinLink;
   const memberful = moved.memberfulSignIn ?? account.memberfulSignIn;
+  // A way sets the others aside while it's on, until turning it off is saved, so that none is turned on
+  // while the server still has the way that overrides it on, which would refuse it.
+  const openOverrides = open || account.openSignUp;
+  const memberfulOverrides = memberful || account.memberfulSignIn;
 
   const switchTo = (setting: WaySetting) => (on: boolean) => {
     if (moved[setting] !== undefined) return;
@@ -77,7 +81,7 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
         description="Anyone can create an account at Ember's sign-up page."
         checked={open}
         onCheckedChange={switchTo("openSignUp")}
-        setAside={memberful && !open ? MEMBERFUL_OVERRIDES : null}
+        setAside={memberfulOverrides && !open ? MEMBERFUL_OVERRIDES : null}
       >
         <ShareableLink id="sign_up" label="Share so anyone can sign up" url={signUpUrl()} sharing={SIGN_UP_LINK} />
         {!account.restrictRoomCreation && (
@@ -111,7 +115,7 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
         description="Anyone with the link can create an account."
         checked={link}
         onCheckedChange={switchTo("joinLink")}
-        setAside={memberful ? MEMBERFUL_OVERRIDES : open ? OPEN_OVERRIDES : null}
+        setAside={memberfulOverrides ? MEMBERFUL_OVERRIDES : openOverrides ? OPEN_OVERRIDES : null}
       >
         {joinLink}
       </Way>
@@ -120,7 +124,7 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
         webhooks={settings.memberfulWebhooks}
         checked={memberful}
         onCheckedChange={switchTo("memberfulSignIn")}
-        setAside={open && !memberful ? OPEN_OVERRIDES : null}
+        setAside={openOverrides && !memberful ? OPEN_OVERRIDES : null}
       />
       {!open && !link && !memberful && <p className="text-start">With all of these off, no one new can join.</p>}
     </section>

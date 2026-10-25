@@ -886,6 +886,22 @@ describe(feature("accounts.ways-to-join"), () => {
     expect(signUpLink()).not.toBeInTheDocument();
   });
 
+  it.each([
+    { way: "Open", on: { openSignUp: true }, others: ["Join link", "Members sign in with Memberful"] },
+    { way: "Members sign in with Memberful", on: { memberfulSignIn: true }, others: ["Open", "Join link"] },
+  ])("keeps what $way sets aside greyed out until turning it off is saved, since the server refuses those till then", async ({ way: overriding, on, others }) => {
+    let answer = (_: Response) => {};
+    serve(withAccount(withKeys, on), { saved: () => new Promise((resolve) => (answer = resolve)) });
+    const { user } = showPage();
+    const overrides = await way(overriding);
+    await user.click(overrides);
+    expect(overrides).not.toBeChecked();
+    for (const name of others) expect(await way(name)).toBeDisabled();
+
+    answer(Response.json({ account: withKeys.account }));
+    for (const name of others) await waitFor(async () => expect(await way(name)).toBeEnabled());
+  });
+
   it("can't be moved again until the last move is answered, and moves back saying why it was refused", async () => {
     let answer = (_: Response) => {};
     serve(asAdministrator, { saved: () => new Promise((resolve) => (answer = resolve)) });
