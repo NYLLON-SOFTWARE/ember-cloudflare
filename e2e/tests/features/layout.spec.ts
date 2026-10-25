@@ -75,15 +75,23 @@ test.describe(feature("ui.layout"), () => {
   test("scrolls a long page's content but never the layout around it, also when the address's fragment changes", async ({ members }) => {
     const ada = await members.signIn("Ada", { administrator: true, context: { viewport: { width: 1280, height: 800 } } });
     const header = ada.page.getByRole("navigation", { name: "Page" });
-    // Both run past the window, with icon buttons far down them whose names only screen readers get.
-    // Scrolling the page itself, as a mouse wheel over the header would, moves nothing.
+    const main = ada.page.getByRole("main");
+    const membership = ada.page.getByRole("region", { name: "Membership" });
+    // Both run past the window, with icon buttons far down them whose names only screen readers get:
+    // the profile's ends with your sign-in link, and Membership's with the people, yourself among them.
+    // Scrolling the page itself, as a mouse wheel over the header would, moves nothing, while a wheel
+    // over their content scrolls it.
     for (const [path, shown] of [
-      ["/users/me/profile", ada.page.getByLabel("Name", { exact: true })],
-      ["/account/edit#membership-settings", ada.page.getByRole("region", { name: "Membership" })],
+      ["/users/me/profile", ada.page.getByRole("textbox", { name: "Use this link to login automatically on another device" })],
+      ["/account/edit#membership-settings", membership.getByRole("link", { name: "My settings" })],
     ] as const) {
       await ada.page.goto(path);
-      await expect(shown).toBeVisible();
+      await expect(shown).toBeAttached();
       await ada.page.evaluate(() => window.scrollBy(0, 400));
+      expect(await box(header), path).toMatchObject({ y: 0 });
+      await main.hover();
+      await ada.page.mouse.wheel(0, 400);
+      await expect.poll(() => main.evaluate((element) => element.scrollTop), { message: path }).toBeGreaterThan(0);
       expect(await box(header), path).toMatchObject({ y: 0 });
     }
 
@@ -91,7 +99,7 @@ test.describe(feature("ui.layout"), () => {
     await ada.page.evaluate(() => void (location.hash = "#community-settings"));
     await expect(ada.page.getByRole("heading", { name: "Basic community settings" })).toBeVisible();
     await ada.page.evaluate(() => void (location.hash = "#membership-settings"));
-    await expect(ada.page.getByRole("region", { name: "Membership" })).toBeVisible();
+    await expect(membership).toBeVisible();
     await ada.page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     expect(await box(header)).toMatchObject({ y: 0 });
   });
