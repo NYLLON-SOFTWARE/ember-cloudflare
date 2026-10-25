@@ -91,6 +91,10 @@ test("tapping anywhere else closes the actions, so only one message has them ope
   // The first message's actions open over the next two, so the last one's button is clear of them.
   for (const text of ["The first message", "The second", "The third", "The last message"]) await ada.say(text);
   await openRoom(page, room);
+  // In landscape the first message's button is under the header, so tapping it scrolls the timeline
+  // up, and the composer's editor mounting then would resize the timeline, which keeps to its end
+  // while it's that near, moving the button out from under the tap.
+  await expect(editorField(page, "Write a message")).toBeVisible();
 
   const first = page.getByRole("article").filter({ hasText: "The first message" });
   const last = page.getByRole("article").filter({ hasText: "The last message" });
