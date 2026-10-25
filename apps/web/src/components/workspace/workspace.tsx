@@ -655,12 +655,16 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // and the rail and conversations are ember-rust's landmarks in either layout. On a page of community
   // settings, the header spans the column beside the rail, 244px wide there, and the links to their
   // sections, which it brings, fill that column under it, or at 900px and below, a row of their own.
+  // The layout contains and clips whatever is placed absolutely inside it, such as text for screen
+  // readers only, and can't scroll itself. Otherwise that text, far down a long page, would reach past
+  // it and make the document scrollable, so that a mouse wheel over the header, or a change of the
+  // address's fragment, would scroll the whole layout up.
   const layout = (
     <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
       <DrawerOpen value={drawerOpen}>
         <div
           className={cn(
-            "grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-hidden bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]",
+            "relative grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]",
             settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",
           )}
         >
