@@ -694,30 +694,31 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Counts an open sign-up from `ip` against its limit, then checks it can go on, all before the Worker
-   * hashes its password (`auth.open-sign-up`): "closed" unless anyone may sign up, "limited" past the
-   * address's limit, "full" once the workspace has let in as many new people as it does in an hour,
-   * "taken" if someone has the email address already, and else "begun".
+   * Counts an open sign-up from `ip` against its limit, while sign-ups are `limited`, as they are while
+   * the deployment lacks Turnstile's keys, then checks it can go on, all before the Worker hashes its
+   * password (`auth.open-sign-up`): "closed" unless anyone may sign up, "limited" past the address's
+   * limit, "full" once the workspace has let in as many new people as it does in an hour, "taken" if
+   * someone has the email address already, and else "begun".
    */
-  async beginSignUp(ip: string, emailAddress: string): Promise<SignUpRefusal | "limited" | "taken" | "begun"> {
+  async beginSignUp(ip: string, emailAddress: string, limited: boolean): Promise<SignUpRefusal | "limited" | "taken" | "begun"> {
     const account = await this.joinableAccount();
     if (account === null || !signsUpOpenly(account)) return "closed";
-    if (!this.signUps.attempt(ip)) return "limited";
-    if (await this.signUpsFull()) return "full";
+    if (limited && !this.signUps.attempt(ip)) return "limited";
+    if (limited && (await this.signUpsFull())) return "full";
     return (await this.store.hasEmailAddress(emailAddress)) ? "taken" : "begun";
   }
 
   /**
    * Adds someone who signed up while anyone may as a member, as `join` adds someone with the join link.
-   * Answers "closed" if sign-up has closed since it began, "full" if the hour's new people have filled
-   * it since, and null if someone already has their email address.
+   * Answers "closed" if sign-up has closed since it began, "full" if sign-ups are `limited` and the
+   * hour's new people have filled them since, and null if someone already has their email address.
    */
-  async signUp(person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | SignUpRefusal | null> {
+  async signUp(person: Omit<NewPerson, "id">, tokenDigest: string, client: Client, limited: boolean): Promise<Me | SignUpRefusal | null> {
     // One at a time, so that the hour's sign-ups never pass the limit together.
     return this.oneAtATime(async () => {
       const account = await this.joinableAccount();
       if (account === null || !signsUpOpenly(account)) return "closed";
-      if (await this.signUpsFull()) return "full";
+      if (limited && (await this.signUpsFull())) return "full";
       return this.addMember(person, tokenDigest, client);
     });
   }

@@ -6,6 +6,8 @@ import {
   PASSWORD_TOO_SHORT,
   SIGN_UP_FULL,
   SIGN_UP_LIMITED,
+  SIGN_UPS_PER_ADDRESS,
+  SIGN_UPS_PER_HOUR,
   TURNSTILE_FAILED,
   type Account,
   type Bootstrap,
@@ -452,7 +454,7 @@ describe(feature("auth.open-sign-up"), () => {
     });
   });
 
-  describe("its limits", () => {
+  describe("its limits, while the deployment lacks Turnstile's keys", () => {
     it("lets an address sign up 5 times an hour, counting addresses with an account already, then answers 429 before the password is hashed", async () => {
       await setUpOpen();
       for (let n = 1; n <= 4; n++) expect((await signUp(newcomer(n))).status, `sign-up ${n}`).toBe(201);
@@ -548,14 +550,16 @@ describe(feature("auth.open-sign-up"), () => {
       expect(await count("users")).toBe(1);
     });
 
-    it("doesn't count a check that didn't pass against the address's limit", async () => {
+    it("lifts the limits it stands in for, however many sign up from an address, or join the workspace, in an hour", async () => {
       await setUpOpen();
-      vi.spyOn(console, "warn").mockImplementation(() => {});
-      let passes = false;
-      fakeSiteverify(() => Response.json({ success: passes }));
-      for (let attempt = 1; attempt <= 6; attempt++) expect((await signUp({ ...grace, turnstileToken: TOKEN }, withTurnstile)).status).toBe(422);
-      passes = true;
+      fakeSiteverify();
+      for (let n = 1; n <= SIGN_UPS_PER_ADDRESS + 1; n++) expect((await signUp({ ...newcomer(n), turnstileToken: TOKEN }, withTurnstile)).status, `sign-up ${n}`).toBe(201);
+      await joinedAt(Date.now() - 60_000, SIGN_UPS_PER_HOUR);
       expect((await signUp({ ...grace, turnstileToken: TOKEN }, withTurnstile)).status).toBe(201);
+      // Without the keys, they hold again.
+      const full = await signUp(newcomer(SIGN_UPS_PER_ADDRESS + 2), { ip: "198.51.100.4" });
+      expect(full.status).toBe(429);
+      expect(await full.json()).toEqual({ error: SIGN_UP_FULL });
     });
 
     it("isn't asked while the deployment lacks a key, or Open is off", async () => {

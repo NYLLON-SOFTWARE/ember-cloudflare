@@ -121,9 +121,9 @@ export async function join(request: Request, env: Env, code: string): Promise<Re
 /**
  * `POST /api/join`: adds the person the open sign-up form describes, as `join` adds someone with the
  * join link, while anyone may sign up, and else answers 403 before the form is read, sending them to
- * sign in. Turnstile's check comes first, while the deployment has its keys, then the limits, all
- * before the photo is stored or the password hashed: past the limit from the address, or once the
- * workspace's new people for the hour have filled it, it answers 429.
+ * sign in. Turnstile's check comes first, while the deployment has its keys, and else the limits that
+ * stand in for it, all before the photo is stored or the password hashed: past the limit from the
+ * address, or once the workspace's new people for the hour have filled it, it answers 429.
  */
 export async function signUp(request: Request, env: Env): Promise<Response> {
   const [session, account] = await Promise.all([authenticate(request, env), workspace(env).account()]);
@@ -141,13 +141,15 @@ export async function signUp(request: Request, env: Env): Promise<Response> {
   if (turnstile && !(await passedTurnstile(turnstile.secretKey, form.turnstileToken, client.ip))) {
     return formAnswer({ error: TURNSTILE_FAILED, field: "turnstile" }, 422);
   }
-  const begun = await workspace(env).beginSignUp(client.ip ?? "unknown", form.emailAddress);
+  // Turnstile's check stops the scripts the limits guard against, so they hold only without its keys.
+  const limited = turnstile === null;
+  const begun = await workspace(env).beginSignUp(client.ip ?? "unknown", form.emailAddress, limited);
   if (begun !== "begun") return signUpRefused(begun, form.emailAddress);
   const person = await personOf(env, form, sent.photo);
   if (person instanceof Response) return person;
 
   const token = newSessionToken();
-  const user = await workspace(env).signUp(person, await tokenDigest(token, env.SESSION_SECRET), client);
+  const user = await workspace(env).signUp(person, await tokenDigest(token, env.SESSION_SECRET), client, limited);
   if (user === "closed" || user === "full") return signUpRefused(user, form.emailAddress);
   if (!user) return emailAddressTaken(form.emailAddress);
   return formAnswer({ user } satisfies { user: Me }, 201, sessionCookie(request, token));

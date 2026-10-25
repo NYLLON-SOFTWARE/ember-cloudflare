@@ -801,9 +801,10 @@ export const joiningProblemOf = (value: string | null): JoiningProblem | null =>
 export const signInSaying = (problem: JoiningProblem) => `/session/new?${JOINING_PARAM}=${problem}`;
 
 /**
- * Open sign-up's limits, this port's own: how many people may sign up from an IP address in an hour,
- * and how many new people in the workspace in the last hour, however they joined, stop it, so that a
- * flood can't use up the rows a Workers Free account writes in a day.
+ * Open sign-up's limits, this port's own, which stand in for Turnstile's check while the deployment
+ * lacks its keys: how many people may sign up from an IP address in an hour, and how many new people in
+ * the workspace in the last hour, however they joined, stop it, so that a flood can't use up the rows a
+ * Workers Free account writes in a day.
  */
 export const SIGN_UPS_PER_ADDRESS = 5;
 export const SIGN_UPS_PER_HOUR = 50;

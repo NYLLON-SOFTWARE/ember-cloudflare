@@ -94,14 +94,14 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
           </p>
         )}
         <p className={NOTE}>
-          {SIGN_UPS_PER_ADDRESS} people can sign up from a network in an hour, and signing up waits once {SIGN_UPS_PER_HOUR} people have joined in an
-          hour.{" "}
           {settings.turnstile ? (
             "Cloudflare Turnstile checks that whoever signs up is a person."
           ) : (
             <>
-              To check that whoever signs up is a person too, add a Turnstile widget for Ember's address in the Cloudflare dashboard, then give this Worker
-              its site key and secret key as the secrets <code>TURNSTILE_SITE_KEY</code> and <code>TURNSTILE_SECRET_KEY</code>.{" "}
+              Until Cloudflare Turnstile checks that whoever signs up is a person, {SIGN_UPS_PER_ADDRESS} people can sign up from a network in an hour, and
+              signing up waits once {SIGN_UPS_PER_HOUR} people have joined in an hour. To lift these limits, add a Turnstile widget for Ember's address in
+              the Cloudflare dashboard, then give this Worker its site key and secret key as the secrets <code>TURNSTILE_SITE_KEY</code> and{" "}
+              <code>TURNSTILE_SECRET_KEY</code>.{" "}
               <a href={TURNSTILE_DASHBOARD} target="_blank" rel="noopener" className="underline">
                 Open Turnstile in the Cloudflare dashboard
               </a>

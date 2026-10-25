@@ -933,20 +933,23 @@ describe(feature("accounts.ways-to-join"), () => {
     expect(screen.queryByText(/Anyone who signs up can create rooms/)).not.toBeInTheDocument();
   });
 
-  it("says what limits signing up, and how Turnstile would check people until the deployment has its keys", async () => {
+  it("says what limits signing up until the deployment has Turnstile's keys, and how to give it them", async () => {
     serve(withAccount(asAdministrator, { openSignUp: true }));
     showPage();
     const open = await screen.findByRole("region", { name: "Open" });
-    expect(open).toHaveTextContent("5 people can sign up from a network in an hour, and signing up waits once 50 people have joined in an hour.");
-    expect(open).toHaveTextContent("give this Worker its site key and secret key as the secrets TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY.");
+    expect(open).toHaveTextContent(
+      "Until Cloudflare Turnstile checks that whoever signs up is a person, 5 people can sign up from a network in an hour, and signing up waits once 50 people have joined in an hour.",
+    );
+    expect(open).toHaveTextContent("To lift these limits, add a Turnstile widget for Ember's address in the Cloudflare dashboard, then give this Worker its site key and secret key as the secrets TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY.");
     expect(within(open).getByRole("link", { name: "Open Turnstile in the Cloudflare dashboard" })).toHaveAttribute("target", "_blank");
   });
 
-  it("says Turnstile checks whoever signs up once the deployment has its keys", async () => {
+  it("says Turnstile checks whoever signs up once the deployment has its keys, with no limits", async () => {
     serve({ ...withAccount(asAdministrator, { openSignUp: true }), turnstile: true });
     showPage();
     const open = await screen.findByRole("region", { name: "Open" });
     expect(open).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up is a person.");
+    expect(open).not.toHaveTextContent("in an hour");
     expect(open).not.toHaveTextContent("TURNSTILE_SITE_KEY");
   });
 

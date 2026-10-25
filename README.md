@@ -231,9 +231,10 @@ New people join with the join link until an administrator changes how under Who 
 Workspace settings' Membership, where each way has a switch:
 
 - Open, off until it's turned on, lets anyone create an account at `https://<Ember's address>/join`,
-  which the sign-in page links to as Create an account. Each network can sign up 5 people an hour,
-  and once 50 people have joined in an hour, however they joined, signing up waits, so a flood can't
-  use up the rows Workers Free writes in a day. Nobody checks that an email address is the owner's.
+  which the sign-in page links to as Create an account. Nobody checks that an email address is the
+  owner's. Until Ember has Turnstile's keys, below, each network can sign up 5 people an hour, and
+  once 50 people have joined in an hour, however they joined, signing up waits, so a flood can't use
+  up the rows Workers Free writes in a day.
 - Join link, on until it's turned off, lets in anyone with the link. Off, the link sends people to
   sign in, and on again, it's the same link.
 - Memberful, below, lets in the members of a Memberful site. Open and Memberful can't both be on, and
@@ -253,7 +254,8 @@ pnpm exec wrangler secret put TURNSTILE_SECRET_KEY
 ```
 
 The sign-up page then shows Turnstile's check, and the Worker asks Turnstile about each form before
-it makes the account. `pnpm run deploy` uploads the two when its environment has them, as it does
+it makes the account, in place of the limits, which a room full of people on one network, or a
+launch, would soon reach. `pnpm run deploy` uploads the two when its environment has them, as it does
 Memberful's keys, so the Preview workflow passes repository secrets of the same names through.
 
 ### Memberful sign-in
@@ -451,9 +453,9 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
 - `EMBER_GUEST_SIGN_IN=true` lets anyone with the address in with just a name, so keep it to
   `wrangler dev`, as `.dev.vars.example` says.
 - With Open on, anyone who finds the address can make an account, with any email address, and
-  create rooms unless Must be admin to create new rooms is on. Its limits keep a flood from filling
-  the free plan, and Turnstile, given its keys, keeps most bots out. The join link has no limits,
-  since its secrecy is the gate: regenerate it if it gets out.
+  create rooms unless Must be admin to create new rooms is on. Turnstile, given its keys, keeps most
+  bots out, and until then its limits keep a flood from filling the free plan. The join link has no
+  limits, since its secrecy is the gate: regenerate it if it gets out.
 - With Memberful sign-in on, the Memberful site vouches for its members, so whoever runs it can sign
   in here as any of them. Administrators keep their passwords, so the site being down never locks
   them out. A webhook whose signature `MEMBERFUL_WEBHOOK_SECRET` doesn't check is refused, and even a
