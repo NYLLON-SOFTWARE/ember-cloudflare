@@ -40,6 +40,7 @@ const workspaceSettings: WorkspaceSettings = {
   memberfulWebhooks: false,
   turnstile: false,
   email: { provider: "cloudflare", from: null },
+  invitations: [],
 };
 
 /**
@@ -927,7 +928,7 @@ describe(feature("auth.memberful-connect"), () => {
   const address = () => `${location.pathname}${location.search}${location.hash}`;
 
   it("flashes that your Memberful account is connected, once, taking it out of the address", async () => {
-    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, memberful: true } }) });
+    serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, membershipNeeded: true, memberful: true } }) });
     const { unmount } = showWorkspace("/users/me/profile?memberful=connected#top");
     expect(await screen.findByRole("alert")).toHaveTextContent("Your Memberful account is connected.");
     expect(address()).toBe("/users/me/profile#top");

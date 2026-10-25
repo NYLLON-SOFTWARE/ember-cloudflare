@@ -30,7 +30,7 @@ vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob([
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Ada's avatar as the profile loads it: her initials, until she uploads one. */
 const INITIALS = "/users/t0k3n/avatar?v=1";
-const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, memberful: null };
+const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null };
 const account: Account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, navigationIcons: {} };
 /** The sign-in links loading and saving the profile give. */
 const [LOADED_LINK, SAVED_LINK] = ["u1.mgk3x2a9.loaded", "u1.mgk3x2b0.saved"];
@@ -429,6 +429,13 @@ describe(feature("auth.memberful-connect"), () => {
     showPage();
     await loaded();
     expect(memberful()).toHaveTextContent("Your Memberful account is connected, so you sign in with it.");
+  });
+
+  it("tells someone who needs no membership, as an administrator or someone they invited, that they can sign in with it too", async () => {
+    serve({ loaded: () => Response.json({ profile: { ...profile, membershipNeeded: false, memberful: false }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+    showPage();
+    await loaded();
+    expect(memberful()).toHaveTextContent("Connect your Memberful account to sign in with it too.");
   });
 
   it("has none while members don't sign in with Memberful", async () => {

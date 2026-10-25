@@ -5,6 +5,7 @@ import {
   type ChangedPerson,
   type Directory,
   type DirectoryUser,
+  type Invited,
   type Me,
   type NewWorkspace,
   type ProfileAnswer,
@@ -820,8 +821,15 @@ describe(feature("accounts.ban-enforcement"), () => {
     const room = await createRoom("lobby", { as: administrator });
     const [{ join_code: joinCode }] = (await workspaceSql("SELECT join_code FROM accounts")) as [{ join_code: string }];
     const { transferId } = (await (await api("/api/users/me/profile", { headers: { Cookie: linus.cookie } })).json()) as ProfileAnswer;
+    const invited = await api("/api/invitations", { method: "POST", headers: { Cookie: administrator.cookie }, body: JSON.stringify({ emailAddresses: ["hal@example.com"] }) });
+    const [outcome] = ((await invited.json()) as Invited).outcomes;
+    if (!outcome || "member" in outcome) throw new Error("hal@example.com wasn't invited");
+    const { invitation, link } = outcome;
+    const token = new URL(link!).hash.slice("#token=".length);
     const everything = () =>
-      Promise.all(["accounts", "bans", "favorites", "memberships", "rooms", "sessions", "users"].map((table) => workspaceSql(`SELECT * FROM ${table} ORDER BY rowid`)));
+      Promise.all(
+        ["accounts", "bans", "email_links", "favorites", "memberships", "rooms", "sessions", "users"].map((table) => workspaceSql(`SELECT * FROM ${table} ORDER BY rowid`)),
+      );
     const before = await everything();
     const writes: Array<[method: string, path: string, body?: unknown]> = [
       ["POST", "/api/first_run", ada],
@@ -831,7 +839,12 @@ describe(feature("accounts.ban-enforcement"), () => {
       ["POST", "/api/session/transfers", { transferId }],
       ["POST", `/api/join/${joinCode}`, { name: "Hal", emailAddress: "hal@example.com", password: "heuristically" }],
       ["POST", "/api/join", { name: "Hal", emailAddress: "hal@example.com", password: "heuristically" }],
+      ["POST", "/api/email_links/lookup", { token }],
+      ["POST", "/api/join/invitation", { name: "Hal", password: "heuristically", token }],
       ["PATCH", "/api/account", { name: "Banned" }],
+      ["POST", "/api/invitations", { emailAddresses: ["linus@example.com"] }],
+      ["POST", `/api/invitations/${invitation.id}/resend`],
+      ["DELETE", `/api/invitations/${invitation.id}`],
       ["POST", "/api/account/join_code"],
       ["PATCH", "/api/account/custom_styles", { customStyles: "body { color: red }" }],
       ["PATCH", `/api/account/users/${linus.user.id}`, { role: "administrator" }],

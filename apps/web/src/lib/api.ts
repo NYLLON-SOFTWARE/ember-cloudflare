@@ -19,7 +19,11 @@ import {
   type DirectRoom,
   type Directory,
   type DirectoryUser,
+  type EmailLinkFor,
   type Favorites,
+  type InvitationOutcome,
+  type InvitationSignUp,
+  type Invited,
   type Involvement,
   type LinkPreview,
   type LinkSignIn,
@@ -41,6 +45,7 @@ import {
   type PushSubscriptionKeys,
   type PushSubscriptionSave,
   type PushSubscriptions,
+  type ResentInvitation,
   type Room,
   type RoomChanges,
   type RoomId,
@@ -101,7 +106,7 @@ export interface ChosenPhoto {
 }
 
 /** The fields of a form that can bring a photo with them: a sign-up form's, or a bot form's. */
-type UserFields = SignUp | NewBot | BotChanges;
+type UserFields = SignUp | InvitationSignUp | NewBot | BotChanges;
 
 /**
  * A form bringing `photo` as its `avatar` and `variant`, as the Worker reads one, and with `fields` as
@@ -159,6 +164,21 @@ export async function joinWorkspace(joinCode: string, person: SignUp, photo: Cho
  */
 export async function signUp(person: OpenSignUp, photo: ChosenPhoto | null = null): Promise<Me> {
   return (await request<{ user: Me }>("/api/join", { method: "POST", body: userBody(person, photo) })).user;
+}
+
+/** Whom the invitation whose link's secret is `token` is for, while it works. Fails with a 404 ApiError saying so once it doesn't. */
+export async function lookUpEmailLink(token: string): Promise<EmailLinkFor> {
+  return request<EmailLinkFor>("/api/email_links/lookup", { method: "POST", body: JSON.stringify({ token }) });
+}
+
+/**
+ * Joins with an invitation (`auth.invitation-sign-up`), as the person `person` describes, with the email
+ * address it was sent to and the photo they chose, if any, and signs this browser in as them. A link
+ * that has stopped working fails with a 404 ApiError, and an address with an account since with one
+ * that names the sign-in page to go to.
+ */
+export async function joinWithInvitation(person: InvitationSignUp, photo: ChosenPhoto | null = null): Promise<Me> {
+  return (await request<{ user: Me }>("/api/join/invitation", { method: "POST", body: userBody(person, photo) })).user;
 }
 
 /**
@@ -371,6 +391,25 @@ export async function regenerateJoinCode(): Promise<string> {
  */
 export async function sendTestEmail(): Promise<string> {
   return (await request<SentTestEmail>("/api/account/test_email", { method: "POST" })).to;
+}
+
+/**
+ * Invites each of `emailAddresses`, no more than `INVITATIONS_AT_ONCE`, by email (`accounts.invitations`),
+ * answering what came of each, in order. Fails with a 422 ApiError for a list it doesn't take, and a 403
+ * one for anyone but an administrator.
+ */
+export async function inviteByEmail(emailAddresses: string[]): Promise<InvitationOutcome[]> {
+  return (await request<Invited>("/api/invitations", { method: "POST", body: JSON.stringify({ emailAddresses }) })).outcomes;
+}
+
+/** Gives the invitation `id` a new link in place of its old one, emailed as inviting does, answering it. Fails with a 404 ApiError once it's been accepted or revoked. */
+export async function resendInvitation(id: string): Promise<ResentInvitation> {
+  return request<ResentInvitation>(`/api/invitations/${encodeURIComponent(id)}/resend`, { method: "POST" });
+}
+
+/** Revokes the invitation `id`, so that its link joins no one. Fails with a 404 ApiError once it's been accepted or revoked. */
+export async function revokeInvitation(id: string): Promise<void> {
+  await request(`/api/invitations/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 /**

@@ -68,6 +68,8 @@ export {
 export {
   BOTS_PATH,
   CUSTOM_STYLES_PATH,
+  INVITATION_PATH,
+  invitationLink,
   isAppPage,
   KIND_SEGMENTS,
   MAX_ID_LENGTH,
@@ -385,8 +387,8 @@ export interface Account {
   /**
    * Whether only Memberful's members sign in, and administrators, which an administrator turns on in
    * Membership as Memberful's Members only: then the join link, open sign-up and signing in with just a
-   * name are off, and only administrators sign in with a password. Off until one turns it on, and never
-   * on while Memberful is off.
+   * name are off, and only administrators and the people they invite sign in with a password. Off until
+   * one turns it on, and never on while Memberful is off.
    */
   memberfulSignIn: boolean;
   /**
@@ -422,6 +424,52 @@ export interface WorkspaceSettings {
   turnstile: boolean;
   /** How Ember sends email, which Membership's Email card shows administrators. */
   email: EmailSettings;
+  /** The invitations no one has accepted yet, newest first, for administrators, and none for anyone else. */
+  invitations: EmailInvitation[];
+}
+
+/**
+ * An invitation an administrator sent to join with an email address (`accounts.invitations`), until
+ * it's accepted or revoked. Its link works once, until it expires, and only for that address.
+ */
+export interface EmailInvitation {
+  id: string;
+  /** The address it's for, as the administrator gave it, which the account it makes has. */
+  emailAddress: string;
+  /** The name of the administrator who sent it last. */
+  invitedBy: string;
+  /** When its newest link was made, which a resend replaces, and when that stops working. */
+  createdAt: string;
+  expiresAt: string;
+  /**
+   * Whether Ember emailed its newest link, as "sent", or why the provider didn't send it, or null while
+   * Ember can't send email, when the administrator sends the link themselves.
+   */
+  delivery: "sent" | { refusal: string } | null;
+}
+
+/** The most email addresses `POST /api/invitations` invites at once. Membership sends a longer list that many at a time. */
+export const INVITATIONS_AT_ONCE = 20;
+
+/** How long an invitation's link works, from when it's sent. */
+export const INVITATION_DAYS = 7;
+
+/**
+ * What came of inviting an email address: nothing, when someone has an account with it already, whatever
+ * its case, or else its invitation, with the link when Ember didn't email it, for the administrator to
+ * send themselves, since only its digest is kept.
+ */
+export type InvitationOutcome = { emailAddress: string; member: true } | { emailAddress: string; invitation: EmailInvitation; link: string | null };
+
+/** What `POST /api/invitations` answers: what came of each address, in the order given. */
+export interface Invited {
+  outcomes: InvitationOutcome[];
+}
+
+/** What `POST /api/invitations/<id>/resend` answers: the invitation with its new link, which the old one no longer joins with, and the link when Ember didn't email it. */
+export interface ResentInvitation {
+  invitation: EmailInvitation;
+  link: string | null;
 }
 
 /** What Ember sends email with: Cloudflare Email Service's binding, or Resend's API. */
@@ -542,6 +590,11 @@ export interface Profile {
   avatar: boolean;
   /** Whether you have a password, which changing your email address or password then asks for (`currentPassword`). */
   password: boolean;
+  /**
+   * Whether you need a Memberful membership to sign in while Memberful is members only, as everyone does
+   * but administrators and the people they invite (`accounts.invitations`), who sign in with a password too.
+   */
+  membershipNeeded: boolean;
   /**
    * Whether you've connected your account to an account at the Memberful site, which you can sign in with
    * then (`auth.memberful-connect`), or null while Memberful isn't members only, or the deployment
@@ -673,6 +726,25 @@ export interface OpenSignUp extends SignUp {
 
 /** The most characters a Turnstile token has, as Cloudflare's siteverify takes it. */
 export const MAX_TURNSTILE_TOKEN_LENGTH = 2048;
+
+/**
+ * Someone joining with an invitation's link, as its form sends them to `POST /api/join/invitation`: the
+ * secret in the link's fragment, and a name and password. The email address is the invitation's.
+ */
+export interface InvitationSignUp {
+  token: string;
+  name: string;
+  password: string;
+}
+
+/** What `POST /api/email_links/lookup` answers for a link that works: whom it's for, which looking spends nothing of. */
+export interface EmailLinkFor {
+  kind: "invitation";
+  emailAddress: string;
+}
+
+/** Why an invitation's link doesn't work, whatever the reason, as its page and its form say. */
+export const INVITATION_GONE = "This invitation has expired, been used, or been replaced by a newer one. Ask whoever invited you to send another.";
 
 /**
  * Whose password to reset, and to what, as `POST /api/recovery/reset-password` takes it from
@@ -825,7 +897,7 @@ export const memberfulProblemOf = (value: string | null): MemberfulSignInProblem
 export const MEMBERFUL_PASSWORD_NEEDED = "Enter your password to connect Memberful.";
 
 /** Why signing in with a password, joining with the join link, or signing in with just a name is refused while Memberful is members only. */
-export const MEMBERFUL_SIGN_IN_NEEDED = "Members sign in with Memberful. Only administrators sign in with a password.";
+export const MEMBERFUL_SIGN_IN_NEEDED = "Members sign in with Memberful. Only administrators and invited people sign in with a password.";
 
 /**
  * Why a page for joining sent the browser to sign in instead, which the address names as `?joining=`,
@@ -1442,11 +1514,14 @@ export interface Mailbox {
 }
 
 /**
- * An email address Ember can send from: a local part of the characters RFC 5322 lets one have unquoted,
- * then a domain of letters, digits and hyphens between dots, as DNS has its names.
+ * An email address Ember can send from or to: a local part of the characters RFC 5322 lets one have
+ * unquoted, then a domain of letters, digits and hyphens between dots, as DNS has its names.
  */
 const MAILBOX_ADDRESS =
   /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
+
+/** Whether `address` is an email address Ember can send from or to, as `MAILBOX_ADDRESS` has them, no longer than Ember keeps. */
+export const isEmailAddress = (address: string) => address.length <= MAX_EMAIL_ADDRESS_LENGTH && MAILBOX_ADDRESS.test(address);
 /** A name, in quotes or not, then an address in angle brackets. */
 const NAMED_MAILBOX = /^(.*?)\s*<([^<>]*)>$/s;
 /** What a From line's name can't hold: line breaks and other control characters, quotes, backslashes and angle brackets. */
@@ -1468,7 +1543,7 @@ export function mailboxOf(text: string): Mailbox | null {
   const given = named?.[1]?.trim() ?? "";
   const name = /^".*"$/s.test(given) ? given.slice(1, -1).trim() : given;
   const address = named ? named[2]!.trim() : typed;
-  if (address.length > MAX_EMAIL_ADDRESS_LENGTH || !MAILBOX_ADDRESS.test(address)) return null;
+  if (!isEmailAddress(address)) return null;
   if (name.length > MAX_USER_NAME_LENGTH || NOT_IN_A_NAME.test(name)) return null;
   return { name: name || null, address };
 }
@@ -1638,6 +1713,67 @@ export function parseOpenSignUp(data: unknown): OpenSignUp | string {
   if (turnstileToken === undefined) return signUp;
   if (typeof turnstileToken !== "string" || turnstileToken.length > MAX_TURNSTILE_TOKEN_LENGTH) return `Turnstile's token must be at most ${MAX_TURNSTILE_TOKEN_LENGTH} characters`;
   return { ...signUp, turnstileToken };
+}
+
+/**
+ * Parses an untrusted join with an invitation's link, as `parseSignUp` does a join, but for the email
+ * address, which is the invitation's, and with the link's secret, which the Worker checks. Returns why
+ * it's refused instead.
+ */
+export function parseInvitationSignUp(data: unknown): InvitationSignUp | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const name = typeof data.name === "string" ? data.name.trim() : "";
+  if (!name || typeof data.password !== "string" || typeof data.token !== "string") return "Name and password are required";
+  if (name.length > MAX_USER_NAME_LENGTH) return NAME_TOO_LONG;
+  return { token: data.token, name, password: data.password };
+}
+
+/** Why `POST /api/invitations` is refused without an email address to invite. */
+export const NO_EMAIL_ADDRESSES = "Give an email address to invite";
+
+/** Why `POST /api/invitations` is refused an address it can't send to. */
+export const NOT_AN_EMAIL_ADDRESS = "Each must be an email address, such as ann@example.com";
+
+/**
+ * Parses an untrusted `POST /api/invitations`, `{ emailAddresses }`: 1 to `INVITATIONS_AT_ONCE` email
+ * addresses Ember can send to, each once, whatever its case, as first given. Returns why it's refused
+ * instead.
+ */
+export function parseInvitationRequest(data: unknown): string[] | string {
+  const given = isJsonObject(data) ? data.emailAddresses : undefined;
+  if (!Array.isArray(given) || given.length === 0) return NO_EMAIL_ADDRESSES;
+  if (given.length > INVITATIONS_AT_ONCE) return `Invite at most ${INVITATIONS_AT_ONCE} email addresses at once`;
+  if (!given.every((address) => typeof address === "string" && isEmailAddress(address))) return NOT_AN_EMAIL_ADDRESS;
+  return onceEach(given as string[]);
+}
+
+/**
+ * The email addresses in `text`, as an administrator pastes a list of them to invite: apart by commas,
+ * semicolons, spaces or line breaks, or each in angle brackets after a name, in quotes or not, as an
+ * email's To line has them. Each comes once, whatever its case, as first given, and anything else is
+ * refused, as given.
+ */
+export function emailAddressesIn(text: string): { emailAddresses: string[]; refused: string[] } {
+  // A name in quotes can hold commas, and is never an address.
+  const words = text.replace(/"[^"]*"/g, " ").split(/[,;\n]/).flatMap(wordsOfEntry);
+  return { emailAddresses: onceEach(words.filter(isEmailAddress)), refused: words.filter((word) => !isEmailAddress(word)) };
+}
+
+/** The words of `entry`, one of a list of addresses, apart by spaces: all but those of each name before an address in angle brackets. */
+function wordsOfEntry(entry: string): string[] {
+  // What's in angle brackets lands at the odd places, each after what comes before it.
+  const parts = entry.split(/<([^<>]*)>/);
+  return parts.flatMap((part, index) => {
+    const words = part.split(/\s+/).filter(Boolean);
+    // The words before an address in angle brackets are its name, but for any address among them.
+    return index % 2 === 0 && index < parts.length - 1 ? words.filter(isEmailAddress) : words;
+  });
+}
+
+/** `emailAddresses` with each address once, whatever its case, as first given. */
+function onceEach(emailAddresses: string[]): string[] {
+  const given = new Set<string>();
+  return emailAddresses.filter((address) => !given.has(address.toLowerCase()) && given.add(address.toLowerCase()));
 }
 
 /**

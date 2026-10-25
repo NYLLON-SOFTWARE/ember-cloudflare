@@ -94,8 +94,8 @@ export function MemberfulSettings({
           <div className="min-w-0 flex-1">
             <div id="members-only-heading">Members only</div>
             <p id="members-only-description" className={NOTE}>
-              Nobody else can join, and only administrators sign in with a password. Members who have one connect their Memberful account as they next sign
-              in.
+              Nobody else can join but the people you invite, and only they and administrators sign in with a password. Members who have one connect their
+              Memberful account as they next sign in.
             </p>
           </div>
           <Switch

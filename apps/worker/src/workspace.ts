@@ -2,6 +2,8 @@ import { DurableObject } from "cloudflare:workers";
 import {
   CANT_SEND_EMAIL,
   CloseCode,
+  INVITATION_DAYS,
+  invitationLink,
   isRoomId,
   mailboxOf,
   NAVIGATION_SLOTS,
@@ -19,7 +21,10 @@ import {
   type CustomStyles,
   type DirectoryUser,
   type DirectRoom,
+  type EmailInvitation,
+  type EmailLinkFor,
   type Favorites,
+  type Invited,
   type Involvement,
   type Me,
   type NavigationIconChanges,
@@ -33,6 +38,7 @@ import {
   type Profile,
   type ProfileChanges,
   type PushSubscriptionSave,
+  type ResentInvitation,
   type Room,
   type RoomChanges,
   type RoomId,
@@ -51,11 +57,11 @@ import { directoryOf, versionOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
 import { botKeyOf, isBotToken, newBotToken } from "./bots/keys";
 import { openDb, type Db } from "./db";
-import { testEmail } from "./emails";
+import { invitationEmail, testEmail } from "./emails";
 import { guestSignIn, type Env } from "./env";
 import { pictureObjects, type StoredPicture } from "./files/pictures";
 import { alphanumeric, sortableId } from "./ids";
-import { emailProviderOf, sendEmail } from "./mail";
+import { emailProviderOf, sendEmail, sendEmails } from "./mail";
 import { memberfulApiOf, membershipsOf, type MemberfulMember } from "./memberful-api";
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
@@ -296,6 +302,27 @@ export type SignUpRefusal = "closed" | "full";
  */
 export type TestEmail = SentTestEmail | { status: 422 | 502 | 503; refusal: string };
 
+/** A new link for Ember to email: its secret, which only the link holds, and the secret's digest, which the Workspace keeps in its place. */
+export interface NewEmailLink {
+  token: string;
+  digest: string;
+}
+
+/** An invitation as it's saved, before it's sent: the address it's for, its new link, and when that was made and stops working. */
+interface SavedInvitation {
+  id: string;
+  emailAddress: string;
+  link: NewEmailLink;
+  createdAt: string;
+  expiresAt: string;
+}
+
+/** When an invitation's link made now is made, and stops working, `INVITATION_DAYS` days on. */
+function invitationTimes(): Pick<SavedInvitation, "createdAt" | "expiresAt"> {
+  const now = Date.now();
+  return { createdAt: new Date(now).toISOString(), expiresAt: new Date(now + INVITATION_DAYS * 24 * 60 * 60 * 1000).toISOString() };
+}
+
 /** Why there's no test email without a From address. */
 const NO_EMAIL_FROM = "Give Ember a From address first.";
 /** Why there's no test email to an administrator without an email address. */
@@ -330,10 +357,11 @@ const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, adminis
 /**
  * What reading that `person`'s membership is `subscribed`, or not, changes: "lapsed" for an active member
  * without one, whom it suspends, "renewed" for a suspended member with one, whom it lets back, and null
- * for anyone else, administrators included, who are let in whatever their membership.
+ * for anyone else, administrators and the people they invited included, who are let in whatever their
+ * membership.
  */
-function membershipChange({ status, administrator }: LinkedPerson, subscribed: boolean): "lapsed" | "renewed" | null {
-  if (!subscribed && status === "active" && !administrator) return "lapsed";
+function membershipChange({ status, membershipNeeded }: LinkedPerson, subscribed: boolean): "lapsed" | "renewed" | null {
+  if (!subscribed && status === "active" && membershipNeeded) return "lapsed";
   if (subscribed && status === "suspended") return "renewed";
   return null;
 }
@@ -556,7 +584,8 @@ export class Workspace extends DurableObject<Env> {
     if (!user) return null;
     const [account, canAdminister] = await Promise.all([this.joinableAccount(), this.store.isAdministrator(user.id)]);
     if (!account) return "not set up";
-    return { account: accountOf(account), joinCode: account.joinCode, canAdminister, email: { provider: emailProviderOf(this.env), from: account.emailFrom } };
+    const invitations = canAdminister ? await this.store.invitations() : [];
+    return { account: accountOf(account), joinCode: account.joinCode, canAdminister, email: { provider: emailProviderOf(this.env), from: account.emailFrom }, invitations };
   }
 
   /**
@@ -656,6 +685,98 @@ export class Workspace extends DurableObject<Env> {
     if (!person?.emailAddress) return { status: 422, refusal: NO_EMAIL_ADDRESS };
     const refusal = await sendEmail(this.env, from, testEmail(person.emailAddress, account.name, origin));
     return refusal === null ? { to: person.emailAddress } : { status: 502, refusal };
+  }
+
+  /**
+   * Invites each address in `invitations`, with the link its secret makes, as the person `credentials`
+   * signs in (`accounts.invitations`), answering what came of each, in order: "forbidden" unless they're
+   * an administrator, or null without a valid session. An address someone has an account with already,
+   * whatever its case, isn't invited, and one invited already gets a new link in place of its old one.
+   * The links are emailed from the From address while Ember can send email, and the answer holds each one
+   * that wasn't, for the administrator to send themselves. `origin` is Ember's address, where links go.
+   */
+  async invite(credentials: Credentials, invitations: Array<{ emailAddress: string; link: NewEmailLink }>, origin: string): Promise<Invited | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const times = invitationTimes();
+    // Saved one at a time, as people join, but sent afterwards, so that sending never holds up a join.
+    const saved = await this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const taken = await this.store.takenEmailAddresses(invitations.map(({ emailAddress }) => emailAddress));
+      const inviting = invitations.filter(({ emailAddress }) => !taken.has(emailAddress.toLowerCase()));
+      const links = inviting.map(({ emailAddress, link }) => ({ id: sortableId(), emailAddress, tokenDigest: link.digest }));
+      const ids = await this.store.saveInvitations(links, user.id, times.createdAt, times.expiresAt);
+      return { account: (await this.joinableAccount())!, inviting: inviting.map((invitation, index) => ({ ...invitation, ...times, id: ids[index]! })) };
+    });
+    if (saved === "forbidden") return saved;
+    const delivered = new Map((await this.deliverInvitations(saved.account, user, saved.inviting, origin)).map((sent) => [sent.invitation.emailAddress, sent]));
+    return {
+      outcomes: invitations.map(({ emailAddress }) => {
+        const sent = delivered.get(emailAddress);
+        return sent ? { emailAddress, ...sent } : { emailAddress, member: true };
+      }),
+    };
+  }
+
+  /**
+   * Gives the invitation with `id` a new link, the one `link`'s secret makes, in place of its old one, as
+   * the person `credentials` signs in, and emails it as `invite` does, answering the invitation with the
+   * link if it wasn't emailed: "not found" once it's been accepted or revoked, "forbidden" unless they're
+   * an administrator, or null without a valid session.
+   */
+  async resendInvitation(credentials: Credentials, id: string, link: NewEmailLink, origin: string): Promise<ResentInvitation | "not found" | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const times = invitationTimes();
+    const renewed = await this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const emailAddress = await this.store.renewInvitation(id, link.digest, user.id, times.createdAt, times.expiresAt);
+      return emailAddress === null ? "not found" : { account: (await this.joinableAccount())!, emailAddress };
+    });
+    if (typeof renewed === "string") return renewed;
+    const [resent] = await this.deliverInvitations(renewed.account, user, [{ id, emailAddress: renewed.emailAddress, link, ...times }], origin);
+    return resent!;
+  }
+
+  /**
+   * Revokes the invitation with `id` as the person `credentials` signs in, so that its link joins no
+   * more: "not found" once it's been accepted or revoked, "forbidden" unless they're an administrator, or
+   * null without a valid session.
+   */
+  async revokeInvitation(credentials: Credentials, id: string): Promise<"revoked" | "not found" | "forbidden" | null> {
+    return this.administerAccount(credentials, async () => ((await this.store.revokeInvitation(id)) ? "revoked" : "not found"));
+  }
+
+  /**
+   * Emails each of `invitations`, from `inviter`, with its link at `origin`, from the workspace's From
+   * address while Ember can send email, and records what came of it, answering each invitation as
+   * administrators see it, with its link when it wasn't emailed.
+   */
+  private async deliverInvitations(
+    account: JoinableAccount,
+    inviter: User,
+    invitations: SavedInvitation[],
+    origin: string,
+  ): Promise<Array<{ invitation: EmailInvitation; link: string | null }>> {
+    const from = emailProviderOf(this.env) !== null && account.emailFrom !== null ? mailboxOf(account.emailFrom) : null;
+    const links = invitations.map(({ link }) => `${origin}${invitationLink(link.token)}`);
+    const emails = invitations.map(({ emailAddress }, index) => invitationEmail(emailAddress, account.name, inviter.name, links[index]!));
+    const refusals = from ? await sendEmails(this.env, from, emails) : null;
+    if (refusals) await this.store.recordDeliveries(invitations.map(({ link }, index) => ({ tokenDigest: link.digest, refusal: refusals[index] ?? null })), new Date().toISOString());
+    return invitations.map(({ id, emailAddress, createdAt, expiresAt }, index) => {
+      const refusal = refusals?.[index] ?? null;
+      const delivery = refusals === null ? null : refusal === null ? "sent" : { refusal };
+      return { invitation: { id, emailAddress, invitedBy: inviter.name, createdAt, expiresAt, delivery }, link: delivery === "sent" ? null : links[index]! };
+    });
+  }
+
+  /**
+   * Whom the invitation whose link's secret has the digest `linkDigest` is for, while its link works,
+   * which looking spends nothing of (`auth.invitation-sign-up`), or else null.
+   */
+  async invitationFor(linkDigest: string): Promise<EmailLinkFor | null> {
+    const invitation = await this.store.invitationFor(linkDigest, new Date().toISOString());
+    return invitation && { kind: "invitation", emailAddress: invitation.emailAddress };
   }
 
   /**
@@ -770,6 +891,22 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Adds someone who joined with the invitation whose link's secret has the digest `linkDigest`, with the
+   * email address it's for, as `join` adds someone with the join link, spending the link, whichever ways
+   * to join are on (`auth.invitation-sign-up`): "gone" once it's expired, been accepted, replaced or
+   * revoked, and null if someone has its email address already, whatever its case, which leaves it be.
+   */
+  async joinWithInvitation(linkDigest: string, person: Omit<NewPerson, "id" | "emailAddress">, tokenDigest: string, client: Client): Promise<Me | "gone" | null> {
+    // One at a time, so that two joins with the same link can't both add someone.
+    return this.oneAtATime(async () => {
+      const invitation = await this.store.invitationFor(linkDigest, new Date().toISOString());
+      if (!invitation) return "gone";
+      if ((await this.store.takenEmailAddresses([invitation.emailAddress])).size > 0) return null;
+      return this.addMember({ ...person, emailAddress: invitation.emailAddress, invitedBy: invitation.invitedBy }, tokenDigest, client);
+    });
+  }
+
+  /**
    * Counts an open sign-up from `ip` against its limit, while sign-ups are `limited`, as they are while
    * the deployment lacks Turnstile's keys, then checks it can go on, all before the Worker hashes its
    * password (`auth.open-sign-up`): "closed" unless anyone may sign up, "limited" past the address's
@@ -869,16 +1006,17 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Signs in someone whose password checked out against `passwordDigest`, unless they've stopped being
    * active since, or their password has been reset while it was checked. While Memberful is members
-   * only, only administrators sign in with a password, and anyone else hears "memberful", which only
-   * someone who knows their password can, so it says nothing about who has an account.
+   * only, only administrators and the people they invited sign in with a password, and anyone else hears
+   * "memberful", which only someone who knows their password can, so it says nothing about who has an
+   * account.
    */
   async startSession(userId: UserId, passwordDigest: string, rehash: string | null, tokenDigest: string, client: Client): Promise<Me | "memberful" | null> {
-    const administratorsOnly = (await this.joinableAccount())?.memberfulSignIn ?? false;
-    if (administratorsOnly && !(await this.store.isAdministrator(userId))) return "memberful";
+    const membersOnly = (await this.joinableAccount())?.memberfulSignIn ?? false;
+    if (membersOnly && !(await this.store.signsInWhileMembersOnly(userId))) return "memberful";
     // On D1 a role change can overlap it, so it's remembered only if none did, and the session starts
-    // only if they're an administrator still, when only administrators may sign in with a password.
+    // only if they may still sign in with a password, while Memberful is members only.
     const session = await this.sessions.keep(tokenDigest, () =>
-      this.store.startSession(userId, passwordDigest, rehash, administratorsOnly, sortableId(), tokenDigest, client, new Date().toISOString()),
+      this.store.startSession(userId, passwordDigest, rehash, membersOnly, sortableId(), tokenDigest, client, new Date().toISOString()),
     );
     return session && meOf(session);
   }
@@ -922,9 +1060,9 @@ export class Workspace extends DurableObject<Env> {
    * (`settleMembership`), unless the Workspace has gone by a newer read: a member whose membership has
    * lapsed is suspended, their sessions elsewhere ending, and one whose membership is renewed is let back.
    * Answers "off" for someone new while Memberful is off, "refused" for someone linked who has been
-   * removed or banned, "membership" for anyone but an administrator without an active membership, and
-   * "taken" when someone here has the email address someone new would have, which creates nothing.
-   * Everyone's workspace sockets hear of someone new.
+   * removed or banned, "membership" for anyone but an administrator, or someone they invited, without an
+   * active membership, and "taken" when someone here has the email address someone new would have, which
+   * creates nothing. Everyone's workspace sockets hear of someone new.
    */
   async signInWithMemberful(issuer: string, member: MemberfulMember, readAt: number, tokenDigest: string, client: Client): Promise<Me | MemberfulRefusal> {
     // One at a time, so that two sign-ins of someone new can't both add them, none can overlap turning
@@ -1006,12 +1144,12 @@ export class Workspace extends DurableObject<Env> {
    * account there, which is never matched by email address, and only while the password that started it
    * is theirs still, so that a new one, as a reset gives someone whose account was taken over, ends a
    * connection on its way as it ends their sessions. A member needs an active membership to connect one,
-   * as to sign in with it, which an administrator doesn't, and an account connected to them already signs
-   * them in as signing in with it does, going by what Memberful said of its membership as of `readAt`
-   * (`settleMembership`). Answers "unneeded" unless Memberful is members only, "claimed" for an account
-   * connected to someone else, "another" when they're connected to another account at the site,
-   * "membership" for a member without an active membership, and "refused" when they've been removed or
-   * banned, or their password has changed.
+   * as to sign in with it, which an administrator, or someone they invited, doesn't, and an account
+   * connected to them already signs them in as signing in with it does, going by what Memberful said of
+   * its membership as of `readAt` (`settleMembership`). Answers "unneeded" unless Memberful is members
+   * only, "claimed" for an account connected to someone else, "another" when they're connected to another
+   * account at the site, "membership" for a member without an active membership, and "refused" when
+   * they've been removed or banned, or their password has changed.
    */
   async connectMemberful(
     issuer: string,
@@ -1034,7 +1172,7 @@ export class Workspace extends DurableObject<Env> {
         const person = await this.store.connectingPerson(userId, issuer);
         if (!person) return "refused";
         if (person.subject !== null) return "another";
-        if (!person.administrator && !member.subscribed) return "membership";
+        if (person.membershipNeeded && !member.subscribed) return "membership";
         if (!(await this.store.connectIdentity(connecting, issuer, member.id, readAt, new Date().toISOString()))) return "refused";
         this.linkedSites.add(issuer);
       }
@@ -1074,8 +1212,9 @@ export class Workspace extends DurableObject<Env> {
    * Goes by what Memberful said of the membership of `linked`, the person their account with `subject` at
    * the Memberful site `issuer` is linked to, as read at `readAt`, unless the Workspace has gone by a newer
    * read: suspends a member whose membership has lapsed (`suspendLapsed`), lets back one whose membership
-   * is renewed (`restoreRenewed`), or else records the read. Administrators are let in whatever their
-   * membership, and someone removed or banned stays so. Answers their status then. One change at a time.
+   * is renewed (`restoreRenewed`), or else records the read. Administrators, and the people they invited,
+   * are let in whatever their membership, and someone removed or banned stays so. Answers their status
+   * then. One change at a time.
    */
   private async settleMembership(issuer: string, subject: string, linked: LinkedPerson, subscribed: boolean, readAt: number): Promise<UserStatus> {
     if (linked.checkedAt > readAt) return linked.status;
@@ -1753,10 +1892,14 @@ export class Workspace extends DurableObject<Env> {
 
   /** `person`'s profile, as their own profile page shows it to their `session`. */
   private async yourProfile(person: OwnProfileEntry, session: StoredSession): Promise<YourProfile> {
-    const { name, emailAddress, bio, avatar, password } = person;
+    const { name, emailAddress, bio, avatar, password, membershipNeeded } = person;
     const { avatarUrl } = await this.directoryUser(person);
     const connected = (await this.joinableAccount())?.memberfulSignIn && !session.guest ? person.issuers : null;
-    return { transfer: { userId: person.id, sessionId: session.id }, profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password }, connected };
+    return {
+      transfer: { userId: person.id, sessionId: session.id },
+      profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded },
+      connected,
+    };
   }
 
   /**

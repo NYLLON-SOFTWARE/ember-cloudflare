@@ -141,6 +141,15 @@ export const TRANSFER_PATH = "/session/transfers";
 /** Where anyone may create an account while an administrator lets them (`Account.openSignUp`), which the Worker answers itself. */
 export const SIGN_UP_PATH = "/join";
 
+/** The page an invitation's link opens, to join with the address it was sent to (`auth.invitation-sign-up`), which the Worker answers itself. */
+export const INVITATION_PATH = "/join/invitation";
+
+/**
+ * An invitation's link: its page, with the link's secret as the fragment's `token`, as a sign-in link
+ * keeps its id, so no request, Referer or log holds it. Secrets are base64url, which nothing escapes.
+ */
+export const invitationLink = (token: string) => `${INVITATION_PATH}#token=${token}`;
+
 /**
  * A sign-in link's address: its page, with the link's id as the fragment's `token`, where ember-rust's
  * `session_transfer` route puts the id in the path. Browsers never send a fragment, so no request holds

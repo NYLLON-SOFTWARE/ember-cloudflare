@@ -467,17 +467,17 @@ describe(feature("auth.memberful-sign-in"), () => {
       );
       const [signedIn, signedInNow] = await runInDurableObject(workspaceStub(), async (workspace: Workspace) => {
         const store = (workspace as unknown as { store: WorkspaceStore }).store;
-        const isAdministrator = store.isAdministrator.bind(store);
+        const signsInWhileMembersOnly = store.signsInWhileMembersOnly.bind(store);
         let read!: () => void;
         const reading = new Promise<void>((resolve) => (read = resolve));
         let answer!: () => void;
         const answering = new Promise<void>((resolve) => (answer = resolve));
         // On D1 a sign-in can read Grace as an administrator, and start her session only once she's a member.
-        vi.spyOn(store, "isAdministrator").mockImplementationOnce(async (userId) => {
-          const was = await isAdministrator(userId);
+        vi.spyOn(store, "signsInWhileMembersOnly").mockImplementationOnce(async (userId) => {
+          const did = await signsInWhileMembersOnly(userId);
           read();
           await answering;
-          return was;
+          return did;
         });
 
         const signingIn = workspace.startSession(member.user.id, "checked", null, laptop!.tokenDigest, laptop!.client);
@@ -1119,6 +1119,31 @@ describe(feature("auth.memberful-memberships"), () => {
     );
 
     it(
+      "never suspends someone who joined with an invitation, who needs no membership, once they've connected Memberful, as it never does an administrator",
+      hearingWebhooks(async () => {
+        const { administrator, member } = await setUpWithGrace();
+        // As joining with an invitation leaves her.
+        await workspaceSql("UPDATE users SET invited_by = ? WHERE id = ?", administrator.user.id, member.user.id);
+        const site = fakeMemberful(gracesAccount);
+        const back = await finish(await connectionOf(await connect(member, { currentPassword: grace.password })), member);
+        expect(locationOf(back)).toBe(backToProfile("connected"));
+
+        site.member = { ...site.member!, subscriptions: [{ active: false }] };
+        await idle();
+        await queueChecks(site.member);
+        expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+        expect(await queuedChecks()).toEqual([]);
+        expect(await statusOf(administrator, member.user.id)).toBe("active");
+        expect(await signsIn(member)).toBe(true);
+        expect((await signedInAs(await signInWithMemberful())).id).toBe(member.user.id);
+
+        // And nothing about her is checked.
+        await webhook(subscriptionChanged(site.member));
+        expect(await queuedChecks()).toEqual([]);
+      }),
+    );
+
+    it(
       "puts a check off while Memberful doesn't answer, then asks after each of those members alone",
       hearingWebhooks(async () => {
         const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1598,6 +1623,16 @@ describe(feature("auth.memberful-connect"), () => {
       expect(locationOf(await finish(second, administrator, ip))).toBe(backToProfile("another"));
       expect(await identities()).toEqual(expect.arrayContaining([{ issuer: SITE, subject: "4251", user_id: administrator.user.id }]));
       expect(await identities()).toHaveLength(2);
+    });
+
+    it("connects someone who joined with an invitation without a membership, as it does an administrator, since they need none", async () => {
+      const { administrator, member } = await setUpWithGrace();
+      // As joining with an invitation leaves her.
+      await workspaceSql("UPDATE users SET invited_by = ? WHERE id = ?", administrator.user.id, member.user.id);
+      fakeMemberful({ ...gracesAccount, subscriptions: [] });
+      const back = await finish(await connectionOf(await connect(member, { currentPassword: grace.password })), member);
+      expect(locationOf(back)).toBe(backToProfile("connected"));
+      expect(await identities()).toEqual([{ issuer: SITE, subject: "4250", user_id: member.user.id }]);
     });
   });
 

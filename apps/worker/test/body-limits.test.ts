@@ -75,6 +75,9 @@ function jsonRoutes({ ada, bot, room, joinCode }: Ember): Route[] {
     // Only someone signed out can join, or sign up while anyone may.
     ["POST", `/api/join/${joinCode}`, {}],
     ["POST", "/api/join", {}],
+    ["POST", "/api/join/invitation", {}],
+    ["POST", "/api/email_links/lookup", {}],
+    ["POST", "/api/invitations", signedIn],
     ["POST", "/api/unfurl", signedIn],
     ["POST", "/api/searches", signedIn],
     ["POST", "/api/push-subscriptions", signedIn],
