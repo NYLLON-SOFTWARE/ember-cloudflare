@@ -4,11 +4,11 @@ import { useAccount } from "@/hooks/use-account";
 import { cn } from "@/lib/utils";
 import { WORKERS_DASHBOARD } from "./custom-domain-settings";
 
-// This port's own Memberful section of workspace settings (`auth.memberful-sign-in`): an administrator
-// turns on signing in with the accounts of a Memberful site, whose custom app's keys the deployment
-// keeps as Worker secrets, so until it has them the section says how to make and set them, and how to
-// have Memberful's webhooks say when a membership lapses (`auth.memberful-memberships`). Styled as the
-// Custom domain section is, with its switch as Hide translation buttons has one.
+// This port's own Memberful card in Membership's ways to join (`auth.memberful-sign-in`): an
+// administrator turns on signing in with the accounts of a Memberful site, whose custom app's keys the
+// deployment keeps as Worker secrets, so until it has them the card says how to make and set them, and
+// how to have Memberful's webhooks say when a membership lapses (`auth.memberful-memberships`). Styled
+// as the Custom domain section is, with its switch as Hide translation buttons has one.
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
@@ -20,6 +20,8 @@ interface Props {
   /** Where the switch is: where it was moved to while that's saved, or else where the workspace has it. */
   checked: boolean;
   onCheckedChange: (on: boolean) => void;
+  /** Why the switch can't be moved while another way to join is on, said in place of what it does, or null. */
+  setAside?: string | null;
 }
 
 /**
@@ -27,7 +29,7 @@ interface Props {
  * while it's on without them, which only turning it off mends, and the steps to get the keys until it
  * has them, then those to hear Memberful's webhooks until it does.
  */
-export function MemberfulSettings({ site, webhooks, checked, onCheckedChange }: Props) {
+export function MemberfulSettings({ site, webhooks, checked, onCheckedChange, setAside = null }: Props) {
   const { customDomain, memberfulSignIn } = useAccount();
   // Where Memberful sends people back to, and its webhooks: Ember's address, wherever settings are opened.
   const origin = `${location.protocol}//${customDomain ?? location.host}`;
@@ -36,9 +38,9 @@ export function MemberfulSettings({ site, webhooks, checked, onCheckedChange }: 
 
   return (
     <section aria-labelledby="memberful-heading" className="flex flex-col gap-3 rounded-[10px] border bg-surface px-[2ch] py-4 text-start max-md:px-3">
-      <h2 id="memberful-heading" className="text-base font-semibold">
+      <h3 id="memberful-heading" className={cn("text-base font-semibold", setAside !== null && "text-muted-foreground")}>
         Memberful
-      </h2>
+      </h3>
       {(site !== null || memberfulSignIn) && (
         <div className="flex items-center gap-x-[1ch] gap-y-4">
           <div className="min-w-0 flex-1">
@@ -46,16 +48,24 @@ export function MemberfulSettings({ site, webhooks, checked, onCheckedChange }: 
             <p id="memberful-description" className={cn(NOTE, site === null && "text-negative")}>
               {site === null ? (
                 "It's on, but this deployment no longer has its Memberful keys, so nobody can sign in with Memberful."
+              ) : setAside !== null ? (
+                setAside
               ) : (
                 <>
-                  Members of <strong className="wrap-anywhere">{site}</strong> sign in with their Memberful account. While it's on, the join link is off, and
+                  Members of <strong className="wrap-anywhere">{site}</strong> sign in with their Memberful account. While it's on, nobody else can join, and
                   only administrators sign in with a password. Members who have one connect their Memberful account as they next sign in.
                   {webhooks && " A member whose membership lapses is signed out until it's renewed."}
                 </>
               )}
             </p>
           </div>
-          <Switch checked={checked} onCheckedChange={onCheckedChange} aria-label="Members sign in with Memberful" aria-describedby="memberful-description" />
+          <Switch
+            checked={checked}
+            onCheckedChange={onCheckedChange}
+            disabled={setAside !== null}
+            aria-label="Members sign in with Memberful"
+            aria-describedby="memberful-description"
+          />
         </div>
       )}
       {site === null ? (

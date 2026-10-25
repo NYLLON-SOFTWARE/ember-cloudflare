@@ -8,6 +8,7 @@ import {
   LOGO_TOO_LARGE,
   MAX_LOGO_SIZE,
   MAX_TAGLINE_LENGTH,
+  OPEN_WITH_MEMBERFUL,
   withNavigationIcons,
   type Account,
   type AccountChanges,
@@ -26,6 +27,7 @@ import { navigate, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { CONFIRM_REMOVE } from "./people-list";
 import { workspaceSectionPath, type WorkspaceSection } from "./settings-navigation";
+import { CONFIRM_MEMBERFUL, CONFIRM_OPEN } from "./ways-to-join";
 import { CHANGES_SAVED, WorkspaceSettingsPage } from "./workspace-settings-page";
 
 vi.mock("@/lib/previews", () => ({
@@ -35,11 +37,12 @@ vi.mock("@/lib/previews", () => ({
 const JOIN_CODE = "aB3d-Ef5h-iJ7k";
 const NEW_JOIN_CODE = "Zy9x-Wv8u-Ts7r";
 const asAdministrator: WorkspaceSettings = {
-  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false, navigationIcons: {} },
+  account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} },
   joinCode: JOIN_CODE,
   canAdminister: true,
   memberfulSite: null,
   memberfulWebhooks: false,
+  turnstile: false,
 };
 const asMember: WorkspaceSettings = { ...asAdministrator, canAdminister: false };
 
@@ -128,6 +131,8 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
           hideTranslationButtons: changed?.hideTranslationButtons ?? account.hideTranslationButtons,
           restrictRoomCreation: changed?.restrictRoomCreation ?? account.restrictRoomCreation,
           customDomain,
+          joinLink: changed?.joinLink ?? account.joinLink,
+          openSignUp: changed?.openSignUp ?? account.openSignUp,
           memberfulSignIn: changed?.memberfulSignIn ?? account.memberfulSignIn,
           navigationIcons: withNavigationIcons(account.navigationIcons, navigationIcons),
         };
@@ -707,12 +712,13 @@ describe(feature("auth.memberful-sign-in"), () => {
   const memberfulSwitch = () => screen.findByRole("switch", { name: "Members sign in with Memberful" });
   showingSection("membership-settings");
 
-  it("gives administrators a Memberful section first in Membership, with the steps to get the keys until the deployment has them", async () => {
+  it("gives administrators a Memberful card among the ways to join, after the join link, with the steps to get the keys until the deployment has them", async () => {
     showPage();
     const section = await screen.findByRole("region", { name: "Memberful" });
     const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     expect(following(screen.getByRole("heading", { level: 1, name: "Membership" }), section)).toBe(true);
-    expect(following(section, await joinLink())).toBe(true);
+    expect(following(await joinLink(), section)).toBe(true);
+    expect(screen.getByRole("region", { name: "Who can join" })).toContainElement(section);
     expect(within(section).queryByRole("switch")).not.toBeInTheDocument();
     const steps = within(section).getByRole("list", { name: "Steps to let Memberful members sign in" });
     expect(within(steps).getAllByRole("listitem")).toHaveLength(4);
@@ -722,30 +728,45 @@ describe(feature("auth.memberful-sign-in"), () => {
     expect(within(steps).getByRole("link", { name: "Open the Cloudflare dashboard" })).toHaveAttribute("target", "_blank");
   });
 
-  it("lets an administrator turn it on once the deployment has the keys, saved at once with no notice, which turns the join link off", async () => {
+  it("lets an administrator turn it on once the deployment has the keys, once they confirm, saved at once with no notice, which turns the join link off", async () => {
     serve(withKeys);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const { onAccountChanged, user } = showPage();
     const on = await memberfulSwitch();
     expect(on).not.toBeChecked();
     expect(on).toHaveAccessibleDescription(
-      `Members of ${SITE} sign in with their Memberful account. While it's on, the join link is off, and only administrators sign in with a password. Members who have one connect their Memberful account as they next sign in.`,
+      `Members of ${SITE} sign in with their Memberful account. While it's on, nobody else can join, and only administrators sign in with a password. Members who have one connect their Memberful account as they next sign in.`,
     );
     expect(screen.getByRole("region", { name: "Memberful" })).toHaveTextContent(`Memberful sends people back to ${location.origin}/auth/memberful/callback`);
     expect(screen.queryByRole("list", { name: "Steps to let Memberful members sign in" })).not.toBeInTheDocument();
     expect(await joinLink()).toBeInTheDocument();
 
     await user.click(on);
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(CONFIRM_MEMBERFUL);
     expect(on).toBeChecked();
     await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, memberfulSignIn: true }));
     expect(saved()).toEqual([{ settings: { memberfulSignIn: true } }]);
     expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
-    expect(screen.getByText(/so the join link is off/)).toBeInTheDocument();
+    const link = screen.getByRole("switch", { name: "Join link" });
+    expect(link).toBeDisabled();
+    expect(link).toHaveAccessibleDescription("Off while members sign in with Memberful.");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("stays off unless they confirm", async () => {
+    serve(withKeys);
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { user } = showPage();
+    const on = await memberfulSwitch();
+    await user.click(on);
+    expect(on).not.toBeChecked();
+    expect(saved()).toEqual([]);
   });
 
   it("can't be moved again until the last move is answered, and moves back saying why it was refused", async () => {
     let answer = (_: Response) => {};
     serve(withKeys, { saved: () => new Promise((resolve) => (answer = resolve)) });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { onFailed, user } = showPage();
     const on = await memberfulSwitch();
     await user.click(on);
@@ -788,6 +809,209 @@ describe(feature("auth.memberful-sign-in"), () => {
     expect(screen.queryByRole("region", { name: "Memberful" })).not.toBeInTheDocument();
     expect(screen.queryByText(SITE)).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.ways-to-join"), () => {
+  showingSection("membership-settings");
+  const SITE = "https://example.memberful.com";
+  const withKeys: WorkspaceSettings = { ...asAdministrator, memberfulSite: SITE };
+  const withAccount = (settings: WorkspaceSettings, changes: Partial<Account>): WorkspaceSettings => ({ ...settings, account: { ...settings.account, ...changes } });
+  const way = (name: string) => screen.findByRole("switch", { name });
+  const signUpLink = () => screen.queryByRole("textbox", { name: "Share so anyone can sign up" });
+  const OPEN_OVERRIDES = "Set aside while Open lets anyone join.";
+  const MEMBERFUL_OVERRIDES = "Off while members sign in with Memberful.";
+
+  it("gives administrators Who can join: Open, Join link and Memberful, each with a switch and whom it lets in", async () => {
+    serve(withKeys);
+    showPage();
+    const ways = await screen.findByRole("region", { name: "Who can join" });
+    expect(within(ways).getByRole("heading", { level: 2, name: "Who can join" })).toBeInTheDocument();
+    expect(within(ways).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Open", "Join link", "Memberful"]);
+    const open = await way("Open");
+    expect(open).not.toBeChecked();
+    expect(open).toHaveAccessibleDescription("Anyone can create an account at Ember's sign-up page.");
+    const link = await way("Join link");
+    expect(link).toBeChecked();
+    expect(link).toHaveAccessibleDescription("Anyone with the link can create an account.");
+    expect(await way("Members sign in with Memberful")).not.toBeChecked();
+    // Each shows its settings while it's on.
+    expect(within(screen.getByRole("region", { name: "Join link" })).getByRole("textbox", { name: "Share to invite more people" })).toBeInTheDocument();
+    expect(signUpLink()).not.toBeInTheDocument();
+    expect(screen.queryByText("With all of these off, no one new can join.")).not.toBeInTheDocument();
+  });
+
+  it("turns Open on once you confirm, saved at once with no notice, showing its address and setting the others aside", async () => {
+    serve(withKeys);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { onAccountChanged, user } = showPage();
+    const open = await way("Open");
+    await user.click(open);
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(CONFIRM_OPEN);
+    expect(open).toBeChecked();
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, openSignUp: true }));
+    expect(saved()).toEqual([{ settings: { openSignUp: true } }]);
+    expect(signUpLink()).toHaveValue(`${location.origin}/join`);
+    expect(screen.getByRole("button", { name: "Copy sign-up link" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Show sign-up link QR code" })).toBeInTheDocument();
+
+    // The join link and Memberful keep their settings, greyed out.
+    for (const name of ["Join link", "Members sign in with Memberful"]) {
+      expect(await way(name)).toBeDisabled();
+      expect(await way(name)).toHaveAccessibleDescription(OPEN_OVERRIDES);
+    }
+    expect(await way("Join link")).toBeChecked();
+    expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("leaves Open off unless you confirm", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { user } = showPage();
+    const open = await way("Open");
+    await user.click(open);
+    expect(open).not.toBeChecked();
+    expect(saved()).toEqual([]);
+  });
+
+  it("turns Open off without asking, giving the others back", async () => {
+    serve(withAccount(asAdministrator, { openSignUp: true }));
+    const confirm = vi.spyOn(window, "confirm");
+    const { user } = showPage();
+    await user.click(await way("Open"));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(saved()).toEqual([{ settings: { openSignUp: false } }]);
+    await waitFor(async () => expect(await way("Join link")).toBeEnabled());
+    expect(await joinLink()).toBeInTheDocument();
+    expect(signUpLink()).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { way: "Open", on: { openSignUp: true }, others: ["Join link", "Members sign in with Memberful"] },
+    { way: "Members sign in with Memberful", on: { memberfulSignIn: true }, others: ["Open", "Join link"] },
+  ])("keeps what $way sets aside greyed out until turning it off is saved, since the server refuses those till then", async ({ way: overriding, on, others }) => {
+    let answer = (_: Response) => {};
+    serve(withAccount(withKeys, on), { saved: () => new Promise((resolve) => (answer = resolve)) });
+    const { user } = showPage();
+    const overrides = await way(overriding);
+    await user.click(overrides);
+    expect(overrides).not.toBeChecked();
+    for (const name of others) expect(await way(name)).toBeDisabled();
+
+    answer(Response.json({ account: withKeys.account }));
+    for (const name of others) await waitFor(async () => expect(await way(name)).toBeEnabled());
+  });
+
+  it("can't be moved again until the last move is answered, and moves back saying why it was refused", async () => {
+    let answer = (_: Response) => {};
+    serve(asAdministrator, { saved: () => new Promise((resolve) => (answer = resolve)) });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { onFailed, user } = showPage();
+    const open = await way("Open");
+    await user.click(open);
+    await user.click(open);
+    expect(open).toBeChecked();
+    expect(saved()).toEqual([{ settings: { openSignUp: true } }]);
+
+    answer(Response.json({ error: OPEN_WITH_MEMBERFUL }, { status: 422 }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 422, message: OPEN_WITH_MEMBERFUL })));
+    expect(open).not.toBeChecked();
+  });
+
+  it("nudges administrators to keep creating rooms to themselves while Open is on, linking to the switch", async () => {
+    serve(withAccount(asAdministrator, { openSignUp: true }));
+    const { user } = showPage();
+    expect(await screen.findByText(/Anyone who signs up can create rooms\./)).toHaveTextContent(
+      "Anyone who signs up can create rooms. To keep that to administrators, turn on Must be admin to create new rooms.",
+    );
+    const restrict = screen.getByRole("link", { name: "Must be admin to create new rooms" });
+    expect(restrict).toHaveAttribute("href", workspaceSectionPath("channel-settings"));
+    await user.click(restrict);
+    expect(await screen.findByRole("switch", { name: "Must be admin to create new rooms" })).toBeVisible();
+
+    act(() => workspaceSays({ ...asAdministrator.account, openSignUp: true, restrictRoomCreation: true }));
+    expect(screen.queryByText(/Anyone who signs up can create rooms/)).not.toBeInTheDocument();
+  });
+
+  it("says what limits signing up until the deployment has Turnstile's keys, and how to give it them", async () => {
+    serve(withAccount(asAdministrator, { openSignUp: true }));
+    showPage();
+    const open = await screen.findByRole("region", { name: "Open" });
+    expect(open).toHaveTextContent(
+      "Until Cloudflare Turnstile checks that whoever signs up is a person, 5 people can sign up from a network in an hour, and signing up waits once 50 people have joined in an hour.",
+    );
+    expect(open).toHaveTextContent("To lift these limits, add a Turnstile widget for Ember's address in the Cloudflare dashboard, then give this Worker its site key and secret key as the secrets TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY.");
+    expect(within(open).getByRole("link", { name: "Open Turnstile in the Cloudflare dashboard" })).toHaveAttribute("target", "_blank");
+  });
+
+  it("says Turnstile checks whoever signs up once the deployment has its keys, with no limits", async () => {
+    serve({ ...withAccount(asAdministrator, { openSignUp: true }), turnstile: true });
+    showPage();
+    const open = await screen.findByRole("region", { name: "Open" });
+    expect(open).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up is a person.");
+    expect(open).not.toHaveTextContent("in an hour");
+    expect(open).not.toHaveTextContent("TURNSTILE_SITE_KEY");
+  });
+
+  it("turns the join link off at once without asking, taking the link away, and back on with the same link", async () => {
+    const confirm = vi.spyOn(window, "confirm");
+    const { onAccountChanged, user } = showPage();
+    const link = await way("Join link");
+    await user.click(link);
+    expect(confirm).not.toHaveBeenCalled();
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, joinLink: false }));
+    expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
+    expect(screen.getByText("With all of these off, no one new can join.")).toBeInTheDocument();
+
+    await user.click(link);
+    expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${JOIN_CODE}`);
+    expect(saved()).toEqual([{ settings: { joinLink: false } }, { settings: { joinLink: true } }]);
+    expect(screen.queryByText("With all of these off, no one new can join.")).not.toBeInTheDocument();
+  });
+
+  it("greys out Open and Join link while members sign in with Memberful", async () => {
+    serve(withAccount(withKeys, { memberfulSignIn: true }));
+    showPage();
+    for (const name of ["Open", "Join link"]) {
+      expect(await way(name)).toBeDisabled();
+      expect(await way(name)).toHaveAccessibleDescription(MEMBERFUL_OVERRIDES);
+    }
+    expect(await way("Members sign in with Memberful")).toBeEnabled();
+    expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
+  });
+
+  it("lets each be turned off should Open and Memberful sign-in both be on", async () => {
+    serve(withAccount(withKeys, { memberfulSignIn: true, openSignUp: true }));
+    showPage();
+    expect(await way("Open")).toBeEnabled();
+    expect(await way("Members sign in with Memberful")).toBeEnabled();
+    expect(await way("Join link")).toBeDisabled();
+  });
+
+  it("follows the workspace socket, for a switch moved in another tab", async () => {
+    showPage();
+    const open = await way("Open");
+    act(() => workspaceSays({ ...asAdministrator.account, openSignUp: true }));
+    expect(open).toBeChecked();
+    expect(signUpLink()).toBeInTheDocument();
+    expect(await way("Join link")).toBeDisabled();
+  });
+
+  it("shows members open sign-up's link while it's on, and the join link while it lets people in, with no switches", async () => {
+    serve(withAccount(asMember, { openSignUp: true }));
+    showPage(asLinus);
+    expect(await joinLink()).toBeInTheDocument();
+    expect(signUpLink()).toHaveValue(`${location.origin}/join`);
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Who can join" })).not.toBeInTheDocument();
+  });
+
+  it("tells members when no one new can join", async () => {
+    serve(withAccount(asMember, { joinLink: false }));
+    showPage(asLinus);
+    expect(await screen.findByText("No one new can join right now.")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
+    expect(signUpLink()).not.toBeInTheDocument();
   });
 });
 

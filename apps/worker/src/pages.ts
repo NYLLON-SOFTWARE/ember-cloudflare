@@ -5,20 +5,21 @@ import type { Env } from "./env";
 import { notFound } from "./error-pages";
 import { urlOf } from "./request-url";
 
-// What the Worker answers for pages: the app's, those it serves itself, such as setup's and the join
-// link's, and their forms, which post to the API.
+// What the Worker answers for pages: the app's, those it serves itself, such as setup's, the join
+// link's and open sign-up's, and their forms, which post to the API.
 
 /**
  * One of the built app's pages, from its static assets, with headers this response can change. The
  * request's own headers go along, so a browser that has the page already hears it's unchanged. Its
- * policy names the page's inline script, which applies the saved appearance before first paint.
+ * policy names the page's inline script, which applies the saved appearance before first paint, and
+ * with `turnstile` lets Turnstile's check load, as the open sign-up page shows it.
  */
-export async function appPage(request: Request, env: Env, path: string): Promise<Response> {
+export async function appPage(request: Request, env: Env, path: string, { turnstile = false } = {}): Promise<Response> {
   const page = await env.ASSETS.fetch(new Request(new URL(path, request.url), { method: request.method, headers: request.headers }));
   const response = new Response(page.body, page);
   response.headers.set("Link", preloadsFor(request));
   response.headers.append("Vary", "Cookie");
-  response.headers.set("Content-Security-Policy", contentSecurityPolicy(request, await appScriptHashes(request, env, page.headers.get("ETag"))));
+  response.headers.set("Content-Security-Policy", contentSecurityPolicy(request, await appScriptHashes(request, env, page.headers.get("ETag")), turnstile));
   return response;
 }
 

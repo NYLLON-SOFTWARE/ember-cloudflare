@@ -79,6 +79,8 @@ function deploy(listing: Listing, args: string[] = [], { deployStatus = 0, env =
     MEMBERFUL_CLIENT_SECRET: _secret,
     MEMBERFUL_API_KEY: _apiKey,
     MEMBERFUL_WEBHOOK_SECRET: _webhookSecret,
+    TURNSTILE_SITE_KEY: _siteKey,
+    TURNSTILE_SECRET_KEY: _turnstileSecret,
     ...shell
   } = process.env;
   const run = spawnSync(process.execPath, [SCRIPT, ...args], {
@@ -312,6 +314,17 @@ describe(feature("auth.memberful-memberships"), () => {
     expect(logs).toContain("Deploying with MEMBERFUL_API_KEY, MEMBERFUL_WEBHOOK_SECRET from the environment");
     expect(logs).not.toContain("api-key");
     expect(logs).not.toContain("webhook-secret");
+  });
+});
+
+describe(feature("auth.open-sign-up"), () => {
+  it("uploads the Turnstile widget's keys the environment gives with every deploy, and never prints them", () => {
+    const keys = { TURNSTILE_SITE_KEY: "0x4AAAAAAA-site-key", TURNSTILE_SECRET_KEY: "0x4AAAAAAA-secret-key" };
+    const { status, secrets, logs } = deploy(EVERY_SECRET, [], { env: { ...keys, CI: "true", GITHUB_ACTIONS: "true" } });
+    expect(status).toBe(0);
+    expect(secrets).toEqual(keys);
+    expect(logs).toContain("Deploying with TURNSTILE_SITE_KEY, TURNSTILE_SECRET_KEY from the environment");
+    expect(logs).not.toContain("0x4AAAAAAA");
   });
 });
 

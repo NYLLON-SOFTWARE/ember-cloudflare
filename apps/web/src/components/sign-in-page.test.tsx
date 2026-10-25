@@ -1,5 +1,14 @@
 import { feature } from "@ember/parity";
-import { MAX_PASSWORD_LENGTH, MEMBERFUL_SIGN_IN_NEEDED, MEMBERFUL_SIGN_IN_PROBLEMS, SIGN_IN_LIMITED, SIGN_IN_REJECTED, type Bootstrap } from "@ember/protocol";
+import {
+  JOINING_PROBLEMS,
+  MAX_PASSWORD_LENGTH,
+  MEMBERFUL_SIGN_IN_NEEDED,
+  MEMBERFUL_SIGN_IN_PROBLEMS,
+  SIGN_IN_LIMITED,
+  SIGN_IN_REJECTED,
+  signInSaying,
+  type Bootstrap,
+} from "@ember/protocol";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,7 +23,8 @@ const workspace: Omit<Bootstrap, "user"> = {
   setupAccess: "link",
   setupPlaceholders: { name: "Kevin Rose", emailAddress: "kevin@kevinrose.com" },
   guestSignIn: false,
-  account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false, navigationIcons: {} },
+  turnstileSiteKey: null,
+  account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} },
   version: "0.1",
   vapidPublicKey: null,
   platform: CHROME_MAC,
@@ -287,6 +297,46 @@ describe(feature("auth.memberful-sign-in"), () => {
     expect(screen.queryByRole("link", { name: "Sign in with Memberful" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign in with Memberful" })).not.toBeInTheDocument();
     expect(screen.queryByText("Have a password?")).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("auth.open-sign-up"), () => {
+  const open = { ...workspace, account: { ...workspace.account, openSignUp: true }, guestSignIn: true };
+
+  it("offers Create an account while anyone may sign up, before joining with just a name", () => {
+    render(<SignInPage workspace={open} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByText("New here?")).toBeInTheDocument();
+    const create = screen.getByRole("link", { name: "Create an account" });
+    expect(create).toHaveAttribute("href", "/join");
+    expect(create.compareDocumentPosition(screen.getByRole("button", { name: "Join with just a name" }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("doesn't while it's off, or members sign in with Memberful", () => {
+    render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.queryByRole("link", { name: "Create an account" })).not.toBeInTheDocument();
+    cleanup();
+    render(<SignInPage workspace={{ ...open, account: { ...open.account, memberfulSignIn: true } }} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.queryByRole("link", { name: "Create an account" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.ways-to-join"), () => {
+  it.each(Object.entries(JOINING_PROBLEMS))("says why a way to join sent the browser here, once, taking it out of the address: %s", (problem, says) => {
+    history.replaceState(null, "", `${signInSaying(problem as keyof typeof JOINING_PROBLEMS)}&email_address=ada%40example.com#top`);
+    render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.getByRole("alert")).toHaveTextContent(says);
+    expect(`${location.pathname}${location.search}${location.hash}`).toBe("/session/new?email_address=ada%40example.com#top");
+
+    cleanup();
+    render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says nothing of a problem it doesn't know", () => {
+    history.replaceState(null, "", "/session/new?joining=constructor");
+    render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(location.search).toBe("");
   });
 });
 

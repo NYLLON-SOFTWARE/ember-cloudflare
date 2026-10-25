@@ -27,6 +27,10 @@
 # member whose membership lapses is signed out: the app's API key, and the webhook's secret key.
 # MEMBERFUL_API_KEY=
 # MEMBERFUL_WEBHOOK_SECRET=
+# A Turnstile widget's keys, with which open sign-up checks that whoever signs up is a person. Cloudflare's
+# test keys, 1x00000000000000000000AA and 1x0000000000000000000000000000000AA, always pass, on localhost too.
+# TURNSTILE_SITE_KEY=
+# TURNSTILE_SECRET_KEY=
 # Lets plain HTTP through where it would be redirected to HTTPS, which localhost never is: set it to
 # reach `wrangler dev --ip 0.0.0.0` from a phone on your network.
 # DISABLE_SSL=true

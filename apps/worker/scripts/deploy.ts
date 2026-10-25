@@ -15,8 +15,9 @@
 // repository's Actions logs are, so there the deploy makes no setup token, and says so, unless
 // EMBER_SETUP_TOKEN in its environment brings one the deployer keeps as a secret of their own.
 // Workers Builds' log is the account's own, so Deploy to Cloudflare gets its link there. The keys of
-// a Memberful custom app, for its members to sign in (apps/worker/src/memberful.ts), go up with every
-// deploy whose environment gives them, as the Preview workflow's does from the repository's secrets.
+// a Memberful custom app, for its members to sign in (apps/worker/src/memberful.ts), and of a Turnstile
+// widget, for open sign-up's check (apps/worker/src/turnstile.ts), go up with every deploy whose
+// environment gives them, as the Preview workflow's does from the repository's secrets.
 
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -72,15 +73,26 @@ const SETUP_TOKEN = /^[0-9a-f]{64}$/;
 /** Whether this deploy's output may be public: a CI log, except Workers Builds', which is the account's own. */
 const inPublicLog = () => !!process.env.CI && !process.env.WORKERS_CI;
 
-/** The keys of a Memberful custom app, and the secret its site signs webhooks with, which only the deployer can give. */
-const MEMBERFUL_KEYS = ["MEMBERFUL_URL", "MEMBERFUL_CLIENT_ID", "MEMBERFUL_CLIENT_SECRET", "MEMBERFUL_API_KEY", "MEMBERFUL_WEBHOOK_SECRET"];
+/**
+ * The keys of a Memberful custom app, and the secret its site signs webhooks with, then a Turnstile
+ * widget's, which only the deployer can give.
+ */
+const GIVEN_KEYS = [
+  "MEMBERFUL_URL",
+  "MEMBERFUL_CLIENT_ID",
+  "MEMBERFUL_CLIENT_SECRET",
+  "MEMBERFUL_API_KEY",
+  "MEMBERFUL_WEBHOOK_SECRET",
+  "TURNSTILE_SITE_KEY",
+  "TURNSTILE_SECRET_KEY",
+];
 
 /**
- * The Memberful keys the deploy's environment gives, which go up with every deploy, so a key changed
- * where the deployer keeps it changes in the Worker too. Ones it doesn't give stay as the Worker has them.
+ * The keys the deploy's environment gives, which go up with every deploy, so a key changed where the
+ * deployer keeps it changes in the Worker too. Ones it doesn't give stay as the Worker has them.
  */
 function givenSecrets(): Record<string, string> {
-  return Object.fromEntries(MEMBERFUL_KEYS.flatMap((name) => (process.env[name] ? [[name, process.env[name]]] : [])));
+  return Object.fromEntries(GIVEN_KEYS.flatMap((name) => (process.env[name] ? [[name, process.env[name]]] : [])));
 }
 
 /** What the deploy says it uploads: the secrets it made, and the ones its environment gave, by name alone. */

@@ -1,5 +1,5 @@
 import { startTransition, useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
-import type { Invitation, Me } from "@ember/protocol";
+import { joinsWithLink, type Invitation, type Me } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/iconoir";
 import { useAccount } from "@/hooks/use-account";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
@@ -255,10 +255,10 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
   };
 
   // As in ember-rust, the card shows in its room while the room is new, and it's the room's welcome, but
-  // only to the administrators who haven't dismissed it, who alone are given the invitation, and not while
-  // members sign in with Memberful, which turns its join link off.
-  const { memberfulSignIn } = useAccount();
-  const welcomeCard = invitation !== null && state.paged === false && !memberfulSignIn;
+  // only to the administrators who haven't dismissed it, who alone are given the invitation, and only while
+  // its join link lets people in: not once an administrator turns it off, or members sign in with Memberful.
+  const linkJoins = joinsWithLink(useAccount());
+  const welcomeCard = invitation !== null && state.paged === false && linkJoins;
   // Until the room lets the socket in, which brings its messages afresh. The timeline is busy then, and while it
   // draws a page newest first, so screen readers read the page once it's whole.
   const waiting = state.status === "connecting" || state.status === "reconnecting";

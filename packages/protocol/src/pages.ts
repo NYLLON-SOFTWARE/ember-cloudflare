@@ -124,7 +124,7 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
 
 /**
  * Whether the app shows a page at `pathname`: sign-in, or one of the workspace's. The Worker answers
- * setup's and the join link's addresses itself.
+ * setup's, the join link's and open sign-up's addresses itself.
  */
 export const isAppPage = (pathname: string) => pathname === SIGN_IN_PATH || workspacePageOf(pathname) !== null;
 
@@ -137,6 +137,9 @@ export const WORKSPACE_PRELOADS = ["/api/sidebar", "/api/users"] as const;
 
 /** The page a sign-in link opens, which signs whoever opens it in as the person the link was made for, until it expires. */
 export const TRANSFER_PATH = "/session/transfers";
+
+/** Where anyone may create an account while an administrator lets them (`Account.openSignUp`), which the Worker answers itself. */
+export const SIGN_UP_PATH = "/join";
 
 /**
  * A sign-in link's address: its page, with the link's id as the fragment's `token`, where ember-rust's

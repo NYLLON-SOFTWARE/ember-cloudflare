@@ -76,6 +76,7 @@ export {
   PROFILE_PATH,
   PUSH_SUBSCRIPTIONS_PATH,
   SEARCHES_PATH,
+  SIGN_UP_PATH,
   TRANSFER_PATH,
   transferLink,
   WORKSPACE_PRELOADS,
@@ -365,9 +366,20 @@ export interface Account {
    */
   customDomain: string | null;
   /**
+   * Whether the join link lets people in, which an administrator turns off in Membership: then it sends
+   * them to sign in, keeping its code for when it's on again. On until one turns it off. While members
+   * sign in with Memberful it's off whatever this says (`joinsWithLink`).
+   */
+  joinLink: boolean;
+  /**
+   * Whether anyone may create an account at `/join`, with no link, which an administrator turns on in
+   * Membership as Open. Off until one does, and never on while members sign in with Memberful.
+   */
+  openSignUp: boolean;
+  /**
    * Whether members sign in with Memberful, which an administrator turns on in workspace settings: then
-   * the join link and signing in with just a name are off, and only administrators sign in with a
-   * password. Off until one turns it on.
+   * the join link, open sign-up and signing in with just a name are off, and only administrators sign in
+   * with a password. Off until one turns it on.
    */
   memberfulSignIn: boolean;
   /**
@@ -396,6 +408,11 @@ export interface WorkspaceSettings {
    * membership lapses or is renewed, and checks what it hears with Memberful.
    */
   memberfulWebhooks: boolean;
+  /**
+   * Whether the deployment has Cloudflare Turnstile's keys (`TURNSTILE_SITE_KEY` and
+   * `TURNSTILE_SECRET_KEY`), so that open sign-up's form checks that whoever fills it in is a person.
+   */
+  turnstile: boolean;
 }
 
 /** What `POST /api/account/join_code` answers: the join link's new code, which the old one no longer joins with. */
@@ -418,14 +435,25 @@ export interface AccountChanges {
 
 /**
  * The workspace's settings that workspace settings' switches change, each as ember-rust's `account[settings]`
- * names it, but Memberful sign-in, this port's own, which the Worker turns on only with the deployment's
- * Memberful keys.
+ * names it, but the ways to join, this port's own: the join link's switch, Open, and Memberful sign-in,
+ * which the Worker turns on only with the deployment's Memberful keys, and never together with Open.
  */
 export interface AccountSettings {
   hideTranslationButtons?: boolean;
   restrictRoomCreation?: boolean;
+  joinLink?: boolean;
+  openSignUp?: boolean;
   memberfulSignIn?: boolean;
 }
+
+/** Whether the join link lets people in: its switch is on, and members don't sign in with Memberful, which turns it off. */
+export const joinsWithLink = ({ joinLink, memberfulSignIn }: Pick<Account, "joinLink" | "memberfulSignIn">) => joinLink && !memberfulSignIn;
+
+/** Whether anyone may create an account at `/join`: Open is on, and members don't sign in with Memberful, which it can't be on with. */
+export const signsUpOpenly = ({ openSignUp, memberfulSignIn }: Pick<Account, "openSignUp" | "memberfulSignIn">) => openSignUp && !memberfulSignIn;
+
+/** Why turning on Open, or Memberful sign-in, is refused while the other is on: Memberful's lets only its members in. */
+export const OPEN_WITH_MEMBERFUL = "Open and Memberful sign-in can't both be on. Turn one off first.";
 
 /** What `GET /api/account/custom_styles` answers, and `PATCH` sets, as the Custom CSS page saves it. */
 export interface CustomStyles {
@@ -538,6 +566,12 @@ export interface Bootstrap {
   setupPlaceholders: SetupPlaceholders;
   /** Whether people may sign in with just a name (`EMBER_GUEST_SIGN_IN`). */
   guestSignIn: boolean;
+  /**
+   * The site key of the Turnstile widget the open sign-up form shows, to check that whoever signs up is a
+   * person, while the deployment has Turnstile's keys (`TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`),
+   * or null while it hasn't.
+   */
+  turnstileSiteKey: string | null;
   /** "Ember" before setup, as in ember-rust. */
   account: Account;
   /** This deployment's version: `APP_VERSION`, else `GIT_REVISION`, else the release. */
@@ -586,6 +620,17 @@ export interface SignUp {
   emailAddress: string;
   password: string;
 }
+
+/**
+ * Someone signing up while anyone may, as the open sign-up form sends them to `POST /api/join`: as the
+ * join form does, with the token Turnstile's check gave the page while the deployment has its keys.
+ */
+export interface OpenSignUp extends SignUp {
+  turnstileToken?: string;
+}
+
+/** The most characters a Turnstile token has, as Cloudflare's siteverify takes it. */
+export const MAX_TURNSTILE_TOKEN_LENGTH = 2048;
 
 /**
  * Whose password to reset, and to what, as `POST /api/recovery/reset-password` takes it from
@@ -734,6 +779,44 @@ export const MEMBERFUL_PASSWORD_NEEDED = "Enter your password to connect Memberf
 
 /** Why signing in with a password, joining with the join link, or signing in with just a name is refused while members sign in with Memberful. */
 export const MEMBERFUL_SIGN_IN_NEEDED = "Members sign in with Memberful. Only administrators sign in with a password.";
+
+/**
+ * Why a page for joining sent the browser to sign in instead, which the address names as `?joining=`,
+ * and what the sign-in page then says: the join link is off, though its code is right, or Open is.
+ */
+export const JOINING_PROBLEMS = {
+  link_off: "Joining by link is off.",
+  closed: "Signing up is closed.",
+} as const;
+export type JoiningProblem = keyof typeof JOINING_PROBLEMS;
+
+/** The query parameter that names why joining sent the browser to sign in. */
+export const JOINING_PARAM = "joining";
+
+/** The problem `value` names, or null for none it names. */
+export const joiningProblemOf = (value: string | null): JoiningProblem | null =>
+  value !== null && Object.hasOwn(JOINING_PROBLEMS, value) ? (value as JoiningProblem) : null;
+
+/** The sign-in page, saying why joining sent the browser there. */
+export const signInSaying = (problem: JoiningProblem) => `/session/new?${JOINING_PARAM}=${problem}`;
+
+/**
+ * Open sign-up's limits, this port's own, which stand in for Turnstile's check while the deployment
+ * lacks its keys: how many people may sign up from an IP address in an hour, and how many new people in
+ * the workspace in the last hour, however they joined, stop it, so that a flood can't use up the rows a
+ * Workers Free account writes in a day.
+ */
+export const SIGN_UPS_PER_ADDRESS = 5;
+export const SIGN_UPS_PER_HOUR = 50;
+
+/** Why open sign-up refuses someone from an IP address that has signed up as many times as it may in an hour. */
+export const SIGN_UP_LIMITED = "Too many sign-ups from your network. Try again in an hour.";
+
+/** Why open sign-up refuses anyone once the workspace has let in as many new people as it does in an hour. */
+export const SIGN_UP_FULL = "Lots of people have signed up in the last hour. Try again later.";
+
+/** Why open sign-up refuses a form whose Turnstile check didn't pass, or that came without one. */
+export const TURNSTILE_FAILED = "Ember couldn't check that you're a person. Try again.";
 
 /**
  * What a room closes a socket with when access to it ends, where ember-rust sends a `disconnect`
@@ -1230,6 +1313,8 @@ export function parseNewDirect(data: unknown): NewDirect | string {
 const SETTING_NAMES: Record<keyof AccountSettings, string> = {
   hideTranslationButtons: "Hide translation buttons",
   restrictRoomCreation: "Must be admin to create new rooms",
+  joinLink: "Join link",
+  openSignUp: "Open",
   memberfulSignIn: "Members sign in with Memberful",
 };
 
@@ -1443,6 +1528,16 @@ export function parseSignUp(data: unknown): SignUp | string {
   if (name.length > MAX_USER_NAME_LENGTH) return NAME_TOO_LONG;
   if (emailAddress.length > MAX_EMAIL_ADDRESS_LENGTH) return EMAIL_ADDRESS_TOO_LONG;
   return { name, emailAddress, password: f.password };
+}
+
+/** Parses an untrusted open sign-up, as `parseSignUp` does, with Turnstile's token if it has one. Returns why it's refused instead. */
+export function parseOpenSignUp(data: unknown): OpenSignUp | string {
+  const signUp = parseSignUp(data);
+  if (typeof signUp === "string") return signUp;
+  const { turnstileToken } = data as Record<string, unknown>;
+  if (turnstileToken === undefined) return signUp;
+  if (typeof turnstileToken !== "string" || turnstileToken.length > MAX_TURNSTILE_TOKEN_LENGTH) return `Turnstile's token must be at most ${MAX_TURNSTILE_TOKEN_LENGTH} characters`;
+  return { ...signUp, turnstileToken };
 }
 
 /**

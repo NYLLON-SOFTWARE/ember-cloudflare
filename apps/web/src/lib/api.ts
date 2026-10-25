@@ -32,6 +32,7 @@ import {
   type NewRoomForm,
   type NewBot,
   type NewWorkspace,
+  type OpenSignUp,
   type PasswordSignIn,
   type PersonAnswer,
   type PersonRole,
@@ -148,6 +149,15 @@ export async function setUpWorkspace(administrator: SignUp, photo: ChosenPhoto |
  */
 export async function joinWorkspace(joinCode: string, person: SignUp, photo: ChosenPhoto | null = null): Promise<Me> {
   return (await request<{ user: Me }>(`/api/join/${joinCode}`, { method: "POST", body: userBody(person, photo) })).user;
+}
+
+/**
+ * Signs up while anyone may (`auth.open-sign-up`), as someone new, with the photo they chose, if any,
+ * and the token of Turnstile's check while the page shows one, and signs this browser in as them. A
+ * check that didn't pass fails with an ApiError for the `turnstile` field.
+ */
+export async function signUp(person: OpenSignUp, photo: ChosenPhoto | null = null): Promise<Me> {
+  return (await request<{ user: Me }>("/api/join", { method: "POST", body: userBody(person, photo) })).user;
 }
 
 /**

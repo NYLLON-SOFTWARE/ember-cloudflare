@@ -60,7 +60,21 @@ test("an administrator's people list, with Delete by everyone else, fits the pho
   const remove = page.getByRole("region", { name: "Membership" }).getByRole("button", { name: `Delete ${session.user.name}` }).first();
   await remove.scrollIntoViewIfNeeded();
   await expect(remove).toBeInViewport();
-  await screenIsFine();
+  await screenIsFine({ denseTargets: [SWITCHES] });
+});
+
+test("an administrator's ways to join, with Open's sign-up link, fit the phone", async ({ page, screenIsFine }) => {
+  await useOwnAddress(page);
+  await changeTheWorkspace(page, (account) => ({ ...account, openSignUp: true }));
+  await page.goto("/account/edit#membership-settings");
+  await signInAsAdministrator(page);
+  const open = page.getByRole("region", { name: "Open", exact: true });
+  await open.scrollIntoViewIfNeeded();
+  await expect(open.getByRole("textbox", { name: "Share so anyone can sign up" })).toBeInViewport();
+  await screenIsFine({ denseTargets: [SWITCHES] });
+
+  await open.getByText("Open Turnstile in the Cloudflare dashboard").scrollIntoViewIfNeeded();
+  await screenIsFine({ denseTargets: [SWITCHES] });
 });
 
 test("a member's workspace settings, with a long name, fit the phone", async ({ page, session, screenIsFine }) => {

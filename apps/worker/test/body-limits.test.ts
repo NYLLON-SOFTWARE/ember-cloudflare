@@ -30,7 +30,7 @@ const labelOf = ([method, path]: Route) => `${method} ${path}`;
 /** Setting Ember up, which reads its form only before it's set up. */
 const FIRST_RUN: Route = ["POST", "/api/first_run", {}];
 
-/** What the other routes need once Ember is set up: Ada, signed in as its administrator, a bot and a room, and the join code. */
+/** What the other routes need once Ember is set up, with Open on: Ada, signed in as its administrator, a bot and a room, and the join code. */
 interface Ember {
   ada: Session;
   bot: UserId;
@@ -38,9 +38,11 @@ interface Ember {
   joinCode: string;
 }
 
-/** Sets Ember up, with a bot and a room. */
+/** Sets Ember up, with a bot and a room, letting anyone sign up so that open sign-up's form is read. */
 async function setUpEmber(): Promise<Ember> {
   const ada = await setUp();
+  const opened = await api("/api/account", { method: "PATCH", headers: { Cookie: ada.cookie }, body: JSON.stringify({ settings: { openSignUp: true } }) });
+  expect(opened.status).toBe(200);
   const added = await api("/api/account/bots", { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify({ name: "Deploys" }) });
   expect(added.status).toBe(201);
   const { id: bot } = ((await added.json()) as BotAnswer).bot;
@@ -70,8 +72,9 @@ function jsonRoutes({ ada, bot, room, joinCode }: Ember): Route[] {
     ["PUT", `/api/rooms/${room}/involvement`, signedIn],
     ["POST", `/api/rooms/${room}/uploads`, signedIn],
     ["POST", "/api/directs", signedIn],
-    // Only someone signed out can join.
+    // Only someone signed out can join, or sign up while anyone may.
     ["POST", `/api/join/${joinCode}`, {}],
+    ["POST", "/api/join", {}],
     ["POST", "/api/unfurl", signedIn],
     ["POST", "/api/searches", signedIn],
     ["POST", "/api/push-subscriptions", signedIn],

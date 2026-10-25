@@ -67,8 +67,8 @@ const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administ
 
 /**
  * What a new account's settings and custom CSS read as: no tagline, translation buttons hidden, no CSS,
- * anyone may create rooms, no custom domain, members sign in with passwords rather than Memberful, and
- * the rail has its own icons.
+ * anyone may create rooms, no custom domain, people join with the join link but can't sign up without
+ * it, members sign in with passwords rather than Memberful, and the rail has its own icons.
  */
 export const NEW_ACCOUNT_LOOKS = {
   tagline: "",
@@ -76,6 +76,8 @@ export const NEW_ACCOUNT_LOOKS = {
   customStyles: "",
   restrictRoomCreation: false,
   customDomain: null,
+  joinLink: true,
+  openSignUp: false,
   memberfulSignIn: false,
   navigationIcons: {},
 } as const;
@@ -102,7 +104,9 @@ export interface NewAccount {
  * What `WorkspaceStore.changeAccount` changes: the name, the tagline, the settings workspace settings'
  * switches change, the custom domain, and the navigation icons whose slots change.
  */
-export type AccountChange = Partial<Pick<Account, "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "memberfulSignIn">> & {
+export type AccountChange = Partial<
+  Pick<Account, "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "joinLink" | "openSignUp" | "memberfulSignIn">
+> & {
   navigationIcons?: NavigationIconChanges;
 };
 
@@ -527,6 +531,19 @@ const taglineIn = (settings: Record<string, unknown> | null) => (typeof settings
 const customDomainIn = (settings: Record<string, unknown> | null) => (typeof settings?.custom_domain === "string" ? settings.custom_domain : null);
 
 /**
+ * Whether the join link lets people in, which the account's settings keep as `join_link`, this port's
+ * own: until the setting is stored, as for an account from before it, then only while it's present, as
+ * translation buttons are read. Settings that don't parse leave it on.
+ */
+function joinsWithLinkIn(settings: Record<string, unknown> | null): boolean {
+  const on = settings ? settings.join_link : true;
+  return on === undefined || isPresent(on);
+}
+
+/** Whether anyone may sign up without a link, which the account's settings keep as `open_sign_up`, this port's own: only while the setting is present. */
+const signsUpOpenlyIn = (settings: Record<string, unknown> | null) => isPresent(settings?.open_sign_up);
+
+/**
  * Whether members sign in with Memberful, which the account's settings keep as `memberful_sign_in`, this
  * port's own: only while the setting is present.
  */
@@ -648,6 +665,12 @@ const sharedOrderOf = (rows: SidebarRow[]): RoomId[] =>
  * count from when they were listed, as they do in `ROOMS_FOR_USER`, so the old preview's is its general.
  */
 export const ORIGINAL_ROOM = `SELECT id FROM rooms ORDER BY created_at, id LIMIT 1`;
+
+/**
+ * How many people with a role other than ?2 joined at or after ?1, counting no further than ?3, so that
+ * it reads no more of the index on when people joined than that, as open sign-up's hourly limit asks.
+ */
+export const PEOPLE_JOINED_SINCE = `SELECT count(*) AS joined FROM (SELECT 1 FROM users WHERE created_at >= ?1 AND role != ?2 LIMIT ?3)`;
 
 /**
  * Who's in each of someone's DMs, them included, a DM at a time, each DM's people by id, as ember-rust
@@ -966,6 +989,8 @@ const SET_TAGLINE = setSetting("tagline");
 const SET_HIDE_TRANSLATION_BUTTONS = setSetting("hide_translation_buttons");
 const SET_RESTRICT_ROOM_CREATION = setSetting("restrict_room_creation_to_administrators");
 const SET_CUSTOM_DOMAIN = setSetting("custom_domain");
+const SET_JOIN_LINK = setSetting("join_link");
+const SET_OPEN_SIGN_UP = setSetting("open_sign_up");
 const SET_MEMBERFUL_SIGN_IN = setSetting("memberful_sign_in");
 
 /** Navigation icon changes as the merge patch `CHANGE_NAVIGATION_ICONS` takes them: null for a slot's default. */
@@ -1415,6 +1440,8 @@ export class WorkspaceStore {
       customStyles: row.custom_styles ?? "",
       restrictRoomCreation: restrictsRoomCreation(settings),
       customDomain: customDomainIn(settings),
+      joinLink: joinsWithLinkIn(settings),
+      openSignUp: signsUpOpenlyIn(settings),
       memberfulSignIn: signsInWithMemberful(settings),
       navigationIcons: navigationIconsIn(settings),
       updatedAt: row.updated_at,
@@ -1424,7 +1451,7 @@ export class WorkspaceStore {
 
   /** Changes the workspace's name, tagline, settings, custom domain and navigation icons, as `change` has them, in one batch. */
   async changeAccount(
-    { name, tagline, hideTranslationButtons, restrictRoomCreation, customDomain, memberfulSignIn, navigationIcons }: AccountChange,
+    { name, tagline, hideTranslationButtons, restrictRoomCreation, customDomain, joinLink, openSignUp, memberfulSignIn, navigationIcons }: AccountChange,
     now: string,
   ): Promise<void> {
     await this.db.batch([
@@ -1433,6 +1460,8 @@ export class WorkspaceStore {
       ...(hideTranslationButtons === undefined ? [] : [statement(SET_HIDE_TRANSLATION_BUTTONS, JSON.stringify(hideTranslationButtons), now)]),
       ...(restrictRoomCreation === undefined ? [] : [statement(SET_RESTRICT_ROOM_CREATION, JSON.stringify(restrictRoomCreation), now)]),
       ...(customDomain === undefined ? [] : [statement(SET_CUSTOM_DOMAIN, JSON.stringify(customDomain), now)]),
+      ...(joinLink === undefined ? [] : [statement(SET_JOIN_LINK, JSON.stringify(joinLink), now)]),
+      ...(openSignUp === undefined ? [] : [statement(SET_OPEN_SIGN_UP, JSON.stringify(openSignUp), now)]),
       ...(memberfulSignIn === undefined ? [] : [statement(SET_MEMBERFUL_SIGN_IN, JSON.stringify(memberfulSignIn), now)]),
       ...(navigationIcons === undefined ? [] : [statement(CHANGE_NAVIGATION_ICONS, JSON.stringify(navigationIconsPatch(navigationIcons)), now)]),
     ]);
@@ -1622,6 +1651,12 @@ export class WorkspaceStore {
   /** Whether anyone has exactly this email address, whatever their status. */
   async hasEmailAddress(emailAddress: string): Promise<boolean> {
     return (await this.db.all(`SELECT 1 FROM users WHERE email_address = ?`, emailAddress)).length > 0;
+  }
+
+  /** How many people, bots aside, have joined since `since`, whatever their status, counting no further than `most`. */
+  async peopleJoinedSince(since: string, most: number): Promise<number> {
+    const [row] = await this.db.all<{ joined: number }>(PEOPLE_JOINED_SINCE, since, BOT, most);
+    return row?.joined ?? 0;
   }
 
   /** Adds a guest, who has a name but no way to sign in again, together with their session and open rooms. */

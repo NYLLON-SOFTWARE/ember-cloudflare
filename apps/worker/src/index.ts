@@ -15,6 +15,7 @@ import {
   MEMBERFUL_WEBHOOK_PATH,
   isPasswordTooLong,
   isRoomId,
+  OPEN_WITH_MEMBERFUL,
   parseAccountChanges,
   parseCustomDomainCheck,
   parseCustomStyles,
@@ -30,6 +31,7 @@ import {
   SIGN_IN_LIMITED,
   SIGN_IN_REJECTED,
   signOutEndpointOf,
+  SIGN_UP_PATH,
   TRANSFER_PATH,
   workspacePageOf,
   type Account,
@@ -85,7 +87,7 @@ import { CSP_REPORT_PATH, cspReport } from "./csp";
 import { answerProbe, customDomainRefusal, probeOf, reachOf } from "./custom-domain";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
-import { join, joinCodeOf, joinPage } from "./join";
+import { join, joinCodeOf, joinPage, signUp, signUpPage } from "./join";
 import { manifest, manifestFormatOf } from "./manifest";
 import { finishMemberfulSignIn, memberfulConnectionFor, memberfulRefusal, memberfulWebhook, memberfulWebhooksOf, startMemberfulSignIn } from "./memberful";
 import { memberfulKeysOf } from "./memberful-api";
@@ -101,6 +103,7 @@ import { clearSearches, recordSearch, searchMessages } from "./searches";
 import { firstRun, isSetupPath, setupAccessOf, setupPage, setupPlaceholdersOf } from "./setup";
 import { closedAtOnce } from "./sockets";
 import { newTransferId, transferPage, transferSession } from "./transfers";
+import { turnstileKeysOf } from "./turnstile";
 import { unfurlLink } from "./unfurl";
 import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-browser";
 import { platformOf } from "./user-agent";
@@ -205,6 +208,7 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
     setupAccess: setupAccessOf(request, env),
     setupPlaceholders: setupPlaceholdersOf(env),
     guestSignIn: guestSignIn(env) && !account?.memberfulSignIn,
+    turnstileSiteKey: turnstileKeysOf(env)?.siteKey ?? null,
     account: account ?? ACCOUNT_BEFORE_SETUP,
     version: versionOf(env),
     vapidPublicKey: push.on ? push.keys.publicKey : null,
@@ -227,16 +231,17 @@ async function me(request: Request, env: Env): Promise<Response> {
 
 /**
  * Workspace settings, which anyone signed in may see, read-only unless they're an administrator, with
- * the Memberful site whose members can sign in, once the deployment has its keys, and whether it hears
- * the site's webhooks. They hold the join code, which no cache should keep, as the sidebar's invitation does.
+ * the Memberful site whose members can sign in, once the deployment has its keys, whether it hears the
+ * site's webhooks, and whether it has Turnstile's keys. They hold the join code, which no cache should
+ * keep, as the sidebar's invitation does.
  */
 async function workspaceSettings(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const settings = credentials && (await workspace(env).workspaceSettings(credentials));
   if (!settings) return problem(401, "Not signed in");
   if (settings === "not set up") return problem(404, "Ember isn't set up yet");
-  const memberful = { memberfulSite: memberfulKeysOf(env)?.site ?? null, memberfulWebhooks: memberfulWebhooksOf(env) !== null };
-  return json({ ...settings, ...memberful } satisfies WorkspaceSettings, { headers: { "Cache-Control": "no-store" } });
+  const deployment = { memberfulSite: memberfulKeysOf(env)?.site ?? null, memberfulWebhooks: memberfulWebhooksOf(env) !== null, turnstile: turnstileKeysOf(env) !== null };
+  return json({ ...settings, ...deployment } satisfies WorkspaceSettings, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** Gives the join link a new code, as an administrator's Regenerate join link does, answering it. */
@@ -263,6 +268,7 @@ async function changeAccount(request: Request, env: Env): Promise<Response> {
   const account = await workspace(env).changeAccount(credentials, typeof changes === "string" || refusal ? {} : changes);
   if (!account) return problem(401, "Not signed in");
   if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
+  if (account === "conflict") return problem(422, OPEN_WITH_MEMBERFUL);
   return refusal ? problem(422, refusal) : json({ account });
 }
 
@@ -864,6 +870,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/rooms" && request.method === "POST") return () => createRoom(request, env);
   if (pathname === "/api/rooms/new" && request.method === "GET") return () => newRoomForm(request, env);
   if (pathname === "/api/directs" && request.method === "POST") return () => startDirect(request, env);
+  if (pathname === "/api/join" && request.method === "POST") return () => signUp(request, env);
   const joining = pathname.match(/^\/api\/join\/([^/]+)$/);
   if (joining && request.method === "POST") return () => join(request, env, joining[1]!);
   if (pathname === "/api/unfurl" && request.method === "POST") return () => unfurlLink(request, env);
@@ -948,6 +955,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // Signing in, which as ember-rust's `reject_banned_ip` refuses a banned IP address, though it's a GET.
   if (pathname === MEMBERFUL_CALLBACK_PATH) return (await isFromBannedAddress(request, env)) ? tooManyRequests() : finishMemberfulSignIn(request, env);
   if (isSetupPath(pathname)) return setupPage(request, env);
+  if (pathname === SIGN_UP_PATH) return signUpPage(request, env);
   const joinCode = joinCodeOf(pathname);
   if (joinCode !== null) return joinPage(request, env, joinCode);
   if (pathname === TRANSFER_PATH) return transferPage(request, env);

@@ -11,6 +11,8 @@ import {
   isPasswordTooShort,
   isRoomIcon,
   isRoomId,
+  joiningProblemOf,
+  joinsWithLink,
   MAX_ACCOUNT_NAME_LENGTH,
   MAX_BIO_LENGTH,
   MAX_BOOST_LENGTH,
@@ -25,6 +27,7 @@ import {
   MAX_ROOM_NAME_LENGTH,
   MAX_SHARED_ORDER,
   MAX_TAGLINE_LENGTH,
+  MAX_TURNSTILE_TOKEN_LENGTH,
   MAX_USER_NAME_LENGTH,
   memberfulProblemOf,
   memberfulSignInPath,
@@ -39,6 +42,7 @@ import {
   parseInvolvementChange,
   parseNewDirect,
   parseNewRoom,
+  parseOpenSignUp,
   parsePasswordReset,
   parseProfileChanges,
   parseRoleChange,
@@ -52,6 +56,8 @@ import {
   ROOM_ICON_NAMES,
   ROOM_PROTOCOL,
   roomSocketQuery,
+  signInSaying,
+  signsUpOpenly,
   startingInvolvement,
   suggestedCount,
   TAGLINE_TOO_LONG,
@@ -195,7 +201,7 @@ describe(feature("platform.live-socket"), () => {
     const welcome: WorkspaceServerFrame = {
       type: "welcome",
       you: { id: "u1", name: "Ada", administrator: true },
-      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false, navigationIcons: {} },
+      account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} },
     };
     expect(parseServerFrame<WorkspaceServerFrame>(JSON.stringify(welcome))).toEqual(welcome);
     expect(parseServerFrame<WorkspaceServerFrame>('{"type":7}')).toBeNull();
@@ -501,6 +507,59 @@ describe(feature("rooms.creation-permission"), () => {
       settings: { restrictRoomCreation: false, hideTranslationButtons: true },
     });
     expect(parseAccountChanges({ settings: { restrictRoomCreation: "true" } })).toBe("Must be admin to create new rooms must be true or false");
+  });
+});
+
+describe(feature("accounts.ways-to-join"), () => {
+  it("takes the join link's switch and Open as true or false, beside the other settings", () => {
+    expect(parseAccountChanges({ settings: { joinLink: false, openSignUp: true } })).toEqual({ settings: { joinLink: false, openSignUp: true } });
+    expect(parseAccountChanges({ settings: { joinLink: "off" } })).toBe("Join link must be true or false");
+    expect(parseAccountChanges({ settings: { openSignUp: null } })).toBe("Open must be true or false");
+  });
+
+  it("lets people in with the join link while its switch is on, but never while members sign in with Memberful", () => {
+    expect(joinsWithLink({ joinLink: true, memberfulSignIn: false })).toBe(true);
+    expect(joinsWithLink({ joinLink: false, memberfulSignIn: false })).toBe(false);
+    expect(joinsWithLink({ joinLink: true, memberfulSignIn: true })).toBe(false);
+  });
+
+  it("lets anyone sign up while Open is on, but never while members sign in with Memberful", () => {
+    expect(signsUpOpenly({ openSignUp: true, memberfulSignIn: false })).toBe(true);
+    expect(signsUpOpenly({ openSignUp: false, memberfulSignIn: false })).toBe(false);
+    expect(signsUpOpenly({ openSignUp: true, memberfulSignIn: true })).toBe(false);
+  });
+
+  it("names why joining went to sign in in the sign-in page's address, and reads only the reasons it knows", () => {
+    expect(signInSaying("link_off")).toBe("/session/new?joining=link_off");
+    expect(joiningProblemOf("closed")).toBe("closed");
+    expect(joiningProblemOf("link_off")).toBe("link_off");
+    for (const value of [null, "", "toString", "Closed", "constructor"]) expect(joiningProblemOf(value)).toBeNull();
+  });
+});
+
+describe(feature("auth.open-sign-up"), () => {
+  it("takes a sign-up as the join form sends it, with Turnstile's token if there is one", () => {
+    const signUp = { name: " Ada ", emailAddress: "ada@example.com", password: "secret words" };
+    expect(parseOpenSignUp(signUp)).toEqual({ name: "Ada", emailAddress: "ada@example.com", password: "secret words" });
+    expect(parseOpenSignUp({ ...signUp, turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" })).toEqual({
+      name: "Ada",
+      emailAddress: "ada@example.com",
+      password: "secret words",
+      turnstileToken: "XXXX.DUMMY.TOKEN.XXXX",
+    });
+    expect(parseOpenSignUp({ ...signUp, turnstileToken: "x".repeat(MAX_TURNSTILE_TOKEN_LENGTH) })).toMatchObject({ turnstileToken: "x".repeat(MAX_TURNSTILE_TOKEN_LENGTH) });
+  });
+
+  it.each([
+    ["a sign-up without a name", { emailAddress: "ada@example.com", password: "secret words" }, "Name, email address and password are required"],
+    ["a token that isn't text", { name: "Ada", emailAddress: "ada@example.com", password: "secret words", turnstileToken: 7 }, "Turnstile's token must be at most 2048 characters"],
+    [
+      "a token longer than Turnstile's",
+      { name: "Ada", emailAddress: "ada@example.com", password: "secret words", turnstileToken: "x".repeat(MAX_TURNSTILE_TOKEN_LENGTH + 1) },
+      "Turnstile's token must be at most 2048 characters",
+    ],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseOpenSignUp(body)).toBe(error);
   });
 });
 

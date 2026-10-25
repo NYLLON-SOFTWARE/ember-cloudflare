@@ -23,7 +23,7 @@ import { api, cookieOf, freshDeploy, openWorkspaceSocket, origin, shown, signIn,
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 
 /** The workspace named `name`, as pages show a new one: translation buttons hidden, no custom CSS, and rooms anyone can create. */
-const named = (name: string): Account => ({ name, tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, memberfulSignIn: false, navigationIcons: {} });
+const named = (name: string): Account => ({ name, tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulSignIn: false, navigationIcons: {} });
 
 /** Sets Ember up with Ada as its administrator, signed in. */
 async function setUp(): Promise<Session> {
@@ -63,8 +63,8 @@ describe(feature("accounts.settings-page"), () => {
     const administrator = await setUp();
     const member = await signIn("Grace");
     const joinCode = await storedJoinCode();
-    expect(await (await settings(administrator)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: true, memberfulSite: null, memberfulWebhooks: false } satisfies WorkspaceSettings);
-    expect(await (await settings(member)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: false, memberfulSite: null, memberfulWebhooks: false } satisfies WorkspaceSettings);
+    expect(await (await settings(administrator)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: true, memberfulSite: null, memberfulWebhooks: false, turnstile: false } satisfies WorkspaceSettings);
+    expect(await (await settings(member)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: false, memberfulSite: null, memberfulWebhooks: false, turnstile: false } satisfies WorkspaceSettings);
   });
 
   it("asks who's signed in", async () => {
@@ -100,7 +100,7 @@ describe(feature("accounts.name"), () => {
     expect(await response.json()).toEqual({ account: named("Ember Studio") });
     expect((await storedAccount()).name).toBe("Ember Studio");
 
-    expect(await (await settings(member)).json()).toEqual({ account: named("Ember Studio"), joinCode: await storedJoinCode(), canAdminister: false, memberfulSite: null, memberfulWebhooks: false });
+    expect(await (await settings(member)).json()).toEqual({ account: named("Ember Studio"), joinCode: await storedJoinCode(), canAdminister: false, memberfulSite: null, memberfulWebhooks: false, turnstile: false });
     expect((await bootstrap(member)).account).toEqual(named("Ember Studio"));
     // "Sign in to <name>", and the installed app's name.
     expect((await bootstrap()).account).toEqual(named("Ember Studio"));
