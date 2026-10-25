@@ -829,6 +829,29 @@ describe(feature("auth.memberful-sign-in"), () => {
     expect(on).not.toBeChecked();
   });
 
+  it("greys out each of its two switches while the other's move is saved, since saving either changes the other", async () => {
+    let answer = (_: Response) => {};
+    serve(withKeys, { saved: () => new Promise((resolve) => (answer = resolve)) });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { user } = showPage();
+    const on = await memberfulSwitch();
+    await user.click(on);
+    const membersOnly = membersOnlySwitch()!;
+    expect(membersOnly).toBeDisabled();
+    await act(async () => answer(Response.json({ account: { ...withKeys.account, memberfulJoin: true } })));
+    expect(membersOnly).toBeEnabled();
+
+    // Were turning Memberful off saved before turning Members only on, Members only would turn it back on.
+    await user.click(membersOnly);
+    expect(membersOnly).toBeChecked();
+    expect(on).toBeDisabled();
+    await act(async () => answer(Response.json({ account: { ...withKeys.account, memberfulJoin: true, memberfulSignIn: true } })));
+    expect(on).toBeEnabled();
+    await user.click(on);
+    expect(on).not.toBeChecked();
+    expect(saved()).toEqual([{ settings: { memberfulJoin: true } }, { settings: { memberfulSignIn: true } }, { settings: { memberfulJoin: false } }]);
+  });
+
   it("keeps the switch to turn it off once the deployment has lost the keys, saying nobody can sign in with Memberful", async () => {
     serve(withMemberful(asAdministrator, true));
     const { user } = showPage();

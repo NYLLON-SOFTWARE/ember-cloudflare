@@ -390,12 +390,15 @@ const QUEUE_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_checks (issuer, subjec
   WHERE identities.issuer = ?1 AND ${MEMBERSHIP_COUNTS} AND EXISTS (SELECT 1 FROM membership_catch_ups WHERE issuer = ?1 AND due_at <= ?2)
   ON CONFLICT DO NOTHING`;
 
-/** Makes the catch-up at issuer ?1 due at ?2, unless it's due sooner. */
-const SCHEDULE_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due_at) VALUES (?1, ?2)
+/** Whether anyone here is linked to an account at issuer ?1, without whom a catch-up has nobody to check. */
+const ANYONE_LINKED = `EXISTS (SELECT 1 FROM identities WHERE issuer = ?1)`;
+
+/** Makes the catch-up at issuer ?1 due at ?2, unless it's due sooner, while anyone is linked to an account there. */
+const SCHEDULE_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due_at) SELECT ?1, ?2 WHERE ${ANYONE_LINKED}
   ON CONFLICT (issuer) DO UPDATE SET due_at = min(due_at, excluded.due_at)`;
 
-/** Makes the catch-up at issuer ?1 due at ?2, unless one is due already, however much later. */
-const START_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due_at) VALUES (?1, ?2) ON CONFLICT (issuer) DO NOTHING`;
+/** Makes the catch-up at issuer ?1 due at ?2, unless one is due already, however much later, while anyone is linked to an account there. */
+const START_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due_at) SELECT ?1, ?2 WHERE ${ANYONE_LINKED} ON CONFLICT (issuer) DO NOTHING`;
 
 /** Records that the memberships of the accounts at issuer ?1 with the subjects ?2, a JSON array, were read at ?3, unless they were since. */
 const STAMP_MEMBERSHIPS = `UPDATE identities SET checked_at = ?3 WHERE issuer = ?1 AND subject IN (SELECT value FROM json_each(?2)) AND checked_at < ?3`;
@@ -2010,32 +2013,33 @@ export class WorkspaceStore {
   /**
    * Queues checking the membership of the account at the Memberful site `issuer` with `subject`, due at
    * `now`, as a webhook about it came then, if it's linked to a member whose membership counts, and makes
-   * the site's catch-up due by `nextCatchUp`.
+   * the site's catch-up due by `nextCatchUp`, if anyone here is linked to an account there.
    */
   async queueMembershipCheck(issuer: string, subject: string, now: number, nextCatchUp: number): Promise<void> {
     await this.db.batch([statement(QUEUE_MEMBERSHIP_CHECK, issuer, subject, now), statement(SCHEDULE_MEMBERSHIP_CATCH_UP, issuer, nextCatchUp)]);
   }
 
-  /** Makes the catch-up of the memberships at the Memberful site `issuer` due by `dueAt`. */
+  /** Makes the catch-up of the memberships at the Memberful site `issuer` due by `dueAt`, if anyone here is linked to an account there. */
   async scheduleMembershipCatchUp(issuer: string, dueAt: number): Promise<void> {
     await this.db.run(SCHEDULE_MEMBERSHIP_CATCH_UP, issuer, dueAt);
   }
 
-  /** Makes the catch-up of the memberships at the Memberful site `issuer` due at `dueAt`, unless one is due already. */
+  /** Makes the catch-up of the memberships at the Memberful site `issuer` due at `dueAt`, unless one is due already, if anyone here is linked to an account there. */
   async startMembershipCatchUp(issuer: string, dueAt: number): Promise<void> {
     await this.db.run(START_MEMBERSHIP_CATCH_UP, issuer, dueAt);
   }
 
   /**
    * Forgets the membership checks and catch-ups of every Memberful site but `site`, all of them for null,
-   * as nothing checks them, then, if the catch-up of `site` is due by `now`, queues checking every
-   * membership there that counts and makes the next due at `nextCatchUp`, and answers up to `limit` of
-   * its checks due by `now`, those due longest first.
+   * as nothing checks them, and the catch-up of `site` while nobody here is linked to an account there,
+   * as one started before anyone was may be, then, if the catch-up of `site` is due by `now`, queues
+   * checking every membership there that counts and makes the next due at `nextCatchUp`, and answers up
+   * to `limit` of its checks due by `now`, those due longest first.
    */
   async dueMembershipChecks(site: string | null, now: number, nextCatchUp: number, limit: number): Promise<MembershipCheck[]> {
     const results = await this.db.batch([
       statement(`DELETE FROM membership_checks WHERE issuer IS NOT ?`, site),
-      statement(`DELETE FROM membership_catch_ups WHERE issuer IS NOT ?`, site),
+      statement(`DELETE FROM membership_catch_ups WHERE issuer IS NOT ?1 OR NOT ${ANYONE_LINKED}`, site),
       statement(QUEUE_MEMBERSHIP_CATCH_UP, site, now),
       statement(`UPDATE membership_catch_ups SET due_at = ? WHERE issuer = ? AND due_at <= ?`, nextCatchUp, site, now),
       statement(`SELECT subject, attempts FROM membership_checks WHERE issuer = ? AND due_at <= ? ORDER BY due_at, subject LIMIT ?`, site, now, limit),

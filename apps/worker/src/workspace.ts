@@ -889,9 +889,9 @@ export class Workspace extends DurableObject<Env> {
     // Memberful off, or a check of the same membership, and a suspension closes the sockets it ends
     // before answering.
     return this.closingSockets(async () => {
-      await this.keepCatchingUp(Date.now() + MEMBERSHIP_CATCH_UP_MS);
       const linked = await this.store.linkedPerson(issuer, member.id);
       if (linked) {
+        await this.keepCatchingUp(Date.now() + MEMBERSHIP_CATCH_UP_MS);
         if (linked.status === "deactivated" || linked.status === "banned") return "refused";
         if ((await this.settleMembership(issuer, member.id, linked, member.subscribed, readAt)) !== "active") return "membership";
         // On D1 a role change can overlap it, so it's remembered only if none did.
@@ -911,6 +911,7 @@ export class Workspace extends DurableObject<Env> {
         throw error;
       }
       this.linkedSites.add(issuer);
+      await this.keepCatchingUp(Date.now() + MEMBERSHIP_CATCH_UP_MS);
       this.sessions.remember(tokenDigest, session);
       await this.publishPerson(session.user.id);
       return meOf(session);
@@ -982,7 +983,6 @@ export class Workspace extends DurableObject<Env> {
     // One at a time, as signing in with Memberful is, so that two can't connect the same account.
     return this.closingSockets(async () => {
       if (!(await this.joinableAccount())?.memberfulSignIn) return "unneeded";
-      await this.keepCatchingUp(Date.now() + MEMBERSHIP_CATCH_UP_MS);
       const linked = await this.store.linkedPerson(issuer, member.id);
       if (linked && linked.userId !== userId) return "claimed";
       if (linked) {
@@ -996,6 +996,7 @@ export class Workspace extends DurableObject<Env> {
         if (!(await this.store.connectIdentity(connecting, issuer, member.id, readAt, new Date().toISOString()))) return "refused";
         this.linkedSites.add(issuer);
       }
+      await this.keepCatchingUp(Date.now() + MEMBERSHIP_CATCH_UP_MS);
       if (tokenDigest === null) return "connected";
       // On D1 a role change can overlap it, so it's remembered only if none did.
       const session = await this.sessions.keep(tokenDigest, () => this.store.startLinkedSession(userId, sortableId(), tokenDigest, client, new Date().toISOString()));
@@ -1017,7 +1018,8 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Makes the daily check of every membership at the deployment's Memberful site due by `dueAt`, if it
-   * can ask the site's admin API, and sets the alarm for it.
+   * can ask the site's admin API, and sets the alarm for it. Called once someone here is linked to an
+   * account there, since the check isn't kept while nobody is.
    */
   private async keepCatchingUp(dueAt: number): Promise<void> {
     const api = memberfulApiOf(this.env);
@@ -2278,7 +2280,7 @@ export class Workspace extends DurableObject<Env> {
    */
   private async resumeDeliveries(): Promise<void> {
     const api = memberfulApiOf(this.env);
-    if (api && (await this.store.anyoneLinked(api.site))) await this.store.startMembershipCatchUp(api.site, Date.now());
+    if (api) await this.store.startMembershipCatchUp(api.site, Date.now());
     await this.scheduleDelivery();
   }
 

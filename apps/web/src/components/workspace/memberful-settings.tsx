@@ -24,6 +24,10 @@ interface Props {
   /** Where Members only's switch is, likewise. */
   membersOnly: boolean;
   onMembersOnlyChange: (on: boolean) => void;
+  /** Whether a move of Memberful's switch is being saved, while which Members only's waits. */
+  memberfulSaving?: boolean;
+  /** Whether a move of Members only's switch is being saved, while which Memberful's waits. */
+  membersOnlySaving?: boolean;
   /** Why the switch can't be moved while another way to join is on, said in place of what it does, or null. */
   setAside?: string | null;
 }
@@ -33,7 +37,17 @@ interface Props {
  * them, which only turning it off mends, with Members only's while it's on, and the steps to get the keys
  * until it has them, then those to hear Memberful's webhooks until it does.
  */
-export function MemberfulSettings({ site, webhooks, checked, onCheckedChange, membersOnly, onMembersOnlyChange, setAside = null }: Props) {
+export function MemberfulSettings({
+  site,
+  webhooks,
+  checked,
+  onCheckedChange,
+  membersOnly,
+  onMembersOnlyChange,
+  memberfulSaving = false,
+  membersOnlySaving = false,
+  setAside = null,
+}: Props) {
   const { customDomain } = useAccount();
   // Where Memberful sends people back to, and its webhooks: Ember's address, wherever settings are opened.
   const origin = `${location.protocol}//${customDomain ?? location.host}`;
@@ -69,7 +83,7 @@ export function MemberfulSettings({ site, webhooks, checked, onCheckedChange, me
           <Switch
             checked={checked}
             onCheckedChange={onCheckedChange}
-            disabled={setAside !== null}
+            disabled={setAside !== null || membersOnlySaving}
             aria-labelledby="memberful-heading"
             aria-describedby="memberful-description"
           />
@@ -84,7 +98,13 @@ export function MemberfulSettings({ site, webhooks, checked, onCheckedChange, me
               in.
             </p>
           </div>
-          <Switch checked={membersOnly} onCheckedChange={onMembersOnlyChange} aria-labelledby="members-only-heading" aria-describedby="members-only-description" />
+          <Switch
+            checked={membersOnly}
+            onCheckedChange={onMembersOnlyChange}
+            disabled={memberfulSaving}
+            aria-labelledby="members-only-heading"
+            aria-describedby="members-only-description"
+          />
         </div>
       )}
       {site === null ? (

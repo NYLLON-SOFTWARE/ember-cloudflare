@@ -1002,6 +1002,25 @@ describe(feature("auth.memberful-memberships"), () => {
         expect(await statusOf(administrator, id)).toBe("suspended");
       }),
     );
+
+    it(
+      "start no daily check while nobody here is linked to the site, whether Memberful is on or not, and one started before anyone was is forgotten",
+      hearingWebhooks(async () => {
+        const administrator = await setUpWithMemberful();
+        fakeMemberful();
+        expect((await webhook(subscriptionChanged(katherine))).status).toBe(204);
+        await turnMemberful(administrator, false);
+        expect((await webhook(subscriptionChanged(katherine))).status).toBe(204);
+        expect(await queuedChecks()).toEqual([]);
+        expect(await count("membership_catch_ups")).toBe(0);
+
+        // As turning Memberful on did before anyone signed in with it, once.
+        await workspaceSql("INSERT INTO membership_catch_ups (issuer, due_at) VALUES (?, ?)", SITE, Date.now());
+        await runInDurableObject(workspaceStub(), (_workspace, state: DurableObjectState) => state.storage.setAlarm(Date.now() + 60 * 60 * 1000));
+        expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+        expect(await count("membership_catch_ups")).toBe(0);
+      }),
+    );
   });
 
   describe("checking memberships", () => {
@@ -1494,6 +1513,18 @@ describe(feature("auth.memberful-connect"), () => {
       expect(await again.json()).toEqual({ error: "You've connected Memberful already" });
       expect(site.requests.filter(({ url }) => url === `${SITE}/oauth/token`)).toHaveLength(2);
     });
+
+    it(
+      "starts the daily check of memberships once the first account here is connected",
+      hearingWebhooks(async () => {
+        const { member } = await setUpWithGrace();
+        fakeMemberful(gracesAccount);
+        expect(await count("membership_catch_ups")).toBe(0);
+        const back = await finish(await connectionOf(await connect(member, { currentPassword: grace.password })), member);
+        expect(locationOf(back)).toBe(backToProfile("connected"));
+        expect(await count("membership_catch_ups")).toBe(1);
+      }),
+    );
 
     it("asks for your password, counting it against the sign-in limit", async () => {
       const { member } = await setUpWithGrace();

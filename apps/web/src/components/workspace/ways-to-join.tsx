@@ -128,6 +128,10 @@ export function WaysToJoin({ settings, saveSwitch, joinLink }: Props) {
         onCheckedChange={switchTo("memberfulJoin")}
         membersOnly={membersOnly}
         onMembersOnlyChange={switchTo("memberfulSignIn")}
+        // Saving either changes the other's setting too, so each waits for the other's move, lest saves
+        // arriving out of order undo the later one.
+        memberfulSaving={moved.memberfulJoin !== undefined}
+        membersOnlySaving={moved.memberfulSignIn !== undefined}
         setAside={openOverrides && !membersOnly ? OPEN_OVERRIDES : null}
       />
       {!open && !link && !memberful && <p className="text-start">With all of these off, no one new can join.</p>}
