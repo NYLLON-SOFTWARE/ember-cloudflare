@@ -52,6 +52,8 @@ export function InviteByEmail({ invitations, emails, onInvitationsChanged, onFai
   // The links of the invitations Ember didn't email, by their ids, since only now are they known.
   const [links, setLinks] = useState<Record<string, string>>({});
   const mounted = useMounted();
+  // While it sends, the addresses and each invitation's buttons wait, since its answer would undo what was typed or done meanwhile.
+  const sending = sent === "sending";
 
   /** Keeps what came of `invitation`'s newest link: the link itself, if Ember didn't email it, or nothing. */
   const keepLink = (links: Record<string, string>, invitation: EmailInvitation, link: string | null) => {
@@ -118,14 +120,15 @@ export function InviteByEmail({ invitations, emails, onInvitationsChanged, onFai
               spellCheck={false}
               placeholder="ann@example.com, bob@example.com"
               value={text}
-              aria-invalid={sent !== null && sent !== "sending" && "refused" in sent}
+              disabled={sending}
+              aria-invalid={sent !== null && !sending && "refused" in sent}
               aria-describedby="invitation-outcome"
               onChange={(event) => setText(event.target.value)}
               className={cn("w-full border placeholder:text-muted-foreground", FIELD_INPUT, "resize-y")}
             />
           </Field>
         </div>
-        <button type="submit" disabled={sent === "sending"} className={BUTTON}>
+        <button type="submit" disabled={sending} className={BUTTON}>
           {emails ? "Send invitations" : "Create invite links"}
         </button>
       </form>
@@ -142,6 +145,7 @@ export function InviteByEmail({ invitations, emails, onInvitationsChanged, onFai
                 invitation={invitation}
                 link={links[invitation.id] ?? null}
                 emails={emails}
+                sending={sending}
                 onSentAgain={sentAgain}
                 onGone={gone}
                 onFailed={onFailed}
@@ -193,6 +197,8 @@ interface PendingProps {
   /** Its newest link, while Ember didn't email it and the page knows it, or null. */
   link: string | null;
   emails: boolean;
+  /** Whether the card is sending invitations, so its buttons wait. */
+  sending: boolean;
   onSentAgain: (invitation: EmailInvitation, link: string | null) => void;
   /** Called once it's been revoked, or found accepted or revoked already. */
   onGone: (id: string) => void;
@@ -200,7 +206,7 @@ interface PendingProps {
 }
 
 /** An invitation no one has accepted: whom it's for, who sent it, whether it was emailed, when it stops working, and its buttons. */
-function PendingInvitation({ invitation, link, emails, onSentAgain, onGone, onFailed }: PendingProps) {
+function PendingInvitation({ invitation, link, emails, sending, onSentAgain, onGone, onFailed }: PendingProps) {
   const [busy, setBusy] = useState(false);
   const mounted = useMounted();
   const { id, emailAddress, invitedBy, expiresAt, delivery } = invitation;
@@ -235,7 +241,7 @@ function PendingInvitation({ invitation, link, emails, onSentAgain, onGone, onFa
         {link !== null && <CopyButton text={link} label={`Copy the invite link for ${emailAddress}`} className={ROUND_BUTTON} />}
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || sending}
           onClick={() => ask(() => resendInvitation(id), ({ invitation, link }) => onSentAgain(invitation, link))}
           aria-label={`${emails ? "Send again" : "New link"} for ${emailAddress}`}
           className={BUTTON}
@@ -244,7 +250,7 @@ function PendingInvitation({ invitation, link, emails, onSentAgain, onGone, onFa
         </button>
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || sending}
           onClick={() => confirm(CONFIRM_REVOKE) && ask(() => revokeInvitation(id), () => onGone(id))}
           aria-label={`Revoke the invitation for ${emailAddress}`}
           className={BUTTON}

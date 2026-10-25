@@ -183,8 +183,8 @@ export interface LinkedPerson {
   userId: UserId;
   /** Whether they can sign in, as only active people do, or why not. */
   status: UserStatus;
-  /** Whether they're one of the workspace's administrators. */
-  administrator: boolean;
+  /** Whether they need a membership to be let in, as everyone does but administrators and the people they invited. */
+  membershipNeeded: boolean;
   /** When their membership was last read, by the Workspace's clock: as a sign-in began, or a check asked Memberful. */
   checkedAt: number;
 }
@@ -354,10 +354,11 @@ const INSERT_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_addr
   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
 
 /**
- * Whether someone may sign in with a password while Memberful is members only: an administrator, or
- * someone who joined with an invitation, who needs no membership.
+ * Whether someone needs no Memberful membership: an administrator, or someone who joined with an
+ * invitation. They sign in with a password while Memberful is members only, and a membership of theirs
+ * lapsing doesn't suspend them.
  */
-const SIGNS_IN_WHILE_MEMBERS_ONLY = `(role = ${ADMINISTRATOR} OR invited_by IS NOT NULL)`;
+const NEEDS_NO_MEMBERSHIP = `(users.role = ${ADMINISTRATOR} OR users.invited_by IS NOT NULL)`;
 
 /**
  * The same, for someone who signed in, unless they've stopped being active since, or their password
@@ -365,7 +366,7 @@ const SIGNS_IN_WHILE_MEMBERS_ONLY = `(role = ${ADMINISTRATOR} OR invited_by IS N
  * only administrators, and the people they invited, sign in with a password.
  */
 const INSERT_SESSION_IF_UNCHANGED = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
-  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND password_digest = ? AND (? = 0 OR ${SIGNS_IN_WHILE_MEMBERS_ONLY})`;
+  SELECT ?, id, ?, ?, ?, ?, ?, ? FROM users WHERE id = ? AND status = ${ACTIVE} AND password_digest = ? AND (? = 0 OR ${NEEDS_NO_MEMBERSHIP})`;
 
 /** Keeps a digest made now of the password someone signed in with, in place of the one checked, unless it has changed since. */
 const REHASH_PASSWORD = `UPDATE users SET password_digest = ? WHERE id = ? AND password_digest = ?`;
@@ -431,15 +432,16 @@ const ACCEPT_INVITATION = `DELETE FROM email_links WHERE kind = ${INVITATION} AN
 const TAKEN_EMAIL_ADDRESSES = `SELECT lower(email_address) AS email_address FROM users WHERE lower(email_address) IN (SELECT lower(value) FROM json_each(?1))`;
 
 /** The people the accounts at issuer ?1 with the subjects ?2, a JSON array, are linked to, with when each account's membership was last read. */
-const LINKED_PEOPLE = `SELECT identities.subject, users.id, users.status, users.role, identities.checked_at
+const LINKED_PEOPLE = `SELECT identities.subject, users.id, users.status, NOT ${NEEDS_NO_MEMBERSHIP} AS membership_needed, identities.checked_at
   FROM identities JOIN users ON users.id = identities.user_id WHERE identities.issuer = ?1 AND identities.subject IN (SELECT value FROM json_each(?2))`;
 
 /**
  * Whether the membership of the person a linked account signs in as counts: a member's does, while
- * they're active, or suspended for its lapsing. Administrators are let in whatever their membership, and
- * someone removed or banned stays so.
+ * they're active, or suspended for its lapsing, unless they joined with an invitation. Administrators,
+ * and the people they invited, are let in whatever their membership, and someone removed or banned
+ * stays so.
  */
-const MEMBERSHIP_COUNTS = `users.role = ${MEMBER} AND users.status IN (${ACTIVE}, ${SUSPENDED})`;
+const MEMBERSHIP_COUNTS = `users.role = ${MEMBER} AND users.invited_by IS NULL AND users.status IN (${ACTIVE}, ${SUSPENDED})`;
 
 /**
  * Queues checking the membership of the account at issuer ?1 with subject ?2, due at ?3, if its member's
@@ -488,8 +490,8 @@ const START_CONNECTION = `INSERT INTO pending_identities (state_digest, user_id,
     AND NOT EXISTS (SELECT 1 FROM identities WHERE identities.user_id = users.id AND identities.issuer = ?5)
   RETURNING user_id`;
 
-/** Whether the person ?1 can have an account elsewhere connected, and the subject of theirs at issuer ?2, if they have one. */
-const CONNECTING_PERSON = `SELECT users.role = ${ADMINISTRATOR} AS administrator,
+/** Whether the person ?1 can have an account elsewhere connected, whether they need a membership, and the subject of theirs at issuer ?2, if they have one. */
+const CONNECTING_PERSON = `SELECT NOT ${NEEDS_NO_MEMBERSHIP} AS membership_needed,
     (SELECT subject FROM identities WHERE identities.user_id = users.id AND identities.issuer = ?2) AS subject
   FROM users WHERE id = ?1 AND ${CONNECTABLE}`;
 
@@ -1383,7 +1385,7 @@ const PERSON_WITH_PROFILE = `SELECT id, name, email_address, bio, role, status, 
 
 /** The same, with the avatar they've uploaded, and whether they have a password, which people without one keep as none or blank. */
 const OWN_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at, avatar_key, avatar_variant,
-    coalesce(password_digest, '') <> '' AS password, NOT ${SIGNS_IN_WHILE_MEMBERS_ONLY} AS membership_needed,
+    coalesce(password_digest, '') <> '' AS password, NOT ${NEEDS_NO_MEMBERSHIP} AS membership_needed,
     (SELECT json_group_array(issuer) FROM identities WHERE identities.user_id = users.id) AS issuers
   FROM users WHERE id = ?`;
 
@@ -1692,11 +1694,11 @@ export class WorkspaceStore {
 
   /** The people the accounts at `issuer` with `subjects` are linked to, whatever their status, by subject, leaving out those linked to nobody. */
   async linkedPeople(issuer: string, subjects: string[]): Promise<Map<string, LinkedPerson>> {
-    const rows = await this.db.all<{ subject: string; id: UserId; status: number; role: number; checked_at: number }>(LINKED_PEOPLE, issuer, JSON.stringify(subjects));
+    const rows = await this.db.all<{ subject: string; id: UserId; status: number; membership_needed: number; checked_at: number }>(LINKED_PEOPLE, issuer, JSON.stringify(subjects));
     return new Map(
       rows.map((row) => [
         row.subject,
-        { userId: row.id, status: STATUSES[row.status] ?? "active", administrator: row.role === ADMINISTRATOR, checkedAt: row.checked_at },
+        { userId: row.id, status: STATUSES[row.status] ?? "active", membershipNeeded: row.membership_needed === 1, checkedAt: row.checked_at },
       ]),
     );
   }
@@ -1738,12 +1740,12 @@ export class WorkspaceStore {
 
   /**
    * Whether `userId` can have an account elsewhere connected, as an active person, neither a guest nor a
-   * bot, can: if so, whether they're an administrator, and the subject of their account at `issuer`, if
-   * they have one there already.
+   * bot, can: if so, whether they need a membership, as everyone does but administrators and the people
+   * they invited, and the subject of their account at `issuer`, if they have one there already.
    */
-  async connectingPerson(userId: UserId, issuer: string): Promise<{ administrator: boolean; subject: string | null } | null> {
-    const [row] = await this.db.all<{ administrator: number; subject: string | null }>(CONNECTING_PERSON, userId, issuer);
-    return row ? { administrator: row.administrator === 1, subject: row.subject } : null;
+  async connectingPerson(userId: UserId, issuer: string): Promise<{ membershipNeeded: boolean; subject: string | null } | null> {
+    const [row] = await this.db.all<{ membership_needed: number; subject: string | null }>(CONNECTING_PERSON, userId, issuer);
+    return row ? { membershipNeeded: row.membership_needed === 1, subject: row.subject } : null;
   }
 
   /**
@@ -1821,7 +1823,7 @@ export class WorkspaceStore {
 
   /** Whether `userId` may sign in with a password while Memberful is members only, as an active administrator, or someone who joined with an invitation, may. */
   async signsInWhileMembersOnly(userId: UserId): Promise<boolean> {
-    return (await this.db.all(`SELECT 1 FROM users WHERE id = ? AND status = ${ACTIVE} AND ${SIGNS_IN_WHILE_MEMBERS_ONLY}`, userId)).length > 0;
+    return (await this.db.all(`SELECT 1 FROM users WHERE id = ? AND status = ${ACTIVE} AND ${NEEDS_NO_MEMBERSHIP}`, userId)).length > 0;
   }
 
   /** How many people, bots aside, have joined since `since`, whatever their status, counting no further than `most`. */

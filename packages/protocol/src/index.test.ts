@@ -648,6 +648,11 @@ describe(feature("accounts.invitations"), () => {
     });
     expect(emailAddressesIn("Ann Smith ann@example.com")).toEqual({ emailAddresses: ["ann@example.com"], refused: ["Ann", "Smith"] });
     expect(emailAddressesIn("Ann <ann@example.com>; ANN@example.com")).toEqual({ emailAddresses: ["ann@example.com"], refused: [] });
+    expect(emailAddressesIn("Ann <ann@example.com> bob@example.com")).toEqual({ emailAddresses: ["ann@example.com", "bob@example.com"], refused: [] });
+    expect(emailAddressesIn("<ann@example.com> bob@example.com Cy <cy@example.com> Dee Smith <dee@example.com> eve")).toEqual({
+      emailAddresses: ["ann@example.com", "bob@example.com", "cy@example.com", "dee@example.com"],
+      refused: ["eve"],
+    });
     expect(emailAddressesIn("ann bob@example cy@example.com")).toEqual({ emailAddresses: ["cy@example.com"], refused: ["ann", "bob@example"] });
     expect(emailAddressesIn(" \n , ")).toEqual({ emailAddresses: [], refused: [] });
   });

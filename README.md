@@ -325,10 +325,10 @@ rooms, private ones too, messages and role stay, and they're back as they were o
 they sign in. Making an open room private leaves them out of it, as it does anyone not chosen. A
 webhook only tells Ember whom to ask about: Memberful sends them in no particular order, so the
 Workspace asks Memberful's API what that member's membership is now, and asks about everyone linked
-once a day too, in case one never came. Administrators are never suspended. They see suspended
-members dimmed in Workspace settings, where they can remove them, and everyone else sees them as
-removed. All of this goes on whether Memberful is on or not, since its members keep signing in with
-it once it's off.
+once a day too, in case one never came. Administrators, and the people they invite, who need no
+membership, are never suspended. Administrators see suspended members dimmed in Workspace settings,
+where they can remove them, and everyone else sees them as removed. All of this goes on whether
+Memberful is on or not, since its members keep signing in with it once it's off.
 
 ### Sending email
 

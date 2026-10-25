@@ -1755,9 +1755,19 @@ export function parseInvitationRequest(data: unknown): string[] | string {
  */
 export function emailAddressesIn(text: string): { emailAddresses: string[]; refused: string[] } {
   // A name in quotes can hold commas, and is never an address.
-  const entries = text.replace(/"[^"]*"/g, " ").split(/[,;\n]/);
-  const words = entries.flatMap((entry) => (/<([^<>]*)>/.exec(entry)?.[1] ?? entry).split(/\s+/).filter(Boolean));
+  const words = text.replace(/"[^"]*"/g, " ").split(/[,;\n]/).flatMap(wordsOfEntry);
   return { emailAddresses: onceEach(words.filter(isEmailAddress)), refused: words.filter((word) => !isEmailAddress(word)) };
+}
+
+/** The words of `entry`, one of a list of addresses, apart by spaces: all but those of each name before an address in angle brackets. */
+function wordsOfEntry(entry: string): string[] {
+  // What's in angle brackets lands at the odd places, each after what comes before it.
+  const parts = entry.split(/<([^<>]*)>/);
+  return parts.flatMap((part, index) => {
+    const words = part.split(/\s+/).filter(Boolean);
+    // The words before an address in angle brackets are its name, but for any address among them.
+    return index % 2 === 0 && index < parts.length - 1 ? words.filter(isEmailAddress) : words;
+  });
 }
 
 /** `emailAddresses` with each address once, whatever its case, as first given. */

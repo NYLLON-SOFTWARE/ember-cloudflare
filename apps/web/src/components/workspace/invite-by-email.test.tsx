@@ -127,17 +127,23 @@ describe(feature("accounts.invitations"), () => {
     expect(rows()).toHaveLength(45);
   });
 
-  it("waits while it's sending, saying so", async () => {
+  it("waits while it's sending, saying so, holding the addresses and each pending invitation's buttons, whose changes its answer would undo", async () => {
     let answer = (_: Response) => {};
     serve({ invited: () => new Promise<Response>((resolve) => (answer = resolve)) });
-    const { user } = showCard();
+    const { user } = showCard({ invitations: [invitation("ann@example.com", {}, 1)] });
+    const buttons = () => within(rowFor("ann@example.com")).getAllByRole("button");
     await user.type(box(), "ann@example.com");
     await user.click(sendButton());
     expect(outcome()).toHaveTextContent("Sending invitations…");
     expect(sendButton()).toBeDisabled();
+    expect(box()).toBeDisabled();
+    expect(buttons().map((button) => button.getAttribute("aria-label"))).toEqual(["Send again for ann@example.com", "Revoke the invitation for ann@example.com"]);
+    for (const button of buttons()) expect(button).toBeDisabled();
     answer(Response.json({ outcomes: [outcomeOf("ann@example.com")] }));
     expect(await screen.findByText("Sent 1 invitation.")).toBeInTheDocument();
     expect(sendButton()).toBeEnabled();
+    expect(box()).toBeEnabled();
+    for (const button of buttons()) expect(button).toBeEnabled();
   });
 
   it("says which addresses have accounts already", async () => {

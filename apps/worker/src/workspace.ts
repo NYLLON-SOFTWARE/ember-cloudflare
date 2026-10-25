@@ -357,10 +357,11 @@ const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, adminis
 /**
  * What reading that `person`'s membership is `subscribed`, or not, changes: "lapsed" for an active member
  * without one, whom it suspends, "renewed" for a suspended member with one, whom it lets back, and null
- * for anyone else, administrators included, who are let in whatever their membership.
+ * for anyone else, administrators and the people they invited included, who are let in whatever their
+ * membership.
  */
-function membershipChange({ status, administrator }: LinkedPerson, subscribed: boolean): "lapsed" | "renewed" | null {
-  if (!subscribed && status === "active" && !administrator) return "lapsed";
+function membershipChange({ status, membershipNeeded }: LinkedPerson, subscribed: boolean): "lapsed" | "renewed" | null {
+  if (!subscribed && status === "active" && membershipNeeded) return "lapsed";
   if (subscribed && status === "suspended") return "renewed";
   return null;
 }
@@ -1059,9 +1060,9 @@ export class Workspace extends DurableObject<Env> {
    * (`settleMembership`), unless the Workspace has gone by a newer read: a member whose membership has
    * lapsed is suspended, their sessions elsewhere ending, and one whose membership is renewed is let back.
    * Answers "off" for someone new while Memberful is off, "refused" for someone linked who has been
-   * removed or banned, "membership" for anyone but an administrator without an active membership, and
-   * "taken" when someone here has the email address someone new would have, which creates nothing.
-   * Everyone's workspace sockets hear of someone new.
+   * removed or banned, "membership" for anyone but an administrator, or someone they invited, without an
+   * active membership, and "taken" when someone here has the email address someone new would have, which
+   * creates nothing. Everyone's workspace sockets hear of someone new.
    */
   async signInWithMemberful(issuer: string, member: MemberfulMember, readAt: number, tokenDigest: string, client: Client): Promise<Me | MemberfulRefusal> {
     // One at a time, so that two sign-ins of someone new can't both add them, none can overlap turning
@@ -1143,12 +1144,12 @@ export class Workspace extends DurableObject<Env> {
    * account there, which is never matched by email address, and only while the password that started it
    * is theirs still, so that a new one, as a reset gives someone whose account was taken over, ends a
    * connection on its way as it ends their sessions. A member needs an active membership to connect one,
-   * as to sign in with it, which an administrator doesn't, and an account connected to them already signs
-   * them in as signing in with it does, going by what Memberful said of its membership as of `readAt`
-   * (`settleMembership`). Answers "unneeded" unless Memberful is members only, "claimed" for an account
-   * connected to someone else, "another" when they're connected to another account at the site,
-   * "membership" for a member without an active membership, and "refused" when they've been removed or
-   * banned, or their password has changed.
+   * as to sign in with it, which an administrator, or someone they invited, doesn't, and an account
+   * connected to them already signs them in as signing in with it does, going by what Memberful said of
+   * its membership as of `readAt` (`settleMembership`). Answers "unneeded" unless Memberful is members
+   * only, "claimed" for an account connected to someone else, "another" when they're connected to another
+   * account at the site, "membership" for a member without an active membership, and "refused" when
+   * they've been removed or banned, or their password has changed.
    */
   async connectMemberful(
     issuer: string,
@@ -1171,7 +1172,7 @@ export class Workspace extends DurableObject<Env> {
         const person = await this.store.connectingPerson(userId, issuer);
         if (!person) return "refused";
         if (person.subject !== null) return "another";
-        if (!person.administrator && !member.subscribed) return "membership";
+        if (person.membershipNeeded && !member.subscribed) return "membership";
         if (!(await this.store.connectIdentity(connecting, issuer, member.id, readAt, new Date().toISOString()))) return "refused";
         this.linkedSites.add(issuer);
       }
@@ -1211,8 +1212,9 @@ export class Workspace extends DurableObject<Env> {
    * Goes by what Memberful said of the membership of `linked`, the person their account with `subject` at
    * the Memberful site `issuer` is linked to, as read at `readAt`, unless the Workspace has gone by a newer
    * read: suspends a member whose membership has lapsed (`suspendLapsed`), lets back one whose membership
-   * is renewed (`restoreRenewed`), or else records the read. Administrators are let in whatever their
-   * membership, and someone removed or banned stays so. Answers their status then. One change at a time.
+   * is renewed (`restoreRenewed`), or else records the read. Administrators, and the people they invited,
+   * are let in whatever their membership, and someone removed or banned stays so. Answers their status
+   * then. One change at a time.
    */
   private async settleMembership(issuer: string, subject: string, linked: LinkedPerson, subscribed: boolean, readAt: number): Promise<UserStatus> {
     if (linked.checkedAt > readAt) return linked.status;
