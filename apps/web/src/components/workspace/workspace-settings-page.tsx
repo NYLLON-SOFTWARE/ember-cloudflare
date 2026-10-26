@@ -33,7 +33,8 @@ import { logoVariantsOf } from "@/lib/previews";
 import { apart } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { CustomDomainSettings } from "./custom-domain-settings";
-import { EmailSettings } from "./email-settings";
+import { EmailSettings, sendsEmail } from "./email-settings";
+import { EmailSetup } from "./email-setup";
 import { InviteByEmail } from "./invite-by-email";
 import { InviteLink } from "./invite-link";
 import { NavigationIconSettings } from "./navigation-icon-settings";
@@ -126,6 +127,8 @@ export function WorkspaceSettingsPage({
   const [iconChanges, setIconChanges] = useState<NavigationIconChanges>({});
   // Where Must be admin to create new rooms was moved to, while that's saved.
   const [restrictingCreation, setRestrictingCreation] = useState<boolean | null>(null);
+  // Set up email, while it's open, with what to go on to once it closes with Ember able to send email.
+  const [emailSetup, setEmailSetup] = useState<{ then?: () => void } | null>(null);
   const account = useAccount();
   const name = typedName ?? account.name;
   const tagline = typedTagline ?? account.tagline;
@@ -289,11 +292,9 @@ export function WorkspaceSettingsPage({
     [],
   );
 
-  /** Shows the From address as it's saved, which only workspace settings shows. */
-  const showFromSaved = (from: string | null) => {
-    setSettings((settings) => settings && { ...settings, email: { ...settings.email, from } });
-    flash("notice", CHANGES_SAVED);
-  };
+  /** Shows how Ember sends email as Set up email changes it, which only workspace settings shows. */
+  const showEmail = (change: (email: WorkspaceSettings["email"]) => WorkspaceSettings["email"]) => setSettings((settings) => settings && { ...settings, email: change(settings.email) });
+  const setUpEmail = (then?: () => void) => setEmailSetup({ then });
 
   // As ember-rust's Regenerate join link does: no confirmation first, and no notice after.
   const regenerate = () => {
@@ -491,15 +492,30 @@ export function WorkspaceSettingsPage({
                   settings={settings}
                   saveSwitch={saveSwitch}
                   saveEmailDomains={saveEmailDomains}
+                  onSetUpEmail={setUpEmail}
                   joinLink={<InviteLink joinCode={settings.joinCode} onRegenerate={regenerate} regenerating={regenerating} />}
                 />
                 <InviteByEmail
                   invitations={settings.invitations}
-                  emails={settings.email.provider !== null && settings.email.from !== null}
+                  emails={sendsEmail(settings.email)}
+                  onSetUpEmail={() => setUpEmail()}
                   onInvitationsChanged={changeInvitations}
                   onFailed={onFailed}
                 />
-                <EmailSettings email={settings.email} askForAccount={askForAccount} onFromSaved={showFromSaved} onFailed={onFailed} />
+                <EmailSettings email={settings.email} onSetUp={() => setUpEmail()} onFailed={onFailed} />
+                {emailSetup && (
+                  <EmailSetup
+                    email={settings.email}
+                    askForAccount={askForAccount}
+                    onEmailChanged={(email) => showEmail(() => email)}
+                    onFromSaved={(from) => showEmail((email) => ({ ...email, from }))}
+                    onClose={(sends) => {
+                      setEmailSetup(null);
+                      if (sends) emailSetup.then?.();
+                    }}
+                    onFailed={onFailed}
+                  />
+                )}
               </div>
             ) : (
               <HowPeopleJoin joinLink={<InviteLink joinCode={settings.joinCode} />} memberfulSite={settings.memberfulSite} />

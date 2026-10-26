@@ -495,17 +495,41 @@ export type EmailProvider = "cloudflare" | "resend";
 /** How Ember sends email. */
 export interface EmailSettings {
   /**
-   * What the deployment sends email with: Resend while it has the secret `RESEND_API_KEY`, or else
-   * Cloudflare Email Service while the Worker has its `EMAIL` binding, or null while it has neither, when
-   * Ember can't send any.
+   * What Ember sends email with: Resend while it has an API key for it, or else Cloudflare Email Service
+   * while the Worker has its `EMAIL` binding, or null while it has neither, when Ember can't send any.
    */
   provider: EmailProvider | null;
+  /**
+   * Where Resend's API key comes from: the deployment's secret `RESEND_API_KEY`, which takes the place
+   * of any other, the one an administrator gave Ember in Membership's Set up email, or null for none.
+   */
+  resendKey: "secret" | "saved" | null;
+  /** Whether the Worker has Cloudflare Email Service's `EMAIL` binding, which sends while Ember has no Resend API key. */
+  cloudflare: boolean;
   /** The address an administrator gave Ember's email to come from, as `mailboxText` writes it, or null while there's none. */
   from: string | null;
 }
 
-/** Why Ember can't send email while the deployment has neither Resend's key nor Cloudflare's binding. */
-export const CANT_SEND_EMAIL = "Ember can't send email yet: this Worker has neither Cloudflare Email Service's EMAIL binding nor a RESEND_API_KEY.";
+/** Why Ember can't send email while it has neither a Resend API key nor Cloudflare's binding. */
+export const CANT_SEND_EMAIL = "Ember can't send email yet. An administrator can set it up under Email in Membership.";
+
+/** The longest Resend API key Ember takes, which goes in a header of each request to Resend. */
+const MAX_RESEND_API_KEY_LENGTH = 256;
+
+/** Why a Resend API key is refused before Resend is asked about it. */
+export const RESEND_API_KEY_REFUSED = "A Resend API key starts with re_. Copy it from API Keys in Resend.";
+
+/** The Resend API key `text` gives, without the spaces around it, or null when it can't be one: Resend's start with `re_`, and have no spaces. */
+export function resendApiKeyOf(text: string): string | null {
+  const apiKey = text.trim();
+  return apiKey.length <= MAX_RESEND_API_KEY_LENGTH && /^re_[\x21-\x7e]+$/.test(apiKey) ? apiKey : null;
+}
+
+/** What `PUT /api/account/resend_api_key` gives Ember, as Set up email sends it: `{ apiKey }`, or why it can't be one. */
+export function parseResendApiKey(data: unknown): { apiKey: string } | string {
+  const apiKey = isJsonObject(data) && typeof data.apiKey === "string" ? resendApiKeyOf(data.apiKey) : null;
+  return apiKey === null ? RESEND_API_KEY_REFUSED : { apiKey };
+}
 
 /** What `POST /api/account/test_email` answers once it has sent a test email: the address it went to, the administrator's own. */
 export interface SentTestEmail {
@@ -576,7 +600,7 @@ export const EMAIL_DOMAINS_REFUSED = `Email domains must be a list of at most ${
 export const NO_EMAIL_DOMAINS = "Add a domain whose email addresses can join.";
 
 /** Why Email domain can't be turned on while Ember can't send email, since it emails people the links they join with. */
-export const EMAIL_DOMAIN_NEEDS_EMAIL = "Email domain emails people a link to join with, so Ember has to send email first. Set up Email in Membership.";
+export const EMAIL_DOMAIN_NEEDS_EMAIL = "Email domain emails people a link to join with, so Ember has to send email first. Set up email in Membership.";
 
 /**
  * Domains anyone can have an email address at, for free, which Email domain warns would let almost

@@ -29,6 +29,7 @@ import {
   type EmailInvitation,
   type EmailLinkFor,
   type EmailLinkKind,
+  type EmailSettings,
   type Favorites,
   type Mailbox,
   type Invited,
@@ -68,12 +69,13 @@ import { alreadyAMemberEmail, emailDomainLinkEmail, invitationEmail, testEmail }
 import { guestSignIn, type Env } from "./env";
 import { pictureObjects, type StoredPicture } from "./files/pictures";
 import { alphanumeric, sortableId } from "./ids";
-import { emailProviderOf, sendEmail, sendEmails } from "./mail";
+import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
 import { memberfulApiOf, membershipsOf, type MemberfulMember } from "./memberful-api";
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import type { RoomEvent } from "./room-log";
+import { seal, unseal } from "./sealed";
 import { SessionCache } from "./session-cache";
 import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import type { Transfer } from "./transfers";
@@ -629,7 +631,7 @@ export class Workspace extends DurableObject<Env> {
       account: accountOf(account),
       joinCode: account.joinCode,
       canAdminister,
-      email: { provider: emailProviderOf(this.env), from: account.emailFrom },
+      email: await this.emailSettings(account),
       invitations,
       emailDomains: canAdminister ? account.emailDomains : [],
     };
@@ -676,7 +678,7 @@ export class Workspace extends DurableObject<Env> {
       // Email domain lets in no one without a domain, and emails the links people join with.
       const domainsChange = change.emailDomainSignUp !== undefined || change.emailDomains !== undefined;
       if (domainsChange && changed.emailDomainSignUp && changed.emailDomains.length === 0) return "no email domains";
-      if (change.emailDomainSignUp && this.emailSender(changed) === null) return "no email";
+      if (change.emailDomainSignUp && (await this.emailSender(changed)) === null) return "no email";
       const save = (now: string) => this.store.changeAccount(change, now);
       // Pages show neither the From address nor, while Email domain is off, its domains, so a change to
       // them alone, like a new join code, tells no one.
@@ -724,9 +726,41 @@ export class Workspace extends DurableObject<Env> {
     });
   }
 
-  /** The mailbox the workspace's email comes from, while Ember can send email from the From address `account` has, or else null. */
-  private emailSender(account: Pick<JoinableAccount, "emailFrom">): Mailbox | null {
-    return emailProviderOf(this.env) !== null && account.emailFrom !== null ? mailboxOf(account.emailFrom) : null;
+  /**
+   * Gives Ember `apiKey`, a Resend API key the Worker has checked with Resend, to send email with, kept
+   * sealed under SESSION_SECRET (`seal`), or takes the one it has away with null, as the person
+   * `credentials` signs in, answering how Ember sends email then: "forbidden" unless they're an
+   * administrator, or null without a valid session. Pages show nothing of it, so no socket hears of it.
+   */
+  async changeResendApiKey(credentials: Credentials, apiKey: string | null): Promise<EmailSettings | "forbidden" | null> {
+    return this.administerAccount(credentials, async (account) => {
+      if (apiKey === null && account.resendApiKey === null) return this.emailSettings(account);
+      const resendApiKey = apiKey === null ? null : await seal(this.env.SESSION_SECRET, "resend-api-key", apiKey);
+      return this.emailSettings(await this.saveAccount({ ...account, resendApiKey }, (now) => this.store.changeAccount({ resendApiKey }, now)));
+    });
+  }
+
+  /** How Ember sends email, as Membership shows it, with the From address and Resend API key `account` has. */
+  private async emailSettings(account: Pick<JoinableAccount, "emailFrom" | "resendApiKey">): Promise<EmailSettings> {
+    const sender = await this.senderOf(account);
+    const resendKey = sender?.provider !== "resend" ? null : sender.secret ? "secret" : "saved";
+    return { provider: sender?.provider ?? null, resendKey, cloudflare: Boolean(this.env.EMAIL), from: account.emailFrom };
+  }
+
+  /** What sends Ember's email (`senderOf`), with the Resend API key `account` keeps sealed, while it opens. */
+  private async senderOf(account: Pick<JoinableAccount, "resendApiKey">): Promise<Sender | null> {
+    const sealed = account.resendApiKey;
+    const savedKey = sealed === null ? null : await unseal(this.env.SESSION_SECRET, "resend-api-key", sealed);
+    // Sealed under a SESSION_SECRET since changed, it's as if Ember had none, until an administrator gives it one again.
+    if (sealed !== null && savedKey === null) console.error("The Resend API key Ember was given doesn't open under SESSION_SECRET, so it isn't used.");
+    return senderOf(this.env, savedKey);
+  }
+
+  /** What sends the workspace's email, and the mailbox it comes from, while Ember can send email from the From address `account` has, or else null. */
+  private async emailSender(account: Pick<JoinableAccount, "emailFrom" | "resendApiKey">): Promise<{ sender: Sender; from: Mailbox } | null> {
+    const from = account.emailFrom === null ? null : mailboxOf(account.emailFrom);
+    const sender = from === null ? null : await this.senderOf(account);
+    return from && sender ? { sender, from } : null;
   }
 
   /**
@@ -740,11 +774,12 @@ export class Workspace extends DurableObject<Env> {
     if (!user) return null;
     const [account, administrator, person] = await Promise.all([this.joinableAccount(), this.store.isAdministrator(user.id), this.store.personWithProfile(user.id)]);
     if (!account || !administrator) return "forbidden";
-    if (emailProviderOf(this.env) === null) return { status: 503, refusal: CANT_SEND_EMAIL };
+    const sender = await this.senderOf(account);
+    if (sender === null) return { status: 503, refusal: CANT_SEND_EMAIL };
     const from = account.emailFrom === null ? null : mailboxOf(account.emailFrom);
     if (!from) return { status: 422, refusal: NO_EMAIL_FROM };
     if (!person?.emailAddress) return { status: 422, refusal: NO_EMAIL_ADDRESS };
-    const refusal = await sendEmail(this.env, from, testEmail(person.emailAddress, account.name, origin));
+    const refusal = await sendEmail(sender, from, testEmail(person.emailAddress, account.name, origin));
     return refusal === null ? { to: person.emailAddress } : { status: 502, refusal };
   }
 
@@ -819,10 +854,10 @@ export class Workspace extends DurableObject<Env> {
     invitations: SavedInvitation[],
     origin: string,
   ): Promise<Array<{ invitation: EmailInvitation; link: string | null }>> {
-    const from = this.emailSender(account);
+    const sending = await this.emailSender(account);
     const links = invitations.map(({ link }) => `${origin}${invitationLink(link.token)}`);
     const emails = invitations.map(({ emailAddress }, index) => invitationEmail(emailAddress, account.name, inviter.name, links[index]!));
-    const refusals = from ? await sendEmails(this.env, from, emails) : null;
+    const refusals = sending ? await sendEmails(sending.sender, sending.from, emails) : null;
     if (refusals) await this.store.recordDeliveries(invitations.map(({ link }, index) => ({ tokenDigest: link.digest, refusal: refusals[index] ?? null })), new Date().toISOString());
     return invitations.map(({ id, emailAddress, createdAt, expiresAt }, index) => {
       const refusal = refusals?.[index] ?? null;
@@ -941,7 +976,7 @@ export class Workspace extends DurableObject<Env> {
       if (await this.store.account()) return null;
       throw error;
     }
-    this.knownAccount = { name: account.name, joinCode: account.joinCode, ...NEW_ACCOUNT_LOOKS, updatedAt: now, storedLogo: null, emailFrom: null };
+    this.knownAccount = { name: account.name, joinCode: account.joinCode, ...NEW_ACCOUNT_LOOKS, updatedAt: now, storedLogo: null, emailFrom: null, resendApiKey: null };
     this.sessions.remember(tokenDigest, session);
     return { user: meOf(session), room };
   }
@@ -1000,8 +1035,8 @@ export class Workspace extends DurableObject<Env> {
   async askForEmailLink(ip: string, emailAddress: string, domain: string, link: NewEmailLink, origin: string, limited: boolean): Promise<EmailLinkAsk> {
     const account = await this.joinableAccount();
     if (account === null || !letsInEmailDomain(account, domain)) return "off";
-    const from = this.emailSender(account);
-    if (from === null) return "unsendable";
+    const sending = await this.emailSender(account);
+    if (sending === null) return "unsendable";
     if (limited && !this.emailLinkAsks.attempt(ip)) return "limited";
     const now = Date.now();
     // Counted one at a time, as people join, but sent afterwards, so that sending never holds up a join.
@@ -1021,7 +1056,7 @@ export class Workspace extends DurableObject<Env> {
     const email = asked.member
       ? alreadyAMemberEmail(emailAddress, asked.name, `${origin}/session/new?${new URLSearchParams({ email_address: emailAddress })}`)
       : emailDomainLinkEmail(emailAddress, asked.name, `${origin}${emailSignUpLink(link.token)}`);
-    if ((await sendEmail(this.env, from, email)) !== null) {
+    if ((await sendEmail(sending.sender, sending.from, email)) !== null) {
       await this.store.uncountEmailLinkRequest(emailAddress, asked.countedSince);
       return "unsent";
     }

@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { CANT_SEND_EMAIL, EMAIL_FROM_REFUSED, type NewWorkspace, type WorkspaceSettings } from "@ember/protocol";
+import { CANT_SEND_EMAIL, EMAIL_FROM_REFUSED, RESEND_API_KEY_REFUSED, type EmailSettings, type NewWorkspace, type WorkspaceSettings } from "@ember/protocol";
 import { evictDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
@@ -30,7 +30,10 @@ async function saveFrom(administrator: Session, emailFrom: string): Promise<void
   expect(response.status, await response.clone().text()).toBe(200);
 }
 
-const storedFrom = async () => (JSON.parse(((await workspaceSql("SELECT settings FROM accounts")) as Array<{ settings: string }>)[0]!.settings) as { email_from?: unknown }).email_from;
+/** The account's settings, as the database keeps them. */
+const storedSettings = async () => JSON.parse(((await workspaceSql("SELECT settings FROM accounts")) as Array<{ settings: string }>)[0]!.settings) as Record<string, unknown>;
+
+const storedFrom = async () => (await storedSettings()).email_from;
 
 const sendTest = (session?: Session | null) => api("/api/account/test_email", { method: "POST", headers: as(session) });
 
@@ -59,16 +62,31 @@ interface SentToResend {
   body: unknown;
 }
 
-/** Stands in for Resend's API, answering `answer` to each email, and keeping what it's sent. */
-function fakeResend(answer: () => Response | Promise<Response> = () => Response.json({ id: crypto.randomUUID() })) {
+/** Stands in for Resend's API, answering `answer` to each request, by its address, and keeping what it's sent. */
+function fakeResend(answer: (url: string) => Response | Promise<Response> = () => Response.json({ id: crypto.randomUUID() })) {
   const requests: SentToResend[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
-    requests.push({ url: request.url, method: request.method, headers: request.headers, redirect: request.redirect, body: await request.json() });
-    return answer();
+    requests.push({ url: request.url, method: request.method, headers: request.headers, redirect: request.redirect, body: request.body && (await request.json()) });
+    return answer(request.url);
   });
   return requests;
 }
+
+/** What Resend answers when a key that can only send asks to list its domains, which says Resend knows the key. */
+const sendingOnly = () => Response.json({ statusCode: 401, name: "restricted_api_key", message: "This API key is restricted to only send emails" }, { status: 401 });
+
+/** Stands in for Resend's API as a key that can only send has it: refused the domains, but sending. */
+const fakeSendingKey = () => fakeResend((url) => (url.endsWith("/domains") ? sendingOnly() : Response.json({ id: crypto.randomUUID() })));
+
+/** Gives Ember the Resend API key `apiKey` as `session`, as Set up email does. */
+const giveResendKey = (session: Session | null, apiKey: unknown) => api("/api/account/resend_api_key", { method: "PUT", headers: as(session), body: JSON.stringify({ apiKey }) });
+
+/** Takes Ember's Resend API key away as `session`, as Set up email does when Cloudflare Email Service is chosen. */
+const forgetResendKey = (session: Session | null) => api("/api/account/resend_api_key", { method: "DELETE", headers: as(session) });
+
+/** How a workspace sends email from `from` with the Resend API key an administrator gave it. */
+const withSavedKey = (from: string | null): EmailSettings => ({ provider: "resend", resendKey: "saved", cloudflare: true, from });
 
 /** The answer to a test email that wasn't sent: `status` and the `error` that says why. */
 async function expectRefused(response: Response, status: number, error: string): Promise<void> {
@@ -82,9 +100,13 @@ afterEach(() => vi.restoreAllMocks());
 describe(feature("platform.email"), () => {
   it("says what Ember sends email with: Resend while there's an API key, else Cloudflare Email Service's binding", async () => {
     const administrator = await setUp();
-    expect(await emailSettings(administrator)).toEqual({ provider: "cloudflare", from: null });
-    await withWorkspaceEnv({ RESEND_API_KEY: RESEND_KEY }, async () => expect((await emailSettings(administrator)).provider).toBe("resend"));
-    await withWorkspaceEnv({ EMAIL: undefined }, async () => expect((await emailSettings(administrator)).provider).toBeNull());
+    expect(await emailSettings(administrator)).toEqual({ provider: "cloudflare", resendKey: null, cloudflare: true, from: null });
+    await withWorkspaceEnv({ RESEND_API_KEY: RESEND_KEY }, async () =>
+      expect(await emailSettings(administrator)).toEqual({ provider: "resend", resendKey: "secret", cloudflare: true, from: null }),
+    );
+    await withWorkspaceEnv({ EMAIL: undefined }, async () =>
+      expect(await emailSettings(administrator)).toEqual({ provider: null, resendKey: null, cloudflare: false, from: null }),
+    );
     await withWorkspaceEnv({ EMAIL: undefined, RESEND_API_KEY: "  " }, async () => expect((await emailSettings(administrator)).provider).toBeNull());
   });
 
@@ -92,7 +114,7 @@ describe(feature("platform.email"), () => {
     const administrator = await setUp();
     await saveFrom(administrator, "  Ember   <ember@example.com> ");
     expect(await storedFrom()).toBe("Ember <ember@example.com>");
-    expect(await emailSettings(administrator)).toEqual({ provider: "cloudflare", from: "Ember <ember@example.com>" });
+    expect(await emailSettings(administrator)).toEqual({ provider: "cloudflare", resendKey: null, cloudflare: true, from: "Ember <ember@example.com>" });
     const member = await signIn("Grace");
     expect((await emailSettings(member)).from).toBe("Ember <ember@example.com>");
 
@@ -266,5 +288,154 @@ describe(feature("platform.email"), () => {
       await withWorkspaceEnv({ RESEND_API_KEY: RESEND_KEY, RESEND_API_URL }, async () => expect((await sendTest(administrator)).status).toBe(200));
     }
     expect(requests.map(({ url }) => url)).toEqual(["http://127.0.0.1:8796/emails", "https://api.resend.com/emails", "https://api.resend.com/emails", "https://api.resend.com/emails"]);
+  });
+
+  it("keeps a Resend API key an administrator gives once Resend takes it, sealed, and sends with it", async () => {
+    const administrator = await setUp();
+    await saveFrom(administrator, "chat@example.com");
+    const requests = fakeSendingKey();
+    const response = await giveResendKey(administrator, ` ${RESEND_KEY} `);
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual(withSavedKey("chat@example.com"));
+    // Asked of Resend as a list of the account's domains, which a key that can only send is refused.
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ url: "https://api.resend.com/domains", method: "GET", redirect: "manual", body: null });
+    expect(requests[0]!.headers.get("Authorization")).toBe(`Bearer ${RESEND_KEY}`);
+
+    // The database holds it sealed, never as it was given.
+    const sealed = (await storedSettings()).resend_api_key;
+    expect(sealed).toMatch(/^v1\.[\w-]{16}\.[\w-]+$/);
+    expect(JSON.stringify(await workspaceSql("SELECT * FROM accounts"))).not.toContain(RESEND_KEY);
+    expect(await emailSettings(administrator)).toEqual(withSavedKey("chat@example.com"));
+
+    // Started afresh, the Workspace reads it again, and opens it to send.
+    await evictDurableObject(workspaceStub());
+    const { binding, sent } = fakeBinding();
+    await withWorkspaceEnv({ EMAIL: binding }, async () => expect((await sendTest(administrator)).status).toBe(200));
+    expect(sent).toEqual([]);
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toMatchObject({ url: "https://api.resend.com/emails", method: "POST", body: expect.objectContaining({ from: "chat@example.com", to: ["ada@example.com"] }) as unknown });
+    expect(requests[1]!.headers.get("Authorization")).toBe(`Bearer ${RESEND_KEY}`);
+
+    // Given again, it's sealed afresh.
+    expect((await giveResendKey(administrator, "re_another_key")).status).toBe(200);
+    expect((await storedSettings()).resend_api_key).not.toBe(sealed);
+    expect(await sendTest(administrator)).toHaveProperty("status", 200);
+    expect(requests.at(-1)!.headers.get("Authorization")).toBe("Bearer re_another_key");
+  });
+
+  it("takes a Resend API key with full access, which can list the account's domains", async () => {
+    const administrator = await setUp();
+    fakeResend(() => Response.json({ object: "list", data: [] }));
+    const response = await giveResendKey(administrator, RESEND_KEY);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(withSavedKey(null));
+  });
+
+  it("says why a Resend API key isn't taken, and keeps none, logging Resend's error but never the key", async () => {
+    const administrator = await setUp();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const unasked = fakeResend();
+    for (const apiKey of ["sk_live_123", "re_", "re_123 456", 42, null]) await expectRefused(await giveResendKey(administrator, apiKey), 422, RESEND_API_KEY_REFUSED);
+    expect(unasked).toEqual([]);
+    vi.mocked(fetch).mockRestore();
+
+    const NOT_TAKEN = "Resend doesn't take this API key. Copy it again from API Keys in Resend, or make another.";
+    const NOT_ACTIVE = "Resend says this API key isn't active. Make another under API Keys in Resend.";
+    const refusals: Array<[() => Response | Promise<Response>, number, string]> = [
+      [() => Response.json({ name: "validation_error", message: "API key is invalid" }, { status: 400 }), 422, NOT_TAKEN],
+      [() => Response.json({ name: "validation_error", message: "API key is invalid" }, { status: 401 }), 422, NOT_TAKEN],
+      [() => Response.json({ name: "restricted_api_key", message: "API key is not active" }, { status: 403 }), 422, NOT_ACTIVE],
+      [() => Response.json({ name: "suspended_api_key", message: "This API key has been suspended" }, { status: 403 }), 422, NOT_ACTIVE],
+      [() => new Response("Not JSON", { status: 401 }), 422, NOT_TAKEN],
+      [() => Response.json({ name: "rate_limit_exceeded", message: "Too many requests." }, { status: 429 }), 502, "Resend is taking too many requests at once. Try again in a moment."],
+      [() => new Response("Bad gateway", { status: 502 }), 502, "Resend isn't answering as it should. Try again later."],
+      [() => new Response(null, { status: 307, headers: { Location: "https://elsewhere.example/domains" } }), 502, "Resend isn't answering as it should. Try again later."],
+      [() => Promise.reject(new TypeError("Network connection lost")), 502, "Resend didn't answer. Try again later."],
+    ];
+    for (const [answer, status, refusal] of refusals) {
+      const requests = fakeResend(answer);
+      await expectRefused(await giveResendKey(administrator, RESEND_KEY), status, refusal);
+      expect(requests).toHaveLength(1);
+      vi.mocked(fetch).mockRestore();
+    }
+    expect(await storedSettings()).not.toHaveProperty("resend_api_key");
+    expect((await emailSettings(administrator)).resendKey).toBeNull();
+    expect(logged).toHaveBeenCalledWith("Resend didn't take an API key:", 400, "validation_error");
+    expect(JSON.stringify(logged.mock.calls)).not.toContain(RESEND_KEY);
+  });
+
+  it("lets only administrators give or take away a Resend API key, asking Resend nothing for anyone else", async () => {
+    await setUp();
+    const grace = await signIn("Grace");
+    const requests = fakeSendingKey();
+    expect((await giveResendKey(grace, RESEND_KEY)).status).toBe(403);
+    expect((await giveResendKey(null, RESEND_KEY)).status).toBe(401);
+    expect((await giveResendKey(grace, "not a key")).status).toBe(403);
+    expect((await forgetResendKey(grace)).status).toBe(403);
+    expect((await forgetResendKey(null)).status).toBe(401);
+    expect(requests).toEqual([]);
+    expect(await storedSettings()).not.toHaveProperty("resend_api_key");
+  });
+
+  it("sends with the deployment's RESEND_API_KEY rather than the key given, while it has one", async () => {
+    const administrator = await setUp();
+    await saveFrom(administrator, "chat@example.com");
+    const requests = fakeSendingKey();
+    expect((await giveResendKey(administrator, "re_given_key")).status).toBe(200);
+    await withWorkspaceEnv({ RESEND_API_KEY: RESEND_KEY }, async () => {
+      expect(await emailSettings(administrator)).toEqual({ provider: "resend", resendKey: "secret", cloudflare: true, from: "chat@example.com" });
+      expect((await sendTest(administrator)).status).toBe(200);
+    });
+    expect(requests.at(-1)!.headers.get("Authorization")).toBe(`Bearer ${RESEND_KEY}`);
+    expect(await emailSettings(administrator)).toEqual(withSavedKey("chat@example.com"));
+  });
+
+  it("forgets the Resend API key, which leaves Cloudflare Email Service to send", async () => {
+    const administrator = await setUp();
+    await saveFrom(administrator, "chat@example.com");
+    const requests = fakeSendingKey();
+    expect((await giveResendKey(administrator, RESEND_KEY)).status).toBe(200);
+    const response = await forgetResendKey(administrator);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ provider: "cloudflare", resendKey: null, cloudflare: true, from: "chat@example.com" });
+    expect((await storedSettings()).resend_api_key).toBeNull();
+    const { binding, sent } = fakeBinding();
+    await withWorkspaceEnv({ EMAIL: binding }, async () => expect((await sendTest(administrator)).status).toBe(200));
+    expect(sent).toHaveLength(1);
+    expect(requests).toHaveLength(1);
+    // Forgetting none changes nothing.
+    expect(await (await forgetResendKey(administrator)).json()).toEqual({ provider: "cloudflare", resendKey: null, cloudflare: true, from: "chat@example.com" });
+    await withWorkspaceEnv({ EMAIL: undefined }, async () => expect((await emailSettings(administrator)).provider).toBeNull());
+  });
+
+  it("uses no Resend API key sealed under another SESSION_SECRET, which it logs", async () => {
+    const administrator = await setUp();
+    await saveFrom(administrator, "chat@example.com");
+    fakeSendingKey();
+    expect((await giveResendKey(administrator, RESEND_KEY)).status).toBe(200);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    await withWorkspaceEnv({ SESSION_SECRET: "another secret, after the key was sealed" }, async () => {
+      expect(await emailSettings(administrator)).toEqual({ provider: "cloudflare", resendKey: null, cloudflare: true, from: "chat@example.com" });
+      await withWorkspaceEnv({ EMAIL: undefined }, async () => expectRefused(await sendTest(administrator), 503, CANT_SEND_EMAIL));
+    });
+    expect(logged).toHaveBeenCalledWith("The Resend API key Ember was given doesn't open under SESSION_SECRET, so it isn't used.");
+    expect(await emailSettings(administrator)).toEqual(withSavedKey("chat@example.com"));
+  });
+
+  it("says a key Resend no longer takes is the one given to Ember, which an administrator can replace", async () => {
+    const administrator = await setUp();
+    await saveFrom(administrator, "chat@example.com");
+    fakeSendingKey();
+    expect((await giveResendKey(administrator, RESEND_KEY)).status).toBe(200);
+    vi.mocked(fetch).mockRestore();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    fakeResend(() => Response.json({ name: "validation_error", message: "API key is invalid" }, { status: 401 }));
+    await expectRefused(
+      await sendTest(administrator),
+      502,
+      "Resend doesn't take Ember's API key anymore. Make another under API Keys in Resend, and give it to Ember under Email in Membership.",
+    );
   });
 });

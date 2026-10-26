@@ -27,6 +27,8 @@ interface Props {
   invitations: EmailInvitation[];
   /** Whether Ember emails invitations, as it does while it can send email and has a From address. */
   emails: boolean;
+  /** Opens Set up email. */
+  onSetUpEmail: () => void;
   /** Changes the invitations workspace settings holds as `change` says. */
   onInvitationsChanged: (change: (invitations: EmailInvitation[]) => EmailInvitation[]) => void;
   /** Says why sending, sending again or revoking failed, as the workspace's alerts do. */
@@ -46,7 +48,7 @@ const withSaved = (invitations: EmailInvitation[], saved: EmailInvitation[]) => 
 const counted = (count: number, thing: string) => `${count} ${thing}${count === 1 ? "" : "s"}`;
 
 /** Invitations by email, for administrators: addresses to invite, and the invitations waiting to be accepted. */
-export function InviteByEmail({ invitations, emails, onInvitationsChanged, onFailed }: Props) {
+export function InviteByEmail({ invitations, emails, onSetUpEmail, onInvitationsChanged, onFailed }: Props) {
   const [text, setText] = useState("");
   const [sent, setSent] = useState<Sent | null>(null);
   // The links of the invitations Ember didn't email, by their ids, since only now are they known.
@@ -103,9 +105,17 @@ export function InviteByEmail({ invitations, emails, onInvitationsChanged, onFai
           Invite by email
         </h2>
         <p className={NOTE}>
-          {emails
-            ? `Ember emails each person a link to join with their address, whichever ways to join are on. A link works once, for ${INVITATION_DAYS} days.`
-            : `Ember can't send email yet, so you'll get each person's link to send them yourself. A link works once, for ${INVITATION_DAYS} days. Set up Email below and Ember sends them.`}
+          {emails ? (
+            `Ember emails each person a link to join with their address, whichever ways to join are on. A link works once, for ${INVITATION_DAYS} days.`
+          ) : (
+            <>
+              Ember can't send email yet, so you'll get each person's link to send them yourself. A link works once, for {INVITATION_DAYS} days.{" "}
+              <button type="button" onClick={onSetUpEmail} className="cursor-pointer underline">
+                Set up email
+              </button>{" "}
+              to have Ember send them.
+            </>
+          )}
         </p>
       </div>
       <form onSubmit={(event) => void send(event)} className="flex flex-col items-start gap-3">

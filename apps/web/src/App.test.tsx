@@ -170,7 +170,7 @@ function serve({
         memberfulSite: null,
         memberfulWebhooks: false,
         turnstile: false,
-        email: { provider: "cloudflare", from: null },
+        email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: null },
         invitations: [],
         emailDomains: [],
       } satisfies WorkspaceSettings);
