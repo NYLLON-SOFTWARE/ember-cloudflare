@@ -536,6 +536,27 @@ export interface SentTestEmail {
   to: string;
 }
 
+/**
+ * What `POST /api/account/sending_domain_checks` answers: whether the domain it was sent is onboarded to
+ * Cloudflare Email Sending, as the records Onboard Domain adds to its DNS say, or null when DNS didn't
+ * answer.
+ */
+export interface SendingDomainCheck {
+  onboarded: boolean | null;
+}
+
+/** Why a domain to check for Cloudflare Email Sending is refused. */
+export const SENDING_DOMAIN_REFUSED = "Expected a domain, such as example.com";
+
+/**
+ * Parses an untrusted request to check a domain Cloudflare Email Sending might send from, `{ domain }`,
+ * as `emailDomainOf` has domains. Returns why it's refused instead of the domain.
+ */
+export function parseSendingDomainCheck(data: unknown): { domain: string } | string {
+  const domain = isJsonObject(data) && typeof data.domain === "string" ? emailDomainOf(data.domain) : null;
+  return domain === null ? SENDING_DOMAIN_REFUSED : { domain };
+}
+
 /** What `POST /api/account/join_code` answers: the join link's new code, which the old one no longer joins with. */
 export interface NewJoinCode {
   joinCode: string;

@@ -1,5 +1,13 @@
 import { feature } from "@ember/parity";
-import { CANT_SEND_EMAIL, EMAIL_FROM_REFUSED, RESEND_API_KEY_REFUSED, type EmailSettings, type NewWorkspace, type WorkspaceSettings } from "@ember/protocol";
+import {
+  CANT_SEND_EMAIL,
+  EMAIL_FROM_REFUSED,
+  RESEND_API_KEY_REFUSED,
+  SENDING_DOMAIN_REFUSED,
+  type EmailSettings,
+  type NewWorkspace,
+  type WorkspaceSettings,
+} from "@ember/protocol";
 import { evictDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
@@ -87,6 +95,45 @@ const forgetResendKey = (session: Session | null) => api("/api/account/resend_ap
 
 /** How a workspace sends email from `from` with the Resend API key an administrator gave it. */
 const withSavedKey = (from: string | null): EmailSettings => ({ provider: "resend", resendKey: "saved", cloudflare: true, from });
+
+/** Asks, as `session`, whether `domain` is onboarded to Cloudflare Email Sending, as Set up email's From step does. */
+const checkDomain = (session: Session | null, domain: unknown) =>
+  api("/api/account/sending_domain_checks", { method: "POST", headers: as(session), body: JSON.stringify({ domain }) });
+
+/** A record as Cloudflare's DNS over HTTPS answers one: its type's number, and its data. */
+interface DnsRecord {
+  type: number;
+  data: string;
+}
+
+/** An MX record naming `host`. */
+const mx = (host: string): DnsRecord => ({ type: 15, data: `10 ${host}` });
+/** A TXT record of `strings`, quoted, as DNS over HTTPS writes them. */
+const txt = (...strings: string[]): DnsRecord => ({ type: 16, data: strings.map((text) => `"${text}"`).join(" ") });
+/** A DKIM key, as Onboard Domain publishes it, in two strings, since it's longer than one can be. */
+const DKIM_KEY = txt("v=DKIM1; h=sha256; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA", "iweykoi+o48IOGuP7GR3X0MOExCUDY/BCRHoWBnh3rCh");
+/** The records Onboard Domain adds to a domain, by name and type, on its `cf-bounce` subdomain. */
+const onboarded = (domain: string): Record<string, DnsRecord[]> => ({
+  [`cf-bounce.${domain} MX`]: ["route1.mx.cloudflare.net.", "route2.mx.cloudflare.net.", "route3.mx.cloudflare.net."].map(mx),
+  [`cf-bounce.${domain} TXT`]: [txt("v=spf1 include:_spf.mx.cloudflare.net ~all")],
+  [`cf-bounce._domainkey.${domain} TXT`]: [DKIM_KEY],
+});
+
+/**
+ * Stands in for Cloudflare's DNS over HTTPS, answering the records `records` has for a name and type,
+ * and that a name it has none for doesn't exist, keeping each request as its address and Accept header.
+ */
+function fakeResolver(records: Record<string, DnsRecord[]>) {
+  const asked: string[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const request = new Request(input, init);
+    asked.push(`${request.url} ${request.headers.get("Accept")}`);
+    const { searchParams } = new URL(request.url);
+    const answer = records[`${searchParams.get("name")} ${searchParams.get("type")}`];
+    return Response.json(answer ? { Status: 0, Answer: answer } : { Status: 3 });
+  });
+  return asked;
+}
 
 /** The answer to a test email that wasn't sent: `status` and the `error` that says why. */
 async function expectRefused(response: Response, status: number, error: string): Promise<void> {
@@ -422,6 +469,66 @@ describe(feature("platform.email"), () => {
     });
     expect(logged).toHaveBeenCalledWith("The Resend API key Ember was given doesn't open under SESSION_SECRET, so it isn't used.");
     expect(await emailSettings(administrator)).toEqual(withSavedKey("chat@example.com"));
+  });
+
+  it("says a domain is onboarded to Cloudflare Email Sending once its DNS has the bounce MX and DKIM key Onboard Domain adds", async () => {
+    const administrator = await setUp();
+    const asked = fakeResolver(onboarded("mail.example.com"));
+    const checked = await checkDomain(administrator, "Mail.Example.com");
+    expect(checked.status).toBe(200);
+    expect(checked.headers.get("Cache-Control")).toBe("no-store");
+    expect(await checked.json()).toEqual({ onboarded: true });
+    expect(asked).toEqual([
+      "https://cloudflare-dns.com/dns-query?name=cf-bounce.mail.example.com&type=MX application/dns-json",
+      "https://cloudflare-dns.com/dns-query?name=cf-bounce._domainkey.mail.example.com&type=TXT application/dns-json",
+    ]);
+  });
+
+  it("says a domain isn't onboarded without either record, as one onboarded only to Email Routing isn't", async () => {
+    const administrator = await setUp();
+    fakeResolver({
+      ...onboarded("example.com"),
+      // Email Routing's records, on the domain itself, with its own DKIM selector.
+      "routing.example MX": ["route1.mx.cloudflare.net."].map(mx),
+      "cf2024-1._domainkey.routing.example TXT": [DKIM_KEY],
+      "cf-bounce.elsewhere.example MX": [mx("mx.elsewhere.example.")],
+      "cf-bounce._domainkey.elsewhere.example TXT": [DKIM_KEY],
+      "cf-bounce.unsigned.example MX": [mx("route1.mx.cloudflare.net.")],
+      "cf-bounce.revoked.example MX": [mx("route1.mx.cloudflare.net.")],
+      "cf-bounce._domainkey.revoked.example TXT": [txt("v=DKIM1; k=rsa; p=")],
+      "cf-bounce._domainkey.keyonly.example TXT": [DKIM_KEY],
+    });
+    for (const domain of ["nowhere.example", "routing.example", "elsewhere.example", "unsigned.example", "revoked.example", "keyonly.example"])
+      expect(await (await checkDomain(administrator, domain)).json(), domain).toEqual({ onboarded: false });
+    expect(await (await checkDomain(administrator, "example.com")).json()).toEqual({ onboarded: true });
+  });
+
+  it("says it can't tell when Cloudflare's resolver doesn't answer, which it logs", async () => {
+    const administrator = await setUp();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failures = [
+      () => Response.json({}, { status: 503 }),
+      () => Response.json({ Status: 2 }),
+      () => Promise.reject(new DOMException("The operation timed out", "TimeoutError")),
+    ];
+    let failure = failures[0]!;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => failure());
+    for (failure of failures) expect(await (await checkDomain(administrator, "example.com")).json()).toEqual({ onboarded: null });
+    expect(logged.mock.calls).toEqual([
+      ["Looking up a sending domain's records failed:", "DNS over HTTPS answered 503"],
+      ["Looking up a sending domain's records failed:", "DNS over HTTPS answered rcode 2"],
+      ["Looking up a sending domain's records failed:", "The operation timed out"],
+    ]);
+  });
+
+  it("checks a domain only for administrators, and only a domain", async () => {
+    const administrator = await setUp();
+    const asked = fakeResolver(onboarded("example.com"));
+    expect((await checkDomain(null, "example.com")).status).toBe(401);
+    expect((await checkDomain(await signIn("Grace"), "example.com")).status).toBe(403);
+    for (const domain of ["", "not a domain", "localhost", "192.0.2.1", "ember@example.com", 42, undefined])
+      await expectRefused(await checkDomain(administrator, domain), 422, SENDING_DOMAIN_REFUSED);
+    expect(asked).toEqual([]);
   });
 
   it("says a key Resend no longer takes is the one given to Ember, which an administrator can replace", async () => {

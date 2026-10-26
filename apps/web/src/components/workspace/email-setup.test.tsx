@@ -35,10 +35,14 @@ interface Answers {
   keyForgotten?: () => Response | Promise<Response>;
   /** What saving the From address answers, rather than the workspace. */
   fromSaved?: () => Response | Promise<Response>;
+  /** What checking a domain for Cloudflare Email Sending answers, rather than that it's onboarded. */
+  domainChecked?: () => Response | Promise<Response>;
+  /** What sending a test email answers, rather than that it went to Ada. */
+  testSent?: () => Response | Promise<Response>;
 }
 
 /** Answers the dialog's requests as the server would for a workspace that sends email as `start` says, or as `answers` says. */
-function serve(start: Email, { keySaved, keyForgotten, fromSaved }: Answers = {}) {
+function serve(start: Email, { keySaved, keyForgotten, fromSaved, domainChecked, testSent }: Answers = {}) {
   let email = start;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     switch (`${init?.method} ${String(input)}`) {
@@ -54,8 +58,10 @@ function serve(start: Email, { keySaved, keyForgotten, fromSaved }: Answers = {}
         if (fromSaved) return fromSaved();
         email = { ...email, from: (JSON.parse(String(init?.body)) as AccountChanges).emailFrom ?? null };
         return Response.json({ account: EMBER });
+      case "POST /api/account/sending_domain_checks":
+        return domainChecked ? domainChecked() : Response.json({ onboarded: true });
       case "POST /api/account/test_email":
-        return Response.json({ to: "ada@example.com" });
+        return testSent ? testSent() : Response.json({ to: "ada@example.com" });
       default:
         throw new Error(`Unexpected request for ${init?.method} ${String(input)}`);
     }
@@ -112,6 +118,20 @@ const button = (name: string) => screen.getByRole("button", { name });
 const choice = (name: string) => screen.getByRole("radio", { name });
 const keyField = () => screen.getByRole("textbox", { name: "API key" });
 const fromField = () => screen.getByRole("textbox", { name: "From" });
+/** What the From step says of its address's domain, a moment after it's typed. */
+const domainNote = () => screen.getByRole("status");
+/** Waits for the From step to say `text` of its address's domain, which it does a moment after typing stops. */
+const noted = (text: string) => waitFor(() => expect(domainNote()).toHaveTextContent(text), { timeout: 3000 });
+
+/** Opens Set up email on a new workspace, choosing Cloudflare Email Service, at the From address. */
+async function cloudflareFrom() {
+  const shown = showSetup(NEW_EMAIL);
+  await shown.user.click(await screen.findByRole("radio", { name: "Cloudflare Email Service" }));
+  await shown.user.click(button("Continue"));
+  await shown.user.click(await screen.findByRole("button", { name: "Continue" }));
+  await dialog("Choose the From address");
+  return shown;
+}
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -170,10 +190,13 @@ describe(feature("platform.email"), () => {
     await user.type(fromField(), "  Ember Team   <chat@example.com> ");
     await user.click(button("Continue"));
 
-    await dialog("Send a test email");
+    const test = await dialog("Send a test email");
     expect(onFromSaved).toHaveBeenCalledExactlyOnceWith("Ember Team <chat@example.com>");
     expect(onAccountChanged).toHaveBeenCalledWith(EMBER);
-    await user.click(button("Send me a test email"));
+    expect(test).toHaveAccessibleDescription(
+      "Ember is set up to send email, and sends you a test email to check that it arrives. If it doesn't, go back and change what sends it.",
+    );
+    // It's sent as the step opens.
     expect(await screen.findByText("Sent to ada@example.com. If it isn't in your inbox, look in spam.")).toBeInTheDocument();
     await user.click(button("Done"));
     expect(onClose).toHaveBeenCalledExactlyOnceWith(true);
@@ -293,9 +316,10 @@ describe(feature("platform.email"), () => {
     expect(fromField()).toHaveValue("chat@example.com");
     await user.click(button("Continue"));
     await dialog("Send a test email");
+    await screen.findByText("Sent to ada@example.com. If it isn't in your inbox, look in spam.");
     await user.click(button("Done"));
     expect(onClose).toHaveBeenCalledExactlyOnceWith(true);
-    expect(asked()).toEqual([]);
+    expect(asked()).toEqual([["POST /api/account/test_email", undefined]]);
   });
 
   it("forgets the Resend API key Ember has once Cloudflare Email Service is chosen instead", async () => {
@@ -352,6 +376,101 @@ describe(feature("platform.email"), () => {
     expect(onFromSaved).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog", { name: "Choose the From address" })).toBeInTheDocument();
     expect(fromField()).toHaveValue("ember@example.com");
+  });
+
+  it("checks that the From address's domain is onboarded to Cloudflare Email Sending once typing stops, then sends the test email", async () => {
+    const check = held(() => Response.json({ onboarded: true }));
+    serve(NEW_EMAIL, { domainChecked: check.answered });
+    const { user, onClose } = await cloudflareFrom();
+    expect(domainNote()).toBeEmptyDOMElement();
+    await user.type(fromField(), "Ember <ember@Mail.Example.com>");
+    await noted("Checking that mail.example.com is onboarded to Cloudflare Email Sending…");
+    await check.answer();
+    await noted("mail.example.com is onboarded to Cloudflare Email Sending.");
+    expect(domainNote()).toHaveClass("text-positive");
+    expect(fromField()).toHaveAccessibleDescription("mail.example.com is onboarded to Cloudflare Email Sending.");
+
+    await user.click(button("Continue"));
+    await dialog("Send a test email");
+    expect(await screen.findByText("Sent to ada@example.com. If it isn't in your inbox, look in spam.")).toBeInTheDocument();
+    await user.click(button("Done"));
+    expect(onClose).toHaveBeenCalledExactlyOnceWith(true);
+    // Once, for the domain typed, as typing stopped.
+    expect(asked()).toEqual([
+      ["POST /api/account/sending_domain_checks", { domain: "mail.example.com" }],
+      ["PATCH /api/account", { emailFrom: "Ember <ember@Mail.Example.com>" }],
+      ["POST /api/account/test_email", undefined],
+    ]);
+  });
+
+  it("says a domain isn't onboarded to Email Sending, linking to it, without holding up Continue, and the test email says why it wasn't sent", async () => {
+    const refusal =
+      "The From address's domain isn't onboarded to Cloudflare Email Service. In the Cloudflare dashboard, open Email Service, Email Sending, and choose Onboard Domain.";
+    serve(NEW_EMAIL, { domainChecked: () => Response.json({ onboarded: false }), testSent: () => Response.json({ error: refusal }, { status: 502 }) });
+    const { user, onFailed } = await cloudflareFrom();
+    await user.type(fromField(), "ember@example.org");
+    await noted("example.org isn't onboarded to Cloudflare Email Sending yet, as its DNS doesn't have the records Onboard Domain adds.");
+    expect(domainNote()).toHaveClass("text-negative");
+    const dashboard = within(domainNote()).getByRole("link", { name: "Open Email Sending in the Cloudflare dashboard" });
+    expect(dashboard).toHaveAttribute("href", EMAIL_SENDING_DASHBOARD);
+    expect(button("Continue")).toBeEnabled();
+
+    await user.click(button("Continue"));
+    await dialog("Send a test email");
+    expect(await screen.findByText(refusal)).toHaveClass("text-negative");
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("says when it couldn't look the domain up, leaving it to the test email, and checks each domain once", async () => {
+    serve(NEW_EMAIL, { domainChecked: () => Response.json({ onboarded: null }) });
+    const { user } = await cloudflareFrom();
+    await user.type(fromField(), "ember@example.net");
+    await noted("Ember couldn't look up example.net just now. The test email will say whether Cloudflare sends from it.");
+    expect(domainNote()).not.toHaveClass("text-positive", "text-negative");
+
+    // A From address that isn't one says only that.
+    await user.clear(fromField());
+    await user.type(fromField(), "Ember{Enter}");
+    expect(screen.getByRole("alert")).toHaveTextContent(EMAIL_FROM_REFUSED);
+    expect(domainNote()).toBeEmptyDOMElement();
+    await user.clear(fromField());
+    await user.type(fromField(), "chat@example.net");
+    await noted("Ember couldn't look up example.net just now.");
+    expect(asked()).toEqual([["POST /api/account/sending_domain_checks", { domain: "example.net" }]]);
+  });
+
+  it("checks a domain once while its check is out too, as others are typed and answered", async () => {
+    const org = held(() => Response.json({ onboarded: false }));
+    const com = held(() => Response.json({ onboarded: true }));
+    let checks = 0;
+    // The first check is example.org's, and any after it example.com's.
+    serve(NEW_EMAIL, { domainChecked: () => (++checks === 1 ? org : com).answered() });
+    const { user } = await cloudflareFrom();
+    const typeFrom = async (from: string) => {
+      await user.clear(fromField());
+      await user.type(fromField(), from);
+    };
+    await typeFrom("ember@example.org");
+    await noted("Checking that example.org is onboarded to Cloudflare Email Sending…");
+    await typeFrom("ember@example.com");
+    await noted("Checking that example.com is onboarded to Cloudflare Email Sending…");
+    // Back to a domain it's checking, it says so at once.
+    await typeFrom("ember@example.org");
+    expect(domainNote()).toHaveTextContent("Checking that example.org is onboarded to Cloudflare Email Sending…");
+    await typeFrom("ember@example.com");
+    expect(domainNote()).toHaveTextContent("Checking that example.com is onboarded to Cloudflare Email Sending…");
+
+    // Example.org's answer comes first, and example.com's check, still out, isn't asked again, however long it takes.
+    await org.answer();
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await com.answer();
+    await noted("example.com is onboarded to Cloudflare Email Sending.");
+    await typeFrom("ember@example.org");
+    expect(domainNote()).toHaveTextContent("example.org isn't onboarded to Cloudflare Email Sending yet");
+    expect(asked()).toEqual([
+      ["POST /api/account/sending_domain_checks", { domain: "example.org" }],
+      ["POST /api/account/sending_domain_checks", { domain: "example.com" }],
+    ]);
   });
 
   it("closes with Escape, saying whether Ember can send email then", async () => {

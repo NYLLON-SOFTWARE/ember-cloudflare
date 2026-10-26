@@ -54,11 +54,11 @@ test.describe(feature("platform.email"), () => {
 
     await expect(setup).toHaveAccessibleName("Choose the From address");
     await setup.getByRole("textbox", { name: "From" }).fill("Acme, Inc. <chat@acme.example>");
+    const sent = resend.sent.length;
     await setup.getByRole("button", { name: "Continue" }).click();
 
+    // The last step sends a test email as it opens.
     await expect(setup).toHaveAccessibleName("Send a test email");
-    const sent = resend.sent.length;
-    await setup.getByRole("button", { name: "Send me a test email" }).click();
     await expect(setup.getByRole("status")).toHaveText(`Sent to ${ADMINISTRATOR.emailAddress}. If it isn't in your inbox, look in spam.`);
     expect(resend.sent.slice(sent)).toEqual([
       expect.objectContaining({

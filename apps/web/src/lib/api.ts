@@ -56,6 +56,7 @@ import {
   type RoomSocketParams,
   type SavedPushSubscription,
   type SearchResults,
+  type SendingDomainCheck,
   type SentTestEmail,
   type SharedRoom,
   type Sidebar,
@@ -408,6 +409,14 @@ export async function regenerateJoinCode(): Promise<string> {
  */
 export async function sendTestEmail(): Promise<string> {
   return (await request<SentTestEmail>("/api/account/test_email", { method: "POST" })).to;
+}
+
+/**
+ * Whether `domain` is onboarded to Cloudflare Email Sending, as the records Onboard Domain adds to its
+ * DNS say, or null when DNS didn't answer. Fails with a 403 ApiError for anyone but an administrator.
+ */
+export async function checkSendingDomain(domain: string): Promise<boolean | null> {
+  return (await request<SendingDomainCheck>("/api/account/sending_domain_checks", { method: "POST", body: JSON.stringify({ domain }) })).onboarded;
 }
 
 /**

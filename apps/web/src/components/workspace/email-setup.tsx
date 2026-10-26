@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
+  domainOfEmailAddress,
   EMAIL_FROM_REFUSED,
   mailboxOf,
   mailboxText,
@@ -14,7 +15,7 @@ import { Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
-import { ApiError, changeAccount, forgetResendApiKey, isSignedOut, saveResendApiKey } from "@/lib/api";
+import { ApiError, changeAccount, checkSendingDomain, forgetResendApiKey, isSignedOut, saveResendApiKey } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { sendsEmail, TestEmail } from "./email-settings";
 import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";
@@ -24,8 +25,10 @@ import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER
 // turning on Email domain does before Ember can send email, as the project's owner asked (2026-10-26).
 // First, what sends it: Resend, with an API key Ember checks with Resend and keeps, or Cloudflare
 // Email Service, which delivers beyond the account's own addresses only on Workers Paid. Then the From
-// address, then a test email. While the deployment has the secret RESEND_API_KEY, Resend sends with it,
-// so it starts at the From address. Each step saves as it goes on. Styled as Unsaved Changes is.
+// address, whose domain it checks for the records Cloudflare's Onboard Domain adds, and then a test
+// email, which it sends as it gets there, so that setting up checks itself. While the deployment has the
+// secret RESEND_API_KEY, Resend sends with it, so it starts at the From address. Each step saves as it
+// goes on. Styled as Unsaved Changes is.
 
 /** Where Resend verifies the domains it sends from. */
 const RESEND_DOMAINS = "https://resend.com/domains";
@@ -38,6 +41,8 @@ export const WORKERS_PLANS = "https://dash.cloudflare.com/?to=/:account/workers/
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 const LINK = "underline";
+/** How long the From step waits once typing stops before it checks the address's domain. */
+const CHECK_DELAY_MS = 500;
 
 /** Where it's at: choosing what sends email, setting that up, the From address, or the test email. */
 type Step = "provider" | EmailProvider | "from" | "test";
@@ -54,6 +59,51 @@ const TITLES: Record<Step, string> = {
 function fromTyped(text: string): string | null {
   const mailbox = mailboxOf(text);
   return mailbox && mailboxText(mailbox);
+}
+
+/** The domain of the From address `text` gives, or null when it can't be one. */
+function domainTyped(text: string): string | null {
+  const mailbox = mailboxOf(text);
+  return mailbox && domainOfEmailAddress(mailbox.address);
+}
+
+/** What checking a domain for Cloudflare Email Sending has found: that it's checking still, whether it's onboarded, or null when DNS didn't say. */
+type Onboarding = "checking" | boolean | null;
+
+/**
+ * Whether `domain` is onboarded to Cloudflare Email Sending, checked once typing has stopped for
+ * `CHECK_DELAY_MS`, and once for each domain: undefined until then, or while there's none to check.
+ */
+function useOnboarding(domain: string | null): Onboarding | undefined {
+  // What it found of each domain it asked about, "checking" until that's answered, so that it asks once.
+  const [found, setFound] = useState<ReadonlyMap<string, Onboarding>>(new Map());
+  const mounted = useMounted();
+
+  useEffect(() => {
+    if (domain === null || found.has(domain)) return;
+    const wait = setTimeout(() => {
+      const remember = (onboarding: Onboarding) => mounted.current && setFound((found) => new Map(found).set(domain, onboarding));
+      remember("checking");
+      // Failing to check says no more than DNS not answering.
+      checkSendingDomain(domain).then(remember, () => remember(null));
+    }, CHECK_DELAY_MS);
+    return () => clearTimeout(wait);
+  }, [domain, found, mounted]);
+
+  return domain === null ? undefined : found.get(domain);
+}
+
+/** What the From step says it found of its address's domain, for Cloudflare Email Sending. */
+function OnboardingNote({ domain, onboarding }: { domain: string; onboarding: Onboarding }) {
+  if (onboarding === "checking") return <>Checking that {domain} is onboarded to Cloudflare Email Sending…</>;
+  if (onboarding === true) return <>{domain} is onboarded to Cloudflare Email Sending.</>;
+  if (onboarding === null) return <>Ember couldn't look up {domain} just now. The test email will say whether Cloudflare sends from it.</>;
+  return (
+    <>
+      {domain} isn't onboarded to Cloudflare Email Sending yet, as its DNS doesn't have the records Onboard Domain adds.{" "}
+      <Out href={EMAIL_SENDING_DASHBOARD}>Open Email Sending in the Cloudflare dashboard</Out>
+    </>
+  );
 }
 
 interface Props {
@@ -432,6 +482,10 @@ function FromStep({
   const [typed, setTyped] = useState(email.from ?? "");
   const [refusal, setRefusal] = useState<string | null>(null);
   const mounted = useMounted();
+  const domain = email.provider === "cloudflare" ? domainTyped(typed) : null;
+  const onboarding = useOnboarding(domain);
+  // What it says of the address's domain once it's found something, unless the address is refused.
+  const note = refusal === null && domain !== null && onboarding !== undefined ? { domain, onboarding } : null;
 
   const save = (event: FormEvent) => {
     event.preventDefault();
@@ -472,7 +526,7 @@ function FromStep({
           value={typed}
           disabled={saving}
           aria-invalid={refusal !== null}
-          aria-describedby={refusal === null ? undefined : "email-from-refusal"}
+          aria-describedby={refusal !== null ? "email-from-refusal" : note ? "email-from-domain" : undefined}
           onChange={(event) => {
             setTyped(event.target.value);
             setRefusal(null);
@@ -485,19 +539,29 @@ function FromStep({
           {refusal}
         </p>
       )}
+      {/* Said as it's found, though going on never waits for it: only sending says whether Cloudflare sends. */}
+      {email.provider === "cloudflare" && (
+        <p
+          id="email-from-domain"
+          role="status"
+          className={cn(NOTE, "mt-2 wrap-anywhere empty:mt-0", note?.onboarding === true && "text-positive", note?.onboarding === false && "text-negative")}
+        >
+          {note && <OnboardingNote {...note} />}
+        </p>
+      )}
       <Actions back={onBack} next={null} nextLabel={saving ? "Saving…" : "Continue"} disabled={typed.trim() === ""} saving={saving} />
     </form>
   );
 }
 
-/** The last step: a test email, from the From address, to the administrator, and Done. */
+/** The last step: a test email, from the From address, to the administrator, sent as it opens, and Done. */
 function TestStep({ onBack, onDone, onFailed }: { onBack: () => void; onDone: () => void; onFailed: (error: unknown) => void }) {
   return (
     <>
       <DialogDescription className="mb-4 leading-[1.65]">
-        Ember is set up to send email. Send yourself a test email to check that it arrives, or go back to change what sends it.
+        Ember is set up to send email, and sends you a test email to check that it arrives. If it doesn't, go back and change what sends it.
       </DialogDescription>
-      <TestEmail onFailed={onFailed} />
+      <TestEmail onFailed={onFailed} atOnce />
       <Actions back={onBack} next={onDone} nextLabel="Done" />
     </>
   );

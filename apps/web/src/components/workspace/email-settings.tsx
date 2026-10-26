@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Account, EmailSettings as Email } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, changeAccount, isSignedOut, sendTestEmail } from "@/lib/api";
@@ -98,10 +98,14 @@ export function EmailSettings({ email, askForAccount, onSetUp, onStopped, onFail
   );
 }
 
-/** Send me a test email, from the From address as it's saved, saying where it went, or why it wasn't sent. */
-export function TestEmail({ onFailed }: { onFailed: (error: unknown) => void }) {
+/**
+ * Send me a test email, from the From address as it's saved, saying where it went, or why it wasn't
+ * sent, sending one `atOnce` as it's shown, as Set up email's last step does.
+ */
+export function TestEmail({ onFailed, atOnce = false }: { onFailed: (error: unknown) => void; atOnce?: boolean }) {
   const [test, setTest] = useState<Tested | null>(null);
   const mounted = useMounted();
+  const sentAtOnce = useRef(false);
 
   const sendTest = () => {
     setTest("sending");
@@ -118,6 +122,13 @@ export function TestEmail({ onFailed }: { onFailed: (error: unknown) => void }) 
       },
     );
   };
+
+  // Once, though development's strict mode runs effects twice.
+  useEffect(() => {
+    if (!atOnce || sentAtOnce.current) return;
+    sentAtOnce.current = true;
+    sendTest();
+  }, [atOnce]);
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">

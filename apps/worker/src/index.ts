@@ -31,6 +31,7 @@ import {
   parseProfileChanges,
   parseResendApiKey,
   parseRoleChange,
+  parseSendingDomainCheck,
   parseRoomChanges,
   PROFILE_PATH,
   SIGN_IN_LIMITED,
@@ -55,6 +56,7 @@ import {
   type ProfileAnswer,
   type RoomId,
   type RoomSettings,
+  type SendingDomainCheck,
   type SentTestEmail,
   type Sidebar,
   type StartedDirect,
@@ -109,6 +111,7 @@ import { RECOVERY_PATH, resetPassword } from "./recovery";
 import { urlOf } from "./request-url";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
 import { clearSearches, recordSearch, searchMessages } from "./searches";
+import { isOnboardedToEmailSending } from "./sending-domain";
 import { firstRun, isSetupPath, setupAccessOf, setupPage, setupPlaceholdersOf } from "./setup";
 import { closedAtOnce } from "./sockets";
 import { newTransferId, transferPage, transferSession } from "./transfers";
@@ -282,6 +285,20 @@ async function saveResendApiKey(request: Request, env: Env): Promise<Response> {
   const refusal = await checkResendApiKey(env, key.apiKey);
   if (refusal) return problem(refusal.status, refusal.refusal);
   return emailSettingsAnswer(await workspace(env).changeResendApiKey(credentials, key.apiKey));
+}
+
+/**
+ * Checks whether a domain is onboarded to Cloudflare Email Sending, as Set up email's From step asks
+ * once an address is typed there, after who's asking, as changing the workspace does.
+ */
+async function checkSendingDomain(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const administrator = credentials && (await workspace(env).canAdminister(credentials));
+  if (administrator === null) return problem(401, "Not signed in");
+  if (!administrator) return problem(403, "Only administrators can change the workspace");
+  const check = parseSendingDomainCheck(await jsonBodyOf(request));
+  if (typeof check === "string") return problem(422, check);
+  return json({ onboarded: await isOnboardedToEmailSending(check.domain) } satisfies SendingDomainCheck, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** Takes away the Resend API key Ember was given, as Set up email does when Cloudflare Email Service is chosen instead, answering how Ember sends email then. */
@@ -891,6 +908,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account/test_email" && request.method === "POST") return () => sendTestEmail(request, env);
   if (pathname === "/api/account/resend_api_key" && request.method === "PUT") return () => saveResendApiKey(request, env);
   if (pathname === "/api/account/resend_api_key" && request.method === "DELETE") return () => forgetResendApiKey(request, env);
+  if (pathname === "/api/account/sending_domain_checks" && request.method === "POST") return () => checkSendingDomain(request, env);
   if (pathname === "/api/account/custom_domain_checks" && request.method === "POST") return () => checkCustomDomain(request, env);
   if (pathname === LOGO_PATH && request.method === "PUT") return () => changeLogo(request, env);
   if (pathname === LOGO_PATH && request.method === "DELETE") return () => removeLogo(request, env);

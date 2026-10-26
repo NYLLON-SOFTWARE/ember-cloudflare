@@ -70,6 +70,7 @@ test.describe(feature("auth.email-domain-sign-up"), () => {
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("textbox", { name: "From" }).fill(FROM);
     await page.getByRole("button", { name: "Continue" }).click();
+    await expect(page.getByRole("dialog").getByRole("status")).toHaveText(/^Sent to /);
     await page.getByRole("button", { name: "Done" }).click();
     await expect(page.getByRole("dialog")).toBeHidden();
     // It can't be on without a domain either, so then it opens the list, and saving that turns it on.
