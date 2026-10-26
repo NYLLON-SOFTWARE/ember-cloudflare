@@ -344,7 +344,8 @@ Memberful is on or not, since its members keep signing in with it once it's off.
 Ember sends email with [Resend](https://resend.com), with an API key an administrator gives it, or
 with [Cloudflare Email Service](https://developers.cloudflare.com/email-service/), which wrangler.jsonc
 binds as `EMAIL`. Under Email, in Workspace settings' Membership, Set up email walks an administrator
-through either, then the From address Ember's email comes from, and sends them a test email. Turning
+through either, then the From address Ember's email comes from, and sends them a test email as it
+finishes, so that it checks itself. Turning
 on Email domain, or Invite by email's Set up email, opens it too while Ember can't send email. Stop
 sending email, beside it, takes the From address away, after which Ember emails nothing until email is
 set up again.
@@ -376,9 +377,12 @@ With Cloudflare Email Service, in beta since April 2026:
    domain on Cloudflare DNS, such as the one Ember's custom domain is on. Cloudflare adds the records
    sending takes.
 
-Choosing Cloudflare Email Service in Set up email forgets a pasted Resend key. When the provider
-refuses the test email, Membership says why, such as a domain that isn't onboarded or a day's quota
-used up. `wrangler dev` sends nothing with Cloudflare's binding: it logs each email and saves it to a
+Choosing Cloudflare Email Service in Set up email forgets a pasted Resend key. Once the From address
+is typed, Set up email looks its domain up for the records Onboard Domain adds, the MX records on
+`cf-bounce.<domain>` and the DKIM key at `cf-bounce._domainkey.<domain>`, and says whether it's
+onboarded, with no Cloudflare API token, which Ember never holds. The records can't say whether the
+account is on Workers Paid; the test email does. When the provider refuses it, Membership says why,
+such as a domain that isn't onboarded or a day's quota used up. `wrangler dev` sends nothing with Cloudflare's binding: it logs each email and saves it to a
 file.
 
 ### Inviting people by email
