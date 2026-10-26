@@ -116,7 +116,7 @@ const fromField = () => screen.getByRole("textbox", { name: "From" });
 afterEach(() => vi.restoreAllMocks());
 
 describe(feature("platform.email"), () => {
-  it("starts with what sends email, saying Cloudflare Email Service emails anyone only on Workers Paid", async () => {
+  it("starts with what sends email, saying Cloudflare Email Service needs Workers Paid to reach anyone else", async () => {
     serve(NEW_EMAIL);
     const { user, onClose } = showSetup(NEW_EMAIL);
     const setup = await dialog("Set up email");
@@ -128,7 +128,7 @@ describe(feature("platform.email"), () => {
     );
     expect(choice("Cloudflare Email Service")).toBeEnabled();
     expect(choice("Cloudflare Email Service")).toHaveAccessibleDescription(
-      "Sends from your Cloudflare account, but emails anyone only on the Workers Paid plan, $5 a month. On Workers Free, it sends only to your account's own verified addresses.",
+      "Needs the Workers Paid plan ($5 a month) on the Cloudflare account that runs Ember. On Workers Free, Cloudflare only delivers to addresses verified in that account, so invitations and join links wouldn't reach anyone else.",
     );
     expect(button("Continue")).toBeDisabled();
     await user.click(choice("Resend"));

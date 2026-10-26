@@ -23,9 +23,9 @@ import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER
 // email, one at a time, in a dialog that Membership's Email card opens, as Invite by email does, and as
 // turning on Email domain does before Ember can send email, as the project's owner asked (2026-10-26).
 // First, what sends it: Resend, with an API key Ember checks with Resend and keeps, or Cloudflare
-// Email Service, which emails anyone only on Workers Paid. Then the From address, then a test email.
-// While the deployment has the secret RESEND_API_KEY, Resend sends with it, so it starts at the From
-// address. Each step saves as it goes on. Styled as Unsaved Changes is.
+// Email Service, which delivers beyond the account's own addresses only on Workers Paid. Then the From
+// address, then a test email. While the deployment has the secret RESEND_API_KEY, Resend sends with it,
+// so it starts at the From address. Each step saves as it goes on. Styled as Unsaved Changes is.
 
 /** Where Resend verifies the domains it sends from. */
 const RESEND_DOMAINS = "https://resend.com/domains";
@@ -227,7 +227,7 @@ function ChooseProvider({
         </ProviderChoice>
         <ProviderChoice provider="cloudflare" title="Cloudflare Email Service" chosen={chosen} onChoose={onChoose} disabled={!email.cloudflare}>
           {email.cloudflare
-            ? "Sends from your Cloudflare account, but emails anyone only on the Workers Paid plan, $5 a month. On Workers Free, it sends only to your account's own verified addresses."
+            ? "Needs the Workers Paid plan ($5 a month) on the Cloudflare account that runs Ember. On Workers Free, Cloudflare only delivers to addresses verified in that account, so invitations and join links wouldn't reach anyone else."
             : "This Worker has no EMAIL binding, which Cloudflare Email Service sends with."}
         </ProviderChoice>
       </fieldset>
