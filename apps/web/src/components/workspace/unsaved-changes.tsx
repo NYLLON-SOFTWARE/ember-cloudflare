@@ -16,6 +16,21 @@ const ROOM_CHANGES = "You’ve made changes to this room. Save them before you l
 
 /** `.mb-unsaved-actions .btn`: Campfire's `.btn`, 42px tall, 44px for fingers, and sharing a phone's width. */
 const ACTION = "inline-flex min-h-[42px] cursor-pointer items-center justify-center rounded-[9px] border px-[22px] py-[0.5em] font-semibold touch:min-h-11 disabled:cursor-default upto-480px:flex-1";
+/** Save, the dialog's main action, in ink, and Discard, the other, which dialogs styled as this one share. */
+export const MAIN_ACTION = cn(ACTION, "border-transparent bg-foreground text-background hover:not-active:brightness-70");
+export const OTHER_ACTION = cn(ACTION, "bg-background text-foreground");
+
+/** The dialog: 420px wide, within the screen and its safe areas, scrolling what doesn't fit them. */
+export const DIALOG = cn(
+  "block w-[420px] max-w-[calc(100dvw-32px-env(safe-area-inset-left)-env(safe-area-inset-right))] sm:max-w-[calc(100dvw-32px-env(safe-area-inset-left)-env(safe-area-inset-right))]",
+  "max-h-[calc(100dvh-32px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] overflow-auto rounded-[18px] p-7 text-foreground upto-480px:p-6",
+  "shadow-[0_24px_80px_var(--color-dialog-shadow),0_4px_16px_var(--color-dialog-shadow-faint)]",
+);
+/** What's laid over the page behind the dialog. */
+export const DIALOG_BACKDROP = "bg-dialog-backdrop backdrop-blur-[3px]";
+export const DIALOG_TITLE = "mb-2.5 text-[22px] leading-[1.25] font-bold";
+/** The button in the dialog's corner that closes it. */
+export const DIALOG_CLOSE = "absolute end-3 top-3 inline-flex cursor-pointer items-center justify-center rounded-[9px] px-[1.1em] py-[0.5em] touch:min-h-11 disabled:cursor-default";
 
 interface Props<T> {
   /** Whether the page holds changes that leaving would lose. */
@@ -127,7 +142,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
       <DialogContent
         showCloseButton={false}
         aria-busy={saving || undefined}
-        overlayClassName="bg-dialog-backdrop backdrop-blur-[3px]"
+        overlayClassName={DIALOG_BACKDROP}
         // As ember-rust's opens on Save and stays open when the page behind it is clicked.
         onOpenAutoFocus={(event) => {
           event.preventDefault();
@@ -140,25 +155,21 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
           event.preventDefault();
           form?.current?.reportValidity();
         }}
-        className={cn(
-          "block w-[420px] max-w-[calc(100dvw-32px-env(safe-area-inset-left)-env(safe-area-inset-right))] sm:max-w-[calc(100dvw-32px-env(safe-area-inset-left)-env(safe-area-inset-right))]",
-          "max-h-[calc(100dvh-32px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] overflow-auto rounded-[18px] p-7 text-foreground upto-480px:p-6",
-          "shadow-[0_24px_80px_var(--color-dialog-shadow),0_4px_16px_var(--color-dialog-shadow-faint)]",
-        )}
+        className={DIALOG}
       >
         <button
           type="button"
           aria-label="Keep editing"
           disabled={saving}
           onClick={keepEditing}
-          className="absolute end-3 top-3 inline-flex cursor-pointer items-center justify-center rounded-[9px] px-[1.1em] py-[0.5em] touch:min-h-11 disabled:cursor-default"
+          className={DIALOG_CLOSE}
         >
           <Xmark className="size-[18px]" />
         </button>
         <div aria-hidden="true" className="mb-5 grid size-[46px] place-items-center rounded-xl border bg-surface">
           <Edit className="size-[22px]" />
         </div>
-        <DialogTitle className="mb-2.5 text-[22px] leading-[1.25] font-bold">Unsaved Changes</DialogTitle>
+        <DialogTitle className={DIALOG_TITLE}>Unsaved Changes</DialogTitle>
         <DialogDescription className="leading-[1.65]">{description}</DialogDescription>
         {failed && (
           <p role="alert" className="mt-4 text-sm leading-[1.65] text-negative">
@@ -166,7 +177,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
           </p>
         )}
         <div className="mt-[26px] flex justify-end gap-2.5">
-          <button type="button" disabled={saving} onClick={() => void go()} className={cn(ACTION, "bg-background text-foreground")}>
+          <button type="button" disabled={saving} onClick={() => void go()} className={OTHER_ACTION}>
             Discard
           </button>
           <button
@@ -174,7 +185,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
             type="button"
             disabled={saving}
             onClick={() => void save()}
-            className={cn(ACTION, "border-transparent bg-foreground text-background hover:not-active:brightness-70")}
+            className={MAIN_ACTION}
           >
             {saving ? "Saving…" : "Save"}
           </button>

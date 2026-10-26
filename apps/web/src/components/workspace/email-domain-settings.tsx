@@ -13,7 +13,9 @@ import { TurnstileSetup } from "./turnstile-setup";
 // administrator lists the domains whose email addresses can join, and people with one ask for a link
 // at /join/email, which Ember emails them. Laid out as the other ways to join are, with its domains
 // while it's on. It can't be on without one, so turning it on before there are any opens the list,
-// and saving them turns it on.
+// and saving them turns it on. Nor can it be on before Ember can send email, so turning it on before
+// then says so and opens Set up email, as the project's owner asked (2026-10-26), and goes on once
+// Ember can.
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 const BUTTON = "inline-flex min-h-11 items-center justify-center rounded-[9px] border bg-background px-3.5 py-2.5 font-medium disabled:opacity-50";
@@ -40,6 +42,8 @@ interface Props {
   onCheckedChange: (on: boolean) => void;
   /** Saves `domains` in place of those it has, turning it on with them if `turnOn`, then calls `settled` with whether it did. */
   saveDomains: (domains: string[], turnOn: boolean, settled: (saved: boolean) => void) => void;
+  /** Opens Set up email, calling `then`, if given, once it closes with Ember able to send email. */
+  onSetUpEmail: (then?: () => void) => void;
   /** Why the switch can't be moved while another way to join overrides it, said in place of what it does, or null. */
   setAside: string | null;
 }
@@ -47,9 +51,9 @@ interface Props {
 /**
  * Email domain, for administrators: its switch, then while it's on, its domains, to add to and remove
  * from, then save, the link to its page, and how often Ember emails a link. Until Ember can send email
- * it says to set that up first, and it can't be turned on.
+ * it says so, and turning it on sets that up first.
  */
-export function EmailDomainSettings({ domains, emails, turnstile, checked, onCheckedChange, saveDomains, setAside }: Props) {
+export function EmailDomainSettings({ domains, emails, turnstile, checked, onCheckedChange, saveDomains, onSetUpEmail, setAside }: Props) {
   // Turned on before it had a domain, which saving the first turns it on with.
   const [adding, setAdding] = useState(false);
   // The domains as changed, or null while they're as kept.
@@ -62,10 +66,11 @@ export function EmailDomainSettings({ domains, emails, turnstile, checked, onChe
   const on = checked || adding;
   const free = listed.filter((domain) => FREE_EMAIL_DOMAINS.includes(domain));
 
-  const switchTo = (turnOn: boolean) => {
-    if (turnOn && domains.length === 0) return setAdding(true);
+  const turnOn = () => (domains.length === 0 ? setAdding(true) : onCheckedChange(true));
+  const switchTo = (on: boolean) => {
+    if (on) return emails ? turnOn() : onSetUpEmail(turnOn);
     setAdding(false);
-    if (!adding) onCheckedChange(turnOn);
+    if (!adding) onCheckedChange(false);
   };
 
   /** Lists each domain typed, apart by commas, semicolons or spaces, keeping in the field any that isn't one. */
@@ -110,19 +115,25 @@ export function EmailDomainSettings({ domains, emails, turnstile, checked, onChe
               (emails
                 ? "People with an email address at your domains join with a link Ember emails them."
                 : checked
-                  ? "It's on, but Ember can't send email, so nobody gets a link to join with until Email is set up below."
-                  : "People with an email address at your domains join with a link Ember emails them, once Email is set up below.")}
+                  ? "It's on, but Ember can't send email, so nobody gets a link to join with until email is set up."
+                  : "People with an email address at your domains join with a link Ember emails them. Ember can't send email yet, so turning this on sets that up first.")}
           </p>
         </div>
         <Switch
           checked={on}
           onCheckedChange={switchTo}
-          // Ember can't email links without a sender, but once it's on it can always be turned off.
-          disabled={setAside !== null || saving || (!emails && !on)}
+          disabled={setAside !== null || saving}
           aria-labelledby="email-domain-heading"
           aria-describedby="email-domain-description"
         />
       </div>
+      {checked && !emails && setAside === null && (
+        <div>
+          <button type="button" onClick={() => onSetUpEmail()} className={BUTTON}>
+            Set up email
+          </button>
+        </div>
+      )}
       {on && setAside === null && (
         <>
           <form onSubmit={add} className="flex flex-wrap items-end gap-3">

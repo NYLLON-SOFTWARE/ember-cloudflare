@@ -29,6 +29,7 @@ import {
   parseNewDirect,
   parseNewRoom,
   parseProfileChanges,
+  parseResendApiKey,
   parseRoleChange,
   parseRoomChanges,
   PROFILE_PATH,
@@ -44,6 +45,7 @@ import {
   type CustomDomainCheck,
   type CustomStyles,
   type Directory,
+  type EmailSettings,
   type Favorites,
   type Involvement,
   type MemberfulConnection,
@@ -94,6 +96,7 @@ import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { invite, lookUpEmailLink, resendInvitation, revokeInvitation } from "./invitations";
 import { askForEmailLink, emailSignUpPage, invitationPage, join, joinCodeOf, joinPage, joinWithEmailLink, signUp, signUpPage } from "./join";
+import { checkResendApiKey } from "./mail";
 import { manifest, manifestFormatOf } from "./manifest";
 import { finishMemberfulSignIn, memberfulConnectionFor, memberfulRefusal, memberfulWebhook, memberfulWebhooksOf, startMemberfulSignIn } from "./memberful";
 import { memberfulKeysOf } from "./memberful-api";
@@ -262,6 +265,36 @@ async function sendTestEmail(request: Request, env: Env): Promise<Response> {
   if (!sent) return problem(401, "Not signed in");
   if (sent === "forbidden") return problem(403, "Only administrators can change the workspace");
   return "refusal" in sent ? problem(sent.status, sent.refusal) : json(sent satisfies SentTestEmail);
+}
+
+/**
+ * Gives Ember a Resend API key to send email with, as Set up email's Send with Resend does, once Resend
+ * takes it (`checkResendApiKey`), after who's asking, as changing the workspace does, answering how Ember
+ * sends email then.
+ */
+async function saveResendApiKey(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const administrator = credentials && (await workspace(env).canAdminister(credentials));
+  if (!credentials || administrator === null) return problem(401, "Not signed in");
+  if (!administrator) return problem(403, "Only administrators can change the workspace");
+  const key = parseResendApiKey(await jsonBodyOf(request));
+  if (typeof key === "string") return problem(422, key);
+  const refusal = await checkResendApiKey(env, key.apiKey);
+  if (refusal) return problem(refusal.status, refusal.refusal);
+  return emailSettingsAnswer(await workspace(env).changeResendApiKey(credentials, key.apiKey));
+}
+
+/** Takes away the Resend API key Ember was given, as Set up email does when Cloudflare Email Service is chosen instead, answering how Ember sends email then. */
+async function forgetResendApiKey(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  return emailSettingsAnswer(credentials && (await workspace(env).changeResendApiKey(credentials, null)));
+}
+
+/** The answer to changing how Ember sends email: how it does then, or who can't. */
+function emailSettingsAnswer(email: EmailSettings | "forbidden" | null): Response {
+  if (!email) return problem(401, "Not signed in");
+  if (email === "forbidden") return problem(403, "Only administrators can change the workspace");
+  return json(email satisfies EmailSettings, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** Gives the join link a new code, as an administrator's Regenerate join link does, answering it. */
@@ -856,6 +889,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account" && request.method === "PATCH") return () => changeAccount(request, env);
   if (pathname === "/api/account/join_code" && request.method === "POST") return () => regenerateJoinCode(request, env);
   if (pathname === "/api/account/test_email" && request.method === "POST") return () => sendTestEmail(request, env);
+  if (pathname === "/api/account/resend_api_key" && request.method === "PUT") return () => saveResendApiKey(request, env);
+  if (pathname === "/api/account/resend_api_key" && request.method === "DELETE") return () => forgetResendApiKey(request, env);
   if (pathname === "/api/account/custom_domain_checks" && request.method === "POST") return () => checkCustomDomain(request, env);
   if (pathname === LOGO_PATH && request.method === "PUT") return () => changeLogo(request, env);
   if (pathname === LOGO_PATH && request.method === "DELETE") return () => removeLogo(request, env);

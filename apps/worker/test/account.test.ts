@@ -27,7 +27,7 @@ const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "
 const named = (name: string): Account => ({ name, tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} });
 
 /** How a new workspace sends email: with the binding wrangler.jsonc declares, from no address yet. */
-const NEW_EMAIL: EmailSettings = { provider: "cloudflare", from: null };
+const NEW_EMAIL: EmailSettings = { provider: "cloudflare", resendKey: null, cloudflare: true, from: null };
 
 /** Sets Ember up with Ada as its administrator, signed in. */
 async function setUp(): Promise<Session> {
@@ -217,7 +217,7 @@ describe(feature("accounts.name"), () => {
       vi.spyOn(storeOf(workspace), "account").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
       const reading = workspace.bootstrap(null, null);
       expect(await workspace.changeAccount(credentials, { name: "Ember Studio" })).toEqual(named("Ember Studio"));
-      finishReading({ ...named("Ember"), joinCode: "aB3d-Ef5h-iJ7k", updatedAt: new Date().toISOString(), storedLogo: null, emailFrom: null });
+      finishReading({ ...named("Ember"), joinCode: "aB3d-Ef5h-iJ7k", updatedAt: new Date().toISOString(), storedLogo: null, emailFrom: null, resendApiKey: null });
       await reading;
     });
     expect((await bootstrap()).account.name).toBe("Ember Studio");
@@ -639,7 +639,7 @@ describe(feature("accounts.regenerate-join-link"), () => {
       vi.spyOn(storeOf(workspace), "account").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
       const reading = workspace.bootstrap(null, null);
       const regenerated = await workspace.regenerateJoinCode(credentials);
-      finishReading({ ...named("Ember"), joinCode: old, updatedAt: new Date().toISOString(), storedLogo: null, emailFrom: null });
+      finishReading({ ...named("Ember"), joinCode: old, updatedAt: new Date().toISOString(), storedLogo: null, emailFrom: null, resendApiKey: null });
       await reading;
       return regenerated;
     });

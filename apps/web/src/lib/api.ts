@@ -23,6 +23,7 @@ import {
   type EmailLinkKind,
   type EmailLinkRequest,
   type EmailLinkSignUp,
+  type EmailSettings,
   type Favorites,
   type InvitationOutcome,
   type Invited,
@@ -407,6 +408,20 @@ export async function regenerateJoinCode(): Promise<string> {
  */
 export async function sendTestEmail(): Promise<string> {
   return (await request<SentTestEmail>("/api/account/test_email", { method: "POST" })).to;
+}
+
+/**
+ * Gives Ember a Resend API key to send email with, answering how it sends email then. Fails with a 422
+ * ApiError for a key Resend doesn't take, saying why, a 502 one when Resend can't say, and a 403 one for
+ * anyone but an administrator.
+ */
+export async function saveResendApiKey(apiKey: string): Promise<EmailSettings> {
+  return request<EmailSettings>("/api/account/resend_api_key", { method: "PUT", body: JSON.stringify({ apiKey }) });
+}
+
+/** Takes away the Resend API key Ember was given, answering how it sends email then. Fails with a 403 ApiError for anyone but an administrator. */
+export async function forgetResendApiKey(): Promise<EmailSettings> {
+  return request<EmailSettings>("/api/account/resend_api_key", { method: "DELETE" });
 }
 
 /**

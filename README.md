@@ -241,10 +241,10 @@ Workspace settings' Membership, where each way has a switch:
   administrator lists, such as their company's. They ask for a link at
   `https://<Ember's address>/join/email`, which the sign-in page offers as "Have an address at
   example.com? Join with it", and Ember emails them one that joins with that address, once, within
-  an hour, so it can't be turned on until Ember sends email, below. Ember emails an address at most
-  3 links an hour, whoever asks, so nobody can fill someone's inbox with them, counting only the
-  emails the provider takes, and until Ember has Turnstile's keys, each network can ask for 10 links
-  an hour. Each link is an email, so the provider's limits apply.
+  an hour, so turning it on before Ember can send email sets that up first, below. Ember emails an
+  address at most 3 links an hour, whoever asks, so nobody can fill someone's inbox with them,
+  counting only the emails the provider takes, and until Ember has Turnstile's keys, each network can
+  ask for 10 links an hour. Each link is an email, so the provider's limits apply.
 - Memberful, below, lets in the members of a Memberful site, who sign in with their Memberful
   accounts while everyone else keeps a password. Its Members only switch keeps signing in to them
   and administrators.
@@ -341,10 +341,32 @@ Memberful is on or not, since its members keep signing in with it once it's off.
 
 ### Sending email
 
-Ember sends email with [Cloudflare Email Service](https://developers.cloudflare.com/email-service/),
-which wrangler.jsonc binds as `EMAIL`, or with [Resend](https://resend.com) once the Worker has a
-`RESEND_API_KEY`. Either way it sends from the address an administrator gives under Email, in
-Workspace settings' Membership, which walks them through setting it up and sends them a test email.
+Ember sends email with [Resend](https://resend.com), with an API key an administrator gives it, or
+with [Cloudflare Email Service](https://developers.cloudflare.com/email-service/), which wrangler.jsonc
+binds as `EMAIL`. Under Email, in Workspace settings' Membership, Set up email walks an administrator
+through either, then the From address Ember's email comes from, and sends them a test email. Turning
+on Email domain, or Invite by email's Set up email, opens it too while Ember can't send email. Stop
+sending email, beside it, takes the From address away, after which Ember emails nothing until email is
+set up again.
+
+With Resend, which sends 3,000 emails a month, at most 100 a day, for free, on Workers Free too:
+
+1. Under Domains in Resend, add the domain to send from, and the DNS records it gives, until Resend
+   says it's verified.
+2. Under API Keys, create a key with Sending access, and paste it into Set up email. Ember asks Resend
+   whether it takes the key, then keeps it in the workspace's settings encrypted with AES-GCM under a
+   key derived from `SESSION_SECRET`, so a copy of the database alone doesn't give it away. A new
+   `SESSION_SECRET` leaves it unreadable until an administrator pastes it again.
+
+A Worker can have the key as a secret instead, which takes the place of one pasted in, leaving Set up
+email only the From address to ask for:
+
+```sh
+pnpm exec wrangler secret put RESEND_API_KEY     # add --name <worker> for a Worker not named in wrangler.jsonc
+```
+
+`pnpm run deploy` uploads it when its environment has it, so the Preview workflow passes a
+repository secret of the same name through.
 
 With Cloudflare Email Service, in beta since April 2026:
 
@@ -353,22 +375,11 @@ With Cloudflare Email Service, in beta since April 2026:
 2. In the Cloudflare dashboard, under Email Service, Email Sending, choose Onboard Domain and pick a
    domain on Cloudflare DNS, such as the one Ember's custom domain is on. Cloudflare adds the records
    sending takes.
-3. Under Email in Membership, give a From address on that domain, such as `Ember <ember@example.com>`,
-   save it, and choose Send me a test email.
 
-With Resend, which sends 3,000 emails a month, at most 100 a day, for free, on Workers Free too: add
-the domain under Domains in Resend until it's verified, make an API key that can send, and give it to
-the Worker, then give the From address and send the test email as above:
-
-```sh
-pnpm exec wrangler secret put RESEND_API_KEY     # add --name <worker> for a Worker not named in wrangler.jsonc
-```
-
-With a key, Ember sends with Resend rather than Cloudflare. `pnpm run deploy` uploads it when its
-environment has it, so the Preview workflow passes a repository secret of the same name through.
-When the provider refuses the test email, Membership says why, such as a domain that isn't onboarded
-or a day's quota used up. `wrangler dev` sends nothing with Cloudflare's binding: it logs each email
-and saves it to a file.
+Choosing Cloudflare Email Service in Set up email forgets a pasted Resend key. When the provider
+refuses the test email, Membership says why, such as a domain that isn't onboarded or a day's quota
+used up. `wrangler dev` sends nothing with Cloudflare's binding: it logs each email and saves it to a
+file.
 
 ### Inviting people by email
 
@@ -515,6 +526,9 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
   create rooms unless Must be admin to create new rooms is on. Turnstile, given its keys, keeps most
   bots out, and until then its limits keep a flood from filling the free plan. The join link has no
   limits, since its secrecy is the gate: regenerate it if it gets out.
+- A Resend API key pasted into Set up email is kept encrypted, and never shown again, even to
+  administrators: Membership says only that Ember has one. Make it a key with Sending access, as Resend
+  suggests, so that one that got out could do no more than send email.
 - Email domain lets in whoever can read mail at its domains, so list only domains whose addresses
   your organization hands out: Membership warns of ones anyone can have an address at, such as
   gmail.com. Its page answers the same whether or not an address has an account, emailing someone

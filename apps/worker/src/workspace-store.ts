@@ -103,6 +103,8 @@ export interface JoinableAccount extends Omit<Account, "logo"> {
   storedLogo: StoredPicture | null;
   /** The address Ember's email comes from, as `mailboxText` writes it, or null while an administrator hasn't given one. */
   emailFrom: string | null;
+  /** The Resend API key an administrator gave Ember to send email with, sealed (`seal`), or null while they haven't given one. */
+  resendApiKey: string | null;
 }
 
 /** The account first run creates. */
@@ -114,13 +116,24 @@ export interface NewAccount {
 
 /**
  * What `WorkspaceStore.changeAccount` changes: the name, the tagline, the settings workspace settings'
- * switches change, the custom domain, the navigation icons whose slots change, the From address, and the
- * domains Email domain lets in. Memberful's two settings change together, or not at all, as `memberful`.
+ * switches change, the custom domain, the navigation icons whose slots change, the From address, the
+ * sealed Resend API key, and the domains Email domain lets in. Memberful's two settings change together,
+ * or not at all, as `memberful`.
  */
 export type AccountChange = Partial<
   Pick<
     JoinableAccount,
-    "name" | "tagline" | "hideTranslationButtons" | "restrictRoomCreation" | "customDomain" | "joinLink" | "openSignUp" | "emailDomainSignUp" | "emailDomains" | "emailFrom"
+    | "name"
+    | "tagline"
+    | "hideTranslationButtons"
+    | "restrictRoomCreation"
+    | "customDomain"
+    | "joinLink"
+    | "openSignUp"
+    | "emailDomainSignUp"
+    | "emailDomains"
+    | "emailFrom"
+    | "resendApiKey"
   >
 > & {
   memberful?: Pick<Account, "memberfulJoin" | "memberfulSignIn">;
@@ -653,6 +666,9 @@ function emailFromIn(settings: Record<string, unknown> | null): string | null {
   return mailbox && mailboxText(mailbox);
 }
 
+/** The Resend API key an administrator gave Ember, sealed, which the account's settings keep as `resend_api_key`, this port's own, or null while it has none. */
+const resendApiKeyIn = (settings: Record<string, unknown> | null) => (typeof settings?.resend_api_key === "string" ? settings.resend_api_key : null);
+
 /**
  * Whether the join link lets people in, which the account's settings keep as `join_link`, this port's
  * own: until the setting is stored, as for an account from before it, then only while it's present, as
@@ -1142,6 +1158,7 @@ const SET_MEMBERFUL_SIGN_IN = setSetting("memberful_sign_in");
 const SET_EMAIL_DOMAIN_SIGN_UP = setSetting("email_domain_sign_up");
 const SET_EMAIL_DOMAINS = setSetting("email_domains");
 const SET_EMAIL_FROM = setSetting("email_from");
+const SET_RESEND_API_KEY = setSetting("resend_api_key");
 
 /** Navigation icon changes as the merge patch `CHANGE_NAVIGATION_ICONS` takes them: null for a slot's default. */
 const navigationIconsPatch = (changes: NavigationIconChanges) => Object.fromEntries(Object.entries(changes).map(([slot, icon]) => [slot, icon || null]));
@@ -1600,13 +1617,14 @@ export class WorkspaceStore {
       updatedAt: row.updated_at,
       storedLogo: row.logo_key === null ? null : { key: row.logo_key, variant: row.logo_variant },
       emailFrom: emailFromIn(settings),
+      resendApiKey: resendApiKeyIn(settings),
     };
   }
 
   /**
-   * Changes the workspace's name, tagline, settings, custom domain, navigation icons, From address and
-   * email domains, as `change` has them, in one batch. Memberful's settings are stored both at once, so
-   * that an account from before `memberful_join` reads as they're saved.
+   * Changes the workspace's name, tagline, settings, custom domain, navigation icons, From address,
+   * Resend API key and email domains, as `change` has them, in one batch. Memberful's settings are stored
+   * both at once, so that an account from before `memberful_join` reads as they're saved.
    */
   async changeAccount(
     {
@@ -1622,6 +1640,7 @@ export class WorkspaceStore {
       emailDomains,
       navigationIcons,
       emailFrom,
+      resendApiKey,
     }: AccountChange,
     now: string,
   ): Promise<void> {
@@ -1640,6 +1659,7 @@ export class WorkspaceStore {
       ...(emailDomains === undefined ? [] : [statement(SET_EMAIL_DOMAINS, JSON.stringify(emailDomains), now)]),
       ...(navigationIcons === undefined ? [] : [statement(CHANGE_NAVIGATION_ICONS, JSON.stringify(navigationIconsPatch(navigationIcons)), now)]),
       ...(emailFrom === undefined ? [] : [statement(SET_EMAIL_FROM, JSON.stringify(emailFrom), now)]),
+      ...(resendApiKey === undefined ? [] : [statement(SET_RESEND_API_KEY, JSON.stringify(resendApiKey), now)]),
     ]);
   }
 

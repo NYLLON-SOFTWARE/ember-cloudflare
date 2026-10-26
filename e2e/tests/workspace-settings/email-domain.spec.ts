@@ -3,11 +3,13 @@ import { EMAIL_LINK_GONE, JOINING_PROBLEMS, onlyAddressesAt, type AccountChanges
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
 import { administratorSession, cookieHeader, SAME_ORIGIN, signInAsAdministrator, useOwnAddress } from "../../fixtures";
-import { startFakeResend, type FakeResend, type SentEmail } from "./fake-resend";
+import { RESEND_KEY } from "../../projects/workspace-settings";
+import { forgetResendKey, giveResendKey, startFakeResend, type FakeResend, type SentEmail } from "./fake-resend";
 
 // Membership's Email domain card, and the page where someone with an address at its domains asks for a
-// link to join, on the second test server, which sends email with the Resend API the email spec fakes.
-// Each test leaves the workspace as a new one is: Email domain off, with no domains and no From address.
+// link to join, on the second test server, which sends email with the Resend API the email specs fake
+// once it's given the key that API takes. Each test leaves the workspace as a new one is: Email domain
+// off, with no domains, no Resend API key and no From address.
 
 const FROM = "chat@acme.example";
 const DOMAIN = "analytical.example";
@@ -15,7 +17,10 @@ const DOMAIN = "analytical.example";
 let resend: FakeResend;
 test.beforeAll(async () => void (resend = await startFakeResend()));
 test.afterAll(() => resend.close());
-test.afterEach(({ request }) => changeAccount(request, { settings: { emailDomainSignUp: false }, emailDomains: [], emailFrom: null }));
+test.afterEach(async ({ request }) => {
+  await changeAccount(request, { settings: { emailDomainSignUp: false }, emailDomains: [], emailFrom: null });
+  await forgetResendKey(request);
+});
 
 /** Changes the workspace as the administrator. */
 async function changeAccount(request: APIRequestContext, changes: AccountChanges): Promise<void> {
@@ -46,16 +51,28 @@ async function askForLink(page: Page, emailAddress: string): Promise<SentEmail> 
 const linkIn = (email: SentEmail) => /(?:Join|Sign in) here: (\S+)/.exec(email.text)![1]!;
 
 test.describe(feature("auth.email-domain-sign-up"), () => {
-  test("the administrator lets in an email domain, and someone there asks for a link from sign in, then joins with it, once", async ({ page, browser, request, baseURL }) => {
-    await changeAccount(request, { emailFrom: FROM });
+  test("the administrator lets in an email domain, and someone there asks for a link from sign in, then joins with it, once", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit#membership-settings");
     await signInAsAdministrator(page);
     const card = page.getByRole("region", { name: "Email domain" });
     const emailDomain = card.getByRole("switch", { name: "Email domain" });
     await expect(emailDomain).not.toBeChecked();
-    // It can't be on without a domain, so turning it on opens the list, and saving that turns it on.
+    await expect(emailDomain).toHaveAccessibleDescription(
+      "People with an email address at your domains join with a link Ember emails them. Ember can't send email yet, so turning this on sets that up first.",
+    );
+    // Ember can't send email yet, so turning it on sets that up first.
     await emailDomain.click();
+    const setup = page.getByRole("dialog", { name: "Set up email" });
+    await setup.getByRole("radio", { name: "Resend" }).check();
+    await setup.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("textbox", { name: "API key" }).fill(RESEND_KEY);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("textbox", { name: "From" }).fill(FROM);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Done" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+    // It can't be on without a domain either, so then it opens the list, and saving that turns it on.
     await card.getByRole("textbox", { name: "Add a domain" }).fill(`@${DOMAIN.toUpperCase()}`);
     await card.getByRole("button", { name: "Add", exact: true }).click();
     await expect(card.getByRole("list", { name: "Domains that can join" }).getByRole("listitem")).toHaveText([DOMAIN]);
@@ -102,6 +119,7 @@ test.describe(feature("auth.email-domain-sign-up"), () => {
   });
 
   test("the page asks only for addresses at the domains, and sends people to sign in, which says why, once it's off", async ({ browser, request, baseURL }) => {
+    await giveResendKey(request);
     await changeAccount(request, { emailFrom: FROM, emailDomains: [DOMAIN], settings: { emailDomainSignUp: true } });
     const newcomer = await signedOut(browser, baseURL!);
     await newcomer.goto("/join/email");

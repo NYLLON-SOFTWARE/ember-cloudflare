@@ -65,12 +65,13 @@ const asked = () =>
 /** The card, with `invitations` pending, keeping them as Membership does. */
 function showCard({ invitations = [], emails = true }: { invitations?: EmailInvitation[]; emails?: boolean } = {}) {
   const onFailed = vi.fn();
+  const onSetUpEmail = vi.fn();
   function Card() {
     const [pending, setPending] = useState(invitations);
-    return <InviteByEmail invitations={pending} emails={emails} onInvitationsChanged={setPending} onFailed={onFailed} />;
+    return <InviteByEmail invitations={pending} emails={emails} onSetUpEmail={onSetUpEmail} onInvitationsChanged={setPending} onFailed={onFailed} />;
   }
   render(<Card />);
-  return { onFailed, user: userEvent.setup() };
+  return { onFailed, onSetUpEmail, user: userEvent.setup() };
 }
 
 const card = () => screen.getByRole("region", { name: "Invite by email" });
@@ -157,8 +158,10 @@ describe(feature("accounts.invitations"), () => {
 
   it("gives the links to copy while Ember can't send email", async () => {
     serve({ invited: (emailAddresses) => Response.json({ outcomes: emailAddresses.map((address) => outcomeOf(address, null)) }) });
-    const { user } = showCard({ emails: false });
-    expect(card()).toHaveTextContent("Ember can't send email yet, so you'll get each person's link to send them yourself. A link works once, for 7 days. Set up Email below and Ember sends them.");
+    const { user, onSetUpEmail } = showCard({ emails: false });
+    expect(card()).toHaveTextContent("Ember can't send email yet, so you'll get each person's link to send them yourself. A link works once, for 7 days. Set up email to have Ember send them.");
+    await user.click(within(card()).getByRole("button", { name: "Set up email" }));
+    expect(onSetUpEmail).toHaveBeenCalledOnce();
     await user.type(box(), "ann@example.com bob@example.com");
     await user.click(screen.getByRole("button", { name: "Create invite links" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Made 2 invite links. Copy each below and send it yourself.");

@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { useAccount } from "@/hooks/use-account";
 import { cn } from "@/lib/utils";
 import { EmailDomainSettings } from "./email-domain-settings";
+import { sendsEmail } from "./email-settings";
 import { ShareableLink } from "./invite-link";
 import { EMAIL_SIGN_UP_LINK, emailSignUpUrl, SIGN_UP_LINK, signUpUrl } from "./join-link";
 import { MemberfulSettings } from "./memberful-settings";
@@ -52,12 +53,14 @@ interface Props {
   saveSwitch: (settings: AccountSettings, settled: () => void) => void;
   /** Saves Email domain's domains, turning it on with them if `turnOn`, then calls `settled` with whether it did. */
   saveEmailDomains: (domains: string[], turnOn: boolean, settled: (saved: boolean) => void) => void;
+  /** Opens Set up email, calling `then`, if given, once it closes with Ember able to send email. */
+  onSetUpEmail: (then?: () => void) => void;
   /** The join link, with its buttons, which its card shows while it's on. */
   joinLink: ReactNode;
 }
 
 /** Who can join, for administrators: a card for each way, with its switch, and its settings while it's on. */
-export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, joinLink }: Props) {
+export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmail, joinLink }: Props) {
   const account = useAccount();
   // The domains Email domain keeps, which the workspace shows only while it's on: as it last showed them,
   // saved here or in another tab, or else as the page loaded them. Set as it renders, rather than after,
@@ -135,11 +138,12 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, joinLink }:
       </Way>
       <EmailDomainSettings
         domains={keptDomains}
-        emails={settings.email.provider !== null && settings.email.from !== null}
+        emails={sendsEmail(settings.email)}
         turnstile={settings.turnstile}
         checked={emailDomain}
         onCheckedChange={switchTo("emailDomainSignUp")}
         saveDomains={saveEmailDomains}
+        onSetUpEmail={onSetUpEmail}
         setAside={membersOnlyOverrides ? MEMBERS_ONLY_OVERRIDES : openOverrides ? OPEN_OVERRIDES : null}
       />
       <MemberfulSettings

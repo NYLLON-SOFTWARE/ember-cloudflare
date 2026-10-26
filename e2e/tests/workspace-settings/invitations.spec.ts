@@ -3,18 +3,20 @@ import { INVITATION_GONE, type WorkspaceSettings } from "@ember/protocol";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
 import { ADMINISTRATOR, administratorSession, cookieHeader, SAME_ORIGIN, signInAsAdministrator, useOwnAddress } from "../../fixtures";
-import { startFakeResend, type FakeResend, type SentEmail } from "./fake-resend";
+import { forgetResendKey, giveResendKey, startFakeResend, type FakeResend, type SentEmail } from "./fake-resend";
 
 // Membership's Invite by email card, and the page an invitation's link opens, on the second test server,
-// which sends email with the Resend API the email spec fakes. Each test leaves the workspace as a new
-// one is: no From address, and no invitations waiting.
+// which sends email with the Resend API the email specs fake, whose key each test gives Ember first. Each
+// leaves the workspace as a new one is: no Resend API key, no From address, and no invitations waiting.
 
 const FROM = "chat@acme.example";
 
 let resend: FakeResend;
 test.beforeAll(async () => void (resend = await startFakeResend()));
 test.afterAll(() => resend.close());
+test.beforeEach(({ request }) => giveResendKey(request));
 test.afterEach(async ({ request }) => {
+  await forgetResendKey(request);
   await giveFrom(request, null);
   await revokeInvitations(request);
 });

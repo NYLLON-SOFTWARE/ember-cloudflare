@@ -46,7 +46,7 @@ const asAdministrator: WorkspaceSettings = {
   memberfulSite: null,
   memberfulWebhooks: false,
   turnstile: false,
-  email: { provider: "cloudflare", from: null },
+  email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: null },
   invitations: [],
   emailDomains: [],
 };
@@ -113,7 +113,7 @@ const CATALOG = {
 
 /** Answers the page's requests as the server would for `settings`, or as `answers` says. */
 function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed, ordered, logoSaved }: Answers = {}) {
-  let { account, emailDomains: keptDomains } = settings;
+  let { account, emailDomains: keptDomains, email } = settings;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
     if (request.endsWith("catalog.json")) return Response.json(CATALOG);
@@ -126,7 +126,7 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
     if (removing) return removed ? removed() : Response.json({ user: { ...everyone.find((user) => user.id === removing[1]), status: "deactivated" } });
     switch (request) {
       case "GET /api/account":
-        return Response.json({ ...settings, account, emailDomains: keptDomains });
+        return Response.json({ ...settings, account, emailDomains: keptDomains, email });
       case "PATCH /api/account": {
         if (saved) return saved();
         const {
@@ -136,7 +136,9 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
           customDomain = account.customDomain,
           navigationIcons = {},
           emailDomains = keptDomains,
+          emailFrom = email.from,
         } = JSON.parse(String(init?.body)) as AccountChanges;
+        email = { ...email, from: emailFrom };
         // Members only turns Memberful on with it, and turning Memberful off turns it off, as the Worker does.
         const memberfulJoin = changed?.memberfulJoin ?? (changed?.memberfulSignIn || account.memberfulJoin);
         const emailDomainSignUp = changed?.emailDomainSignUp ?? account.emailDomainSignUp;
@@ -168,6 +170,11 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         return Response.json({ account });
       case "POST /api/account/join_code":
         return regenerated ? regenerated() : Response.json({ joinCode: NEW_JOIN_CODE });
+      case "PUT /api/account/resend_api_key":
+        email = { ...email, provider: "resend", resendKey: "saved" };
+        return Response.json(email);
+      case "POST /api/account/test_email":
+        return Response.json({ to: "ada@example.com" });
       case "POST /api/invitations": {
         const { emailAddresses } = JSON.parse(String(init?.body)) as { emailAddresses: string[] };
         const outcomes = emailAddresses.map((emailAddress) => ({ emailAddress, invitation: invitationTo(emailAddress), link: `https://ember.test/join/invitation#token=${emailAddress}` }));
@@ -983,11 +990,13 @@ describe(feature("accounts.ways-to-join"), () => {
     const link = await way("Join link");
     expect(link).toBeChecked();
     expect(link).toHaveAccessibleDescription("Anyone with the link can create an account.");
-    // Ember emails its links, so until Email has a From address it can't be turned on.
+    // Ember emails its links, so until it can send email, turning it on sets that up first.
     const emailDomain = await way("Email domain");
     expect(emailDomain).not.toBeChecked();
-    expect(emailDomain).toBeDisabled();
-    expect(emailDomain).toHaveAccessibleDescription("People with an email address at your domains join with a link Ember emails them, once Email is set up below.");
+    expect(emailDomain).toBeEnabled();
+    expect(emailDomain).toHaveAccessibleDescription(
+      "People with an email address at your domains join with a link Ember emails them. Ember can't send email yet, so turning this on sets that up first.",
+    );
     expect(await way("Memberful")).not.toBeChecked();
     // Each shows its settings while it's on.
     expect(within(screen.getByRole("region", { name: "Join link" })).getByRole("textbox", { name: "Share to invite more people" })).toBeInTheDocument();
@@ -1194,7 +1203,7 @@ describe(feature("accounts.ways-to-join"), () => {
 
 describe(feature("auth.email-domain-sign-up"), () => {
   showingSection("membership-settings");
-  const sending: WorkspaceSettings = { ...asAdministrator, email: { provider: "cloudflare", from: "Ember <ember@example.com>" } };
+  const sending: WorkspaceSettings = { ...asAdministrator, email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: "Ember <ember@example.com>" } };
   /** `settings` with Email domain on, letting in `domains`. */
   const letsIn = (domains: string[], settings = sending): WorkspaceSettings => ({
     ...settings,
@@ -1304,13 +1313,71 @@ describe(feature("auth.email-domain-sign-up"), () => {
     expect(screen.queryByText(CHANGES_SAVED)).not.toBeInTheDocument();
   });
 
-  it("says when it's on but Ember can email nobody a link until Email is set up, and can still be turned off", async () => {
+  it("says when it's on but Ember can email nobody a link until email is set up, with Set up email, and can still be turned off", async () => {
     serve(letsIn(["example.org"], asAdministrator));
-    showPage();
+    const { user } = showPage();
     const toggle = await emailDomain();
     expect(toggle).toBeChecked();
     expect(toggle).toBeEnabled();
-    expect(toggle).toHaveAccessibleDescription("It's on, but Ember can't send email, so nobody gets a link to join with until Email is set up below.");
+    expect(toggle).toHaveAccessibleDescription("It's on, but Ember can't send email, so nobody gets a link to join with until email is set up.");
+    await user.click(within(card()).getByRole("button", { name: "Set up email" }));
+    expect(await screen.findByRole("dialog", { name: "Set up email" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await user.click(toggle);
+    await waitFor(() => expect(saved()).toEqual([{ settings: { emailDomainSignUp: false } }]));
+    expect(within(card()).queryByRole("button", { name: "Set up email" })).not.toBeInTheDocument();
+  });
+
+  /** Sets up email with Resend in Set up email, from `from`, as an administrator does. */
+  async function setUpResend(user: ReturnType<typeof userEvent.setup>, from = "Ember <ember@example.com>") {
+    await user.click(await screen.findByRole("radio", { name: "Resend" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.type(await screen.findByRole("textbox", { name: "API key" }), "re_123{Enter}");
+    await user.type(await screen.findByRole("textbox", { name: "From" }), `${from}{Enter}`);
+    await user.click(await screen.findByRole("button", { name: "Done" }));
+  }
+
+  it("sets up email as it's turned on before Ember can send any, then opens its list", async () => {
+    const { user } = showPage();
+    const toggle = await emailDomain();
+    await user.click(toggle);
+    expect(await screen.findByRole("dialog", { name: "Set up email" })).toBeInTheDocument();
+    expect(toggle).not.toBeChecked();
+    await setUpResend(user);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(toggle).toBeChecked();
+    expect(toggle).toHaveAccessibleDescription("People with an email address at your domains join with a link Ember emails them.");
+    expect(domainField()).toBeInTheDocument();
+    expect(saveButton()).toHaveAccessibleName("Save and turn on");
+    expect(saved()).toEqual([{ emailFrom: "Ember <ember@example.com>" }]);
+    expect(screen.getByRole("region", { name: "Email" })).toHaveTextContent("Ember sends email from Ember <ember@example.com> with Resend.");
+  });
+
+  it("turns on with the domains it kept once email is set up", async () => {
+    serve({ ...asAdministrator, emailDomains: ["example.org"] });
+    const { onAccountChanged, user } = showPage();
+    await user.click(await emailDomain());
+    await setUpResend(user);
+    await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, emailDomainSignUp: true, emailDomains: ["example.org"] }));
+    expect(saved()).toEqual([{ emailFrom: "Ember <ember@example.com>" }, { settings: { emailDomainSignUp: true } }]);
+    expect(domainsListed()).toEqual(["example.org"]);
+  });
+
+  it("stays off when Set up email closes before Ember can send email", async () => {
+    const { user } = showPage();
+    const toggle = await emailDomain();
+    await user.click(toggle);
+    await user.click(await screen.findByRole("radio", { name: "Resend" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.type(await screen.findByRole("textbox", { name: "API key" }), "re_123{Enter}");
+    await screen.findByRole("dialog", { name: "Choose the From address" });
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(toggle).not.toBeChecked();
+    expect(within(card()).queryByRole("textbox", { name: "Add a domain" })).not.toBeInTheDocument();
+    expect(saved()).toEqual([]);
   });
 
   it.each([
@@ -1393,23 +1460,51 @@ describe(feature("auth.email-domain-sign-up"), () => {
 describe(feature("platform.email"), () => {
   showingSection("membership-settings");
 
-  it("gives administrators the Email card after Who can join, saying Changes saved once the From address is", async () => {
+  it("gives administrators the Email card after Who can join, whose Set up email shows what it set up", async () => {
     const { user } = showPage();
     const email = await screen.findByRole("region", { name: "Email" });
     const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     expect(following(screen.getByRole("region", { name: "Who can join" }), email)).toBe(true);
-    expect(email).toHaveTextContent("Ember sends email with Cloudflare Email Service.");
+    expect(email).toHaveTextContent("Ember can't send email yet, so it can't email invitations, or the links people at your email domains join with.");
 
-    await user.type(within(email).getByRole("textbox", { name: "From" }), "Ember <ember@example.com>");
-    await user.click(within(email).getByRole("button", { name: "Save" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
+    await user.click(within(email).getByRole("button", { name: "Set up email" }));
+    await user.click(await screen.findByRole("radio", { name: "Cloudflare Email Service" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await user.type(await screen.findByRole("textbox", { name: "From" }), "Ember <ember@example.com>{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Done" }));
     expect(saved()).toEqual([{ emailFrom: "Ember <ember@example.com>" }]);
-    expect(within(email).getByRole("textbox", { name: "From" })).toHaveValue("Ember <ember@example.com>");
+    expect(email).toHaveTextContent("Ember sends email from Ember <ember@example.com> with Cloudflare Email Service.");
     expect(within(email).getByRole("button", { name: "Send me a test email" })).toBeEnabled();
+    // Nothing else changed, so Who can join stays as it was.
+    expect(await screen.findByRole("switch", { name: "Email domain" })).not.toBeChecked();
+
+    await user.click(within(email).getByRole("button", { name: "Change" }));
+    expect(await screen.findByRole("radio", { name: "Cloudflare Email Service" })).toBeChecked();
+  });
+
+  it("stops sending email once the administrator confirms Stop sending email, as Invite by email and Email domain then say", async () => {
+    serve({
+      ...asAdministrator,
+      account: { ...asAdministrator.account, emailDomainSignUp: true, emailDomains: ["example.org"] },
+      emailDomains: ["example.org"],
+      email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: "Ember <ember@example.com>" },
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { user } = showPage();
+    const email = await screen.findByRole("region", { name: "Email" });
+    await user.click(within(email).getByRole("button", { name: "Stop sending email" }));
+    expect(await within(email).findByRole("button", { name: "Set up email" })).toBeInTheDocument();
+    expect(saved()).toEqual([{ emailFrom: null }]);
+    expect(email).toHaveTextContent("Ember can't send email yet, so it can't email invitations, or the links people at your email domains join with.");
+    expect(within(screen.getByRole("region", { name: "Invite by email" })).getByRole("button", { name: "Create invite links" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Email domain" })).toHaveAccessibleDescription(
+      "It's on, but Ember can't send email, so nobody gets a link to join with until email is set up.",
+    );
   });
 
   it("shows members no Email card", async () => {
-    serve({ ...asMember, email: { provider: "cloudflare", from: "Ember <ember@example.com>" } });
+    serve({ ...asMember, email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: "Ember <ember@example.com>" } });
     showPage(asLinus);
     expect(await joinLink()).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Email" })).not.toBeInTheDocument();
@@ -1437,15 +1532,21 @@ describe(feature("accounts.invitations"), () => {
   });
 
   it("emails invitations once Ember can send email and has a From address", async () => {
-    serve({ ...asAdministrator, email: { provider: "resend", from: "Ember <ember@example.com>" } });
-    const { user } = showPage();
+    serve({ ...asAdministrator, email: { provider: "resend", resendKey: "secret", cloudflare: true, from: "Ember <ember@example.com>" } });
+    showPage();
     const invite = await screen.findByRole("region", { name: "Invite by email" });
     expect(within(invite).getByRole("button", { name: "Send invitations" })).toBeInTheDocument();
+    expect(within(invite).queryByRole("button", { name: "Set up email" })).not.toBeInTheDocument();
+  });
 
-    const email = screen.getByRole("region", { name: "Email" });
-    await user.clear(within(email).getByRole("textbox", { name: "From" }));
-    await user.click(within(email).getByRole("button", { name: "Save" }));
-    expect(await within(invite).findByRole("button", { name: "Create invite links" })).toBeInTheDocument();
+  it("sets up email from Invite by email, which then emails invitations", async () => {
+    serve({ ...asAdministrator, email: { provider: "resend", resendKey: "secret", cloudflare: true, from: null } });
+    const { user } = showPage();
+    const invite = await screen.findByRole("region", { name: "Invite by email" });
+    await user.click(within(invite).getByRole("button", { name: "Set up email" }));
+    await user.type(await screen.findByRole("textbox", { name: "From" }), "Ember <ember@example.com>{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Done" }));
+    expect(within(invite).getByRole("button", { name: "Send invitations" })).toBeInTheDocument();
   });
 
   it("shows members no Invite by email card", async () => {

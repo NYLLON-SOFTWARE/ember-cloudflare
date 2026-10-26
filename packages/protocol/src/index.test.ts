@@ -67,6 +67,7 @@ import {
   parseOpenSignUp,
   parsePasswordReset,
   parseProfileChanges,
+  parseResendApiKey,
   parseRoleChange,
   parseRoomChanges,
   parseRoomSocketParams,
@@ -75,6 +76,8 @@ import {
   parseSignUp,
   parseWorkspaceClientFrame,
   PASSWORD_TOO_SHORT,
+  RESEND_API_KEY_REFUSED,
+  resendApiKeyOf,
   ROOM_ICON_NAMES,
   ROOM_PROTOCOL,
   roomSocketQuery,
@@ -561,6 +564,29 @@ describe(feature("platform.email"), () => {
     expect(parseAccountChanges({ emailFrom: null })).toEqual({ emailFrom: null });
     expect(parseAccountChanges({ emailFrom: "  " })).toEqual({ emailFrom: null });
     for (const emailFrom of ["Ember", 42, ["ember@example.com"], { address: "ember@example.com" }]) expect(parseAccountChanges({ emailFrom })).toBe(EMAIL_FROM_REFUSED);
+  });
+
+  it("takes a Resend API key as Resend writes one, without the spaces pasted around it", () => {
+    expect(resendApiKeyOf("re_123456789_abcdefghijklmnop")).toBe("re_123456789_abcdefghijklmnop");
+    expect(resendApiKeyOf("  re_AbC.dEf-123\n")).toBe("re_AbC.dEf-123");
+    expect(parseResendApiKey({ apiKey: " re_123 " })).toEqual({ apiKey: "re_123" });
+  });
+
+  it.each([
+    ["nothing", ""],
+    ["a key without Resend's start", "sk_live_123"],
+    ["the start alone", "re_"],
+    ["one with a space inside", "re_123 456"],
+    ["one with a line break inside, which would add a header", "re_123\nX-Other: 1"],
+    ["one with a character a header can't carry", "re_123é"],
+    ["one longer than any of Resend's", `re_${"a".repeat(254)}`],
+  ])("refuses %s as a Resend API key", (_, text) => {
+    expect(resendApiKeyOf(text)).toBeNull();
+    expect(parseResendApiKey({ apiKey: text })).toBe(RESEND_API_KEY_REFUSED);
+  });
+
+  it("refuses a Resend API key that isn't text", () => {
+    for (const data of [null, "re_123", { apiKey: 123 }, { apiKey: ["re_123"] }, {}]) expect(parseResendApiKey(data)).toBe(RESEND_API_KEY_REFUSED);
   });
 });
 
