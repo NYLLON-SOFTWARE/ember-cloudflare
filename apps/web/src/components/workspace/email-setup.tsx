@@ -277,7 +277,7 @@ function ChooseProvider({
         </ProviderChoice>
         <ProviderChoice provider="cloudflare" title="Cloudflare Email Service" chosen={chosen} onChoose={onChoose} disabled={!email.cloudflare}>
           {email.cloudflare
-            ? "Needs the Workers Paid plan ($5 a month) on the Cloudflare account that runs Ember. On Workers Free, Cloudflare only delivers to addresses verified in that account, so invitations and join links wouldn't reach anyone else."
+            ? "Needs the Workers Paid plan ($5 a month) on the Cloudflare account that runs Ember."
             : "This Worker has no EMAIL binding, which Cloudflare Email Service sends with."}
         </ProviderChoice>
       </fieldset>
@@ -448,8 +448,7 @@ function CloudflareStep({
       <DialogDescription className="mb-4 leading-[1.65]">Ember sends email from your Cloudflare account, with this Worker's EMAIL binding.</DialogDescription>
       <ol aria-label="Steps to send email with Cloudflare" className="flex list-decimal flex-col gap-2 ps-5">
         <li>
-          Put the Cloudflare account that runs Ember on the <em>Workers Paid</em> plan. On Workers Free, Cloudflare sends only to the account's own verified
-          addresses, so nobody else would get an invitation or a link to join with. <Out href={WORKERS_PLANS}>Open Workers plans</Out>
+          Put the Cloudflare account that runs Ember on the <em>Workers Paid</em> plan. <Out href={WORKERS_PLANS}>Open Workers plans</Out>
         </li>
         <li>
           In the Cloudflare dashboard, open <em>Email Service</em>, <em>Email Sending</em>, choose <em>Onboard Domain</em>, and pick a domain on Cloudflare
