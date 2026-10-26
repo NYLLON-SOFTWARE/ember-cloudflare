@@ -439,6 +439,40 @@ describe(feature("platform.email"), () => {
     expect(asked()).toEqual([["POST /api/account/sending_domain_checks", { domain: "example.net" }]]);
   });
 
+  it("checks a domain once while its check is out too, as others are typed and answered", async () => {
+    const org = held(() => Response.json({ onboarded: false }));
+    const com = held(() => Response.json({ onboarded: true }));
+    let checks = 0;
+    // The first check is example.org's, and any after it example.com's.
+    serve(NEW_EMAIL, { domainChecked: () => (++checks === 1 ? org : com).answered() });
+    const { user } = await cloudflareFrom();
+    const typeFrom = async (from: string) => {
+      await user.clear(fromField());
+      await user.type(fromField(), from);
+    };
+    await typeFrom("ember@example.org");
+    await noted("Checking that example.org is onboarded to Cloudflare Email Sending…");
+    await typeFrom("ember@example.com");
+    await noted("Checking that example.com is onboarded to Cloudflare Email Sending…");
+    // Back to a domain it's checking, it says so at once.
+    await typeFrom("ember@example.org");
+    expect(domainNote()).toHaveTextContent("Checking that example.org is onboarded to Cloudflare Email Sending…");
+    await typeFrom("ember@example.com");
+    expect(domainNote()).toHaveTextContent("Checking that example.com is onboarded to Cloudflare Email Sending…");
+
+    // Example.org's answer comes first, and example.com's check, still out, isn't asked again, however long it takes.
+    await org.answer();
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await com.answer();
+    await noted("example.com is onboarded to Cloudflare Email Sending.");
+    await typeFrom("ember@example.org");
+    expect(domainNote()).toHaveTextContent("example.org isn't onboarded to Cloudflare Email Sending yet");
+    expect(asked()).toEqual([
+      ["POST /api/account/sending_domain_checks", { domain: "example.org" }],
+      ["POST /api/account/sending_domain_checks", { domain: "example.com" }],
+    ]);
+  });
+
   it("closes with Escape, saying whether Ember can send email then", async () => {
     const email: Email = { provider: "cloudflare", resendKey: null, cloudflare: true, from: "chat@example.com" };
     serve(email);

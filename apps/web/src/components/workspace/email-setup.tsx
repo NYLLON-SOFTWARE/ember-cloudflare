@@ -75,25 +75,22 @@ type Onboarding = "checking" | boolean | null;
  * `CHECK_DELAY_MS`, and once for each domain: undefined until then, or while there's none to check.
  */
 function useOnboarding(domain: string | null): Onboarding | undefined {
-  const [found, setFound] = useState<ReadonlyMap<string, boolean | null>>(new Map());
-  const [checking, setChecking] = useState<string | null>(null);
+  // What it found of each domain it asked about, "checking" until that's answered, so that it asks once.
+  const [found, setFound] = useState<ReadonlyMap<string, Onboarding>>(new Map());
   const mounted = useMounted();
 
   useEffect(() => {
     if (domain === null || found.has(domain)) return;
     const wait = setTimeout(() => {
-      setChecking(domain);
-      const answer = (onboarded: boolean | null) => mounted.current && setFound((found) => new Map(found).set(domain, onboarded));
-      // A check that fails says no more than one DNS didn't answer.
-      checkSendingDomain(domain).then(answer, () => answer(null));
+      const remember = (onboarding: Onboarding) => mounted.current && setFound((found) => new Map(found).set(domain, onboarding));
+      remember("checking");
+      // Failing to check says no more than DNS not answering.
+      checkSendingDomain(domain).then(remember, () => remember(null));
     }, CHECK_DELAY_MS);
     return () => clearTimeout(wait);
   }, [domain, found, mounted]);
 
-  if (domain === null) return undefined;
-  const onboarded = found.get(domain);
-  if (onboarded !== undefined) return onboarded;
-  return checking === domain ? "checking" : undefined;
+  return domain === null ? undefined : found.get(domain);
 }
 
 /** What the From step says it found of its address's domain, for Cloudflare Email Sending. */
