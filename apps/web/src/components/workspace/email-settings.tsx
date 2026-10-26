@@ -1,13 +1,18 @@
 import { useState } from "react";
-import type { EmailSettings as Email } from "@ember/protocol";
+import type { Account, EmailSettings as Email } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
-import { ApiError, isSignedOut, sendTestEmail } from "@/lib/api";
+import { ApiError, changeAccount, isSignedOut, sendTestEmail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 // This port's own Email card in Membership (`platform.email`), for administrators: what Ember sends
 // email with, and from, and Send me a test email, which says where it went, or why it wasn't sent. Until
 // Ember can send email, it says so, and Set up email opens the steps to it (`EmailSetup`), as Change
-// does once it can. Laid out as the Memberful card is.
+// does once it can, and Stop sending email takes its From address away, as saving the From field blank
+// did before Set up email. Laid out as the Memberful card is.
+
+/** What Stop sending email asks first, since what Ember emails stops until email is set up again. */
+export const CONFIRM_STOP_EMAIL =
+  "Are you sure you want Ember to stop sending email? It will forget its From address, and won't email invitations, or the links people at your email domains join with, until email is set up again.";
 
 /** The card's buttons, as Custom domain's are. */
 export const BUTTON = "inline-flex min-h-11 items-center justify-center rounded-[9px] border bg-background px-3.5 py-2.5 font-medium disabled:opacity-50";
@@ -27,15 +32,40 @@ type Tested = "sending" | { to: string } | { refusal: string };
 
 interface Props {
   email: Email;
+  /** As workspace settings asks for the workspace, which it says the server answers with. */
+  askForAccount: () => (account: Account) => void;
   /** Opens Set up email. */
   onSetUp: () => void;
-  /** Says why sending failed, when it isn't the provider's or the setup's doing, as the workspace's alerts do. */
+  /** Shows that Ember has no From address, once Stop sending email has taken it away. */
+  onStopped: () => void;
+  /** Says why sending or stopping failed, when it isn't the provider's or the setup's doing, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
 
 /** How Ember sends email, for administrators: what with, and from, with a test email, or else that it can't yet. */
-export function EmailSettings({ email, onSetUp, onFailed }: Props) {
+export function EmailSettings({ email, askForAccount, onSetUp, onStopped, onFailed }: Props) {
   const sends = sendsEmail(email);
+  const [stopping, setStopping] = useState(false);
+  const mounted = useMounted();
+
+  const stop = () => {
+    if (!confirm(CONFIRM_STOP_EMAIL)) return;
+    setStopping(true);
+    const answered = askForAccount();
+    changeAccount({ emailFrom: null }).then(
+      (account) => {
+        answered(account);
+        onStopped();
+        if (mounted.current) setStopping(false);
+      },
+      (error: unknown) => {
+        if (!mounted.current && !isSignedOut(error)) return;
+        setStopping(false);
+        onFailed(error);
+      },
+    );
+  };
+
   return (
     <section aria-labelledby="email-heading" className="flex flex-col gap-3 rounded-[10px] border bg-surface px-[2ch] py-4 text-start max-md:px-3">
       <div className="flex flex-wrap items-center gap-x-[1ch] gap-y-3">
@@ -53,9 +83,14 @@ export function EmailSettings({ email, onSetUp, onFailed }: Props) {
             )}
           </p>
         </div>
-        <button type="button" onClick={onSetUp} className={BUTTON}>
+        <button type="button" onClick={onSetUp} disabled={stopping} className={BUTTON}>
           {sends ? "Change" : "Set up email"}
         </button>
+        {sends && (
+          <button type="button" onClick={stop} disabled={stopping} className={BUTTON}>
+            Stop sending email
+          </button>
+        )}
       </div>
       {/* A test email says how it went with the From address it was sent from. */}
       {sends && <TestEmail key={email.from} onFailed={onFailed} />}

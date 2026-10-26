@@ -4,16 +4,25 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CANT_SEND_EMAIL, type EmailSettings as Email } from "@ember/protocol";
 import { ApiError } from "@/lib/api";
-import { EmailSettings } from "./email-settings";
+import { CONFIRM_STOP_EMAIL, EmailSettings } from "./email-settings";
 
 /** How a new workspace sends email: with the binding wrangler.jsonc declares, from no address yet. */
 const NEW_EMAIL: Email = { provider: "cloudflare", resendKey: null, cloudflare: true, from: null };
 
-/** Answers Send me a test email as the server would, or as `tested` says. */
-function serve(tested: () => Response | Promise<Response> = () => Response.json({ to: "ada@example.com" })) {
+/** Answers Send me a test email as the server would, or as `tested` says, and Stop sending email as `stopped` says. */
+function serve(
+  tested: () => Response | Promise<Response> = () => Response.json({ to: "ada@example.com" }),
+  stopped: () => Response | Promise<Response> = () => Response.json({ account: { name: "Ember" } }),
+) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    if (`${init?.method} ${String(input)}` === "POST /api/account/test_email") return tested();
-    throw new Error(`Unexpected request for ${init?.method} ${String(input)}`);
+    switch (`${init?.method} ${String(input)}`) {
+      case "POST /api/account/test_email":
+        return tested();
+      case "PATCH /api/account":
+        return stopped();
+      default:
+        throw new Error(`Unexpected request for ${init?.method} ${String(input)}`);
+    }
   });
 }
 
@@ -26,13 +35,15 @@ function held(response: () => Response) {
 
 /** The card, for a workspace that sends email as `email` says. */
 function showCard(email: Email) {
-  const callbacks = { onSetUp: vi.fn(), onFailed: vi.fn() };
+  const answered = vi.fn();
+  const callbacks = { askForAccount: vi.fn(() => answered), onSetUp: vi.fn(), onStopped: vi.fn(), onFailed: vi.fn() };
   const { rerender } = render(<EmailSettings email={email} {...callbacks} />);
-  return { ...callbacks, rerender: (email: Email) => rerender(<EmailSettings email={email} {...callbacks} />), user: userEvent.setup() };
+  return { ...callbacks, answered, rerender: (email: Email) => rerender(<EmailSettings email={email} {...callbacks} />), user: userEvent.setup() };
 }
 
 const card = () => screen.getByRole("region", { name: "Email" });
 const testButton = () => screen.queryByRole("button", { name: "Send me a test email" });
+const stopButton = () => screen.queryByRole("button", { name: "Stop sending email" });
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -42,6 +53,7 @@ describe(feature("platform.email"), () => {
     const { user, onSetUp } = showCard(NEW_EMAIL);
     expect(card()).toHaveTextContent("Ember can't send email yet, so it can't email invitations, or the links people at your email domains join with.");
     expect(testButton()).not.toBeInTheDocument();
+    expect(stopButton()).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Set up email" }));
     expect(onSetUp).toHaveBeenCalledOnce();
   });
@@ -61,13 +73,43 @@ describe(feature("platform.email"), () => {
     ["with Cloudflare Email Service", { ...NEW_EMAIL, from: "Ember <ember@example.com>" }],
     ["with Resend", { ...NEW_EMAIL, provider: "resend", resendKey: "saved", from: "Ember <ember@example.com>" }],
     ["with Resend, with the API key in RESEND_API_KEY", { ...NEW_EMAIL, provider: "resend", resendKey: "secret", from: "Ember <ember@example.com>" }],
-  ])("says Ember sends email from its From address %s, with Change and a test email", async (sentWith, email) => {
+  ])("says Ember sends email from its From address %s, with Change, Stop sending email and a test email", async (sentWith, email) => {
     serve();
     const { user, onSetUp } = showCard(email);
     expect(card()).toHaveTextContent(`Ember sends email from Ember <ember@example.com> ${sentWith}.`);
     expect(testButton()).toBeEnabled();
+    expect(stopButton()).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Change" }));
     expect(onSetUp).toHaveBeenCalledOnce();
+  });
+
+  it("takes the From address away once the administrator confirms Stop sending email", async () => {
+    const answer = held(() => Response.json({ account: { name: "Ember" } }));
+    const fetch = serve(undefined, answer.answered);
+    const sure = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const { user, answered, onStopped } = showCard({ ...NEW_EMAIL, from: "Ember <ember@example.com>" });
+    await user.click(stopButton()!);
+    expect(sure).toHaveBeenCalledWith(CONFIRM_STOP_EMAIL);
+    expect(fetch).not.toHaveBeenCalled();
+
+    await user.click(stopButton()!);
+    expect(fetch).toHaveBeenCalledWith("/api/account", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ emailFrom: null }) }));
+    expect(stopButton()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Change" })).toBeDisabled();
+    await answer.answer();
+    expect(answered).toHaveBeenCalledWith({ name: "Ember" });
+    expect(onStopped).toHaveBeenCalledOnce();
+    expect(stopButton()).toBeEnabled();
+  });
+
+  it("leaves Stop sending email that failed to the page's alerts", async () => {
+    serve(undefined, () => Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { user, onStopped, onFailed } = showCard({ ...NEW_EMAIL, from: "Ember <ember@example.com>" });
+    await user.click(stopButton()!);
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, "Only administrators can change the workspace")));
+    expect(onStopped).not.toHaveBeenCalled();
+    expect(stopButton()).toBeEnabled();
   });
 
   it("sends a test email, and says where it went", async () => {

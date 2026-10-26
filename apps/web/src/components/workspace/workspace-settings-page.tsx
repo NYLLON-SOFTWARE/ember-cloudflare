@@ -292,7 +292,7 @@ export function WorkspaceSettingsPage({
     [],
   );
 
-  /** Shows how Ember sends email as Set up email changes it, which only workspace settings shows. */
+  /** Shows how Ember sends email as Set up email, or Stop sending email, changes it, which only workspace settings shows. */
   const showEmail = (change: (email: WorkspaceSettings["email"]) => WorkspaceSettings["email"]) => setSettings((settings) => settings && { ...settings, email: change(settings.email) });
   const setUpEmail = (then?: () => void) => setEmailSetup({ then });
 
@@ -502,7 +502,13 @@ export function WorkspaceSettingsPage({
                   onInvitationsChanged={changeInvitations}
                   onFailed={onFailed}
                 />
-                <EmailSettings email={settings.email} onSetUp={() => setUpEmail()} onFailed={onFailed} />
+                <EmailSettings
+                  email={settings.email}
+                  askForAccount={askForAccount}
+                  onSetUp={() => setUpEmail()}
+                  onStopped={() => showEmail((email) => ({ ...email, from: null }))}
+                  onFailed={onFailed}
+                />
                 {emailSetup && (
                   <EmailSetup
                     email={settings.email}

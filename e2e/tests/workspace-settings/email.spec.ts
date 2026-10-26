@@ -75,9 +75,15 @@ test.describe(feature("platform.email"), () => {
 
     // Membership shows what Ember kept.
     await page.reload();
-    await expect(page.getByRole("region", { name: "Email", exact: true })).toContainText(
-      'Ember sends email from "Acme, Inc." <chat@acme.example> with Resend.',
-    );
+    const kept = page.getByRole("region", { name: "Email", exact: true });
+    await expect(kept).toContainText('Ember sends email from "Acme, Inc." <chat@acme.example> with Resend.');
+
+    // Stop sending email takes the From address away, once it's confirmed.
+    page.once("dialog", (dialog) => void dialog.accept());
+    await kept.getByRole("button", { name: "Stop sending email" }).click();
+    await expect(kept).toContainText("Ember can't send email yet");
+    await page.reload();
+    await expect(page.getByRole("region", { name: "Email", exact: true })).toContainText("Ember can't send email yet");
   });
 
   test("Set up email refuses a From address that isn't one, and the card says why Resend refused a test email", async ({ page, request }) => {

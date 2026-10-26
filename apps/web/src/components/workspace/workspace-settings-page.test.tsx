@@ -1483,6 +1483,26 @@ describe(feature("platform.email"), () => {
     expect(await screen.findByRole("radio", { name: "Cloudflare Email Service" })).toBeChecked();
   });
 
+  it("stops sending email once the administrator confirms Stop sending email, as Invite by email and Email domain then say", async () => {
+    serve({
+      ...asAdministrator,
+      account: { ...asAdministrator.account, emailDomainSignUp: true, emailDomains: ["example.org"] },
+      emailDomains: ["example.org"],
+      email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: "Ember <ember@example.com>" },
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { user } = showPage();
+    const email = await screen.findByRole("region", { name: "Email" });
+    await user.click(within(email).getByRole("button", { name: "Stop sending email" }));
+    expect(await within(email).findByRole("button", { name: "Set up email" })).toBeInTheDocument();
+    expect(saved()).toEqual([{ emailFrom: null }]);
+    expect(email).toHaveTextContent("Ember can't send email yet, so it can't email invitations, or the links people at your email domains join with.");
+    expect(within(screen.getByRole("region", { name: "Invite by email" })).getByRole("button", { name: "Create invite links" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Email domain" })).toHaveAccessibleDescription(
+      "It's on, but Ember can't send email, so nobody gets a link to join with until email is set up.",
+    );
+  });
+
   it("shows members no Email card", async () => {
     serve({ ...asMember, email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: "Ember <ember@example.com>" } });
     showPage(asLinus);

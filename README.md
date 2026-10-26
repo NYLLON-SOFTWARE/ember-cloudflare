@@ -345,7 +345,9 @@ Ember sends email with [Resend](https://resend.com), with an API key an administ
 with [Cloudflare Email Service](https://developers.cloudflare.com/email-service/), which wrangler.jsonc
 binds as `EMAIL`. Under Email, in Workspace settings' Membership, Set up email walks an administrator
 through either, then the From address Ember's email comes from, and sends them a test email. Turning
-on Email domain, or Invite by email's Set up email, opens it too while Ember can't send email.
+on Email domain, or Invite by email's Set up email, opens it too while Ember can't send email. Stop
+sending email, beside it, takes the From address away, after which Ember emails nothing until email is
+set up again.
 
 With Resend, which sends 3,000 emails a month, at most 100 a day, for free, on Workers Free too:
 
