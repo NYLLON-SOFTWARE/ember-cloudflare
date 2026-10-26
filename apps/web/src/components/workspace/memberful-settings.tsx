@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { MEMBERFUL_CALLBACK_PATH, MEMBERFUL_WEBHOOK_PATH } from "@ember/protocol";
 import { Switch } from "@/components/ui/switch";
 import { useAccount } from "@/hooks/use-account";
@@ -6,10 +7,11 @@ import { WORKERS_DASHBOARD } from "./custom-domain-settings";
 
 // This port's own Memberful card in Membership's ways to join (`auth.memberful-sign-in`): an
 // administrator lets the members of a Memberful site join and sign in with their accounts there, whose
-// custom app's keys the deployment keeps as Worker secrets, so until it has them the card says how to
-// make and set them, and how to have Memberful's webhooks say when a membership lapses
-// (`auth.memberful-memberships`). While it's on, Members only keeps everyone else out. Laid out as the
-// other ways to join are, with Members only's switch inside it.
+// custom app's keys the deployment keeps as Worker secrets. While it's off, the card is its name, a line
+// and its switch, as the project's owner asked (2026-10-26): turning it on before the deployment has the
+// keys shows how to make and set them, saving nothing, and once it's on, how to have Memberful's
+// webhooks say when a membership lapses (`auth.memberful-memberships`), with Members only, which keeps
+// everyone else out. Laid out as the other ways to join are, with Members only's switch inside it.
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
@@ -33,9 +35,10 @@ interface Props {
 }
 
 /**
- * Memberful, for administrators: its switch once the deployment has the keys, or while it's on without
- * them, which only turning it off mends, with Members only's while it's on, and the steps to get the keys
- * until it has them, then those to hear Memberful's webhooks until it does.
+ * Memberful, for administrators: its switch, and while it's on, Members only's, the steps to hear
+ * Memberful's webhooks until the deployment does, and where Memberful sends people back to. Turned on
+ * before the deployment has the keys, it shows the steps to get them instead, saving nothing, and while
+ * it's on without them, which only turning it off mends, it says nobody can sign in with Memberful.
  */
 export function MemberfulSettings({
   site,
@@ -49,6 +52,16 @@ export function MemberfulSettings({
   setAside = null,
 }: Props) {
   const { customDomain } = useAccount();
+  const [settingUp, setSettingUp] = useState(false);
+  // Turned on before the deployment has the keys, which shows the steps to get them and saves nothing, as the server would refuse it.
+  const askingForKeys = settingUp && site === null && setAside === null;
+  const on = checked || askingForKeys;
+  // What it takes shows only while it's on, unless another way to join sets it aside.
+  const shown = on && setAside === null;
+  const switchTo = (turnOn: boolean) => {
+    if (site === null && !checked) return setSettingUp(turnOn);
+    onCheckedChange(turnOn);
+  };
   // Where Memberful sends people back to, and its webhooks: Ember's address, wherever settings are opened.
   const origin = `${location.protocol}//${customDomain ?? location.host}`;
   const redirectUrl = `${origin}${MEMBERFUL_CALLBACK_PATH}`;
@@ -62,14 +75,14 @@ export function MemberfulSettings({
             Memberful
           </h3>
           <p id="memberful-description" className={cn(NOTE, site === null && checked && "text-negative")}>
-            {site === null ? (
-              checked ? (
-                "It's on, but this deployment no longer has its Memberful keys, so nobody can sign in with Memberful."
-              ) : (
-                "Members of a Memberful site join and sign in with their Memberful account, once this deployment has its keys."
-              )
+            {site === null && checked ? (
+              "It's on, but this deployment no longer has its Memberful keys, so nobody can sign in with Memberful."
             ) : setAside !== null ? (
               setAside
+            ) : askingForKeys ? (
+              "Memberful can't be turned on until this deployment has your Memberful site's keys. These steps give it them."
+            ) : site === null ? (
+              "Members of a Memberful site join and sign in with their Memberful account."
             ) : (
               <>
                 Members of <strong className="wrap-anywhere">{site}</strong> join and sign in with their Memberful account. Turned off, it lets nobody new
@@ -79,15 +92,13 @@ export function MemberfulSettings({
             )}
           </p>
         </div>
-        {(site !== null || checked) && (
-          <Switch
-            checked={checked}
-            onCheckedChange={onCheckedChange}
-            disabled={setAside !== null || membersOnlySaving}
-            aria-labelledby="memberful-heading"
-            aria-describedby="memberful-description"
-          />
-        )}
+        <Switch
+          checked={on}
+          onCheckedChange={switchTo}
+          disabled={setAside !== null || membersOnlySaving}
+          aria-labelledby="memberful-heading"
+          aria-describedby="memberful-description"
+        />
       </div>
       {checked && site !== null && setAside === null && (
         <div className="flex items-center gap-x-[1ch] gap-y-4 border-t pt-3">
@@ -107,7 +118,7 @@ export function MemberfulSettings({
           />
         </div>
       )}
-      {site === null ? (
+      {!shown ? null : site === null ? (
         <Steps redirectUrl={redirectUrl} webhookUrl={webhookUrl} />
       ) : (
         <>
@@ -162,7 +173,7 @@ function Steps({ redirectUrl, webhookUrl }: { redirectUrl: string; webhookUrl: s
         Worker two more secrets: <WebhookSecrets />.
       </li>
       <li>
-        Open workspace settings again, and turn on <em>Memberful</em>.
+        Reload this page, and turn on <em>Memberful</em> again.
       </li>
     </ol>
   );

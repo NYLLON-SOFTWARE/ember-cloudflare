@@ -750,20 +750,50 @@ describe(feature("auth.memberful-sign-in"), () => {
   const membersOnlySwitch = () => screen.queryByRole("switch", { name: "Members only" });
   showingSection("membership-settings");
 
-  it("gives administrators a Memberful card among the ways to join, after the join link, with the steps to get the keys until the deployment has them", async () => {
+  it("gives administrators a Memberful card among the ways to join, after the join link, that's only its switch and what it does while it's off", async () => {
     showPage();
     const section = await screen.findByRole("region", { name: "Memberful" });
     const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     expect(following(screen.getByRole("heading", { level: 1, name: "Membership" }), section)).toBe(true);
     expect(following(await joinLink(), section)).toBe(true);
     expect(screen.getByRole("region", { name: "Who can join" })).toContainElement(section);
-    expect(within(section).queryByRole("switch")).not.toBeInTheDocument();
-    const steps = within(section).getByRole("list", { name: "Steps to let Memberful members sign in" });
+    const on = within(section).getByRole("switch", { name: "Memberful" });
+    expect(on).not.toBeChecked();
+    expect(on).toBeEnabled();
+    expect(on).toHaveAccessibleDescription("Members of a Memberful site join and sign in with their Memberful account.");
+    expect(within(section).queryByRole("list")).not.toBeInTheDocument();
+    expect(section).not.toHaveTextContent("MEMBERFUL_URL");
+  });
+
+  it("shows the steps to get the keys when it's turned on before the deployment has them, saving nothing, and hides them when it's turned off", async () => {
+    const { user } = showPage();
+    const on = await memberfulSwitch();
+    await user.click(on);
+    expect(on).toBeChecked();
+    expect(on).toHaveAccessibleDescription("Memberful can't be turned on until this deployment has your Memberful site's keys. These steps give it them.");
+    const steps = screen.getByRole("list", { name: "Steps to let Memberful members sign in" });
     expect(within(steps).getAllByRole("listitem")).toHaveLength(4);
     // Memberful's custom app sends people back to Ember's address.
     expect(steps).toHaveTextContent(`OAuth redirect URL ${location.origin}/auth/memberful/callback`);
     expect(steps).toHaveTextContent("MEMBERFUL_URL");
+    expect(steps).toHaveTextContent("Reload this page, and turn on Memberful again.");
     expect(within(steps).getByRole("link", { name: "Open the Cloudflare dashboard" })).toHaveAttribute("target", "_blank");
+    expect(membersOnlySwitch()).not.toBeInTheDocument();
+
+    await user.click(on);
+    expect(on).not.toBeChecked();
+    expect(on).toHaveAccessibleDescription("Members of a Memberful site join and sign in with their Memberful account.");
+    expect(screen.queryByRole("list", { name: "Steps to let Memberful members sign in" })).not.toBeInTheDocument();
+    expect(saved()).toEqual([]);
+  });
+
+  it("hides the steps to get the keys while Open sets it aside", async () => {
+    serve({ ...asAdministrator, account: { ...asAdministrator.account, openSignUp: true } });
+    showPage();
+    const on = await memberfulSwitch();
+    expect(on).toBeDisabled();
+    expect(on).toHaveAccessibleDescription("Set aside while Open lets anyone join.");
+    expect(screen.queryByRole("list", { name: "Steps to let Memberful members sign in" })).not.toBeInTheDocument();
   });
 
   it("lets an administrator turn it on once the deployment has the keys, without asking, saved at once with no notice, keeping the other ways", async () => {
@@ -775,8 +805,10 @@ describe(feature("auth.memberful-sign-in"), () => {
     expect(on).toHaveAccessibleDescription(
       `Members of ${SITE} join and sign in with their Memberful account. Turned off, it lets nobody new join, but those who did keep signing in with it.`,
     );
-    expect(screen.getByRole("region", { name: "Memberful" })).toHaveTextContent(`Memberful sends people back to ${location.origin}/auth/memberful/callback`);
-    expect(screen.queryByRole("list", { name: "Steps to let Memberful members sign in" })).not.toBeInTheDocument();
+    // What it takes waits until it's on.
+    const section = screen.getByRole("region", { name: "Memberful" });
+    expect(section).not.toHaveTextContent("Memberful sends people back to");
+    expect(within(section).queryByRole("list")).not.toBeInTheDocument();
     expect(membersOnlySwitch()).not.toBeInTheDocument();
 
     await user.click(on);
@@ -784,6 +816,8 @@ describe(feature("auth.memberful-sign-in"), () => {
     expect(on).toBeChecked();
     await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, memberfulJoin: true }));
     expect(saved()).toEqual([{ settings: { memberfulJoin: true } }]);
+    expect(section).toHaveTextContent(`Memberful sends people back to ${location.origin}/auth/memberful/callback`);
+    expect(screen.queryByRole("list", { name: "Steps to let Memberful members sign in" })).not.toBeInTheDocument();
     // Everyone else keeps joining as they did.
     expect(await joinLink()).toBeInTheDocument();
     expect(await screen.findByRole("switch", { name: "Open" })).toBeEnabled();
@@ -892,7 +926,9 @@ describe(feature("auth.memberful-sign-in"), () => {
 
     await user.click(on);
     expect(saved()).toEqual([{ settings: { memberfulJoin: false } }]);
-    await waitFor(() => expect(screen.queryByRole("switch", { name: "Memberful" })).not.toBeInTheDocument());
+    await waitFor(() => expect(on).toHaveAccessibleDescription("Members of a Memberful site join and sign in with their Memberful account."));
+    expect(on).not.toBeChecked();
+    expect(screen.queryByRole("list", { name: "Steps to let Memberful members sign in" })).not.toBeInTheDocument();
     expect(await joinLink()).toBeInTheDocument();
   });
 
@@ -2210,18 +2246,21 @@ describe(feature("auth.memberful-memberships"), () => {
   const lapsed = listed("u7", "Sam Lapsed", "member", "suspended");
 
   it("says how to hear Memberful's webhooks in the steps to get the keys", async () => {
-    showPage();
-    const steps = await screen.findByRole("list", { name: "Steps to let Memberful members sign in" });
+    const { user } = showPage();
+    await user.click(await screen.findByRole("switch", { name: "Memberful" }));
+    const steps = screen.getByRole("list", { name: "Steps to let Memberful members sign in" });
     expect(steps).toHaveTextContent(`order events to ${location.origin}/webhooks/memberful.`);
     expect(steps).toHaveTextContent("the webhook's secret key as MEMBERFUL_WEBHOOK_SECRET, and the custom app's API key as MEMBERFUL_API_KEY");
     expect(webhookSteps()).not.toBeInTheDocument();
   });
 
-  it("gives administrators the steps to hear Memberful's webhooks once members can sign in, until the deployment has their secrets", async () => {
+  it("gives administrators the steps to hear Memberful's webhooks once it's on, until the deployment has their secrets", async () => {
     serve(withKeys);
-    showPage();
+    const { user } = showPage();
     const on = await screen.findByRole("switch", { name: "Memberful" });
     expect(on).toHaveAccessibleDescription(expect.not.stringContaining("signed out"));
+    expect(webhookSteps()).not.toBeInTheDocument();
+    await user.click(on);
     const steps = webhookSteps()!;
     expect(within(steps).getAllByRole("listitem")).toHaveLength(2);
     expect(steps).toHaveTextContent(`order events to ${location.origin}/webhooks/memberful.`);
@@ -2231,7 +2270,7 @@ describe(feature("auth.memberful-memberships"), () => {
   });
 
   it("says a member whose membership lapses is signed out once the deployment hears Memberful's webhooks, and where they come", async () => {
-    serve({ ...withKeys, memberfulWebhooks: true });
+    serve({ ...withKeys, memberfulWebhooks: true, account: { ...withKeys.account, memberfulJoin: true } });
     showPage();
     const on = await screen.findByRole("switch", { name: "Memberful" });
     expect(on).toHaveAccessibleDescription(expect.stringMatching(/ A member whose membership lapses is signed out until it's renewed\.$/));
