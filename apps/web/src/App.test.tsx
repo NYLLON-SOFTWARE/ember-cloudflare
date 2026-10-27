@@ -173,6 +173,7 @@ function serve({
         email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: null },
         invitations: [],
         emailDomains: [],
+        addresses: { deployed: null, others: [] },
       } satisfies WorkspaceSettings);
     if (route === "GET /api/users") return Response.json({ users: [] });
     if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null } });
@@ -567,14 +568,14 @@ describe(feature("accounts.custom-domain"), () => {
     expect(movedNotice()).not.toBeInTheDocument();
   });
 
-  it("keeps workspace settings wherever they're opened, so an administrator can stop using a domain from another address", async () => {
+  it("keeps workspace settings wherever they're opened, so an administrator can go back from another address", async () => {
     history.replaceState(null, "", "/account/edit");
     serve({ signedIn: true, account: MOVED });
     render(<App />);
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Stop using it" }));
+    await user.click(await screen.findByRole("button", { name: `Go back to ${location.host}` }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved.");
-    expect(screen.getByRole("region", { name: "Custom domain" })).toHaveTextContent(`People open Ember at ${location.host}.`);
+    expect(screen.getByRole("region", { name: "Custom domain" })).toHaveTextContent(`Ember's address is ${location.host}.`);
     expect(loadPage).not.toHaveBeenCalled();
     expect(movedNotice()).not.toBeInTheDocument();
   });

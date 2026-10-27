@@ -8,6 +8,7 @@ import {
   type AccountSettings,
   type DirectoryUser,
   type EmailInvitation,
+  type EmberAddresses,
   type Me,
   type NavigationIconChanges,
   type PersonRole,
@@ -294,6 +295,8 @@ export function WorkspaceSettingsPage({
 
   /** Shows how Ember sends email as Set up email, or Stop sending email, changes it, which only workspace settings shows. */
   const showEmail = (change: (email: WorkspaceSettings["email"]) => WorkspaceSettings["email"]) => setSettings((settings) => settings && { ...settings, email: change(settings.email) });
+  /** Shows the addresses Ember knows reach it as the Custom domain section changes them, which only workspace settings shows. */
+  const showAddresses = (change: (addresses: EmberAddresses) => EmberAddresses) => setSettings((settings) => settings && { ...settings, addresses: change(settings.addresses) });
   const setUpEmail = (then?: () => void) => setEmailSetup({ then });
 
   // As ember-rust's Regenerate join link does: no confirmation first, and no notice after.
@@ -430,7 +433,13 @@ export function WorkspaceSettingsPage({
                   Save changes
                 </SubmitButton>
               </form>
-              <CustomDomainSettings askForAccount={askForAccount} onSaved={() => flash("notice", CHANGES_SAVED)} onFailed={onFailed} />
+              <CustomDomainSettings
+                addresses={settings.addresses}
+                showAddresses={showAddresses}
+                askForAccount={askForAccount}
+                onSaved={() => flash("notice", CHANGES_SAVED)}
+                onFailed={onFailed}
+              />
             </>
           ) : (
             <>

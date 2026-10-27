@@ -365,8 +365,9 @@ export interface Account {
   logo: string | null;
   /**
    * The address an administrator gave Ember in Workspace settings: a host, with its port where it isn't
-   * the scheme's own, as `location.host` writes it. Pages opened at any other address move there, but
-   * workspace settings. Null while Ember has none, and is used wherever it's opened.
+   * the scheme's own, as `location.host` writes it, either a custom domain or, once they go back to it,
+   * where a deploy put Ember (`EmberAddresses.deployed`). Pages opened at any other address move there,
+   * but workspace settings. Null while Ember has none, and is used wherever it's opened.
    */
   customDomain: string | null;
   /**
@@ -443,6 +444,8 @@ export interface WorkspaceSettings {
   invitations: EmailInvitation[];
   /** The domains Email domain lets in, as kept, whether it's on or not, for administrators, and none for anyone else. */
   emailDomains: string[];
+  /** The addresses Ember knows reach it besides its own, which the Custom domain card names, for administrators, and none for anyone else. */
+  addresses: EmberAddresses;
 }
 
 /**
@@ -1635,6 +1638,9 @@ export function isHost(host: string): boolean {
 /** Whether the host name `hostname` could be Ember's custom domain: any but where a deploy or `wrangler dev` puts it. */
 export const canBeCustomDomain = (hostname: string) => !DEPLOYED_HOSTNAME.test(hostname.toLowerCase());
 
+/** Whether `host`, as `location.host` writes one, could be Ember's custom domain (`canBeCustomDomain`). */
+const isCustomDomainHost = (host: string) => isHost(host) && canBeCustomDomain(HOST.exec(host)![1]!);
+
 /** Why a custom domain is refused when it isn't a host. */
 export const CUSTOM_DOMAIN_NOT_A_HOST = "Custom domain must be a host name, such as chat.example.com";
 /** Why a custom domain is refused when it's where a deploy or `wrangler dev` puts Ember. */
@@ -1662,7 +1668,33 @@ export interface CustomDomainCheck {
 export function parseCustomDomainCheck(data: unknown): { domain: string } | string {
   const domain = isJsonObject(data) && typeof data.domain === "string" && isHost(data.domain) ? data.domain : null;
   if (domain === null) return CUSTOM_DOMAIN_NOT_A_HOST;
-  return canBeCustomDomain(HOST.exec(domain)![1]!) ? { domain } : NOT_A_CUSTOM_DOMAIN;
+  return isCustomDomainHost(domain) ? { domain } : NOT_A_CUSTOM_DOMAIN;
+}
+
+/**
+ * The addresses Ember knows reach it besides its own (`Account.customDomain`), as Workspace settings'
+ * Custom domain card names them: where a deploy puts it, its workers.dev address or `wrangler dev`'s,
+ * as the latest page opened at one told it, or null until one has; and the custom domains it has moved
+ * away from, newest first, which reach it until they're removed from the Worker in Cloudflare, unless a
+ * check has found they don't (`othersAfterMove`).
+ */
+export interface EmberAddresses {
+  deployed: string | null;
+  others: string[];
+}
+
+/** The most custom domains Ember remembers moving away from, forgetting the oldest first. */
+export const MAX_OTHER_ADDRESSES = 5;
+
+/**
+ * The custom domains Ember has moved away from, `others`, once it moves to `to` from the addresses in
+ * `left`, its own until then and the one the move was asked at, which reach it too: those of them that
+ * are custom domains first, as a deploy's address always reaches it, then the rest, newest first, but
+ * never `to`, and only the latest `MAX_OTHER_ADDRESSES`.
+ */
+export function othersAfterMove(others: readonly string[], left: readonly (string | null)[], to: string | null): string[] {
+  const moved = left.filter((address): address is string => address !== null && isCustomDomainHost(address));
+  return [...new Set([...moved, ...others])].filter((address) => address !== to).slice(0, MAX_OTHER_ADDRESSES);
 }
 
 /** An email address, and the name its email is sent under, if any, as a From line gives them. */

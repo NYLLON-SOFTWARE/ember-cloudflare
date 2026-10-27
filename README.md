@@ -183,14 +183,16 @@ touching storage.
 ### A custom domain
 
 Ember answers at its workers.dev address until an administrator gives it one of your own, under
-Custom domain in Workspace settings, which walks them through it:
+Custom domain in Workspace settings, which walks them through it at the workers.dev address, and at
+any other with Move to another domain:
 
 1. In the Cloudflare dashboard, add the address, `chat.example.com` say, as a Custom Domain of Ember's
-   Worker: Workers & Pages, the Worker, Domains, Add Domain. At the workers.dev address the step names
-   the Worker and links straight to its Domains tab. Its domain must be on Cloudflare, in the account
-   that runs the Worker, unless you [keep its DNS elsewhere](#when-the-domains-dns-is-elsewhere);
-   Cloudflare makes the DNS record and the certificate. Ember holds no Cloudflare token to do this
-   itself, since a token that can add a domain to the Worker can also deploy new code to it.
+   Worker: Workers & Pages, the Worker, Domains, Add Domain. The step names the Worker and links
+   straight to its Domains tab, from the workers.dev address Ember remembers being opened at. Its
+   domain must be on Cloudflare, in the account that runs the Worker, unless you
+   [keep its DNS elsewhere](#when-the-domains-dns-is-elsewhere); Cloudflare makes the DNS record and
+   the certificate. Ember holds no Cloudflare token to do this itself, since a token that can add a
+   domain to the Worker can also deploy new code to it.
 2. Check DNS, which asks the domain from the Worker for a one-time probe only this Ember answers, and
    says whether it reaches Ember, something else answers there, or nothing does yet.
 3. Open `https://chat.example.com/account/edit`, sign in, and choose Use this address. Ember takes only
@@ -199,9 +201,16 @@ Custom domain in Workspace settings, which walks them through it:
 From then on, a page opened at any other address moves to the same page at the new one, and the bot
 API's links name it. Everyone signs in once more there, since a session belongs to its address, and
 turns notifications on again, which replaces their browser's subscription at the old address. Bots
-and webhooks go on posting to the addresses they were given. Workspace settings stay wherever they're
-opened, so if the domain ever stops reaching Ember, open them at the workers.dev address and choose
-Stop using it. Deploys leave the domain alone as long as `wrangler.jsonc` lists no `routes`.
+and webhooks go on posting to the addresses they were given.
+
+Moving to another domain takes the same three steps, and Go back to the workers.dev address makes it
+Ember's address once more, once the Worker finds Ember still answers there. Either way, every other
+address sends people to Ember's, the domain it left included: that domain reaches Ember until it's
+removed on the Worker's Domains tab, which only the dashboard does. So Custom domain names the domains
+Ember moved away from, links to that tab, and checks each until it's gone. Workspace settings stay
+wherever they're opened, so if Ember's domain ever stops reaching it, open them at the workers.dev
+address and go back there. Deploys leave the domain alone as long as `wrangler.jsonc` lists no
+`routes`.
 
 #### When the domain's DNS is elsewhere
 

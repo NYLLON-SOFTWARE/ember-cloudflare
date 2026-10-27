@@ -1,8 +1,20 @@
 import { feature } from "@ember/parity";
-import { CUSTOM_DOMAIN_NOT_A_HOST, NOT_A_CUSTOM_DOMAIN, type Account, type BotAnswer, type CustomDomainCheck, type BotSettings, type Bootstrap, type NewWorkspace, type RoomId, type WorkspaceSettings } from "@ember/protocol";
+import {
+  CUSTOM_DOMAIN_NOT_A_HOST,
+  NOT_A_CUSTOM_DOMAIN,
+  type Account,
+  type BotAnswer,
+  type CustomDomainCheck,
+  type BotSettings,
+  type Bootstrap,
+  type EmberAddresses,
+  type NewWorkspace,
+  type RoomId,
+  type WorkspaceSettings,
+} from "@ember/protocol";
 import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NOT_THIS_ADDRESS, PROBE_ANSWER_HEADER } from "../src/custom-domain";
+import { cantGoBackTo, NOT_THIS_ADDRESS, PROBE_ANSWER_HEADER } from "../src/custom-domain";
 import type { Env } from "../src/env";
 import { workspace } from "../src/workspace";
 import { api, apiWith, connect, cookieOf, freshDeploy, openWorkspaceSocket, origin, post, shown, signIn, workspaceSql, type Session } from "./support";
@@ -11,6 +23,9 @@ const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "
 
 /** The address an administrator gives Ember in these tests, as the Cloudflare dashboard attached it to the Worker. */
 const DOMAIN = "chat.example.com";
+
+/** Where a deploy puts Ember in these tests: the Worker named ember's workers.dev address. */
+const DEPLOYED = "ember.kro.workers.dev";
 
 /** Every Mac's user agent on the same Chrome, whose reduced user agent says no more. */
 const CHROME_ON_A_MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
@@ -45,6 +60,16 @@ const storedSettings = async () => JSON.parse(((await workspaceSql("SELECT setti
 const storedUpdatedAt = async () => ((await workspaceSql("SELECT updated_at FROM accounts")) as Array<{ updated_at: string }>)[0]!.updated_at;
 
 const bootstrap = async (session?: Session) => (await (await api("/api/bootstrap", { headers: as(session) })).json()) as Bootstrap;
+
+/** Opens a page at `host` as `session`, which asks what the app asks first there. */
+async function open(host: string, session?: Session): Promise<Bootstrap> {
+  const response = await at(host, "/api/bootstrap", { headers: as(session) });
+  expect(response.status).toBe(200);
+  return (await response.json()) as Bootstrap;
+}
+
+/** The addresses besides its own that Ember tells `session` of in workspace settings. */
+const addressesFor = async (session: Session) => ((await (await api("/api/account", { headers: as(session) })).json()) as WorkspaceSettings).addresses;
 
 /** Sets Ember up with a bot, which is in first run's general room. */
 async function withBot() {
@@ -133,15 +158,12 @@ describe(feature("accounts.custom-domain"), () => {
     expect((await storedSettings()).custom_domain).toBeUndefined();
   });
 
-  it("refuses where a deploy or wrangler dev puts Ember, but not a name under localhost", async () => {
+  it("takes where a deploy or wrangler dev puts Ember from a page there, as Go back does, and a name under localhost", async () => {
     const administrator = await setUp();
-    for (const host of ["ember.kro.workers.dev", "workers.dev", "localhost:8787", "localhost", "127.0.0.1:8787"]) {
-      const response = await change(administrator, host, { customDomain: host });
-      expect([host, response.status]).toEqual([host, 422]);
-      expect(await response.json()).toEqual({ error: NOT_A_CUSTOM_DOMAIN });
+    for (const host of [DEPLOYED, "workers.dev", "localhost:8787", "localhost", "127.0.0.1:8787", "chat.localhost:8787"]) {
+      await use(administrator, host);
+      expect([host, (await bootstrap()).account?.customDomain]).toEqual([host, host]);
     }
-    await use(administrator, "chat.localhost:8787");
-    expect((await bootstrap()).account?.customDomain).toBe("chat.localhost:8787");
   });
 
   it("refuses anything but a host or null", async () => {
@@ -171,10 +193,11 @@ describe(feature("accounts.custom-domain"), () => {
     expect((await api("/api/account", { method: "PATCH", headers: as(administrator), body: JSON.stringify({ settings: { hideTranslationButtons: false } }) })).status).toBe(200);
     await use(administrator, DOMAIN);
 
-    const response = await change(administrator, "ember.kro.workers.dev", { customDomain: null });
+    const response = await change(administrator, DEPLOYED, { customDomain: null });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ account: { ...withDomain(null), hideTranslationButtons: false } });
-    expect(await storedSettings()).toEqual({ restrict_room_creation_to_administrators: false, hide_translation_buttons: false, custom_domain: null });
+    // The domain it stops using reaches it still, until it's removed in Cloudflare.
+    expect(await storedSettings()).toEqual({ restrict_room_creation_to_administrators: false, hide_translation_buttons: false, custom_domain: null, other_addresses: [DOMAIN] });
 
     // And uses another once more.
     await use(administrator, "ember.example.org");
@@ -423,5 +446,156 @@ describe(feature("accounts.custom-domain"), () => {
     await waiting.expectProbe(probe(3), "answer 3");
     expect((await exports.default.fetch(`https://${DOMAIN}/api/custom_domain_probes/${probe(3)}`, { method: "POST", headers: { "Sec-Fetch-Site": "same-origin" } })).status).toBe(404);
     expect(await answerTo(3)).toBe("answer 3");
+  });
+});
+
+describe(feature("accounts.custom-domain"), () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  /** Ember as a deploy left it, opened at its workers.dev address, with Ada as its administrator, signed in. */
+  async function deployed(): Promise<Session> {
+    const administrator = await setUp();
+    await open(DEPLOYED);
+    return administrator;
+  }
+
+  it("remembers where a deploy puts Ember from the pages opened there, which only administrators hear of", async () => {
+    const administrator = await setUp();
+    const member = await signIn("Grace");
+    const sockets = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(member)];
+    const long = "2026-01-01T00:00:00.000Z";
+    await workspaceSql("UPDATE accounts SET updated_at = ?", long);
+    // Not from a page anywhere else.
+    await open(DOMAIN);
+    await bootstrap();
+    expect(await addressesFor(administrator)).toEqual({ deployed: null, others: [] } satisfies EmberAddresses);
+
+    await open(DEPLOYED, member);
+    expect((await storedSettings()).deployed_address).toBe(DEPLOYED);
+    expect(await addressesFor(administrator)).toEqual({ deployed: DEPLOYED, others: [] } satisfies EmberAddresses);
+    expect(await addressesFor(member)).toEqual({ deployed: null, others: [] } satisfies EmberAddresses);
+    // It's no change to the account, which pages show as they were.
+    expect(await storedUpdatedAt()).toBe(long);
+    for (const socket of sockets) expect(await socket.answers()).toBe(true);
+    expect((await open(DEPLOYED)).account).toEqual(withDomain(null));
+
+    // Wherever the Worker's workers.dev address moves, as when it's renamed, or wrangler dev's.
+    await open("ember-studio.kro.workers.dev");
+    expect((await addressesFor(administrator)).deployed).toBe("ember-studio.kro.workers.dev");
+    await open("localhost:8787");
+    expect((await addressesFor(administrator)).deployed).toBe("localhost:8787");
+  });
+
+  it("remembers nothing before first run", async () => {
+    expect((await open(DEPLOYED)).setup).toBe("pending");
+    const administrator = await setUp();
+    expect(await addressesFor(administrator)).toEqual({ deployed: null, others: [] } satisfies EmberAddresses);
+  });
+
+  it("goes back to where a deploy puts Ember from any address, once a check finds it reaches Ember there", async () => {
+    const administrator = await deployed();
+    await use(administrator, DOMAIN);
+    // As Cloudflare sends the workers.dev address to this Worker.
+    const sent = internet({ with: (request) => exports.default.fetch(request) });
+
+    const response = await change(administrator, DOMAIN, { customDomain: DEPLOYED });
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(await response.json()).toEqual({ account: withDomain(DEPLOYED) });
+    expect(sent.map(({ url }) => url)).toEqual([expect.stringMatching(probeAt(`https://${DEPLOYED}`))]);
+    // Pages at the domain it left move there, and the domain is remembered, as it reaches Ember until it's removed in Cloudflare.
+    expect((await open(DOMAIN)).account?.customDomain).toBe(DEPLOYED);
+    expect(await addressesFor(administrator)).toEqual({ deployed: DEPLOYED, others: [DOMAIN] } satisfies EmberAddresses);
+    expect(await storedSettings()).toMatchObject({ custom_domain: DEPLOYED, deployed_address: DEPLOYED, other_addresses: [DOMAIN] });
+  });
+
+  it("goes back from the address a deploy puts Ember at without a check, as the request came there", async () => {
+    const administrator = await deployed();
+    await use(administrator, DOMAIN);
+    const sent = internet({ with: (request) => exports.default.fetch(request) });
+    await use(administrator, DEPLOYED);
+    expect(sent).toEqual([]);
+    expect(await addressesFor(administrator)).toEqual({ deployed: DEPLOYED, others: [DOMAIN] } satisfies EmberAddresses);
+  });
+
+  it("won't go back while Ember doesn't answer where a deploy put it, changing nothing", async () => {
+    const administrator = await deployed();
+    await use(administrator, DOMAIN);
+    const answer = { with: async (_: Request) => new Response() };
+    internet(answer);
+    for (const [what, response] of [
+      ["its workers.dev address turned off, as Cloudflare's error 1042", () => Promise.resolve(new Response("error code: 1042", { status: 404 }))],
+      ["no answer in time", () => Promise.reject(new DOMException("The operation was aborted due to timeout", "TimeoutError"))],
+    ] as const) {
+      answer.with = response;
+      const refused = await change(administrator, DOMAIN, { customDomain: DEPLOYED, name: "Ember Studio" });
+      expect([what, refused.status]).toEqual([what, 422]);
+      expect(await refused.json()).toEqual({ error: cantGoBackTo(DEPLOYED) });
+    }
+    expect((await bootstrap()).account).toEqual(withDomain(DOMAIN));
+    expect(await addressesFor(administrator)).toEqual({ deployed: DEPLOYED, others: [] } satisfies EmberAddresses);
+  });
+
+  it("goes back nowhere but where a deploy put Ember, sending nothing for anywhere else", async () => {
+    const administrator = await setUp();
+    await use(administrator, DOMAIN);
+    const sent = internet({ with: (request) => exports.default.fetch(request) });
+    // Before a page there has told Ember where it is.
+    expect(await (await change(administrator, DOMAIN, { customDomain: DEPLOYED })).json()).toEqual({ error: NOT_THIS_ADDRESS });
+    await open(DEPLOYED);
+    for (const customDomain of ["ember-studio.kro.workers.dev", "localhost:8787", "team.example.com"]) {
+      expect(await (await change(administrator, DOMAIN, { customDomain })).json()).toEqual({ error: NOT_THIS_ADDRESS });
+    }
+    expect(sent).toEqual([]);
+    expect((await bootstrap()).account?.customDomain).toBe(DOMAIN);
+  });
+
+  it("lets only administrators go back, telling anyone else so before checking anything", async () => {
+    const administrator = await deployed();
+    await use(administrator, DOMAIN);
+    const member = await signIn("Grace");
+    const sent = internet({ with: (request) => exports.default.fetch(request) });
+    const response = await change(member, DOMAIN, { customDomain: DEPLOYED });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "Only administrators can change the workspace" });
+    expect((await change(null, DOMAIN, { customDomain: DEPLOYED })).status).toBe(401);
+    expect(sent).toEqual([]);
+  });
+
+  it("remembers the custom domains it moves away from, and where each move was asked, newest first", async () => {
+    const administrator = await deployed();
+    await use(administrator, DOMAIN);
+    await use(administrator, "team.example.com");
+    expect(await addressesFor(administrator)).toEqual({ deployed: DEPLOYED, others: [DOMAIN] } satisfies EmberAddresses);
+    // Gone back from a domain it left before, which reaches it too.
+    internet({ with: (request) => exports.default.fetch(request) });
+    expect((await change(administrator, "old.example.com", { customDomain: DEPLOYED })).status).toBe(200);
+    expect((await addressesFor(administrator)).others).toEqual(["team.example.com", "old.example.com", DOMAIN]);
+    // A domain it moves to again is its own once more.
+    await use(administrator, DOMAIN);
+    expect((await addressesFor(administrator)).others).toEqual(["team.example.com", "old.example.com"]);
+  });
+
+  it("forgets a domain it moved away from once a check finds it no longer reaches Ember, and no other", async () => {
+    const administrator = await deployed();
+    await use(administrator, DOMAIN);
+    await use(administrator, "team.example.com");
+    await use(administrator, DEPLOYED);
+    expect((await addressesFor(administrator)).others).toEqual(["team.example.com", DOMAIN]);
+    const updatedAt = await storedUpdatedAt();
+    const answer = { with: (request: Request) => exports.default.fetch(request) };
+    internet(answer);
+
+    expect(await reachOf(administrator, DOMAIN)).toBe("ember");
+    expect((await addressesFor(administrator)).others).toEqual(["team.example.com", DOMAIN]);
+    // Removed from the Worker in Cloudflare.
+    answer.with = async () => new Response("error code: 1016", { status: 530 });
+    expect(await reachOf(administrator, DOMAIN)).toBe("nothing");
+    expect(await reachOf(administrator, "www.example.com")).toBe("nothing");
+    expect((await addressesFor(administrator)).others).toEqual(["team.example.com"]);
+    // Something else answers there now.
+    answer.with = async () => new Response("<html>Parked</html>", { headers: { "Content-Type": "text/html" } });
+    expect(await reachOf(administrator, "team.example.com")).toBe("elsewhere");
+    expect(await addressesFor(administrator)).toEqual({ deployed: DEPLOYED, others: [] } satisfies EmberAddresses);
+    expect(await storedUpdatedAt()).toBe(updatedAt);
   });
 });

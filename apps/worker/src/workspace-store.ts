@@ -1,11 +1,13 @@
 import {
   MAX_FAVORITES,
+  MAX_OTHER_ADDRESSES,
   MAX_PUSH_SUBSCRIPTIONS,
   MAX_SHARED_ORDER,
   NAVIGATION_SLOTS,
   RECENT_SEARCHES,
   SUGGESTED_PEOPLE,
   emailDomainOf,
+  isHost,
   isRoomIcon,
   mailboxOf,
   mailboxText,
@@ -105,6 +107,10 @@ export interface JoinableAccount extends Omit<Account, "logo"> {
   emailFrom: string | null;
   /** The Resend API key an administrator gave Ember to send email with, sealed (`seal`), or null while they haven't given one. */
   resendApiKey: string | null;
+  /** Where a deploy puts Ember, as the latest page opened there told it, or null until one has (`EmberAddresses.deployed`). */
+  deployedAddress: string | null;
+  /** The custom domains Ember has moved away from, newest first, which may still reach it (`EmberAddresses.others`). */
+  otherAddresses: string[];
 }
 
 /** The account first run creates. */
@@ -116,9 +122,9 @@ export interface NewAccount {
 
 /**
  * What `WorkspaceStore.changeAccount` changes: the name, the tagline, the settings workspace settings'
- * switches change, the custom domain, the navigation icons whose slots change, the From address, the
- * sealed Resend API key, and the domains Email domain lets in. Memberful's two settings change together,
- * or not at all, as `memberful`.
+ * switches change, the custom domain and the ones it moved away from, the navigation icons whose slots
+ * change, the From address, the sealed Resend API key, and the domains Email domain lets in. Memberful's
+ * two settings change together, or not at all, as `memberful`.
  */
 export type AccountChange = Partial<
   Pick<
@@ -128,6 +134,7 @@ export type AccountChange = Partial<
     | "hideTranslationButtons"
     | "restrictRoomCreation"
     | "customDomain"
+    | "otherAddresses"
     | "joinLink"
     | "openSignUp"
     | "emailDomainSignUp"
@@ -660,6 +667,17 @@ const taglineIn = (settings: Record<string, unknown> | null) => (typeof settings
 /** The account's custom domain, which its settings keep as `custom_domain`, ember-rust having none, or null while it has none. */
 const customDomainIn = (settings: Record<string, unknown> | null) => (typeof settings?.custom_domain === "string" ? settings.custom_domain : null);
 
+/** Where a deploy puts Ember, which the account's settings keep as `deployed_address`, this port's own, or null until a page there told it. */
+const deployedAddressIn = (settings: Record<string, unknown> | null) =>
+  typeof settings?.deployed_address === "string" && isHost(settings.deployed_address) ? settings.deployed_address : null;
+
+/** The custom domains Ember has moved away from, newest first, which the account's settings keep as `other_addresses`, this port's own. */
+function otherAddressesIn(settings: Record<string, unknown> | null): string[] {
+  const kept = settings?.other_addresses;
+  if (!Array.isArray(kept)) return [];
+  return [...new Set(kept.filter((address: unknown): address is string => typeof address === "string" && isHost(address)))].slice(0, MAX_OTHER_ADDRESSES);
+}
+
 /** The address Ember's email comes from, which the account's settings keep as `email_from`, this port's own, as `mailboxText` writes it, or null while it has none. */
 function emailFromIn(settings: Record<string, unknown> | null): string | null {
   const mailbox = typeof settings?.email_from === "string" ? mailboxOf(settings.email_from) : null;
@@ -1160,6 +1178,18 @@ const SET_EMAIL_DOMAINS = setSetting("email_domains");
 const SET_EMAIL_FROM = setSetting("email_from");
 const SET_RESEND_API_KEY = setSetting("resend_api_key");
 
+/**
+ * Sets the account's setting `key` to the JSON value ?1, as `setSetting` does, but without recording
+ * when: for what pages don't show, so that the logo's address, which goes by when the account changed,
+ * stays as it is.
+ */
+const rememberSetting = (key: string) => `UPDATE accounts SET settings = json_set(
+    CASE WHEN json_valid(settings) AND json_type(settings) = 'object' THEN settings ELSE '{}' END,
+    '$.${key}', json(?1)
+  )`;
+const REMEMBER_DEPLOYED_ADDRESS = rememberSetting("deployed_address");
+const REMEMBER_OTHER_ADDRESSES = rememberSetting("other_addresses");
+
 /** Navigation icon changes as the merge patch `CHANGE_NAVIGATION_ICONS` takes them: null for a slot's default. */
 const navigationIconsPatch = (changes: NavigationIconChanges) => Object.fromEntries(Object.entries(changes).map(([slot, icon]) => [slot, icon || null]));
 
@@ -1618,13 +1648,16 @@ export class WorkspaceStore {
       storedLogo: row.logo_key === null ? null : { key: row.logo_key, variant: row.logo_variant },
       emailFrom: emailFromIn(settings),
       resendApiKey: resendApiKeyIn(settings),
+      deployedAddress: deployedAddressIn(settings),
+      otherAddresses: otherAddressesIn(settings),
     };
   }
 
   /**
-   * Changes the workspace's name, tagline, settings, custom domain, navigation icons, From address,
-   * Resend API key and email domains, as `change` has them, in one batch. Memberful's settings are stored
-   * both at once, so that an account from before `memberful_join` reads as they're saved.
+   * Changes the workspace's name, tagline, settings, custom domain and the ones it moved away from,
+   * navigation icons, From address, Resend API key and email domains, as `change` has them, in one
+   * batch. Memberful's settings are stored both at once, so that an account from before `memberful_join`
+   * reads as they're saved.
    */
   async changeAccount(
     {
@@ -1633,6 +1666,7 @@ export class WorkspaceStore {
       hideTranslationButtons,
       restrictRoomCreation,
       customDomain,
+      otherAddresses,
       joinLink,
       openSignUp,
       memberful,
@@ -1650,6 +1684,7 @@ export class WorkspaceStore {
       ...(hideTranslationButtons === undefined ? [] : [statement(SET_HIDE_TRANSLATION_BUTTONS, JSON.stringify(hideTranslationButtons), now)]),
       ...(restrictRoomCreation === undefined ? [] : [statement(SET_RESTRICT_ROOM_CREATION, JSON.stringify(restrictRoomCreation), now)]),
       ...(customDomain === undefined ? [] : [statement(SET_CUSTOM_DOMAIN, JSON.stringify(customDomain), now)]),
+      ...(otherAddresses === undefined ? [] : [statement(REMEMBER_OTHER_ADDRESSES, JSON.stringify(otherAddresses))]),
       ...(joinLink === undefined ? [] : [statement(SET_JOIN_LINK, JSON.stringify(joinLink), now)]),
       ...(openSignUp === undefined ? [] : [statement(SET_OPEN_SIGN_UP, JSON.stringify(openSignUp), now)]),
       ...(memberful === undefined
@@ -1661,6 +1696,16 @@ export class WorkspaceStore {
       ...(emailFrom === undefined ? [] : [statement(SET_EMAIL_FROM, JSON.stringify(emailFrom), now)]),
       ...(resendApiKey === undefined ? [] : [statement(SET_RESEND_API_KEY, JSON.stringify(resendApiKey), now)]),
     ]);
+  }
+
+  /** Remembers `address` as where a deploy puts Ember, which pages don't show. */
+  async rememberDeployedAddress(address: string): Promise<void> {
+    await this.db.run(REMEMBER_DEPLOYED_ADDRESS, JSON.stringify(address));
+  }
+
+  /** Remembers `addresses` as the custom domains Ember has moved away from, which pages don't show. */
+  async rememberOtherAddresses(addresses: string[]): Promise<void> {
+    await this.db.run(REMEMBER_OTHER_ADDRESSES, JSON.stringify(addresses));
   }
 
   /** Saves the workspace's custom CSS. */
