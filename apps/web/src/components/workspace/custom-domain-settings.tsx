@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   canBeCustomDomain,
   CUSTOM_DOMAIN_NOT_A_HOST,
@@ -14,7 +14,7 @@ import { FIELD_INPUT, Field } from "@/components/field";
 import { Input } from "@/components/ui/input";
 import { useAccount } from "@/hooks/use-account";
 import { useMounted } from "@/hooks/use-mounted";
-import { changeAccount, checkCustomDomain, isSignedOut } from "@/lib/api";
+import { changeAccount, checkCustomDomain, fetchWorkspaceSettings, isSignedOut } from "@/lib/api";
 import { moveTo } from "@/lib/custom-domain";
 import { cn } from "@/lib/utils";
 
@@ -94,12 +94,26 @@ export function CustomDomainSettings({ addresses, showAddresses, askForAccount, 
   const others = addresses.others.filter((address) => address !== here && address !== customDomain);
   // Where a deploy puts Ember, the steps to a custom domain are what it offers.
   const settingUpHere = !hereCanBe && (customDomain === null || customDomain === here);
+  // Ember's address when the addresses were last shown. Another tab moving Ember changes them too, as only
+  // the server can say, so they're asked for again then.
+  const shownFor = useRef(customDomain);
+  useEffect(() => {
+    if (customDomain === shownFor.current) return;
+    shownFor.current = customDomain;
+    fetchWorkspaceSettings().then(
+      ({ addresses }) => showAddresses(() => addresses),
+      (error: unknown) => {
+        if (mounted.current || isSignedOut(error)) onFailed(error);
+      },
+    );
+  }, [customDomain, showAddresses, mounted, onFailed]);
 
   const change = (address: string | null, then?: () => void) => {
     setChanging(true);
     const answered = askForAccount();
     changeAccount({ customDomain: address }).then(
       (account) => {
+        shownFor.current = account.customDomain;
         answered(account);
         if (account.customDomain !== customDomain) showAddresses((known) => ({ ...known, others: othersAfterMove(known.others, [customDomain, here], account.customDomain) }));
         if (!mounted.current) return;

@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -61,17 +61,19 @@ const saved = () =>
 /**
  * The section in workspace settings at `url`, for a workspace whose custom domain is `customDomain`, and
  * which knows of `addresses`, both of which it changes as the app would. `shown()` says what the
- * addresses are then.
+ * addresses are then, and `hear` has the workspace socket say the account is another.
  */
 function showSection(url: string, customDomain: string | null = null, addresses: EmberAddresses = { deployed: null, others: [] }) {
   jsdom.reconfigure({ url });
   const callbacks = { onSaved: vi.fn(), onFailed: vi.fn() };
   let shown = addresses;
+  let hear = (_account: Account) => {};
   function Settings() {
     const [account, setAccount] = useState<Account>({ ...EMBER, customDomain });
     const [known, setKnown] = useState(addresses);
     const [askForAccount] = useState(() => () => setAccount);
     shown = known;
+    hear = setAccount;
     return (
       <AccountContext value={account}>
         <FlashProvider workspace>
@@ -81,7 +83,7 @@ function showSection(url: string, customDomain: string | null = null, addresses:
     );
   }
   render(<Settings />);
-  return { ...callbacks, user: userEvent.setup(), shown: () => shown };
+  return { ...callbacks, user: userEvent.setup(), shown: () => shown, hear: (account: Account) => act(() => hear(account)) };
 }
 
 const section = () => screen.getByRole("region", { name: "Custom domain" });
@@ -333,6 +335,24 @@ describe(feature("accounts.custom-domain"), () => {
     await waitFor(() => expect(within(steps).getByRole("status")).toHaveTextContent(/^Nothing answers at chat\.example\.com yet\./));
     expect(within(otherAddresses()!).getAllByRole("listitem").map((item) => item.textContent)).toEqual([expect.stringMatching(/^old\.example\.com still reaches Ember/)]);
     expect(shown()).toEqual({ deployed: DEPLOYED, others: ["old.example.com"] });
+  });
+
+  it("asks for the addresses again once another tab moves Ember, which only the server can say it left", async () => {
+    const fetched = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      expect(`${init?.method ?? "GET"} ${String(input)}`).toBe("GET /api/account");
+      return Response.json({ addresses: { deployed: DEPLOYED, others: ["chat.example.com"] } });
+    });
+    const { hear, shown } = showSection(settingsAt(DEPLOYED), "chat.example.com", { deployed: DEPLOYED, others: [] });
+    expect(otherAddresses()).not.toBeInTheDocument();
+
+    hear({ ...EMBER, customDomain: "team.example.com" });
+    await waitFor(() =>
+      expect(otherAddresses()).toHaveTextContent("chat.example.com still reaches Ember and sends people to team.example.com until it's removed from ember-production in Cloudflare."),
+    );
+    expect(shown()).toEqual({ deployed: DEPLOYED, others: ["chat.example.com"] });
+    // Hearing it again asks nothing more.
+    hear({ ...EMBER, customDomain: "team.example.com", name: "Campfire" });
+    expect(fetched).toHaveBeenCalledTimes(1);
   });
 
   it("says so when the last address Ember moved away from is gone", async () => {
