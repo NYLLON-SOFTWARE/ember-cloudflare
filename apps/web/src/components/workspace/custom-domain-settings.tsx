@@ -44,11 +44,14 @@ const workerAt = (host: string) => WORKERS_DEV.exec(host.toLowerCase())?.[1] ?? 
 const BUTTON = "inline-flex min-h-11 max-w-full items-center justify-center rounded-[9px] border bg-background px-3.5 py-2.5 font-medium wrap-anywhere disabled:opacity-50";
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
+/** How a change, or a check, changes the addresses Ember knows reach it. */
+type AddressesChange = (addresses: EmberAddresses) => EmberAddresses;
+
 interface Props {
   /** The addresses Ember knows reach it besides its own, as workspace settings has them. */
   addresses: EmberAddresses;
   /** Shows the addresses as a change, or a check, changes them, which only workspace settings shows. */
-  showAddresses: (change: (addresses: EmberAddresses) => EmberAddresses) => void;
+  showAddresses: (change: AddressesChange) => void;
   /** As workspace settings asks for the workspace, which it says the server answers with. */
   askForAccount: () => (account: Account) => void;
   /** Called once a change is saved. */
@@ -97,12 +100,26 @@ export function CustomDomainSettings({ addresses, showAddresses, askForAccount, 
   // Ember's address when the addresses were last shown. Another tab moving Ember changes them too, as only
   // the server can say, so they're asked for again then.
   const shownFor = useRef(customDomain);
+  // While they're asked for, what's changed them here since, which the answer may have been read before,
+  // so it's made to the answer too. Only the latest ask's answer shows.
+  const asking = useRef<AddressesChange[] | null>(null);
+  const changeAddresses = (change: AddressesChange) => {
+    asking.current?.push(change);
+    showAddresses(change);
+  };
   useEffect(() => {
     if (customDomain === shownFor.current) return;
     shownFor.current = customDomain;
+    const since: AddressesChange[] = [];
+    asking.current = since;
     fetchWorkspaceSettings().then(
-      ({ addresses }) => showAddresses(() => addresses),
+      ({ addresses }) => {
+        if (asking.current !== since) return;
+        asking.current = null;
+        showAddresses(() => since.reduce((shown, change) => change(shown), addresses));
+      },
       (error: unknown) => {
+        if (asking.current === since) asking.current = null;
         if (mounted.current || isSignedOut(error)) onFailed(error);
       },
     );
@@ -115,7 +132,7 @@ export function CustomDomainSettings({ addresses, showAddresses, askForAccount, 
       (account) => {
         shownFor.current = account.customDomain;
         answered(account);
-        if (account.customDomain !== customDomain) showAddresses((known) => ({ ...known, others: othersAfterMove(known.others, [customDomain, here], account.customDomain) }));
+        if (account.customDomain !== customDomain) changeAddresses((known) => ({ ...known, others: othersAfterMove(known.others, [customDomain, here], account.customDomain) }));
         if (!mounted.current) return;
         setChanging(false);
         setMoving(false);
@@ -131,7 +148,7 @@ export function CustomDomainSettings({ addresses, showAddresses, askForAccount, 
   };
   // Workspace settings stay wherever they're opened, so going back from another address takes them along.
   const goBack = (address: string) => change(address, address === here ? undefined : () => void moveTo(address));
-  const forget = (address: string) => showAddresses((known) => ({ ...known, others: known.others.filter((other) => other !== address) }));
+  const forget = (address: string) => changeAddresses((known) => ({ ...known, others: known.others.filter((other) => other !== address) }));
   const elsewhere = customDomain !== null && customDomain !== here && here !== deployed;
   const actions = [
     hereCanBe && customDomain !== here && (

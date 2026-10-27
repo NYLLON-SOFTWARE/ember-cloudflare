@@ -355,6 +355,53 @@ describe(feature("accounts.custom-domain"), () => {
     expect(fetched).toHaveBeenCalledTimes(1);
   });
 
+  it("makes what a check here changes to addresses it asked for, which may have been read before", async () => {
+    let answerSettings = () => {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const asked = `${init?.method ?? "GET"} ${String(input)}`;
+      if (asked === "POST /api/account/custom_domain_checks") return Response.json({ reaches: "nothing" });
+      expect(asked).toBe("GET /api/account");
+      await new Promise<void>((resolve) => (answerSettings = resolve));
+      // As read once another tab moved Ember, but before the check here forgot old.example.com.
+      return Response.json({ addresses: { deployed: DEPLOYED, others: ["chat.example.com", "old.example.com"] } });
+    });
+    const { user, hear, shown } = showSection(settingsAt(DEPLOYED), "chat.example.com", { deployed: DEPLOYED, others: ["old.example.com"] });
+    hear({ ...EMBER, customDomain: "team.example.com" });
+    await user.click(screen.getByRole("button", { name: "Check old.example.com" }));
+    await waitFor(() => expect(otherAddresses()).not.toBeInTheDocument());
+
+    answerSettings();
+    await waitFor(() => expect(shown()).toEqual({ deployed: DEPLOYED, others: ["chat.example.com"] }));
+    expect(within(otherAddresses()!).getAllByRole("listitem").map((item) => item.textContent)).toEqual([expect.stringMatching(/^chat\.example\.com still reaches Ember/)]);
+  });
+
+  it("shows only the addresses it asked for last, when Ember moves again before they come", async () => {
+    const answers: (() => void)[] = [];
+    const read: EmberAddresses[] = [
+      { deployed: DEPLOYED, others: ["chat.example.com"] },
+      { deployed: DEPLOYED, others: ["team.example.com", "chat.example.com"] },
+    ];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      expect(`${init?.method ?? "GET"} ${String(input)}`).toBe("GET /api/account");
+      const addresses = read.shift();
+      await new Promise<void>((resolve) => answers.push(resolve));
+      return Response.json({ addresses });
+    });
+    const { hear, shown } = showSection(settingsAt(DEPLOYED), "chat.example.com", { deployed: DEPLOYED, others: [] });
+    hear({ ...EMBER, customDomain: "team.example.com" });
+    hear({ ...EMBER, customDomain: "new.example.com" });
+    await waitFor(() => expect(answers).toHaveLength(2));
+
+    answers[1]!();
+    await waitFor(() => expect(shown().others).toEqual(["team.example.com", "chat.example.com"]));
+    // The first answer, read before the second move, comes last.
+    await act(async () => {
+      answers[0]!();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(shown().others).toEqual(["team.example.com", "chat.example.com"]);
+  });
+
   it("says so when the last address Ember moved away from is gone", async () => {
     const { answer } = serveChecks(["elsewhere"]);
     const { user } = showSection(settingsAt(DEPLOYED), DEPLOYED, { deployed: DEPLOYED, others: ["chat.example.com"] });
