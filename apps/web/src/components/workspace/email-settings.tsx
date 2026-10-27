@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Account, EmailSettings as Email } from "@ember/protocol";
 import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, changeAccount, isSignedOut, sendTestEmail } from "@/lib/api";
@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 // email with, and from, and Send me a test email, which says where it went, or why it wasn't sent. Until
 // Ember can send email, it says so, and Set up email opens the steps to it (`EmailSetup`), as Change
 // does once it can, and Stop sending email takes its From address away, as saving the From field blank
-// did before Set up email. Laid out as the Memberful card is.
+// did before Set up email. Laid out as Custom domain's card is: what it says, then its buttons in a row.
 
 /** What Stop sending email asks first, since what Ember emails stops until email is set up again. */
 export const CONFIRM_STOP_EMAIL =
@@ -68,41 +68,47 @@ export function EmailSettings({ email, askForAccount, onSetUp, onStopped, onFail
 
   return (
     <section aria-labelledby="email-heading" className="flex flex-col gap-3 rounded-[10px] border bg-surface px-[2ch] py-4 text-start max-md:px-3">
-      <div className="flex flex-wrap items-center gap-x-[1ch] gap-y-3">
-        <div className="min-w-0 flex-1 basis-[16em]">
-          <h2 id="email-heading" className="text-base font-semibold">
-            Email
-          </h2>
-          <p className={NOTE}>
-            {sends ? (
-              <>
-                Ember sends email from <span className="wrap-anywhere">{email.from}</span> {sentWith(email)}.
-              </>
-            ) : (
-              "Ember can't send email yet, so it can't email invitations, or the links people at your email domains join with."
-            )}
-          </p>
-        </div>
-        <button type="button" onClick={onSetUp} disabled={stopping} className={BUTTON}>
-          {sends ? "Change" : "Set up email"}
-        </button>
-        {sends && (
+      <div>
+        <h2 id="email-heading" className="text-base font-semibold">
+          Email
+        </h2>
+        <p className={NOTE}>
+          {sends ? (
+            <>
+              Ember sends email from <span className="wrap-anywhere">{email.from}</span> {sentWith(email)}.
+            </>
+          ) : (
+            "Ember can't send email yet, so it can't email invitations, or the links people at your email domains join with."
+          )}
+        </p>
+      </div>
+      {/* A test email says how it went with the From address it was sent from. */}
+      {sends ? (
+        <TestEmail key={email.from} onFailed={onFailed}>
+          <button type="button" onClick={onSetUp} disabled={stopping} className={BUTTON}>
+            Change
+          </button>
           <button type="button" onClick={stop} disabled={stopping} className={BUTTON}>
             Stop sending email
           </button>
-        )}
-      </div>
-      {/* A test email says how it went with the From address it was sent from. */}
-      {sends && <TestEmail key={email.from} onFailed={onFailed} />}
+        </TestEmail>
+      ) : (
+        <div>
+          <button type="button" onClick={onSetUp} className={BUTTON}>
+            Set up email
+          </button>
+        </div>
+      )}
     </section>
   );
 }
 
 /**
- * Send me a test email, from the From address as it's saved, saying where it went, or why it wasn't
- * sent, sending one `atOnce` as it's shown, as Set up email's last step does.
+ * Send me a test email, from the From address as it's saved, with the buttons in `children` beside it,
+ * then where it went, or why it wasn't sent, sending one `atOnce` as it's shown, as Set up email's last
+ * step does.
  */
-export function TestEmail({ onFailed, atOnce = false }: { onFailed: (error: unknown) => void; atOnce?: boolean }) {
+export function TestEmail({ onFailed, atOnce = false, children }: { onFailed: (error: unknown) => void; atOnce?: boolean; children?: ReactNode }) {
   const [test, setTest] = useState<Tested | null>(null);
   const mounted = useMounted();
   const sentAtOnce = useRef(false);
@@ -131,13 +137,16 @@ export function TestEmail({ onFailed, atOnce = false }: { onFailed: (error: unkn
   }, [atOnce]);
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <button type="button" onClick={sendTest} disabled={test === "sending"} className={BUTTON}>
-        Send me a test email
-      </button>
+    <div>
+      <div className="flex flex-wrap gap-3">
+        <button type="button" onClick={sendTest} disabled={test === "sending"} className={BUTTON}>
+          Send me a test email
+        </button>
+        {children}
+      </div>
       <p
         role="status"
-        className={cn("min-w-0 flex-1 basis-[16em] wrap-anywhere", test !== null && test !== "sending" && ("to" in test ? "text-positive" : "text-negative"))}
+        className={cn("mt-2 wrap-anywhere empty:mt-0", test !== null && test !== "sending" && ("to" in test ? "text-positive" : "text-negative"))}
       >
         {test === "sending"
           ? "Sending a test email…"

@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CANT_SEND_EMAIL, type EmailSettings as Email } from "@ember/protocol";
@@ -81,6 +81,14 @@ describe(feature("platform.email"), () => {
     expect(stopButton()).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Change" }));
     expect(onSetUp).toHaveBeenCalledOnce();
+  });
+
+  it("puts its buttons in one row under what it says, as Custom domain's card does", () => {
+    serve();
+    showCard({ ...NEW_EMAIL, from: "Ember <ember@example.com>" });
+    const buttons = within(card()).getAllByRole("button");
+    expect(buttons.map((button) => button.textContent)).toEqual(["Send me a test email", "Change", "Stop sending email"]);
+    expect(new Set(buttons.map((button) => button.parentElement)).size).toBe(1);
   });
 
   it("takes the From address away once the administrator confirms Stop sending email", async () => {

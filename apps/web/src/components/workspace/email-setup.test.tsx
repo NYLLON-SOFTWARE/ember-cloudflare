@@ -136,7 +136,7 @@ async function cloudflareFrom() {
 afterEach(() => vi.restoreAllMocks());
 
 describe(feature("platform.email"), () => {
-  it("starts with what sends email, saying Cloudflare Email Service needs Workers Paid to reach anyone else", async () => {
+  it("starts with what sends email, saying Cloudflare Email Service needs Workers Paid", async () => {
     serve(NEW_EMAIL);
     const { user, onClose } = showSetup(NEW_EMAIL);
     const setup = await dialog("Set up email");
@@ -148,7 +148,7 @@ describe(feature("platform.email"), () => {
     );
     expect(choice("Cloudflare Email Service")).toBeEnabled();
     expect(choice("Cloudflare Email Service")).toHaveAccessibleDescription(
-      "Needs the Workers Paid plan ($5 a month) on the Cloudflare account that runs Ember. On Workers Free, Cloudflare only delivers to addresses verified in that account, so invitations and join links wouldn't reach anyone else.",
+      "Needs the Workers Paid plan ($5 a month) on the Cloudflare account that runs Ember.",
     );
     expect(button("Continue")).toBeDisabled();
     await user.click(choice("Resend"));
@@ -266,9 +266,7 @@ describe(feature("platform.email"), () => {
     const cloudflare = await dialog("Send with Cloudflare Email Service");
     expect(cloudflare).toHaveAccessibleDescription("Ember sends email from your Cloudflare account, with this Worker's EMAIL binding.");
     const [plan, domain] = within(screen.getByRole("list", { name: "Steps to send email with Cloudflare" })).getAllByRole("listitem");
-    expect(plan).toHaveTextContent(
-      "Put the Cloudflare account that runs Ember on the Workers Paid plan. On Workers Free, Cloudflare sends only to the account's own verified addresses, so nobody else would get an invitation or a link to join with.",
-    );
+    expect(plan).toHaveTextContent(/^Put the Cloudflare account that runs Ember on the Workers Paid plan\. Open Workers plans$/);
     expect(within(plan!).getByRole("link", { name: "Open Workers plans" })).toHaveAttribute("href", WORKERS_PLANS);
     expect(domain).toHaveTextContent(
       "In the Cloudflare dashboard, open Email Service, Email Sending, choose Onboard Domain, and pick a domain on Cloudflare DNS.",
