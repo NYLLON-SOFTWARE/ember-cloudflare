@@ -315,6 +315,26 @@ describe(feature("accounts.custom-domain"), () => {
     expect(asked).toEqual([{ domain: "chat.example.com" }, { domain: "chat.example.com" }]);
   });
 
+  it("forgets an address Ember moved away from once Check DNS finds it no longer reaches Ember too", async () => {
+    const { answer } = serveChecks(["ember", "nothing"]);
+    const { user, shown } = showSection(settingsAt(DEPLOYED), DEPLOYED, { deployed: DEPLOYED, others: ["chat.example.com", "old.example.com"] });
+    await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.example.com");
+    await user.click(screen.getByRole("button", { name: "Set up" }));
+    const steps = screen.getByRole("list", { name: "Steps to make chat.example.com Ember's address" });
+    const check = within(steps).getByRole("button", { name: "Check DNS" });
+
+    await user.click(check);
+    answer();
+    await waitFor(() => expect(within(steps).getByRole("status")).toHaveTextContent("chat.example.com reaches Ember."));
+    expect(within(otherAddresses()!).getAllByRole("listitem")).toHaveLength(2);
+
+    await user.click(check);
+    answer();
+    await waitFor(() => expect(within(steps).getByRole("status")).toHaveTextContent(/^Nothing answers at chat\.example\.com yet\./));
+    expect(within(otherAddresses()!).getAllByRole("listitem").map((item) => item.textContent)).toEqual([expect.stringMatching(/^old\.example\.com still reaches Ember/)]);
+    expect(shown()).toEqual({ deployed: DEPLOYED, others: ["old.example.com"] });
+  });
+
   it("says so when the last address Ember moved away from is gone", async () => {
     const { answer } = serveChecks(["elsewhere"]);
     const { user } = showSection(settingsAt(DEPLOYED), DEPLOYED, { deployed: DEPLOYED, others: ["chat.example.com"] });

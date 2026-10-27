@@ -187,6 +187,7 @@ export function CustomDomainSettings({ addresses, showAddresses, askForAccount, 
           }
           autoFocus={moving}
           worker={worker}
+          onGone={forget}
           onFailed={onFailed}
         />
       )}
@@ -294,9 +295,21 @@ function OtherAddresses({
 /**
  * The domain to give Ember, and then how, after `intro`, if any: its field takes the focus at once when
  * `autoFocus` says, as when Move to another domain shows it. `worker` names the Worker that runs Ember,
- * where that's known.
+ * where that's known, and `onGone` forgets a domain Check DNS finds no longer reaches Ember.
  */
-function SetUp({ intro, autoFocus, worker, onFailed }: { intro: ReactNode; autoFocus: boolean; worker: string | null; onFailed: Props["onFailed"] }) {
+function SetUp({
+  intro,
+  autoFocus,
+  worker,
+  onGone,
+  onFailed,
+}: {
+  intro: ReactNode;
+  autoFocus: boolean;
+  worker: string | null;
+  onGone: (address: string) => void;
+  onFailed: Props["onFailed"];
+}) {
   const [typed, setTyped] = useState("");
   const [refusal, setRefusal] = useState<string | null>(null);
   // The domain the steps are for, once Set up shows them.
@@ -342,7 +355,7 @@ function SetUp({ intro, autoFocus, worker, onFailed }: { intro: ReactNode; autoF
           {refusal}
         </p>
       )}
-      {domain !== null && <Steps key={domain} domain={domain} worker={worker} onFailed={onFailed} />}
+      {domain !== null && <Steps key={domain} domain={domain} worker={worker} onGone={onGone} onFailed={onFailed} />}
     </>
   );
 }
@@ -357,9 +370,10 @@ function reachNote(reaches: CustomDomainReach, domain: string, worker: string | 
 /**
  * The steps to make `domain` Ember's address: Cloudflare's, on the Domains tab of the Worker named
  * `worker`, which its workers.dev address names, or the README's for a domain whose DNS stays
- * elsewhere; a check that the domain reaches Ember; then Ember's.
+ * elsewhere; a check that the domain reaches Ember, after which one Ember moved away from that no longer
+ * does is gone, as the server forgets it; then Ember's.
  */
-function Steps({ domain, worker, onFailed }: { domain: string; worker: string | null; onFailed: Props["onFailed"] }) {
+function Steps({ domain, worker, onGone, onFailed }: { domain: string; worker: string | null; onGone: (address: string) => void; onFailed: Props["onFailed"] }) {
   // What Check DNS found, or "checking" while it asks.
   const [reaches, setReaches] = useState<CustomDomainReach | "checking" | null>(null);
   const mounted = useMounted();
@@ -369,6 +383,7 @@ function Steps({ domain, worker, onFailed }: { domain: string; worker: string | 
     setReaches("checking");
     checkCustomDomain(domain).then(
       (found) => {
+        if (found !== "ember") onGone(domain);
         if (mounted.current) setReaches(found);
       },
       (error: unknown) => {
