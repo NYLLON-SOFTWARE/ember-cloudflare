@@ -75,7 +75,6 @@ test.describe(feature("accounts.ways-to-join"), () => {
     await link.click();
     await expect(link).not.toBeChecked();
     await expect(field).toHaveCount(0);
-    await expect(page.getByText("With all of these off, only the people you invite can join.")).toBeVisible();
 
     const visitor = await signedOut(browser, baseURL!);
     await visitor.goto(joinUrl);

@@ -1001,7 +1001,6 @@ describe(feature("accounts.ways-to-join"), () => {
     // Each shows its settings while it's on.
     expect(within(screen.getByRole("region", { name: "Join link" })).getByRole("textbox", { name: "Share to invite more people" })).toBeInTheDocument();
     expect(signUpLink()).not.toBeInTheDocument();
-    expect(screen.queryByText("With all of these off, only the people you invite can join.")).not.toBeInTheDocument();
   });
 
   it("turns Open on once you confirm, saved at once with no notice, showing its address and setting the others aside", async () => {
@@ -1124,12 +1123,10 @@ describe(feature("accounts.ways-to-join"), () => {
     expect(confirm).not.toHaveBeenCalled();
     await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, joinLink: false }));
     expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
-    expect(screen.getByText("With all of these off, only the people you invite can join.")).toBeInTheDocument();
 
     await user.click(link);
     expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${JOIN_CODE}`);
     expect(saved()).toEqual([{ settings: { joinLink: false } }, { settings: { joinLink: true } }]);
-    expect(screen.queryByText("With all of these off, only the people you invite can join.")).not.toBeInTheDocument();
   });
 
   it("greys out Open and Join link while Memberful is members only", async () => {
@@ -1157,8 +1154,6 @@ describe(feature("accounts.ways-to-join"), () => {
     serve(withAccount(withKeys, { memberfulJoin: true, joinLink: false }));
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = showPage();
-    // Memberful still lets its members in.
-    expect(screen.queryByText("With all of these off, only the people you invite can join.")).not.toBeInTheDocument();
     const link = await way("Join link");
     expect(link).toBeEnabled();
     await user.click(link);

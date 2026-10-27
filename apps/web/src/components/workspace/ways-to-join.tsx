@@ -159,7 +159,6 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
         membersOnlySaving={moved.memberfulSignIn !== undefined}
         setAside={openOverrides && !membersOnly ? OPEN_OVERRIDES : null}
       />
-      {!open && !link && !emailDomain && !memberful && <p className="text-start">With all of these off, only the people you invite can join.</p>}
     </section>
   );
 }
