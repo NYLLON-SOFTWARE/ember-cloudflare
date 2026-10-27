@@ -1123,6 +1123,8 @@ describe(feature("accounts.ways-to-join"), () => {
     expect(confirm).not.toHaveBeenCalled();
     await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, joinLink: false }));
     expect(screen.queryByRole("textbox", { name: "Share to invite more people" })).not.toBeInTheDocument();
+    // Every way is off now, which Who can join leaves unsaid, as the project's owner asked.
+    expect(screen.queryByText(/^With all of these off/)).not.toBeInTheDocument();
 
     await user.click(link);
     expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${JOIN_CODE}`);
