@@ -49,6 +49,7 @@ const asAdministrator: WorkspaceSettings = {
   email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: null },
   invitations: [],
   emailDomains: [],
+  addresses: { deployed: null, others: [] },
 };
 const asMember: WorkspaceSettings = { ...asAdministrator, canAdminister: false };
 
@@ -717,7 +718,11 @@ describe(feature("accounts.translation-buttons"), () => {
 });
 
 describe(feature("accounts.custom-domain"), () => {
-  const moved: WorkspaceSettings = { ...asAdministrator, account: { ...asAdministrator.account, customDomain: "chat.example.com" } };
+  const moved: WorkspaceSettings = {
+    ...asAdministrator,
+    account: { ...asAdministrator.account, customDomain: "chat.example.com" },
+    addresses: { deployed: location.host, others: ["old.example.com"] },
+  };
 
   it("gives administrators a Custom domain section, after Hide translation buttons, saying Changes saved.", async () => {
     serve(moved);
@@ -728,12 +733,18 @@ describe(feature("accounts.custom-domain"), () => {
     expect(following(screen.getByRole("button", { name: "Save changes" }), section)).toBe(true);
     expect(screen.getByRole("region", { name: "Basic community settings" })).toContainElement(section);
     expect(section).toHaveTextContent("Ember's address is chat.example.com.");
+    expect(section).toHaveTextContent("old.example.com still reaches Ember and sends people to chat.example.com");
 
-    await user.click(within(section).getByRole("button", { name: "Stop using it" }));
+    await user.click(within(section).getByRole("button", { name: `Go back to ${location.host}` }));
     expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
-    expect(saved()).toEqual([{ customDomain: null }]);
-    expect(onAccountChanged).toHaveBeenLastCalledWith(asAdministrator.account);
-    expect(section).toHaveTextContent(`People open Ember at ${location.host}.`);
+    expect(saved()).toEqual([{ customDomain: location.host }]);
+    expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, customDomain: location.host });
+    expect(section).toHaveTextContent(`Ember's address is ${location.host}. Other addresses send people here.`);
+    // The domain it left keeps reaching it, as the page's settings now say.
+    expect(within(within(section).getByRole("list", { name: "Other addresses that reach Ember" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      expect.stringMatching(/^chat\.example\.com still reaches Ember and sends people here/),
+      expect.stringMatching(/^old\.example\.com still reaches Ember and sends people here/),
+    ]);
   });
 
   it("isn't shown to members", async () => {

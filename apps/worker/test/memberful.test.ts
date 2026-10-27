@@ -429,7 +429,7 @@ describe(feature("auth.memberful-sign-in"), () => {
           return changeAccount(...args);
         });
 
-        const turningOn = workspace.changeAccount(adas!, { settings: { memberfulSignIn: true } });
+        const turningOn = workspace.changeAccount(adas!, { settings: { memberfulSignIn: true } }, "ember.test");
         await reached;
         const signingIn = workspace.signInGuest("Guest", guests!.tokenDigest, guests!.client);
         save();

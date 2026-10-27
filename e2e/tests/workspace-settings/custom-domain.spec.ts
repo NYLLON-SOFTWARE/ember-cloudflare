@@ -3,22 +3,24 @@ import type { Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
 import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
 
-// The second test server answers at 127.0.0.1, which can't be a custom domain, and at chat.localhost,
-// which can, as Chromium takes any name under localhost to this machine.
+// The second test server answers at 127.0.0.1, which can't be a custom domain, and stands in for the
+// workers.dev address a deploy gives Ember, and at chat.localhost, which can, as Chromium takes any name
+// under localhost to this machine.
 
 /** Stops Ember using a custom domain, from `page` wherever it's open, so the other specs find it at the server's own address. */
 const stopUsingDomain = (page: Page) =>
   page.evaluate(() => fetch("/api/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customDomain: null }) }));
 
 test.describe(feature("accounts.custom-domain"), () => {
-  test("the administrator gives Ember a custom domain, which pages then move to, and stops using it from the old address", async ({ page, baseURL }) => {
+  test("the administrator gives Ember a custom domain, which pages then move to, and goes back from the old address, which pages then move back to", async ({ page, baseURL }) => {
     const { port } = new URL(baseURL!);
+    const deployed = `127.0.0.1:${port}`;
     const domain = `chat.localhost:${port}`;
     await useOwnAddress(page);
     await page.goto("/account/edit");
     await signInAsAdministrator(page);
     const section = page.getByRole("region", { name: "Custom domain" });
-    await expect(section).toContainText(`People open Ember at 127.0.0.1:${port}.`);
+    await expect(section).toContainText(`People open Ember at ${deployed}.`);
 
     try {
       await section.getByRole("textbox", { name: "Domain" }).fill(domain);
@@ -39,10 +41,10 @@ test.describe(feature("accounts.custom-domain"), () => {
       await expect(sectionThere).toContainText(`You're on ${domain}.`);
       await sectionThere.getByRole("button", { name: "Use this address" }).click();
       await expect(there.getByRole("alert")).toHaveText("Changes saved.");
-      await expect(sectionThere).toContainText(`Ember's address is ${domain}.`);
+      await expect(sectionThere).toContainText(`Ember's address is ${domain}. Other addresses, ${deployed} included, send people here.`);
 
       // The tab left at the old address hears of it, and says so on the pages that would move.
-      await expect(section).toContainText(`Ember's address is ${domain}.`);
+      await expect(section).toContainText(`Ember's address is ${domain}. Other addresses, this one included, send people there.`);
       await expect(section.getByRole("button", { name: "Use this address" })).toHaveCount(0);
       await page.getByRole("link", { name: "Go Back" }).click();
       await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
@@ -63,16 +65,26 @@ test.describe(feature("accounts.custom-domain"), () => {
       await expect(opened).toHaveURL(`https://${domain}${room}?from=bookmark`);
       expect(await opened.evaluate(() => localStorage.getItem("ember:replacing-push"))).toBe("BOv7-moved_from");
 
-      // Workspace settings stay at the old address, from where the administrator stops using it.
+      // Workspace settings stay at the old address, from where the administrator goes back to it.
       await page.goto("/account/edit");
-      await expect(section.getByRole("button", { name: "Stop using it" })).toBeVisible();
       expect(page.url()).toBe(`${baseURL}/account/edit`);
-      await section.getByRole("button", { name: "Stop using it" }).click();
-      await expect(section).toContainText(`People open Ember at 127.0.0.1:${port}.`);
-      await expect(sectionThere).toContainText(`You're on ${domain}.`);
-      await opened.goto(`${baseURL}${room}`);
+      await section.getByRole("button", { name: `Go back to ${deployed}` }).click();
+      await expect(page.getByRole("alert")).toHaveText("Changes saved.");
+      await expect(section).toContainText(`Ember's address is ${deployed}. Other addresses send people here.`);
+      await expect(section.getByRole("textbox", { name: "Domain" })).toBeVisible();
+      // The domain it left reaches it until it's removed in Cloudflare, sending people back here.
+      const left = section.getByRole("list", { name: "Other addresses that reach Ember" });
+      await expect(left).toContainText(`${domain} still reaches Ember and sends people here until it's removed from the Worker in Cloudflare.`);
+      await expect(sectionThere).toContainText(`You're on ${domain}, which still reaches Ember and sends people there.`);
+      await opened.goto(`https://${domain}${room}?from=bookmark`);
+      await expect(opened).toHaveURL(`${baseURL}${room}?from=bookmark`);
       await expect(opened.getByRole("textbox", { name: "Write a message" })).toBeVisible();
-      expect(opened.url()).toBe(`${baseURL}${room}`);
+
+      // As with Check DNS, the Worker's own request doesn't reach the name under localhost, so its check
+      // finds the domain gone, as it would once it's removed from the Worker, and forgets it.
+      await left.getByRole("button", { name: `Check ${domain}` }).click();
+      await expect(section.getByRole("status")).toHaveText(`${domain} no longer reaches Ember.`);
+      await expect(left).toHaveCount(0);
     } finally {
       await stopUsingDomain(page);
     }

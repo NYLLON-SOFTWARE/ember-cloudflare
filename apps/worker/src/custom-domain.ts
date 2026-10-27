@@ -1,14 +1,19 @@
-import { canBeCustomDomain, NOT_A_CUSTOM_DOMAIN, type CustomDomainReach } from "@ember/protocol";
+import { canBeCustomDomain, isHost, type CustomDomainReach } from "@ember/protocol";
 import { toBase64url } from "./encoding";
 import type { Env } from "./env";
 import { urlOf } from "./request-url";
-import { workspace } from "./workspace";
+import { workspace, type Credentials } from "./workspace";
 
-// Ember's custom domain, which an administrator gives it in Workspace settings (`Account.customDomain`):
-// the address the app moves to from any other Ember answers at, and the one the bot API's links name.
+// Ember's address, which an administrator gives it in Workspace settings (`Account.customDomain`): a
+// custom domain, or where a deploy puts Ember once they go back there, the address the app moves to from
+// any other Ember answers at, and the one the bot API's links name.
 
-/** Why a custom domain is refused when it isn't the address the request came to. */
+/** Why an address is refused as Ember's when it isn't the one the request came to, nor where a deploy puts Ember. */
 export const NOT_THIS_ADDRESS = "Open Ember at that address to make it Ember's";
+
+/** Why Ember can't go back to `address`, where a deploy puts it, when a check finds it doesn't reach Ember there, as when its workers.dev address is off. */
+export const cantGoBackTo = (address: string) =>
+  `Ember doesn't answer at ${address} now, so it can't go back there. In Cloudflare, check that the Worker's workers.dev address is on, under Domains & Routes.`;
 
 /** Where a domain answers a check's probe, `/api/custom_domain_probes/<probe>`, if it reaches this Ember. */
 const PROBE_PREFIX = "/api/custom_domain_probes/";
@@ -19,15 +24,24 @@ export const PROBE_ANSWER_HEADER = "X-Ember-Probe";
 const CHECK_DEADLINE_MS = 10_000;
 
 /**
- * Why `request` can't give Ember the custom domain `customDomain`, or null when it can: only the address
- * the request came to, the one the page asking is open at, so that it's never a host that doesn't reach
- * this Worker, and never where a deploy or `wrangler dev` puts Ember. Null, for none, always can.
+ * Why `request` can't make `address` Ember's, or null when it can, so that Ember never sends people to a
+ * host that doesn't reach this Worker: it can be the address the request came to, the one the page
+ * asking is open at, or where a deploy puts Ember, as a page there told the Workspace, once a probe finds
+ * Ember answers there, which only an administrator's request, as `credentials` signs one in, sends. Null,
+ * for none, always can.
  */
-export function customDomainRefusal(customDomain: string | null | undefined, request: Request): string | null {
-  if (customDomain === undefined || customDomain === null) return null;
+export async function addressRefusal(address: string | null | undefined, request: Request, env: Env, credentials: Credentials): Promise<string | null> {
+  if (address === undefined || address === null || address === urlOf(request).host) return null;
+  const ember = workspace(env);
+  const [deployed, administrator] = await Promise.all([ember.deployedAddress(), ember.canAdminister(credentials)]);
+  if (address !== deployed || !administrator) return NOT_THIS_ADDRESS;
+  return (await reachOf(request, env, address)) === "ember" ? null : cantGoBackTo(address);
+}
+
+/** The address `request` came to, if it's where a deploy or `wrangler dev` puts Ember: its workers.dev address, or a local one. */
+export function deployedAddressOf(request: Request): string | null {
   const { host, hostname } = urlOf(request);
-  if (customDomain !== host) return NOT_THIS_ADDRESS;
-  return canBeCustomDomain(hostname) ? null : NOT_A_CUSTOM_DOMAIN;
+  return isHost(host) && !canBeCustomDomain(hostname) ? host : null;
 }
 
 /** The origin of Ember's address: its custom domain, by the scheme `request` came by, or the request's own origin while it has none. */

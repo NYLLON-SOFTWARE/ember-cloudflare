@@ -93,7 +93,7 @@ import { fileAddressOf, serveFile } from "./files/serving";
 import { pictureFormOf } from "./files/pictures";
 import { NO_STORAGE, startUpload, uploadPart, uploadPreview } from "./files/uploads";
 import { CSP_REPORT_PATH, cspReport } from "./csp";
-import { answerProbe, customDomainRefusal, originFor, probeOf, reachOf } from "./custom-domain";
+import { addressRefusal, answerProbe, deployedAddressOf, originFor, probeOf, reachOf } from "./custom-domain";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { invite, lookUpEmailLink, resendInvitation, revokeInvitation } from "./invitations";
@@ -212,7 +212,7 @@ async function signInGuest(given: unknown, request: Request, env: Env): Promise<
 async function bootstrap(request: Request, env: Env): Promise<Response> {
   const token = sessionToken(request);
   const [{ account, user, signInWithMemberful }, push] = await Promise.all([
-    workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null, memberfulKeysOf(env)?.site ?? null),
+    workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null, memberfulKeysOf(env)?.site ?? null, deployedAddressOf(request)),
     webPush(env),
   ]);
   const body: Bootstrap = {
@@ -325,18 +325,19 @@ async function regenerateJoinCode(request: Request, env: Env): Promise<Response>
 
 /**
  * Changes the workspace, as its settings save it. As in ember-rust, someone who isn't an administrator
- * hears so before anything they sent is checked (accounts.rs). A custom domain can only be the address
- * the request came to (`customDomainRefusal`), Memberful, or its Members only, can only be turned on
- * with the deployment's Memberful keys, and Email domain only with a domain to let in, while Ember can
- * send email. Turning any of them off always works.
+ * hears so before anything they sent is checked (accounts.rs). Ember's address can only be the one the
+ * request came to, or where a deploy puts Ember while it reaches it (`addressRefusal`), Memberful, or its
+ * Members only, can only be turned on with the deployment's Memberful keys, and Email domain only with a
+ * domain to let in, while Ember can send email. Turning any of them off always works.
  */
 async function changeAccount(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
   const changes = parseAccountChanges(await jsonBodyOf(request));
-  const refusal = typeof changes === "string" ? changes : (customDomainRefusal(changes.customDomain, request) ?? memberfulRefusal(changes.settings, env));
+  const refusal =
+    typeof changes === "string" ? changes : ((await addressRefusal(changes.customDomain, request, env, credentials)) ?? memberfulRefusal(changes.settings, env));
   // Changes that are refused change nothing, but who's asking is still checked first.
-  const account = await workspace(env).changeAccount(credentials, typeof changes === "string" || refusal ? {} : changes);
+  const account = await workspace(env).changeAccount(credentials, typeof changes === "string" || refusal ? {} : changes, urlOf(request).host);
   if (!account) return problem(401, "Not signed in");
   if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
   if (account === "conflict") return problem(422, OPEN_WITH_MEMBERFUL);
@@ -347,16 +348,21 @@ async function changeAccount(request: Request, env: Env): Promise<Response> {
 
 /**
  * Checks what a domain an administrator is making Ember's address reaches, as Workspace settings' Check
- * DNS asks, after who's asking, as changing the workspace does: this Ember, something else, or nothing yet.
+ * DNS asks, or one Ember moved away from, as its Check asks, after who's asking, as changing the
+ * workspace does: this Ember, something else, or nothing yet. One Ember moved away from that no longer
+ * reaches it is forgotten.
  */
 async function checkCustomDomain(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
-  const administrator = credentials && (await workspace(env).canAdminister(credentials));
+  const ember = workspace(env);
+  const administrator = credentials && (await ember.canAdminister(credentials));
   if (administrator === null) return problem(401, "Not signed in");
   if (!administrator) return problem(403, "Only administrators can change the workspace");
   const check = parseCustomDomainCheck(await jsonBodyOf(request));
   if (typeof check === "string") return problem(422, check);
-  return json({ reaches: await reachOf(request, env, check.domain) } satisfies CustomDomainCheck, { headers: { "Cache-Control": "no-store" } });
+  const reaches = await reachOf(request, env, check.domain);
+  if (reaches !== "ember") await ember.forgetOtherAddress(check.domain);
+  return json({ reaches } satisfies CustomDomainCheck, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** The workspace's custom CSS, for the Custom CSS page, which only administrators can open (custom_styles.rs). */

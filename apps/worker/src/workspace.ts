@@ -11,6 +11,7 @@ import {
   isRoomId,
   mailboxOf,
   NAVIGATION_SLOTS,
+  othersAfterMove,
   parseWorkspaceClientFrame,
   SIGN_UPS_PER_ADDRESS,
   SIGN_UPS_PER_HOUR,
@@ -594,11 +595,50 @@ export class Workspace extends DurableObject<Env> {
   /**
    * What the app asks first: the account, if it's set up, who `credentials` signs in, if anyone, and
    * whether the sign-in page offers Sign in with Memberful at `memberfulSite`, the deployment's Memberful
-   * site, or null without its keys (`offersMemberfulSignIn`).
+   * site, or null without its keys (`offersMemberfulSignIn`). A page opened at `deployedAddress`, where a
+   * deploy puts Ember, which it's null anywhere else, tells Ember where that is.
    */
-  async bootstrap(credentials: Credentials | null, memberfulSite: string | null): Promise<{ account: Account | null; user: Me | null; signInWithMemberful: boolean }> {
-    const [account, user, signInWithMemberful] = await Promise.all([this.account(), credentials && this.me(credentials), this.offersMemberfulSignIn(memberfulSite)]);
+  async bootstrap(
+    credentials: Credentials | null,
+    memberfulSite: string | null,
+    deployedAddress: string | null,
+  ): Promise<{ account: Account | null; user: Me | null; signInWithMemberful: boolean }> {
+    const [account, user, signInWithMemberful] = await Promise.all([
+      this.account(),
+      credentials && this.me(credentials),
+      this.offersMemberfulSignIn(memberfulSite),
+      deployedAddress && this.rememberDeployedAddress(deployedAddress).catch((error) => console.error("Could not remember where a deploy puts Ember", error)),
+    ]);
     return { account, user, signInWithMemberful };
+  }
+
+  /**
+   * Remembers `address` as where a deploy puts Ember, unless it's known already, as it is but once the
+   * Worker's workers.dev address changes. Pages don't show it, so it changes nothing they'd hear of.
+   */
+  private async rememberDeployedAddress(address: string): Promise<void> {
+    const known = await this.joinableAccount();
+    if (known === null || known.deployedAddress === address) return;
+    await this.oneAtATime(async () => {
+      const account = await this.joinableAccount();
+      if (account === null || account.deployedAddress === address) return;
+      await this.storeAccount({ ...account, deployedAddress: address }, () => this.store.rememberDeployedAddress(address));
+    });
+  }
+
+  /** Where a deploy puts Ember, as the latest page opened there told it, or null until one has. */
+  async deployedAddress(): Promise<string | null> {
+    return (await this.joinableAccount())?.deployedAddress ?? null;
+  }
+
+  /** Forgets `address` as a custom domain Ember moved away from, a check having found it no longer reaches Ember. */
+  async forgetOtherAddress(address: string): Promise<void> {
+    await this.oneAtATime(async () => {
+      const account = await this.joinableAccount();
+      if (!account?.otherAddresses.includes(address)) return;
+      const otherAddresses = account.otherAddresses.filter((other) => other !== address);
+      await this.storeAccount({ ...account, otherAddresses }, () => this.store.rememberOtherAddresses(otherAddresses));
+    });
   }
 
   /**
@@ -634,6 +674,7 @@ export class Workspace extends DurableObject<Env> {
       email: await this.emailSettings(account),
       invitations,
       emailDomains: canAdminister ? account.emailDomains : [],
+      addresses: canAdminister ? { deployed: account.deployedAddress, others: account.otherAddresses } : { deployed: null, others: [] },
     };
   }
 
@@ -643,23 +684,28 @@ export class Workspace extends DurableObject<Env> {
    * (accounts.rs), why it changes nothing, as `AccountRefusal` has it, or null without a valid session.
    * Members only turns Memberful on with it, and turning Memberful off turns Members only off.
    * Everyone's workspace sockets hear of a change, a new custom domain included, which tabs open at
-   * another address then point to.
+   * another address then point to. Moving to one, Ember remembers the custom domain it moves away from,
+   * and `host`, the address the change was asked at, as they reach it too (`othersAfterMove`).
    */
   async changeAccount(
     credentials: Credentials,
     { name, tagline, settings, customDomain, navigationIcons, emailFrom, emailDomains }: AccountChanges,
+    host: string,
   ): Promise<Account | AccountRefusal | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
       // As ember-rust's `Account::update` writes only what differs (account.rs).
       const { hideTranslationButtons, restrictRoomCreation, joinLink, openSignUp, emailDomainSignUp } = settings ?? {};
       const memberful = memberfulChange(account, settings ?? {});
       const icons = changedNavigationIcons(account.navigationIcons, navigationIcons ?? {});
+      const moving = customDomain !== undefined && customDomain !== account.customDomain;
+      const otherAddresses = moving ? othersAfterMove(account.otherAddresses, [account.customDomain, host], customDomain) : account.otherAddresses;
       const change: AccountChange = {
         ...(name !== undefined && name !== account.name && { name }),
         ...(tagline !== undefined && tagline !== account.tagline && { tagline }),
         ...(hideTranslationButtons !== undefined && hideTranslationButtons !== account.hideTranslationButtons && { hideTranslationButtons }),
         ...(restrictRoomCreation !== undefined && restrictRoomCreation !== account.restrictRoomCreation && { restrictRoomCreation }),
-        ...(customDomain !== undefined && customDomain !== account.customDomain && { customDomain }),
+        ...(moving && { customDomain }),
+        ...(!sameDomains(otherAddresses, account.otherAddresses) && { otherAddresses }),
         ...(joinLink !== undefined && joinLink !== account.joinLink && { joinLink }),
         ...(openSignUp !== undefined && openSignUp !== account.openSignUp && { openSignUp }),
         ...(memberful && { memberful }),
@@ -934,11 +980,16 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /** Saves the account as `account` with `save`, remembering it as that, changed now, once it's saved, and answering it. */
-  private async saveAccount(account: JoinableAccount, save: (now: string) => Promise<void>): Promise<JoinableAccount> {
+  private saveAccount(account: JoinableAccount, save: (now: string) => Promise<void>): Promise<JoinableAccount> {
     const now = new Date().toISOString();
+    return this.storeAccount({ ...account, updatedAt: now }, () => save(now));
+  }
+
+  /** Stores the account as `account` with `store`, remembering it as that once it's stored, and answering it. */
+  private async storeAccount(account: JoinableAccount, store: () => Promise<void>): Promise<JoinableAccount> {
     this.accountChanges++;
     try {
-      await save(now);
+      await store();
     } catch (error) {
       // On D1 a change can be saved and its answer lost, so the account is read again.
       this.knownAccount = null;
@@ -946,7 +997,7 @@ export class Workspace extends DurableObject<Env> {
     } finally {
       this.accountChanges++;
     }
-    return (this.knownAccount = { ...account, updatedAt: now });
+    return (this.knownAccount = account);
   }
 
   /**
@@ -976,7 +1027,17 @@ export class Workspace extends DurableObject<Env> {
       if (await this.store.account()) return null;
       throw error;
     }
-    this.knownAccount = { name: account.name, joinCode: account.joinCode, ...NEW_ACCOUNT_LOOKS, updatedAt: now, storedLogo: null, emailFrom: null, resendApiKey: null };
+    this.knownAccount = {
+      name: account.name,
+      joinCode: account.joinCode,
+      ...NEW_ACCOUNT_LOOKS,
+      updatedAt: now,
+      storedLogo: null,
+      emailFrom: null,
+      resendApiKey: null,
+      deployedAddress: null,
+      otherAddresses: [],
+    };
     this.sessions.remember(tokenDigest, session);
     return { user: meOf(session), room };
   }

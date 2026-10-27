@@ -10,6 +10,7 @@ import {
   EMAIL_DOMAINS_REFUSED,
   EMAIL_FROM_REFUSED,
   EMAIL_SIGN_UP_PATH,
+  MAX_OTHER_ADDRESSES,
   emailAddressesIn,
   emailDomainOf,
   emailSignUpLink,
@@ -54,6 +55,7 @@ import {
   NOT_A_CUSTOM_DOMAIN,
   NOT_AN_EMAIL_ADDRESS,
   onlyAddressesAt,
+  othersAfterMove,
   parseAccountChanges,
   parseClientFrame,
   parseCustomDomainCheck,
@@ -523,6 +525,20 @@ describe(feature("accounts.custom-domain"), () => {
     for (const domain of ["ember.kro.workers.dev", "localhost:8787", "127.0.0.1"]) expect(parseCustomDomainCheck({ domain })).toBe(NOT_A_CUSTOM_DOMAIN);
     for (const body of [{ domain: "https://chat.example.com" }, { domain: "Chat.Example.com" }, { domain: "chat.example.com:99999" }, { domain: "[::1]" }, { domain: 42 }, {}, null, ["chat.example.com"]])
       expect(parseCustomDomainCheck(body)).toBe(CUSTOM_DOMAIN_NOT_A_HOST);
+  });
+
+  it("remembers the custom domains Ember moves away from, newest first, until it moves to one again", () => {
+    // Going back from chat.example.com, at the workers.dev address, which always reaches Ember.
+    expect(othersAfterMove([], ["chat.example.com", "ember.kro.workers.dev"], "ember.kro.workers.dev")).toEqual(["chat.example.com"]);
+    // Asked at an older domain, which reaches it too.
+    expect(othersAfterMove(["old.example.com"], ["chat.example.com", "team.example.com"], "ember.kro.workers.dev")).toEqual(["chat.example.com", "team.example.com", "old.example.com"]);
+    expect(othersAfterMove(["chat.example.com", "old.example.com"], ["ember.kro.workers.dev", "chat.example.com"], "chat.example.com")).toEqual(["old.example.com"]);
+    // From no address of its own, or to none, as Stop using it leaves it.
+    expect(othersAfterMove([], [null, "chat.example.com"], "ember.kro.workers.dev")).toEqual(["chat.example.com"]);
+    expect(othersAfterMove(["chat.example.com"], ["team.example.com", "localhost:8787"], null)).toEqual(["team.example.com", "chat.example.com"]);
+    // Only the latest few.
+    const older = ["a", "b", "c", "d", "e"].map((name) => `${name}.example.com`);
+    expect(othersAfterMove(older, ["chat.example.com"], "ember.kro.workers.dev")).toEqual(["chat.example.com", ...older.slice(0, MAX_OTHER_ADDRESSES - 1)]);
   });
 });
 
