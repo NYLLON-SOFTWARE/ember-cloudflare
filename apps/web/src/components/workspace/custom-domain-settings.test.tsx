@@ -303,6 +303,16 @@ describe(feature("accounts.custom-domain"), () => {
     }
     expect(section()).toHaveTextContent("Keeping DNS where it is takes another domain that's already on Cloudflare.");
 
+    // Fixing a typo in the domain changes the fallback origin, which Open Cloudflare hasn't copied.
+    await user.clear(onCloudflare);
+    await user.type(onCloudflare, "example.ne");
+    const [, misspelled] = within(stepsShown()).getAllByRole("listitem");
+    await follow(user, within(misspelled!).getByRole("link", { name: "Open Cloudflare" }));
+    expect(within(misspelled!).getByRole("status")).toHaveTextContent("Copied ember-saas.example.ne.");
+    await user.type(onCloudflare, "t");
+    expect(misspelled).toHaveTextContent("make ember-saas.example.net the fallback origin");
+    expect(within(misspelled!).getByRole("status")).toHaveTextContent(/^$/);
+
     // Taken as typed, as no list of the second levels countries register domains under is whole.
     await user.clear(onCloudflare);
     await user.type(onCloudflare, "example.ne.jp");

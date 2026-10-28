@@ -758,16 +758,17 @@ function RecordToAdd({ type, name, value }: { type: string; name: string; value:
 
 /**
  * A link that opens Cloudflare's dashboard at `href` in a new tab, copying `copying`, where given, for the
- * person to paste there, and says it's copied. A clipboard that refuses, as on a page that isn't served
- * securely, says nothing, and the step names what to paste anyway.
+ * person to paste there, and says it's copied while `copying` is still what it copied, since a domain
+ * typed into the steps can change it. A clipboard that refuses, as on a page that isn't served securely,
+ * says nothing, and the step names what to paste anyway.
  */
 function OpenCloudflare({ href, copying }: { href: string; copying?: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
   const mounted = useMounted();
   const copy = () => {
     if (copying === undefined) return;
     navigator.clipboard?.writeText(copying).then(
-      () => mounted.current && setCopied(true),
+      () => mounted.current && setCopied(copying),
       () => {},
     );
   };
@@ -779,7 +780,7 @@ function OpenCloudflare({ href, copying }: { href: string; copying?: string }) {
       </a>
       {copying !== undefined && (
         <p role="status" className={cn(NOTE, "min-w-0 flex-1 basis-[12em] wrap-anywhere")}>
-          {copied && `Copied ${copying}.`}
+          {copied === copying && `Copied ${copying}.`}
         </p>
       )}
     </div>
