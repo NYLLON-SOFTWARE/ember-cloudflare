@@ -244,7 +244,7 @@ describe(feature("accounts.custom-domain"), () => {
       ["namecheap", "At Namecheap, open Domain List and choose Manage beside example.com. Under Nameservers, choose Custom DNS, enter Cloudflare's two nameservers, and save with the check mark."],
       ["squarespace", "At Squarespace, open Domains, choose example.com, then DNS > Domain Nameservers > Use Custom Nameservers, and enter Cloudflare's two nameservers."],
       ["porkbun", "At Porkbun, open Domain Management, then Details beside example.com, and edit Nameservers. Replace them with Cloudflare's two."],
-      ["route53", "In the Route 53 console, open Registered domains, choose example.com, then Actions > Edit name servers, and replace them with Cloudflare's two."],
+      ["route53", "Where you registered example.com, replace its nameservers with Cloudflare's two. If that's Route 53, open Registered domains in its console, choose example.com, then Actions > Edit name servers."],
       ["hover", "At Hover, choose example.com, then Edit beside Nameservers, and enter Cloudflare's two nameservers."],
       ["ionos", "At IONOS, choose the gear beside example.com under Actions, then Name Server > Use Custom Name Servers, and enter Cloudflare's two nameservers."],
       ["other", "Where you registered example.com, replace its nameservers with Cloudflare's two."],

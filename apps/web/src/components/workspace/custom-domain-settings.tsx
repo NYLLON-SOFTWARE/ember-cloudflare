@@ -92,9 +92,11 @@ const NAMESERVERS_AT: Record<Exclude<DnsProvider, "cloudflare">, (zone: ReactNod
       At Porkbun, open <em>Domain Management</em>, then <em>Details</em> beside {zone}, and edit <em>Nameservers</em>. Replace them with Cloudflare's two.
     </>
   ),
+  // Route 53 serves the DNS of many domains registered elsewhere, whose nameservers change there.
   route53: (zone) => (
     <>
-      In the Route 53 console, open <em>Registered domains</em>, choose {zone}, then <em>Actions &gt; Edit name servers</em>, and replace them with Cloudflare's two.
+      Where you registered {zone}, replace its nameservers with Cloudflare's two. If that's Route 53, open <em>Registered domains</em> in its console, choose {zone}, then{" "}
+      <em>Actions &gt; Edit name servers</em>.
     </>
   ),
   hover: (zone) => (
