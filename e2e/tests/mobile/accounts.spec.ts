@@ -79,19 +79,30 @@ test("an administrator's ways to join, with Open's sign-up link, fit the phone",
 
 test("an administrator's custom domain steps, for a domain at another provider, fit the phone", async ({ page, screenIsFine }) => {
   await useOwnAddress(page);
-  // As Cloudflare's resolver finds a domain whose DNS is at GoDaddy, whose steps are the most.
+  // As Cloudflare's resolver finds a domain whose DNS is at GoDaddy, whose steps to keep it there are the most.
   await page.route("**/api/account/custom_domain_lookups", (route) => route.fulfill({ json: { zone: "example.com", provider: "godaddy" } }));
   await page.goto("/account/edit");
   await signInAsAdministrator(page);
   const section = page.getByRole("region", { name: "Custom domain" });
   await section.getByRole("textbox", { name: "Domain" }).fill("chat.example.com");
   await section.getByRole("button", { name: "Set up" }).tap();
+  await section.getByRole("textbox", { name: "Domain on Cloudflare" }).fill("example.net");
   const steps = section.getByRole("list", { name: "Steps to make chat.example.com Ember's address" });
-  await expect(steps.getByRole("listitem")).toHaveCount(4);
-  await section.getByRole("combobox", { name: "DNS provider" }).scrollIntoViewIfNeeded();
+  await expect(steps.getByRole("listitem")).toHaveCount(5);
+  const provider = section.getByRole("combobox", { name: "DNS provider" });
+  await provider.scrollIntoViewIfNeeded();
   await screenIsFine({ denseTargets: [SWITCHES] });
 
+  // The longest record, to add at GoDaddy.
+  await steps.getByRole("button", { name: "Copy ember-saas.example.net" }).scrollIntoViewIfNeeded();
+  await screenIsFine({ denseTargets: [SWITCHES] });
   await steps.getByRole("button", { name: "Use chat.example.com" }).scrollIntoViewIfNeeded();
+  await screenIsFine({ denseTargets: [SWITCHES] });
+
+  // Or moving its DNS to Cloudflare.
+  await provider.selectOption("cloudflare");
+  await expect(steps.getByRole("listitem")).toHaveCount(4);
+  await provider.scrollIntoViewIfNeeded();
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 

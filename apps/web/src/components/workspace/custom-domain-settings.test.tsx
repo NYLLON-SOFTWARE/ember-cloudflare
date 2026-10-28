@@ -16,7 +16,7 @@ import { FlashProvider } from "@/components/flash";
 import { AccountContext } from "@/hooks/use-account";
 import { ApiError } from "@/lib/api";
 import { loadPage } from "@/lib/page";
-import { CLOUDFLARE_DOMAINS, CustomDomainSettings, WORKERS_DASHBOARD, workerDomains } from "./custom-domain-settings";
+import { CLOUDFLARE_CUSTOM_HOSTNAMES, CLOUDFLARE_DNS_RECORDS, CLOUDFLARE_DOMAINS, CustomDomainSettings, WORKERS_DASHBOARD, workerDomains } from "./custom-domain-settings";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 
@@ -117,12 +117,24 @@ const section = () => screen.getByRole("region", { name: "Custom domain" });
 /** The other addresses that reach Ember, as the section lists them. */
 const otherAddresses = () => screen.queryByRole("list", { name: "Other addresses that reach Ember" });
 
-/** Types `domain` as the domain to give Ember and sets it up, which looks its DNS up, returning the steps then shown. */
-async function setUp(user: UserEvent, domain: string) {
+/** Types `domain` as the domain to give Ember and sets it up, which looks its DNS up, returning the DNS provider menu then shown. */
+async function lookUp(user: UserEvent, domain: string) {
   await user.type(screen.getByRole("textbox", { name: "Domain" }), domain);
   await user.click(screen.getByRole("button", { name: "Set up" }));
-  return screen.findByRole("list", { name: /^Steps to make / });
+  return screen.findByRole("combobox", { name: "DNS provider" });
 }
+
+/** The steps shown to make a domain Ember's address. */
+const stepsShown = () => screen.getByRole("list", { name: /^Steps to make / });
+
+/** Sets `domain` up as `lookUp` does, returning the steps then shown, as they are where its DNS is on Cloudflare. */
+async function setUp(user: UserEvent, domain: string) {
+  await lookUp(user, domain);
+  return stepsShown();
+}
+
+/** The parts of the DNS record `step` says to add, by what each is called. */
+const recordIn = (step: HTMLElement) => Object.fromEntries(within(step).getAllByRole("term").map((term) => [term.textContent, term.nextElementSibling?.querySelector("code")?.textContent]));
 
 /** Clicks `link`, which opens a new tab, as someone would, but goes nowhere, as jsdom can't. */
 async function follow(user: UserEvent, link: HTMLElement) {
@@ -218,12 +230,109 @@ describe(feature("accounts.custom-domain"), () => {
     expect(within(steps).getByRole("button", { name: "Use chat.localhost:8787" })).toBeInTheDocument();
   });
 
-  it("starts at the provider DNS says has the domain, saying where its nameservers change, and at any other provider chosen", async () => {
+  it("starts at the provider DNS says has the domain, keeping its DNS there through another domain on Cloudflare", async () => {
     serve({ lookup: { zone: "example.com", provider: "godaddy" } });
     const { user } = showSection(settingsAt(DEPLOYED));
-    const steps = await setUp(user, "chat.example.com");
-    const provider = screen.getByRole("combobox", { name: "DNS provider" });
+    const provider = await lookUp(user, "chat.example.com");
     expect(provider).toHaveValue("godaddy");
+    expect(section()).toHaveTextContent("Keeping DNS at GoDaddy takes another domain that's already on Cloudflare.");
+    const onCloudflare = screen.getByRole("textbox", { name: "Domain on Cloudflare" });
+    expect(onCloudflare).toHaveAttribute("placeholder", "example.net");
+    expect(onCloudflare).toHaveAccessibleDescription("No domain on Cloudflare? Choose Cloudflare above to move example.com's DNS there instead.");
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    // The domain's own zone, or a name in it, can't send it on: its DNS is at GoDaddy.
+    for (const typed of ["example.com", "chat.example.com"]) {
+      await user.clear(onCloudflare);
+      await user.type(onCloudflare, typed);
+      expect(onCloudflare, typed).toHaveAccessibleDescription("Give a domain other than example.com.");
+      expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    }
+
+    // As pasted from the address bar.
+    await user.clear(onCloudflare);
+    await user.type(onCloudflare, " https://Example.net/ ");
+    expect(onCloudflare).not.toHaveAttribute("aria-describedby");
+    const steps = stepsShown();
+    expect(steps).toHaveAccessibleName("Steps to make chat.example.com Ember's address");
+    const [origin, hostnames, routes, record, use] = within(steps).getAllByRole("listitem");
+    expect(within(steps).getAllByRole("listitem")).toHaveLength(5);
+    expect(origin).toHaveTextContent(/^In Cloudflare, add this record to example\.net, proxied:/);
+    expect(recordIn(origin!)).toEqual({ Type: "AAAA", Name: "ember-saas", Value: "100::" });
+    expect(within(origin!).getByRole("link", { name: "Open Cloudflare" })).toHaveAttribute("href", CLOUDFLARE_DNS_RECORDS);
+    // Its record has buttons that copy each part, so the link copies nothing.
+    expect(within(origin!).queryByRole("status")).not.toBeInTheDocument();
+    expect(hostnames).toHaveTextContent(
+      /^Under Custom Hostnames, enable Cloudflare for SaaS \(it asks for a card, but 100 domains are free\), and make ember-saas\.example\.net the fallback origin unless it has one\. Then add chat\.example\.com with HTTP validation\.Open Cloudflare$/,
+    );
+    const open = within(hostnames!).getByRole("link", { name: "Open Cloudflare" });
+    expect(open).toHaveAttribute("href", CLOUDFLARE_CUSTOM_HOSTNAMES);
+    expect(open).toHaveAttribute("target", "_blank");
+    expect(routes).toHaveTextContent(
+      /^Under Workers Routes, route chat\.example\.com\/\* to ember-production, and chat\.example\.com\/\.well-known\/\* to None, so Cloudflare can get it a certificate\.$/,
+    );
+    expect(record).toHaveTextContent(/^At GoDaddy, open Domain Portfolio, choose example\.com, then DNS > Add New Record:/);
+    expect(recordIn(record!)).toEqual({ Type: "CNAME", Name: "chat", Value: "ember-saas.example.net" });
+    expect(use).toHaveTextContent("Everyone signs in again there.");
+
+    // Opening Custom Hostnames copies the fallback origin to paste there, and a record's buttons copy its parts.
+    await follow(user, open);
+    expect(await navigator.clipboard.readText()).toBe("ember-saas.example.net");
+    expect(within(hostnames!).getByRole("status")).toHaveTextContent("Copied ember-saas.example.net.");
+    for (const [step, part] of [
+      [origin, "ember-saas"],
+      [origin, "100::"],
+      [record, "chat"],
+      [record, "ember-saas.example.net"],
+    ] as const) {
+      await user.click(within(step!).getByRole("button", { name: `Copy ${part}` }));
+      expect(await navigator.clipboard.readText()).toBe(part);
+    }
+
+    // Each provider adds a record its own way.
+    for (const [chosen, said] of [
+      ["namecheap", "At Namecheap, open Domain List and choose Manage beside example.com. Under Advanced DNS, choose Add New Record:"],
+      ["squarespace", "At Squarespace, open Domains, choose example.com, then DNS Settings, and under Custom records, Add record:"],
+      ["porkbun", "At Porkbun, open Domain Management, then DNS beside example.com, and add:"],
+      ["route53", "In Route 53's console, open Hosted zones, choose example.com, then Create record:"],
+      ["hover", "At Hover, choose example.com, then DNS > Add a record:"],
+      ["ionos", "At IONOS, choose the gear beside example.com under Actions, then DNS > Add record:"],
+      ["other", "Where example.com's DNS is, add:"],
+    ] as const) {
+      await user.selectOptions(provider, chosen);
+      expect(within(steps).getAllByRole("listitem")[3], chosen).toHaveTextContent(said);
+    }
+    expect(section()).toHaveTextContent("Keeping DNS where it is takes another domain that's already on Cloudflare.");
+
+    // Fixing a typo in the domain changes the fallback origin, which Open Cloudflare hasn't copied.
+    await user.clear(onCloudflare);
+    await user.type(onCloudflare, "example.ne");
+    const [, misspelled] = within(stepsShown()).getAllByRole("listitem");
+    await follow(user, within(misspelled!).getByRole("link", { name: "Open Cloudflare" }));
+    expect(within(misspelled!).getByRole("status")).toHaveTextContent("Copied ember-saas.example.ne.");
+    await user.type(onCloudflare, "t");
+    expect(misspelled).toHaveTextContent("make ember-saas.example.net the fallback origin");
+    expect(within(misspelled!).getByRole("status")).toHaveTextContent(/^$/);
+
+    // Taken as typed, as no list of the second levels countries register domains under is whole.
+    await user.clear(onCloudflare);
+    await user.type(onCloudflare, "example.ne.jp");
+    const retyped = within(stepsShown()).getAllByRole("listitem");
+    expect(retyped[0]).toHaveTextContent(/^In Cloudflare, add this record to example\.ne\.jp, proxied:/);
+    expect(retyped[1]).toHaveTextContent("make ember-saas.example.ne.jp the fallback origin unless it has one.");
+    expect(recordIn(retyped[3]!)).toEqual({ Type: "CNAME", Name: "chat", Value: "ember-saas.example.ne.jp" });
+
+    await user.click(within(retyped[4]!).getByRole("button", { name: "Use chat.example.com" }));
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith(settingsAt("chat.example.com")));
+    expect(saved()).toEqual([{ customDomain: "chat.example.com" }]);
+  });
+
+  it("moves the domain's DNS to Cloudflare from the provider DNS says has it, once Cloudflare is chosen", async () => {
+    const lookup: CustomDomainLookup = { zone: "example.com", provider: "godaddy" };
+    serve({ lookup });
+    const { user } = showSection(settingsAt(DEPLOYED));
+    await user.selectOptions(await lookUp(user, "chat.example.com"), "cloudflare");
+    expect(section()).toHaveTextContent("This moves example.com's DNS to Cloudflare, which copies its records.");
+    const steps = stepsShown();
     const [onboard, nameservers, cloudflare, use] = within(steps).getAllByRole("listitem");
     expect(within(steps).getAllByRole("listitem")).toHaveLength(4);
     expect(onboard).toHaveTextContent(/^Open Cloudflare, choose Onboard a domain, and paste example\.com\.Open Cloudflare$/);
@@ -240,50 +349,79 @@ describe(feature("accounts.custom-domain"), () => {
     expect(await navigator.clipboard.readText()).toBe("example.com");
     expect(within(onboard!).getByRole("status")).toHaveTextContent("Copied example.com.");
 
-    for (const [chosen, said] of [
+    // Each provider DNS can find changes nameservers its own way.
+    const field = screen.getByRole("textbox", { name: "Domain" });
+    for (const [found, said] of [
       ["namecheap", "At Namecheap, open Domain List and choose Manage beside example.com. Under Nameservers, choose Custom DNS, enter Cloudflare's two nameservers, and save with the check mark."],
-      ["squarespace", "At Squarespace, open Domains, choose example.com, then DNS > Domain Nameservers > Use Custom Nameservers, and enter Cloudflare's two nameservers."],
       ["porkbun", "At Porkbun, open Domain Management, then Details beside example.com, and edit Nameservers. Replace them with Cloudflare's two."],
       ["route53", "Where you registered example.com, replace its nameservers with Cloudflare's two. If that's Route 53, open Registered domains in its console, choose example.com, then Actions > Edit name servers."],
       ["hover", "At Hover, choose example.com, then Edit beside Nameservers, and enter Cloudflare's two nameservers."],
       ["ionos", "At IONOS, choose the gear beside example.com under Actions, then Name Server > Use Custom Name Servers, and enter Cloudflare's two nameservers."],
       ["other", "Where you registered example.com, replace its nameservers with Cloudflare's two."],
     ] as const) {
-      await user.selectOptions(provider, chosen);
-      expect(within(steps).getAllByRole("listitem")[1]).toHaveTextContent(said);
+      lookup.provider = found;
+      await user.clear(field);
+      await user.selectOptions(await lookUp(user, "chat.example.com"), "cloudflare");
+      expect(within(stepsShown()).getAllByRole("listitem")[1], found).toHaveTextContent(said);
     }
-    // At Cloudflare already, only the Worker's step is left.
-    await user.selectOptions(provider, "cloudflare");
-    expect(within(steps).getAllByRole("listitem")).toHaveLength(2);
-    expect(within(steps).getAllByRole("listitem")[0]).toHaveTextContent(/^Open Cloudflare, choose Add Domain/);
+
+    // Already at Cloudflare, only the Worker's step is left.
+    lookup.provider = "cloudflare";
+    await user.clear(field);
+    expect(await lookUp(user, "chat.example.com")).toHaveValue("cloudflare");
+    expect(section()).not.toHaveTextContent("This moves");
+    expect(within(stepsShown()).getAllByRole("listitem")).toHaveLength(2);
   });
 
   it("names the domain it was likely registered as, and starts at Cloudflare, where DNS doesn't say", async () => {
     serve({ lookup: { status: 500, error: "Internal Server Error" } });
     const { user, onFailed } = showSection(settingsAt(DEPLOYED));
-    const steps = await setUp(user, "chat.example.co.uk");
-    const provider = screen.getByRole("combobox", { name: "DNS provider" });
+    const provider = await lookUp(user, "chat.example.co.uk");
     expect(provider).toHaveValue("cloudflare");
-    await user.selectOptions(provider, "other");
-    const [onboard, nameservers] = within(steps).getAllByRole("listitem");
-    expect(onboard).toHaveTextContent("paste example.co.uk.");
-    expect(nameservers).toHaveTextContent("Where you registered example.co.uk, replace its nameservers with Cloudflare's two.");
+    // Nothing says where its DNS is, so there's no move to make.
+    expect(section()).not.toHaveTextContent("This moves");
+    expect(within(stepsShown()).getAllByRole("listitem")[0]).toHaveTextContent(/^Open Cloudflare, choose Add Domain, and paste chat\.example\.co\.uk\./);
     // Failing to look it up says no more than DNS not answering.
     expect(onFailed).not.toHaveBeenCalled();
 
-    // Its last two labels, or three under a country's common second level.
+    // Keeping its DNS elsewhere adds a record to the domain it was likely registered as: its last two
+    // labels, or three under a country's common second level.
     const field = screen.getByRole("textbox", { name: "Domain" });
-    for (const [domain, registered] of [
-      ["example.co.uk", "example.co.uk"],
-      ["chat.team.example.com", "example.com"],
-      ["example.com", "example.com"],
-      ["chat.example.io", "example.io"],
+    for (const [domain, registered, name] of [
+      ["chat.example.co.uk", "example.co.uk", "chat"],
+      ["chat.team.example.com", "example.com", "chat.team"],
+      ["chat.example.io", "example.io", "chat"],
     ]) {
       await user.clear(field);
-      const shown = await setUp(user, domain!);
-      await user.selectOptions(screen.getByRole("combobox", { name: "DNS provider" }), "other");
-      expect(within(shown).getAllByRole("listitem")[0], domain).toHaveTextContent(`Open Cloudflare, choose Onboard a domain, and paste ${registered}.`);
+      await user.selectOptions(await lookUp(user, domain!), "other");
+      await user.type(screen.getByRole("textbox", { name: "Domain on Cloudflare" }), "example.net");
+      const record = within(stepsShown()).getAllByRole("listitem")[3]!;
+      expect(record, domain).toHaveTextContent(`Where ${registered}'s DNS is, add:`);
+      expect(recordIn(record), domain).toEqual({ Type: "CNAME", Name: name, Value: "ember-saas.example.net" });
     }
+    // A record for the domain itself can't be a CNAME, so keeping its DNS elsewhere takes a name under it.
+    for (const domain of ["example.co.uk", "example.com"]) {
+      await user.clear(field);
+      await user.selectOptions(await lookUp(user, domain), "other");
+      expect(section(), domain).toHaveTextContent(
+        `Keeping DNS where it is takes a name under ${domain}, such as chat.${domain}. Or choose Cloudflare above to move ${domain}'s DNS there instead.`,
+      );
+      expect(screen.queryByRole("textbox", { name: "Domain on Cloudflare" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    }
+  });
+
+  it("routes a domain kept at another provider to the Worker that runs Ember, where it isn't named, and gives Cloudflare the domain without its port", async () => {
+    serve({ lookup: { zone: "example.com", provider: "namecheap" } });
+    const { user } = showSection("http://localhost:8787/account/edit");
+    await lookUp(user, "chat.example.com:8443");
+    await user.type(screen.getByRole("textbox", { name: "Domain on Cloudflare" }), "example.net");
+    const steps = stepsShown();
+    expect(steps).toHaveAccessibleName("Steps to make chat.example.com:8443 Ember's address");
+    const [, hostnames, routes] = within(steps).getAllByRole("listitem");
+    expect(hostnames).toHaveTextContent("Then add chat.example.com with HTTP validation.");
+    expect(routes).toHaveTextContent("route chat.example.com/* to the Worker that runs Ember, and chat.example.com/.well-known/* to None");
+    expect(within(steps).getByRole("button", { name: "Use chat.example.com:8443" })).toBeInTheDocument();
   });
 
   it("shows only the latest lookup's answer, though an earlier one was for the same domain", async () => {

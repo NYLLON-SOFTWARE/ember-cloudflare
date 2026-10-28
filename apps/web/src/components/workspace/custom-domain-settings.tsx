@@ -20,15 +20,17 @@ import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, changeAccount, checkCustomDomain, fetchWorkspaceSettings, isSignedOut, lookUpCustomDomain } from "@/lib/api";
 import { moveTo } from "@/lib/custom-domain";
 import { cn } from "@/lib/utils";
+import { CopyButton, ROUND_BUTTON } from "./link-buttons";
 
 // This port's own Custom domain section of workspace settings (`accounts.custom-domain`), where ember-rust's
 // address is its installer's `--domain`. Ember holds no Cloudflare token, so the administrator adds the
-// domain to the Worker in Cloudflare's dashboard, which the section opens with the domain copied to paste
-// there, after moving the domain's DNS to Cloudflare from the provider public DNS says has it. Use then
-// makes the domain Ember's address, once a check finds it reaches Ember, and goes there. Going back makes
-// the Worker's workers.dev address Ember's again. A domain Ember moves away from keeps reaching it,
-// sending people on, until it's removed in Cloudflare, so the section names it until a check finds it
-// gone. Styled as the Rooms section is.
+// domain in Cloudflare's dashboard, which the section opens with what to paste there copied: to the Worker,
+// where the domain's DNS is on Cloudflare or moves there from the provider public DNS says has it, or, to
+// keep the DNS at that provider, as a custom hostname of another domain already on Cloudflare (Cloudflare
+// for SaaS), with the one record to add at the provider. Use then makes the domain Ember's address, once
+// a check finds it reaches Ember, and goes there. Going back makes the Worker's workers.dev address
+// Ember's again. A domain Ember moves away from keeps reaching it, sending people on, until it's removed
+// in Cloudflare, so the section names it until a check finds it gone. Styled as the Rooms section is.
 
 /** Where the Cloudflare dashboard lists an account's Workers, whichever account the person picks. */
 export const WORKERS_DASHBOARD = "https://dash.cloudflare.com/?to=/:account/workers-and-pages";
@@ -38,6 +40,19 @@ export const workerDomains = (worker: string) => `https://dash.cloudflare.com/?t
 
 /** Where the Cloudflare dashboard lists an account's domains, whose Onboard a domain moves a domain's DNS to Cloudflare. */
 export const CLOUDFLARE_DOMAINS = "https://dash.cloudflare.com/?to=/:account/domains/overview";
+
+/** Where the Cloudflare dashboard lists the DNS records of a domain the person picks. */
+export const CLOUDFLARE_DNS_RECORDS = "https://dash.cloudflare.com/?to=/:account/:zone/dns/records";
+
+/** Where the Cloudflare dashboard shows the Custom Hostnames, Cloudflare for SaaS's page, of a domain the person picks. */
+export const CLOUDFLARE_CUSTOM_HOSTNAMES = "https://dash.cloudflare.com/?to=/:account/:zone/ssl-tls/custom-hostnames";
+
+/**
+ * The name of the record a domain on Cloudflare takes other domains to Ember by, as Cloudflare for SaaS's
+ * fallback origin: an AAAA record for 100::, which goes nowhere, as Cloudflare's guide to a Worker as the
+ * fallback origin has it, and as the README names it.
+ */
+const SAAS_ORIGIN = "ember-saas";
 
 /** A workers.dev address, `<worker>.<subdomain>.workers.dev`: the Worker's name, then its account's subdomain. */
 const WORKERS_DEV = /^([a-z0-9-]+)\.[a-z0-9-]+\.workers\.dev$/;
@@ -110,6 +125,46 @@ const NAMESERVERS_AT: Record<Exclude<DnsProvider, "cloudflare">, (zone: ReactNod
     </>
   ),
   other: (zone) => <>Where you registered {zone}, replace its nameservers with Cloudflare's two.</>,
+};
+
+/** Where each provider but Cloudflare adds a record to `zone`, in the words of the provider's own help. */
+const RECORD_AT: Record<Exclude<DnsProvider, "cloudflare">, (zone: ReactNode) => ReactNode> = {
+  godaddy: (zone) => (
+    <>
+      At GoDaddy, open <em>Domain Portfolio</em>, choose {zone}, then <em>DNS &gt; Add New Record</em>:
+    </>
+  ),
+  namecheap: (zone) => (
+    <>
+      At Namecheap, open <em>Domain List</em> and choose <em>Manage</em> beside {zone}. Under <em>Advanced DNS</em>, choose <em>Add New Record</em>:
+    </>
+  ),
+  squarespace: (zone) => (
+    <>
+      At Squarespace, open <em>Domains</em>, choose {zone}, then <em>DNS Settings</em>, and under <em>Custom records</em>, <em>Add record</em>:
+    </>
+  ),
+  porkbun: (zone) => (
+    <>
+      At Porkbun, open <em>Domain Management</em>, then <em>DNS</em> beside {zone}, and add:
+    </>
+  ),
+  route53: (zone) => (
+    <>
+      In Route 53's console, open <em>Hosted zones</em>, choose {zone}, then <em>Create record</em>:
+    </>
+  ),
+  hover: (zone) => (
+    <>
+      At Hover, choose {zone}, then <em>DNS &gt; Add a record</em>:
+    </>
+  ),
+  ionos: (zone) => (
+    <>
+      At IONOS, choose the gear beside {zone} under <em>Actions</em>, then <em>DNS &gt; Add record</em>:
+    </>
+  ),
+  other: (zone) => <>Where {zone}'s DNS is, add:</>,
 };
 
 /** How a change, or a check, changes the addresses Ember knows reach it. */
@@ -465,18 +520,30 @@ function SetUp({ autoFocus, worker, changing, use, onFailed }: { autoFocus: bool
   );
 }
 
+/** What the steps to make a domain Ember's address need, besides the provider they're for. */
+interface StepsFor {
+  /** The domain, as Use takes it, with any port. */
+  domain: string;
+  /** Its host name, as Cloudflare and DNS take it. */
+  hostname: string;
+  /** The zone it's in, as DNS said, or the domain it was most likely registered as. */
+  zone: string;
+  /** The name of the Worker that runs Ember, where that's known. */
+  worker: string | null;
+  changing: boolean;
+  use: Use;
+}
+
 /**
  * The DNS provider menu, starting at the one public DNS says serves `zone`, the zone `domain` is in, or
- * Cloudflare where it didn't say, and the steps from there to make `domain` Ember's address: at any other
- * provider, onboarding the zone to Cloudflare and giving it Cloudflare's nameservers; then adding the
- * domain to the Worker named `worker`, where that's known; then Use.
+ * Cloudflare where it didn't say, and the steps from there to make `domain` Ember's address: at Cloudflare,
+ * adding the domain to the Worker, after moving the zone's DNS there from the provider DNS found, if any,
+ * and at any other provider, keeping the DNS there through another domain on Cloudflare.
  */
 function Steps({ domain, zone, provider: found, worker, changing, use }: CustomDomainLookup & { domain: string; worker: string | null; changing: boolean; use: Use }) {
   const [provider, setProvider] = useState<DnsProvider>(found ?? "cloudflare");
-  const [refusal, setRefusal] = useState<string | null>(null);
   const hostname = hostnameOf(domain);
-  const onboarded = zone ?? registeredGuess(hostname);
-  const elsewhere = provider !== "cloudflare";
+  const steps: StepsFor = { domain, hostname, zone: zone ?? registeredGuess(hostname), worker, changing, use };
 
   return (
     <>
@@ -491,20 +558,36 @@ function Steps({ domain, zone, provider: found, worker, changing, use }: CustomD
           </select>
         </Field>
       </div>
+      {provider === "cloudflare" ? <OnCloudflare {...steps} from={found === "cloudflare" ? null : found} /> : <KeepingDns {...steps} provider={provider} />}
+    </>
+  );
+}
+
+/**
+ * The steps to add the domain to the Worker, where that's known, after moving its zone's DNS to Cloudflare
+ * from `from`, the provider public DNS says has it, if any: onboarding the zone, and giving it Cloudflare's
+ * nameservers at that provider. Then Use.
+ */
+function OnCloudflare({ domain, hostname, zone, worker, changing, use, from }: StepsFor & { from: Exclude<DnsProvider, "cloudflare"> | null }) {
+  return (
+    <>
+      {from !== null && (
+        <p className={cn(NOTE, "wrap-anywhere")}>This moves {zone}'s DNS to Cloudflare, which copies its records.</p>
+      )}
       <ol aria-label={`Steps to make ${domain} Ember's address`} className="flex list-decimal flex-col gap-3 ps-5">
-        {elsewhere && (
+        {from !== null && (
           <>
             <li>
-              Open Cloudflare, choose <em>Onboard a domain</em>, and paste <strong className="wrap-anywhere">{onboarded}</strong>.
-              <OpenCloudflare href={CLOUDFLARE_DOMAINS} copying={onboarded} />
+              Open Cloudflare, choose <em>Onboard a domain</em>, and paste <strong className="wrap-anywhere">{zone}</strong>.
+              <OpenCloudflare href={CLOUDFLARE_DOMAINS} copying={zone} />
             </li>
-            <li>{NAMESERVERS_AT[provider](<strong className="wrap-anywhere">{onboarded}</strong>)}</li>
+            <li>{NAMESERVERS_AT[from](<strong className="wrap-anywhere">{zone}</strong>)}</li>
           </>
         )}
         <li>
-          {elsewhere ? (
+          {from !== null ? (
             <>
-              Once Cloudflare says <strong className="wrap-anywhere">{onboarded}</strong> is active, open Cloudflare
+              Once Cloudflare says <strong className="wrap-anywhere">{zone}</strong> is active, open Cloudflare
             </>
           ) : (
             "Open Cloudflare"
@@ -521,43 +604,171 @@ function Steps({ domain, zone, provider: found, worker, changing, use }: CustomD
           , and paste <strong className="wrap-anywhere">{hostname}</strong>.
           <OpenCloudflare href={worker === null ? WORKERS_DASHBOARD : workerDomains(worker)} copying={hostname} />
         </li>
-        <li>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <button
-              type="button"
-              onClick={() => {
-                setRefusal(null);
-                use(domain, setRefusal);
-              }}
-              disabled={changing}
-              className={BUTTON}
-            >
-              Use {domain}
-            </button>
-            <p className={cn(NOTE, "min-w-0 flex-1 basis-[12em]")}>Everyone signs in again there.</p>
-          </div>
-          {refusal !== null && (
-            <p role="alert" className={cn(NOTE, "mt-2 text-negative wrap-anywhere")}>
-              {refusal}
-            </p>
-          )}
-        </li>
+        <UseStep domain={domain} changing={changing} use={use} />
       </ol>
     </>
   );
 }
 
 /**
- * A link that opens Cloudflare's dashboard at `href` in a new tab, copying `copying` for the person to
- * paste there, and says it's copied. A clipboard that refuses, as on a page that isn't served securely,
+ * What giving Ember the domain while its DNS stays at `provider` takes: another domain already on
+ * Cloudflare, which the person names, for Cloudflare for SaaS. The record at the provider is a CNAME,
+ * which a zone's own name can't be, so the domain must be a name under its zone.
+ */
+function KeepingDns({ hostname, zone, provider, ...steps }: StepsFor & { provider: Exclude<DnsProvider, "cloudflare"> }) {
+  const [typed, setTyped] = useState("");
+  const keeping = `Keeping DNS ${provider === "other" ? "where it is" : `at ${PROVIDER_NAMES[provider]}`}`;
+  if (hostname === zone) {
+    return (
+      <p className="wrap-anywhere">
+        {keeping} takes a name under {zone}, such as chat.{zone}. Or choose Cloudflare above to move {zone}'s DNS there instead.
+      </p>
+    );
+  }
+  const named = hostnameTyped(typed);
+  // The domain's own zone, or a name in it, can't send it on, its DNS being elsewhere.
+  const onCloudflare = named === null || named === zone || named.endsWith(`.${zone}`) ? null : named;
+
+  return (
+    <>
+      <p className="wrap-anywhere">{keeping} takes another domain that's already on Cloudflare.</p>
+      <div className="max-w-[20em]">
+        <Field id="saas_domain" label="Domain on Cloudflare">
+          <Input
+            id="saas_domain"
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            placeholder="example.net"
+            value={typed}
+            aria-describedby={onCloudflare === null ? "saas-domain-note" : undefined}
+            onChange={(event) => setTyped(event.target.value)}
+            className={FIELD_INPUT}
+          />
+        </Field>
+      </div>
+      {onCloudflare === null ? (
+        <p id="saas-domain-note" className={cn(NOTE, "wrap-anywhere")}>
+          {named === null ? `No domain on Cloudflare? Choose Cloudflare above to move ${zone}'s DNS there instead.` : `Give a domain other than ${zone}.`}
+        </p>
+      ) : (
+        <SaasSteps {...steps} hostname={hostname} zone={zone} provider={provider} onCloudflare={onCloudflare} />
+      )}
+    </>
+  );
+}
+
+/**
+ * The steps to give Ember the domain through Cloudflare for SaaS on `onCloudflare`, another domain already
+ * there: the record and fallback origin it takes, the domain as a custom hostname, and the Worker's
+ * routes; then the one record to add at `provider`, and Use. A fallback origin the domain has already
+ * stays, as replacing it would send its other custom hostnames to Ember's record, and the Worker's route
+ * takes this one to Ember whatever it is. Cloudflare answers the certificate authority itself at
+ * `/.well-known/`, so no Worker runs there.
+ */
+function SaasSteps({ domain, hostname, zone, worker, changing, use, provider, onCloudflare }: StepsFor & { provider: Exclude<DnsProvider, "cloudflare">; onCloudflare: string }) {
+  const origin = `${SAAS_ORIGIN}.${onCloudflare}`;
+  return (
+    <ol aria-label={`Steps to make ${domain} Ember's address`} className="flex list-decimal flex-col gap-3 ps-5">
+      <li>
+        In Cloudflare, add this record to <strong className="wrap-anywhere">{onCloudflare}</strong>, proxied:
+        <RecordToAdd type="AAAA" name={SAAS_ORIGIN} value="100::" />
+        <OpenCloudflare href={CLOUDFLARE_DNS_RECORDS} />
+      </li>
+      <li>
+        Under <em>Custom Hostnames</em>, enable Cloudflare for SaaS (it asks for a card, but 100 domains are free), and make{" "}
+        <strong className="wrap-anywhere">{origin}</strong> the fallback origin unless it has one. Then add <strong className="wrap-anywhere">{hostname}</strong> with HTTP
+        validation.
+        <OpenCloudflare href={CLOUDFLARE_CUSTOM_HOSTNAMES} copying={origin} />
+      </li>
+      <li>
+        Under <em>Workers Routes</em>, route <strong className="wrap-anywhere">{hostname}/*</strong> to{" "}
+        {worker === null ? "the Worker that runs Ember" : <strong className="wrap-anywhere">{worker}</strong>}, and <strong className="wrap-anywhere">{hostname}/.well-known/*</strong> to{" "}
+        <em>None</em>, so Cloudflare can get it a certificate.
+      </li>
+      <li>
+        {RECORD_AT[provider](<strong className="wrap-anywhere">{zone}</strong>)}
+        <RecordToAdd type="CNAME" name={hostname.slice(0, -zone.length - 1)} value={origin} />
+      </li>
+      <UseStep domain={domain} changing={changing} use={use} />
+    </ol>
+  );
+}
+
+/**
+ * The host name typed, as the steps name a domain on Cloudflare, or null while it isn't one. It's taken as
+ * typed, since the domains people register under a country's second level are too many to guess from.
+ */
+function hostnameTyped(text: string): string | null {
+  const checked = domainTyped(text);
+  if ("refusal" in checked) return null;
+  const hostname = hostnameOf(checked.domain);
+  return hostname.includes(".") ? hostname : null;
+}
+
+/** The last step: Use `domain`, which makes it Ember's address and goes there, or says under it why not. */
+function UseStep({ domain, changing, use }: { domain: string; changing: boolean; use: Use }) {
+  const [refusal, setRefusal] = useState<string | null>(null);
+  return (
+    <li>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <button
+          type="button"
+          onClick={() => {
+            setRefusal(null);
+            use(domain, setRefusal);
+          }}
+          disabled={changing}
+          className={BUTTON}
+        >
+          Use {domain}
+        </button>
+        <p className={cn(NOTE, "min-w-0 flex-1 basis-[12em]")}>Everyone signs in again there.</p>
+      </div>
+      {refusal !== null && (
+        <p role="alert" className={cn(NOTE, "mt-2 text-negative wrap-anywhere")}>
+          {refusal}
+        </p>
+      )}
+    </li>
+  );
+}
+
+/** A DNS record to add, part by part, as DNS forms ask for them, with buttons that copy its name and value. */
+function RecordToAdd({ type, name, value }: { type: string; name: string; value: string }) {
+  const parts = [
+    ["Type", type],
+    ["Name", name],
+    ["Value", value],
+  ] as const;
+  return (
+    <dl className="mt-2 flex flex-col gap-1 rounded-[9px] border bg-background px-3 py-1.5">
+      {parts.map(([label, part]) => (
+        <div key={label} className="flex min-h-9 items-center gap-3 touch:min-h-11">
+          <dt className={cn(NOTE, "w-[3.5em] flex-none")}>{label}</dt>
+          <dd className="flex min-w-0 flex-1 items-center gap-3">
+            <code className="min-w-0 flex-1 text-[0.9em] wrap-anywhere">{part}</code>
+            {label !== "Type" && <CopyButton text={part} label={`Copy ${part}`} className={ROUND_BUTTON} />}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * A link that opens Cloudflare's dashboard at `href` in a new tab, copying `copying`, where given, for the
+ * person to paste there, and says it's copied while `copying` is still what it copied, since a domain
+ * typed into the steps can change it. A clipboard that refuses, as on a page that isn't served securely,
  * says nothing, and the step names what to paste anyway.
  */
-function OpenCloudflare({ href, copying }: { href: string; copying: string }) {
-  const [copied, setCopied] = useState(false);
+function OpenCloudflare({ href, copying }: { href: string; copying?: string }) {
+  const [copied, setCopied] = useState<string | null>(null);
   const mounted = useMounted();
   const copy = () => {
+    if (copying === undefined) return;
     navigator.clipboard?.writeText(copying).then(
-      () => mounted.current && setCopied(true),
+      () => mounted.current && setCopied(copying),
       () => {},
     );
   };
@@ -567,9 +778,11 @@ function OpenCloudflare({ href, copying }: { href: string; copying: string }) {
       <a href={href} target="_blank" rel="noopener" onClick={copy} className={BUTTON}>
         Open Cloudflare
       </a>
-      <p role="status" className={cn(NOTE, "min-w-0 flex-1 basis-[12em] wrap-anywhere")}>
-        {copied && `Copied ${copying}.`}
-      </p>
+      {copying !== undefined && (
+        <p role="status" className={cn(NOTE, "min-w-0 flex-1 basis-[12em] wrap-anywhere")}>
+          {copied === copying && `Copied ${copying}.`}
+        </p>
+      )}
     </div>
   );
 }
