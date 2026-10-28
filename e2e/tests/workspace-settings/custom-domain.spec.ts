@@ -32,10 +32,13 @@ test.describe(feature("accounts.custom-domain"), () => {
       await expect(steps.getByRole("listitem")).toHaveCount(2);
       await expect(steps).toContainText("Open Cloudflare, choose the Worker that runs Ember, then Domains > Add Domain, and paste chat.localhost.");
       await expect(steps.getByRole("link", { name: "Open Cloudflare" })).toHaveAttribute("href", "https://dash.cloudflare.com/?to=/:account/workers-and-pages");
-      // Another provider's steps start by moving the domain's DNS to Cloudflare.
+      // Keeping DNS at another provider takes a CNAME record there, which the domain someone registered
+      // can't have for itself, and with no DNS to say otherwise, this one would be that.
       await provider.selectOption({ label: "GoDaddy" });
-      await expect(steps.getByRole("listitem")).toHaveCount(4);
-      await expect(steps).toContainText("At GoDaddy, open Domain Portfolio, choose chat.localhost, then DNS > Nameservers.");
+      await expect(section).toContainText(
+        "Keeping DNS at GoDaddy takes a name under chat.localhost, such as chat.chat.localhost. Or choose Cloudflare above to move chat.localhost's DNS there instead.",
+      );
+      await expect(steps).toHaveCount(0);
       await provider.selectOption({ label: "Cloudflare" });
       // The Worker's own request doesn't reach this server at a name under localhost: only the browser
       // takes the name to this machine and trusts its certificate.
