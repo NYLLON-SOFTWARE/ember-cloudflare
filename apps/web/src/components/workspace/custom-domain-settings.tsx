@@ -625,9 +625,9 @@ function KeepingDns({ hostname, zone, provider, ...steps }: StepsFor & { provide
       </p>
     );
   }
-  const typedZone = zoneTyped(typed);
-  // The domain's own zone can't send it on, its DNS being elsewhere.
-  const onCloudflare = typedZone === zone ? null : typedZone;
+  const named = hostnameTyped(typed);
+  // The domain's own zone, or a name in it, can't send it on, its DNS being elsewhere.
+  const onCloudflare = named === null || named === zone || named.endsWith(`.${zone}`) ? null : named;
 
   return (
     <>
@@ -649,7 +649,7 @@ function KeepingDns({ hostname, zone, provider, ...steps }: StepsFor & { provide
       </div>
       {onCloudflare === null ? (
         <p id="saas-domain-note" className={cn(NOTE, "wrap-anywhere")}>
-          {typedZone === null ? `No domain on Cloudflare? Choose Cloudflare above to move ${zone}'s DNS there instead.` : `Give a domain other than ${zone}.`}
+          {named === null ? `No domain on Cloudflare? Choose Cloudflare above to move ${zone}'s DNS there instead.` : `Give a domain other than ${zone}.`}
         </p>
       ) : (
         <SaasSteps {...steps} hostname={hostname} zone={zone} provider={provider} onCloudflare={onCloudflare} />
@@ -692,12 +692,15 @@ function SaasSteps({ domain, hostname, zone, worker, changing, use, provider, on
   );
 }
 
-/** The zone of the domain typed, as the steps name a domain on Cloudflare, or null while it isn't one. */
-function zoneTyped(text: string): string | null {
+/**
+ * The host name typed, as the steps name a domain on Cloudflare, or null while it isn't one. It's taken as
+ * typed, since the domains people register under a country's second level are too many to guess from.
+ */
+function hostnameTyped(text: string): string | null {
   const checked = domainTyped(text);
   if ("refusal" in checked) return null;
   const hostname = hostnameOf(checked.domain);
-  return hostname.includes(".") ? registeredGuess(hostname) : null;
+  return hostname.includes(".") ? hostname : null;
 }
 
 /** The last step: Use `domain`, which makes it Ember's address and goes there, or says under it why not. */

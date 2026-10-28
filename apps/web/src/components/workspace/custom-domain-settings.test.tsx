@@ -240,14 +240,17 @@ describe(feature("accounts.custom-domain"), () => {
     expect(onCloudflare).toHaveAttribute("placeholder", "example.net");
     expect(onCloudflare).toHaveAccessibleDescription("No domain on Cloudflare? Choose Cloudflare above to move example.com's DNS there instead.");
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
-    // The domain's own zone can't send it on: its DNS is at GoDaddy.
-    await user.type(onCloudflare, "example.com");
-    expect(onCloudflare).toHaveAccessibleDescription("Give a domain other than example.com.");
-    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    // The domain's own zone, or a name in it, can't send it on: its DNS is at GoDaddy.
+    for (const typed of ["example.com", "chat.example.com"]) {
+      await user.clear(onCloudflare);
+      await user.type(onCloudflare, typed);
+      expect(onCloudflare, typed).toHaveAccessibleDescription("Give a domain other than example.com.");
+      expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    }
 
-    // As pasted from the address bar, it's the domain the address is in.
+    // As pasted from the address bar.
     await user.clear(onCloudflare);
-    await user.type(onCloudflare, " https://www.Example.net/ ");
+    await user.type(onCloudflare, " https://Example.net/ ");
     expect(onCloudflare).not.toHaveAttribute("aria-describedby");
     const steps = stepsShown();
     expect(steps).toHaveAccessibleName("Steps to make chat.example.com Ember's address");
@@ -300,7 +303,15 @@ describe(feature("accounts.custom-domain"), () => {
     }
     expect(section()).toHaveTextContent("Keeping DNS where it is takes another domain that's already on Cloudflare.");
 
-    await user.click(within(use!).getByRole("button", { name: "Use chat.example.com" }));
+    // Taken as typed, as no list of the second levels countries register domains under is whole.
+    await user.clear(onCloudflare);
+    await user.type(onCloudflare, "example.ne.jp");
+    const retyped = within(stepsShown()).getAllByRole("listitem");
+    expect(retyped[0]).toHaveTextContent(/^In Cloudflare, add this record to example\.ne\.jp, proxied:/);
+    expect(retyped[1]).toHaveTextContent("Make ember-saas.example.ne.jp the fallback origin");
+    expect(recordIn(retyped[3]!)).toEqual({ Type: "CNAME", Name: "chat", Value: "ember-saas.example.ne.jp" });
+
+    await user.click(within(retyped[4]!).getByRole("button", { name: "Use chat.example.com" }));
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith(settingsAt("chat.example.com")));
     expect(saved()).toEqual([{ customDomain: "chat.example.com" }]);
   });
