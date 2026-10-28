@@ -258,7 +258,7 @@ describe(feature("accounts.custom-domain"), () => {
     expect(within(steps).getAllByRole("listitem")[0]).toHaveTextContent(/^Open Cloudflare, choose Add Domain/);
   });
 
-  it("names the domain above, and starts at Cloudflare, where DNS doesn't say", async () => {
+  it("names the domain it was likely registered as, and starts at Cloudflare, where DNS doesn't say", async () => {
     serve({ lookup: { status: 500, error: "Internal Server Error" } });
     const { user, onFailed } = showSection(settingsAt(DEPLOYED));
     const steps = await setUp(user, "chat.example.co.uk");
@@ -270,6 +270,43 @@ describe(feature("accounts.custom-domain"), () => {
     expect(nameservers).toHaveTextContent("Where you registered example.co.uk, replace its nameservers with Cloudflare's two.");
     // Failing to look it up says no more than DNS not answering.
     expect(onFailed).not.toHaveBeenCalled();
+
+    // Its last two labels, or three under a country's common second level.
+    const field = screen.getByRole("textbox", { name: "Domain" });
+    for (const [domain, registered] of [
+      ["example.co.uk", "example.co.uk"],
+      ["chat.team.example.com", "example.com"],
+      ["example.com", "example.com"],
+      ["chat.example.io", "example.io"],
+    ]) {
+      await user.clear(field);
+      const shown = await setUp(user, domain!);
+      await user.selectOptions(screen.getByRole("combobox", { name: "DNS provider" }), "other");
+      expect(within(shown).getAllByRole("listitem")[0], domain).toHaveTextContent(`Open Cloudflare, choose Onboard a domain, and paste ${registered}.`);
+    }
+  });
+
+  it("shows only the latest lookup's answer, though an earlier one was for the same domain", async () => {
+    const answers: Array<(lookup: CustomDomainLookup) => void> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise((resolve) => answers.push((lookup) => resolve(Response.json(lookup)))));
+    const { user } = showSection(settingsAt(DEPLOYED));
+    const field = screen.getByRole("textbox", { name: "Domain" });
+    await user.type(field, "chat.example.com");
+    await user.click(screen.getByRole("button", { name: "Set up" }));
+    // Changed and changed back, then asked again before the first answer comes.
+    await user.type(field, "x{Backspace}");
+    await user.click(screen.getByRole("button", { name: "Set up" }));
+    expect(answers).toHaveLength(2);
+    await act(async () => {
+      answers[0]!({ zone: null, provider: null });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    await act(async () => {
+      answers[1]!({ zone: "example.com", provider: "godaddy" });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(screen.getByRole("combobox", { name: "DNS provider" })).toHaveValue("godaddy");
   });
 
   it("says why it couldn't look a domain up when it's signed out, as the workspace's alerts do", async () => {

@@ -147,10 +147,18 @@ function domainTyped(text: string): { domain: string } | { refusal: string } {
 /** The host name of `host`, without its port, as Cloudflare takes a domain. */
 const hostnameOf = (host: string) => host.replace(/:\d+$/, "");
 
-/** The zone `hostname` is most likely in, where DNS didn't say: the name above it, or itself when that's a top-level domain. */
-function zoneGuess(hostname: string): string {
-  const above = hostname.slice(hostname.indexOf(".") + 1);
-  return above.includes(".") ? above : hostname;
+/** The second-level labels a country's domains are commonly registered under, as example.co.uk is. */
+const COUNTRY_SECOND_LEVELS = new Set(["ac", "co", "com", "edu", "gov", "net", "org"]);
+
+/**
+ * The domain `hostname` was most likely registered as, where DNS didn't say: its last two labels, or
+ * three under a country's common second level, as example.co.uk.
+ */
+function registeredGuess(hostname: string): string {
+  const labels = hostname.split(".");
+  const [secondLevel, topLevel] = labels.slice(-2);
+  const kept = labels.length > 2 && topLevel!.length === 2 && COUNTRY_SECOND_LEVELS.has(secondLevel!) ? 3 : 2;
+  return labels.slice(-kept).join(".");
 }
 
 /**
@@ -387,8 +395,8 @@ type Use = (domain: string, refused: (refusal: string) => void) => void;
 function SetUp({ autoFocus, worker, changing, use, onFailed }: { autoFocus: boolean; worker: string | null; changing: boolean; use: Use; onFailed: Props["onFailed"] }) {
   const [typed, setTyped] = useState("");
   const [refusal, setRefusal] = useState<string | null>(null);
-  // The domain whose DNS is being looked up, until it's found or the field changes.
-  const asked = useRef<string | null>(null);
+  // The latest lookup, until it's answered or the field changes, which only its own answer shows.
+  const asked = useRef<object | null>(null);
   const [looking, setLooking] = useState(false);
   // What Set up found of the domain the steps are for.
   const [found, setFound] = useState<(CustomDomainLookup & { domain: string }) | null>(null);
@@ -402,12 +410,13 @@ function SetUp({ autoFocus, worker, changing, use, onFailed }: { autoFocus: bool
     const { domain } = checked;
     setRefusal(null);
     setLooking(true);
-    asked.current = domain;
-    const show = (lookup: CustomDomainLookup) => {
-      if (!mounted.current || asked.current !== domain) return;
+    const lookup = {};
+    asked.current = lookup;
+    const show = (answer: CustomDomainLookup) => {
+      if (!mounted.current || asked.current !== lookup) return;
       asked.current = null;
       setLooking(false);
-      setFound({ domain, ...lookup });
+      setFound({ domain, ...answer });
     };
     lookUpCustomDomain(domain).then(show, (error: unknown) => {
       if (!isSignedOut(error)) return show({ zone: null, provider: null });
@@ -466,7 +475,7 @@ function Steps({ domain, zone, provider: found, worker, changing, use }: CustomD
   const [provider, setProvider] = useState<DnsProvider>(found ?? "cloudflare");
   const [refusal, setRefusal] = useState<string | null>(null);
   const hostname = hostnameOf(domain);
-  const onboarded = zone ?? zoneGuess(hostname);
+  const onboarded = zone ?? registeredGuess(hostname);
   const elsewhere = provider !== "cloudflare";
 
   return (
