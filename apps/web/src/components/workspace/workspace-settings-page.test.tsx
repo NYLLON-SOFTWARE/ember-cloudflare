@@ -733,17 +733,17 @@ describe(feature("accounts.custom-domain"), () => {
     expect(following(screen.getByRole("button", { name: "Save changes" }), section)).toBe(true);
     expect(screen.getByRole("region", { name: "Basic community settings" })).toContainElement(section);
     expect(section).toHaveTextContent("Ember's address is chat.example.com.");
-    expect(section).toHaveTextContent("old.example.com still reaches Ember and sends people to chat.example.com");
+    expect(section).toHaveTextContent("old.example.com still forwards to chat.example.com.");
 
     await user.click(within(section).getByRole("button", { name: `Go back to ${location.host}` }));
     expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
     expect(saved()).toEqual([{ customDomain: location.host }]);
     expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, customDomain: location.host });
-    expect(section).toHaveTextContent(`Ember's address is ${location.host}. Other addresses send people here.`);
+    expect(section).toHaveTextContent(`Ember's address is ${location.host}.`);
     // The domain it left keeps reaching it, as the page's settings now say.
     expect(within(within(section).getByRole("list", { name: "Other addresses that reach Ember" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      expect.stringMatching(/^chat\.example\.com still reaches Ember and sends people here/),
-      expect.stringMatching(/^old\.example\.com still reaches Ember and sends people here/),
+      expect.stringMatching(/^chat\.example\.com still forwards here/),
+      expect.stringMatching(/^old\.example\.com still forwards here/),
     ]);
   });
 

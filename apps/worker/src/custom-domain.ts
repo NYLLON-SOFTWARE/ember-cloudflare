@@ -1,4 +1,5 @@
-import { canBeCustomDomain, isHost, type CustomDomainReach } from "@ember/protocol";
+import { canBeCustomDomain, isCustomDomainHost, isHost, type CustomDomainLookup, type CustomDomainReach, type DnsProvider } from "@ember/protocol";
+import { lookUp, zoneOf, type DnsFetch } from "./dns";
 import { toBase64url } from "./encoding";
 import type { Env } from "./env";
 import { urlOf } from "./request-url";
@@ -8,12 +9,16 @@ import { workspace, type Credentials } from "./workspace";
 // custom domain, or where a deploy puts Ember once they go back there, the address the app moves to from
 // any other Ember answers at, and the one the bot API's links name.
 
-/** Why an address is refused as Ember's when it isn't the one the request came to, nor where a deploy puts Ember. */
+/** Why an address is refused as Ember's when it isn't the one the request came to, a custom domain, nor where a deploy puts Ember. */
 export const NOT_THIS_ADDRESS = "Open Ember at that address to make it Ember's";
 
 /** Why Ember can't go back to `address`, where a deploy puts it, when a check finds it doesn't reach Ember there, as when its workers.dev address is off. */
 export const cantGoBackTo = (address: string) =>
   `Ember doesn't answer at ${address} now, so it can't go back there. In Cloudflare, check that the Worker's workers.dev address is on, under Domains & Routes.`;
+
+/** Why `address`, a custom domain, can't be Ember's when a check finds it `reaches` something else, or nothing yet. */
+export const cantUse = (address: string, reaches: Exclude<CustomDomainReach, "ember">) =>
+  reaches === "elsewhere" ? `Something else answers at ${address}, not Ember.` : `Nothing answers at ${address} yet. Cloudflare can take a minute to add it, so try again soon.`;
 
 /** Where a domain answers a check's probe, `/api/custom_domain_probes/<probe>`, if it reaches this Ember. */
 const PROBE_PREFIX = "/api/custom_domain_probes/";
@@ -26,16 +31,18 @@ const CHECK_DEADLINE_MS = 10_000;
 /**
  * Why `request` can't make `address` Ember's, or null when it can, so that Ember never sends people to a
  * host that doesn't reach this Worker: it can be the address the request came to, the one the page
- * asking is open at, or where a deploy puts Ember, as a page there told the Workspace, once a probe finds
- * Ember answers there, which only an administrator's request, as `credentials` signs one in, sends. Null,
- * for none, always can.
+ * asking is open at, or, once a probe finds Ember answers there, which only an administrator's request,
+ * as `credentials` signs one in, sends, a custom domain or where a deploy puts Ember, as a page there
+ * told the Workspace. Null, for none, always can.
  */
 export async function addressRefusal(address: string | null | undefined, request: Request, env: Env, credentials: Credentials): Promise<string | null> {
   if (address === undefined || address === null || address === urlOf(request).host) return null;
   const ember = workspace(env);
   const [deployed, administrator] = await Promise.all([ember.deployedAddress(), ember.canAdminister(credentials)]);
-  if (address !== deployed || !administrator) return NOT_THIS_ADDRESS;
-  return (await reachOf(request, env, address)) === "ember" ? null : cantGoBackTo(address);
+  if (!administrator || (address !== deployed && !isCustomDomainHost(address))) return NOT_THIS_ADDRESS;
+  const reaches = await reachOf(request, env, address);
+  if (reaches === "ember") return null;
+  return address === deployed ? cantGoBackTo(address) : cantUse(address, reaches);
 }
 
 /** The address `request` came to, if it's where a deploy or `wrangler dev` puts Ember: its workers.dev address, or a local one. */
@@ -60,8 +67,8 @@ const probeToken = () => toBase64url(crypto.getRandomValues(new Uint8Array(24)))
 const isUnreached = (status: number) => (status >= 520 && status <= 527) || status === 530;
 
 /**
- * What `domain` reaches, asked by the scheme `request` came by, as Check DNS in Workspace settings asks
- * before an administrator opens Ember there. The Workspace waits for a probe only this check knows, so
+ * What `domain` reaches, asked by the scheme `request` came by, as Workspace settings' checks ask before
+ * an administrator makes it Ember's address. The Workspace waits for a probe only this check knows, so
  * an answer to it comes from this Ember: "ember". No answer in time, or only Cloudflare's for an origin
  * it can't reach, is "nothing", and any other, a redirect included, "elsewhere". Nothing is sent but the
  * probe, and nothing of the answer is read but its header.
@@ -89,4 +96,51 @@ export async function answerProbe(env: Env, probe: string): Promise<Response> {
   const answer = await workspace(env).takeProbe(probe);
   if (answer === null) return Response.json({ error: "Not found" }, { status: 404 });
   return new Response(null, { status: 204, headers: { [PROBE_ANSWER_HEADER]: answer, "Cache-Control": "no-store" } });
+}
+
+/** How long Cloudflare's resolver has to answer each lookup. */
+const LOOKUP_TIMEOUT_MS = 5_000;
+
+/** Cloudflare's resolver as the Worker reaches it, giving each lookup `LOOKUP_TIMEOUT_MS`. */
+const resolver: DnsFetch = (request) => fetch(request, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
+
+/**
+ * The DNS providers the Custom domain card knows by their nameservers' names. Squarespace's are NS1's,
+ * which serve others' domains too, so it's only ever chosen.
+ */
+const PROVIDER_NAMESERVERS: ReadonlyArray<readonly [DnsProvider, RegExp]> = [
+  ["cloudflare", /\.ns\.cloudflare\.com$/],
+  ["godaddy", /\.domaincontrol\.com$/],
+  ["namecheap", /\.registrar-servers\.com$/],
+  ["porkbun", /\.ns\.porkbun\.com$/],
+  ["route53", /\.awsdns-\d+\.(?:com|net|org|co\.uk)$/],
+  ["hover", /^ns\d+\.hover\.com$/],
+  ["ionos", /\.ui-dns\.(?:com|de|org|biz)$/],
+];
+
+/** Whose `nameservers` are, as an NS lookup writes them: a provider the card knows, "other", or null for none. */
+function providerOf(nameservers: string[]): DnsProvider | null {
+  if (nameservers.length === 0) return null;
+  const names = nameservers.map((nameserver) => nameserver.toLowerCase().replace(/\.$/, ""));
+  return PROVIDER_NAMESERVERS.find(([, pattern]) => names.some((name) => pattern.test(name)))?.[0] ?? "other";
+}
+
+/**
+ * Where the DNS of `domain`, a custom domain's host, is, as Set up in Workspace settings asks for its
+ * steps: the zone it's in, and the provider whose nameservers serve that zone, asked of Cloudflare's
+ * resolver through `fetch`, in two subrequests, or one more for each alias it goes up past (`zoneOf`).
+ * A name under localhost, which never reaches DNS, asks nothing. What the resolver doesn't answer is
+ * null, and logged.
+ */
+export async function lookUpDns(domain: string, fetch: DnsFetch = resolver): Promise<CustomDomainLookup> {
+  const hostname = domain.replace(/:\d+$/, "");
+  if (hostname.endsWith(".localhost")) return { zone: null, provider: null };
+  let zone: string | null = null;
+  try {
+    zone = await zoneOf(hostname, fetch);
+    return { zone, provider: zone === null ? null : providerOf(await lookUp(zone, "NS", fetch)) };
+  } catch (error) {
+    console.error("Looking up a custom domain's DNS failed:", error instanceof Error ? error.message : "unknown error");
+    return { zone, provider: null };
+  }
 }

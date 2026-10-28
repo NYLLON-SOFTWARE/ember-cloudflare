@@ -1639,7 +1639,7 @@ export function isHost(host: string): boolean {
 export const canBeCustomDomain = (hostname: string) => !DEPLOYED_HOSTNAME.test(hostname.toLowerCase());
 
 /** Whether `host`, as `location.host` writes one, could be Ember's custom domain (`canBeCustomDomain`). */
-const isCustomDomainHost = (host: string) => isHost(host) && canBeCustomDomain(HOST.exec(host)![1]!);
+export const isCustomDomainHost = (host: string) => isHost(host) && canBeCustomDomain(HOST.exec(host)![1]!);
 
 /** Why a custom domain is refused when it isn't a host. */
 export const CUSTOM_DOMAIN_NOT_A_HOST = "Custom domain must be a host name, such as chat.example.com";
@@ -1662,8 +1662,29 @@ export interface CustomDomainCheck {
 }
 
 /**
- * Parses an untrusted request to check a custom domain, `{ domain }`, whose host could be Ember's as
- * one `PATCH /api/account` takes could. Returns why it's refused instead of the domain.
+ * The DNS providers the Custom domain card has steps for, as its DNS provider menu lists them: Cloudflare,
+ * where a Worker's custom domain must be, first, then those whose nameservers move a domain there, and
+ * "other" for any other.
+ */
+export const DNS_PROVIDERS = ["cloudflare", "godaddy", "namecheap", "squarespace", "porkbun", "route53", "hover", "ionos", "other"] as const;
+
+/** A DNS provider the Custom domain card has steps for (`DNS_PROVIDERS`). */
+export type DnsProvider = (typeof DNS_PROVIDERS)[number];
+
+/**
+ * What `POST /api/account/custom_domain_lookups` answers, as public DNS says: the zone the domain it was
+ * sent is in, which is the domain someone registered unless a name under it has a zone of its own, and
+ * the DNS provider whose nameservers serve that zone, "other" for one the card has no steps for. Either
+ * is null where DNS doesn't say, as for a name nobody registered.
+ */
+export interface CustomDomainLookup {
+  zone: string | null;
+  provider: DnsProvider | null;
+}
+
+/**
+ * Parses an untrusted request to check or look up a custom domain, `{ domain }`, whose host could be
+ * Ember's as one `PATCH /api/account` takes could. Returns why it's refused instead of the domain.
  */
 export function parseCustomDomainCheck(data: unknown): { domain: string } | string {
   const domain = isJsonObject(data) && typeof data.domain === "string" && isHost(data.domain) ? data.domain : null;

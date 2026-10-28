@@ -14,6 +14,7 @@ import {
   type BotSettings,
   type ChangedPerson,
   type CustomDomainCheck,
+  type CustomDomainLookup,
   type CustomDomainReach,
   type CustomStyles,
   type DirectRoom,
@@ -317,9 +318,14 @@ export async function changeAccount(changes: AccountChanges): Promise<Account> {
   return (await request<{ account: Account }>("/api/account", { method: "PATCH", body: JSON.stringify(changes) })).account;
 }
 
-/** What `domain` reaches, as Check DNS in Workspace settings asks before it's made Ember's address: this Ember, something else, or nothing yet. */
+/** What `domain`, a custom domain Ember moved away from, reaches, as Check in Workspace settings asks: this Ember, something else, or nothing. */
 export async function checkCustomDomain(domain: string): Promise<CustomDomainReach> {
   return (await request<CustomDomainCheck>("/api/account/custom_domain_checks", { method: "POST", body: JSON.stringify({ domain }) })).reaches;
+}
+
+/** Where the DNS of `domain` is, as Set up in Workspace settings asks for its steps: the zone it's in and who serves it, either null where DNS doesn't say. */
+export async function lookUpCustomDomain(domain: string): Promise<CustomDomainLookup> {
+  return request<CustomDomainLookup>("/api/account/custom_domain_lookups", { method: "POST", body: JSON.stringify({ domain }) });
 }
 
 /** A logo chosen for the workspace, with the variants made of it, or null where none could be made (`logoVariantsOf`). */

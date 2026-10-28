@@ -5,6 +5,7 @@ import {
   type Account,
   type BotAnswer,
   type CustomDomainCheck,
+  type CustomDomainLookup,
   type BotSettings,
   type Bootstrap,
   type EmberAddresses,
@@ -14,7 +15,7 @@ import {
 } from "@ember/protocol";
 import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cantGoBackTo, NOT_THIS_ADDRESS, PROBE_ANSWER_HEADER } from "../src/custom-domain";
+import { cantGoBackTo, cantUse, NOT_THIS_ADDRESS, PROBE_ANSWER_HEADER } from "../src/custom-domain";
 import type { Env } from "../src/env";
 import { workspace } from "../src/workspace";
 import { api, apiWith, connect, cookieOf, freshDeploy, openWorkspaceSocket, origin, post, shown, signIn, workspaceSql, type Session } from "./support";
@@ -49,7 +50,7 @@ const at = (host: string, path: string, init: RequestInit<IncomingRequestCfPrope
 const change = (session: Session | null, host: string, body: unknown) =>
   at(host, "/api/account", { method: "PATCH", headers: as(session), body: JSON.stringify(body) });
 
-/** Makes `host` Ember's custom domain from a page there, as Use this address does, or none, as Stop using it does. */
+/** Makes `host` Ember's custom domain from a page there, as Use <address> does, or none, as Stop using it does. */
 async function use(session: Session, host: string, customDomain: string | null = host): Promise<void> {
   const response = await change(session, host, { customDomain });
   expect(response.status, await response.clone().text()).toBe(200);
@@ -114,6 +115,7 @@ const subscriptionsOf = async (session: Session) =>
   );
 
 beforeEach(freshDeploy);
+afterEach(() => vi.restoreAllMocks());
 
 describe(feature("accounts.custom-domain"), () => {
   it("makes the address the page asking is open at Ember's, which every page then learns", async () => {
@@ -137,21 +139,33 @@ describe(feature("accounts.custom-domain"), () => {
     expect((await bootstrap()).account?.customDomain).toBeNull();
     await use(administrator, "chat.example.com:8443");
     expect((await bootstrap()).account?.customDomain).toBe("chat.example.com:8443");
-    // A port is part of the address, so the host alone is another.
-    expect(await (await change(administrator, "chat.example.com:8443", { customDomain: DOMAIN })).json()).toEqual({ error: NOT_THIS_ADDRESS });
+    // A port is part of the address, so the host alone is another, which must reach Ember too.
+    const sent = internet({ with: () => Promise.reject(new TypeError("Network connection lost.")) });
+    expect(await (await change(administrator, "chat.example.com:8443", { customDomain: DOMAIN })).json()).toEqual({ error: cantUse(DOMAIN, "nothing") });
+    expect(sent.map(({ url }) => url)).toEqual([expect.stringMatching(probeAt(`https://${DOMAIN}`))]);
   });
 
-  it("refuses any address but the one the request came to, changing nothing", async () => {
+  it("refuses a domain the request didn't come to while it doesn't reach this Ember, changing nothing", async () => {
     const administrator = await setUp();
-    for (const [host, customDomain] of [
-      ["ember.test", DOMAIN],
-      [DOMAIN, "ember.test"],
-      [DOMAIN, "www.example.com"],
-    ]) {
-      const response = await change(administrator, host!, { customDomain });
-      expect(response.status).toBe(422);
-      expect(await response.json()).toEqual({ error: NOT_THIS_ADDRESS });
+    const answer = { with: async (_: Request) => new Response() };
+    const sent = internet(answer);
+    for (const [reaches, response] of [
+      ["nothing", () => Promise.reject(new TypeError("Network connection lost."))],
+      ["elsewhere", () => Promise.resolve(new Response("<html>Parked</html>", { headers: { "Content-Type": "text/html" } }))],
+    ] as const) {
+      answer.with = response;
+      for (const [host, customDomain] of [
+        ["ember.test", DOMAIN],
+        [DOMAIN, "www.example.com"],
+      ]) {
+        const refused = await change(administrator, host!, { customDomain });
+        expect([reaches, host, refused.status]).toEqual([reaches, host, 422]);
+        expect(await refused.json()).toEqual({ error: cantUse(customDomain!, reaches) });
+      }
     }
+    expect(cantUse(DOMAIN, "nothing")).toBe("Nothing answers at chat.example.com yet. Cloudflare can take a minute to add it, so try again soon.");
+    expect(cantUse(DOMAIN, "elsewhere")).toBe("Something else answers at chat.example.com, not Ember.");
+    expect(sent).toHaveLength(4);
     // A name changed along with it isn't saved either.
     expect((await change(administrator, "ember.test", { name: "Ember Studio", customDomain: DOMAIN })).status).toBe(422);
     expect((await bootstrap()).account).toEqual(withDomain(null));
@@ -179,12 +193,15 @@ describe(feature("accounts.custom-domain"), () => {
   it("lets only administrators change it, telling anyone else so before checking what they sent", async () => {
     await setUp();
     const member = await signIn("Grace");
+    const sent = internet({ with: (request) => exports.default.fetch(request) });
     for (const customDomain of [DOMAIN, "ember.test", 42]) {
       const response = await change(member, DOMAIN, { customDomain });
       expect(response.status).toBe(403);
       expect(await response.json()).toEqual({ error: "Only administrators can change the workspace" });
     }
     expect((await change(null, DOMAIN, { customDomain: DOMAIN })).status).toBe(401);
+    expect((await change(null, "ember.test", { customDomain: DOMAIN })).status).toBe(401);
+    expect(sent).toEqual([]);
     expect((await bootstrap()).account?.customDomain).toBeNull();
   });
 
@@ -305,7 +322,7 @@ describe(feature("accounts.custom-domain"), () => {
   });
 });
 
-/** What `session` hears checking `domain`, as Check DNS in Workspace settings at ember.test asks. */
+/** What `session` hears checking `domain`, as Check in Workspace settings at ember.test asks. */
 const check = (session: Session | null, domain: unknown) =>
   api("/api/account/custom_domain_checks", { method: "POST", headers: as(session), body: JSON.stringify({ domain }) });
 
@@ -337,8 +354,6 @@ function internet(answer: { with: (request: Request) => Promise<Response> }): Se
 const probeAt = (origin: string) => new RegExp(`^${origin.replace(/\./g, "\\.")}/api/custom_domain_probes/[\\w-]{32}$`);
 
 describe(feature("accounts.custom-domain"), () => {
-  afterEach(() => vi.restoreAllMocks());
-
   it("checks that a domain reaches this Ember by asking it for a probe only this Ember waits for, once", async () => {
     const administrator = await setUp();
     // As Cloudflare sends the domain to this Worker, once its dashboard has added it.
@@ -450,8 +465,6 @@ describe(feature("accounts.custom-domain"), () => {
 });
 
 describe(feature("accounts.custom-domain"), () => {
-  afterEach(() => vi.restoreAllMocks());
-
   /** Ember as a deploy left it, opened at its workers.dev address, with Ada as its administrator, signed in. */
   async function deployed(): Promise<Session> {
     const administrator = await setUp();
@@ -535,14 +548,14 @@ describe(feature("accounts.custom-domain"), () => {
     expect(await addressesFor(administrator)).toEqual({ deployed: DEPLOYED, others: [] } satisfies EmberAddresses);
   });
 
-  it("goes back nowhere but where a deploy put Ember, sending nothing for anywhere else", async () => {
+  it("goes back to no workers.dev or localhost address but where a deploy put Ember, sending nothing for another", async () => {
     const administrator = await setUp();
     await use(administrator, DOMAIN);
     const sent = internet({ with: (request) => exports.default.fetch(request) });
     // Before a page there has told Ember where it is.
     expect(await (await change(administrator, DOMAIN, { customDomain: DEPLOYED })).json()).toEqual({ error: NOT_THIS_ADDRESS });
     await open(DEPLOYED);
-    for (const customDomain of ["ember-studio.kro.workers.dev", "localhost:8787", "team.example.com"]) {
+    for (const customDomain of ["ember-studio.kro.workers.dev", "localhost:8787", "127.0.0.1:8787"]) {
       expect(await (await change(administrator, DOMAIN, { customDomain })).json()).toEqual({ error: NOT_THIS_ADDRESS });
     }
     expect(sent).toEqual([]);
@@ -559,6 +572,42 @@ describe(feature("accounts.custom-domain"), () => {
     expect(await response.json()).toEqual({ error: "Only administrators can change the workspace" });
     expect((await change(null, DOMAIN, { customDomain: DEPLOYED })).status).toBe(401);
     expect(sent).toEqual([]);
+  });
+
+  it("makes a custom domain Ember's from any address, as Set up's Use does, once a check finds it reaches Ember there", async () => {
+    const administrator = await deployed();
+    // As Cloudflare sends the domain to this Worker, once its dashboard has added it.
+    const sent = internet({ with: (request) => exports.default.fetch(request) });
+
+    const response = await change(administrator, DEPLOYED, { customDomain: DOMAIN });
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(await response.json()).toEqual({ account: withDomain(DOMAIN) });
+    expect(sent.map(({ url }) => url)).toEqual([expect.stringMatching(probeAt(`https://${DOMAIN}`))]);
+    expect((await open(DEPLOYED)).account?.customDomain).toBe(DOMAIN);
+    expect(await addressesFor(administrator)).toEqual({ deployed: DEPLOYED, others: [] } satisfies EmberAddresses);
+
+    // And on to another the same way, remembering the one it left.
+    expect((await change(administrator, DEPLOYED, { customDomain: "team.example.com" })).status).toBe(200);
+    expect(await addressesFor(administrator)).toEqual({ deployed: DEPLOYED, others: [DOMAIN] } satisfies EmberAddresses);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("won't make a domain Ember's from another address while it doesn't reach Ember, changing nothing", async () => {
+    const administrator = await deployed();
+    const answer = { with: async (_: Request) => new Response() };
+    internet(answer);
+    for (const [reaches, response] of [
+      ["nothing", () => Promise.resolve(new Response("error code: 1016", { status: 530 }))],
+      // As when the domain is added to another Worker, or another Ember.
+      ["elsewhere", () => Promise.resolve(Response.json({ error: "Not found" }, { status: 404 }))],
+    ] as const) {
+      answer.with = response;
+      const refused = await change(administrator, DEPLOYED, { customDomain: DOMAIN, name: "Ember Studio" });
+      expect([reaches, refused.status]).toEqual([reaches, 422]);
+      expect(await refused.json()).toEqual({ error: cantUse(DOMAIN, reaches) });
+    }
+    expect((await bootstrap()).account).toEqual(withDomain(null));
+    expect(await addressesFor(administrator)).toEqual({ deployed: DEPLOYED, others: [] } satisfies EmberAddresses);
   });
 
   it("remembers the custom domains it moves away from, and where each move was asked, newest first", async () => {
@@ -597,5 +646,210 @@ describe(feature("accounts.custom-domain"), () => {
     expect(await reachOf(administrator, "team.example.com")).toBe("elsewhere");
     expect(await addressesFor(administrator)).toEqual({ deployed: DEPLOYED, others: [] } satisfies EmberAddresses);
     expect(await storedUpdatedAt()).toBe(updatedAt);
+  });
+});
+
+/** What `session` hears looking `domain` up, as Set up in Workspace settings asks for its steps. */
+const lookUp = (session: Session | null, domain: unknown) =>
+  api("/api/account/custom_domain_lookups", { method: "POST", headers: as(session), body: JSON.stringify({ domain }) });
+
+/** Where looking `domain` up as `session` finds its DNS. */
+async function lookupOf(session: Session, domain: string): Promise<CustomDomainLookup> {
+  const response = await lookUp(session, domain);
+  expect(response.status, await response.clone().text()).toBe(200);
+  return (await response.json()) as CustomDomainLookup;
+}
+
+/** A record as Cloudflare's resolver writes one in its JSON answers: its name without a final dot, its data with one. */
+interface DnsRecord {
+  name: string;
+  type: number;
+  TTL: number;
+  data: string;
+}
+
+/** Cloudflare's resolver's answer to a lookup, in its JSON form. */
+interface DnsAnswer {
+  Status: number;
+  Answer?: DnsRecord[];
+  /** The SOA record of the zone that says the name has no records of the type asked for, or doesn't exist. */
+  Authority?: DnsRecord[];
+}
+
+const [NOERROR, NXDOMAIN] = [0, 3];
+
+/** `zone`'s SOA record, which the resolver gives as the answer at its apex, and as the authority for a name below it. */
+const soa = (zone: string): DnsRecord => ({ name: zone, type: 6, TTL: 1800, data: `ns1.${zone}. hostmaster.${zone}. 2026102801 10800 3600 604800 3600` });
+
+/** The NS records of `zone`, naming `nameservers` as the ones that serve it. */
+const ns = (zone: string, nameservers: readonly string[]): DnsRecord[] => nameservers.map((nameserver) => ({ name: zone, type: 2, TTL: 86400, data: `${nameserver}.` }));
+
+/** The CNAME record that makes `name` an alias of `target`. */
+const cname = (name: string, target: string): DnsRecord => ({ name, type: 5, TTL: 300, data: `${target}.` });
+
+/** What the resolver answers an SOA lookup of a name in `zone` below its apex: NOERROR when the name has records, NXDOMAIN when it has none. */
+const inZone = (zone: string, status = NOERROR): DnsAnswer => ({ Status: status, Authority: [soa(zone)] });
+
+/** What the resolver answers for `zone` itself, whose DNS `nameservers` serve. */
+const zoneServedBy = (zone: string, nameservers: readonly string[]): Record<string, DnsAnswer> => ({
+  [`${zone} SOA`]: { Status: NOERROR, Answer: [soa(zone)] },
+  [`${zone} NS`]: { Status: NOERROR, Answer: ns(zone, nameservers) },
+});
+
+const CLOUDFLARE_NAMESERVERS = ["ada.ns.cloudflare.com", "bob.ns.cloudflare.com"];
+
+/** The address the Worker asks Cloudflare's resolver about `name`'s records of `type` at, and what it accepts. */
+const asking = (name: string, type: string) => `https://cloudflare-dns.com/dns-query?name=${name}&type=${type} application/dns-json`;
+
+/**
+ * Stands in for Cloudflare's resolver, which answers each lookup as `answers` says for the name and type
+ * it asks about, and any other as it does a name nobody registered: NXDOMAIN, by com's zone. It keeps
+ * what's asked.
+ */
+function resolverWith(answers: Record<string, DnsAnswer | (() => Promise<Response>)>): string[] {
+  const asked: string[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const request = new Request(input, init);
+    asked.push(`${request.url} ${request.headers.get("Accept")}`);
+    const { searchParams } = new URL(request.url);
+    const answer = answers[`${searchParams.get("name")} ${searchParams.get("type")}`] ?? inZone("com", NXDOMAIN);
+    return typeof answer === "function" ? answer() : Response.json(answer);
+  });
+  return asked;
+}
+
+describe(feature("accounts.custom-domain"), () => {
+  it("looks up the zone a domain is in, and whose nameservers serve it, by asking Cloudflare's resolver two things", async () => {
+    const administrator = await setUp();
+    const asked = resolverWith({ [`${DOMAIN} SOA`]: inZone("example.com", NXDOMAIN), ...zoneServedBy("example.com", CLOUDFLARE_NAMESERVERS) });
+
+    const response = await lookUp(administrator, DOMAIN);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(await response.json()).toEqual({ zone: "example.com", provider: "cloudflare" } satisfies CustomDomainLookup);
+    expect(asked).toEqual([asking(DOMAIN, "SOA"), asking("example.com", "NS")]);
+    // Each waits only so long.
+    expect(vi.mocked(fetch).mock.calls.map(([, init]) => init)).toEqual([{ signal: expect.any(AbortSignal) }, { signal: expect.any(AbortSignal) }]);
+  });
+
+  it("finds the zone of its apex, a name with records of its own, a name with a port, and a subdomain with a zone of its own", async () => {
+    const administrator = await setUp();
+    const asked = resolverWith({
+      ...zoneServedBy("example.com", CLOUDFLARE_NAMESERVERS),
+      "team.example.com SOA": inZone("example.com"),
+      "chat.eu.example.com SOA": inZone("eu.example.com", NXDOMAIN),
+      ...zoneServedBy("eu.example.com", ["ns1.hover.com", "ns2.hover.com"]),
+    });
+    expect(await lookupOf(administrator, "example.com")).toEqual({ zone: "example.com", provider: "cloudflare" });
+    expect(await lookupOf(administrator, "team.example.com")).toEqual({ zone: "example.com", provider: "cloudflare" });
+    expect(await lookupOf(administrator, "team.example.com:8443")).toEqual({ zone: "example.com", provider: "cloudflare" });
+    expect(await lookupOf(administrator, "chat.eu.example.com")).toEqual({ zone: "eu.example.com", provider: "hover" });
+    expect(asked.slice(4, 6)).toEqual([asking("team.example.com", "SOA"), asking("example.com", "NS")]);
+  });
+
+  it("knows the providers Set up names by their nameservers, and calls anyone else's another provider's", async () => {
+    const administrator = await setUp();
+    const answers: Record<string, DnsAnswer> = { [`${DOMAIN} SOA`]: inZone("example.com") };
+    resolverWith(answers);
+    for (const [provider, nameservers] of [
+      ["cloudflare", CLOUDFLARE_NAMESERVERS],
+      ["godaddy", ["ns07.domaincontrol.com", "ns08.domaincontrol.com"]],
+      ["namecheap", ["dns1.registrar-servers.com", "dns2.registrar-servers.com"]],
+      ["porkbun", ["curitiba.ns.porkbun.com", "fortaleza.ns.porkbun.com", "maceio.ns.porkbun.com", "salvador.ns.porkbun.com"]],
+      ["route53", ["ns-1536.awsdns-00.co.uk", "ns-0.awsdns-00.com", "ns-1024.awsdns-00.org", "ns-512.awsdns-00.net"]],
+      ["hover", ["ns1.hover.com", "ns2.hover.com"]],
+      ["ionos", ["ns1045.ui-dns.de", "ns1068.ui-dns.biz", "ns1102.ui-dns.org", "ns1116.ui-dns.com"]],
+      // A zone's records can name them in capitals.
+      ["godaddy", ["NS07.DomainControl.com", "NS08.DomainControl.com"]],
+      // Squarespace's are NS1's, which serve others' domains too.
+      ["other", ["dns1.p06.nsone.net", "dns2.p06.nsone.net"]],
+      ["other", ["ns1.digitalocean.com", "ns2.digitalocean.com"]],
+      ["other", ["ada.ns.cloudflare.com.example.net"]],
+    ] as const) {
+      answers["example.com NS"] = { Status: NOERROR, Answer: ns("example.com", nameservers) };
+      expect([nameservers[0], (await lookupOf(administrator, DOMAIN)).provider]).toEqual([nameservers[0], provider]);
+    }
+  });
+
+  it("goes up past a name that's an alias, whose answer holds its target's zone, asking about three names at most", async () => {
+    const administrator = await setUp();
+    const asked = resolverWith({
+      "www.example.com SOA": { Status: NOERROR, Answer: [cname("www.example.com", "example.netlify.app")], Authority: [soa("netlify.app")] },
+      ...zoneServedBy("example.com", CLOUDFLARE_NAMESERVERS),
+      "a.b.c.example.org SOA": { Status: NOERROR, Answer: [cname("a.b.c.example.org", "b.c.example.org")], Authority: [soa("example.org")] },
+      "b.c.example.org SOA": { Status: NOERROR, Answer: [cname("b.c.example.org", "c.example.org")], Authority: [soa("example.org")] },
+      "c.example.org SOA": { Status: NOERROR, Answer: [cname("c.example.org", "example.net")], Authority: [soa("example.net")] },
+    });
+    expect(await lookupOf(administrator, "www.example.com")).toEqual({ zone: "example.com", provider: "cloudflare" });
+    expect(asked).toEqual([asking("www.example.com", "SOA"), asking("example.com", "SOA"), asking("example.com", "NS")]);
+
+    asked.length = 0;
+    expect(await lookupOf(administrator, "a.b.c.example.org")).toEqual({ zone: null, provider: null });
+    expect(asked).toEqual([asking("a.b.c.example.org", "SOA"), asking("b.c.example.org", "SOA"), asking("c.example.org", "SOA")]);
+  });
+
+  it("finds nothing for a domain nobody registered, nor nameservers for a zone without any, and asks nothing for a name under localhost", async () => {
+    const administrator = await setUp();
+    const asked = resolverWith({ "example.com SOA": { Status: NOERROR, Answer: [soa("example.com")] }, "example.com NS": { Status: NOERROR } });
+    expect(await lookupOf(administrator, "chat.nobody-registered-this.com")).toEqual({ zone: null, provider: null });
+    expect(asked).toEqual([asking("chat.nobody-registered-this.com", "SOA")]);
+    expect(await lookupOf(administrator, "example.com")).toEqual({ zone: "example.com", provider: null });
+
+    asked.length = 0;
+    expect(await lookupOf(administrator, "chat.localhost:8787")).toEqual({ zone: null, provider: null });
+    expect(asked).toEqual([]);
+  });
+
+  it("answers what it found when Cloudflare's resolver fails, which it logs", async () => {
+    const administrator = await setUp();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const answers: Record<string, DnsAnswer | (() => Promise<Response>)> = zoneServedBy("example.com", CLOUDFLARE_NAMESERVERS);
+    resolverWith(answers);
+    for (const [failure, error] of [
+      [() => Promise.resolve(Response.json({}, { status: 503 })), "DNS over HTTPS answered 503"],
+      [() => Promise.resolve(Response.json({ Status: 2 })), "DNS over HTTPS answered rcode 2"],
+      [() => Promise.reject(new DOMException("The operation was aborted due to timeout", "TimeoutError")), "The operation was aborted due to timeout"],
+    ] as const) {
+      answers[`${DOMAIN} SOA`] = failure;
+      expect(await lookupOf(administrator, DOMAIN)).toEqual({ zone: null, provider: null });
+      answers[`${DOMAIN} SOA`] = inZone("example.com");
+      answers["example.com NS"] = failure;
+      expect(await lookupOf(administrator, DOMAIN)).toEqual({ zone: "example.com", provider: null });
+      answers["example.com NS"] = zoneServedBy("example.com", CLOUDFLARE_NAMESERVERS)["example.com NS"]!;
+      expect(logged.mock.calls.splice(0)).toEqual([
+        ["Looking up a custom domain's DNS failed:", error],
+        ["Looking up a custom domain's DNS failed:", error],
+      ]);
+    }
+  });
+
+  it("lets only administrators look a domain up, telling anyone else so before checking what they sent, and asks nothing", async () => {
+    await setUp();
+    const member = await signIn("Grace");
+    const asked = resolverWith({});
+    for (const domain of [DOMAIN, "ember.kro.workers.dev", 42]) {
+      const response = await lookUp(member, domain);
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "Only administrators can change the workspace" });
+    }
+    expect((await lookUp(null, DOMAIN)).status).toBe(401);
+    expect(asked).toEqual([]);
+  });
+
+  it("refuses a domain that can't be Ember's, asking nothing", async () => {
+    const administrator = await setUp();
+    const asked = resolverWith({});
+    for (const [domain, error] of [
+      ["ember.kro.workers.dev", NOT_A_CUSTOM_DOMAIN],
+      ["localhost:8787", NOT_A_CUSTOM_DOMAIN],
+      [`https://${DOMAIN}`, CUSTOM_DOMAIN_NOT_A_HOST],
+      ["Chat.Example.com", CUSTOM_DOMAIN_NOT_A_HOST],
+      [42, CUSTOM_DOMAIN_NOT_A_HOST],
+    ] as const) {
+      const response = await lookUp(administrator, domain);
+      expect([domain, response.status]).toEqual([domain, 422]);
+      expect(await response.json()).toEqual({ error });
+    }
+    expect(asked).toEqual([]);
   });
 });
