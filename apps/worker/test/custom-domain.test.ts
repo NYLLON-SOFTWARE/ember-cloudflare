@@ -761,8 +761,10 @@ describe(feature("accounts.custom-domain"), () => {
       ["ionos", ["ns1045.ui-dns.de", "ns1068.ui-dns.biz", "ns1102.ui-dns.org", "ns1116.ui-dns.com"]],
       // A zone's records can name them in capitals.
       ["godaddy", ["NS07.DomainControl.com", "NS08.DomainControl.com"]],
-      // Squarespace's are NS1's, which serve others' domains too.
+      // Squarespace's are NS1's, which serve others' domains too, as Namecheap's FreeDNS and PremiumDNS do.
       ["other", ["dns1.p06.nsone.net", "dns2.p06.nsone.net"]],
+      ["other", ["freedns1.registrar-servers.com", "freedns2.registrar-servers.com", "freedns3.registrar-servers.com"]],
+      ["other", ["pdns1.registrar-servers.com", "pdns2.registrar-servers.com"]],
       ["other", ["ns1.digitalocean.com", "ns2.digitalocean.com"]],
       ["other", ["ada.ns.cloudflare.com.example.net"]],
     ] as const) {

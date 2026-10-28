@@ -106,12 +106,13 @@ const resolver: DnsFetch = (request) => fetch(request, { signal: AbortSignal.tim
 
 /**
  * The DNS providers the Custom domain card knows by their nameservers' names. Squarespace's are NS1's,
- * which serve others' domains too, so it's only ever chosen.
+ * which serve others' domains too, so it's only ever chosen, and only Namecheap's BasicDNS names it:
+ * its FreeDNS and PremiumDNS also serve domains registered elsewhere.
  */
 const PROVIDER_NAMESERVERS: ReadonlyArray<readonly [DnsProvider, RegExp]> = [
   ["cloudflare", /\.ns\.cloudflare\.com$/],
   ["godaddy", /\.domaincontrol\.com$/],
-  ["namecheap", /\.registrar-servers\.com$/],
+  ["namecheap", /^dns\d+\.registrar-servers\.com$/],
   ["porkbun", /\.ns\.porkbun\.com$/],
   ["route53", /\.awsdns-\d+\.(?:com|net|org|co\.uk)$/],
   ["hover", /^ns\d+\.hover\.com$/],
