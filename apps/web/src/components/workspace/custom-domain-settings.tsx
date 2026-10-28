@@ -661,8 +661,10 @@ function KeepingDns({ hostname, zone, provider, ...steps }: StepsFor & { provide
 /**
  * The steps to give Ember the domain through Cloudflare for SaaS on `onCloudflare`, another domain already
  * there: the record and fallback origin it takes, the domain as a custom hostname, and the Worker's
- * routes; then the one record to add at `provider`, and Use. Cloudflare answers the certificate authority
- * itself at `/.well-known/`, so no Worker runs there.
+ * routes; then the one record to add at `provider`, and Use. A fallback origin the domain has already
+ * stays, as replacing it would send its other custom hostnames to Ember's record, and the Worker's route
+ * takes this one to Ember whatever it is. Cloudflare answers the certificate authority itself at
+ * `/.well-known/`, so no Worker runs there.
  */
 function SaasSteps({ domain, hostname, zone, worker, changing, use, provider, onCloudflare }: StepsFor & { provider: Exclude<DnsProvider, "cloudflare">; onCloudflare: string }) {
   const origin = `${SAAS_ORIGIN}.${onCloudflare}`;
@@ -674,8 +676,9 @@ function SaasSteps({ domain, hostname, zone, worker, changing, use, provider, on
         <OpenCloudflare href={CLOUDFLARE_DNS_RECORDS} />
       </li>
       <li>
-        Under <em>Custom Hostnames</em>, enable Cloudflare for SaaS (it asks for a card, but 100 domains are free). Make <strong className="wrap-anywhere">{origin}</strong>{" "}
-        the fallback origin, then add <strong className="wrap-anywhere">{hostname}</strong> with HTTP validation.
+        Under <em>Custom Hostnames</em>, enable Cloudflare for SaaS (it asks for a card, but 100 domains are free), and make{" "}
+        <strong className="wrap-anywhere">{origin}</strong> the fallback origin unless it has one. Then add <strong className="wrap-anywhere">{hostname}</strong> with HTTP
+        validation.
         <OpenCloudflare href={CLOUDFLARE_CUSTOM_HOSTNAMES} copying={origin} />
       </li>
       <li>

@@ -262,7 +262,7 @@ describe(feature("accounts.custom-domain"), () => {
     // Its record has buttons that copy each part, so the link copies nothing.
     expect(within(origin!).queryByRole("status")).not.toBeInTheDocument();
     expect(hostnames).toHaveTextContent(
-      /^Under Custom Hostnames, enable Cloudflare for SaaS \(it asks for a card, but 100 domains are free\)\. Make ember-saas\.example\.net the fallback origin, then add chat\.example\.com with HTTP validation\.Open Cloudflare$/,
+      /^Under Custom Hostnames, enable Cloudflare for SaaS \(it asks for a card, but 100 domains are free\), and make ember-saas\.example\.net the fallback origin unless it has one\. Then add chat\.example\.com with HTTP validation\.Open Cloudflare$/,
     );
     const open = within(hostnames!).getByRole("link", { name: "Open Cloudflare" });
     expect(open).toHaveAttribute("href", CLOUDFLARE_CUSTOM_HOSTNAMES);
@@ -308,7 +308,7 @@ describe(feature("accounts.custom-domain"), () => {
     await user.type(onCloudflare, "example.ne.jp");
     const retyped = within(stepsShown()).getAllByRole("listitem");
     expect(retyped[0]).toHaveTextContent(/^In Cloudflare, add this record to example\.ne\.jp, proxied:/);
-    expect(retyped[1]).toHaveTextContent("Make ember-saas.example.ne.jp the fallback origin");
+    expect(retyped[1]).toHaveTextContent("make ember-saas.example.ne.jp the fallback origin unless it has one.");
     expect(recordIn(retyped[3]!)).toEqual({ Type: "CNAME", Name: "chat", Value: "ember-saas.example.ne.jp" });
 
     await user.click(within(retyped[4]!).getByRole("button", { name: "Use chat.example.com" }));
@@ -409,7 +409,7 @@ describe(feature("accounts.custom-domain"), () => {
     const steps = stepsShown();
     expect(steps).toHaveAccessibleName("Steps to make chat.example.com:8443 Ember's address");
     const [, hostnames, routes] = within(steps).getAllByRole("listitem");
-    expect(hostnames).toHaveTextContent("then add chat.example.com with HTTP validation.");
+    expect(hostnames).toHaveTextContent("Then add chat.example.com with HTTP validation.");
     expect(routes).toHaveTextContent("route chat.example.com/* to the Worker that runs Ember, and chat.example.com/.well-known/* to None");
     expect(within(steps).getByRole("button", { name: "Use chat.example.com:8443" })).toBeInTheDocument();
   });

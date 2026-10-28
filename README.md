@@ -232,7 +232,9 @@ though the first 100 addresses are free. In the Cloudflare dashboard, on example
 1. Under DNS, Records, add a proxied `AAAA` record, `ember-saas`, for `100::`, an address that goes
    nowhere.
 2. Under SSL/TLS, Custom Hostnames, enable Cloudflare for SaaS, make `ember-saas.example.net` the
-   Fallback Origin, and add `chat.example.com` with HTTP validation.
+   Fallback Origin unless example.net has one already, and add `chat.example.com` with HTTP
+   validation. Keep a Fallback Origin that's there: replacing it would send example.net's other custom
+   hostnames to `100::`, and the route below takes chat.example.com to Ember whatever it is.
 3. Under Workers Routes, route `chat.example.com/*` to Ember's Worker, and
    `chat.example.com/.well-known/*` to no Worker, so that Cloudflare itself answers the certificate
    authority when it issues and renews the address's certificate. A route for `*/*`, as Cloudflare's
