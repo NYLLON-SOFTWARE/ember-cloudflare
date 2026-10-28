@@ -20,17 +20,28 @@ test.describe(feature("accounts.custom-domain"), () => {
     await page.goto("/account/edit");
     await signInAsAdministrator(page);
     const section = page.getByRole("region", { name: "Custom domain" });
-    await expect(section).toContainText(`People open Ember at ${deployed}.`);
+    await expect(section).toContainText(`Ember's address is ${deployed}.`);
 
     try {
       await section.getByRole("textbox", { name: "Domain" }).fill(domain);
       await section.getByRole("button", { name: "Set up" }).click();
-      await expect(section.getByRole("link", { name: "Open the Cloudflare dashboard" })).toHaveAttribute("href", "https://dash.cloudflare.com/?to=/:account/workers-and-pages");
-      await expect(section.getByRole("link", { name: `https://${domain}/account/edit` })).toBeVisible();
+      const steps = section.getByRole("list", { name: `Steps to make ${domain} Ember's address` });
+      // A name under localhost has no DNS to look up, so the steps start at Cloudflare's.
+      const provider = section.getByRole("combobox", { name: "DNS provider" });
+      await expect(provider).toHaveValue("cloudflare");
+      await expect(steps.getByRole("listitem")).toHaveCount(2);
+      await expect(steps).toContainText("Open Cloudflare, choose the Worker that runs Ember, then Domains > Add Domain, and paste chat.localhost.");
+      await expect(steps.getByRole("link", { name: "Open Cloudflare" })).toHaveAttribute("href", "https://dash.cloudflare.com/?to=/:account/workers-and-pages");
+      // Another provider's steps start by moving the domain's DNS to Cloudflare.
+      await provider.selectOption({ label: "GoDaddy" });
+      await expect(steps.getByRole("listitem")).toHaveCount(4);
+      await expect(steps).toContainText("At GoDaddy, open Domain Portfolio, choose chat.localhost, then DNS > Nameservers.");
+      await provider.selectOption({ label: "Cloudflare" });
       // The Worker's own request doesn't reach this server at a name under localhost: only the browser
       // takes the name to this machine and trusts its certificate.
-      await section.getByRole("button", { name: "Check DNS" }).click();
-      await expect(section.getByRole("status")).toHaveText(`Nothing answers at ${domain} yet. Cloudflare can take a few minutes to add a domain, so check again soon.`);
+      await steps.getByRole("button", { name: `Use ${domain}` }).click();
+      await expect(steps.getByRole("alert")).toHaveText(`Nothing answers at ${domain} yet. Cloudflare can take a minute to add it, so try again soon.`);
+      await expect(section).toContainText(`Ember's address is ${deployed}.`);
 
       // Sessions belong to their address, so the administrator signs in there once more.
       const there = await page.context().newPage();
@@ -38,14 +49,15 @@ test.describe(feature("accounts.custom-domain"), () => {
       await there.goto(`https://${domain}/account/edit`);
       await signInAsAdministrator(there);
       const sectionThere = there.getByRole("region", { name: "Custom domain" });
-      await expect(sectionThere).toContainText(`You're on ${domain}.`);
-      await sectionThere.getByRole("button", { name: "Use this address" }).click();
+      await sectionThere.getByRole("button", { name: `Use ${domain}` }).click();
       await expect(there.getByRole("alert")).toHaveText("Changes saved.");
-      await expect(sectionThere).toContainText(`Ember's address is ${domain}. Other addresses, ${deployed} included, send people here.`);
+      await expect(sectionThere).toContainText(`Ember's address is ${domain}.`);
+      await expect(sectionThere).toContainText(`If ${domain} stops working, open ${deployed}/account/edit and go back.`);
 
-      // The tab left at the old address hears of it, and says so on the pages that would move.
-      await expect(section).toContainText(`Ember's address is ${domain}. Other addresses, this one included, send people there.`);
-      await expect(section.getByRole("button", { name: "Use this address" })).toHaveCount(0);
+      // The tab left at the old address hears of it, and offers to go back.
+      await expect(section).toContainText(`Ember's address is ${domain}.`);
+      await expect(steps).toHaveCount(0);
+      await expect(section.getByRole("button", { name: `Go back to ${deployed}` })).toBeVisible();
       await page.getByRole("link", { name: "Go Back" }).click();
       await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
       await expect(page.getByText(`Ember has moved to ${domain}.`)).toBeVisible();
@@ -70,18 +82,20 @@ test.describe(feature("accounts.custom-domain"), () => {
       expect(page.url()).toBe(`${baseURL}/account/edit`);
       await section.getByRole("button", { name: `Go back to ${deployed}` }).click();
       await expect(page.getByRole("alert")).toHaveText("Changes saved.");
-      await expect(section).toContainText(`Ember's address is ${deployed}. Other addresses send people here.`);
+      await expect(section).toContainText(`Ember's address is ${deployed}.`);
       await expect(section.getByRole("textbox", { name: "Domain" })).toBeVisible();
       // The domain it left reaches it until it's removed in Cloudflare, sending people back here.
       const left = section.getByRole("list", { name: "Other addresses that reach Ember" });
-      await expect(left).toContainText(`${domain} still reaches Ember and sends people here until it's removed from the Worker in Cloudflare.`);
-      await expect(sectionThere).toContainText(`You're on ${domain}, which still reaches Ember and sends people there.`);
+      await expect(left).toContainText(`${domain} still forwards here.`);
+      // The page there needs no check of its own address, which it reaches Ember at.
+      await expect(sectionThere.getByRole("list", { name: "Other addresses that reach Ember" })).toContainText(`${domain} still forwards to ${deployed}.`);
+      await expect(sectionThere.getByRole("button", { name: `Check ${domain}` })).toHaveCount(0);
       await opened.goto(`https://${domain}${room}?from=bookmark`);
       await expect(opened).toHaveURL(`${baseURL}${room}?from=bookmark`);
       await expect(opened.getByRole("textbox", { name: "Write a message" })).toBeVisible();
 
-      // As with Check DNS, the Worker's own request doesn't reach the name under localhost, so its check
-      // finds the domain gone, as it would once it's removed from the Worker, and forgets it.
+      // As with Use, the Worker's own request doesn't reach the name under localhost, so its check finds
+      // the domain gone, as it would once it's removed from the Worker, and forgets it.
       await left.getByRole("button", { name: `Check ${domain}` }).click();
       await expect(section.getByRole("status")).toHaveText(`${domain} no longer reaches Ember.`);
       await expect(left).toHaveCount(0);

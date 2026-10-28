@@ -44,6 +44,7 @@ import {
   type Bootstrap,
   type ChangedPerson,
   type CustomDomainCheck,
+  type CustomDomainLookup,
   type CustomStyles,
   type Directory,
   type EmailSettings,
@@ -93,7 +94,7 @@ import { fileAddressOf, serveFile } from "./files/serving";
 import { pictureFormOf } from "./files/pictures";
 import { NO_STORAGE, startUpload, uploadPart, uploadPreview } from "./files/uploads";
 import { CSP_REPORT_PATH, cspReport } from "./csp";
-import { addressRefusal, answerProbe, deployedAddressOf, originFor, probeOf, reachOf } from "./custom-domain";
+import { addressRefusal, answerProbe, deployedAddressOf, lookUpDns, originFor, probeOf, reachOf } from "./custom-domain";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
 import { health, isUpPath, up } from "./health";
 import { invite, lookUpEmailLink, resendInvitation, revokeInvitation } from "./invitations";
@@ -326,9 +327,10 @@ async function regenerateJoinCode(request: Request, env: Env): Promise<Response>
 /**
  * Changes the workspace, as its settings save it. As in ember-rust, someone who isn't an administrator
  * hears so before anything they sent is checked (accounts.rs). Ember's address can only be the one the
- * request came to, or where a deploy puts Ember while it reaches it (`addressRefusal`), Memberful, or its
- * Members only, can only be turned on with the deployment's Memberful keys, and Email domain only with a
- * domain to let in, while Ember can send email. Turning any of them off always works.
+ * request came to, or a custom domain or where a deploy puts Ember while it reaches Ember
+ * (`addressRefusal`), Memberful, or its Members only, can only be turned on with the deployment's
+ * Memberful keys, and Email domain only with a domain to let in, while Ember can send email. Turning any
+ * of them off always works.
  */
 async function changeAccount(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -347,10 +349,9 @@ async function changeAccount(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Checks what a domain an administrator is making Ember's address reaches, as Workspace settings' Check
- * DNS asks, or one Ember moved away from, as its Check asks, after who's asking, as changing the
- * workspace does: this Ember, something else, or nothing yet. One Ember moved away from that no longer
- * reaches it is forgotten.
+ * Checks what a domain Ember moved away from reaches, as Workspace settings' Check asks, after who's
+ * asking, as changing the workspace does: this Ember, something else, or nothing yet. One that no longer
+ * reaches Ember is forgotten.
  */
 async function checkCustomDomain(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -363,6 +364,20 @@ async function checkCustomDomain(request: Request, env: Env): Promise<Response> 
   const reaches = await reachOf(request, env, check.domain);
   if (reaches !== "ember") await ember.forgetOtherAddress(check.domain);
   return json({ reaches } satisfies CustomDomainCheck, { headers: { "Cache-Control": "no-store" } });
+}
+
+/**
+ * Looks up where the DNS of a domain an administrator is making Ember's address is, as Workspace
+ * settings' Set up asks for its steps, after who's asking, as checking one does.
+ */
+async function lookUpCustomDomain(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const administrator = credentials && (await workspace(env).canAdminister(credentials));
+  if (administrator === null) return problem(401, "Not signed in");
+  if (!administrator) return problem(403, "Only administrators can change the workspace");
+  const lookup = parseCustomDomainCheck(await jsonBodyOf(request));
+  if (typeof lookup === "string") return problem(422, lookup);
+  return json((await lookUpDns(lookup.domain)) satisfies CustomDomainLookup, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** The workspace's custom CSS, for the Custom CSS page, which only administrators can open (custom_styles.rs). */
@@ -916,6 +931,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account/resend_api_key" && request.method === "DELETE") return () => forgetResendApiKey(request, env);
   if (pathname === "/api/account/sending_domain_checks" && request.method === "POST") return () => checkSendingDomain(request, env);
   if (pathname === "/api/account/custom_domain_checks" && request.method === "POST") return () => checkCustomDomain(request, env);
+  if (pathname === "/api/account/custom_domain_lookups" && request.method === "POST") return () => lookUpCustomDomain(request, env);
   if (pathname === LOGO_PATH && request.method === "PUT") return () => changeLogo(request, env);
   if (pathname === LOGO_PATH && request.method === "DELETE") return () => removeLogo(request, env);
   if (pathname === "/api/account/custom_styles" && request.method === "GET") return () => customStyles(request, env);

@@ -77,6 +77,24 @@ test("an administrator's ways to join, with Open's sign-up link, fit the phone",
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 
+test("an administrator's custom domain steps, for a domain at another provider, fit the phone", async ({ page, screenIsFine }) => {
+  await useOwnAddress(page);
+  // As Cloudflare's resolver finds a domain whose DNS is at GoDaddy, whose steps are the most.
+  await page.route("**/api/account/custom_domain_lookups", (route) => route.fulfill({ json: { zone: "example.com", provider: "godaddy" } }));
+  await page.goto("/account/edit");
+  await signInAsAdministrator(page);
+  const section = page.getByRole("region", { name: "Custom domain" });
+  await section.getByRole("textbox", { name: "Domain" }).fill("chat.example.com");
+  await section.getByRole("button", { name: "Set up" }).tap();
+  const steps = section.getByRole("list", { name: "Steps to make chat.example.com Ember's address" });
+  await expect(steps.getByRole("listitem")).toHaveCount(4);
+  await section.getByRole("combobox", { name: "DNS provider" }).scrollIntoViewIfNeeded();
+  await screenIsFine({ denseTargets: [SWITCHES] });
+
+  await steps.getByRole("button", { name: "Use chat.example.com" }).scrollIntoViewIfNeeded();
+  await screenIsFine({ denseTargets: [SWITCHES] });
+});
+
 test("a member's workspace settings, with a long name, fit the phone", async ({ page, session, screenIsFine }) => {
   await nameTheWorkspaceLong(page);
   await signInAs(page, session);

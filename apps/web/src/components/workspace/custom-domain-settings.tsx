@@ -2,28 +2,33 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import {
   canBeCustomDomain,
   CUSTOM_DOMAIN_NOT_A_HOST,
+  DNS_PROVIDERS,
   isHost,
   NOT_A_CUSTOM_DOMAIN,
   othersAfterMove,
   WORKSPACE_SETTINGS_PATH,
   type Account,
+  type CustomDomainLookup,
   type CustomDomainReach,
+  type DnsProvider,
   type EmberAddresses,
 } from "@ember/protocol";
 import { FIELD_INPUT, Field } from "@/components/field";
 import { Input } from "@/components/ui/input";
 import { useAccount } from "@/hooks/use-account";
 import { useMounted } from "@/hooks/use-mounted";
-import { changeAccount, checkCustomDomain, fetchWorkspaceSettings, isSignedOut } from "@/lib/api";
+import { ApiError, changeAccount, checkCustomDomain, fetchWorkspaceSettings, isSignedOut, lookUpCustomDomain } from "@/lib/api";
 import { moveTo } from "@/lib/custom-domain";
 import { cn } from "@/lib/utils";
 
 // This port's own Custom domain section of workspace settings (`accounts.custom-domain`), where ember-rust's
-// address is its installer's `--domain`. Ember holds no Cloudflare token, so the administrator attaches the
-// domain to the Worker in Cloudflare's dashboard, checks it reaches Ember, then opens Ember there and makes
-// it Ember's address. Going back makes the Worker's workers.dev address Ember's again. A domain Ember moves
-// away from keeps reaching it, sending people on, until it's removed in Cloudflare, so the section names it
-// until a check finds it gone. Styled as the Rooms section is.
+// address is its installer's `--domain`. Ember holds no Cloudflare token, so the administrator adds the
+// domain to the Worker in Cloudflare's dashboard, which the section opens with the domain copied to paste
+// there, after moving the domain's DNS to Cloudflare from the provider public DNS says has it. Use then
+// makes the domain Ember's address, once a check finds it reaches Ember, and goes there. Going back makes
+// the Worker's workers.dev address Ember's again. A domain Ember moves away from keeps reaching it,
+// sending people on, until it's removed in Cloudflare, so the section names it until a check finds it
+// gone. Styled as the Rooms section is.
 
 /** Where the Cloudflare dashboard lists an account's Workers, whichever account the person picks. */
 export const WORKERS_DASHBOARD = "https://dash.cloudflare.com/?to=/:account/workers-and-pages";
@@ -31,8 +36,8 @@ export const WORKERS_DASHBOARD = "https://dash.cloudflare.com/?to=/:account/work
 /** Where the Cloudflare dashboard shows the Domains tab of the Worker named `worker`, whose Add Domain adds a custom domain. */
 export const workerDomains = (worker: string) => `https://dash.cloudflare.com/?to=/:account/workers/services/view/${worker}/production/domains`;
 
-/** Where Ember's README gives it a custom domain through Cloudflare for SaaS, for a domain whose DNS stays with another provider. */
-export const DNS_ELSEWHERE = "https://github.com/NYLLON-SOFTWARE/ember-cloudflare#when-the-domains-dns-is-elsewhere";
+/** Where the Cloudflare dashboard lists an account's domains, whose Onboard a domain moves a domain's DNS to Cloudflare. */
+export const CLOUDFLARE_DOMAINS = "https://dash.cloudflare.com/?to=/:account/domains/overview";
 
 /** A workers.dev address, `<worker>.<subdomain>.workers.dev`: the Worker's name, then its account's subdomain. */
 const WORKERS_DEV = /^([a-z0-9-]+)\.[a-z0-9-]+\.workers\.dev$/;
@@ -43,6 +48,69 @@ const workerAt = (host: string) => WORKERS_DEV.exec(host.toLowerCase())?.[1] ?? 
 /** The section's buttons, as its New room is. */
 const BUTTON = "inline-flex min-h-11 max-w-full items-center justify-center rounded-[9px] border bg-background px-3.5 py-2.5 font-medium wrap-anywhere disabled:opacity-50";
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
+/** The DNS provider menu, drawn as the Domain field is, with the browser's own arrow. */
+const SELECT = cn("w-full min-w-0 border outline-none dark:bg-input/30", FIELD_INPUT);
+
+/** What the DNS provider menu calls each provider. */
+const PROVIDER_NAMES: Record<DnsProvider, string> = {
+  cloudflare: "Cloudflare",
+  godaddy: "GoDaddy",
+  namecheap: "Namecheap",
+  squarespace: "Squarespace",
+  porkbun: "Porkbun",
+  route53: "Amazon Route 53",
+  hover: "Hover",
+  ionos: "IONOS",
+  other: "Another provider",
+};
+
+/**
+ * Where each provider but Cloudflare takes the nameservers Cloudflare gives `zone` once it's onboarded,
+ * which moves its DNS to Cloudflare, in the words of the provider's own help.
+ */
+const NAMESERVERS_AT: Record<Exclude<DnsProvider, "cloudflare">, (zone: ReactNode) => ReactNode> = {
+  godaddy: (zone) => (
+    <>
+      At GoDaddy, open <em>Domain Portfolio</em>, choose {zone}, then <em>DNS &gt; Nameservers</em>. Choose <em>I'll use my own nameservers</em> and enter Cloudflare's
+      two nameservers.
+    </>
+  ),
+  namecheap: (zone) => (
+    <>
+      At Namecheap, open <em>Domain List</em> and choose <em>Manage</em> beside {zone}. Under <em>Nameservers</em>, choose <em>Custom DNS</em>, enter Cloudflare's two
+      nameservers, and save with the check mark.
+    </>
+  ),
+  squarespace: (zone) => (
+    <>
+      At Squarespace, open <em>Domains</em>, choose {zone}, then <em>DNS &gt; Domain Nameservers &gt; Use Custom Nameservers</em>, and enter Cloudflare's two
+      nameservers.
+    </>
+  ),
+  porkbun: (zone) => (
+    <>
+      At Porkbun, open <em>Domain Management</em>, then <em>Details</em> beside {zone}, and edit <em>Nameservers</em>. Replace them with Cloudflare's two.
+    </>
+  ),
+  // Route 53 serves the DNS of many domains registered elsewhere, whose nameservers change there.
+  route53: (zone) => (
+    <>
+      Where you registered {zone}, replace its nameservers with Cloudflare's two. If that's Route 53, open <em>Registered domains</em> in its console, choose {zone}, then{" "}
+      <em>Actions &gt; Edit name servers</em>.
+    </>
+  ),
+  hover: (zone) => (
+    <>
+      At Hover, choose {zone}, then <em>Edit</em> beside <em>Nameservers</em>, and enter Cloudflare's two nameservers.
+    </>
+  ),
+  ionos: (zone) => (
+    <>
+      At IONOS, choose the gear beside {zone} under <em>Actions</em>, then <em>Name Server &gt; Use Custom Name Servers</em>, and enter Cloudflare's two nameservers.
+    </>
+  ),
+  other: (zone) => <>Where you registered {zone}, replace its nameservers with Cloudflare's two.</>,
+};
 
 /** How a change, or a check, changes the addresses Ember knows reach it. */
 type AddressesChange = (addresses: EmberAddresses) => EmberAddresses;
@@ -76,12 +144,29 @@ function domainTyped(text: string): { domain: string } | { refusal: string } {
   return canBeCustomDomain(url.hostname) ? { domain: url.host } : { refusal: NOT_A_CUSTOM_DOMAIN };
 }
 
+/** The host name of `host`, without its port, as Cloudflare takes a domain. */
+const hostnameOf = (host: string) => host.replace(/:\d+$/, "");
+
+/** The second-level labels a country's domains are commonly registered under, as example.co.uk is. */
+const COUNTRY_SECOND_LEVELS = new Set(["ac", "co", "com", "edu", "gov", "net", "org"]);
+
+/**
+ * The domain `hostname` was most likely registered as, where DNS didn't say: its last two labels, or
+ * three under a country's common second level, as example.co.uk.
+ */
+function registeredGuess(hostname: string): string {
+  const labels = hostname.split(".");
+  const [secondLevel, topLevel] = labels.slice(-2);
+  const kept = labels.length > 2 && topLevel!.length === 2 && COUNTRY_SECOND_LEVELS.has(secondLevel!) ? 3 : 2;
+  return labels.slice(-kept).join(".");
+}
+
 /**
  * Ember's address for administrators. Where a deploy puts it, while that's its address or it has none,
  * the steps to give it a custom domain, which Move to another domain shows anywhere else. At an address
- * that could be a custom domain, Use this address, which makes it Ember's, and while it has one, Go back
- * to where a deploy puts it, or Stop using it until Ember knows where that is. The domains Ember moved
- * away from, each with a check.
+ * that could be a custom domain, Use, which makes it Ember's, and while it has one, Go back to where a
+ * deploy puts it, or Stop using it until Ember knows where that is. The domains Ember moved away from,
+ * each with a check.
  */
 export function CustomDomainSettings({ addresses, showAddresses, askForAccount, onSaved, onFailed }: Props) {
   const { customDomain } = useAccount();
@@ -94,6 +179,8 @@ export function CustomDomainSettings({ addresses, showAddresses, askForAccount, 
   // This page's address is where a deploy puts Ember before a page there has told it so.
   const deployed = addresses.deployed ?? (isHost(here) && !hereCanBe ? here : null);
   const worker = workerAt(deployed ?? here);
+  // The page's own address, while it's a custom domain Ember has moved away from, which reaches Ember as surely as the page does.
+  const left = hereCanBe && customDomain !== null && customDomain !== here ? here : null;
   const others = addresses.others.filter((address) => address !== here && address !== customDomain);
   // Where a deploy puts Ember, the steps to a custom domain are what it offers.
   const settingUpHere = !hereCanBe && (customDomain === null || customDomain === here);
@@ -125,7 +212,8 @@ export function CustomDomainSettings({ addresses, showAddresses, askForAccount, 
     );
   }, [customDomain, showAddresses, mounted, onFailed]);
 
-  const change = (address: string | null, then?: () => void) => {
+  /** Makes `address` Ember's, then does `then`, or says why the server refused it to `refused`, where given, rather than as the workspace's alerts do. */
+  const change = (address: string | null, then?: () => void, refused?: (refusal: string) => void) => {
     setChanging(true);
     const answered = askForAccount();
     changeAccount({ customDomain: address }).then(
@@ -142,23 +230,25 @@ export function CustomDomainSettings({ addresses, showAddresses, askForAccount, 
       (error: unknown) => {
         if (!mounted.current && !isSignedOut(error)) return;
         setChanging(false);
+        if (refused && error instanceof ApiError && error.status === 422) return refused(error.message);
         onFailed(error);
       },
     );
   };
-  // Workspace settings stay wherever they're opened, so going back from another address takes them along.
-  const goBack = (address: string) => change(address, address === here ? undefined : () => void moveTo(address));
+  // Workspace settings stay wherever they're opened, so moving Ember from another address takes them along.
+  const use = (address: string, refused?: (refusal: string) => void) => change(address, address === here ? undefined : () => void moveTo(address), refused);
   const forget = (address: string) => changeAddresses((known) => ({ ...known, others: known.others.filter((other) => other !== address) }));
-  const elsewhere = customDomain !== null && customDomain !== here && here !== deployed;
+  // Ember's address, or where a deploy puts it while it has none, as people open it there.
+  const address = customDomain ?? (here === deployed ? here : null);
   const actions = [
     hereCanBe && customDomain !== here && (
-      <button key="use" type="button" onClick={() => change(here)} disabled={changing} className={BUTTON}>
-        Use this address
+      <button key="use" type="button" onClick={() => use(here)} disabled={changing} className={BUTTON}>
+        Use {here}
       </button>
     ),
     // Where a deploy puts Ember, with no address of its own, the steps are all it offers.
     deployed !== null && customDomain !== deployed && !(customDomain === null && settingUpHere) && (
-      <button key="back" type="button" onClick={() => goBack(deployed)} disabled={changing} className={BUTTON}>
+      <button key="back" type="button" onClick={() => use(deployed)} disabled={changing} className={BUTTON}>
         Go back to {deployed}
       </button>
     ),
@@ -179,24 +269,13 @@ export function CustomDomainSettings({ addresses, showAddresses, askForAccount, 
       <h2 id="custom-domain-heading" className="text-base font-semibold">
         Custom domain
       </h2>
-      {customDomain === null ? (
-        !settingUpHere && (
-          <p>
-            You're on <strong className="wrap-anywhere">{here}</strong>. Make it Ember's address, and other addresses send people here, where everyone signs in once more.
-          </p>
-        )
-      ) : (
+      {address !== null && (
         <p>
-          Ember's address is <strong className="wrap-anywhere">{customDomain}</strong>. <SentOn address={customDomain} here={here} deployed={deployed} />
-        </p>
-      )}
-      {elsewhere && (
-        <p>
-          You're on <strong className="wrap-anywhere">{here}</strong>, which still reaches Ember and sends people there. To stop it, remove it from {worker ?? "the Worker"} in
-          Cloudflare{hereCanBe && ", or make it Ember's address instead"}. <DomainsLink worker={worker} />
+          Ember's address is <strong className="wrap-anywhere">{address}</strong>.
         </p>
       )}
       <OtherAddresses
+        left={left}
         others={others}
         sendsPeople={customDomain === null ? null : customDomain === here ? "here" : customDomain}
         worker={worker}
@@ -204,42 +283,18 @@ export function CustomDomainSettings({ addresses, showAddresses, askForAccount, 
         onFailed={onFailed}
       />
       {actions.length > 0 && <div className="flex flex-wrap gap-3">{actions}</div>}
-      {(settingUpHere || moving) && (
-        <SetUp
-          intro={
-            settingUpHere &&
-            (customDomain === null ? (
-              <>
-                People open Ember at <strong className="wrap-anywhere">{here}</strong>. It can have an address on a domain of yours instead.
-              </>
-            ) : (
-              "It can have an address on a domain of yours instead."
-            ))
-          }
-          autoFocus={moving}
-          worker={worker}
-          onGone={forget}
-          onFailed={onFailed}
-        />
-      )}
-      {customDomain !== null && (
+      {(settingUpHere || moving) && <SetUp autoFocus={moving} worker={worker} changing={changing} use={use} onFailed={onFailed} />}
+      {customDomain !== null && deployed !== null && customDomain !== deployed && (
         <p className={cn(NOTE, "wrap-anywhere")}>
-          Workspace settings open at every address that reaches Ember, so if {customDomain} stops reaching it, open them at{" "}
-          {deployed === null ? "another and choose Stop using it" : customDomain === deployed ? "another and choose Use this address" : `${deployed} and go back there`}.
+          If {customDomain} stops working, open{" "}
+          <a href={`${location.protocol}//${deployed}${WORKSPACE_SETTINGS_PATH}`} className="underline">
+            {deployed}
+            {WORKSPACE_SETTINGS_PATH}
+          </a>{" "}
+          and go back.
         </p>
       )}
     </section>
-  );
-}
-
-/** Where other addresses send people, as said at `here`, while Ember's address is `address`. */
-function SentOn({ address, here, deployed }: { address: string; here: string; deployed: string | null }) {
-  if (address !== here) return here === deployed ? "Other addresses, this one included, send people there." : "Other addresses send people there.";
-  if (deployed === null || deployed === address) return "Other addresses send people here.";
-  return (
-    <>
-      Other addresses, <span className="wrap-anywhere">{deployed}</span> included, send people here.
-    </>
   );
 }
 
@@ -256,17 +311,20 @@ function DomainsLink({ worker }: { worker: string | null }) {
 const checkedNote = (address: string, reaches: CustomDomainReach) => (reaches === "ember" ? `${address} still reaches Ember.` : `${address} no longer reaches Ember.`);
 
 /**
- * The custom domains Ember moved away from, `others`, which keep reaching it until they're removed from
- * the Worker named `worker`, sending people to `sendsPeople`, "here" or an address, or showing Ember
- * while it has no address, null. Each has a check, after which one that no longer reaches Ember is gone.
+ * The custom domains that reach Ember besides its own, until they're removed from the Worker named
+ * `worker`, forwarding people to `sendsPeople`, "here" or an address, or showing Ember while it has none,
+ * null: `left`, the page's own, if it's one, and `others`, those Ember moved away from, each with a check,
+ * after which one that no longer reaches Ember is gone.
  */
 function OtherAddresses({
+  left,
   others,
   sendsPeople,
   worker,
   onGone,
   onFailed,
 }: {
+  left: string | null;
   others: string[];
   sendsPeople: string | null;
   worker: string | null;
@@ -276,6 +334,7 @@ function OtherAddresses({
   // What the latest check found, or "checking" while it asks.
   const [checked, setChecked] = useState<{ address: string; reaches: CustomDomainReach | "checking" } | null>(null);
   const mounted = useMounted();
+  const listed = left === null ? others : [left, ...others];
 
   const check = (address: string) => {
     setChecked({ address, reaches: "checking" });
@@ -292,27 +351,29 @@ function OtherAddresses({
     );
   };
 
-  if (others.length === 0 && checked === null) return null;
+  if (listed.length === 0 && checked === null) return null;
   return (
     <div className="flex flex-col gap-2">
-      {others.length > 0 && (
+      {listed.length > 0 && (
         <>
           <ul aria-label="Other addresses that reach Ember" className="flex flex-col gap-2">
-            {others.map((address) => (
+            {listed.map((address) => (
               <li key={address} className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <p className="min-w-0 flex-1 basis-[16em]">
-                  <strong className="wrap-anywhere">{address}</strong> still reaches Ember
-                  {sendsPeople === null ? "" : sendsPeople === "here" ? " and sends people here" : ` and sends people to ${sendsPeople}`} until it's removed from{" "}
-                  {worker ?? "the Worker"} in Cloudflare.
+                  <strong className="wrap-anywhere">{address}</strong> still{" "}
+                  {sendsPeople === null ? "reaches Ember" : sendsPeople === "here" ? "forwards here" : <span className="wrap-anywhere">forwards to {sendsPeople}</span>}.
                 </p>
-                <button type="button" onClick={() => check(address)} disabled={checked?.reaches === "checking"} className={BUTTON}>
-                  Check {address}
-                </button>
+                {/* The page's own address needs no check: it reaches Ember, or the page couldn't ask. */}
+                {address !== left && (
+                  <button type="button" aria-label={`Check ${address}`} onClick={() => check(address)} disabled={checked?.reaches === "checking"} className={BUTTON}>
+                    Check
+                  </button>
+                )}
               </li>
             ))}
           </ul>
           <p>
-            <DomainsLink worker={worker} />
+            To turn one off, remove it from <strong className="wrap-anywhere">{worker ?? "the Worker"}</strong> in Cloudflare. <DomainsLink worker={worker} />
           </p>
         </>
       )}
@@ -323,39 +384,50 @@ function OtherAddresses({
   );
 }
 
+/** Makes a domain Ember's address and goes there, saying why the server refused it to `refused`. */
+type Use = (domain: string, refused: (refusal: string) => void) => void;
+
 /**
- * The domain to give Ember, and then how, after `intro`, if any: its field takes the focus at once when
- * `autoFocus` says, as when Move to another domain shows it. `worker` names the Worker that runs Ember,
- * where that's known, and `onGone` forgets a domain Check DNS finds no longer reaches Ember.
+ * The domain to give Ember, and then where its DNS is and the steps from there, once Set up has looked it
+ * up: its field takes the focus at once when `autoFocus` says, as when Move to another domain shows it.
+ * `worker` names the Worker that runs Ember, where that's known, and `changing` says a change is saving.
  */
-function SetUp({
-  intro,
-  autoFocus,
-  worker,
-  onGone,
-  onFailed,
-}: {
-  intro: ReactNode;
-  autoFocus: boolean;
-  worker: string | null;
-  onGone: (address: string) => void;
-  onFailed: Props["onFailed"];
-}) {
+function SetUp({ autoFocus, worker, changing, use, onFailed }: { autoFocus: boolean; worker: string | null; changing: boolean; use: Use; onFailed: Props["onFailed"] }) {
   const [typed, setTyped] = useState("");
   const [refusal, setRefusal] = useState<string | null>(null);
-  // The domain the steps are for, once Set up shows them.
-  const [domain, setDomain] = useState<string | null>(null);
+  // The latest lookup, until it's answered or the field changes, which only its own answer shows.
+  const asked = useRef<object | null>(null);
+  const [looking, setLooking] = useState(false);
+  // What Set up found of the domain the steps are for.
+  const [found, setFound] = useState<(CustomDomainLookup & { domain: string }) | null>(null);
+  const mounted = useMounted();
 
   const setUp = (event: FormEvent) => {
     event.preventDefault();
     const checked = domainTyped(typed);
-    setRefusal("refusal" in checked ? checked.refusal : null);
-    setDomain("domain" in checked ? checked.domain : null);
+    setFound(null);
+    if ("refusal" in checked) return setRefusal(checked.refusal);
+    const { domain } = checked;
+    setRefusal(null);
+    setLooking(true);
+    const lookup = {};
+    asked.current = lookup;
+    const show = (answer: CustomDomainLookup) => {
+      if (!mounted.current || asked.current !== lookup) return;
+      asked.current = null;
+      setLooking(false);
+      setFound({ domain, ...answer });
+    };
+    lookUpCustomDomain(domain).then(show, (error: unknown) => {
+      if (!isSignedOut(error)) return show({ zone: null, provider: null });
+      asked.current = null;
+      setLooking(false);
+      onFailed(error);
+    });
   };
 
   return (
     <>
-      {intro && <p>{intro}</p>}
       <form onSubmit={setUp} className="flex flex-wrap items-end gap-3">
         <div className="min-w-0 flex-1 basis-[16em]">
           <Field id="custom_domain" label="Domain">
@@ -371,13 +443,15 @@ function SetUp({
               aria-describedby={refusal === null ? undefined : "custom-domain-refusal"}
               onChange={(event) => {
                 setTyped(event.target.value);
-                setDomain(null);
+                asked.current = null;
+                setLooking(false);
+                setFound(null);
               }}
               className={FIELD_INPUT}
             />
           </Field>
         </div>
-        <button type="submit" className={BUTTON}>
+        <button type="submit" disabled={looking} className={BUTTON}>
           Set up
         </button>
       </form>
@@ -386,85 +460,116 @@ function SetUp({
           {refusal}
         </p>
       )}
-      {domain !== null && <Steps key={domain} domain={domain} worker={worker} onGone={onGone} onFailed={onFailed} />}
+      {found !== null && <Steps {...found} worker={worker} changing={changing} use={use} />}
     </>
   );
 }
 
-/** What Check DNS says it found at `domain`, which should be added to the Worker named `worker`, where that's known. */
-function reachNote(reaches: CustomDomainReach, domain: string, worker: string | null): string {
-  if (reaches === "ember") return `${domain} reaches Ember.`;
-  if (reaches === "elsewhere") return `Something else answers at ${domain}. Check that it's added to ${worker ?? "the Worker that runs Ember"}, not another.`;
-  return `Nothing answers at ${domain} yet. Cloudflare can take a few minutes to add a domain, so check again soon.`;
+/**
+ * The DNS provider menu, starting at the one public DNS says serves `zone`, the zone `domain` is in, or
+ * Cloudflare where it didn't say, and the steps from there to make `domain` Ember's address: at any other
+ * provider, onboarding the zone to Cloudflare and giving it Cloudflare's nameservers; then adding the
+ * domain to the Worker named `worker`, where that's known; then Use.
+ */
+function Steps({ domain, zone, provider: found, worker, changing, use }: CustomDomainLookup & { domain: string; worker: string | null; changing: boolean; use: Use }) {
+  const [provider, setProvider] = useState<DnsProvider>(found ?? "cloudflare");
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const hostname = hostnameOf(domain);
+  const onboarded = zone ?? registeredGuess(hostname);
+  const elsewhere = provider !== "cloudflare";
+
+  return (
+    <>
+      <div className="max-w-[20em]">
+        <Field id="dns_provider" label="DNS provider">
+          <select id="dns_provider" value={provider} onChange={(event) => setProvider(event.target.value as DnsProvider)} className={SELECT}>
+            {DNS_PROVIDERS.map((option) => (
+              <option key={option} value={option}>
+                {PROVIDER_NAMES[option]}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <ol aria-label={`Steps to make ${domain} Ember's address`} className="flex list-decimal flex-col gap-3 ps-5">
+        {elsewhere && (
+          <>
+            <li>
+              Open Cloudflare, choose <em>Onboard a domain</em>, and paste <strong className="wrap-anywhere">{onboarded}</strong>.
+              <OpenCloudflare href={CLOUDFLARE_DOMAINS} copying={onboarded} />
+            </li>
+            <li>{NAMESERVERS_AT[provider](<strong className="wrap-anywhere">{onboarded}</strong>)}</li>
+          </>
+        )}
+        <li>
+          {elsewhere ? (
+            <>
+              Once Cloudflare says <strong className="wrap-anywhere">{onboarded}</strong> is active, open Cloudflare
+            </>
+          ) : (
+            "Open Cloudflare"
+          )}
+          {worker === null ? (
+            <>
+              , choose the Worker that runs Ember, then <em>Domains &gt; Add Domain</em>
+            </>
+          ) : (
+            <>
+              , choose <em>Add Domain</em>
+            </>
+          )}
+          , and paste <strong className="wrap-anywhere">{hostname}</strong>.
+          <OpenCloudflare href={worker === null ? WORKERS_DASHBOARD : workerDomains(worker)} copying={hostname} />
+        </li>
+        <li>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <button
+              type="button"
+              onClick={() => {
+                setRefusal(null);
+                use(domain, setRefusal);
+              }}
+              disabled={changing}
+              className={BUTTON}
+            >
+              Use {domain}
+            </button>
+            <p className={cn(NOTE, "min-w-0 flex-1 basis-[12em]")}>Everyone signs in again there.</p>
+          </div>
+          {refusal !== null && (
+            <p role="alert" className={cn(NOTE, "mt-2 text-negative wrap-anywhere")}>
+              {refusal}
+            </p>
+          )}
+        </li>
+      </ol>
+    </>
+  );
 }
 
 /**
- * The steps to make `domain` Ember's address: Cloudflare's, on the Domains tab of the Worker named
- * `worker`, which its workers.dev address names, or the README's for a domain whose DNS stays
- * elsewhere; a check that the domain reaches Ember, after which one Ember moved away from that no longer
- * does is gone, as the server forgets it; then Ember's.
+ * A link that opens Cloudflare's dashboard at `href` in a new tab, copying `copying` for the person to
+ * paste there, and says it's copied. A clipboard that refuses, as on a page that isn't served securely,
+ * says nothing, and the step names what to paste anyway.
  */
-function Steps({ domain, worker, onGone, onFailed }: { domain: string; worker: string | null; onGone: (address: string) => void; onFailed: Props["onFailed"] }) {
-  // What Check DNS found, or "checking" while it asks.
-  const [reaches, setReaches] = useState<CustomDomainReach | "checking" | null>(null);
+function OpenCloudflare({ href, copying }: { href: string; copying: string }) {
+  const [copied, setCopied] = useState(false);
   const mounted = useMounted();
-  const settings = `${location.protocol}//${domain}${WORKSPACE_SETTINGS_PATH}`;
-
-  const check = () => {
-    setReaches("checking");
-    checkCustomDomain(domain).then(
-      (found) => {
-        if (found !== "ember") onGone(domain);
-        if (mounted.current) setReaches(found);
-      },
-      (error: unknown) => {
-        if (!mounted.current && !isSignedOut(error)) return;
-        setReaches(null);
-        onFailed(error);
-      },
+  const copy = () => {
+    navigator.clipboard?.writeText(copying).then(
+      () => mounted.current && setCopied(true),
+      () => {},
     );
   };
 
   return (
-    <ol aria-label={`Steps to make ${domain} Ember's address`} className="flex list-decimal flex-col gap-2 ps-5">
-      <li>
-        {worker === null ? (
-          <>
-            In the Cloudflare dashboard, open <em>Workers &amp; Pages</em>, choose this Worker and open its <em>Domains</em> tab.
-          </>
-        ) : (
-          <>
-            In the Cloudflare dashboard, open the <em>Domains</em> tab of <strong className="wrap-anywhere">{worker}</strong>, the Worker that runs Ember.
-          </>
-        )}{" "}
-        Under <em>Custom Domains and Routes</em>, choose <em>Add Domain</em> and enter <strong className="wrap-anywhere">{domain}</strong>. Its domain must be on
-        Cloudflare, in the account that runs Ember. <DomainsLink worker={worker} />
-        <p className={cn(NOTE, "mt-1")}>
-          If the domain's DNS is with another provider, Cloudflare offers to take it over for free, copying its records. To leave it there, follow{" "}
-          <a href={DNS_ELSEWHERE} target="_blank" rel="noopener" className="underline">
-            Ember's steps for Cloudflare for SaaS
-          </a>{" "}
-          instead.
-        </p>
-      </li>
-      <li>
-        Check that <strong className="wrap-anywhere">{domain}</strong> reaches Ember.
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
-          <button type="button" onClick={check} disabled={reaches === "checking"} className={BUTTON}>
-            Check DNS
-          </button>
-          <p role="status" className={cn("min-w-0 flex-1 basis-[16em] wrap-anywhere", reaches === "ember" && "text-positive", (reaches === "elsewhere" || reaches === "nothing") && "text-negative")}>
-            {reaches === "checking" ? `Checking ${domain}…` : reaches !== null && reachNote(reaches, domain, worker)}
-          </p>
-        </div>
-      </li>
-      <li>
-        Once it does, open{" "}
-        <a href={settings} className="wrap-anywhere underline">
-          {settings}
-        </a>
-        , sign in, and choose <em>Use this address</em>.
-      </li>
-    </ol>
+    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+      <a href={href} target="_blank" rel="noopener" onClick={copy} className={BUTTON}>
+        Open Cloudflare
+      </a>
+      <p role="status" className={cn(NOTE, "min-w-0 flex-1 basis-[12em] wrap-anywhere")}>
+        {copied && `Copied ${copying}.`}
+      </p>
+    </div>
   );
 }

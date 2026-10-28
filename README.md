@@ -183,27 +183,33 @@ touching storage.
 ### A custom domain
 
 Ember answers at its workers.dev address until an administrator gives it one of your own, under
-Custom domain in Workspace settings, which walks them through it at the workers.dev address, and at
-any other with Move to another domain:
+Custom domain in Workspace settings, at the workers.dev address, and at any other with Move to another
+domain. They type the address, `chat.example.com` say, and choose Set up, which asks Cloudflare's
+resolver for the zone the address is in, `example.com`, and whose nameservers serve it, and picks that
+provider in the DNS provider menu, or Cloudflare when it can't tell. The steps follow from the provider:
 
-1. In the Cloudflare dashboard, add the address, `chat.example.com` say, as a Custom Domain of Ember's
-   Worker: Workers & Pages, the Worker, Domains, Add Domain. The step names the Worker and links
-   straight to its Domains tab, from the workers.dev address Ember remembers being opened at. Its
-   domain must be on Cloudflare, in the account that runs the Worker, unless you
-   [keep its DNS elsewhere](#when-the-domains-dns-is-elsewhere); Cloudflare makes the DNS record and
-   the certificate. Ember holds no Cloudflare token to do this itself, since a token that can add a
-   domain to the Worker can also deploy new code to it.
-2. Check DNS, which asks the domain from the Worker for a one-time probe only this Ember answers, and
-   says whether it reaches Ember, something else answers there, or nothing does yet.
-3. Open `https://chat.example.com/account/edit`, sign in, and choose Use this address. Ember takes only
-   the address the page is open at, so it can't be sent to one that doesn't reach it.
+1. At any provider but Cloudflare, move the domain's DNS to Cloudflare, which is free and copies its
+   records, since a Worker's Custom Domain must be on a domain whose DNS Cloudflare runs, in the account
+   that runs the Worker. Open Cloudflare copies `example.com` and opens the dashboard's Domains, where
+   Onboard a domain takes it and names two nameservers, and the next step says where that provider
+   takes them. To keep the DNS where it is instead, see
+   [When the domain's DNS is elsewhere](#when-the-domains-dns-is-elsewhere).
+2. Once the domain is active on Cloudflare, add the address as a Custom Domain of Ember's Worker: Open
+   Cloudflare copies `chat.example.com` and opens the Worker's Domains tab, from the workers.dev address
+   Ember remembers being opened at, where Add Domain takes it. Cloudflare makes the DNS record and the
+   certificate. Ember holds no Cloudflare token to do this itself, since a token that can add a domain
+   to the Worker can also deploy new code to it.
+3. Use chat.example.com, which asks the address from the Worker for a one-time probe only this Ember
+   answers, makes it Ember's address once it does, and opens Workspace settings there. Until then it
+   says nothing answers there yet, or that something else does, so Ember is never sent to an address
+   that doesn't reach it.
 
 From then on, a page opened at any other address moves to the same page at the new one, and the bot
 API's links name it. Everyone signs in once more there, since a session belongs to its address, and
 turns notifications on again, which replaces their browser's subscription at the old address. Bots
 and webhooks go on posting to the addresses they were given.
 
-Moving to another domain takes the same three steps, and Go back to the workers.dev address makes it
+Moving to another domain takes the same steps, and Go back to the workers.dev address makes it
 Ember's address once more, once the Worker finds Ember still answers there. Either way, every other
 address sends people to Ember's, the domain it left included: that domain reaches Ember until it's
 removed on the Worker's Domains tab, which only the dashboard does. So Custom domain names the domains
@@ -231,8 +237,8 @@ method, though the first 100 addresses are free. In the Cloudflare dashboard, on
 
 Then at chat.example.com's DNS provider add `chat.example.com CNAME ember-saas.example.net`. That
 record is why the address must be a name under the domain, such as chat.example.com: example.com
-itself can't be a CNAME. Once Custom Hostnames shows the address and its certificate active, carry
-on from Check DNS.
+itself can't be a CNAME. Once Custom Hostnames shows the address and its certificate active, choose
+Use chat.example.com in Set up's steps, skipping the others.
 
 ### Who can join
 

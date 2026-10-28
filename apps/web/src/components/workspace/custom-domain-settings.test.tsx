@@ -1,14 +1,22 @@
 import { feature } from "@ember/parity";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CUSTOM_DOMAIN_NOT_A_HOST, NOT_A_CUSTOM_DOMAIN, type Account, type AccountChanges, type CustomDomainReach, type EmberAddresses } from "@ember/protocol";
+import {
+  CUSTOM_DOMAIN_NOT_A_HOST,
+  NOT_A_CUSTOM_DOMAIN,
+  type Account,
+  type AccountChanges,
+  type CustomDomainLookup,
+  type CustomDomainReach,
+  type EmberAddresses,
+} from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { AccountContext } from "@/hooks/use-account";
 import { ApiError } from "@/lib/api";
 import { loadPage } from "@/lib/page";
-import { CustomDomainSettings, DNS_ELSEWHERE, WORKERS_DASHBOARD, workerDomains } from "./custom-domain-settings";
+import { CLOUDFLARE_DOMAINS, CustomDomainSettings, WORKERS_DASHBOARD, workerDomains } from "./custom-domain-settings";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 
@@ -23,11 +31,22 @@ const DEPLOYED = "ember-production.nyllon.workers.dev";
 /** Where Workspace settings would be at `host`. */
 const settingsAt = (host: string) => `https://${host}/account/edit`;
 
-/** Answers saving the custom domain as the server does, with the workspace as it then is, unless `refusal` is given. */
-function serve(refusal?: { status: number; error: string }) {
+/** What the server refuses with, as its problems say. */
+interface Refusal {
+  status: number;
+  error: string;
+}
+
+/**
+ * Answers as the server does: saving the custom domain with the workspace as it then is, unless
+ * `refusal` says why not, and looking a domain's DNS up with `lookup`, or the refusal it gives.
+ */
+function serve({ refusal, lookup = { zone: "example.com", provider: "cloudflare" } }: { refusal?: Refusal; lookup?: CustomDomainLookup | Refusal } = {}) {
   let account = EMBER;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    expect(`${init?.method} ${String(input)}`).toBe("PATCH /api/account");
+    const asked = `${init?.method} ${String(input)}`;
+    if (asked === "POST /api/account/custom_domain_lookups") return "error" in lookup ? Response.json({ error: lookup.error }, { status: lookup.status }) : Response.json(lookup);
+    expect(asked).toBe("PATCH /api/account");
     if (refusal) return Response.json({ error: refusal.error }, { status: refusal.status });
     const { customDomain } = JSON.parse(String(init?.body)) as AccountChanges;
     account = { ...account, customDomain: customDomain ?? null };
@@ -36,10 +55,10 @@ function serve(refusal?: { status: number; error: string }) {
 }
 
 /**
- * Answers Check DNS as the server does, with what each domain reaches in turn, once `answer` lets each
- * through, or with `refusal`, and keeps the domains asked about.
+ * Answers checking an address Ember moved away from as the server does, with what each domain reaches in
+ * turn, once `answer` lets each through, or with `refusal`, and keeps the domains asked about.
  */
-function serveChecks(reaches: CustomDomainReach[], refusal?: { status: number; error: string }) {
+function serveChecks(reaches: CustomDomainReach[], refusal?: Refusal) {
   const asked: unknown[] = [];
   let answer = () => {};
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -52,11 +71,18 @@ function serveChecks(reaches: CustomDomainReach[], refusal?: { status: number; e
   return { asked, answer: () => answer() };
 }
 
-/** What the section asked to save, in order. */
-const saved = () =>
+/** What the section sent `path`, in order. */
+const sentTo = (path: string) =>
   vi
     .mocked(fetch)
-    .mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as unknown);
+    .mock.calls.filter(([input]) => String(input) === path)
+    .map(([, init]) => JSON.parse(String(init?.body)) as unknown);
+
+/** What the section asked to save, in order. */
+const saved = () => sentTo("/api/account");
+
+/** The domains whose DNS the section looked up, in order. */
+const lookedUp = () => sentTo("/api/account/custom_domain_lookups");
 
 /**
  * The section in workspace settings at `url`, for a workspace whose custom domain is `customDomain`, and
@@ -91,6 +117,19 @@ const section = () => screen.getByRole("region", { name: "Custom domain" });
 /** The other addresses that reach Ember, as the section lists them. */
 const otherAddresses = () => screen.queryByRole("list", { name: "Other addresses that reach Ember" });
 
+/** Types `domain` as the domain to give Ember and sets it up, which looks its DNS up, returning the steps then shown. */
+async function setUp(user: UserEvent, domain: string) {
+  await user.type(screen.getByRole("textbox", { name: "Domain" }), domain);
+  await user.click(screen.getByRole("button", { name: "Set up" }));
+  return screen.findByRole("list", { name: /^Steps to make / });
+}
+
+/** Clicks `link`, which opens a new tab, as someone would, but goes nowhere, as jsdom can't. */
+async function follow(user: UserEvent, link: HTMLElement) {
+  link.addEventListener("click", (event) => event.preventDefault(), { once: true });
+  await user.click(link);
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.mocked(loadPage).mockClear();
@@ -98,47 +137,59 @@ afterEach(() => {
 });
 
 describe(feature("accounts.custom-domain"), () => {
-  it("asks for the domain at an address that can't be one, then says how to make it Ember's", async () => {
+  it("asks for the domain where a deploy puts Ember, then says how to add it in Cloudflare, where its DNS is", async () => {
     serve();
     const { user } = showSection(settingsAt("ember.kro.workers.dev"));
-    expect(section()).toHaveTextContent("People open Ember at ember.kro.workers.dev.");
-    for (const name of ["Use this address", /^Go back/, "Move to another domain", "Stop using it"]) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    expect(section()).toHaveTextContent(/^Custom domainEmber's address is ember\.kro\.workers\.dev\.Domain/);
+    for (const name of [/^Use/, /^Go back/, "Move to another domain", "Stop using it"]) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     const field = screen.getByRole("textbox", { name: "Domain" });
     expect(field).toHaveAttribute("placeholder", "chat.example.com");
     expect(field).not.toHaveFocus();
 
     // As pasted from the address bar.
-    await user.type(field, " https://Chat.Example.com/account/edit ");
-    await user.click(screen.getByRole("button", { name: "Set up" }));
-    const steps = screen.getByRole("list", { name: "Steps to make chat.example.com Ember's address" });
-    const [cloudflare, check, ember] = within(steps).getAllByRole("listitem");
-    // The Worker's workers.dev address names it, so the dashboard opens at its Domains tab.
-    expect(cloudflare).toHaveTextContent(
-      "In the Cloudflare dashboard, open the Domains tab of ember, the Worker that runs Ember. Under Custom Domains and Routes, choose Add Domain and enter chat.example.com.",
-    );
-    expect(within(cloudflare!).getByRole("link", { name: "Open ember's domains" })).toHaveAttribute(
-      "href",
-      "https://dash.cloudflare.com/?to=/:account/workers/services/view/ember/production/domains",
-    );
-    // Workers take only a domain whose DNS Cloudflare runs, so the step says what to do with one it doesn't.
-    expect(cloudflare).toHaveTextContent(
-      "If the domain's DNS is with another provider, Cloudflare offers to take it over for free, copying its records. To leave it there, follow Ember's steps for Cloudflare for SaaS instead.",
-    );
-    expect(within(cloudflare!).getByRole("link", { name: "Ember's steps for Cloudflare for SaaS" })).toHaveAttribute("href", DNS_ELSEWHERE);
-    expect(check).toHaveTextContent("Check that chat.example.com reaches Ember.");
-    expect(within(check!).getByRole("button", { name: "Check DNS" })).toBeEnabled();
-    expect(ember).toHaveTextContent("Once it does, open https://chat.example.com/account/edit, sign in, and choose Use this address.");
-    expect(within(ember!).getByRole("link", { name: settingsAt("chat.example.com") })).toHaveAttribute("href", settingsAt("chat.example.com"));
+    const steps = await setUp(user, " https://Chat.Example.com/account/edit ");
+    expect(lookedUp()).toEqual([{ domain: "chat.example.com" }]);
+    expect(steps).toHaveAccessibleName("Steps to make chat.example.com Ember's address");
+    const provider = screen.getByRole("combobox", { name: "DNS provider" });
+    expect(provider).toHaveValue("cloudflare");
+    expect(within(provider).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Cloudflare",
+      "GoDaddy",
+      "Namecheap",
+      "Squarespace",
+      "Porkbun",
+      "Amazon Route 53",
+      "Hover",
+      "IONOS",
+      "Another provider",
+    ]);
+    const [cloudflare, use] = within(steps).getAllByRole("listitem");
+    expect(within(steps).getAllByRole("listitem")).toHaveLength(2);
+    expect(cloudflare).toHaveTextContent(/^Open Cloudflare, choose Add Domain, and paste chat\.example\.com\.Open Cloudflare$/);
+    // The Worker's workers.dev address names it, so Cloudflare opens at its Domains tab.
+    const open = within(cloudflare!).getByRole("link", { name: "Open Cloudflare" });
+    expect(open).toHaveAttribute("href", "https://dash.cloudflare.com/?to=/:account/workers/services/view/ember/production/domains");
+    expect(open).toHaveAttribute("target", "_blank");
+    expect(use).toHaveTextContent("Everyone signs in again there.");
+    expect(within(use!).getByRole("button", { name: "Use chat.example.com" })).toBeEnabled();
+
+    // Opening Cloudflare copies the domain to paste there.
+    expect(within(cloudflare!).getByRole("status")).toHaveTextContent(/^$/);
+    await follow(user, open);
+    expect(await navigator.clipboard.readText()).toBe("chat.example.com");
+    expect(within(cloudflare!).getByRole("status")).toHaveTextContent("Copied chat.example.com.");
 
     // Changing the domain takes the steps away until it's set up again.
     await user.type(field, "x");
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(saved()).toEqual([]);
   });
 
   it("keeps a port, and says why an address can't be Ember's", async () => {
+    serve({ lookup: { zone: null, provider: null } });
     const { user } = showSection("http://localhost:8787/account/edit");
-    expect(section()).toHaveTextContent("People open Ember at localhost:8787.");
+    expect(section()).toHaveTextContent("Ember's address is localhost:8787.");
     const field = screen.getByRole("textbox", { name: "Domain" });
     for (const [typed, refusal] of [
       ["ember.kro.workers.dev", NOT_A_CUSTOM_DOMAIN],
@@ -153,111 +204,208 @@ describe(feature("accounts.custom-domain"), () => {
       expect(field).toHaveAccessibleDescription(refusal!);
       expect(screen.queryByRole("list")).not.toBeInTheDocument();
     }
+    expect(lookedUp()).toEqual([]);
     await user.clear(field);
-    await user.type(field, "chat.localhost:8787");
-    await user.click(screen.getByRole("button", { name: "Set up" }));
+    const steps = await setUp(user, "chat.localhost:8787");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(field).not.toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByRole("link", { name: "http://chat.localhost:8787/account/edit" })).toBeInTheDocument();
-    // No workers.dev address names the Worker here, so the dashboard opens at the list of Workers.
-    const [cloudflare] = screen.getAllByRole("listitem");
-    expect(cloudflare).toHaveTextContent("In the Cloudflare dashboard, open Workers & Pages, choose this Worker and open its Domains tab. Under Custom Domains and Routes, choose Add Domain");
-    expect(within(cloudflare!).getByRole("link", { name: "Open the Cloudflare dashboard" })).toHaveAttribute("href", WORKERS_DASHBOARD);
+    // DNS doesn't say where a name under localhost is, so the steps start at Cloudflare.
+    expect(screen.getByRole("combobox", { name: "DNS provider" })).toHaveValue("cloudflare");
+    // No workers.dev address names the Worker here, so Cloudflare opens at the list of Workers. Cloudflare takes the domain without its port.
+    const [cloudflare] = within(steps).getAllByRole("listitem");
+    expect(cloudflare).toHaveTextContent("Open Cloudflare, choose the Worker that runs Ember, then Domains > Add Domain, and paste chat.localhost.");
+    expect(within(cloudflare!).getByRole("link", { name: "Open Cloudflare" })).toHaveAttribute("href", WORKERS_DASHBOARD);
+    expect(within(steps).getByRole("button", { name: "Use chat.localhost:8787" })).toBeInTheDocument();
   });
 
-  it("checks the domain reaches Ember, saying what answers there instead until it does", async () => {
-    const { asked, answer } = serveChecks(["nothing", "elsewhere", "ember"]);
-    const { user, onFailed } = showSection(settingsAt(DEPLOYED));
-    await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.example.com");
-    await user.click(screen.getByRole("button", { name: "Set up" }));
-    expect(screen.getByRole("link", { name: "Open ember-production's domains" })).toHaveAttribute("href", workerDomains("ember-production"));
-    const check = screen.getByRole("button", { name: "Check DNS" });
-    const status = screen.getByRole("status");
-    expect(status).toHaveTextContent(/^$/);
-
-    for (const said of [
-      "Nothing answers at chat.example.com yet. Cloudflare can take a few minutes to add a domain, so check again soon.",
-      "Something else answers at chat.example.com. Check that it's added to ember-production, not another.",
-      "chat.example.com reaches Ember.",
-    ]) {
-      await user.click(check);
-      expect(check).toBeDisabled();
-      expect(status).toHaveTextContent("Checking chat.example.com…");
-      answer();
-      await waitFor(() => expect(status).toHaveTextContent(said));
-      expect(check).toBeEnabled();
-    }
-    expect(asked).toEqual([{ domain: "chat.example.com" }, { domain: "chat.example.com" }, { domain: "chat.example.com" }]);
-    expect(onFailed).not.toHaveBeenCalled();
-  });
-
-  it("says where else a domain may have gone where no workers.dev address names the Worker", async () => {
-    const { answer } = serveChecks(["elsewhere"]);
-    const { user } = showSection("http://localhost:8787/account/edit");
-    await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.localhost:8787");
-    await user.click(screen.getByRole("button", { name: "Set up" }));
-    await user.click(screen.getByRole("button", { name: "Check DNS" }));
-    answer();
-    await waitFor(() =>
-      expect(screen.getByRole("status")).toHaveTextContent("Something else answers at chat.localhost:8787. Check that it's added to the Worker that runs Ember, not another."),
+  it("starts at the provider DNS says has the domain, saying where its nameservers change, and at any other provider chosen", async () => {
+    serve({ lookup: { zone: "example.com", provider: "godaddy" } });
+    const { user } = showSection(settingsAt(DEPLOYED));
+    const steps = await setUp(user, "chat.example.com");
+    const provider = screen.getByRole("combobox", { name: "DNS provider" });
+    expect(provider).toHaveValue("godaddy");
+    const [onboard, nameservers, cloudflare, use] = within(steps).getAllByRole("listitem");
+    expect(within(steps).getAllByRole("listitem")).toHaveLength(4);
+    expect(onboard).toHaveTextContent(/^Open Cloudflare, choose Onboard a domain, and paste example\.com\.Open Cloudflare$/);
+    const open = within(onboard!).getByRole("link", { name: "Open Cloudflare" });
+    expect(open).toHaveAttribute("href", CLOUDFLARE_DOMAINS);
+    expect(nameservers).toHaveTextContent(
+      "At GoDaddy, open Domain Portfolio, choose example.com, then DNS > Nameservers. Choose I'll use my own nameservers and enter Cloudflare's two nameservers.",
     );
+    expect(cloudflare).toHaveTextContent(/^Once Cloudflare says example\.com is active, open Cloudflare, choose Add Domain, and paste chat\.example\.com\.Open Cloudflare$/);
+    expect(within(cloudflare!).getByRole("link", { name: "Open Cloudflare" })).toHaveAttribute("href", workerDomains("ember-production"));
+    expect(within(use!).getByRole("button", { name: "Use chat.example.com" })).toBeInTheDocument();
+    // Onboarding takes the domain someone registered, which DNS says the name is in.
+    await follow(user, open);
+    expect(await navigator.clipboard.readText()).toBe("example.com");
+    expect(within(onboard!).getByRole("status")).toHaveTextContent("Copied example.com.");
+
+    for (const [chosen, said] of [
+      ["namecheap", "At Namecheap, open Domain List and choose Manage beside example.com. Under Nameservers, choose Custom DNS, enter Cloudflare's two nameservers, and save with the check mark."],
+      ["squarespace", "At Squarespace, open Domains, choose example.com, then DNS > Domain Nameservers > Use Custom Nameservers, and enter Cloudflare's two nameservers."],
+      ["porkbun", "At Porkbun, open Domain Management, then Details beside example.com, and edit Nameservers. Replace them with Cloudflare's two."],
+      ["route53", "Where you registered example.com, replace its nameservers with Cloudflare's two. If that's Route 53, open Registered domains in its console, choose example.com, then Actions > Edit name servers."],
+      ["hover", "At Hover, choose example.com, then Edit beside Nameservers, and enter Cloudflare's two nameservers."],
+      ["ionos", "At IONOS, choose the gear beside example.com under Actions, then Name Server > Use Custom Name Servers, and enter Cloudflare's two nameservers."],
+      ["other", "Where you registered example.com, replace its nameservers with Cloudflare's two."],
+    ] as const) {
+      await user.selectOptions(provider, chosen);
+      expect(within(steps).getAllByRole("listitem")[1]).toHaveTextContent(said);
+    }
+    // At Cloudflare already, only the Worker's step is left.
+    await user.selectOptions(provider, "cloudflare");
+    expect(within(steps).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(steps).getAllByRole("listitem")[0]).toHaveTextContent(/^Open Cloudflare, choose Add Domain/);
   });
 
-  it("says why a check failed, and can be asked again", async () => {
-    const { answer } = serveChecks([], { status: 403, error: "Only administrators can change the workspace" });
-    const { user, onFailed } = showSection(settingsAt("ember.kro.workers.dev"));
-    await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.example.com");
-    await user.click(screen.getByRole("button", { name: "Set up" }));
-    const check = screen.getByRole("button", { name: "Check DNS" });
-    await user.click(check);
-    answer();
-    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, "Only administrators can change the workspace")));
-    expect(check).toBeEnabled();
-    expect(screen.getByRole("status")).toHaveTextContent(/^$/);
+  it("names the domain it was likely registered as, and starts at Cloudflare, where DNS doesn't say", async () => {
+    serve({ lookup: { status: 500, error: "Internal Server Error" } });
+    const { user, onFailed } = showSection(settingsAt(DEPLOYED));
+    const steps = await setUp(user, "chat.example.co.uk");
+    const provider = screen.getByRole("combobox", { name: "DNS provider" });
+    expect(provider).toHaveValue("cloudflare");
+    await user.selectOptions(provider, "other");
+    const [onboard, nameservers] = within(steps).getAllByRole("listitem");
+    expect(onboard).toHaveTextContent("paste example.co.uk.");
+    expect(nameservers).toHaveTextContent("Where you registered example.co.uk, replace its nameservers with Cloudflare's two.");
+    // Failing to look it up says no more than DNS not answering.
+    expect(onFailed).not.toHaveBeenCalled();
+
+    // Its last two labels, or three under a country's common second level.
+    const field = screen.getByRole("textbox", { name: "Domain" });
+    for (const [domain, registered] of [
+      ["example.co.uk", "example.co.uk"],
+      ["chat.team.example.com", "example.com"],
+      ["example.com", "example.com"],
+      ["chat.example.io", "example.io"],
+    ]) {
+      await user.clear(field);
+      const shown = await setUp(user, domain!);
+      await user.selectOptions(screen.getByRole("combobox", { name: "DNS provider" }), "other");
+      expect(within(shown).getAllByRole("listitem")[0], domain).toHaveTextContent(`Open Cloudflare, choose Onboard a domain, and paste ${registered}.`);
+    }
   });
 
-  it("forgets what a check found once the domain changes", async () => {
-    const { answer } = serveChecks(["ember"]);
-    const { user } = showSection(settingsAt("ember.kro.workers.dev"));
+  it("shows only the latest lookup's answer, though an earlier one was for the same domain", async () => {
+    const answers: Array<(lookup: CustomDomainLookup) => void> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise((resolve) => answers.push((lookup) => resolve(Response.json(lookup)))));
+    const { user } = showSection(settingsAt(DEPLOYED));
     const field = screen.getByRole("textbox", { name: "Domain" });
     await user.type(field, "chat.example.com");
     await user.click(screen.getByRole("button", { name: "Set up" }));
-    await user.click(screen.getByRole("button", { name: "Check DNS" }));
-    answer();
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("chat.example.com reaches Ember."));
-
-    await user.clear(field);
-    await user.type(field, "team.example.com");
+    // Changed and changed back, then asked again before the first answer comes.
+    await user.type(field, "x{Backspace}");
     await user.click(screen.getByRole("button", { name: "Set up" }));
-    expect(screen.getByRole("list", { name: "Steps to make team.example.com Ember's address" })).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent(/^$/);
+    expect(answers).toHaveLength(2);
+    await act(async () => {
+      answers[0]!({ zone: null, provider: null });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    await act(async () => {
+      answers[1]!({ zone: "example.com", provider: "godaddy" });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(screen.getByRole("combobox", { name: "DNS provider" })).toHaveValue("godaddy");
+  });
+
+  it("says why it couldn't look a domain up when it's signed out, as the workspace's alerts do", async () => {
+    serve({ lookup: { status: 401, error: "Not signed in" } });
+    const { user, onFailed } = showSection(settingsAt(DEPLOYED));
+    await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.example.com");
+    await user.click(screen.getByRole("button", { name: "Set up" }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(401, "Not signed in")));
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Set up" })).toBeEnabled();
+  });
+
+  it("shows nothing of a lookup once the domain it was for has changed", async () => {
+    let answer = () => {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      await new Promise<void>((resolve) => (answer = resolve));
+      return Response.json({ zone: "example.com", provider: "godaddy" } satisfies CustomDomainLookup);
+    });
+    const { user } = showSection(settingsAt(DEPLOYED));
+    const field = screen.getByRole("textbox", { name: "Domain" });
+    await user.type(field, "chat.example.com");
+    await user.click(screen.getByRole("button", { name: "Set up" }));
+    expect(screen.getByRole("button", { name: "Set up" })).toBeDisabled();
+    await user.type(field, "x");
+    expect(screen.getByRole("button", { name: "Set up" })).toBeEnabled();
+    await act(async () => {
+      answer();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+  });
+
+  it("makes the domain Ember's address once it reaches Ember, and goes there, taking workspace settings along", async () => {
+    serve();
+    const { user, onSaved, shown } = showSection(settingsAt(DEPLOYED), null, { deployed: DEPLOYED, others: [] });
+    const steps = await setUp(user, "chat.example.com");
+    await user.click(within(steps).getByRole("button", { name: "Use chat.example.com" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    expect(saved()).toEqual([{ customDomain: "chat.example.com" }]);
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith(settingsAt("chat.example.com")));
+    expect(shown()).toEqual({ deployed: DEPLOYED, others: [] });
+    // Until the page there loads, this one says what this address does now.
+    expect(section()).toHaveTextContent("Ember's address is chat.example.com.");
+    expect(section()).toHaveTextContent(`If chat.example.com stops working, open ${DEPLOYED}/account/edit and go back.`);
+  });
+
+  it("says why the domain can't be Ember's yet, and can be asked again", async () => {
+    const refusal = "Nothing answers at chat.example.com yet. Cloudflare can take a minute to add it, so try again soon.";
+    serve({ refusal: { status: 422, error: refusal } });
+    const { user, onSaved, onFailed } = showSection(settingsAt(DEPLOYED), null, { deployed: DEPLOYED, others: [] });
+    const steps = await setUp(user, "chat.example.com");
+    const use = within(steps).getByRole("button", { name: "Use chat.example.com" });
+    await user.click(use);
+    await waitFor(() => expect(within(steps).getByRole("alert")).toHaveTextContent(refusal));
+    expect(use).toBeEnabled();
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(onFailed).not.toHaveBeenCalled();
+    expect(loadPage).not.toHaveBeenCalled();
+    expect(section()).toHaveTextContent(`Ember's address is ${DEPLOYED}.`);
+
+    await user.click(use);
+    expect(saved()).toEqual([{ customDomain: "chat.example.com" }, { customDomain: "chat.example.com" }]);
+  });
+
+  it("says why using the domain failed otherwise as the workspace's alerts do", async () => {
+    serve({ refusal: { status: 403, error: "Only administrators can change the workspace" } });
+    const { user, onFailed } = showSection(settingsAt(DEPLOYED));
+    const steps = await setUp(user, "chat.example.com");
+    await user.click(within(steps).getByRole("button", { name: "Use chat.example.com" }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, "Only administrators can change the workspace")));
+    expect(within(steps).queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("makes the address the page is open at Ember's", async () => {
     serve();
     const { user, onSaved, shown } = showSection(settingsAt("chat.example.com:8443"), null, { deployed: DEPLOYED, others: [] });
-    expect(section()).toHaveTextContent("You're on chat.example.com:8443. Make it Ember's address, and other addresses send people here, where everyone signs in once more.");
+    expect(section()).not.toHaveTextContent("Ember's address is");
     expect(screen.queryByRole("textbox", { name: "Domain" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Use this address" }));
+    await user.click(screen.getByRole("button", { name: "Use chat.example.com:8443" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
     expect(saved()).toEqual([{ customDomain: "chat.example.com:8443" }]);
-    expect(section()).toHaveTextContent(`Ember's address is chat.example.com:8443. Other addresses, ${DEPLOYED} included, send people here.`);
-    expect(screen.queryByRole("button", { name: "Use this address" })).not.toBeInTheDocument();
+    expect(loadPage).not.toHaveBeenCalled();
+    expect(section()).toHaveTextContent("Ember's address is chat.example.com:8443.");
+    expect(screen.queryByRole("button", { name: /^Use/ })).not.toBeInTheDocument();
     expect(shown()).toEqual({ deployed: DEPLOYED, others: [] });
+    expect(within(section()).getByRole("link", { name: `${DEPLOYED}/account/edit` })).toHaveAttribute("href", settingsAt(DEPLOYED));
   });
 
   it("goes back to where a deploy puts Ember from its custom domain, taking workspace settings along", async () => {
     serve();
     const { user, onSaved, shown } = showSection(settingsAt("chat.example.com"), "chat.example.com", { deployed: DEPLOYED, others: ["old.example.com"] });
-    expect(section()).toHaveTextContent(`Ember's address is chat.example.com. Other addresses, ${DEPLOYED} included, send people here.`);
+    expect(section()).toHaveTextContent("Ember's address is chat.example.com.");
     const [old] = within(otherAddresses()!).getAllByRole("listitem");
-    expect(old).toHaveTextContent("old.example.com still reaches Ember and sends people here until it's removed from ember-production in Cloudflare.");
+    expect(old).toHaveTextContent(/^old\.example\.com still forwards here\.Check$/);
+    expect(section()).toHaveTextContent("To turn one off, remove it from ember-production in Cloudflare.");
     expect(within(section()).getByRole("link", { name: "Open ember-production's domains" })).toHaveAttribute("href", workerDomains("ember-production"));
-    expect(section()).toHaveTextContent(
-      `Workspace settings open at every address that reaches Ember, so if chat.example.com stops reaching it, open them at ${DEPLOYED} and go back there.`,
-    );
-    expect(screen.queryByRole("button", { name: "Use this address" })).not.toBeInTheDocument();
+    expect(section()).toHaveTextContent(`If chat.example.com stops working, open ${DEPLOYED}/account/edit and go back.`);
+    expect(screen.queryByRole("button", { name: /^Use/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop using it" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: `Go back to ${DEPLOYED}` }));
@@ -265,32 +413,31 @@ describe(feature("accounts.custom-domain"), () => {
     expect(saved()).toEqual([{ customDomain: DEPLOYED }]);
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith(settingsAt(DEPLOYED)));
     expect(shown()).toEqual({ deployed: DEPLOYED, others: ["chat.example.com", "old.example.com"] });
-    // Until the page there loads, this one says what this address does now.
-    expect(section()).toHaveTextContent(`Ember's address is ${DEPLOYED}. Other addresses send people there.`);
-    expect(section()).toHaveTextContent(
-      "You're on chat.example.com, which still reaches Ember and sends people there. To stop it, remove it from ember-production in Cloudflare, or make it Ember's address instead.",
-    );
-    expect(within(otherAddresses()!).getByRole("listitem")).toHaveTextContent(`old.example.com still reaches Ember and sends people to ${DEPLOYED} until`);
+    // Until the page there loads, this one says what this address does now, which needs no check.
+    expect(section()).toHaveTextContent(`Ember's address is ${DEPLOYED}.`);
+    const [here, older] = within(otherAddresses()!).getAllByRole("listitem");
+    expect(here).toHaveTextContent(new RegExp(`^chat\\.example\\.com still forwards to ${DEPLOYED.replace(/\./g, "\\.")}\\.$`));
+    expect(older).toHaveTextContent(`old.example.com still forwards to ${DEPLOYED}.`);
+    expect(screen.getByRole("button", { name: "Use chat.example.com" })).toBeInTheDocument();
   });
 
   it("goes back at the address a deploy puts Ember at, staying there, and offers a domain once more", async () => {
     serve();
     const { user, shown } = showSection(settingsAt("ember.kro.workers.dev"), "chat.example.com");
-    expect(section()).toHaveTextContent("Ember's address is chat.example.com. Other addresses, this one included, send people there.");
+    expect(section()).toHaveTextContent("Ember's address is chat.example.com.");
+    expect(section()).toHaveTextContent("If chat.example.com stops working, open ember.kro.workers.dev/account/edit and go back.");
     expect(screen.queryByRole("textbox", { name: "Domain" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Use this address" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Use/ })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Go back to ember.kro.workers.dev" }));
-    await waitFor(() => expect(section()).toHaveTextContent("Ember's address is ember.kro.workers.dev. Other addresses send people here."));
+    await waitFor(() => expect(section()).toHaveTextContent("Ember's address is ember.kro.workers.dev."));
     expect(saved()).toEqual([{ customDomain: "ember.kro.workers.dev" }]);
     expect(loadPage).not.toHaveBeenCalled();
     expect(shown()).toEqual({ deployed: null, others: ["chat.example.com"] });
-    expect(within(otherAddresses()!).getByRole("listitem")).toHaveTextContent("chat.example.com still reaches Ember and sends people here until it's removed from ember in Cloudflare.");
-    expect(section()).toHaveTextContent("It can have an address on a domain of yours instead.");
+    expect(within(otherAddresses()!).getByRole("listitem")).toHaveTextContent("chat.example.com still forwards here.");
+    expect(section()).toHaveTextContent("To turn one off, remove it from ember in Cloudflare.");
     expect(screen.getByRole("textbox", { name: "Domain" })).toBeInTheDocument();
-    expect(section()).toHaveTextContent(
-      "Workspace settings open at every address that reaches Ember, so if ember.kro.workers.dev stops reaching it, open them at another and choose Use this address.",
-    );
+    expect(section()).not.toHaveTextContent("stops working");
     for (const name of [/^Go back/, "Move to another domain", "Stop using it"]) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
   });
 
@@ -300,6 +447,7 @@ describe(feature("accounts.custom-domain"), () => {
     const list = otherAddresses()!;
     const status = within(section()).getAllByRole("status").at(-1)!;
     const check = within(list).getByRole("button", { name: "Check chat.example.com" });
+    expect(check).toHaveTextContent(/^Check$/);
 
     await user.click(check);
     expect(status).toHaveTextContent("Checking chat.example.com…");
@@ -312,29 +460,20 @@ describe(feature("accounts.custom-domain"), () => {
     await user.click(check);
     answer();
     await waitFor(() => expect(status).toHaveTextContent("chat.example.com no longer reaches Ember."));
-    expect(within(list).getAllByRole("listitem").map((item) => item.textContent)).toEqual([expect.stringMatching(/^old\.example\.com still reaches Ember/)]);
+    expect(within(list).getAllByRole("listitem").map((item) => item.textContent)).toEqual([expect.stringMatching(/^old\.example\.com still forwards here/)]);
     expect(shown()).toEqual({ deployed: DEPLOYED, others: ["old.example.com"] });
     expect(asked).toEqual([{ domain: "chat.example.com" }, { domain: "chat.example.com" }]);
   });
 
-  it("forgets an address Ember moved away from once Check DNS finds it no longer reaches Ember too", async () => {
-    const { answer } = serveChecks(["ember", "nothing"]);
-    const { user, shown } = showSection(settingsAt(DEPLOYED), DEPLOYED, { deployed: DEPLOYED, others: ["chat.example.com", "old.example.com"] });
-    await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.example.com");
-    await user.click(screen.getByRole("button", { name: "Set up" }));
-    const steps = screen.getByRole("list", { name: "Steps to make chat.example.com Ember's address" });
-    const check = within(steps).getByRole("button", { name: "Check DNS" });
-
+  it("says why a check failed, and can be asked again", async () => {
+    const { answer } = serveChecks([], { status: 403, error: "Only administrators can change the workspace" });
+    const { user, onFailed } = showSection(settingsAt(DEPLOYED), DEPLOYED, { deployed: DEPLOYED, others: ["chat.example.com"] });
+    const check = screen.getByRole("button", { name: "Check chat.example.com" });
     await user.click(check);
     answer();
-    await waitFor(() => expect(within(steps).getByRole("status")).toHaveTextContent("chat.example.com reaches Ember."));
-    expect(within(otherAddresses()!).getAllByRole("listitem")).toHaveLength(2);
-
-    await user.click(check);
-    answer();
-    await waitFor(() => expect(within(steps).getByRole("status")).toHaveTextContent(/^Nothing answers at chat\.example\.com yet\./));
-    expect(within(otherAddresses()!).getAllByRole("listitem").map((item) => item.textContent)).toEqual([expect.stringMatching(/^old\.example\.com still reaches Ember/)]);
-    expect(shown()).toEqual({ deployed: DEPLOYED, others: ["old.example.com"] });
+    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, "Only administrators can change the workspace")));
+    expect(check).toBeEnabled();
+    expect(within(section()).getAllByRole("status").at(-1)).toHaveTextContent(/^$/);
   });
 
   it("asks for the addresses again once another tab moves Ember, which only the server can say it left", async () => {
@@ -346,9 +485,7 @@ describe(feature("accounts.custom-domain"), () => {
     expect(otherAddresses()).not.toBeInTheDocument();
 
     hear({ ...EMBER, customDomain: "team.example.com" });
-    await waitFor(() =>
-      expect(otherAddresses()).toHaveTextContent("chat.example.com still reaches Ember and sends people to team.example.com until it's removed from ember-production in Cloudflare."),
-    );
+    await waitFor(() => expect(otherAddresses()).toHaveTextContent("chat.example.com still forwards to team.example.com."));
     expect(shown()).toEqual({ deployed: DEPLOYED, others: ["chat.example.com"] });
     // Hearing it again asks nothing more.
     hear({ ...EMBER, customDomain: "team.example.com", name: "Campfire" });
@@ -372,7 +509,7 @@ describe(feature("accounts.custom-domain"), () => {
 
     answerSettings();
     await waitFor(() => expect(shown()).toEqual({ deployed: DEPLOYED, others: ["chat.example.com"] }));
-    expect(within(otherAddresses()!).getAllByRole("listitem").map((item) => item.textContent)).toEqual([expect.stringMatching(/^chat\.example\.com still reaches Ember/)]);
+    expect(within(otherAddresses()!).getAllByRole("listitem").map((item) => item.textContent)).toEqual([expect.stringMatching(/^chat\.example\.com still forwards/)]);
   });
 
   it("shows only the addresses it asked for last, when Ember moves again before they come", async () => {
@@ -413,43 +550,42 @@ describe(feature("accounts.custom-domain"), () => {
   });
 
   it("moves to another domain from any address, with the same steps", async () => {
+    serve();
     const { user } = showSection(settingsAt("chat.example.com"), "chat.example.com", { deployed: DEPLOYED, others: [] });
     expect(screen.queryByRole("textbox", { name: "Domain" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Move to another domain" }));
-    const field = screen.getByRole("textbox", { name: "Domain" });
-    expect(field).toHaveFocus();
+    expect(screen.getByRole("textbox", { name: "Domain" })).toHaveFocus();
     expect(screen.queryByRole("button", { name: "Move to another domain" })).not.toBeInTheDocument();
 
-    await user.type(field, "team.example.com");
-    await user.click(screen.getByRole("button", { name: "Set up" }));
-    const [cloudflare, , ember] = within(screen.getByRole("list", { name: "Steps to make team.example.com Ember's address" })).getAllByRole("listitem");
+    const steps = await setUp(user, "team.example.com");
+    expect(steps).toHaveAccessibleName("Steps to make team.example.com Ember's address");
     // The address a deploy puts Ember at names the Worker, wherever the page is.
-    expect(within(cloudflare!).getByRole("link", { name: "Open ember-production's domains" })).toHaveAttribute("href", workerDomains("ember-production"));
-    expect(within(ember!).getByRole("link", { name: settingsAt("team.example.com") })).toBeInTheDocument();
+    expect(within(steps).getByRole("link", { name: "Open Cloudflare" })).toHaveAttribute("href", workerDomains("ember-production"));
+    expect(within(steps).getByRole("button", { name: "Use team.example.com" })).toBeInTheDocument();
   });
 
   it("offers another address that could be Ember's in its place, saying it still sends people on", async () => {
     serve();
     const { user, shown } = showSection(settingsAt("chat.example.com"), "ember.example.org", { deployed: DEPLOYED, others: ["chat.example.com"] });
-    expect(section()).toHaveTextContent("Ember's address is ember.example.org. Other addresses send people there.");
-    expect(section()).toHaveTextContent(
-      "You're on chat.example.com, which still reaches Ember and sends people there. To stop it, remove it from ember-production in Cloudflare, or make it Ember's address instead.",
-    );
+    expect(section()).toHaveTextContent("Ember's address is ember.example.org.");
     // The page's own address needs no check: it reaches Ember, or the page couldn't ask.
-    expect(otherAddresses()).not.toBeInTheDocument();
+    const [here] = within(otherAddresses()!).getAllByRole("listitem");
+    expect(within(otherAddresses()!).getAllByRole("listitem")).toHaveLength(1);
+    expect(here).toHaveTextContent(/^chat\.example\.com still forwards to ember\.example\.org\.$/);
     expect(screen.getByRole("button", { name: `Go back to ${DEPLOYED}` })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Use this address" }));
+    await user.click(screen.getByRole("button", { name: "Use chat.example.com" }));
     await waitFor(() => expect(section()).toHaveTextContent("Ember's address is chat.example.com."));
     expect(saved()).toEqual([{ customDomain: "chat.example.com" }]);
+    expect(loadPage).not.toHaveBeenCalled();
     expect(shown()).toEqual({ deployed: DEPLOYED, others: ["ember.example.org"] });
-    expect(within(otherAddresses()!).getByRole("listitem")).toHaveTextContent("ember.example.org still reaches Ember and sends people here");
+    expect(within(otherAddresses()!).getByRole("listitem")).toHaveTextContent("ember.example.org still forwards here.");
   });
 
   it("goes back from an address while Ember has none of its own", async () => {
     serve();
     const { user, shown } = showSection(settingsAt("chat.example.com"), null, { deployed: DEPLOYED, others: [] });
-    for (const name of ["Use this address", `Go back to ${DEPLOYED}`, "Move to another domain"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    for (const name of ["Use chat.example.com", `Go back to ${DEPLOYED}`, "Move to another domain"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: `Go back to ${DEPLOYED}` }));
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith(settingsAt(DEPLOYED)));
     expect(saved()).toEqual([{ customDomain: DEPLOYED }]);
@@ -460,34 +596,33 @@ describe(feature("accounts.custom-domain"), () => {
     serve();
     const { user, onSaved, shown } = showSection(settingsAt("chat.example.com"), "ember.example.org");
     expect(screen.queryByRole("button", { name: /^Go back/ })).not.toBeInTheDocument();
-    expect(section()).toHaveTextContent("remove it from the Worker in Cloudflare");
+    expect(section()).toHaveTextContent("chat.example.com still forwards to ember.example.org.To turn one off, remove it from the Worker in Cloudflare.");
     expect(within(section()).getByRole("link", { name: "Open the Cloudflare dashboard" })).toHaveAttribute("href", WORKERS_DASHBOARD);
-    expect(section()).toHaveTextContent(
-      "Workspace settings open at every address that reaches Ember, so if ember.example.org stops reaching it, open them at another and choose Stop using it.",
-    );
+    expect(section()).not.toHaveTextContent("stops working");
 
     await user.click(screen.getByRole("button", { name: "Stop using it" }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
     expect(saved()).toEqual([{ customDomain: null }]);
-    expect(section()).toHaveTextContent("You're on chat.example.com. Make it Ember's address");
+    expect(section()).not.toHaveTextContent("Ember's address is");
+    expect(screen.getByRole("button", { name: "Use chat.example.com" })).toBeInTheDocument();
     expect(shown()).toEqual({ deployed: null, others: ["ember.example.org", "chat.example.com"] });
-    expect(within(otherAddresses()!).getByRole("listitem")).toHaveTextContent("ember.example.org still reaches Ember until it's removed from the Worker in Cloudflare.");
+    expect(within(otherAddresses()!).getByRole("listitem")).toHaveTextContent("ember.example.org still reaches Ember.");
   });
 
   it("says why a change failed, and can be asked again", async () => {
-    serve({ status: 422, error: "Open Ember at that address to make it Ember's" });
+    serve({ refusal: { status: 422, error: "Open Ember at that address to make it Ember's" } });
     const { user, onSaved, onFailed } = showSection(settingsAt("chat.example.com"));
-    const use = screen.getByRole("button", { name: "Use this address" });
+    const use = screen.getByRole("button", { name: "Use chat.example.com" });
     await user.click(use);
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(422, "Open Ember at that address to make it Ember's")));
     expect(use).toBeEnabled();
     expect(onSaved).not.toHaveBeenCalled();
-    expect(section()).toHaveTextContent("You're on chat.example.com.");
+    expect(section()).not.toHaveTextContent("Ember's address is");
   });
 
   it("stays where it is when going back is refused", async () => {
     const refusal = `Ember doesn't answer at ${DEPLOYED} now, so it can't go back there.`;
-    serve({ status: 422, error: refusal });
+    serve({ refusal: { status: 422, error: refusal } });
     const { user, onFailed, shown } = showSection(settingsAt("chat.example.com"), "chat.example.com", { deployed: DEPLOYED, others: [] });
     const back = screen.getByRole("button", { name: `Go back to ${DEPLOYED}` });
     await user.click(back);
