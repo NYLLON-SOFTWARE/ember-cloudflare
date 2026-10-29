@@ -10,7 +10,6 @@ import {
   MAX_TAGLINE_LENGTH,
   NO_EMAIL_DOMAINS,
   OPEN_WITH_MEMBERFUL,
-  withNavigationIcons,
   type Account,
   type AccountChanges,
   type DirectoryUser,
@@ -30,8 +29,9 @@ import { navigate, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { CONFIRM_REMOVE } from "./people-list";
 import { workspaceSectionPath, type WorkspaceSection } from "./settings-navigation";
+import { CHANGES_SAVED } from "./settings-page";
 import { CONFIRM_MEMBERS_ONLY, CONFIRM_OPEN } from "./ways-to-join";
-import { CHANGES_SAVED, WorkspaceSettingsPage } from "./workspace-settings-page";
+import { WorkspaceSettingsPage } from "./workspace-settings-page";
 
 vi.mock("@/lib/previews", () => ({
   logoVariantsOf: vi.fn(async () => ({ large: new Blob(["large"], { type: "image/png" }), small: new Blob(["small"], { type: "image/png" }) })),
@@ -101,23 +101,11 @@ interface Answers {
 /** The workspace's logo once one is uploaded. */
 const LOGO = "/account/logo?v=20261017120000";
 
-/** The icon pickers' catalog: a few icons, with Coffee suggested for a break room. */
-const CATALOG = {
-  icons: [
-    { name: "coffee", label: "Coffee", roomLabel: "Break Room", collection: "Lucide", tags: ["drink"], svg: "<svg></svg>" },
-    { name: "iconoir:regular:home", label: "Home", collection: "Iconoir", tags: ["house"], svg: "<svg></svg>" },
-    { name: "telescope", label: "Telescope", collection: "Lucide", tags: ["search"], svg: "<svg></svg>" },
-  ],
-  roomOrder: ["coffee", "iconoir:regular:home", "telescope"],
-  navigationOrder: ["telescope", "iconoir:regular:home", "coffee"],
-};
-
 /** Answers the page's requests as the server would for `settings`, or as `answers` says. */
 function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed, ordered, logoSaved }: Answers = {}) {
   let { account, emailDomains: keptDomains, email } = settings;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
-    if (request.endsWith("catalog.json")) return Response.json(CATALOG);
     const person = request.match(/^PATCH \/api\/account\/users\/(.+)$/);
     if (person) {
       const { role } = JSON.parse(String(init?.body)) as RoleChange;
@@ -135,7 +123,6 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
           tagline = account.tagline,
           settings: changed,
           customDomain = account.customDomain,
-          navigationIcons = {},
           emailDomains = keptDomains,
           emailFrom = email.from,
         } = JSON.parse(String(init?.body)) as AccountChanges;
@@ -158,7 +145,6 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
           // The workspace shows Email domain's domains only while it's on, as the Worker does.
           emailDomainSignUp,
           emailDomains: emailDomainSignUp ? keptDomains : [],
-          navigationIcons: withNavigationIcons(account.navigationIcons, navigationIcons),
         };
         return Response.json({ account });
       }
@@ -1929,17 +1915,18 @@ describe(feature("sidebar.shared-order"), () => {
       expect(sentOrders()).toHaveLength(1);
     });
 
-    it("closes the page's other dialogs first, which would stay above it, as another section's icon picker does", async () => {
+    it("closes the page's other dialogs first, which would stay above it, as another section's image viewer does", async () => {
       const { user } = showPage();
       await screen.findByRole("list", { name: "Room order" });
       altArrow("general", "ArrowUp");
-      act(() => navigate(workspaceSectionPath("community-settings")));
-      await user.click(await screen.findByRole("button", { name: "Choose Home icon" }));
-      const picker = screen.getByRole("dialog", { name: "Choose a navigation icon" });
+      act(() => navigate(workspaceSectionPath("membership-settings")));
+      await user.click(await screen.findByRole("link", { name: "Show join link QR code" }));
+      const viewer = screen.getByRole("dialog", { name: "Image Viewer (Press escape to close)" });
+      expect(viewer).toHaveAttribute("open");
 
       act(() => navigate("/rooms/opens/random/edit"));
       expect(await screen.findByRole("dialog", { name: "Unsaved Changes" })).toBeInTheDocument();
-      expect(picker).not.toHaveAttribute("open");
+      expect(viewer).not.toHaveAttribute("open");
     });
   });
 
@@ -2431,135 +2418,5 @@ describe(feature("users.avatar-links"), () => {
     expect(within(await rowOf("Mallory")).getByRole("link", { name: "Mallory" })).toHaveAttribute("href", "/users/u4");
     await user.click(link);
     expect(location.pathname).toBe("/users/u2");
-  });
-});
-
-describe(feature("accounts.navigation-icons"), () => {
-  const pickers = () => within(screen.getByRole("region", { name: "Navigation icons" })).getAllByRole("button");
-  const picker = (slot: string) => screen.findByRole("button", { name: `Choose ${slot} icon` });
-  const dialog = () => screen.getByRole("dialog", { name: "Choose a navigation icon" });
-
-  it("lists a picker for each of the rail's buttons and appearance modes, under Navigation icons", async () => {
-    serve({ ...asAdministrator, account: { ...asAdministrator.account, navigationIcons: { home: "coffee", dark: "iconoir:regular:home" } } });
-    showPage();
-    const home = await picker("Home");
-    const section = screen.getByRole("region", { name: "Navigation icons" });
-    expect(section).toHaveTextContent("Choose the icons in your community’s left navigation. Changes apply to everyone.");
-    expect(pickers().map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Choose Home icon",
-      "Choose DMs icon",
-      "Choose Activity icon",
-      "Choose Search icon",
-      "Choose Admin icon",
-      "Choose Light mode icon",
-      "Choose Dark mode icon",
-      "Choose System appearance icon",
-    ]);
-    // Called by their own names, not as rooms suggest them.
-    await waitFor(() => expect(home).toHaveTextContent("HomeCoffee"));
-    expect(home.querySelector("[data-icon]")).toHaveAttribute("data-icon", "coffee");
-    expect(await picker("Dark mode")).toHaveTextContent("Dark modeHome · Iconoir");
-    const dms = await picker("DMs");
-    expect(dms).toHaveTextContent("DMsDefault icon");
-    expect(dms).toHaveAttribute("aria-haspopup", "dialog");
-    expect(dms.querySelector(".iconoir-multi-bubble")).toBeInTheDocument();
-  });
-
-  it("isn't shown to members", async () => {
-    serve(asMember);
-    showPage(asLinus);
-    expect(await screen.findByRole("heading", { name: "Analytical Engines" })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Navigation icons" })).not.toBeInTheDocument();
-  });
-
-  it("chooses an icon in the dialog, which Save changes saves with the name, sending only the slots changed", async () => {
-    const { onAccountChanged, user } = showPage();
-    const search = await picker("Search");
-    await user.click(search);
-    expect(dialog()).toHaveTextContent("Recommendations for your navigation buttons and appearance modes.");
-    const grid = within(dialog()).getByRole("group", { name: "Navigation icons" });
-    // In the catalog's navigation order, by their own names.
-    await waitFor(() =>
-      expect(within(grid).getAllByRole("button").map((option) => option.getAttribute("aria-label"))).toEqual(["Use Telescope icon", "Use Home icon from Iconoir", "Use Coffee icon"]),
-    );
-    expect(within(dialog()).getByRole("button", { name: "Use default icon" })).toHaveAttribute("aria-pressed", "true");
-    await user.click(within(grid).getByRole("button", { name: "Use Telescope icon" }));
-    await user.click(within(dialog()).getByRole("button", { name: "Use icon" }));
-    expect(search).toHaveTextContent("SearchTelescope");
-    expect(search).toHaveFocus();
-    expect(saved()).toEqual([]);
-
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
-    expect(saved()).toEqual([{ name: "Analytical Engines", tagline: "", navigationIcons: { search: "telescope" } }]);
-    expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, navigationIcons: { search: "telescope" } });
-    expect(search).toHaveTextContent("SearchTelescope");
-
-    // Saved again, they're as the workspace has them, so nothing more is sent.
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(saved()).toHaveLength(2));
-    expect(saved()[1]).toEqual({ name: "Analytical Engines", tagline: "" });
-  });
-
-  it("gives a slot its own icon back with Use default icon, or the default's own icon", async () => {
-    serve({ ...asAdministrator, account: { ...asAdministrator.account, navigationIcons: { home: "coffee", search: "telescope" } } });
-    const { onAccountChanged, user } = showPage();
-    const search = await picker("Search");
-    await waitFor(() => expect(search).toHaveTextContent("SearchTelescope"));
-    await user.click(search);
-    await user.click(within(dialog()).getByRole("button", { name: "Use default icon" }));
-    await user.click(within(dialog()).getByRole("button", { name: "Use icon" }));
-    expect(search).toHaveTextContent("SearchDefault icon");
-
-    const home = await picker("Home");
-    await user.click(home);
-    await user.click(await within(dialog()).findByRole("button", { name: "Use Home icon from Iconoir" }));
-    await user.click(within(dialog()).getByRole("button", { name: "Use icon" }));
-    expect(home).toHaveTextContent("HomeDefault icon");
-
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
-    expect(saved()).toEqual([{ name: "Analytical Engines", tagline: "", navigationIcons: { search: "", home: "" } }]);
-    expect(onAccountChanged).toHaveBeenLastCalledWith(asAdministrator.account);
-  });
-
-  it("leaves a slot as it was when the dialog's cancelled", async () => {
-    const { user } = showPage();
-    const home = await picker("Home");
-    await user.click(home);
-    await user.click(await within(dialog()).findByRole("button", { name: "Use Coffee icon" }));
-    await user.click(within(dialog()).getByRole("button", { name: "Cancel" }));
-    expect(home).toHaveTextContent("HomeDefault icon");
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(saved()).toEqual([{ name: "Analytical Engines", tagline: "" }]));
-  });
-
-  it("follows the workspace socket for the slots not changed here, so saving never puts back what another tab chose", async () => {
-    const { user } = showPage();
-    const dms = await picker("DMs");
-    act(() => workspaceSays({ ...asAdministrator.account, navigationIcons: { dms: "coffee", home: "telescope" } }));
-    expect(dms).toHaveTextContent("DMsCoffee");
-
-    const home = await picker("Home");
-    await user.click(home);
-    await user.click(await within(dialog()).findByRole("button", { name: "Use Coffee icon" }));
-    await user.click(within(dialog()).getByRole("button", { name: "Use icon" }));
-    act(() => workspaceSays({ ...asAdministrator.account, navigationIcons: { dms: "telescope" } }));
-    expect(dms).toHaveTextContent("DMsTelescope");
-    expect(home).toHaveTextContent("HomeCoffee");
-
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(saved()).toEqual([{ name: "Analytical Engines", tagline: "", navigationIcons: { home: "coffee" } }]));
-  });
-
-  it("can't be changed while Save changes saves them", async () => {
-    let answer = (_: Response) => {};
-    serve(asAdministrator, { saved: () => new Promise((resolve) => (answer = resolve)) });
-    const { user } = showPage();
-    const home = await picker("Home");
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-    for (const button of pickers()) expect(button).toBeDisabled();
-    await act(async () => answer(Response.json({ account: asAdministrator.account })));
-    expect(home).toBeEnabled();
   });
 });

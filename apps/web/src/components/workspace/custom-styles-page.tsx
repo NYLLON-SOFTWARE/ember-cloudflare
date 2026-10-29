@@ -7,12 +7,13 @@ import { useMounted } from "@/hooks/use-mounted";
 import { navigate, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { ApiError, changeCustomStyles, fetchCustomStyles, isSignedOut } from "@/lib/api";
+import { NavigationIconSettings } from "./navigation-icon-settings";
 import { Panel, SettingsPage } from "./settings-page";
 
 interface Props {
   /**
-   * Called as the page saves the CSS. What it returns is called with the workspace as saving leaves it,
-   * for every page to apply.
+   * Called as the page saves the navigation icons or the CSS. What it returns is called with the
+   * workspace as saving leaves it, for every page to apply.
    */
   askForAccount: () => (account: Account) => void;
   /** Says why loading or saving failed, as the workspace's alerts do. */
@@ -20,10 +21,11 @@ interface Props {
 }
 
 /**
- * ember-rust's Custom CSS page (accounts/custom_styles/edit.html), where administrators write CSS for
- * every page, which saving applies at once, here and in everyone's tabs, with the notice "✓". Ctrl or
- * ⌘ + Enter saves too. Anyone else is sent to workspace settings with an alert, where ember-rust's
- * answers an empty 403 page.
+ * Custom styles: the rail's icons (`NavigationIconSettings`), which the project's owner moved here from
+ * Community, where ember-rust's pull request #24 has them, then ember-rust's Custom CSS page
+ * (accounts/custom_styles/edit.html), where administrators write CSS for every page, which saving
+ * applies at once, here and in everyone's tabs, with the notice "✓". Ctrl or ⌘ + Enter saves too.
+ * Anyone else is sent to workspace settings with an alert, where ember-rust's answers an empty 403 page.
  */
 export function CustomStylesPage({ askForAccount, onFailed }: Props) {
   const [customStyles, setCustomStyles] = useState<string | null>(null);
@@ -73,8 +75,9 @@ export function CustomStylesPage({ askForAccount, onFailed }: Props) {
 
   return (
     <SettingsPage back={WORKSPACE_SETTINGS_PATH}>
-      {/* `.panel--wide`: 900px. */}
-      <Panel aria-busy={customStyles === null} className="relative w-[900px] text-center">
+      <NavigationIconSettings askForAccount={askForAccount} onFailed={onFailed} loading={customStyles === null} />
+      {/* `.panel--wide`: 900px. Named for its heading, as the navigation icons' is, so each Save changes is told apart. */}
+      <Panel aria-labelledby="custom-styles-heading" aria-busy={customStyles === null} className="relative w-[900px] text-center">
         <form onSubmit={save} onKeyDown={saveOnCtrlEnter} className="flex flex-col gap-x-[1ch] gap-y-4">
           <div className="absolute top-4 left-4">
             <TranslationButton translations="custom_styles" />
