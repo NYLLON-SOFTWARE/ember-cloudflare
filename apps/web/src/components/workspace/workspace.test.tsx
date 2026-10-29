@@ -1731,9 +1731,9 @@ describe(feature("accounts.settings-page"), () => {
     expect(screen.queryByRole("complementary", { name: "Conversations" })).not.toBeInTheDocument();
     const header = screen.getByRole("navigation", { name: "Page" });
     expect(within(header).getByRole("heading", { level: 1, name: "Community settings" })).toBeInTheDocument();
-    expect(sectionMarked()).toHaveTextContent("Community");
+    expect(sectionMarked()).toHaveTextContent("General");
     // Ada isn't an administrator.
-    expect(within(settingsNavigation()).getAllByRole("link").map((link) => link.textContent)).toEqual(["Community", "Rooms and permissions", "Membership"]);
+    expect(within(settingsNavigation()).getAllByRole("link").map((link) => link.textContent)).toEqual(["General", "Rooms and permissions", "Membership"]);
     // The header, the links, then the page, as they show, where ember-rust's markup puts the links last.
     const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     expect(following(header, settingsNavigation())).toBe(true);

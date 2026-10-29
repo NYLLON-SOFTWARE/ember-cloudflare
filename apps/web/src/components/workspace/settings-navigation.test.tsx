@@ -21,7 +21,7 @@ afterEach(() => {
 describe(feature("accounts.settings-page"), () => {
   it("links everyone to workspace settings' three sections, by the fragments ember-rust's pull request #24 gives them", () => {
     render(<SettingsNavigation section="community-settings" administrator={false} />);
-    expect(links().map((link) => link.textContent)).toEqual(["Community", "Rooms and permissions", "Membership"]);
+    expect(links().map((link) => link.textContent)).toEqual(["General", "Rooms and permissions", "Membership"]);
     expect(links().map((link) => link.getAttribute("href"))).toEqual([
       "/account/edit#community-settings",
       "/account/edit#channel-settings",
@@ -32,7 +32,7 @@ describe(feature("accounts.settings-page"), () => {
 
   it("marks the section shown", () => {
     const { rerender } = render(<SettingsNavigation section="community-settings" administrator />);
-    expect(current()).toHaveTextContent("Community");
+    expect(current()).toHaveTextContent("General");
     rerender(<SettingsNavigation section="membership-settings" administrator />);
     expect(current()).toHaveTextContent("Membership");
     expect(current()).toHaveClass("aria-[current=page]:bg-hover", "aria-[current=page]:font-semibold");
@@ -54,7 +54,7 @@ describe(feature("accounts.settings-page"), () => {
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(375);
     const { rerender } = render(<SettingsNavigation section="community-settings" administrator />);
     rerender(<SettingsNavigation section="custom-styles" administrator />);
-    expect(scrolled.mock.calls).toEqual([["Community"], ["Custom styles"]]);
+    expect(scrolled.mock.calls).toEqual([["General"], ["Custom styles"]]);
   });
 
   it("leaves a strip as it is while every link fits", () => {
@@ -89,7 +89,7 @@ describe(feature("accounts.settings-page"), () => {
     expect(sections.map(([address]) => [address, sectionAt(address)])).toEqual(sections);
   });
 
-  it("shows Community unless the fragment names another of workspace settings' sections", () => {
+  it("shows General unless the fragment names another of workspace settings' sections", () => {
     expect(workspaceSectionOf("")).toBe("community-settings");
     expect(workspaceSectionOf("#membership-settings")).toBe("membership-settings");
     expect(workspaceSectionOf("#domain-settings")).toBe("domain-settings");
@@ -103,7 +103,7 @@ describe(feature("bots.list"), () => {
     const { rerender } = render(<SettingsNavigation section="chat-bots" administrator />);
     expect(screen.getByRole("link", { name: "Chat bots" })).toHaveAttribute("href", "/account/bots");
     expect(current()).toHaveTextContent("Chat bots");
-    expect(links().map((link) => link.textContent)).toEqual(["Community", "Rooms and permissions", "Membership", "Domain settings", "Chat bots", "Custom styles"]);
+    expect(links().map((link) => link.textContent)).toEqual(["General", "Rooms and permissions", "Membership", "Domain settings", "Chat bots", "Custom styles"]);
     rerender(<SettingsNavigation section="community-settings" administrator={false} />);
     expect(screen.queryByRole("link", { name: "Chat bots" })).not.toBeInTheDocument();
   });
