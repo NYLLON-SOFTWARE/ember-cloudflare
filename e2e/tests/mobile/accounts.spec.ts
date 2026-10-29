@@ -79,9 +79,11 @@ test("an administrator's ways to join, with Open's sign-up link, fit the phone",
 
 test("an administrator's custom domain steps, for a domain at another provider, fit the phone", async ({ page, screenIsFine }) => {
   await useOwnAddress(page);
-  // As Cloudflare's resolver finds a domain whose DNS is at GoDaddy, whose steps to keep it there are the most.
+  // As Cloudflare's resolver finds a domain whose DNS is at GoDaddy, whose steps to keep it there are the
+  // most, and which doesn't reach Ember yet.
   await page.route("**/api/account/custom_domain_lookups", (route) => route.fulfill({ json: { zone: "example.com", provider: "godaddy" } }));
-  await page.goto("/account/edit");
+  await page.route("**/api/account/custom_domain_checks", (route) => route.fulfill({ json: { reaches: "nothing" } }));
+  await page.goto("/account/edit#domain-settings");
   await signInAsAdministrator(page);
   const section = page.getByRole("region", { name: "Custom domain" });
   await section.getByRole("textbox", { name: "Domain" }).fill("chat.example.com");
@@ -103,6 +105,21 @@ test("an administrator's custom domain steps, for a domain at another provider, 
   await provider.selectOption("cloudflare");
   await expect(steps.getByRole("listitem")).toHaveCount(4);
   await provider.scrollIntoViewIfNeeded();
+  await screenIsFine({ denseTargets: [SWITCHES] });
+});
+
+test("an administrator's Save, for a domain that already reaches Ember, fits the phone, under Domain settings in view", async ({ page, screenIsFine }) => {
+  await useOwnAddress(page);
+  // As Set up's check finds Ember at a domain added to the Worker before.
+  await page.route("**/api/account/custom_domain_checks", (route) => route.fulfill({ json: { reaches: "ember" } }));
+  await page.goto("/account/edit#domain-settings");
+  await signInAsAdministrator(page);
+  await expect(page.getByRole("navigation", { name: "Community settings" }).getByRole("link", { name: "Domain settings" })).toBeInViewport();
+  const section = page.getByRole("region", { name: "Custom domain" });
+  await section.getByRole("textbox", { name: "Domain" }).fill("community-chat.analytical-engines.example.com");
+  await section.getByRole("button", { name: "Set up" }).tap();
+  await expect(section).toContainText("community-chat.analytical-engines.example.com already reaches Ember.");
+  await section.getByRole("button", { name: "Save" }).scrollIntoViewIfNeeded();
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 

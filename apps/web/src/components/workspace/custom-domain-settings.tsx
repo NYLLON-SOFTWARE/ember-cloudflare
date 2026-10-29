@@ -6,7 +6,6 @@ import {
   isHost,
   NOT_A_CUSTOM_DOMAIN,
   othersAfterMove,
-  WORKSPACE_SETTINGS_PATH,
   type Account,
   type CustomDomainLookup,
   type CustomDomainReach,
@@ -21,6 +20,7 @@ import { ApiError, changeAccount, checkCustomDomain, fetchWorkspaceSettings, isS
 import { moveTo } from "@/lib/custom-domain";
 import { cn } from "@/lib/utils";
 import { CopyButton, ROUND_BUTTON } from "./link-buttons";
+import { workspaceSectionPath } from "./settings-navigation";
 
 // This port's own Custom domain section of workspace settings (`accounts.custom-domain`), where ember-rust's
 // address is its installer's `--domain`. Ember holds no Cloudflare token, so the administrator adds the
@@ -28,7 +28,8 @@ import { CopyButton, ROUND_BUTTON } from "./link-buttons";
 // where the domain's DNS is on Cloudflare or moves there from the provider public DNS says has it, or, to
 // keep the DNS at that provider, as a custom hostname of another domain already on Cloudflare (Cloudflare
 // for SaaS), with the one record to add at the provider. Use then makes the domain Ember's address, once
-// a check finds it reaches Ember, and goes there. Going back makes the Worker's workers.dev address
+// a check finds it reaches Ember, and goes there. A domain that already reaches Ember, as one added to the
+// Worker before does, gets no steps, only Save. Going back makes the Worker's workers.dev address
 // Ember's again. A domain Ember moves away from keeps reaching it, sending people on, until it's removed
 // in Cloudflare, so the section names it until a check finds it gone. Styled as the Rooms section is.
 
@@ -341,10 +342,9 @@ export function CustomDomainSettings({ addresses, showAddresses, askForAccount, 
       {(settingUpHere || moving) && <SetUp autoFocus={moving} worker={worker} changing={changing} use={use} onFailed={onFailed} />}
       {customDomain !== null && deployed !== null && customDomain !== deployed && (
         <p className={cn(NOTE, "wrap-anywhere")}>
-          If {customDomain} stops working, open{" "}
-          <a href={`${location.protocol}//${deployed}${WORKSPACE_SETTINGS_PATH}`} className="underline">
+          If {customDomain} stops working, open Domain settings at{" "}
+          <a href={`${location.protocol}//${deployed}${workspaceSectionPath("domain-settings")}`} className="underline">
             {deployed}
-            {WORKSPACE_SETTINGS_PATH}
           </a>{" "}
           and go back.
         </p>
@@ -442,19 +442,29 @@ function OtherAddresses({
 /** Makes a domain Ember's address and goes there, saying why the server refused it to `refused`. */
 type Use = (domain: string, refused: (refusal: string) => void) => void;
 
+/** Answers `otherwise` for any failure but being signed out, which it passes on. */
+const unlessSignedOut =
+  <T,>(otherwise: T) =>
+  (error: unknown): T => {
+    if (isSignedOut(error)) throw error;
+    return otherwise;
+  };
+
 /**
- * The domain to give Ember, and then where its DNS is and the steps from there, once Set up has looked it
- * up: its field takes the focus at once when `autoFocus` says, as when Move to another domain shows it.
- * `worker` names the Worker that runs Ember, where that's known, and `changing` says a change is saving.
+ * The domain to give Ember, and then, once Set up has checked it, Save, if it already reaches Ember, or
+ * where its DNS is and the steps from there: its field takes the focus at once when `autoFocus` says, as
+ * when Move to another domain shows it. `worker` names the Worker that runs Ember, where that's known, and
+ * `changing` says a change is saving.
  */
 function SetUp({ autoFocus, worker, changing, use, onFailed }: { autoFocus: boolean; worker: string | null; changing: boolean; use: Use; onFailed: Props["onFailed"] }) {
   const [typed, setTyped] = useState("");
   const [refusal, setRefusal] = useState<string | null>(null);
-  // The latest lookup, until it's answered or the field changes, which only its own answer shows.
+  // The latest check, until it's answered or the field changes, which only its own answer shows.
   const asked = useRef<object | null>(null);
-  const [looking, setLooking] = useState(false);
-  // What Set up found of the domain the steps are for.
-  const [found, setFound] = useState<(CustomDomainLookup & { domain: string }) | null>(null);
+  // The domain being checked.
+  const [checking, setChecking] = useState<string | null>(null);
+  // What Set up found of the domain: whether it reaches Ember already, and where its DNS is for the steps if not.
+  const [found, setFound] = useState<(CustomDomainLookup & { domain: string; reaches: CustomDomainReach }) | null>(null);
   const mounted = useMounted();
 
   const setUp = (event: FormEvent) => {
@@ -464,21 +474,26 @@ function SetUp({ autoFocus, worker, changing, use, onFailed }: { autoFocus: bool
     if ("refusal" in checked) return setRefusal(checked.refusal);
     const { domain } = checked;
     setRefusal(null);
-    setLooking(true);
-    const lookup = {};
-    asked.current = lookup;
-    const show = (answer: CustomDomainLookup) => {
-      if (!mounted.current || asked.current !== lookup) return;
-      asked.current = null;
-      setLooking(false);
-      setFound({ domain, ...answer });
-    };
-    lookUpCustomDomain(domain).then(show, (error: unknown) => {
-      if (!isSignedOut(error)) return show({ zone: null, provider: null });
-      asked.current = null;
-      setLooking(false);
-      onFailed(error);
-    });
+    setChecking(domain);
+    const check = {};
+    asked.current = check;
+    // Failing to find either says no more than nothing answering there yet, and DNS not saying where it is.
+    Promise.all([
+      checkCustomDomain(domain).catch(unlessSignedOut<CustomDomainReach>("nothing")),
+      lookUpCustomDomain(domain).catch(unlessSignedOut<CustomDomainLookup>({ zone: null, provider: null })),
+    ]).then(
+      ([reaches, lookup]) => {
+        if (!mounted.current || asked.current !== check) return;
+        asked.current = null;
+        setChecking(null);
+        setFound({ domain, reaches, ...lookup });
+      },
+      (error: unknown) => {
+        asked.current = null;
+        setChecking(null);
+        onFailed(error);
+      },
+    );
   };
 
   return (
@@ -499,14 +514,14 @@ function SetUp({ autoFocus, worker, changing, use, onFailed }: { autoFocus: bool
               onChange={(event) => {
                 setTyped(event.target.value);
                 asked.current = null;
-                setLooking(false);
+                setChecking(null);
                 setFound(null);
               }}
               className={FIELD_INPUT}
             />
           </Field>
         </div>
-        <button type="submit" disabled={looking} className={BUTTON}>
+        <button type="submit" disabled={checking !== null} className={BUTTON}>
           Set up
         </button>
       </form>
@@ -515,7 +530,27 @@ function SetUp({ autoFocus, worker, changing, use, onFailed }: { autoFocus: bool
           {refusal}
         </p>
       )}
-      {found !== null && <Steps {...found} worker={worker} changing={changing} use={use} />}
+      {checking !== null && (
+        <p role="status" className={cn(NOTE, "wrap-anywhere")}>
+          Checking {checking}…
+        </p>
+      )}
+      {found !== null &&
+        (found.reaches === "ember" ? <Reaches domain={found.domain} changing={changing} use={use} /> : <Steps {...found} worker={worker} changing={changing} use={use} />)}
+    </>
+  );
+}
+
+/** What Set up shows for a domain that already reaches Ember, as one added to the Worker before does: no steps, only Save, which makes it Ember's address. */
+function Reaches({ domain, changing, use }: { domain: string; changing: boolean; use: Use }) {
+  return (
+    <>
+      <p className="wrap-anywhere">
+        <strong>{domain}</strong> already reaches Ember.
+      </p>
+      <div>
+        <UseButton label="Save" domain={domain} changing={changing} use={use} />
+      </div>
     </>
   );
 }
@@ -708,9 +743,18 @@ function hostnameTyped(text: string): string | null {
 
 /** The last step: Use `domain`, which makes it Ember's address and goes there, or says under it why not. */
 function UseStep({ domain, changing, use }: { domain: string; changing: boolean; use: Use }) {
-  const [refusal, setRefusal] = useState<string | null>(null);
   return (
     <li>
+      <UseButton label={`Use ${domain}`} domain={domain} changing={changing} use={use} />
+    </li>
+  );
+}
+
+/** A button saying `label` that makes `domain` Ember's address and goes there, or says under it why not. */
+function UseButton({ label, domain, changing, use }: { label: string; domain: string; changing: boolean; use: Use }) {
+  const [refusal, setRefusal] = useState<string | null>(null);
+  return (
+    <>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <button
           type="button"
@@ -721,7 +765,7 @@ function UseStep({ domain, changing, use }: { domain: string; changing: boolean;
           disabled={changing}
           className={BUTTON}
         >
-          Use {domain}
+          {label}
         </button>
         <p className={cn(NOTE, "min-w-0 flex-1 basis-[12em]")}>Everyone signs in again there.</p>
       </div>
@@ -730,7 +774,7 @@ function UseStep({ domain, changing, use }: { domain: string; changing: boolean;
           {refusal}
         </p>
       )}
-    </li>
+    </>
   );
 }
 

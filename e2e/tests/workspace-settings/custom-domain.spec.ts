@@ -17,7 +17,7 @@ test.describe(feature("accounts.custom-domain"), () => {
     const deployed = `127.0.0.1:${port}`;
     const domain = `chat.localhost:${port}`;
     await useOwnAddress(page);
-    await page.goto("/account/edit");
+    await page.goto("/account/edit#domain-settings");
     await signInAsAdministrator(page);
     const section = page.getByRole("region", { name: "Custom domain" });
     await expect(section).toContainText(`Ember's address is ${deployed}.`);
@@ -26,7 +26,8 @@ test.describe(feature("accounts.custom-domain"), () => {
       await section.getByRole("textbox", { name: "Domain" }).fill(domain);
       await section.getByRole("button", { name: "Set up" }).click();
       const steps = section.getByRole("list", { name: `Steps to make ${domain} Ember's address` });
-      // A name under localhost has no DNS to look up, so the steps start at Cloudflare's.
+      // Set up's check doesn't find Ember there yet, as the Worker's own request doesn't reach a name under
+      // localhost, and a name under localhost has no DNS to look up, so the steps start at Cloudflare's.
       const provider = section.getByRole("combobox", { name: "DNS provider" });
       await expect(provider).toHaveValue("cloudflare");
       await expect(steps.getByRole("listitem")).toHaveCount(2);
@@ -49,13 +50,13 @@ test.describe(feature("accounts.custom-domain"), () => {
       // Sessions belong to their address, so the administrator signs in there once more.
       const there = await page.context().newPage();
       await useOwnAddress(there);
-      await there.goto(`https://${domain}/account/edit`);
+      await there.goto(`https://${domain}/account/edit#domain-settings`);
       await signInAsAdministrator(there);
       const sectionThere = there.getByRole("region", { name: "Custom domain" });
       await sectionThere.getByRole("button", { name: `Use ${domain}` }).click();
       await expect(there.getByRole("alert")).toHaveText("Changes saved.");
       await expect(sectionThere).toContainText(`Ember's address is ${domain}.`);
-      await expect(sectionThere).toContainText(`If ${domain} stops working, open ${deployed}/account/edit and go back.`);
+      await expect(sectionThere).toContainText(`If ${domain} stops working, open Domain settings at ${deployed} and go back.`);
 
       // The tab left at the old address hears of it, and offers to go back.
       await expect(section).toContainText(`Ember's address is ${domain}.`);
@@ -81,8 +82,8 @@ test.describe(feature("accounts.custom-domain"), () => {
       expect(await opened.evaluate(() => localStorage.getItem("ember:replacing-push"))).toBe("BOv7-moved_from");
 
       // Workspace settings stay at the old address, from where the administrator goes back to it.
-      await page.goto("/account/edit");
-      expect(page.url()).toBe(`${baseURL}/account/edit`);
+      await page.goto("/account/edit#domain-settings");
+      expect(page.url()).toBe(`${baseURL}/account/edit#domain-settings`);
       await section.getByRole("button", { name: `Go back to ${deployed}` }).click();
       await expect(page.getByRole("alert")).toHaveText("Changes saved.");
       await expect(section).toContainText(`Ember's address is ${deployed}.`);

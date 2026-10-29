@@ -295,6 +295,7 @@ describe(feature("accounts.settings-page"), () => {
   const community = () => screen.queryByRole("region", { name: "Basic community settings" });
   const rooms = () => screen.queryByRole("region", { name: "Room order and permissions" });
   const membership = () => screen.queryByRole("region", { name: "Membership" });
+  const domain = () => screen.queryByRole("region", { name: "Domain settings" });
 
   it("reads Basic community settings, titled Community settings, with Go Back to the last room visited", () => {
     showPage();
@@ -323,9 +324,15 @@ describe(feature("accounts.settings-page"), () => {
     expect(screen.getByRole("heading", { level: 1, name: "Membership" })).toBeInTheDocument();
     expect(screen.getByText("Invite people and manage access to your community.")).toBeInTheDocument();
 
+    act(() => navigate(workspaceSectionPath("domain-settings")));
+    expect(membership()).not.toBeInTheDocument();
+    expect(domain()).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Domain settings" })).toBeInTheDocument();
+    expect(screen.getByText("Choose the address people open your community at.")).toBeInTheDocument();
+
     act(() => navigate("/account/edit#account_name"));
     expect(community()).toBeInTheDocument();
-    expect(membership()).not.toBeInTheDocument();
+    expect(domain()).not.toBeInTheDocument();
   });
 
   it("keeps what's typed in one section while another shows", async () => {
@@ -723,15 +730,18 @@ describe(feature("accounts.custom-domain"), () => {
     account: { ...asAdministrator.account, customDomain: "chat.example.com" },
     addresses: { deployed: location.host, others: ["old.example.com"] },
   };
+  showingSection("domain-settings");
 
-  it("gives administrators a Custom domain section, after Hide translation buttons, saying Changes saved.", async () => {
+  it("gives administrators a Custom domain section in Domain settings, saying Changes saved.", async () => {
     serve(moved);
     const { onAccountChanged, user } = showPage();
     const section = await screen.findByRole("region", { name: "Custom domain" });
-    const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
-    expect(following(screen.getByRole("switch", { name: "Hide translation buttons" }), section)).toBe(true);
-    expect(following(screen.getByRole("button", { name: "Save changes" }), section)).toBe(true);
-    expect(screen.getByRole("region", { name: "Basic community settings" })).toContainElement(section);
+    expect(screen.getByRole("region", { name: "Domain settings" })).toContainElement(section);
+    // Not in Basic community settings, once that's shown.
+    act(() => navigate(workspaceSectionPath("community-settings")));
+    expect(await nameField()).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Custom domain" })).not.toBeInTheDocument();
+    act(() => navigate(workspaceSectionPath("domain-settings")));
     expect(section).toHaveTextContent("Ember's address is chat.example.com.");
     expect(section).toHaveTextContent("old.example.com still forwards to chat.example.com.");
 
@@ -747,10 +757,10 @@ describe(feature("accounts.custom-domain"), () => {
     ]);
   });
 
-  it("isn't shown to members", async () => {
+  it("isn't shown to members, who hear who manages it", async () => {
     serve({ ...moved, canAdminister: false });
     showPage(asLinus);
-    await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
+    expect(await screen.findByText("Community admins manage the community's domain.")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Custom domain" })).not.toBeInTheDocument();
     expect(screen.queryByText(/chat\.example\.com/)).not.toBeInTheDocument();
   });

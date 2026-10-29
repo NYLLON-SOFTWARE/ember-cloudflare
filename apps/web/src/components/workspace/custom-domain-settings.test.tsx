@@ -1,5 +1,5 @@
 import { feature } from "@ember/parity";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +8,7 @@ import {
   NOT_A_CUSTOM_DOMAIN,
   type Account,
   type AccountChanges,
+  type CustomDomainCheck,
   type CustomDomainLookup,
   type CustomDomainReach,
   type EmberAddresses,
@@ -39,12 +40,18 @@ interface Refusal {
 
 /**
  * Answers as the server does: saving the custom domain with the workspace as it then is, unless
- * `refusal` says why not, and looking a domain's DNS up with `lookup`, or the refusal it gives.
+ * `refusal` says why not, checking what a domain reaches with `reaches`, and looking its DNS up with
+ * `lookup`, or the refusal each gives.
  */
-function serve({ refusal, lookup = { zone: "example.com", provider: "cloudflare" } }: { refusal?: Refusal; lookup?: CustomDomainLookup | Refusal } = {}) {
+function serve({
+  refusal,
+  reaches = "nothing",
+  lookup = { zone: "example.com", provider: "cloudflare" },
+}: { refusal?: Refusal; reaches?: CustomDomainReach | Refusal; lookup?: CustomDomainLookup | Refusal } = {}) {
   let account = EMBER;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const asked = `${init?.method} ${String(input)}`;
+    if (asked === "POST /api/account/custom_domain_checks") return typeof reaches === "object" ? Response.json({ error: reaches.error }, { status: reaches.status }) : Response.json({ reaches });
     if (asked === "POST /api/account/custom_domain_lookups") return "error" in lookup ? Response.json({ error: lookup.error }, { status: lookup.status }) : Response.json(lookup);
     expect(asked).toBe("PATCH /api/account");
     if (refusal) return Response.json({ error: refusal.error }, { status: refusal.status });
@@ -83,6 +90,9 @@ const saved = () => sentTo("/api/account");
 
 /** The domains whose DNS the section looked up, in order. */
 const lookedUp = () => sentTo("/api/account/custom_domain_lookups");
+
+/** The domains the section checked, in order. */
+const checked = () => sentTo("/api/account/custom_domain_checks");
 
 /**
  * The section in workspace settings at `url`, for a workspace whose custom domain is `customDomain`, and
@@ -161,6 +171,9 @@ describe(feature("accounts.custom-domain"), () => {
     // As pasted from the address bar.
     const steps = await setUp(user, " https://Chat.Example.com/account/edit ");
     expect(lookedUp()).toEqual([{ domain: "chat.example.com" }]);
+    // It checked first whether the domain already reaches Ember, which it doesn't yet.
+    expect(checked()).toEqual([{ domain: "chat.example.com" }]);
+    expect(section()).not.toHaveTextContent("already reaches Ember");
     expect(steps).toHaveAccessibleName("Steps to make chat.example.com Ember's address");
     const provider = screen.getByRole("combobox", { name: "DNS provider" });
     expect(provider).toHaveValue("cloudflare");
@@ -217,6 +230,7 @@ describe(feature("accounts.custom-domain"), () => {
       expect(screen.queryByRole("list")).not.toBeInTheDocument();
     }
     expect(lookedUp()).toEqual([]);
+    expect(checked()).toEqual([]);
     await user.clear(field);
     const steps = await setUp(user, "chat.localhost:8787");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -374,14 +388,15 @@ describe(feature("accounts.custom-domain"), () => {
   });
 
   it("names the domain it was likely registered as, and starts at Cloudflare, where DNS doesn't say", async () => {
-    serve({ lookup: { status: 500, error: "Internal Server Error" } });
+    const failing = { status: 500, error: "Internal Server Error" };
+    serve({ reaches: failing, lookup: failing });
     const { user, onFailed } = showSection(settingsAt(DEPLOYED));
     const provider = await lookUp(user, "chat.example.co.uk");
     expect(provider).toHaveValue("cloudflare");
     // Nothing says where its DNS is, so there's no move to make.
     expect(section()).not.toHaveTextContent("This moves");
     expect(within(stepsShown()).getAllByRole("listitem")[0]).toHaveTextContent(/^Open Cloudflare, choose Add Domain, and paste chat\.example\.co\.uk\./);
-    // Failing to look it up says no more than DNS not answering.
+    // Failing to check it, or to look it up, says no more than nothing answering there yet, and DNS not answering.
     expect(onFailed).not.toHaveBeenCalled();
 
     // Keeping its DNS elsewhere adds a record to the domain it was likely registered as: its last two
@@ -424,43 +439,58 @@ describe(feature("accounts.custom-domain"), () => {
     expect(within(steps).getByRole("button", { name: "Use chat.example.com:8443" })).toBeInTheDocument();
   });
 
-  it("shows only the latest lookup's answer, though an earlier one was for the same domain", async () => {
-    const answers: Array<(lookup: CustomDomainLookup) => void> = [];
-    vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise((resolve) => answers.push((lookup) => resolve(Response.json(lookup)))));
+  it("shows only the latest check's answer, though an earlier one was for the same domain", async () => {
+    const answers: Array<(reaches: CustomDomainReach) => void> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input) === "/api/account/custom_domain_lookups") return Response.json({ zone: "example.com", provider: "godaddy" } satisfies CustomDomainLookup);
+      return new Promise((resolve) => answers.push((reaches) => resolve(Response.json({ reaches }))));
+    });
     const { user } = showSection(settingsAt(DEPLOYED));
     const field = screen.getByRole("textbox", { name: "Domain" });
     await user.type(field, "chat.example.com");
     await user.click(screen.getByRole("button", { name: "Set up" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Checking chat.example.com…");
     // Changed and changed back, then asked again before the first answer comes.
     await user.type(field, "x{Backspace}");
     await user.click(screen.getByRole("button", { name: "Set up" }));
     expect(answers).toHaveLength(2);
     await act(async () => {
-      answers[0]!({ zone: null, provider: null });
+      answers[0]!("ember");
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
-    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(section()).not.toHaveTextContent("already reaches Ember");
+    expect(screen.getByRole("status")).toHaveTextContent("Checking chat.example.com…");
     await act(async () => {
-      answers[1]!({ zone: "example.com", provider: "godaddy" });
+      answers[1]!("nothing");
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "DNS provider" })).toHaveValue("godaddy");
   });
 
-  it("says why it couldn't look a domain up when it's signed out, as the workspace's alerts do", async () => {
-    serve({ lookup: { status: 401, error: "Not signed in" } });
-    const { user, onFailed } = showSection(settingsAt(DEPLOYED));
-    await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.example.com");
-    await user.click(screen.getByRole("button", { name: "Set up" }));
-    await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(401, "Not signed in")));
-    expect(screen.queryByRole("list")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Set up" })).toBeEnabled();
+  it("says why it couldn't check a domain or look it up when it's signed out, as the workspace's alerts do", async () => {
+    const signedOut = { status: 401, error: "Not signed in" };
+    for (const answers of [{ reaches: signedOut }, { lookup: signedOut }]) {
+      serve(answers);
+      const { user, onFailed } = showSection(settingsAt(DEPLOYED));
+      await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.example.com");
+      await user.click(screen.getByRole("button", { name: "Set up" }));
+      await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(401, "Not signed in")));
+      expect(onFailed).toHaveBeenCalledOnce();
+      expect(screen.queryByRole("list")).not.toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Set up" })).toBeEnabled();
+      cleanup();
+    }
   });
 
-  it("shows nothing of a lookup once the domain it was for has changed", async () => {
-    let answer = () => {};
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
-      await new Promise<void>((resolve) => (answer = resolve));
+  it("shows nothing of a check once the domain it was for has changed", async () => {
+    // Both requests wait until they're let through.
+    const waiting: Array<() => void> = [];
+    const answer = () => waiting.splice(0).forEach((resolve) => resolve());
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      await new Promise<void>((resolve) => waiting.push(resolve));
+      if (String(input) === "/api/account/custom_domain_checks") return Response.json({ reaches: "ember" } satisfies CustomDomainCheck);
       return Response.json({ zone: "example.com", provider: "godaddy" } satisfies CustomDomainLookup);
     });
     const { user } = showSection(settingsAt(DEPLOYED));
@@ -470,11 +500,46 @@ describe(feature("accounts.custom-domain"), () => {
     expect(screen.getByRole("button", { name: "Set up" })).toBeDisabled();
     await user.type(field, "x");
     expect(screen.getByRole("button", { name: "Set up" })).toBeEnabled();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(2);
     await act(async () => {
       answer();
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
+    expect(section()).not.toHaveTextContent("already reaches Ember");
+  });
+
+  it("offers only Save for a domain that already reaches Ember, as one added to the Worker before does, which makes it Ember's address", async () => {
+    serve({ reaches: "ember" });
+    const { user, onSaved } = showSection(settingsAt(DEPLOYED), null, { deployed: DEPLOYED, others: [] });
+    await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.example.com");
+    await user.click(screen.getByRole("button", { name: "Set up" }));
+    const save = await screen.findByRole("button", { name: "Save" });
+    expect(section()).toHaveTextContent("chat.example.com already reaches Ember.Save");
+    expect(section()).toHaveTextContent("Everyone signs in again there.");
+    expect(screen.queryByRole("combobox", { name: "DNS provider" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
+
+    await user.click(save);
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    expect(saved()).toEqual([{ customDomain: "chat.example.com" }]);
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith(settingsAt("chat.example.com")));
+  });
+
+  it("says under Save why the domain can't be Ember's, as when it stopped reaching Ember since the check", async () => {
+    const refusal = "Something else answers at chat.example.com, not Ember.";
+    serve({ reaches: "ember", refusal: { status: 422, error: refusal } });
+    const { user, onFailed } = showSection(settingsAt(DEPLOYED));
+    await user.type(screen.getByRole("textbox", { name: "Domain" }), "chat.example.com");
+    await user.click(screen.getByRole("button", { name: "Set up" }));
+    const save = await screen.findByRole("button", { name: "Save" });
+    await user.click(save);
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(refusal));
+    expect(save).toBeEnabled();
+    expect(onFailed).not.toHaveBeenCalled();
+    expect(loadPage).not.toHaveBeenCalled();
   });
 
   it("makes the domain Ember's address once it reaches Ember, and goes there, taking workspace settings along", async () => {
@@ -488,7 +553,7 @@ describe(feature("accounts.custom-domain"), () => {
     expect(shown()).toEqual({ deployed: DEPLOYED, others: [] });
     // Until the page there loads, this one says what this address does now.
     expect(section()).toHaveTextContent("Ember's address is chat.example.com.");
-    expect(section()).toHaveTextContent(`If chat.example.com stops working, open ${DEPLOYED}/account/edit and go back.`);
+    expect(section()).toHaveTextContent(`If chat.example.com stops working, open Domain settings at ${DEPLOYED} and go back.`);
   });
 
   it("says why the domain can't be Ember's yet, and can be asked again", async () => {
@@ -531,7 +596,8 @@ describe(feature("accounts.custom-domain"), () => {
     expect(section()).toHaveTextContent("Ember's address is chat.example.com:8443.");
     expect(screen.queryByRole("button", { name: /^Use/ })).not.toBeInTheDocument();
     expect(shown()).toEqual({ deployed: DEPLOYED, others: [] });
-    expect(within(section()).getByRole("link", { name: `${DEPLOYED}/account/edit` })).toHaveAttribute("href", settingsAt(DEPLOYED));
+    // Domain settings there, where Go back is.
+    expect(within(section()).getByRole("link", { name: DEPLOYED })).toHaveAttribute("href", `${settingsAt(DEPLOYED)}#domain-settings`);
   });
 
   it("goes back to where a deploy puts Ember from its custom domain, taking workspace settings along", async () => {
@@ -542,7 +608,7 @@ describe(feature("accounts.custom-domain"), () => {
     expect(old).toHaveTextContent(/^old\.example\.com still forwards here\.Check$/);
     expect(section()).toHaveTextContent("To turn one off, remove it from ember-production in Cloudflare.");
     expect(within(section()).getByRole("link", { name: "Open ember-production's domains" })).toHaveAttribute("href", workerDomains("ember-production"));
-    expect(section()).toHaveTextContent(`If chat.example.com stops working, open ${DEPLOYED}/account/edit and go back.`);
+    expect(section()).toHaveTextContent(`If chat.example.com stops working, open Domain settings at ${DEPLOYED} and go back.`);
     expect(screen.queryByRole("button", { name: /^Use/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop using it" })).not.toBeInTheDocument();
 
@@ -563,7 +629,7 @@ describe(feature("accounts.custom-domain"), () => {
     serve();
     const { user, shown } = showSection(settingsAt("ember.kro.workers.dev"), "chat.example.com");
     expect(section()).toHaveTextContent("Ember's address is chat.example.com.");
-    expect(section()).toHaveTextContent("If chat.example.com stops working, open ember.kro.workers.dev/account/edit and go back.");
+    expect(section()).toHaveTextContent("If chat.example.com stops working, open Domain settings at ember.kro.workers.dev and go back.");
     expect(screen.queryByRole("textbox", { name: "Domain" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Use/ })).not.toBeInTheDocument();
 

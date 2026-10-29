@@ -569,7 +569,7 @@ describe(feature("accounts.custom-domain"), () => {
   });
 
   it("keeps workspace settings wherever they're opened, so an administrator can go back from another address", async () => {
-    history.replaceState(null, "", "/account/edit");
+    history.replaceState(null, "", "/account/edit#domain-settings");
     serve({ signedIn: true, account: MOVED });
     render(<App />);
     const user = userEvent.setup();
@@ -604,6 +604,7 @@ describe(feature("accounts.custom-domain"), () => {
     // Workspace settings stay, and say so themselves.
     const user = userEvent.setup();
     await user.click(screen.getByRole("link", { name: "Admin" }));
+    await user.click(await screen.findByRole("link", { name: "Domain settings" }));
     expect(await screen.findByRole("region", { name: "Custom domain" })).toHaveTextContent(`Ember's address is ${DOMAIN}.`);
     expect(movedNotice()).not.toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Go Back" }));
