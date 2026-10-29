@@ -41,7 +41,7 @@ test.describe(feature("accounts.custom-css"), () => {
     await page.reload();
     await expect(css).toHaveValue(CSS);
     await css.fill("");
-    await page.getByRole("button", { name: "Save changes" }).click();
+    await page.getByRole("region", { name: "Custom CSS" }).getByRole("button", { name: "Save changes" }).click();
     await expect.poll(() => styled(otherTab)).toBe("");
     expect(await styled(page)).toBe("");
   });

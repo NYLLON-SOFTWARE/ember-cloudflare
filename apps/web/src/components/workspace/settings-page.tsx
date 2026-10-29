@@ -52,6 +52,12 @@ export function Panel({ className, ...props }: ComponentProps<"section">) {
   );
 }
 
+/** What ember-rust's redirect back to settings says once the name is saved, changed or not (accounts.rs). */
+export const CHANGES_SAVED = "Changes saved.";
+
+/** A section's `.mb-page-heading`, 4px above what follows it in the section, which spaces its parts 24px apart. */
+export const SECTION_HEADING = "mb-1";
+
 /** ember-rust's `.mb-page-heading`, whose title a panel sets at 23px. */
 export function PageHeading({ title, id, className, children }: { title: string; id?: string; className?: string; children: ReactNode }) {
   return (

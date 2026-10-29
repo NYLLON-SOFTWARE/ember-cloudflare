@@ -9,7 +9,8 @@ import { cn } from "@/lib/utils";
 // place (accounts/_navigation.html, `.mb-settings-navigation` in zz-ember.css), and workspace settings
 // show one of their sections at a time, the one the address's fragment names
 // (ember/community_settings.js): ember-rust's three, and this port's own Domain settings, where
-// administrators give Ember a custom domain.
+// administrators give Ember a custom domain. The first is General, where ember-rust's is Community, as
+// the project's owner renamed it.
 
 /** The sections of community settings, by the ids ember-rust's pages give them (`settings_section`). */
 export type SettingsSection = "community-settings" | "channel-settings" | "membership-settings" | "domain-settings" | "chat-bots" | "custom-styles";
@@ -63,7 +64,7 @@ interface SectionLink {
 }
 
 const LINKS: SectionLink[] = [
-  { section: "community-settings", href: workspaceSectionPath("community-settings"), icon: Settings, label: "Community" },
+  { section: "community-settings", href: workspaceSectionPath("community-settings"), icon: Settings, label: "General" },
   { section: "channel-settings", href: workspaceSectionPath("channel-settings"), icon: Hashtag, label: "Rooms and permissions" },
   { section: "membership-settings", href: workspaceSectionPath("membership-settings"), icon: Group, label: "Membership" },
 ];

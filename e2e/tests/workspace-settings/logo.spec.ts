@@ -30,7 +30,7 @@ test.describe(feature("accounts.logo"), () => {
     await expect(remove).toHaveCount(0);
     await page.getByRole("link", { name: "Membership" }).click();
     const member = await join(browser, baseURL!, await page.getByRole("textbox", { name: "Share to invite more people" }).inputValue(), "Grace Hopper");
-    await page.getByRole("link", { name: "Community", exact: true }).click();
+    await page.getByRole("link", { name: "General", exact: true }).click();
     await expect(railLogo(member)).toHaveAttribute("src", "/ember-icon.png");
 
     await nextSecond();

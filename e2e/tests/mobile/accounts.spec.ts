@@ -167,11 +167,17 @@ test("the longest tagline fits the phone under a long name, in a member's settin
   if ((await conversations.evaluate((sidebar) => sidebar.getBoundingClientRect().width)) >= 280) expect(await linesOf(tagline)).toBe(1);
 });
 
-test("the Custom CSS page fits the phone, its field too big for iOS to zoom in on", async ({ page, screenIsFine }) => {
+test("the Custom styles page fits the phone, its navigation icons first, then a CSS field too big for iOS to zoom in on", async ({ page, screenIsFine }) => {
   await useOwnAddress(page);
   await page.goto("/account/custom_styles/edit");
   await signInAsAdministrator(page);
-  await expect(page.getByRole("textbox", { name: "Custom CSS" })).toBeEnabled();
+  const css = page.getByRole("textbox", { name: "Custom CSS" });
+  await expect(css).toBeEnabled();
+  await expect(page.getByRole("region", { name: "Navigation icons" }).getByRole("button", { name: "Choose Home icon" })).toBeInViewport();
+  await screenIsFine();
+
+  await css.scrollIntoViewIfNeeded();
+  await expect(css).toBeInViewport();
   await screenIsFine();
 });
 
