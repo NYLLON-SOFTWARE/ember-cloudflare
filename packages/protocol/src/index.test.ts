@@ -68,6 +68,8 @@ import {
   parseNewRoom,
   parseOpenSignUp,
   parsePasswordReset,
+  parsePasswordResetRequest,
+  parsePasswordResetWithCode,
   parseProfileChanges,
   parseResendApiKey,
   parseRoleChange,
@@ -77,6 +79,9 @@ import {
   parseSharedOrder,
   parseSignUp,
   parseWorkspaceClientFrame,
+  PASSWORD_RESET_CODE_NEEDED,
+  PASSWORD_RESET_PATH,
+  passwordResetCodeOf,
   PASSWORD_TOO_SHORT,
   RESEND_API_KEY_REFUSED,
   resendApiKeyOf,
@@ -89,6 +94,8 @@ import {
   startingInvolvement,
   suggestedCount,
   TAGLINE_TOO_LONG,
+  EMAIL_ADDRESS_TOO_LONG,
+  withEmailAddress,
   withNavigationIcons,
   type WorkspaceServerFrame,
 } from "./index";
@@ -1002,6 +1009,51 @@ describe(feature("accounts.reset-password"), () => {
     ["a password that isn't text", { emailAddress: "ada@example.com", password: 12345678 }, "Email address and password are required"],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parsePasswordReset(body)).toBe(error);
+  });
+});
+
+describe(feature("auth.password-reset"), () => {
+  it("takes an ask for a code with the address as given, and Turnstile's token if it has one", () => {
+    expect(parsePasswordResetRequest({ emailAddress: " Ada@example.com" })).toEqual({ emailAddress: " Ada@example.com" });
+    expect(parsePasswordResetRequest({ emailAddress: "ada", turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" })).toEqual({ emailAddress: "ada", turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" });
+  });
+
+  it.each([
+    ["something that isn't an object", "ada@example.com", "Expected a JSON object"],
+    ["no address", {}, EMAIL_ADDRESS_NEEDED],
+    ["a blank address", { emailAddress: "  " }, EMAIL_ADDRESS_NEEDED],
+    ["an address too long", { emailAddress: `${"a".repeat(MAX_EMAIL_ADDRESS_LENGTH)}@example.org` }, EMAIL_ADDRESS_TOO_LONG],
+    ["a token longer than Turnstile's", { emailAddress: "ada@example.com", turnstileToken: "x".repeat(MAX_TURNSTILE_TOKEN_LENGTH + 1) }, "Turnstile's token must be at most 2048 characters"],
+    ["a token that isn't text", { emailAddress: "ada@example.com", turnstileToken: 42 }, "Turnstile's token must be at most 2048 characters"],
+  ])("refuses an ask with %s and says why", (_, body, error) => {
+    expect(parsePasswordResetRequest(body)).toBe(error);
+  });
+
+  it("reads a code as it's typed or pasted: in groups, with spaces or a dash, and in full-width digits", () => {
+    for (const typed of ["12345678", " 1234 5678 ", "1234-5678", "１２３４５６７８", "12 34 56 78"]) expect(passwordResetCodeOf(typed), typed).toBe("12345678");
+    for (const typed of ["1234567", "123456789", "1234567a", "1234.5678", "", "١٢٣٤٥٦٧٨"]) expect(passwordResetCodeOf(typed), typed).toBeNull();
+  });
+
+  it("takes a new password with the code, read as typed, and refuses one without a code that can be one on the code's field", () => {
+    expect(parsePasswordResetWithCode({ emailAddress: "ada@example.com", code: "1234 5678", password: " difference engine " })).toEqual({
+      emailAddress: "ada@example.com",
+      code: "12345678",
+      password: " difference engine ",
+    });
+    expect(parsePasswordResetWithCode({ emailAddress: "ada@example.com", code: "1234", password: "difference engine" })).toEqual({ error: PASSWORD_RESET_CODE_NEEDED, field: "code" });
+    expect(parsePasswordResetWithCode({ emailAddress: `${"a".repeat(MAX_EMAIL_ADDRESS_LENGTH)}@example.org`, code: "12345678", password: "difference engine" })).toEqual({
+      error: EMAIL_ADDRESS_TOO_LONG,
+      field: "emailAddress",
+    });
+    for (const body of [null, [], { emailAddress: "ada@example.com", code: "12345678" }, { emailAddress: "", code: "12345678", password: "difference engine" }, { emailAddress: "ada@example.com", code: 12345678, password: "difference engine" }]) {
+      expect(parsePasswordResetWithCode(body), JSON.stringify(body)).toHaveProperty("error");
+      expect(parsePasswordResetWithCode(body)).not.toHaveProperty("field");
+    }
+  });
+
+  it("links to its page, and back to sign in, with the email address typed", () => {
+    expect(withEmailAddress(PASSWORD_RESET_PATH, "ada+ember@example.com")).toBe("/passwords/new?email_address=ada%2Bember%40example.com");
+    expect(withEmailAddress("/session/new", "")).toBe("/session/new");
   });
 });
 

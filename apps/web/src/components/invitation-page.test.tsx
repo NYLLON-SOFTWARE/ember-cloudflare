@@ -18,6 +18,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   guestSignIn: false,
   signInWithMemberful: false,
   turnstileSiteKey: "1x00000000000000000000AA",
+  passwordResetCodes: false,
   account: { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: false, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} },
   version: "0.1",
   vapidPublicKey: null,

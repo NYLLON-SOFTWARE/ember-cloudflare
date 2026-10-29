@@ -77,12 +77,14 @@ export {
   MAX_ID_LENGTH,
   NEW_BOT_PATH,
   NEW_DIRECT_PATH,
+  PASSWORD_RESET_PATH,
   PROFILE_PATH,
   PUSH_SUBSCRIPTIONS_PATH,
   SEARCHES_PATH,
   SIGN_UP_PATH,
   TRANSFER_PATH,
   transferLink,
+  withEmailAddress,
   WORKSPACE_PRELOADS,
   WORKSPACE_SETTINGS_PATH,
   workspacePageOf,
@@ -786,6 +788,12 @@ export interface Bootstrap {
    * or null while it hasn't.
    */
   turnstileSiteKey: string | null;
+  /**
+   * Whether someone who forgot their password can have Ember email them a code to choose a new one with
+   * (`auth.password-reset`), as the sign-in page then offers: while Ember can send email, from the From
+   * address an administrator gave it.
+   */
+  passwordResetCodes: boolean;
   /** "Ember" before setup, as in ember-rust. */
   account: Account;
   /** This deployment's version: `APP_VERSION`, else `GIT_REVISION`, else the release. */
@@ -887,12 +895,16 @@ export interface EmailLinkRequest {
 }
 
 /**
- * Email domain's limits, this port's own: how many times an address is emailed in an hour, at most,
- * whoever asks, so that nobody can have Ember email someone over and over, and how many links a network
- * may ask for in an hour while the deployment lacks Turnstile's keys, whose check stops the scripts that
- * would ask for many addresses at once.
+ * How many times Ember emails an address in an hour, at most, whoever asks, so that nobody can have Ember
+ * email someone over and over: links to join with it at the email domains (`auth.email-domain-sign-up`)
+ * and codes to reset its password (`auth.password-reset`) together. This port's own.
  */
-export const EMAIL_LINKS_PER_ADDRESS = 3;
+export const EMAILS_PER_ADDRESS = 3;
+
+/**
+ * How many links to join a network may ask for in an hour while the deployment lacks Turnstile's keys,
+ * whose check stops the scripts that would ask for many addresses at once (`auth.email-domain-sign-up`).
+ */
 export const EMAIL_LINKS_PER_NETWORK = 10;
 
 /** Why `/join/email` sends no link to a network that has asked for as many as it may in an hour. */
@@ -913,6 +925,71 @@ export interface PasswordReset {
   emailAddress: string;
   password: string;
 }
+
+/**
+ * Someone who forgot their password asking Ember to email them a code to choose a new one with
+ * (`auth.password-reset`), as the Reset your password page sends it to `POST /api/password_resets`, with
+ * the token Turnstile's check gave the page while the deployment has its keys. The address is taken as
+ * given, as sign-in takes it.
+ */
+export interface PasswordResetRequest {
+  emailAddress: string;
+  turnstileToken?: string;
+}
+
+/**
+ * A new password, with the code Ember emailed the address to choose it with, as the Reset your password
+ * page sends it to `PUT /api/password_resets` (`auth.password-reset`).
+ */
+export interface PasswordResetWithCode {
+  emailAddress: string;
+  code: string;
+  password: string;
+}
+
+/**
+ * What a new password chosen with a code answers: who it signed this browser in as, or null when they
+ * sign in themselves, as someone who signs in with Memberful while it's members only does.
+ */
+export interface PasswordResetDone {
+  user: Me | null;
+}
+
+/**
+ * The codes Ember emails to reset a password (`auth.password-reset`), this port's own: how many digits
+ * one has, how many minutes it works for, as its email and page say, and how many times it can be tried
+ * before it stops working, so that guessing one takes far more tries than anyone gets. An address is
+ * emailed as often as `EMAILS_PER_ADDRESS` says, and a network may ask for a code as often as
+ * `PASSWORD_RESETS_PER_NETWORK` says while the deployment lacks Turnstile's keys.
+ */
+export const PASSWORD_RESET_CODE_DIGITS = 8;
+export const PASSWORD_RESET_CODE_MINUTES = 15;
+export const PASSWORD_RESET_CODE_TRIES = 5;
+export const PASSWORD_RESETS_PER_NETWORK = 10;
+
+/** Why the Reset your password page emails no code while Ember can't send email. */
+export const CANT_EMAIL_CODES = "Ember can't email you a code right now. Ask an administrator for help.";
+
+/** Why the Reset your password page emails no code to a network that has asked for as many as it may in an hour. */
+export const PASSWORD_RESETS_LIMITED = "Too many codes asked for from your network. Try again in an hour.";
+
+/** Why a new password is refused without a code of the right shape. */
+export const PASSWORD_RESET_CODE_NEEDED = `Enter the ${PASSWORD_RESET_CODE_DIGITS}-digit code from the email.`;
+
+/**
+ * Why a new password is refused with a code that doesn't work, whatever the reason, so that the answer
+ * never says who has an account: mistyped, expired, replaced by a newer one, or tried too often.
+ */
+export const PASSWORD_RESET_CODE_WRONG = "That code is wrong or no longer works. Check the newest email from Ember, or send another code.";
+
+/** Why a code isn't checked once its network has tried as many codes and passwords as sign-in lets it (`auth.rate-limit`). */
+export const PASSWORD_RESET_LIMITED = "Too many tries. Please wait a few minutes and try again.";
+
+/** What the workspace says once a new password has signed someone in. */
+export const PASSWORD_RESET_DONE = "Your password has been reset.";
+
+/** What the sign-in page says once a new password has been chosen by someone who signs in themselves. */
+export const PASSWORD_RESET_SIGN_IN = "Your password has been reset. Sign in with it.";
 
 /** What `POST /api/first_run` answers: the administrator it signed in, and general, which opens first. */
 export interface NewWorkspace {
@@ -2070,6 +2147,49 @@ export function parsePasswordReset(data: unknown): PasswordReset | string {
   // Taken as given, as sign-in takes it.
   if (typeof emailAddress !== "string" || !emailAddress || typeof password !== "string") return "Email address and password are required";
   return { emailAddress, password };
+}
+
+/**
+ * Parses an untrusted `POST /api/password_resets`, answering the address to email a code to, as given,
+ * and Turnstile's token if it has one, or why it's refused instead: no address, or one longer than any
+ * account's.
+ */
+export function parsePasswordResetRequest(data: unknown): PasswordResetRequest | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { emailAddress, turnstileToken } = data;
+  if (typeof emailAddress !== "string" || !emailAddress.trim()) return EMAIL_ADDRESS_NEEDED;
+  if (emailAddress.length > MAX_EMAIL_ADDRESS_LENGTH) return EMAIL_ADDRESS_TOO_LONG;
+  if (turnstileToken === undefined) return { emailAddress };
+  if (typeof turnstileToken !== "string" || turnstileToken.length > MAX_TURNSTILE_TOKEN_LENGTH) return `Turnstile's token must be at most ${MAX_TURNSTILE_TOKEN_LENGTH} characters`;
+  return { emailAddress, turnstileToken };
+}
+
+/** A code Ember emails to reset a password: its digits, and nothing else. */
+const PASSWORD_RESET_CODE = new RegExp(`^[0-9]{${PASSWORD_RESET_CODE_DIGITS}}$`);
+
+/**
+ * The code in `typed`, as someone types or pastes the one Ember emailed them: its digits, apart by spaces
+ * or dashes if they like, and full-width as a Japanese keyboard types them if it does, or null for
+ * anything else.
+ */
+export function passwordResetCodeOf(typed: string): string | null {
+  const code = typed.normalize("NFKC").replace(/[\s-]/g, "");
+  return PASSWORD_RESET_CODE.test(code) ? code : null;
+}
+
+/**
+ * Parses an untrusted `PUT /api/password_resets`, answering the address, the code, as
+ * `passwordResetCodeOf` reads it, and the new password, or why it's refused instead, with the field it's
+ * about; the password's length is checked apart from this, as for first run.
+ */
+export function parsePasswordResetWithCode(data: unknown): PasswordResetWithCode | { error: string; field?: "emailAddress" | "code" } {
+  if (!isJsonObject(data)) return { error: "Expected a JSON object" };
+  const { emailAddress, code, password } = data;
+  if (typeof emailAddress !== "string" || !emailAddress || typeof code !== "string" || typeof password !== "string") return { error: "Email address, code and password are required" };
+  if (emailAddress.length > MAX_EMAIL_ADDRESS_LENGTH) return { error: EMAIL_ADDRESS_TOO_LONG, field: "emailAddress" };
+  const read = passwordResetCodeOf(code);
+  if (read === null) return { error: PASSWORD_RESET_CODE_NEEDED, field: "code" };
+  return { emailAddress, code: read, password };
 }
 
 /** Whether a new password is shorter than Ember takes, counting an emoji as one character. */

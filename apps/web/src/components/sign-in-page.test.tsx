@@ -25,6 +25,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   guestSignIn: false,
   signInWithMemberful: false,
   turnstileSiteKey: null,
+  passwordResetCodes: false,
   account: { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} },
   version: "0.1",
   vapidPublicKey: null,
@@ -426,5 +427,31 @@ describe(feature("auth.memberful-connect"), () => {
     render(<SignInPage workspace={withMemberful} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(location.search).toBe("");
+  });
+});
+
+describe(feature("auth.password-reset"), () => {
+  const sendsEmail = { ...workspace, passwordResetCodes: true };
+  const resetIt = () => screen.queryByRole("link", { name: "Reset it" });
+
+  it("offers to reset a forgotten password under the form while Ember can send email, with the address typed", async () => {
+    render(<SignInPage workspace={sendsEmail} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(resetIt()).toHaveAttribute("href", "/passwords/new");
+    expect(resetIt()!.parentElement).toHaveTextContent("Forgot your password? Reset it");
+    expect(screen.getByRole("button", { name: "Sign in" }).compareDocumentPosition(resetIt()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    await userEvent.type(screen.getByLabelText("Email address"), "ada@example.com");
+    expect(resetIt()).toHaveAttribute("href", "/passwords/new?email_address=ada%40example.com");
+  });
+
+  it("doesn't while Ember can't send email, or while the card offers Memberful in place of the password form", async () => {
+    render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(resetIt()).not.toBeInTheDocument();
+    cleanup();
+    const membersOnly = { ...sendsEmail, signInWithMemberful: true, account: { ...workspace.account, memberfulJoin: true, memberfulSignIn: true } };
+    render(<SignInPage workspace={membersOnly} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+    expect(resetIt()).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Sign in with a password" }));
+    expect(resetIt()).toBeInTheDocument();
   });
 });

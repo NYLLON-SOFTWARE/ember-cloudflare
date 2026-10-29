@@ -268,7 +268,7 @@ function ChooseProvider({
   return (
     <>
       <DialogDescription className="mb-4 leading-[1.65]">
-        Ember emails invitations, and the links people at your email domains join with. Choose what sends them.
+        Ember emails invitations, the links people at your email domains join with, and codes to reset a forgotten password. Choose what sends them.
       </DialogDescription>
       <fieldset className="flex flex-col gap-2.5">
         <legend className="sr-only">Send email with</legend>

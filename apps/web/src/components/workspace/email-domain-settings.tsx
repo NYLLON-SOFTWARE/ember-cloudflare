@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent } from "react";
-import { domainsInWords, EMAIL_LINKS_PER_ADDRESS, EMAIL_LINKS_PER_NETWORK, emailDomainOf, FREE_EMAIL_DOMAINS, MAX_EMAIL_DOMAINS, NO_EMAIL_DOMAINS } from "@ember/protocol";
+import { domainsInWords, EMAILS_PER_ADDRESS, EMAIL_LINKS_PER_NETWORK, emailDomainOf, FREE_EMAIL_DOMAINS, MAX_EMAIL_DOMAINS, NO_EMAIL_DOMAINS } from "@ember/protocol";
 import { FIELD_INPUT, Field } from "@/components/field";
 import { Xmark } from "@/components/icons/iconoir";
 import { Input } from "@/components/ui/input";
@@ -195,7 +195,7 @@ export function EmailDomainSettings({ domains, emails, turnstile, checked, onChe
           )}
           {checked && <ShareableLink id="email_sign_up" label="Share with people at your domains" url={emailSignUpUrl()} sharing={EMAIL_SIGN_UP_LINK} />}
           <p className={NOTE}>
-            Ember emails an address at most {EMAIL_LINKS_PER_ADDRESS} links an hour, whoever asks, so nobody can use it to fill someone's inbox.{" "}
+            Ember emails an address at most {EMAILS_PER_ADDRESS} links an hour, whoever asks, so nobody can use it to fill someone's inbox.{" "}
             {turnstile ? (
               "Cloudflare Turnstile checks that whoever asks for a link is a person."
             ) : (

@@ -4,6 +4,7 @@ import {
   MAX_PUSH_SUBSCRIPTIONS,
   MAX_SHARED_ORDER,
   NAVIGATION_SLOTS,
+  PASSWORD_RESET_CODE_TRIES,
   RECENT_SEARCHES,
   SUGGESTED_PEOPLE,
   emailDomainOf,
@@ -232,6 +233,20 @@ export interface MembershipCheck {
 export interface StoredSignIn {
   emailAddress: string | null;
   passwordDigest: string | null;
+}
+
+/**
+ * A code someone was emailed to reset their password, as it's kept (`auth.password-reset`): its digest,
+ * the address it went to and the digest of the password it replaces, as they were, and when it was made
+ * and stops working.
+ */
+export interface SavedPasswordReset {
+  userId: UserId;
+  codeDigest: string;
+  emailAddress: string;
+  passwordDigest: string;
+  createdAt: string;
+  expiresAt: string;
 }
 
 /**
@@ -487,6 +502,32 @@ const COUNT_EMAIL_LINK_REQUEST = `INSERT INTO email_link_requests (email_address
 
 /** Takes back a time the address ?1 was counted in the hour that began at ?2, while its count is of that hour still. */
 const UNCOUNT_EMAIL_LINK_REQUEST = `UPDATE email_link_requests SET count = count - 1 WHERE email_address = lower(?1) AND counted_since = ?2 AND count > 0`;
+
+/**
+ * Keeps the code the person ?1 was emailed to reset their password, whose digest is ?2, in place of any
+ * they had, for the address ?3 and the password whose digest is ?4, made at ?5 and working until ?6, and
+ * not tried yet.
+ */
+const SAVE_PASSWORD_RESET = `INSERT INTO password_resets (user_id, code_digest, email_address, password_digest, created_at, expires_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+  ON CONFLICT (user_id) DO UPDATE SET code_digest = excluded.code_digest, email_address = excluded.email_address, password_digest = excluded.password_digest,
+    created_at = excluded.created_at, expires_at = excluded.expires_at, attempts = 0`;
+
+/** Deletes the codes to reset a password that stopped working at ?1 or before, which nobody used. */
+const FORGET_EXPIRED_PASSWORD_RESETS = `DELETE FROM password_resets WHERE expires_at <= ?1`;
+
+/**
+ * The code to reset a password that works, at ?2, for the active person whose email address is exactly
+ * ?1, as sign-in matches it: one emailed to that address, for the password they have now, which hasn't
+ * expired.
+ */
+const WORKING_PASSWORD_RESET = `user_id = (SELECT id FROM users WHERE email_address = ?1 AND status = ${ACTIVE})
+  AND password_digest = (SELECT password_digest FROM users WHERE email_address = ?1) AND email_address = ?1 AND expires_at > ?2`;
+
+/** Counts a try of that code, while it has been tried fewer than ?3 times, answering its digest. */
+const TRY_PASSWORD_RESET = `UPDATE password_resets SET attempts = attempts + 1 WHERE ${WORKING_PASSWORD_RESET} AND attempts < ?3 RETURNING code_digest`;
+
+/** Whose that code is, if its digest is ?3. */
+const PASSWORD_RESET_HOLDER = `SELECT user_id FROM password_resets WHERE ${WORKING_PASSWORD_RESET} AND code_digest = ?3`;
 
 /** The lowercase email addresses, among those in ?1, a JSON array, that someone has whatever their case. */
 const TAKEN_EMAIL_ADDRESSES = `SELECT lower(email_address) AS email_address FROM users WHERE lower(email_address) IN (SELECT lower(value) FROM json_each(?1))`;
@@ -1962,19 +2003,19 @@ export class WorkspaceStore {
   }
 
   /**
-   * Counts a time someone asked for a link to join with `emailAddress` at the email domains, whatever its
-   * case, at `now`, answering how many times it's been asked for in the hour its count is of, and when
-   * that hour began, which starts again once `since` is past, when the counts whose hour is over are
-   * forgotten.
+   * Counts a time someone asked Ember to email `emailAddress`, whatever its case, at `now`: a link to join
+   * with it at the email domains, or a code to reset its password. Answers how many times it's been asked
+   * for in the hour its count is of, and when that hour began, which starts again once `since` is past,
+   * when the counts whose hour is over are forgotten.
    */
-  async countEmailLinkRequest(emailAddress: string, now: string, since: string): Promise<{ count: number; countedSince: string }> {
+  async countEmailRequest(emailAddress: string, now: string, since: string): Promise<{ count: number; countedSince: string }> {
     const [, counted] = await this.db.batch([statement(FORGET_EMAIL_LINK_REQUESTS, since), statement(COUNT_EMAIL_LINK_REQUEST, emailAddress, now, since)]);
     const [row] = counted as Array<{ count: number; counted_since: string }>;
     return { count: row!.count, countedSince: row!.counted_since };
   }
 
-  /** Takes back a time `countEmailLinkRequest` counted `emailAddress` in the hour that began at `countedSince`, unless its count has started again since. */
-  async uncountEmailLinkRequest(emailAddress: string, countedSince: string): Promise<void> {
+  /** Takes back a time `countEmailRequest` counted `emailAddress` in the hour that began at `countedSince`, unless its count has started again since. */
+  async uncountEmailRequest(emailAddress: string, countedSince: string): Promise<void> {
     await this.db.run(UNCOUNT_EMAIL_LINK_REQUEST, emailAddress, countedSince);
   }
 
@@ -1986,6 +2027,38 @@ export class WorkspaceStore {
    */
   async saveEmailDomainLink(id: string, emailAddress: string, tokenDigest: string, now: string, expiresAt: string): Promise<void> {
     await this.db.batch([statement(FORGET_EXPIRED_EMAIL_DOMAIN_LINKS, now), statement(SAVE_EMAIL_DOMAIN_LINK, id, tokenDigest, emailAddress, now, expiresAt)]);
+  }
+
+  /**
+   * Keeps `reset`, the code someone was emailed to reset their password (`auth.password-reset`), in place
+   * of any they had, deleting in the same batch the codes that stopped working by the time it was made,
+   * which nobody used, so that those don't pile up.
+   */
+  async savePasswordReset({ userId, codeDigest, emailAddress, passwordDigest, createdAt, expiresAt }: SavedPasswordReset): Promise<void> {
+    await this.db.batch([
+      statement(FORGET_EXPIRED_PASSWORD_RESETS, createdAt),
+      statement(SAVE_PASSWORD_RESET, userId, codeDigest, emailAddress, passwordDigest, createdAt, expiresAt),
+    ]);
+  }
+
+  /**
+   * Counts a try of the code to reset a password that works, at `now`, for the active person whose email
+   * address is exactly `emailAddress`, while it has tries left, answering its digest to check the code
+   * tried against, or null while no code works for them, whoever they are.
+   */
+  async tryPasswordReset(emailAddress: string, now: string): Promise<string | null> {
+    const [row] = await this.db.all<{ code_digest: string }>(TRY_PASSWORD_RESET, emailAddress, now, PASSWORD_RESET_CODE_TRIES);
+    return row?.code_digest ?? null;
+  }
+
+  /**
+   * Whose the code to reset a password whose digest is `codeDigest` is, while it works for the person
+   * whose email address is exactly `emailAddress` at `now`, or null. Resetting their password spends it
+   * (`resetPassword`).
+   */
+  async passwordResetHolder(emailAddress: string, codeDigest: string, now: string): Promise<UserId | null> {
+    const [row] = await this.db.all<{ user_id: UserId }>(PASSWORD_RESET_HOLDER, emailAddress, now, codeDigest);
+    return row?.user_id ?? null;
   }
 
   /** Whether `userId` may sign in with a password while Memberful is members only, as an active administrator, or someone who joined with an invitation, may. */
@@ -2111,10 +2184,10 @@ export class WorkspaceStore {
   /**
    * Gives someone the password `passwordDigest` is the digest of, recording when, and ends all their
    * sessions, keeping their role and status, as ember-rust's `reset-password` does (admin.rs), and
-   * forgets their push subscriptions, which ember-rust keeps, and the accounts elsewhere their old
-   * password started connecting (`auth.memberful-connect`). In the same transaction it queues closing
-   * each session's sockets with `code` in every room they're in, due at `dueAt`, as signing out does.
-   * Answers whether it queued any.
+   * forgets their push subscriptions, which ember-rust keeps, the accounts elsewhere their old password
+   * started connecting (`auth.memberful-connect`), and any code they were emailed to reset it
+   * (`auth.password-reset`). In the same transaction it queues closing each session's sockets with `code`
+   * in every room they're in, due at `dueAt`, as signing out does. Answers whether it queued any.
    */
   async resetPassword(userId: UserId, passwordDigest: string, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
     const [queued] = await this.db.batch([
@@ -2123,6 +2196,7 @@ export class WorkspaceStore {
       statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
       statement(`DELETE FROM push_subscriptions WHERE user_id = ?`, userId),
       statement(`DELETE FROM pending_identities WHERE user_id = ?`, userId),
+      statement(`DELETE FROM password_resets WHERE user_id = ?`, userId),
     ]);
     return queued!.length > 0;
   }

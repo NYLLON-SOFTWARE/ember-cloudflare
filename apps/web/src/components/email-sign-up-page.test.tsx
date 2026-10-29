@@ -32,6 +32,7 @@ const workspace: Omit<Bootstrap, "user"> = {
   guestSignIn: false,
   signInWithMemberful: false,
   turnstileSiteKey: null,
+  passwordResetCodes: false,
   account: {
     name: "Analytical Engines",
     tagline: "",

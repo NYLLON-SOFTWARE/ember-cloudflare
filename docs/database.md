@@ -31,9 +31,9 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
 `message_deletions` and `blobs`, the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
-`bans`, `email_links`, `email_link_requests`, `searches`, `rooms`, `memberships`, `favorites`,
-`pending_revocations`, `pending_purges`, `pending_reindexes` and `deleted_rooms`, and the search
-index keeps `search_messages`, `search_rooms` and the FTS5 table `search_index`. A room's id also
+`bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `rooms`, `memberships`,
+`favorites`, `pending_revocations`, `pending_purges`, `pending_reindexes` and `deleted_rooms`, and the
+search index keeps `search_messages`, `search_rooms` and the FTS5 table `search_index`. A room's id also
 names its Durable Object, and the Worker asks the Workspace whether someone is a member before it
 wakes the room for their socket. First run creates the account and its administrator, who signs in
 with an email address and password, found through the unique index on `users.email_address`, as do
@@ -513,7 +513,17 @@ search index. On top of that schema it adds indexes and query changes for speed.
   `email_link_requests` (the same migration), by its lowercase: asking counts it in one batch with
   deleting the counts whose hour is over, through the index on `counted_since`, so the table holds only
   the last hour's addresses. An ask past the limit, or an email the provider refuses, is taken off the
-  count it was added to, so that it counts the emails sent or being sent.
+  count it was added to, so that it counts the emails sent or being sent. The codes that reset a
+  forgotten password (`auth.password-reset`) count there too, and each is a row in `password_resets`
+  (workspace migration 0043), one a person, by the HMAC of the code, with the address it was sent to
+  and the password digest the person had then, so that changing either ends it: trying it is one
+  `UPDATE … RETURNING` that counts the try only while the address, the password and the expiry still
+  match and it has tries left. Using it reads it with the same conditions and the digest, one at a
+  time with the Workspace's other changes that end sessions, then spends it in the batch that resets
+  the password, which deletes the person's as the recovery script's reset does, so two at once spend
+  it once and a password that can't be saved leaves it working. Their subqueries find the person
+  through the unique index on `users.email_address`, and saving one deletes those that have expired,
+  through the index on `expires_at`.
 - **A bot's cards are part of its message's row.** ember-rust has no cards. Ours, what a
   Slack-compatible webhook's legacy attachments show, are kept as JSON in `messages.cards` (room
   migration 0034), as a file is, rather than in the body as Action Text attachments, which the rich

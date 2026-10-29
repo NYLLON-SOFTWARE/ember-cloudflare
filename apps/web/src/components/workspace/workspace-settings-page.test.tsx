@@ -1469,7 +1469,7 @@ describe(feature("platform.email"), () => {
     const email = await screen.findByRole("region", { name: "Email" });
     const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     expect(following(screen.getByRole("region", { name: "Who can join" }), email)).toBe(true);
-    expect(email).toHaveTextContent("Ember can't send email yet, so it can't email invitations, or the links people at your email domains join with.");
+    expect(email).toHaveTextContent("Ember can't send email yet, so it can't email invitations, the links people at your email domains join with, or codes to reset a forgotten password.");
 
     await user.click(within(email).getByRole("button", { name: "Set up email" }));
     await user.click(await screen.findByRole("radio", { name: "Cloudflare Email Service" }));
@@ -1500,7 +1500,7 @@ describe(feature("platform.email"), () => {
     await user.click(within(email).getByRole("button", { name: "Stop sending email" }));
     expect(await within(email).findByRole("button", { name: "Set up email" })).toBeInTheDocument();
     expect(saved()).toEqual([{ emailFrom: null }]);
-    expect(email).toHaveTextContent("Ember can't send email yet, so it can't email invitations, or the links people at your email domains join with.");
+    expect(email).toHaveTextContent("Ember can't send email yet, so it can't email invitations, the links people at your email domains join with, or codes to reset a forgotten password.");
     expect(within(screen.getByRole("region", { name: "Invite by email" })).getByRole("button", { name: "Create invite links" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Email domain" })).toHaveAccessibleDescription(
       "It's on, but Ember can't send email, so nobody gets a link to join with until email is set up.",

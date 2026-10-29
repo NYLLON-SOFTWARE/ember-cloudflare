@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 
-// Cloudflare Turnstile's check on the open sign-up page (`auth.open-sign-up`), and where someone asks
-// for a link to join with their email address (`auth.email-domain-sign-up`), while the deployment has
-// its keys: Turnstile's script, which only those pages' policy lets load, draws the check in a frame of
-// its own and gives the page a token once it passes, which the form sends for the Worker to ask
-// siteverify about (https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/).
+// Cloudflare Turnstile's check on the open sign-up page (`auth.open-sign-up`), where someone asks for a
+// link to join with their email address (`auth.email-domain-sign-up`), and where someone asks for a code
+// to reset their password (`auth.password-reset`), while the deployment has its keys: Turnstile's
+// script, which only those pages' policy lets load, draws the check in a frame of its own and gives the
+// page a token once it passes, which the form sends for the Worker to ask siteverify about
+// (https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/).
 // A token is good once, so the page draws the check afresh for each try.
 
 /** Turnstile's script, from the one address it may come from, rendering only what the page asks for. */

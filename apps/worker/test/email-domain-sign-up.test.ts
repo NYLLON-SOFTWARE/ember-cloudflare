@@ -7,7 +7,7 @@ import {
   EMAIL_LINK_GONE,
   EMAIL_LINK_UNSENT,
   EMAIL_LINKS_LIMITED,
-  EMAIL_LINKS_PER_ADDRESS,
+  EMAILS_PER_ADDRESS,
   EMAIL_LINKS_PER_NETWORK,
   INVITATION_GONE,
   JOINING_PROBLEMS,
@@ -321,15 +321,15 @@ describe(feature("auth.email-domain-sign-up"), () => {
       ]);
     });
 
-    it(`emails an address at most ${EMAIL_LINKS_PER_ADDRESS} times an hour, whoever asks, answering the same once it has, and again after the hour`, async () => {
+    it(`emails an address at most ${EMAILS_PER_ADDRESS} times an hour, whoever asks, answering the same once it has, and again after the hour`, async () => {
       await setUpEmailDomain();
       const sent: EmailMessageBuilder[] = [];
-      for (let n = 1; n <= EMAIL_LINKS_PER_ADDRESS + 2; n++) sent.push(...(await asked(n % 2 ? "hal@example.org" : "Hal@Example.org", { ip: `203.0.113.${n}` })));
-      expect(sent).toHaveLength(EMAIL_LINKS_PER_ADDRESS);
+      for (let n = 1; n <= EMAILS_PER_ADDRESS + 2; n++) sent.push(...(await asked(n % 2 ? "hal@example.org" : "Hal@Example.org", { ip: `203.0.113.${n}` })));
+      expect(sent).toHaveLength(EMAILS_PER_ADDRESS);
       // The last link it sent still works, and the asks past the limit aren't counted, so that an email
       // being sent as they came that the provider then refuses would free a place.
       expect((await lookUp(tokenIn(linkIn(sent.at(-1)!)))).status).toBe(200);
-      expect(await workspaceSql("SELECT count FROM email_link_requests")).toEqual([{ count: EMAIL_LINKS_PER_ADDRESS }]);
+      expect(await workspaceSql("SELECT count FROM email_link_requests")).toEqual([{ count: EMAILS_PER_ADDRESS }]);
 
       // An hour on, the count starts again, and asking forgets the counts whose hour is over.
       const anHourAgo = new Date(Date.now() - HOUR_MS - 1000).toISOString();
@@ -342,7 +342,7 @@ describe(feature("auth.email-domain-sign-up"), () => {
     it("counts no email the provider refuses, which leaves the link it sent before working", async () => {
       await setUpEmailDomain();
       const sent = await linkFor("hal@example.org");
-      for (let n = 1; n <= EMAIL_LINKS_PER_ADDRESS; n++) {
+      for (let n = 1; n <= EMAILS_PER_ADDRESS; n++) {
         const refused = await emailing(
           async () => expect((await ask("hal@example.org")).status).toBe(502),
           () => new Error("the provider is down"),
@@ -354,8 +354,8 @@ describe(feature("auth.email-domain-sign-up"), () => {
 
       // Once the provider sends again, the address has the rest of its hour's emails, the newest link replacing the first.
       const more: EmailMessageBuilder[] = [];
-      for (let n = 1; n <= EMAIL_LINKS_PER_ADDRESS; n++) more.push(...(await asked("hal@example.org")));
-      expect(more).toHaveLength(EMAIL_LINKS_PER_ADDRESS - 1);
+      for (let n = 1; n <= EMAILS_PER_ADDRESS; n++) more.push(...(await asked("hal@example.org")));
+      expect(more).toHaveLength(EMAILS_PER_ADDRESS - 1);
       await expectGone(await lookUp(sent));
       expect((await lookUp(tokenIn(linkIn(more.at(-1)!)))).status).toBe(200);
     });
