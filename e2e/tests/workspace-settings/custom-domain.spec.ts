@@ -56,7 +56,7 @@ test.describe(feature("accounts.custom-domain"), () => {
       await sectionThere.getByRole("button", { name: `Use ${domain}` }).click();
       await expect(there.getByRole("alert")).toHaveText("Changes saved.");
       await expect(sectionThere).toContainText(`Ember's address is ${domain}.`);
-      await expect(sectionThere).toContainText(`If ${domain} stops working, open ${deployed}/account/edit and go back.`);
+      await expect(sectionThere).toContainText(`If ${domain} stops working, open Domain settings at ${deployed} and go back.`);
 
       // The tab left at the old address hears of it, and offers to go back.
       await expect(section).toContainText(`Ember's address is ${domain}.`);

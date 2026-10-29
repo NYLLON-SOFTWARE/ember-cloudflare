@@ -6,7 +6,6 @@ import {
   isHost,
   NOT_A_CUSTOM_DOMAIN,
   othersAfterMove,
-  WORKSPACE_SETTINGS_PATH,
   type Account,
   type CustomDomainLookup,
   type CustomDomainReach,
@@ -21,6 +20,7 @@ import { ApiError, changeAccount, checkCustomDomain, fetchWorkspaceSettings, isS
 import { moveTo } from "@/lib/custom-domain";
 import { cn } from "@/lib/utils";
 import { CopyButton, ROUND_BUTTON } from "./link-buttons";
+import { workspaceSectionPath } from "./settings-navigation";
 
 // This port's own Custom domain section of workspace settings (`accounts.custom-domain`), where ember-rust's
 // address is its installer's `--domain`. Ember holds no Cloudflare token, so the administrator adds the
@@ -342,10 +342,9 @@ export function CustomDomainSettings({ addresses, showAddresses, askForAccount, 
       {(settingUpHere || moving) && <SetUp autoFocus={moving} worker={worker} changing={changing} use={use} onFailed={onFailed} />}
       {customDomain !== null && deployed !== null && customDomain !== deployed && (
         <p className={cn(NOTE, "wrap-anywhere")}>
-          If {customDomain} stops working, open{" "}
-          <a href={`${location.protocol}//${deployed}${WORKSPACE_SETTINGS_PATH}`} className="underline">
+          If {customDomain} stops working, open Domain settings at{" "}
+          <a href={`${location.protocol}//${deployed}${workspaceSectionPath("domain-settings")}`} className="underline">
             {deployed}
-            {WORKSPACE_SETTINGS_PATH}
           </a>{" "}
           and go back.
         </p>

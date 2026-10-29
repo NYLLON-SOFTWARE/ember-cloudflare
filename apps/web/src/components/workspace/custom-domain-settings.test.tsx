@@ -485,9 +485,11 @@ describe(feature("accounts.custom-domain"), () => {
   });
 
   it("shows nothing of a check once the domain it was for has changed", async () => {
-    let answer = () => {};
+    // Both requests wait until they're let through.
+    const waiting: Array<() => void> = [];
+    const answer = () => waiting.splice(0).forEach((resolve) => resolve());
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      await new Promise<void>((resolve) => (answer = resolve));
+      await new Promise<void>((resolve) => waiting.push(resolve));
       if (String(input) === "/api/account/custom_domain_checks") return Response.json({ reaches: "ember" } satisfies CustomDomainCheck);
       return Response.json({ zone: "example.com", provider: "godaddy" } satisfies CustomDomainLookup);
     });
@@ -499,10 +501,12 @@ describe(feature("accounts.custom-domain"), () => {
     await user.type(field, "x");
     expect(screen.getByRole("button", { name: "Set up" })).toBeEnabled();
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(2);
     await act(async () => {
       answer();
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
     expect(section()).not.toHaveTextContent("already reaches Ember");
   });
@@ -549,7 +553,7 @@ describe(feature("accounts.custom-domain"), () => {
     expect(shown()).toEqual({ deployed: DEPLOYED, others: [] });
     // Until the page there loads, this one says what this address does now.
     expect(section()).toHaveTextContent("Ember's address is chat.example.com.");
-    expect(section()).toHaveTextContent(`If chat.example.com stops working, open ${DEPLOYED}/account/edit and go back.`);
+    expect(section()).toHaveTextContent(`If chat.example.com stops working, open Domain settings at ${DEPLOYED} and go back.`);
   });
 
   it("says why the domain can't be Ember's yet, and can be asked again", async () => {
@@ -592,7 +596,8 @@ describe(feature("accounts.custom-domain"), () => {
     expect(section()).toHaveTextContent("Ember's address is chat.example.com:8443.");
     expect(screen.queryByRole("button", { name: /^Use/ })).not.toBeInTheDocument();
     expect(shown()).toEqual({ deployed: DEPLOYED, others: [] });
-    expect(within(section()).getByRole("link", { name: `${DEPLOYED}/account/edit` })).toHaveAttribute("href", settingsAt(DEPLOYED));
+    // Domain settings there, where Go back is.
+    expect(within(section()).getByRole("link", { name: DEPLOYED })).toHaveAttribute("href", `${settingsAt(DEPLOYED)}#domain-settings`);
   });
 
   it("goes back to where a deploy puts Ember from its custom domain, taking workspace settings along", async () => {
@@ -603,7 +608,7 @@ describe(feature("accounts.custom-domain"), () => {
     expect(old).toHaveTextContent(/^old\.example\.com still forwards here\.Check$/);
     expect(section()).toHaveTextContent("To turn one off, remove it from ember-production in Cloudflare.");
     expect(within(section()).getByRole("link", { name: "Open ember-production's domains" })).toHaveAttribute("href", workerDomains("ember-production"));
-    expect(section()).toHaveTextContent(`If chat.example.com stops working, open ${DEPLOYED}/account/edit and go back.`);
+    expect(section()).toHaveTextContent(`If chat.example.com stops working, open Domain settings at ${DEPLOYED} and go back.`);
     expect(screen.queryByRole("button", { name: /^Use/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop using it" })).not.toBeInTheDocument();
 
@@ -624,7 +629,7 @@ describe(feature("accounts.custom-domain"), () => {
     serve();
     const { user, shown } = showSection(settingsAt("ember.kro.workers.dev"), "chat.example.com");
     expect(section()).toHaveTextContent("Ember's address is chat.example.com.");
-    expect(section()).toHaveTextContent("If chat.example.com stops working, open ember.kro.workers.dev/account/edit and go back.");
+    expect(section()).toHaveTextContent("If chat.example.com stops working, open Domain settings at ember.kro.workers.dev and go back.");
     expect(screen.queryByRole("textbox", { name: "Domain" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Use/ })).not.toBeInTheDocument();
 
