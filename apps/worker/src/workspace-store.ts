@@ -526,8 +526,8 @@ const WORKING_PASSWORD_RESET = `user_id = (SELECT id FROM users WHERE email_addr
 /** Counts a try of that code, while it has been tried fewer than ?3 times, answering its digest. */
 const TRY_PASSWORD_RESET = `UPDATE password_resets SET attempts = attempts + 1 WHERE ${WORKING_PASSWORD_RESET} AND attempts < ?3 RETURNING code_digest`;
 
-/** Spends that code, if its digest is ?3, answering whose it was. */
-const SPEND_PASSWORD_RESET = `DELETE FROM password_resets WHERE ${WORKING_PASSWORD_RESET} AND code_digest = ?3 RETURNING user_id`;
+/** Whose that code is, if its digest is ?3. */
+const PASSWORD_RESET_HOLDER = `SELECT user_id FROM password_resets WHERE ${WORKING_PASSWORD_RESET} AND code_digest = ?3`;
 
 /** The lowercase email addresses, among those in ?1, a JSON array, that someone has whatever their case. */
 const TAKEN_EMAIL_ADDRESSES = `SELECT lower(email_address) AS email_address FROM users WHERE lower(email_address) IN (SELECT lower(value) FROM json_each(?1))`;
@@ -2052,11 +2052,12 @@ export class WorkspaceStore {
   }
 
   /**
-   * Spends the code to reset a password whose digest is `codeDigest`, while it works for the person
-   * whose email address is exactly `emailAddress` at `now`, answering whose it was, or null.
+   * Whose the code to reset a password whose digest is `codeDigest` is, while it works for the person
+   * whose email address is exactly `emailAddress` at `now`, or null. Resetting their password spends it
+   * (`resetPassword`).
    */
-  async spendPasswordReset(emailAddress: string, codeDigest: string, now: string): Promise<UserId | null> {
-    const [row] = await this.db.all<{ user_id: UserId }>(SPEND_PASSWORD_RESET, emailAddress, now, codeDigest);
+  async passwordResetHolder(emailAddress: string, codeDigest: string, now: string): Promise<UserId | null> {
+    const [row] = await this.db.all<{ user_id: UserId }>(PASSWORD_RESET_HOLDER, emailAddress, now, codeDigest);
     return row?.user_id ?? null;
   }
 

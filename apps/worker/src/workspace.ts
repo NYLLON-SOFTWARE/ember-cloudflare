@@ -1693,9 +1693,12 @@ export class Workspace extends DurableObject<Env> {
    */
   async resetPasswordWithCode(emailAddress: string, codeDigest: string, passwordDigest: string, tokenDigest: string, client: Client): Promise<Me | "wrong" | null> {
     const userId = await this.closingSockets(async () => {
-      const spent = await this.store.spendPasswordReset(emailAddress, codeDigest, new Date().toISOString());
-      if (spent !== null) await this.replacePassword(spent, passwordDigest);
-      return spent;
+      // One at a time with the other changes, so nothing else resets the password between reading the
+      // code and replacing it, which spends the code in the same transaction (`resetPassword`): a new
+      // password that can't be saved leaves the code working, to try again.
+      const holder = await this.store.passwordResetHolder(emailAddress, codeDigest, new Date().toISOString());
+      if (holder !== null) await this.replacePassword(holder, passwordDigest);
+      return holder;
     });
     if (userId === null) return "wrong";
     const session = await this.startSession(userId, passwordDigest, null, tokenDigest, client);

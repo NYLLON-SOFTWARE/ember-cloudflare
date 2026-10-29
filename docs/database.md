@@ -518,10 +518,12 @@ search index. On top of that schema it adds indexes and query changes for speed.
   (workspace migration 0043), one a person, by the HMAC of the code, with the address it was sent to
   and the password digest the person had then, so that changing either ends it: trying it is one
   `UPDATE … RETURNING` that counts the try only while the address, the password and the expiry still
-  match and it has tries left, and spending it is one `DELETE … RETURNING` with the same conditions
-  and the digest, so two at once spend it once. Their subqueries find the person through the unique
-  index on `users.email_address`, and saving one deletes those that have expired, through the index
-  on `expires_at`, as the recovery script's reset deletes the person's.
+  match and it has tries left. Using it reads it with the same conditions and the digest, one at a
+  time with the Workspace's other changes that end sessions, then spends it in the batch that resets
+  the password, which deletes the person's as the recovery script's reset does, so two at once spend
+  it once and a password that can't be saved leaves it working. Their subqueries find the person
+  through the unique index on `users.email_address`, and saving one deletes those that have expired,
+  through the index on `expires_at`.
 - **A bot's cards are part of its message's row.** ember-rust has no cards. Ours, what a
   Slack-compatible webhook's legacy attachments show, are kept as JSON in `messages.cards` (room
   migration 0034), as a file is, rather than in the body as Action Text attachments, which the rich

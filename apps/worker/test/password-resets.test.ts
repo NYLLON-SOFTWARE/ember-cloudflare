@@ -372,6 +372,19 @@ describe(feature("auth.password-reset"), () => {
       await expectWrong(await reset("ada@example.com", code, "another password"));
     });
 
+    it("keeps the code working when the new password can't be saved", async () => {
+      await setUp();
+      const code = await codeFor("ada@example.com");
+      // Make the storage refuse to change passwords.
+      await workspaceSql("CREATE TRIGGER refuse_passwords BEFORE UPDATE OF password_digest ON users BEGIN SELECT RAISE(ABORT, 'refused'); END");
+      expect((await reset("ada@example.com", code)).status).toBe(500);
+      expect(await count("password_resets")).toBe(1);
+
+      await workspaceSql("DROP TRIGGER refuse_passwords");
+      expect((await reset("ada@example.com", code)).status).toBe(201);
+      expect((await signInWith(ada.emailAddress, "difference engine")).status).toBe(201);
+    });
+
     it("takes a code typed in groups, or in full-width digits", async () => {
       await setUp();
       const code = await codeFor("ada@example.com");
