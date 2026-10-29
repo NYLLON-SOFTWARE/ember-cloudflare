@@ -146,6 +146,24 @@ describe(feature("auth.password-reset"), () => {
     expect(emailField()).toHaveValue("");
   });
 
+  it("asks for the code Ember emailed the address it sent, though the field changes while it's sending", async () => {
+    let answer!: (response: Response) => void;
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementationOnce(() => new Promise<Response>((resolve) => (answer = resolve)));
+    fetch.mockImplementationOnce(async () => Response.json({ user: ada }, { status: 201 }));
+    open();
+    const user = userEvent.setup();
+    await user.type(emailField(), "ada@example.com");
+    await user.click(emailMe());
+    await user.type(emailField(), ".uk");
+    answer(Response.json({}, { status: 202 }));
+
+    expect(await screen.findByText(/^If ada@example\.com has an account here/)).toBeInTheDocument();
+    expect(history.state).toMatchObject({ passwordResetAsked: "ada@example.com" });
+    await reset();
+    await waitFor(() => expect(loadPage).toHaveBeenCalledOnce());
+    expect(JSON.parse(String(fetch.mock.calls[1]![1]!.body))).toMatchObject({ emailAddress: "ada@example.com" });
+  });
+
   it("fills in the email address its link gives, for the link back to sign in too", () => {
     open("/passwords/new?email_address=ada%40example.com");
     expect(emailField()).toHaveValue("ada@example.com");

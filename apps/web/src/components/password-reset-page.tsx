@@ -47,14 +47,14 @@ const keepAsked = (emailAddress: string | null) => history.replaceState({ ...(hi
 export function PasswordResetPage({ workspace }: { workspace: SignedOutWorkspace }) {
   const [arrival] = useState(askedOnArrival);
   const [emailAddress, setEmailAddress] = useState(() => arrival ?? new URLSearchParams(location.search).get("email_address") ?? "");
-  /** Whether Ember has been asked to email a code to the address, which the page then asks for. */
-  const [asked, setAsked] = useState(arrival !== null);
+  /** The address Ember was asked to email a code to, which the page then asks for, or null to ask for one. */
+  const [asked, setAsked] = useState(arrival);
 
   useTitle("Reset your password");
 
-  function changeAsked(asking: boolean) {
-    keepAsked(asking ? emailAddress : null);
-    setAsked(asking);
+  function changeAsked(address: string | null) {
+    keepAsked(address);
+    setAsked(address);
   }
 
   if (!workspace.passwordResetCodes) {
@@ -69,15 +69,16 @@ export function PasswordResetPage({ workspace }: { workspace: SignedOutWorkspace
       </AuthPage>
     );
   }
-  if (asked) return <NewPassword workspace={workspace} emailAddress={emailAddress} onAskAgain={() => changeAsked(false)} />;
-  return <CodeRequest workspace={workspace} emailAddress={emailAddress} onChange={setEmailAddress} onAsked={() => changeAsked(true)} />;
+  if (asked !== null) return <NewPassword workspace={workspace} emailAddress={asked} onAskAgain={() => changeAsked(null)} />;
+  return <CodeRequest workspace={workspace} emailAddress={emailAddress} onChange={setEmailAddress} onAsked={changeAsked} />;
 }
 
 interface CodeRequestProps {
   workspace: SignedOutWorkspace;
   emailAddress: string;
   onChange: (emailAddress: string) => void;
-  onAsked: () => void;
+  /** What happens once Ember has been asked to email a code to `emailAddress`, the address the form sent, whatever the field says by then. */
+  onAsked: (emailAddress: string) => void;
 }
 
 /** The form asking Ember to email a code to `emailAddress`, which draws Turnstile's check afresh for each ask. */
@@ -94,7 +95,7 @@ function CodeRequest({ workspace, emailAddress, onChange, onAsked }: CodeRequest
     setProblem(null);
     try {
       await askForPasswordResetCode(siteKey === null ? { emailAddress } : { emailAddress, turnstileToken: turnstileToken ?? "" });
-      onAsked();
+      onAsked(emailAddress);
     } catch (error) {
       setProblem(error instanceof ApiError ? error.message : NO_CONNECTION);
     } finally {
