@@ -69,6 +69,7 @@ describe(feature("accounts.settings-page"), () => {
       ["/account/edit#community-settings", "community-settings"],
       ["/account/edit#channel-settings", "channel-settings"],
       ["/account/edit#membership-settings", "membership-settings"],
+      ["/account/edit#domain-settings", "domain-settings"],
       ["/account/edit#nowhere", "community-settings"],
       ["/rooms/opens/new", "channel-settings"],
       ["/rooms/closeds/new", "channel-settings"],
@@ -91,6 +92,7 @@ describe(feature("accounts.settings-page"), () => {
   it("shows Community unless the fragment names another of workspace settings' sections", () => {
     expect(workspaceSectionOf("")).toBe("community-settings");
     expect(workspaceSectionOf("#membership-settings")).toBe("membership-settings");
+    expect(workspaceSectionOf("#domain-settings")).toBe("domain-settings");
     expect(workspaceSectionOf("#chat-bots")).toBe("community-settings");
     expect(workspaceSectionPath("channel-settings")).toBe("/account/edit#channel-settings");
   });
@@ -101,7 +103,7 @@ describe(feature("bots.list"), () => {
     const { rerender } = render(<SettingsNavigation section="chat-bots" administrator />);
     expect(screen.getByRole("link", { name: "Chat bots" })).toHaveAttribute("href", "/account/bots");
     expect(current()).toHaveTextContent("Chat bots");
-    expect(links().map((link) => link.textContent)).toEqual(["Community", "Rooms and permissions", "Membership", "Chat bots", "Custom styles"]);
+    expect(links().map((link) => link.textContent)).toEqual(["Community", "Rooms and permissions", "Membership", "Domain settings", "Chat bots", "Custom styles"]);
     rerender(<SettingsNavigation section="community-settings" administrator={false} />);
     expect(screen.queryByRole("link", { name: "Chat bots" })).not.toBeInTheDocument();
   });
@@ -115,5 +117,18 @@ describe(feature("accounts.custom-css"), () => {
     expect(current()).toHaveTextContent("Custom styles");
     rerender(<SettingsNavigation section="community-settings" administrator={false} />);
     expect(screen.queryByRole("link", { name: "Custom styles" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("accounts.custom-domain"), () => {
+  it("links administrators to Domain settings, after Membership, and members not at all", () => {
+    const { rerender } = render(<SettingsNavigation section="domain-settings" administrator />);
+    const domain = screen.getByRole("link", { name: "Domain settings" });
+    expect(domain).toHaveAttribute("href", "/account/edit#domain-settings");
+    expect(domain.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(links()[3]).toBe(domain);
+    expect(current()).toBe(domain);
+    rerender(<SettingsNavigation section="community-settings" administrator={false} />);
+    expect(screen.queryByRole("link", { name: "Domain settings" })).not.toBeInTheDocument();
   });
 });

@@ -81,14 +81,13 @@ interface Props {
 
 /**
  * ember-rust's workspace settings, as its pull request #24 splits them into three sections
- * (accounts/edit.html, d49621e), of which the address's fragment shows one, all three staying drawn so
- * what's typed in one waits there while another shows:
+ * (accounts/edit.html, d49621e), and a fourth, this port's own, of which the address's fragment shows one,
+ * all of them staying drawn so what's typed in one waits there while another shows:
  *
  * - Community (accounts/_community_settings.html), where administrators change the workspace's icon, which
  *   one picked saves at once, showing it meanwhile, and Remove icon takes away, then rename the workspace,
  *   give it a tagline, this port's own, show or hide the translation buttons, and choose the rail's
- *   icons, which Save changes saves together, and give it a custom domain, this port's own too. Members
- *   see its icon, name and tagline.
+ *   icons, which Save changes saves together. Members see its icon, name and tagline.
  * - Rooms and permissions (accounts/_room_settings.html): New room, which members don't get while only
  *   administrators can create rooms, then for administrators, the switch that says so and the rooms'
  *   order for everyone, each linking to its settings.
@@ -96,6 +95,7 @@ interface Props {
  *   with switches for Open, the join link, which they can regenerate, and Memberful, and how Ember sends
  *   email, its own too, or for members, the links that let people in, then the administrators and
  *   members, whom administrators can make administrators or members and remove.
+ * - Domain settings, this port's own: for administrators, the custom domain Ember answers at.
  */
 export function WorkspaceSettingsPage({
   me,
@@ -433,13 +433,6 @@ export function WorkspaceSettingsPage({
                   Save changes
                 </SubmitButton>
               </form>
-              <CustomDomainSettings
-                addresses={settings.addresses}
-                showAddresses={showAddresses}
-                askForAccount={askForAccount}
-                onSaved={() => flash("notice", CHANGES_SAVED)}
-                onFailed={onFailed}
-              />
             </>
           ) : (
             <>
@@ -544,6 +537,23 @@ export function WorkspaceSettingsPage({
             />
           </div>
         )}
+      </Panel>
+      <Panel id="domain-settings" hidden={section !== "domain-settings"} aria-labelledby="domain-settings-heading" className="flex flex-col gap-6">
+        <PageHeading id="domain-settings-heading" title="Domain settings" className={SECTION_HEADING}>
+          Choose the address people open your community at.
+        </PageHeading>
+        {settings &&
+          (settings.canAdminister ? (
+            <CustomDomainSettings
+              addresses={settings.addresses}
+              showAddresses={showAddresses}
+              askForAccount={askForAccount}
+              onSaved={() => flash("notice", CHANGES_SAVED)}
+              onFailed={onFailed}
+            />
+          ) : (
+            <p className="text-muted-foreground">Community admins manage the community's domain.</p>
+          ))}
       </Panel>
     </SettingsPage>
   );

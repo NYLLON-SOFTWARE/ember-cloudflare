@@ -183,10 +183,12 @@ touching storage.
 ### A custom domain
 
 Ember answers at its workers.dev address until an administrator gives it one of your own, under
-Custom domain in Workspace settings, at the workers.dev address, and at any other with Move to another
-domain. They type the address, `chat.example.com` say, and choose Set up, which asks Cloudflare's
-resolver for the zone the address is in, `example.com`, and whose nameservers serve it, and picks that
-provider in the DNS provider menu, or Cloudflare when it can't tell. Ember holds no Cloudflare token to
+Domain settings in Workspace settings, at the workers.dev address, and at any other with Move to another
+domain. They type the address, `chat.example.com` say, and choose Set up, which first checks whether
+the address already reaches Ember, as one added to the Worker before does, and then offers just Save.
+Otherwise it asks Cloudflare's resolver for the zone the address is in, `example.com`, and whose
+nameservers serve it, and picks that provider in the DNS provider menu, or Cloudflare when it can't
+tell. Ember holds no Cloudflare token to
 add the address itself, since a token that can add a domain to the Worker can also deploy new code to
 it, so the steps open the dashboard, copying what to paste there. With Cloudflare chosen:
 
@@ -217,8 +219,8 @@ Ember's address once more, once the Worker finds Ember still answers there. Eith
 address sends people to Ember's, the domain it left included: that domain reaches Ember until it's
 removed on the Worker's Domains tab, which only the dashboard does. So Custom domain names the domains
 Ember moved away from, links to that tab, and checks each until it's gone. Workspace settings stay
-wherever they're opened, so if Ember's domain ever stops reaching it, open them at the workers.dev
-address and go back there. Deploys leave the domain alone as long as `wrangler.jsonc` lists no
+wherever they're opened, so if Ember's domain ever stops reaching it, open Domain settings at the
+workers.dev address and go back there. Deploys leave the domain alone as long as `wrangler.jsonc` lists no
 `routes`.
 
 #### When the domain's DNS is elsewhere
