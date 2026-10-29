@@ -105,6 +105,7 @@ function serve({
   setup = "complete",
   setupAccess = "open",
   guestSignIn = true,
+  passwordResetCodes = false,
   account: given = EMBER,
 }: {
   signedIn: boolean;
@@ -112,6 +113,8 @@ function serve({
   /** What setting Ember up takes, until it's set up. */
   setupAccess?: Bootstrap["setupAccess"];
   guestSignIn?: boolean;
+  /** Whether Ember can email a code to reset a password. */
+  passwordResetCodes?: boolean;
   /** The workspace as it's set up, rather than `EMBER`. */
   account?: Account;
 }) {
@@ -121,7 +124,7 @@ function serve({
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const route = `${init?.method ?? "GET"} ${String(input)}`;
     if (route === "GET /api/bootstrap") {
-      return Response.json({ setup, setupAccess, setupPlaceholders: PLACEHOLDERS, guestSignIn, signInWithMemberful: false, account, version: "0.1", vapidPublicKey: null, turnstileSiteKey: null, platform: CHROME_MAC, user: signedIn ? me : null });
+      return Response.json({ setup, setupAccess, setupPlaceholders: PLACEHOLDERS, guestSignIn, signInWithMemberful: false, account, version: "0.1", vapidPublicKey: null, turnstileSiteKey: null, passwordResetCodes, platform: CHROME_MAC, user: signedIn ? me : null });
     }
     if (route === "POST /api/first_run") {
       [setup, signedIn, rooms] = ["complete", true, firstRooms];
@@ -919,6 +922,37 @@ describe(feature("auth.email-domain-sign-up"), () => {
     expect(location.pathname).toBe("/rooms/general");
     expect(location.hash).toBe("");
     expect(fetch).not.toHaveBeenCalledWith("/api/email_links/lookup", expect.anything());
+  });
+});
+
+describe(feature("auth.password-reset"), () => {
+  const resetPage = () => screen.findByRole("heading", { level: 1, name: "Reset your password" });
+
+  it("offers it from the sign-in page while Ember can send email", async () => {
+    serve({ signedIn: false, passwordResetCodes: true });
+    render(<App />);
+    await signInPage();
+    expect(screen.getByRole("link", { name: "Reset it" })).toHaveAttribute("href", "/passwords/new");
+  });
+
+  it("opens the page to reset a password without sending someone signed out to sign in, keeping the page to come back to", async () => {
+    sessionStorage.setItem("ember:return-to", "/rooms/general");
+    history.replaceState(null, "", "/passwords/new");
+    serve({ signedIn: false, passwordResetCodes: true });
+    render(<App />);
+    expect(await resetPage()).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Email me a code" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/passwords/new");
+    expect(sessionStorage.getItem("ember:return-to")).toBe("/rooms/general");
+  });
+
+  it("opens it for someone signed in too, as the sign-in page does", async () => {
+    sessionStorage.setItem("ember:return-to", "/rooms/general");
+    history.replaceState(null, "", "/passwords/new");
+    serve({ signedIn: true, passwordResetCodes: true });
+    render(<App />);
+    expect(await resetPage()).toBeInTheDocument();
+    expect(sessionStorage.getItem("ember:return-to")).toBe("/rooms/general");
   });
 });
 

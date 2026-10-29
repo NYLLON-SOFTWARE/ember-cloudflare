@@ -264,9 +264,10 @@ Workspace settings' Membership, where each way has a switch:
   `https://<Ember's address>/join/email`, which the sign-in page offers as "Have an address at
   example.com? Join with it", and Ember emails them one that joins with that address, once, within
   an hour, so turning it on before Ember can send email sets that up first, below. Ember emails an
-  address at most 3 links an hour, whoever asks, so nobody can fill someone's inbox with them,
-  counting only the emails the provider takes, and until Ember has Turnstile's keys, each network can
-  ask for 10 links an hour. Each link is an email, so the provider's limits apply.
+  address at most 3 times an hour, whoever asks, links and the codes that [reset a forgotten
+  password](#resetting-a-password) together, so nobody can fill someone's inbox with them, counting
+  only the emails the provider takes, and until Ember has Turnstile's keys, each network can ask for
+  10 links an hour. Each link is an email, so the provider's limits apply.
 - Memberful, below, lets in the members of a Memberful site, who sign in with their Memberful
   accounts while everyone else keeps a password. Its Members only switch keeps signing in to them
   and administrators.
@@ -275,7 +276,8 @@ While Open is on, Join link, Email domain and Memberful are set aside, keeping t
 while Memberful is members only, Open, Join link and Email domain are, so Open and Members only can't
 both be on. With all four off, only the people administrators invite by email, below, can join.
 
-To have open sign-up, and Email domain's page, check that whoever uses them is a person, make a
+To have open sign-up, Email domain's page and the page for a forgotten password check that whoever
+uses them is a person, make a
 [Turnstile](https://developers.cloudflare.com/turnstile/) widget for Ember's hostname in Managed mode,
 under Turnstile in the Cloudflare dashboard or with wrangler, which prints its site key and secret key,
 and give the Worker both as secrets:
@@ -286,9 +288,10 @@ pnpm exec wrangler secret put TURNSTILE_SITE_KEY     # add --name <worker> for a
 pnpm exec wrangler secret put TURNSTILE_SECRET_KEY
 ```
 
-The sign-up page and Email domain's then show Turnstile's check, and the Worker asks Turnstile about
-each form before it makes the account or emails the link, in place of the limits on a network, which
-a room full of people on one network, or a launch, would soon reach. `pnpm run deploy` uploads the
+The sign-up page, Email domain's and the forgotten password page then show Turnstile's check, and the
+Worker asks Turnstile about each form before it makes the account or emails the link or code, in place
+of the limits on a network, which a room full of people on one network, or a launch, would soon reach.
+Signing in has no check, so that one that doesn't load never locks anyone out; it has its own limit. `pnpm run deploy` uploads the
 two when its environment has them, as it does Memberful's keys, so the Preview workflow passes
 repository secrets of the same names through.
 
@@ -489,8 +492,17 @@ run's summary and under the repository's Deployments.
 
 ### Resetting a password
 
-Someone who can't sign in gets a new password from `apps/worker/scripts/reset-password.ts`, as
-ember-rust's `emberctl reset-password` gives one on its server. The Worker takes recovery requests
+While Ember can send email, above, someone who forgot their password resets it themselves: the
+sign-in page's "Forgot your password? Reset it" opens `https://<Ember's address>/passwords/new`,
+where they give their email address, and Ember emails them an 8-digit code. The code works for 15
+minutes, 5 tries and only until a newer one is sent, and with it they choose a new password, which
+signs them in and ends their other sessions. The page says the same whether or not the address has an
+account. Ember emails an address at most 3 times an hour, counting Email domain's links, and until
+Ember has Turnstile's keys, each network can ask for 10 codes an hour. Each try of a code counts
+against sign-in's limit, 10 tries from a network in 3 minutes.
+
+Otherwise, someone who can't sign in gets a new password from `apps/worker/scripts/reset-password.ts`,
+as ember-rust's `emberctl reset-password` gives one on its server. The Worker takes recovery requests
 only while its `EMBER_RECOVERY_TOKEN` secret is set, and the script sends the same token from your
 shell's environment, so set one up just for the reset (add `--name ember-production` to each
 `wrangler` command for the preview):
@@ -555,6 +567,12 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
 - A Resend API key pasted into Set up email is kept encrypted, and never shown again, even to
   administrators: Membership says only that Ember has one. Make it a key with Sending access, as Resend
   suggests, so that one that got out could do no more than send email.
+- A code to reset a password goes to the account's email address, so whoever reads mail there can
+  take the account over, as on most sites. Nobody checks an address is its owner's when someone
+  joins, unless they join with an invitation or Email domain, so someone could join with another
+  person's address, whose owner could then reset its password. A code is kept only as its digest,
+  and at 3 codes an hour and 5 tries each, guessing one would take centuries. The page answers before
+  Ember emails anything, so neither what it says nor how soon tells who has an account.
 - Email domain lets in whoever can read mail at its domains, so list only domains whose addresses
   your organization hands out: Membership warns of ones anyone can have an address at, such as
   gmail.com. Its page answers the same whether or not an address has an account, emailing someone

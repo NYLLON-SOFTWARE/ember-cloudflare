@@ -87,6 +87,8 @@ function jsonRoutes({ ada, bot, room, joinCode }: Ember): Route[] {
     ["POST", "/api/join/email", {}],
     ["POST", "/api/email_links", {}],
     ["POST", "/api/email_links/lookup", {}],
+    ["POST", "/api/password_resets", {}],
+    ["PUT", "/api/password_resets", {}],
     ["POST", "/api/invitations", signedIn],
     ["POST", "/api/unfurl", signedIn],
     ["POST", "/api/searches", signedIn],

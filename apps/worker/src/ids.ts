@@ -14,6 +14,7 @@ export function sortableId(now = Date.now()): string {
 
 const ALPHANUMERICS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const BASE36 = "0123456789abcdefghijklmnopqrstuvwxyz";
+const DIGITS = "0123456789";
 
 /** `length` random characters of `alphabet`, each as likely as the next. */
 function random(alphabet: string, length: number): string {
@@ -33,3 +34,6 @@ export const alphanumeric = (length: number) => random(ALPHANUMERICS, length);
 
 /** `length` random lowercase letters and digits, as Rails' `SecureRandom.base36` makes Active Storage's keys. */
 export const base36 = (length: number) => random(BASE36, length);
+
+/** `length` random digits, as a code someone types is made of. */
+export const digits = (length: number) => random(DIGITS, length);

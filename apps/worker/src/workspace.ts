@@ -3,7 +3,7 @@ import {
   CANT_SEND_EMAIL,
   CloseCode,
   domainOfEmailAddress,
-  EMAIL_LINKS_PER_ADDRESS,
+  EMAILS_PER_ADDRESS,
   EMAIL_LINKS_PER_NETWORK,
   emailSignUpLink,
   INVITATION_DAYS,
@@ -13,6 +13,8 @@ import {
   NAVIGATION_SLOTS,
   othersAfterMove,
   parseWorkspaceClientFrame,
+  PASSWORD_RESET_CODE_MINUTES,
+  PASSWORD_RESETS_PER_NETWORK,
   SIGN_UPS_PER_ADDRESS,
   SIGN_UPS_PER_HOUR,
   signsUpOpenly,
@@ -66,7 +68,7 @@ import { directoryOf, versionOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
 import { botKeyOf, isBotToken, newBotToken } from "./bots/keys";
 import { openDb, type Db } from "./db";
-import { alreadyAMemberEmail, emailDomainLinkEmail, invitationEmail, testEmail } from "./emails";
+import { alreadyAMemberEmail, emailDomainLinkEmail, invitationEmail, passwordResetCodeEmail, testEmail } from "./emails";
 import { guestSignIn, type Env } from "./env";
 import { pictureObjects, type StoredPicture } from "./files/pictures";
 import { alphanumeric, sortableId } from "./ids";
@@ -77,6 +79,7 @@ import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import type { RoomEvent } from "./room-log";
 import { seal, unseal } from "./sealed";
+import { isToken } from "./secrets";
 import { SessionCache } from "./session-cache";
 import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import type { Transfer } from "./transfers";
@@ -123,12 +126,15 @@ const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
  */
 const SIGN_UP_WINDOW_MS = 60 * 60 * 1000;
 /**
- * Email domain's limits' hour: the links asked for from an IP address are counted in a fixed one, and
- * the times an address is emailed in one that starts as it's first asked for, which the Workspace keeps.
+ * The hour of the limits on asking Ember to email someone, a link to join at the email domains or a code
+ * to reset a password: the asks from an IP address are counted in a fixed one, and the times an address
+ * is emailed in one that starts as it's first asked for, which the Workspace keeps.
  */
-const EMAIL_LINK_WINDOW_MS = 60 * 60 * 1000;
+const EMAIL_ASK_WINDOW_MS = 60 * 60 * 1000;
 /** How long a link someone asks for to join with their address at the email domains works: an hour, as its email and page say. */
 const EMAIL_DOMAIN_LINK_MS = 60 * 60 * 1000;
+/** How long a code someone asks for to reset their password works, as its email and page say. */
+const PASSWORD_RESET_CODE_MS = PASSWORD_RESET_CODE_MINUTES * 60 * 1000;
 /**
  * Link previews someone may ask for in a minute. ember-rust only runs 16 at once, queueing the rest,
  * but a preview fetches any page someone names, which would make the Worker anyone's fetcher.
@@ -338,6 +344,18 @@ export type AccountRefusal = "conflict" | "no email domains" | "no email";
 export type EmailLinkAsk = "asked" | "off" | "limited" | "unsendable" | "unsent";
 
 /**
+ * What asking for a code to reset a password came to: "asked", whatever Ember goes on to email, if
+ * anything, "limited" past the network's limit, and "unsendable" while Ember can't send email.
+ */
+export type PasswordResetAsk = "asked" | "limited" | "unsendable";
+
+/** A new code for Ember to email to reset a password: the code, which only the email holds, and its digest, which the Workspace keeps in its place. */
+export interface NewResetCode {
+  code: string;
+  digest: string;
+}
+
+/**
  * What Send me a test email came to: the address it went to, or why it wasn't sent, with the status that
  * says so: 503 while the deployment can't send email, 422 without a From address or an email address of
  * one's own, and 502 when the provider refused it.
@@ -450,7 +468,8 @@ export class Workspace extends DurableObject<Env> {
   private banChanges = 0;
   private readonly signInAttempts = new FixedWindowLimit(SIGN_IN_ATTEMPTS, SIGN_IN_WINDOW_MS);
   private readonly signUps = new FixedWindowLimit(SIGN_UPS_PER_ADDRESS, SIGN_UP_WINDOW_MS);
-  private readonly emailLinkAsks = new FixedWindowLimit(EMAIL_LINKS_PER_NETWORK, EMAIL_LINK_WINDOW_MS);
+  private readonly emailLinkAsks = new FixedWindowLimit(EMAIL_LINKS_PER_NETWORK, EMAIL_ASK_WINDOW_MS);
+  private readonly passwordResetAsks = new FixedWindowLimit(PASSWORD_RESETS_PER_NETWORK, EMAIL_ASK_WINDOW_MS);
   private readonly unfurls = new FixedWindowLimit(UNFURLS, UNFURL_WINDOW_MS);
   /** The probes custom domain checks send, each with its answer and when it's no longer waited for (see `expectProbe`). */
   private readonly probes = new Map<string, { answer: string; until: number }>();
@@ -458,6 +477,11 @@ export class Workspace extends DurableObject<Env> {
   private lastChange: Promise<unknown> = Promise.resolve();
   /** The last delivery of revocations, which the next one waits for (see `deliverRevocations`). */
   private lastDelivery: Promise<unknown> = Promise.resolve();
+  /**
+   * The last code to reset a password emailed, which the next one waits for, so that codes are emailed,
+   * and kept, in the order they were asked for (see `askForPasswordReset`).
+   */
+  private lastResetCode: Promise<unknown> = Promise.resolve();
   /** How many changes have queued revocations, which `afterQueuing` compares to see whether its change did. */
   private queuedRevocations = 0;
   /**
@@ -593,23 +617,24 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * What the app asks first: the account, if it's set up, who `credentials` signs in, if anyone, and
-   * whether the sign-in page offers Sign in with Memberful at `memberfulSite`, the deployment's Memberful
-   * site, or null without its keys (`offersMemberfulSignIn`). A page opened at `deployedAddress`, where a
-   * deploy puts Ember, which it's null anywhere else, tells Ember where that is.
+   * What the app asks first: the account, if it's set up, who `credentials` signs in, if anyone, whether
+   * the sign-in page offers Sign in with Memberful at `memberfulSite`, the deployment's Memberful site, or
+   * null without its keys (`offersMemberfulSignIn`), and whether it offers to email a code to reset a
+   * password (`auth.password-reset`), which it does while Ember can send email. A page opened at
+   * `deployedAddress`, where a deploy puts Ember, which it's null anywhere else, tells Ember where that is.
    */
   async bootstrap(
     credentials: Credentials | null,
     memberfulSite: string | null,
     deployedAddress: string | null,
-  ): Promise<{ account: Account | null; user: Me | null; signInWithMemberful: boolean }> {
+  ): Promise<{ account: Account | null; user: Me | null; signInWithMemberful: boolean; passwordResetCodes: boolean }> {
     const [account, user, signInWithMemberful] = await Promise.all([
-      this.account(),
+      this.joinableAccount(),
       credentials && this.me(credentials),
       this.offersMemberfulSignIn(memberfulSite),
       deployedAddress && this.rememberDeployedAddress(deployedAddress).catch((error) => console.error("Could not remember where a deploy puts Ember", error)),
     ]);
-    return { account, user, signInWithMemberful };
+    return { account: account && accountOf(account), user, signInWithMemberful, passwordResetCodes: account !== null && this.sendsEmail(account) };
   }
 
   /**
@@ -807,6 +832,15 @@ export class Workspace extends DurableObject<Env> {
     const from = account.emailFrom === null ? null : mailboxOf(account.emailFrom);
     const sender = from === null ? null : await this.senderOf(account);
     return from && sender ? { sender, from } : null;
+  }
+
+  /**
+   * Whether Ember can send email from the From address `account` has, as `emailSender` says, but without
+   * opening a Resend API key an administrator gave it, as every page's first request asks: one sealed under
+   * a SESSION_SECRET since changed counts, though it no longer sends.
+   */
+  private sendsEmail(account: Pick<JoinableAccount, "emailFrom" | "resendApiKey">): boolean {
+    return account.emailFrom !== null && (account.resendApiKey !== null || senderOf(this.env, null) !== null);
   }
 
   /**
@@ -1104,10 +1138,10 @@ export class Workspace extends DurableObject<Env> {
     const asked = await this.oneAtATime(async () => {
       const current = (await this.joinableAccount())!;
       if (!letsInEmailDomain(current, domain)) return "off";
-      const { count, countedSince } = await this.store.countEmailLinkRequest(emailAddress, new Date(now).toISOString(), new Date(now - EMAIL_LINK_WINDOW_MS).toISOString());
-      if (count > EMAIL_LINKS_PER_ADDRESS) {
+      const { count, countedSince } = await this.store.countEmailRequest(emailAddress, new Date(now).toISOString(), new Date(now - EMAIL_ASK_WINDOW_MS).toISOString());
+      if (count > EMAILS_PER_ADDRESS) {
         // The count is of the emails sent, or being sent, so that one the provider refuses frees a place.
-        await this.store.uncountEmailLinkRequest(emailAddress, countedSince);
+        await this.store.uncountEmailRequest(emailAddress, countedSince);
         return "enough";
       }
       return { name: current.name, member: (await this.store.takenEmailAddresses([emailAddress])).size > 0, countedSince };
@@ -1118,7 +1152,7 @@ export class Workspace extends DurableObject<Env> {
       ? alreadyAMemberEmail(emailAddress, asked.name, `${origin}/session/new?${new URLSearchParams({ email_address: emailAddress })}`)
       : emailDomainLinkEmail(emailAddress, asked.name, `${origin}${emailSignUpLink(link.token)}`);
     if ((await sendEmail(sending.sender, sending.from, email)) !== null) {
-      await this.store.uncountEmailLinkRequest(emailAddress, asked.countedSince);
+      await this.store.uncountEmailRequest(emailAddress, asked.countedSince);
       return "unsent";
     }
     if (asked.member) return "asked";
@@ -1560,21 +1594,112 @@ export class Workspace extends DurableObject<Env> {
       const person = await this.store.personWithEmailAddress(emailAddress);
       if (!person) return "not found";
       if (person.bot) return "bot";
-      const now = Date.now();
-      // As when signing out, until the database says it queued nothing.
-      let queued = true;
-      try {
-        queued = await this.sessions.change(
-          (session) => session.user.id === person.id,
-          () => this.store.resetPassword(person.id, passwordDigest, CloseCode.Reconnect, now, new Date(now).toISOString()),
-        );
-      } finally {
-        // Whether or not it saved: sockets whose sessions didn't end are let in again.
-        this.closeSockets(person.id, CloseCode.Reconnect);
-        if (queued) await this.revocationsQueued(now);
-      }
+      await this.replacePassword(person.id, passwordDigest);
       return "reset";
     });
+  }
+
+  /**
+   * Gives `userId` the password `passwordDigest` is the digest of, ending all their sessions and closing
+   * their sockets, as `resetPassword` does, from inside a change that's closing sockets (`closingSockets`).
+   */
+  private async replacePassword(userId: UserId, passwordDigest: string): Promise<void> {
+    const now = Date.now();
+    // As when signing out, until the database says it queued nothing.
+    let queued = true;
+    try {
+      queued = await this.sessions.change(
+        (session) => session.user.id === userId,
+        () => this.store.resetPassword(userId, passwordDigest, CloseCode.Reconnect, now, new Date(now).toISOString()),
+      );
+    } finally {
+      // Whether or not it saved: sockets whose sessions didn't end are let in again.
+      this.closeSockets(userId, CloseCode.Reconnect);
+      if (queued) await this.revocationsQueued(now);
+    }
+  }
+
+  /**
+   * Emails a code to reset their password, the one `code` holds, to whoever has exactly the email address
+   * `emailAddress`, as sign-in matches it, while they're active and have a password (`auth.password-reset`),
+   * from the workspace's From address. Asks from `ip` count against the network's limit while they're
+   * `limited`, as they are while the deployment lacks Turnstile's keys. It answers "asked" before anything
+   * is emailed, and whether or not anyone has the address, so that neither the answer nor how soon it
+   * comes says who has an account: the code is emailed afterwards, one at a time with the others asked for
+   * (`emailResetCode`).
+   */
+  async askForPasswordReset(ip: string, emailAddress: string, code: NewResetCode, limited: boolean): Promise<PasswordResetAsk> {
+    const account = await this.joinableAccount();
+    const sending = account && (await this.emailSender(account));
+    if (!account || !sending) return "unsendable";
+    if (limited && !this.passwordResetAsks.attempt(ip)) return "limited";
+    const person = await this.store.passwordFor(emailAddress);
+    if (person) {
+      const emailing = this.lastResetCode
+        .then(() => this.emailResetCode(person, emailAddress, code, account.name, sending))
+        .catch((error: unknown) => console.error("Could not email a code to reset a password", error));
+      this.lastResetCode = emailing;
+      this.ctx.waitUntil(emailing);
+    }
+    return "asked";
+  }
+
+  /**
+   * Emails `person` the code `code` holds at `emailAddress`, from the workspace named `workspace`, with
+   * `sending`, unless the address has been emailed as often as it is in an hour, whoever asked, and keeps
+   * the code once the provider has taken the email, in place of any sent before, for the address and the
+   * password the person has now, so that changing either ends it. An email the provider refuses reaches
+   * nobody, so it isn't counted, and changes no code.
+   */
+  private async emailResetCode(
+    person: { userId: UserId; passwordDigest: string },
+    emailAddress: string,
+    code: NewResetCode,
+    workspace: string,
+    sending: { sender: Sender; from: Mailbox },
+  ): Promise<void> {
+    const now = Date.now();
+    const { count, countedSince } = await this.store.countEmailRequest(emailAddress, new Date(now).toISOString(), new Date(now - EMAIL_ASK_WINDOW_MS).toISOString());
+    // The count is of the emails sent, or being sent, so that one the provider refuses frees a place.
+    if (count > EMAILS_PER_ADDRESS) return this.store.uncountEmailRequest(emailAddress, countedSince);
+    if ((await sendEmail(sending.sender, sending.from, passwordResetCodeEmail(emailAddress, workspace, code.code))) !== null) {
+      return this.store.uncountEmailRequest(emailAddress, countedSince);
+    }
+    const { userId, passwordDigest } = person;
+    const [createdAt, expiresAt] = [new Date(now).toISOString(), new Date(now + PASSWORD_RESET_CODE_MS).toISOString()];
+    await this.store.savePasswordReset({ userId, codeDigest: code.digest, emailAddress, passwordDigest, createdAt, expiresAt });
+  }
+
+  /**
+   * Counts a try of a code to reset a password from `ip` against sign-in's limit (`auth.rate-limit`), then
+   * against the code that works for exactly `emailAddress`, if one does, all before the Worker hashes the
+   * new password (`auth.password-reset`): "limited" past sign-in's limit, "right" if `codeDigest` is the
+   * code's digest, and else "wrong", the same whether nobody has the address, no code works for them, or
+   * it's been tried as often as it can be.
+   */
+  async beginPasswordReset(ip: string, emailAddress: string, codeDigest: string): Promise<"limited" | "right" | "wrong"> {
+    if (!this.signInAttempts.attempt(ip)) return "limited";
+    const kept = await this.store.tryPasswordReset(emailAddress, new Date().toISOString());
+    return kept !== null && (await isToken(codeDigest, kept)) ? "right" : "wrong";
+  }
+
+  /**
+   * Gives the person whose email address is exactly `emailAddress` the password `passwordDigest` is the
+   * digest of, with the code whose digest is `codeDigest`, spending it, as `beginPasswordReset` found it,
+   * and ends all their sessions, as `resetPassword` does (`auth.password-reset`). Then it signs this
+   * browser in as them, with the session `tokenDigest` names, answering who they are, or null when they
+   * sign in themselves, as someone does who signs in with Memberful while it's members only. Answers
+   * "wrong" if the code stopped working once it was checked.
+   */
+  async resetPasswordWithCode(emailAddress: string, codeDigest: string, passwordDigest: string, tokenDigest: string, client: Client): Promise<Me | "wrong" | null> {
+    const userId = await this.closingSockets(async () => {
+      const spent = await this.store.spendPasswordReset(emailAddress, codeDigest, new Date().toISOString());
+      if (spent !== null) await this.replacePassword(spent, passwordDigest);
+      return spent;
+    });
+    if (userId === null) return "wrong";
+    const session = await this.startSession(userId, passwordDigest, null, tokenDigest, client);
+    return session === "memberful" ? null : session;
   }
 
   /**

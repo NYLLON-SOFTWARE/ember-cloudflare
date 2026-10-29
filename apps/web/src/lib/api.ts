@@ -41,6 +41,9 @@ import {
   type NewBot,
   type NewWorkspace,
   type OpenSignUp,
+  type PasswordResetDone,
+  type PasswordResetRequest,
+  type PasswordResetWithCode,
   type PasswordSignIn,
   type PersonAnswer,
   type PersonRole,
@@ -198,6 +201,26 @@ export async function joinWithEmailLink(kind: EmailLinkKind, person: EmailLinkSi
  */
 export async function askForEmailLink(asked: EmailLinkRequest): Promise<void> {
   await request<unknown>("/api/email_links", { method: "POST", body: JSON.stringify(asked) });
+}
+
+/**
+ * Asks Ember to email a code to reset the password of whoever has `asked.emailAddress`
+ * (`auth.password-reset`), with the token of Turnstile's check while the page shows one. It answers the
+ * same whether or not anyone has the address. A check that didn't pass fails with an ApiError for the
+ * `turnstile` field, and one while Ember can't send email with a 503.
+ */
+export async function askForPasswordResetCode(asked: PasswordResetRequest): Promise<void> {
+  await request<unknown>("/api/password_resets", { method: "POST", body: JSON.stringify(asked) });
+}
+
+/**
+ * Gives whoever has `reset.emailAddress` the password `reset.password`, with the code Ember emailed them
+ * (`auth.password-reset`), ending all their sessions, and signs this browser in as them: who they are, or
+ * null when they sign in themselves, as Memberful's members do while it's members only. A code that
+ * doesn't work fails with an ApiError for the `code` field.
+ */
+export async function resetPasswordWithCode(reset: PasswordResetWithCode): Promise<Me | null> {
+  return (await request<PasswordResetDone>("/api/password_resets", { method: "PUT", body: JSON.stringify(reset) })).user;
 }
 
 /**

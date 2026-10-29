@@ -160,6 +160,19 @@ export const EMAIL_SIGN_UP_PATH = "/join/email";
 export const emailSignUpLink = (token: string) => `${EMAIL_SIGN_UP_PATH}#token=${token}`;
 
 /**
+ * The page where someone who forgot their password asks Ember to email them a code, then gives the code
+ * with a new password (`auth.password-reset`), at the address Rails' authentication generator gives its
+ * own, and which the Worker answers itself.
+ */
+export const PASSWORD_RESET_PATH = "/passwords/new";
+
+/**
+ * `path`, the sign-in page's or the Reset your password page's, with `emailAddress` filled in, as each
+ * reads it from `?email_address=`, or just `path` without one.
+ */
+export const withEmailAddress = (path: string, emailAddress: string) => (emailAddress ? `${path}?email_address=${encodeURIComponent(emailAddress)}` : path);
+
+/**
  * A sign-in link's address: its page, with the link's id as the fragment's `token`, where ember-rust's
  * `session_transfer` route puts the id in the path. Browsers never send a fragment, so no request holds
  * the id, nor any log of one, as ember-rust's setup link keeps its token (setup_access.js). Ids are

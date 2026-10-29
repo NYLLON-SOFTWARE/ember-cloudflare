@@ -141,7 +141,7 @@ describe(feature("platform.email"), () => {
     const { user, onClose } = showSetup(NEW_EMAIL);
     const setup = await dialog("Set up email");
     expect(within(setup).getByRole("heading", { name: "Set up email" })).toHaveFocus();
-    expect(setup).toHaveAccessibleDescription("Ember emails invitations, and the links people at your email domains join with. Choose what sends them.");
+    expect(setup).toHaveAccessibleDescription("Ember emails invitations, the links people at your email domains join with, and codes to reset a forgotten password. Choose what sends them.");
     expect(choice("Resend")).not.toBeChecked();
     expect(choice("Resend")).toHaveAccessibleDescription(
       "Free for up to 100 emails a day, and 3,000 a month, whatever your Cloudflare plan. It takes a Resend account, and a domain to send from.",

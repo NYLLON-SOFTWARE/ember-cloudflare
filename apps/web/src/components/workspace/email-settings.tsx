@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 
 /** What Stop sending email asks first, since what Ember emails stops until email is set up again. */
 export const CONFIRM_STOP_EMAIL =
-  "Are you sure you want Ember to stop sending email? It will forget its From address, and won't email invitations, or the links people at your email domains join with, until email is set up again.";
+  "Are you sure you want Ember to stop sending email? It will forget its From address, and won't email invitations, the links people at your email domains join with, or codes to reset a forgotten password, until email is set up again.";
 
 /** The card's buttons, as Custom domain's are. */
 export const BUTTON = "inline-flex min-h-11 items-center justify-center rounded-[9px] border bg-background px-3.5 py-2.5 font-medium disabled:opacity-50";
@@ -78,7 +78,7 @@ export function EmailSettings({ email, askForAccount, onSetUp, onStopped, onFail
               Ember sends email from <span className="wrap-anywhere">{email.from}</span> {sentWith(email)}.
             </>
           ) : (
-            "Ember can't send email yet, so it can't email invitations, or the links people at your email domains join with."
+            "Ember can't send email yet, so it can't email invitations, the links people at your email domains join with, or codes to reset a forgotten password."
           )}
         </p>
       </div>

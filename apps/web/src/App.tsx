@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { EMAIL_SIGN_UP_PATH, INVITATION_PATH, NAVIGATION_SLOTS, SIGN_UP_PATH, TRANSFER_PATH, type Account, type Bootstrap, type Me, type NewWorkspace } from "@ember/protocol";
+import { EMAIL_SIGN_UP_PATH, INVITATION_PATH, NAVIGATION_SLOTS, PASSWORD_RESET_PATH, SIGN_UP_PATH, TRANSFER_PATH, type Account, type Bootstrap, type Me, type NewWorkspace } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { EmailSignUpPage } from "@/components/email-sign-up-page";
 import { InvitationPage } from "@/components/invitation-page";
 import { JoinPage } from "@/components/join-page";
+import { PasswordResetPage } from "@/components/password-reset-page";
 import { SetupPage } from "@/components/setup-page";
 import { SignInPage } from "@/components/sign-in-page";
 import { TransferPage } from "@/components/transfer-page";
@@ -50,8 +51,9 @@ export function App() {
   // Undefined until the server says whether Ember is set up.
   const [workspace, setWorkspace] = useState<Omit<Bootstrap, "user">>();
   const [me, setMe] = useState<Me | null>(null);
-  // As in ember-rust, the sign-in page opens even for someone who's signed in.
+  // As in ember-rust, the sign-in page opens even for someone who's signed in, and so does resetting a password.
   const atSignIn = useIsAt(SIGN_IN_PATH);
+  const atPasswordReset = useIsAt(PASSWORD_RESET_PATH);
   const joinCode = useJoinRoute();
   const atSignUp = useIsAt(SIGN_UP_PATH);
   const atInvitation = useIsAt(INVITATION_PATH);
@@ -89,15 +91,16 @@ export function App() {
           const { pathname } = location;
           const atJoin = joinCodeFromPath(pathname) !== null || pathname === SIGN_UP_PATH || pathname === INVITATION_PATH || pathname === EMAIL_SIGN_UP_PATH;
           if (user && atJoin) navigate("/", { replace: true });
+          const signingIn = pathname === SIGN_IN_PATH || pathname === PASSWORD_RESET_PATH;
           // Someone signed out goes to sign in, and comes back here afterwards. A sign-in link signs them in itself.
-          if (workspace.setup === "complete" && !user && location.pathname !== SIGN_IN_PATH && !atJoin && location.pathname !== TRANSFER_PATH) {
+          if (workspace.setup === "complete" && !user && !signingIn && !atJoin && location.pathname !== TRANSFER_PATH) {
             // What the page preloaded with the session that has ended is no use once they've signed in.
             dropWorkspacePreloads();
             rememberThisPage();
             navigate(SIGN_IN_PATH, { replace: true });
           }
           // Someone signed in has come back already, as signing in with Memberful opens that page itself.
-          if (user && location.pathname !== SIGN_IN_PATH && location.pathname !== TRANSFER_PATH) forgetReturnPath();
+          if (user && !signingIn && location.pathname !== TRANSFER_PATH) forgetReturnPath();
           // The room the page shows connects now, while the workspace loads, rather than once it shows.
           if (user && workspace.setup === "complete") letGoOfRoom = openRoomSocketAhead(location.pathname);
           setMe(user);
@@ -168,7 +171,7 @@ export function App() {
   // Not flashing yet, so a flash the last page left shows on this one once it's known.
   if (workspace === undefined) return <main aria-busy="true" className="min-h-dvh bg-surface" />;
   // As in ember-rust, a sign-in link signs in whoever opens it, even someone signed in as someone else.
-  const showsWorkspace = workspace.setup === "complete" && me !== null && !atSignIn && !atTransfer;
+  const showsWorkspace = workspace.setup === "complete" && me !== null && !atSignIn && !atPasswordReset && !atTransfer;
   const page = () => {
     if (workspace.setup === "pending") return <SetupPage placeholders={workspace.setupPlaceholders} access={workspace.setupAccess} onSetUp={setUp} />;
     if (atTransfer) return <TransferPage />;
@@ -188,6 +191,7 @@ export function App() {
     if (atInvitation) return <InvitationPage workspace={workspace} onJoined={joined} />;
     if (atEmailSignUp) return <EmailSignUpPage workspace={workspace} onJoined={joined} />;
     if (joinCode !== null || atSignUp) return <JoinPage workspace={workspace} joinCode={joinCode} onJoined={joined} />;
+    if (atPasswordReset) return <PasswordResetPage workspace={workspace} />;
     return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
   };
   // Keyed by who's signed in, so whoever signs in, or in another tab, doesn't see the last page's

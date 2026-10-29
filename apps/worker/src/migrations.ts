@@ -40,6 +40,7 @@ import pendingIdentities from "../migrations/0039_pending_identities.sql";
 import searchResultsReindex from "../migrations/0040_search_results.sql";
 import emailLinks from "../migrations/0041_email_links.sql";
 import emailLinkRequests from "../migrations/0042_email_link_requests.sql";
+import passwordResets from "../migrations/0043_password_resets.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 
@@ -105,6 +106,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0040_search_results.sql", scope: "workspace", sql: searchResultsReindex },
   { name: "0041_email_links.sql", scope: "workspace", sql: emailLinks },
   { name: "0042_email_link_requests.sql", scope: "workspace", sql: emailLinkRequests },
+  { name: "0043_password_resets.sql", scope: "workspace", sql: passwordResets },
 ];
 
 /**

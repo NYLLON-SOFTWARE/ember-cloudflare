@@ -36,7 +36,7 @@ async function openEmail(page: Page) {
 test.describe(feature("platform.email"), () => {
   test("the administrator sets up Resend with an API key Ember checks, a From address and a test email", async ({ page, baseURL }) => {
     const email = await openEmail(page);
-    await expect(email).toContainText("Ember can't send email yet, so it can't email invitations, or the links people at your email domains join with.");
+    await expect(email).toContainText("Ember can't send email yet, so it can't email invitations, the links people at your email domains join with, or codes to reset a forgotten password.");
     await email.getByRole("button", { name: "Set up email" }).click();
     const setup = page.getByRole("dialog");
     await expect(setup).toHaveAccessibleName("Set up email");

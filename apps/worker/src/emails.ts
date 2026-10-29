@@ -1,4 +1,4 @@
-import { INVITATION_DAYS } from "@ember/protocol";
+import { INVITATION_DAYS, PASSWORD_RESET_CODE_MINUTES } from "@ember/protocol";
 import { escapeHtml } from "./encoding";
 import type { Email } from "./mail";
 
@@ -53,6 +53,25 @@ export function emailDomainLinkEmail(to: string, workspace: string, link: string
     subject: `Your link to join ${name}`,
     text: `Someone asked to join ${name} with this email address.\n\nJoin here: ${link}\n\n${terms(to)}\n`,
     html: htmlOf([`Someone asked to join ${escapeHtml(name)} with this email address.`, `<a href="${escapeHtml(link)}">Join ${escapeHtml(name)}</a>`, terms(escapeHtml(to))]),
+  };
+}
+
+/**
+ * The email with `code`, which someone who forgot their password at the workspace named `workspace` asked
+ * for with `to`, their email address there (`auth.password-reset`): it chooses a new password, with that
+ * address, for `PASSWORD_RESET_CODE_MINUTES` minutes. The code is in the body alone, not the subject,
+ * which a locked phone shows anyone.
+ */
+export function passwordResetCodeEmail(to: string, workspace: string, code: string): Email {
+  const name = oneLine(workspace) || "Ember";
+  const asked = (workspaceName: string) => `Someone asked to reset the password for this email address at ${workspaceName}.`;
+  const use = `Enter it within ${PASSWORD_RESET_CODE_MINUTES} minutes, with a new password, where you asked for it. Don't give it to anyone.`;
+  const ignore = "If you didn't ask, you can ignore this email: your password stays as it is.";
+  return {
+    to,
+    subject: `Reset your password at ${name}`,
+    text: `${asked(name)}\n\nYour code: ${code}\n\n${use}\n\n${ignore}\n`,
+    html: htmlOf([asked(escapeHtml(name)), `Your code: <strong style="font-size: 24px; letter-spacing: 0.08em;">${code}</strong>`, use, ignore]),
   };
 }
 

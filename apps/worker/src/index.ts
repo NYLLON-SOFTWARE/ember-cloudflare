@@ -17,6 +17,7 @@ import {
   MEMBERFUL_SIGN_IN_PROBLEMS,
   MEMBERFUL_WEBHOOK_PATH,
   NO_EMAIL_DOMAINS,
+  PASSWORD_RESET_PATH,
   isPasswordTooLong,
   isRoomId,
   OPEN_WITH_MEMBERFUL,
@@ -104,6 +105,7 @@ import { manifest, manifestFormatOf } from "./manifest";
 import { finishMemberfulSignIn, memberfulConnectionFor, memberfulRefusal, memberfulWebhook, memberfulWebhooksOf, startMemberfulSignIn } from "./memberful";
 import { memberfulKeysOf } from "./memberful-api";
 import { anyOtherPage } from "./pages";
+import { askForPasswordReset, passwordResetPage, resetPasswordWithCode } from "./password-resets";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { webPush } from "./push/keys";
 import { deletePushSubscription, listPushSubscriptions, savePushSubscription, sendTestNotification } from "./push/subscriptions";
@@ -212,7 +214,7 @@ async function signInGuest(given: unknown, request: Request, env: Env): Promise<
  */
 async function bootstrap(request: Request, env: Env): Promise<Response> {
   const token = sessionToken(request);
-  const [{ account, user, signInWithMemberful }, push] = await Promise.all([
+  const [{ account, user, signInWithMemberful, passwordResetCodes }, push] = await Promise.all([
     workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null, memberfulKeysOf(env)?.site ?? null, deployedAddressOf(request)),
     webPush(env),
   ]);
@@ -223,6 +225,7 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
     guestSignIn: guestSignIn(env) && !account?.memberfulSignIn,
     signInWithMemberful,
     turnstileSiteKey: turnstileKeysOf(env)?.siteKey ?? null,
+    passwordResetCodes,
     account: account ?? ACCOUNT_BEFORE_SETUP,
     version: versionOf(env),
     vapidPublicKey: push.on ? push.keys.publicKey : null,
@@ -974,6 +977,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/join/email" && request.method === "POST") return () => joinWithEmailLink(request, env, "email_domain");
   if (pathname === "/api/email_links" && request.method === "POST") return () => askForEmailLink(request, env);
   if (pathname === "/api/email_links/lookup" && request.method === "POST") return () => lookUpEmailLink(request, env);
+  if (pathname === "/api/password_resets" && request.method === "POST") return () => askForPasswordReset(request, env);
+  if (pathname === "/api/password_resets" && request.method === "PUT") return () => resetPasswordWithCode(request, env);
   if (pathname === "/api/invitations" && request.method === "POST") return () => invite(request, env);
   // Invitations' ids are sortable ids, which never need percent-encoding, so an encoded segment names none.
   const invitation = pathname.match(/^\/api\/invitations\/([^/]+)$/);
@@ -1067,6 +1072,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === SIGN_UP_PATH) return signUpPage(request, env);
   if (pathname === INVITATION_PATH) return invitationPage(request, env);
   if (pathname === EMAIL_SIGN_UP_PATH) return emailSignUpPage(request, env);
+  if (pathname === PASSWORD_RESET_PATH) return passwordResetPage(request, env);
   const joinCode = joinCodeOf(pathname);
   if (joinCode !== null) return joinPage(request, env, joinCode);
   if (pathname === TRANSFER_PATH) return transferPage(request, env);

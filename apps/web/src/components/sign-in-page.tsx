@@ -6,11 +6,13 @@ import {
   MEMBERFUL_CONNECTED,
   MEMBERFUL_SIGN_IN_PROBLEMS,
   memberfulSignInPath,
+  PASSWORD_RESET_PATH,
   SIGN_IN_LIMITED,
   SIGN_IN_REJECTED,
   SIGN_UP_PATH,
   signsUpOpenly,
   signsUpWithEmailDomain,
+  withEmailAddress,
   type Me,
 } from "@ember/protocol";
 import { AuthAlternative } from "@/components/auth-alternative";
@@ -33,7 +35,8 @@ import { returnPath } from "@/lib/return-path";
 // administrators, and members with an account from before, whose password then asks them to connect their
 // Memberful account. Otherwise, while Memberful's members sign in with it, the card links to that under
 // the form. While anyone may sign up, it links to the page for that (`auth.open-sign-up`), and it says why a
-// way to join that's off sent someone here (`accounts.ways-to-join`).
+// way to join that's off sent someone here (`accounts.ways-to-join`). While Ember can send email, the form
+// links to resetting a forgotten password with a code Ember emails (`auth.password-reset`).
 
 /** What a Memberful sign-in that came back here says went wrong, as this page's address names it, if it does. */
 function memberfulProblemOnArrival() {
@@ -155,6 +158,9 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
                 {/* The Worker opens the page this tab was sent here from once it's signed in. The tab keeps it too, for a try that fails. */}
                 <a href={memberfulSignInPath(returnPath())}>Sign in with Memberful</a>
               </Button>
+            )}
+            {withPassword && workspace.passwordResetCodes && (
+              <AuthAlternative question="Forgot your password?" action="Reset it" href={withEmailAddress(PASSWORD_RESET_PATH, emailAddress)} />
             )}
             {membersOnly ? (
               withPassword ? (
