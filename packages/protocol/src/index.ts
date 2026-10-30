@@ -1897,6 +1897,20 @@ export function mailboxOf(text: string): Mailbox | null {
   return { name: name || null, address };
 }
 
+/** What a From line's name can't hold, as `NOT_IN_A_NAME` has it, wherever it is. */
+const NOT_IN_A_NAME_ANYWHERE = new RegExp(NOT_IN_A_NAME.source, "g");
+
+/**
+ * `mailbox` under `name`, the workspace's, unless it has a name of its own, as Ember's email comes from
+ * the From address, so that a mail client shows the workspace's name rather than the start of the
+ * address: on one line, with a space for what a From line's name can't hold, or no name if that leaves none.
+ */
+export function mailboxUnder(mailbox: Mailbox, name: string): Mailbox {
+  if (mailbox.name !== null) return mailbox;
+  const kept = name.replace(NOT_IN_A_NAME_ANYWHERE, " ").replace(/\s+/g, " ").trim();
+  return { name: kept || null, address: mailbox.address };
+}
+
 /** `mailbox` as a From line writes it: its name, in quotes where the line's syntax needs them, then its address in angle brackets, or the address alone. */
 export const mailboxText = ({ name, address }: Mailbox) => (name === null ? address : `${QUOTED_IN_A_NAME.test(name) ? `"${name}"` : name} <${address}>`);
 

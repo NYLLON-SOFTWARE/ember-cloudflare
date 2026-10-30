@@ -29,6 +29,7 @@ import {
   joinsWithLink,
   mailboxOf,
   mailboxText,
+  mailboxUnder,
   MAX_ACCOUNT_NAME_LENGTH,
   MAX_BIO_LENGTH,
   MAX_BOOST_LENGTH,
@@ -584,6 +585,16 @@ describe(feature("platform.email"), () => {
     expect(mailboxText({ name: "Ember", address: "ember@example.com" })).toBe("Ember <ember@example.com>");
     expect(mailboxText({ name: "Acme, Inc.", address: "chat@acme.example" })).toBe('"Acme, Inc." <chat@acme.example>');
     expect(mailboxText(mailboxOf('"Acme, Inc." <chat@acme.example>')!)).toBe('"Acme, Inc." <chat@acme.example>');
+  });
+
+  it("sends from a From address without a name under the workspace's, which a From line can hold", () => {
+    const join = { name: null, address: "join@example.com" };
+    expect(mailboxUnder(join, "NYLLON")).toEqual({ name: "NYLLON", address: "join@example.com" });
+    expect(mailboxText(mailboxUnder(join, "Acme, Inc."))).toBe('"Acme, Inc." <join@example.com>');
+    expect(mailboxUnder(join, ' The "Best"\nClub <3 ')).toEqual({ name: "The Best Club 3", address: "join@example.com" });
+    expect(mailboxUnder(join, "Bcc: everyone@example.com\r\n")).toEqual({ name: "Bcc: everyone@example.com", address: "join@example.com" });
+    for (const name of ["", "  ", '"<>"']) expect(mailboxUnder(join, name)).toEqual(join);
+    expect(mailboxUnder({ name: "Ember", address: "ember@example.com" }, "NYLLON")).toEqual({ name: "Ember", address: "ember@example.com" });
   });
 
   it("takes the From address as a workspace change, as it writes it, with null or blank for none", () => {

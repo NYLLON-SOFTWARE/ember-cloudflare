@@ -375,8 +375,8 @@ Memberful is on or not, since its members keep signing in with it once it's off.
 Ember sends email with [Resend](https://resend.com), with an API key an administrator gives it, or
 with [Cloudflare Email Service](https://developers.cloudflare.com/email-service/), which wrangler.jsonc
 binds as `EMAIL`. Under Email, in Workspace settings' Membership, Set up email walks an administrator
-through either, then the From address Ember's email comes from, and sends them a test email as it
-finishes, so that it checks itself. Turning
+through either, then the From address Ember's email comes from, under the community's name unless it
+names another, and sends them a test email as it finishes, so that it checks itself. Turning
 on Email domain, or Invite by email's Set up email, opens it too while Ember can't send email. Stop
 sending email, beside it, takes the From address away, after which Ember emails nothing until email is
 set up again.

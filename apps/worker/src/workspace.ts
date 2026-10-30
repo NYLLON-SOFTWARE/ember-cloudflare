@@ -10,6 +10,7 @@ import {
   invitationLink,
   isRoomId,
   mailboxOf,
+  mailboxUnder,
   NAVIGATION_SLOTS,
   othersAfterMove,
   parseWorkspaceClientFrame,
@@ -191,6 +192,12 @@ const sameDomains = (domains: string[], kept: string[]) => domains.length === ke
 /** Whether Email domain lets people at `domain` join `account`. */
 const letsInEmailDomain = (account: Pick<Account, "emailDomainSignUp" | "emailDomains" | "memberfulSignIn">, domain: string) =>
   signsUpWithEmailDomain(account) && account.emailDomains.includes(domain);
+
+/** The mailbox `account`'s email comes from: its From address, under the workspace's name unless that names another (`mailboxUnder`), or null while it has none. */
+function fromOf(account: Pick<JoinableAccount, "name" | "emailFrom">): Mailbox | null {
+  const from = account.emailFrom === null ? null : mailboxOf(account.emailFrom);
+  return from && mailboxUnder(from, account.name);
+}
 
 /**
  * What `settings` changes of the account's two Memberful settings, `account` having them as they are,
@@ -838,9 +845,9 @@ export class Workspace extends DurableObject<Env> {
     return senderOf(this.env, savedKey);
   }
 
-  /** What sends the workspace's email, and the mailbox it comes from, while Ember can send email from the From address `account` has, or else null. */
-  private async emailSender(account: Pick<JoinableAccount, "emailFrom" | "resendApiKey">): Promise<{ sender: Sender; from: Mailbox } | null> {
-    const from = account.emailFrom === null ? null : mailboxOf(account.emailFrom);
+  /** What sends the workspace's email, and the mailbox it comes from (`fromOf`), while Ember can send email from the From address `account` has, or else null. */
+  private async emailSender(account: Pick<JoinableAccount, "name" | "emailFrom" | "resendApiKey">): Promise<{ sender: Sender; from: Mailbox } | null> {
+    const from = fromOf(account);
     const sender = from === null ? null : await this.senderOf(account);
     return from && sender ? { sender, from } : null;
   }
@@ -903,7 +910,7 @@ export class Workspace extends DurableObject<Env> {
     if (!account || !administrator) return "forbidden";
     const sender = await this.senderOf(account);
     if (sender === null) return { status: 503, refusal: CANT_SEND_EMAIL };
-    const from = account.emailFrom === null ? null : mailboxOf(account.emailFrom);
+    const from = fromOf(account);
     if (!from) return { status: 422, refusal: NO_EMAIL_FROM };
     if (!person?.emailAddress) return { status: 422, refusal: NO_EMAIL_ADDRESS };
     const refusal = await sendEmail(sender, from, testEmail(person.emailAddress, account.name, origin));

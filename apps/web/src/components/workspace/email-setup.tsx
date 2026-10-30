@@ -512,8 +512,8 @@ function FromStep({
   return (
     <form onSubmit={save}>
       <DialogDescription className="mb-4 leading-[1.65]">
-        The address Ember's email comes from, on the domain {email.provider === "cloudflare" ? "you onboarded to Email Sending" : "you verified in Resend"},
-        with a name before it if you like.
+        The address Ember's email comes from, on the domain {email.provider === "cloudflare" ? "you onboarded to Email Sending" : "you verified in Resend"}.
+        Email comes under the community's name, unless you put another name before the address.
       </DialogDescription>
       <Field id="email_from" label="From">
         <Input

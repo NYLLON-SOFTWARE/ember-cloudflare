@@ -213,8 +213,21 @@ describe(feature("platform.email"), () => {
         text: "This is a test email from Ember, at https://ember.test.\n\nIt reached you, so Ember can send email.\n",
         html: expect.stringContaining('<a href="https://ember.test">https://ember.test</a>') as unknown,
       },
-      expect.objectContaining({ from: "chat@example.com", to: "ada@example.com" }),
+      expect.objectContaining({ from: { name: "Ember", email: "chat@example.com" }, to: "ada@example.com" }),
     ]);
+  });
+
+  it("sends under the workspace's name while the From address has none, as a From line can hold it", async () => {
+    const administrator = await setUp();
+    await saveFrom(administrator, "join@example.com");
+    const named = await api("/api/account", { method: "PATCH", headers: as(administrator), body: JSON.stringify({ name: 'The "Best" Club, Inc.' }) });
+    expect(named.status).toBe(200);
+    const { binding, sent } = fakeBinding();
+    await withWorkspaceEnv({ EMAIL: binding }, async () => expect((await sendTest(administrator)).status).toBe(200));
+    expect(sent).toEqual([expect.objectContaining({ from: { name: "The Best Club, Inc.", email: "join@example.com" } })]);
+    const requests = fakeResend();
+    await withWorkspaceEnv({ RESEND_API_KEY: RESEND_KEY }, async () => expect((await sendTest(administrator)).status).toBe(200));
+    expect(requests.map((request) => request.body)).toEqual([expect.objectContaining({ from: '"The Best Club, Inc." <join@example.com>' })]);
   });
 
   it("names the workspace, as the email's text has it, and Ember's custom domain", async () => {
@@ -362,7 +375,7 @@ describe(feature("platform.email"), () => {
     await withWorkspaceEnv({ EMAIL: binding }, async () => expect((await sendTest(administrator)).status).toBe(200));
     expect(sent).toEqual([]);
     expect(requests).toHaveLength(2);
-    expect(requests[1]).toMatchObject({ url: "https://api.resend.com/emails", method: "POST", body: expect.objectContaining({ from: "chat@example.com", to: ["ada@example.com"] }) as unknown });
+    expect(requests[1]).toMatchObject({ url: "https://api.resend.com/emails", method: "POST", body: expect.objectContaining({ from: "Ember <chat@example.com>", to: ["ada@example.com"] }) as unknown });
     expect(requests[1]!.headers.get("Authorization")).toBe(`Bearer ${RESEND_KEY}`);
 
     // Given again, it's sealed afresh.

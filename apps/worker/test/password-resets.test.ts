@@ -229,6 +229,13 @@ describe(feature("auth.password-reset"), () => {
       expect(await workspaceSql("SELECT email_address, count FROM email_link_requests")).toEqual([{ email_address: "ada@example.com", count: 1 }]);
     });
 
+    it("sends the code under the workspace's name while the From address has none", async () => {
+      const administrator = await setUp({ emailFrom: "join@example.com" });
+      await change(administrator, { name: "NYLLON" });
+      const [email] = await asked("ada@example.com");
+      expect(email).toMatchObject({ from: { name: "NYLLON", email: "join@example.com" }, subject: "Reset your password at NYLLON" });
+    });
+
     it("answers the same for an address with no account that signs in with a password, emailing nothing", async () => {
       await setUp();
       await joinAsGrace();

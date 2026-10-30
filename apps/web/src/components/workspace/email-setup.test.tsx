@@ -184,7 +184,7 @@ describe(feature("platform.email"), () => {
     await dialog("Choose the From address");
     expect(onEmailChanged).toHaveBeenCalledExactlyOnceWith({ ...NEW_EMAIL, provider: "resend", resendKey: "saved" });
     expect(screen.getByRole("dialog")).toHaveAccessibleDescription(
-      "The address Ember's email comes from, on the domain you verified in Resend, with a name before it if you like.",
+      "The address Ember's email comes from, on the domain you verified in Resend. Email comes under the community's name, unless you put another name before the address.",
     );
     expect(fromField()).toHaveValue("");
     await user.type(fromField(), "  Ember Team   <chat@example.com> ");
@@ -276,7 +276,7 @@ describe(feature("platform.email"), () => {
 
     await dialog("Choose the From address");
     expect(screen.getByRole("dialog")).toHaveAccessibleDescription(
-      "The address Ember's email comes from, on the domain you onboarded to Email Sending, with a name before it if you like.",
+      "The address Ember's email comes from, on the domain you onboarded to Email Sending. Email comes under the community's name, unless you put another name before the address.",
     );
     expect(asked()).toEqual([]);
     // Back goes to Cloudflare's steps, then to the choice, which stays as it was.
