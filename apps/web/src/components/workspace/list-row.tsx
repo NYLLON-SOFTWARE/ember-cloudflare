@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-// The rows of ember-rust's people lists, which its room forms (`user_filter_menu_tag`) and workspace
-// settings (accounts/users/_user.html) share, and the rule between their groups.
+// The rows of the people lists, which the room forms and workspace settings share, and the rule between
+// their groups.
 
 /** One row of a list: a picture, the name in a pill, a dashed line, and what follows. */
 export function ListRow({ figure, name, children }: { figure: ReactNode; name: string; children?: ReactNode }) {

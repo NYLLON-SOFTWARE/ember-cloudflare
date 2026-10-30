@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { settledVisibility, VISIBILITY_CHANGE_DELAY_MS, type SettledVisibility } from "./visibility";
 
@@ -22,7 +21,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("realtime.presence"), () => {
+describe("Presence", () => {
   it("starts out as the tab is", () => {
     expect(follow().visible).toBe(true);
     followed!.stop();

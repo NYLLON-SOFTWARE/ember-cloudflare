@@ -1,10 +1,10 @@
 -- The memberships the Workspace has yet to check with the Memberful site's admin API, and when it next
--- checks everyone's, kept by the Workspace (scope "workspace" in src/migrations.ts), this port's own
--- (`auth.memberful-memberships`). Memberful's webhooks say that a member's account, subscription or order
--- changed, in any order, so the Workspace's alarm asks Memberful what their membership is now, as
--- Memberful advises (memberful.com/docs/api-reference/webhooks), and suspends a member whose membership has
--- lapsed, or lets one back whose membership is renewed. Once a day it checks everyone linked to the site,
--- in case a webhook never came.
+-- checks everyone's, kept by the Workspace (scope "workspace" in src/migrations.ts). Memberful's
+-- webhooks say that a member's account, subscription or order changed, in any order, so the Workspace's
+-- alarm asks Memberful what their membership is now, as Memberful advises
+-- (memberful.com/docs/api-reference/webhooks), and suspends a member whose membership has lapsed, or
+-- lets one back whose membership is renewed. Once a day it checks everyone linked to the site, in case a
+-- webhook never came.
 CREATE TABLE IF NOT EXISTS membership_checks (
   -- The linked account to check, as identities names it.
   issuer TEXT NOT NULL,

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { RoomId, Sidebar, WorkspaceServerFrame } from "@ember/protocol";
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -71,7 +70,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("sidebar.unread"), () => {
+describe("Unread rooms", () => {
   it("marks a room unread for the members who aren't viewing it, telling each of them alone", async () => {
     const room = await freshRoom("marking");
     const ada = await connect(room, "Ada", { visible: true });
@@ -369,7 +368,7 @@ describe(feature("sidebar.unread"), () => {
   });
 });
 
-describe(feature("platform.hibernation"), () => {
+describe("Hibernating rooms", () => {
   it("marks rooms after the room hibernates, still counting its shown tabs as viewing it", async () => {
     const room = await freshRoom("hibernate-marks");
     const ada = await connect(room, "Ada", { visible: true });

@@ -8,9 +8,8 @@ import { Input } from "@/components/ui/input";
 import { signInAsGuest } from "@/lib/api";
 
 /**
- * Signing in with just a name, as someone new, which the sign-in card offers when
- * EMBER_GUEST_SIGN_IN allows it. ember-rust has no such thing; it stands in for joining until join
- * links are ported.
+ * Signing in with just a name, as someone new, which the sign-in card offers when EMBER_GUEST_SIGN_IN
+ * allows it.
  */
 export function GuestSignIn({ logo, onSignedIn, onUsePassword }: { logo: string | null; onSignedIn: (me: Me) => void; onUsePassword: () => void }) {
   const [name, setName] = useState("");

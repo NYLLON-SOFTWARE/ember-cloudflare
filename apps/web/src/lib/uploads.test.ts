@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, uploadPreviewPath, uploadsPath, type Message } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { previewOf } from "./previews";
@@ -68,7 +67,7 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe(feature("attachments.upload"), () => {
+describe("Attach files", () => {
   it("starts the upload with the file's name, type and size and its message's id, then sends its parts one after another", async () => {
     const fetch = vi.fn(async () => started(3));
     vi.stubGlobal("fetch", fetch);
@@ -101,7 +100,7 @@ describe(feature("attachments.upload"), () => {
   });
 });
 
-describe(feature("attachments.previews"), () => {
+describe("Image, video and file previews", () => {
   it("sends the preview the browser makes of a file just before its last part, once the Worker has it", async () => {
     const thumbnail = new Blob(["thumbnail"], { type: "image/webp" });
     vi.mocked(previewOf).mockResolvedValueOnce(thumbnail);
@@ -141,7 +140,7 @@ describe(feature("attachments.previews"), () => {
   });
 });
 
-describe(feature("attachments.progress"), () => {
+describe("Upload progress", () => {
   it("says how much of the file has gone, as a percentage rounded down, each time that changes", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => started(2, 100)));
     const progress: number[] = [];
@@ -157,7 +156,7 @@ describe(feature("attachments.progress"), () => {
     expect(progress).toEqual([1, 16, 33, 66, 99, 100]);
   });
 
-  it("fails as ember-rust's uploader does: too large for a 413, connection lost when it drops, and failed for any other answer", async () => {
+  it("fails as too large for a 413, connection lost when it drops, and failed for any other answer", async () => {
     const failure = (upload: Promise<Message>) =>
       upload.then(
         () => null,

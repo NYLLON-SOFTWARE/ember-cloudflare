@@ -1,6 +1,5 @@
 /** @vitest-environment jsdom */
 
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { bodyFromPlainText, prepareBody, prepareParsedBody } from "./body";
 import { parseDom } from "./dom";
@@ -32,7 +31,7 @@ function* texts(count: number): Generator<string> {
   }
 }
 
-describe(feature("messages.create"), () => {
+describe("Send a message", () => {
   it("prepares a plain paragraph without parsing it, as parsing it would", () => {
     let plain = 0;
     for (const text of texts(4_000)) {

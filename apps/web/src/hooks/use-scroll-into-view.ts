@@ -7,7 +7,7 @@ import { createContext, useContext, useEffect, useLayoutEffect, type RefObject }
  */
 export const ScrollIntoViewContext = createContext<() => () => void>(() => () => {});
 
-/** ember-rust's scroll-into-view controller: once it's shown, an element scrolls to the middle of the timeline. */
+/** Once it's shown, an element scrolls to the middle of the timeline. */
 export function useScrollIntoView(element: RefObject<HTMLElement | null>) {
   const opened = useContext(ScrollIntoViewContext);
   useLayoutEffect(() => opened(), [opened]);

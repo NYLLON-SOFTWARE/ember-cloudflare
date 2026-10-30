@@ -5,13 +5,12 @@ import { ShareButton } from "@/components/share-button";
 import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 
-// ember-rust's image viewer (crates/views/templates/layouts/_lightbox.html), opened and cleared as
-// Campfire's lightbox_controller.js does and styled by its lightbox.css. It keeps its buttons clear
-// of a phone's notch, rounded corners and home indicator, which lightbox.css doesn't, Download saves
-// even a file that isn't served as an attachment, where ember-rust's leaves the app to show a QR code,
-// and the image can be named for screen readers, where ember-rust's has no alt text.
+// The image viewer, opened and cleared as Campfire's lightbox_controller.js does and styled by its
+// lightbox.css. It keeps its buttons clear of a phone's notch, rounded corners and home indicator, which
+// lightbox.css doesn't, Download saves even a file that isn't served as an attachment, such as a QR
+// code, and the image can be named for screen readers.
 
-/** A circle `.btn` in a corner: 36px, as zz-ember.css sizes buttons, and 44px for fingers. */
+/** A circle `.btn` in a corner: 36px, and 44px for fingers. */
 const BUTTON = "grid size-9 cursor-pointer place-items-center rounded-full border bg-background [grid-area:1/1] touch:size-11";
 
 interface LightboxProps {
@@ -29,8 +28,7 @@ interface LightboxProps {
 
 /**
  * Shows `src` over the blurred page, with its file to download and, where the browser can, to share.
- * It's rendered into the body, where ember-rust's layout keeps it, so it takes the page's text size
- * wherever it's opened from.
+ * It's rendered into the body, so it takes the page's text size wherever it's opened from.
  */
 export function Lightbox({ src, alt = "", downloadUrl = src ?? undefined, filename, onClose }: LightboxProps) {
   const dialog = useRef<HTMLDialogElement>(null);

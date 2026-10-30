@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { NewWorkspace, Sidebar, User, UserId, WorkspaceServerFrame } from "@ember/protocol";
 import { evictDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -37,8 +36,8 @@ const dismissedAt = async (userId: UserId) =>
 
 beforeEach(freshDeploy);
 
-describe(feature("rooms.invitation-dismissal"), () => {
-  it("gives the invitation to administrators alone, where ember-rust gives it to everyone in its room", async () => {
+describe("Welcome card for administrators, until they dismiss it", () => {
+  it("gives the invitation to administrators alone", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace Hopper");
     const { invitation } = await sidebarOf(administrator);

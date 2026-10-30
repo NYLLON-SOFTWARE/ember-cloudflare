@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   EMAIL_ADDRESS_TOO_LONG,
   MAX_EMAIL_ADDRESS_LENGTH,
@@ -50,7 +49,7 @@ const count = async (table: string) => ((await workspaceSql(`SELECT count(*) AS 
 
 beforeEach(freshDeploy);
 
-describe(feature("auth.sign-up"), () => {
+describe("Sign up with the join link", () => {
   it("serves the join page, which is the app's own, for the current code", async () => {
     await setUp();
     const response = await page(`/join/${await joinCode()}`);
@@ -190,7 +189,7 @@ describe(feature("auth.sign-up"), () => {
   });
 });
 
-describe(feature("accounts.join-link"), () => {
+describe("Join link", () => {
   it("keeps the code first run made", async () => {
     await setUp();
     const code = await joinCode();
@@ -201,7 +200,7 @@ describe(feature("accounts.join-link"), () => {
   });
 });
 
-describe(feature("accounts.regenerate-join-link"), () => {
+describe("Regenerate the join link", () => {
   it("joins with the new code once it's regenerated, and answers the old one with an empty 404", async () => {
     const { cookie } = await setUp();
     const old = await joinCode();
@@ -238,7 +237,7 @@ describe(feature("accounts.regenerate-join-link"), () => {
   });
 });
 
-describe(feature("rooms.invitation-card"), () => {
+describe("Welcome and invite card", () => {
   it("gives administrators in the workspace's first room its invitation, with the join code", async () => {
     const administrator = await setUp();
     const code = await joinCode();

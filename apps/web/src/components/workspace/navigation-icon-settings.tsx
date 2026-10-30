@@ -10,7 +10,7 @@ import { IconDialog, IconTrigger, type IconDialogHandle } from "./icon-picker";
 import { SlotIcon } from "./navigation-icon";
 import { CHANGES_SAVED, PageHeading, Panel, SECTION_HEADING } from "./settings-page";
 
-/** What each slot is called, as ember-rust's `NAVIGATION_ICONS` (helpers/icons.rs, pull request #24) calls it. */
+/** What each slot is called. */
 const SLOT_LABELS: Record<NavigationSlot, string> = {
   home: "Home",
   dms: "DMs",
@@ -37,17 +37,15 @@ interface Props {
 }
 
 /**
- * ember-rust's accounts/_navigation_icons.html (pull request #24, d49621e): a picker for each of the
- * rail's buttons and the appearance modes, two to a row, or one on screens up to 600px wide, which open
- * one dialog of icons. ember-rust's sit in Community's form, which saves them with the community's name,
- * where the project's owner moved them to Custom styles, so they're a section of their own, which its
- * own Save changes saves, saying "Changes saved." as General's does.
+ * A picker for each of the rail's buttons and the appearance modes, two to a row, or one on screens up
+ * to 600px wide, which open one dialog of icons. The project's owner moved them to Custom styles, so
+ * they're a section of their own, which its own Save changes saves, saying "Changes saved." as General's
+ * does.
  */
 export function NavigationIconSettings({ askForAccount, onFailed, loading = false, catalogUrl }: Props) {
   const { navigationIcons } = useAccount();
   // The slots given another icon here that Save changes hasn't saved yet: each an icon, or "" for its
-  // default. Only these are sent, where ember-rust's form sends all eight, so that saving never puts
-  // back what another tab changed in the others.
+  // default. Only these are sent, so that saving never puts back what another tab changed in the others.
   const [changes, setChanges] = useState<NavigationIconChanges>({});
   const [saving, setSaving] = useState(false);
   const flash = useFlash();
@@ -77,7 +75,7 @@ export function NavigationIconSettings({ askForAccount, onFailed, loading = fals
   };
 
   return (
-    // `.mb-navigation-icons`, headed as workspace settings' sections are.
+    // Headed as workspace settings' sections are.
     <Panel aria-labelledby="navigation-icons-heading" aria-busy={loading} className="flex flex-col gap-6">
       <PageHeading id="navigation-icons-heading" title="Navigation icons" className={SECTION_HEADING}>
         Choose the icons in your community’s left navigation. Changes apply to everyone.
@@ -100,7 +98,7 @@ export function NavigationIconSettings({ askForAccount, onFailed, loading = fals
                     icon,
                     defaultIcon: DEFAULT_NAVIGATION_ICONS[slot],
                     defaultLabel: "Default icon",
-                    // The default's own icon is the default, as ember-rust saves it.
+                    // The default's own icon is saved as the default.
                     apply: (chosen) => setChanges((changes) => ({ ...changes, [slot]: chosen === DEFAULT_NAVIGATION_ICONS[slot] ? "" : (chosen ?? "") })),
                     trigger,
                   })

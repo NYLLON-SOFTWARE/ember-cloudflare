@@ -5,7 +5,6 @@
     "disk_url_path_nil_type": "/rails/active_storage/disk/eyJfcmFpbHMiOnsiZGF0YSI6eyJrZXkiOiJhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ejEyIiwiZGlzcG9zaXRpb24iOiJhdHRhY2htZW50OyBmaWxlbmFtZT1cIndlaXJkICUyNiAtbmFtZS0gdW5pLnBuZ1wiOyBmaWxlbmFtZSo9VVRGLTgnJ3dlaXJkJTIwXHUwMDI2JTIwLW5hbWUtJTIwJUMzJUJDbiVDMyVBRi5wbmciLCJjb250ZW50X3R5cGUiOm51bGwsInNlcnZpY2VfbmFtZSI6ImxvY2FsIn0sInB1ciI6ImJsb2Jfa2V5In19--63806b2c5bbab17414ddb557ae68b56ba4341534/weird%20&%20-name-%20%C3%BCn%C3%AF.png",
     "direct_upload_path": "/rails/active_storage/disk/eyJfcmFpbHMiOnsiZGF0YSI6eyJrZXkiOiJhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ejEyIiwiY29udGVudF90eXBlIjoiaW1hZ2UvcG5nIiwiY29udGVudF9sZW5ndGgiOjQyLCJjaGVja3N1bSI6ImFiYz09Iiwic2VydmljZV9uYW1lIjoibG9jYWwifSwiZXhwIjoiMjAyNi0wOS0yNlQxMjo0NToxNC44NDFaIiwicHVyIjoiYmxvYl90b2tlbiJ9fQ==--9d9b9835609952345e8fd1748144aeffd7a41269"
   },
-  "generated_by": "reference-tools/storage/generate.rb",
   "versions": {
     "libvips": "8.16.1",
     "ruby_vips": "2.2.5",

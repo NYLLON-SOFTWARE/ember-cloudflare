@@ -21,7 +21,7 @@ export interface RoomEvent {
   at: string;
   /**
    * A new message as it is when the room sends the event, for its pushes, unless it has been deleted
-   * since, as ember-rust's push job finds it again (jobs.rs), or was logged before events named it.
+   * since, or was logged before events named it.
    */
   message?: PushedMessage;
 }

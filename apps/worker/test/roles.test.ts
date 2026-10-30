@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Bootstrap, ChangedPerson, Directory, DirectoryUser, NewWorkspace, UserId } from "@ember/protocol";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -38,7 +37,7 @@ const me = async (session: Session) => (await (await api("/api/me", { headers: {
 
 beforeEach(freshDeploy);
 
-describe(feature("accounts.roles"), () => {
+describe("Make or revoke administrators", () => {
   it("makes someone an administrator, and a member again, answering them as the directory lists them", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace Hopper");
@@ -55,7 +54,7 @@ describe(feature("accounts.roles"), () => {
     expect((await listed(administrator, grace.user.id)).role).toBe("member");
   });
 
-  it("tells their pages at once, where ember-rust's keep their old controls until they go to another", async () => {
+  it("tells their pages at once", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace Hopper");
     expect((await me(grace)).user.administrator).toBe(false);
@@ -230,7 +229,7 @@ describe(feature("accounts.roles"), () => {
     expect(await workspaceSql("SELECT role FROM users WHERE id IN ('removed', 'banned')")).toEqual([{ role: 0 }, { role: 0 }]);
   });
 
-  it("doesn't let administrators change their own role, so there's always one, unlike ember-rust", async () => {
+  it("doesn't let administrators change their own role, so there's always one", async () => {
     const administrator = await setUp();
     for (const role of ["member", "administrator"]) {
       const response = await changeRole(administrator, administrator.user.id, { role });
@@ -240,7 +239,7 @@ describe(feature("accounts.roles"), () => {
     expect((await storedRole(administrator.user.id)).role).toBe(1);
   });
 
-  it("doesn't change a bot's role, which ember-rust would turn into a person", async () => {
+  it("doesn't change a bot's role", async () => {
     const administrator = await setUp();
     const now = new Date().toISOString();
     await workspaceSql("INSERT INTO users (id, name, role, created_at, updated_at) VALUES ('robot', 'Build Bot', 2, ?, ?)", now, now);

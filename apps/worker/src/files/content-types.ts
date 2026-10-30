@@ -1,8 +1,7 @@
 import { BINARY } from "./marcel";
 
 // How a file's type decides the way it's served, as Active Storage's `content_types_allowed_inline` and
-// `content_types_to_serve_as_binary` do under Rails 8.2's defaults (ember-rust's
-// crates/storage/src/content_types.rs).
+// `content_types_to_serve_as_binary` do under Rails 8.2's defaults.
 
 /** `content_types_allowed_inline`: the only types a browser is ever asked to show rather than download. */
 const ALLOWED_INLINE = new Set([

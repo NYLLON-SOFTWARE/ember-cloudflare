@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { INVOLVEMENTS, type Favorites, type Involvement, type RoomId, type Sidebar, type WorkspaceServerFrame } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import { api, createRoom, direct, freshDeploy, openWorkspaceSocket, signIn, type Session } from "./support";
@@ -20,7 +19,7 @@ const leveled = (roomId: RoomId, involvement: Involvement): WorkspaceServerFrame
 
 beforeEach(freshDeploy);
 
-describe(feature("notifications.levels"), () => {
+describe("Notification levels", () => {
   it("starts you at @mentions in a room and all messages in a DM, as your sidebar lists them", async () => {
     const ada = await signIn("Ada");
     const grace = await signIn("Grace");
@@ -48,7 +47,7 @@ describe(feature("notifications.levels"), () => {
     expect((await sidebarOf(grace)).levels[design.id]).toBe("mentions");
   });
 
-  it("takes any level in a room or a DM, as ember-rust does", async () => {
+  it("takes any level in a room or a DM", async () => {
     const ada = await signIn("Ada");
     const grace = await signIn("Grace");
     const design = await createRoom("Design");
@@ -110,7 +109,7 @@ describe(feature("notifications.levels"), () => {
   });
 });
 
-describe(feature("notifications.hide-room"), () => {
+describe("Hide a room", () => {
   it("keeps a room you hide in your sidebar's list, for the app to leave out, and leaves it out of your stars until you show it again", async () => {
     const ada = await signIn("Ada");
     const design = await createRoom("Design");

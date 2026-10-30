@@ -25,9 +25,9 @@ import { unsubscribeFromPush } from "@/lib/push";
 import { forgetReturnPath, rememberThisPage, takeReturnPath } from "@/lib/return-path";
 
 const MAX_RETRY_MS = 15_000;
-/** Where the Set up Ember page is, as in ember-rust. */
+/** Where the Set up Ember page is. */
 const SETUP_PATH = "/first_run";
-/** Where the sign-in page is, as in ember-rust. */
+/** Where the sign-in page is. */
 const SIGN_IN_PATH = "/session/new";
 
 const isSameAccount = (a: Account, b: Account) =>
@@ -51,7 +51,7 @@ export function App() {
   // Undefined until the server says whether Ember is set up.
   const [workspace, setWorkspace] = useState<Omit<Bootstrap, "user">>();
   const [me, setMe] = useState<Me | null>(null);
-  // As in ember-rust, the sign-in page opens even for someone who's signed in, and so does resetting a password.
+  // The sign-in page opens even for someone who's signed in, and so does resetting a password.
   const atSignIn = useIsAt(SIGN_IN_PATH);
   const atPasswordReset = useIsAt(PASSWORD_RESET_PATH);
   const joinCode = useJoinRoute();
@@ -63,7 +63,7 @@ export function App() {
   // Before any page has fields, so even one focused as it opens is selected.
   useSelectOnEntry();
 
-  // Every page keeps up with the device and other tabs, as each of ember-rust's does, rail or not.
+  // Every page keeps up with the device and other tabs, rail or not.
   useEffect(() => followAppearance(), []);
   // And has the workspace's custom CSS and logo, once they're known, which is before any page shows.
   useCustomStyles(workspace?.account.customStyles ?? "", me?.administrator === true);
@@ -86,8 +86,8 @@ export function App() {
           // Until Ember is set up, every page is setup's, which says what it takes where it isn't open.
           if (workspace.setup === "pending" && !atSetup) return loadPage(SETUP_PATH);
           if (workspace.setup === "complete" && atSetup) history.replaceState(history.state, "", "/");
-          // The join page is for someone signed out, as in ember-rust, which sends anyone else home, and so
-          // are open sign-up's, an invitation's and Email domain's, whose links' secrets leave the address as they go.
+          // The join page is for someone signed out, and sends anyone else home, as do open sign-up's, an
+          // invitation's and Email domain's, whose links' secrets leave the address as they go.
           const { pathname } = location;
           const atJoin = joinCodeFromPath(pathname) !== null || pathname === SIGN_UP_PATH || pathname === INVITATION_PATH || pathname === EMAIL_SIGN_UP_PATH;
           if (user && atJoin) navigate("/", { replace: true });
@@ -125,8 +125,8 @@ export function App() {
     if (location.pathname === SIGN_IN_PATH) navigate(takeReturnPath() ?? "/", { replace: true });
     setMe(user);
   }, []);
-  // The session ended, or another tab signed this browser in as someone else. Signing in again
-  // starts afresh, as ember-rust's redirect to sign in does, and comes back to this page.
+  // The session ended, or another tab signed this browser in as someone else. Signing in again starts
+  // afresh, and comes back to this page.
   const sessionChanged = useCallback((user: Me | null) => {
     if (user) return setMe(user);
     // Signing out here goes to sign in itself, whether the rooms close their sockets before or after
@@ -135,9 +135,9 @@ export function App() {
     rememberThisPage();
     loadPage(SIGN_IN_PATH);
   }, []);
-  // As in ember-rust, a sign-out that doesn't reach the server leaves this browser signed in; one
-  // that does goes to sign in, from where signing in again goes home. It settles with whether it did.
-  // First, as there, the browser stops taking pushes, whether or not signing out goes on to work.
+  // A sign-out that doesn't reach the server leaves this browser signed in; one that does goes to sign
+  // in, from where signing in again goes home. It settles with whether it did. First, the browser stops
+  // taking pushes, whether or not signing out goes on to work.
   const signOutHere = useCallback(() => {
     signingOut.current = true;
     return unsubscribeFromPush().then(signOut).then(
@@ -152,7 +152,7 @@ export function App() {
       },
     );
   }, []);
-  // As in ember-rust, someone who joins goes home, signed in.
+  // Someone who joins goes home, signed in.
   const joined = useCallback((user: Me) => {
     navigate("/", { replace: true });
     setMe(user);
@@ -170,7 +170,7 @@ export function App() {
 
   // Not flashing yet, so a flash the last page left shows on this one once it's known.
   if (workspace === undefined) return <main aria-busy="true" className="min-h-dvh bg-surface" />;
-  // As in ember-rust, a sign-in link signs in whoever opens it, even someone signed in as someone else.
+  // A sign-in link signs in whoever opens it, even someone signed in as someone else.
   const showsWorkspace = workspace.setup === "complete" && me !== null && !atSignIn && !atPasswordReset && !atTransfer;
   const page = () => {
     if (workspace.setup === "pending") return <SetupPage placeholders={workspace.setupPlaceholders} access={workspace.setupAccess} onSetUp={setUp} />;
@@ -194,8 +194,7 @@ export function App() {
     if (atPasswordReset) return <PasswordResetPage workspace={workspace} />;
     return <SignInPage workspace={workspace} onSignedIn={signedIn} />;
   };
-  // Keyed by who's signed in, so whoever signs in, or in another tab, doesn't see the last page's
-  // flash, as ember-rust's redirect after signing in shows none.
+  // Keyed by who's signed in, so whoever signs in, or in another tab, doesn't see the last page's flash.
   return (
     <AccountContext value={workspace.account}>
       <FlashProvider key={showsWorkspace ? me.id : "signed out"} workspace={showsWorkspace}>

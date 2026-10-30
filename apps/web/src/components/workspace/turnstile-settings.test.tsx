@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -33,7 +32,7 @@ const turnstileSwitch = () => within(card()).getByRole("switch", { name: "Turnst
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("auth.turnstile"), () => {
+describe("Check that people are people with Cloudflare Turnstile", () => {
   it("says limits stand in for Turnstile's check while its switch is off, which turning on opens Set up Turnstile", async () => {
     serve();
     const { user, onSetUp } = showCard(null);

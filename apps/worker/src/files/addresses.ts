@@ -3,12 +3,10 @@ import { toBase64url } from "../encoding";
 import { hmacKey } from "../hmac";
 import { escapePath } from "./filename";
 
-// The addresses that show and download a room's files, /files/<key>/<signature>/<name>, as ember-rust's
-// signed blob links give them out (crates/ember/src/active_storage.rs): the signature says Ember made
-// the address, so nobody can guess one, and as there, it never expires. The name is there for whoever
-// saves the file, but what it's saved as is the name Ember keeps. A file's preview is at
-// /previews/<key>/<signature>/<name>, under the same signature, as ember-rust's addresses for a blob's
-// variants are signed with the blob's own id and end with its name.
+// The addresses that show and download a room's files, /files/<key>/<signature>/<name>: the signature
+// says Ember made the address, so nobody can guess one, and as there, it never expires. The name is
+// there for whoever saves the file, but what it's saved as is the name Ember keeps. A file's preview is
+// at /previews/<key>/<signature>/<name>, under the same signature.
 
 const encoder = new TextEncoder();
 
@@ -20,7 +18,7 @@ export type FileUrls = Pick<StoredFile, "url" | "downloadUrl" | "previewUrl">;
 
 /**
  * The signature of file `key` under `hmac`: the first 16 bytes of its HMAC, as base64url. Changing the
- * secret changes them all, as changing ember-rust's `SECRET_KEY_BASE` does.
+ * secret changes them all, as changing Campfire's `SECRET_KEY_BASE` does.
  */
 async function signature(hmac: CryptoKey, key: string): Promise<string> {
   const signed = await crypto.subtle.sign("HMAC", hmac, encoder.encode(`file:${key}`));
@@ -34,9 +32,9 @@ export async function isFileSignature(secret: string, key: string, given: string
 }
 
 /**
- * `name` as an address holds it, escaped as Active Storage's routes escape a path. A name a browser would
- * take out of the address, `.` or `..`, or no name at all, goes in as `-`, as sanitizing replaces what a
- * name can't hold, where ember-rust's address for it serves nothing.
+ * `name` as an address holds it, escaped as Active Storage's routes escape a path. A name a browser
+ * would take out of the address, `.` or `..`, or no name at all, goes in as `-`, as sanitizing replaces
+ * what a name can't hold.
  */
 const addressName = (name: string) => (name === "" || name === "." || name === ".." ? "-" : escapePath(name));
 

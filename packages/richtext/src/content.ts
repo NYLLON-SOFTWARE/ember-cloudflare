@@ -1,5 +1,5 @@
-// `ActionText::Content`: loading a body (canonicalized as Action Text loads a stored one) and its
-// plain text (ember-rust's crates/richtext/src/content.rs).
+// `ActionText::Content`: loading a body (canonicalized as Action Text loads a stored one) and its plain
+// text.
 
 import { ATTACHMENT_TAG, attachmentFromNode, attachmentPlainText, type ResolveMention } from "./attachments";
 import { BODY, parseReplacement, type HtmlParser } from "./markup";
@@ -10,9 +10,9 @@ import { innerHtml } from "./serialize";
 import { descendants, getAttr, removeAttr, removeChildren, replaceEach, setAttr, type Element, type Fragment, type Node } from "./tree";
 
 /**
- * How deep content attachments render inside one another (ember-rust's content.rs). Each level
- * parses and sanitizes everything below it again, so Rails' unbounded nesting makes rendering
- * quadratic in the body's size; deeper ones render empty.
+ * How deep content attachments render inside one another. Each level parses and sanitizes everything
+ * below it again, so Rails' unbounded nesting makes rendering quadratic in the body's size; deeper ones
+ * render empty.
  */
 export const MAX_CONTENT_ATTACHMENT_DEPTH = 8;
 

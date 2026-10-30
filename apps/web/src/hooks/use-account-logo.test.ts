@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useAccountLogo } from "./use-account-logo";
@@ -20,8 +19,8 @@ afterEach(() => {
 const icon = () => document.head.querySelector('link[rel="icon"]')!;
 const touchIcon = () => document.head.querySelector('link[rel="apple-touch-icon"]')!;
 
-describe(feature("accounts.logo"), () => {
-  it("makes the workspace's logo the page's icon, its small variant, and Apple touch icon, as ember-rust's layout links them", () => {
+describe("Workspace logo", () => {
+  it("makes the workspace's logo the page's icon, its small variant, and Apple touch icon", () => {
     const { unmount } = renderHook(() => useAccountLogo(LOGO));
     expect(icon()).toHaveAttribute("href", `${LOGO}&size=small`);
     expect(icon()).not.toHaveAttribute("sizes");
@@ -48,8 +47,8 @@ describe(feature("accounts.logo"), () => {
   });
 });
 
-describe(feature("accounts.custom-css"), () => {
-  it("marks the page's body account-has-logo while the workspace has a logo, as ember-rust's body classes do", () => {
+describe("Custom CSS", () => {
+  it("marks the page's body account-has-logo while the workspace has a logo", () => {
     const { rerender, unmount } = renderHook(({ logo }) => useAccountLogo(logo), { initialProps: { logo: LOGO as string | null } });
     expect(document.body).toHaveClass("account-has-logo");
     rerender({ logo: null });

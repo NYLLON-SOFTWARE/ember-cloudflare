@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -97,7 +96,7 @@ function deploy(listing: Listing, args: string[] = [], { deployStatus = 0, env =
   };
 }
 
-describe(feature("platform.deploy-secrets"), () => {
+describe("Deploy secrets", () => {
   it("makes the secrets for a Worker's first deploy, readable only by the deploy, and never prints them", () => {
     const { status, secrets, logs } = deploy("no worker");
     expect(status).toBe(0);
@@ -166,7 +165,7 @@ describe(feature("platform.deploy-secrets"), () => {
   });
 });
 
-describe(feature("auth.protected-setup"), () => {
+describe("Installer-protected setup link", () => {
   const withoutSetupToken = EVERY_SECRET.filter((name) => name !== "EMBER_SETUP_TOKEN");
 
   it("makes a setup token for a Worker that has none, and prints the setup link that carries it, once wrangler has deployed", () => {
@@ -282,7 +281,7 @@ describe(feature("auth.protected-setup"), () => {
   });
 });
 
-describe(feature("auth.memberful-sign-in"), () => {
+describe("Sign in with Memberful", () => {
   const keys = { MEMBERFUL_URL: "https://example.memberful.com", MEMBERFUL_CLIENT_ID: "client-id", MEMBERFUL_CLIENT_SECRET: "client-secret" };
 
   it("uploads the Memberful keys the environment gives with every deploy, so a changed one changes in the Worker, and never prints them", () => {
@@ -306,7 +305,7 @@ describe(feature("auth.memberful-sign-in"), () => {
   });
 });
 
-describe(feature("auth.memberful-memberships"), () => {
+describe("Memberful memberships", () => {
   it("uploads the custom app's API key and the webhook's secret the environment gives too, and never prints them", () => {
     const keys = { MEMBERFUL_API_KEY: "api-key", MEMBERFUL_WEBHOOK_SECRET: "webhook-secret" };
     const { status, secrets, logs } = deploy(EVERY_SECRET, [], { env: { ...keys, CI: "true", GITHUB_ACTIONS: "true" } });
@@ -318,7 +317,7 @@ describe(feature("auth.memberful-memberships"), () => {
   });
 });
 
-describe(feature("auth.open-sign-up"), () => {
+describe("Sign up without a link", () => {
   it("uploads the Turnstile widget's keys the environment gives with every deploy, and never prints them", () => {
     const keys = { TURNSTILE_SITE_KEY: "0x4AAAAAAA-site-key", TURNSTILE_SECRET_KEY: "0x4AAAAAAA-secret-key" };
     const { status, secrets, logs } = deploy(EVERY_SECRET, [], { env: { ...keys, CI: "true", GITHUB_ACTIONS: "true" } });
@@ -329,7 +328,7 @@ describe(feature("auth.open-sign-up"), () => {
   });
 });
 
-describe(feature("platform.email"), () => {
+describe("Sending email", () => {
   it("uploads the Resend API key the environment gives with every deploy, and never prints it", () => {
     const { status, secrets, logs } = deploy(EVERY_SECRET, [], { env: { RESEND_API_KEY: "re_e2e-only-not-a-key", CI: "true", GITHUB_ACTIONS: "true" } });
     expect(status).toBe(0);
@@ -339,7 +338,7 @@ describe(feature("platform.email"), () => {
   });
 });
 
-describe(feature("notifications.web-push-keys"), () => {
+describe("Web Push configuration", () => {
   it("makes a VAPID key pair for a Worker that has neither key, and keeps the private key out of the logs", () => {
     const { status, secrets, logs } = deploy(["SESSION_SECRET", "EMBER_SETUP_TOKEN"]);
     expect(status).toBe(0);

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import hljs from "highlight.js/lib/core";
 import { describe, expect, it } from "vitest";
 import { highlight, type Token } from "./highlight";
@@ -24,7 +23,7 @@ const classesOf = (tokens: Token[]): string[] =>
 
 const textOf = (tokens: Token[]): string => tokens.map((token) => (typeof token === "string" ? token : textOf(token.children))).join("");
 
-describe(feature("messages.rich-text"), () => {
+describe("Rich text, safely", () => {
   it.each(Object.entries(SAMPLES))("keeps the text of %s code and every class highlight.js gives it", (language, code) => {
     const tokens = highlight(code, language);
     expect(textOf(tokens)).toBe(code);

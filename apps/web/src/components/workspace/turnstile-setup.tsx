@@ -10,14 +10,13 @@ import { ApiError, isSignedOut, saveTurnstileKeys } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";
 
-// This port's own Set up Turnstile (`auth.turnstile`), for administrators: the steps to give Ember a
-// Cloudflare Turnstile widget's keys, in a dialog that Membership's Turnstile card opens, as do the ways
-// to join whose limits stand in for its check, as the project's owner asked (2026-10-30). First the
-// widget, which Cloudflare's dashboard makes for Ember's hostname, and its keys; then its check, drawn
-// with the site key by a page of Ember's own in a frame, since only that page's policy lets Turnstile
-// load, which says what came of it. Once it passes, the Worker asks siteverify about its token with the
-// secret key, which says that the keys are one widget's and that it checks people here, and keeps them.
-// Styled as Set up email is.
+// Set up Turnstile, for administrators: the steps to give Ember a Cloudflare Turnstile widget's keys, in
+// a dialog that Membership's Turnstile card opens, as do the ways to join whose limits stand in for its
+// check, as the project's owner asked (2026-10-30). First the widget, which Cloudflare's dashboard makes
+// for Ember's hostname, and its keys; then its check, drawn with the site key by a page of Ember's own
+// in a frame, since only that page's policy lets Turnstile load, which says what came of it. Once it
+// passes, the Worker asks siteverify about its token with the secret key, which says that the keys are
+// one widget's and that it checks people here, and keeps them. Styled as Set up email is.
 
 /** Where Turnstile's widgets are made, in the Cloudflare dashboard. */
 export const TURNSTILE_DASHBOARD = "https://dash.cloudflare.com/?to=/:account/turnstile";

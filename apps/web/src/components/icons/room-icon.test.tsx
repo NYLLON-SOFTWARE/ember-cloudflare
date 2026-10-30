@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { ROOM_ICON_NAMES } from "@ember/protocol";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -6,7 +5,7 @@ import picker from "./picker/catalog.json";
 import { RoomIcon, roomIconUrl } from "./room-icon";
 import { iconLabel, roomIconLabel } from "./room-icon-label";
 
-describe(feature("rooms.icons"), () => {
+describe("Room icons", () => {
   it("draws `#` for a room without an icon, in the size of the text around it", () => {
     const { container } = render(<RoomIcon icon={null} size={19} className="text-[22px]" />);
     expect(container.innerHTML).toBe('<span aria-hidden="true" class="text-[22px]">#</span>');

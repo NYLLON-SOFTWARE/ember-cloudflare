@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   CANT_SEND_EMAIL,
   EMAIL_FROM_REFUSED,
@@ -144,7 +143,7 @@ async function expectRefused(response: Response, status: number, error: string):
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("platform.email"), () => {
+describe("Sending email", () => {
   it("says what Ember sends email with: Resend while there's an API key, else Cloudflare Email Service's binding", async () => {
     const administrator = await setUp();
     expect(await emailSettings(administrator)).toEqual({ provider: "cloudflare", resendKey: null, cloudflare: true, from: null });

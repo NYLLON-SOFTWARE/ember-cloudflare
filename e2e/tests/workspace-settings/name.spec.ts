@@ -1,8 +1,7 @@
-import { feature } from "@ember/parity";
 import { expect, test } from "../../fixtures";
 import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
 
-test.describe(feature("accounts.name"), () => {
+test.describe("Rename the workspace", () => {
   test("the administrator renames the workspace, and every page shows the new name", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit");

@@ -135,7 +135,7 @@ export { Unfurler } from "./unfurl";
 export { Workspace } from "./workspace";
 
 const MAX_NAME_LENGTH = 48;
-/** ember-rust's alert for a room someone can't open, whether it's missing or they aren't in it. */
+/** The alert for a room someone can't open, whether it's missing or they aren't in it. */
 const ROOM_NOT_FOUND = "Room not found or inaccessible";
 const INVOLVEMENT_REFUSED = "Notification level must be mentions, everything, nothing or invisible";
 
@@ -151,17 +151,16 @@ async function signIn(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * ember-rust's sign-in (crates/ember/src/controllers/sessions.rs): every attempt counts against its IP
- * address's limit before anything is checked, and an unknown email address costs a password check
- * too, so the answer's timing doesn't say who has an account. While Memberful is members only, only
- * an administrator signs in with a password. Anyone else whose password checks out goes on to
- * connect their Memberful account (`auth.memberful-connect`), as 202 says, to come back to `returnTo`
- * signed in, until they have one connected, and hears 403 once they have.
+ * The sign-in: every attempt counts against its IP address's limit before anything is checked, and an
+ * unknown email address costs a password check too, so the answer's timing doesn't say who has an
+ * account. While Memberful is members only, only an administrator signs in with a password. Anyone else
+ * whose password checks out goes on to connect their Memberful account, as 202 says, to come back to
+ * `returnTo` signed in, until they have one connected, and hears 403 once they have.
  */
 async function signInWithPassword({ emailAddress, password, returnTo }: Record<string, unknown>, request: Request, env: Env): Promise<Response> {
-  // A blank password is refused before any lookup, as in ember-rust, and so is one longer than the
-  // form sends, which nobody can have, or an email address longer than any account's, which the
-  // Workspace would otherwise be sent whole.
+  // A blank password is refused before any lookup, and so is one longer than the form sends, which
+  // nobody can have, or an email address longer than any account's, which the Workspace would otherwise
+  // be sent whole.
   const given =
     typeof emailAddress === "string" &&
     emailAddress.length <= MAX_EMAIL_ADDRESS_LENGTH &&
@@ -212,8 +211,7 @@ async function signInGuest(given: unknown, request: Request, env: Env): Promise<
 
 /**
  * What the app asks first: whether Ember is set up yet, who this browser is signed in as, the key
- * browsers subscribe to push notifications with, which ember-rust puts in every page, and the platform
- * its notification setup help is for, which ember-rust reads from each page's request.
+ * browsers subscribe to push notifications with, and the platform its notification setup help is for.
  */
 async function bootstrap(request: Request, env: Env): Promise<Response> {
   const token = sessionToken(request);
@@ -271,10 +269,10 @@ const turnstileOf = (env: Env, saved: TurnstileSettings["turnstile"]): Turnstile
 
 /**
  * Gives Ember a Turnstile widget's keys to check people with, as Set up Turnstile does once the widget's
- * check has passed in its dialog (`auth.turnstile`), after who's asking, as changing the workspace does,
- * and once siteverify takes that check's token with the secret key, which says the keys are one widget's,
- * and that it checks people here, answering where Ember's keys come from then. A key that can't be one,
- * or that siteverify refuses, is refused on its field.
+ * check has passed in its dialog, after who's asking, as changing the workspace does, and once siteverify
+ * takes that check's token with the secret key, which says the keys are one widget's, and that it checks
+ * people here, answering where Ember's keys come from then. A key that can't be one, or that siteverify
+ * refuses, is refused on its field.
  */
 async function saveTurnstileKeys(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -368,12 +366,11 @@ async function regenerateJoinCode(request: Request, env: Env): Promise<Response>
 }
 
 /**
- * Changes the workspace, as its settings save it. As in ember-rust, someone who isn't an administrator
- * hears so before anything they sent is checked (accounts.rs). Ember's address can only be the one the
- * request came to, or a custom domain or where a deploy puts Ember while it reaches Ember
- * (`addressRefusal`), Memberful, or its Members only, can only be turned on with the deployment's
- * Memberful keys, and Email domain only with a domain to let in, while Ember can send email. Turning any
- * of them off always works.
+ * Changes the workspace, as its settings save it. Someone who isn't an administrator hears so before
+ * anything they sent is checked. Ember's address can only be the one the request came to, or a custom
+ * domain or where a deploy puts Ember while it reaches Ember (`addressRefusal`), Memberful, or its
+ * Members only, can only be turned on with the deployment's Memberful keys, and Email domain only with a
+ * domain to let in, while Ember can send email. Turning any of them off always works.
  */
 async function changeAccount(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -423,7 +420,7 @@ async function lookUpCustomDomain(request: Request, env: Env): Promise<Response>
   return json((await lookUpDns(lookup.domain)) satisfies CustomDomainLookup, { headers: { "Cache-Control": "no-store" } });
 }
 
-/** The workspace's custom CSS, for the Custom CSS page, which only administrators can open (custom_styles.rs). */
+/** The workspace's custom CSS, for the Custom CSS page, which only administrators can open. */
 async function customStyles(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const styles = credentials && (await workspace(env).customStyles(credentials));
@@ -434,8 +431,7 @@ async function customStyles(request: Request, env: Env): Promise<Response> {
 
 /**
  * Saves the workspace's custom CSS, as the Custom CSS page does, answering the workspace as it is then.
- * As in ember-rust, someone who isn't an administrator hears so before anything they sent is checked
- * (custom_styles.rs).
+ * Someone who isn't an administrator hears so before anything they sent is checked.
  */
 async function changeCustomStyles(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -449,9 +445,8 @@ async function changeCustomStyles(request: Request, env: Env): Promise<Response>
 }
 
 /**
- * Gives the workspace the logo the form brings, as ember-rust's workspace settings save `account[logo]`
- * as soon as one is chosen (accounts.rs), answering the account then. Who's asking is checked before the
- * logo is read, and again as it's given to the workspace.
+ * Gives the workspace the logo the form brings, answering the account then. Who's asking is checked
+ * before the logo is read, and again as it's given to the workspace.
  */
 async function changeLogo(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -467,7 +462,7 @@ async function changeLogo(request: Request, env: Env): Promise<Response> {
   return logoChanged(await workspace(env).changeLogo(credentials, logo));
 }
 
-/** Takes the workspace's logo away, as ember-rust's `logos#destroy` does, answering the account then. */
+/** Takes the workspace's logo away, answering the account then. */
 async function removeLogo(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   return logoChanged(credentials && (await workspace(env).changeLogo(credentials, null)));
@@ -481,10 +476,10 @@ function logoChanged(account: Account | "forbidden" | null): Response {
 }
 
 /**
- * Makes someone an administrator or a member, as the crown on workspace settings does, answering them
- * as the people directory then lists them. As in ember-rust, someone who isn't an administrator hears
- * so first, then anyone who isn't active isn't found, before what was sent is checked
- * (accounts/users.rs). Unlike there, nobody can change their own role or a bot's.
+ * Makes someone an administrator or a member, as the crown on workspace settings does, answering them as
+ * the people directory then lists them. Someone who isn't an administrator hears so first, then anyone
+ * who isn't active isn't found, before what was sent is checked. Unlike there, nobody can change their
+ * own role or a bot's.
  */
 async function changeRole(request: Request, env: Env, userId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -502,10 +497,9 @@ async function changeRole(request: Request, env: Env, userId: UserId): Promise<R
 }
 
 /**
- * Removes someone from the workspace, as Delete on workspace settings does, answering them as the
- * people directory then lists them. As in ember-rust, someone who isn't an administrator hears so
- * first, then anyone who isn't active isn't found (accounts/users.rs). Unlike there, nobody can remove
- * themselves.
+ * Removes someone from the workspace, as Delete on workspace settings does, answering them as the people
+ * directory then lists them. Someone who isn't an administrator hears so first, then anyone who isn't
+ * active isn't found. Unlike there, nobody can remove themselves.
  */
 async function removePerson(request: Request, env: Env, userId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -518,8 +512,8 @@ async function removePerson(request: Request, env: Env, userId: UserId): Promise
 }
 
 /**
- * What a ban that can't block an IP address someone signed in from answers, which ember-rust's 422 page
- * leaves unsaid, or one that would block the administrator's own, which ember-rust allows.
+ * What a ban that can't block an IP address someone signed in from answers, or one that would block the
+ * administrator's own.
  */
 const BAN_PROBLEMS: Record<BanProblem | "your address", string> = {
   invalid: "They signed in from an IP address that isn't valid, which a ban can't block",
@@ -528,10 +522,9 @@ const BAN_PROBLEMS: Record<BanProblem | "your address", string> = {
 };
 
 /**
- * Bans someone, as Ban on their page does, answering them as the people directory then lists them. As
- * in ember-rust, someone who isn't an administrator hears so first, then an id nobody has isn't found,
- * whatever their status (users/bans.rs). Unlike there, nobody can ban themselves, or the address
- * they're using.
+ * Bans someone, as Ban on their page does, answering them as the people directory then lists them.
+ * Someone who isn't an administrator hears so first, then an id nobody has isn't found, whatever their
+ * status. Unlike there, nobody can ban themselves, or the address they're using.
  */
 async function banPerson(request: Request, env: Env, userId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -555,9 +548,10 @@ async function unbanPerson(request: Request, env: Env, userId: UserId): Promise<
 }
 
 /**
- * Your profile as its page shows it, with a new sign-in link for you, as each of ember-rust's profile
- * pages has (users/profiles/_transfer.html), and whether you've connected an account at the Memberful site
- * the deployment's keys name. No cache should keep it, since it holds your email address and the link.
+ * Your profile as its page shows it, with a new sign-in link for you, as each of Campfire's profile
+ * pages has (users/profiles/_transfer.html.erb), and whether you've connected an account at the
+ * Memberful site the deployment's keys name. No cache should keep it, since it holds your email address
+ * and the link.
  */
 async function profileAnswer({ transfer, profile, connected }: YourProfile, env: Env): Promise<Response> {
   const transferId = await newTransferId(transfer, env.SESSION_SECRET, Date.now());
@@ -566,7 +560,7 @@ async function profileAnswer({ transfer, profile, connected }: YourProfile, env:
   return json({ profile: { ...profile, memberful }, transferId } satisfies ProfileAnswer, { headers: { "Cache-Control": "no-store" } });
 }
 
-/** Your profile, for its page (profiles.rs, `show`). */
+/** Your profile, for its page. */
 async function profile(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const yours = credentials && (await workspace(env).profile(credentials));
@@ -574,15 +568,13 @@ async function profile(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Saves your profile, as its form does (profiles.rs, `update`), answering it as it is then. Who's
- * asking is checked before a new password is hashed, and a blank one keeps the password they have,
- * as ember-rust's `password=` ignores it, while one shorter than first run takes is refused (422),
- * where ember-rust saves it. An email address someone else has is refused, where ember-rust fails
- * with 500. Changing your email address or password, while you have one, takes your current
- * password too, which ember-rust never asks for, so that holding your session isn't enough to take
- * your account: it's checked as sign-in checks a password, counting against the same limit (429),
- * and refused (422) when it's missing or wrong. A new password ends your other sessions, keeping
- * this browser's push subscription at `pushSubscriptionEndpoint` and forgetting the rest.
+ * Saves your profile, as its form does, answering it as it is then. Who's asking is checked before a new
+ * password is hashed, and a blank one keeps the password they have, while one shorter than first run
+ * takes is refused (422). An email address someone else has is refused. Changing your email address or
+ * password, while you have one, takes your current password too, so that holding your session isn't
+ * enough to take your account: it's checked as sign-in checks a password, counting against the same
+ * limit (429), and refused (422) when it's missing or wrong. A new password ends your other sessions,
+ * keeping this browser's push subscription at `pushSubscriptionEndpoint` and forgetting the rest.
  */
 async function changeProfile(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -608,13 +600,13 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Connect Memberful on your profile (`auth.memberful-connect`), this port's own: once your password checks
- * out, while you have one, so that holding your session isn't enough to add a way into your account, as
- * for changing your email address or password, answers where to sign in at the Memberful site to connect
- * your account there to yours, with the cookie that keeps the state it goes with, to come back to your
- * profile. 401 without a valid session; 403 while Memberful isn't members only, or the deployment lacks
- * its keys, or to a guest; 409 once you've connected one; 422 without your password, or with one that
- * isn't yours; and 429 past sign-in's limit, which checking the password counts against.
+ * Connect Memberful on your profile: once your password checks out, while you have one, so that holding
+ * your session isn't enough to add a way into your account, as for changing your email address or
+ * password, answers where to sign in at the Memberful site to connect your account there to yours, with
+ * the cookie that keeps the state it goes with, to come back to your profile. 401 without a valid
+ * session; 403 while Memberful isn't members only, or the deployment lacks its keys, or to a guest; 409
+ * once you've connected one; 422 without your password, or with one that isn't yours; and 429 past
+ * sign-in's limit, which checking the password counts against.
  */
 async function connectMemberful(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -647,9 +639,8 @@ const connectionAnswer = ({ connection, cookie }: { connection: MemberfulConnect
   json(connection, { status: 202, headers: { ...(cookie === null ? {} : { "Set-Cookie": cookie }), "Cache-Control": "no-store" } });
 
 /**
- * Gives you the avatar the form brings, as ember-rust's profile form saves `user[avatar]` as soon as
- * one is chosen (profiles.rs), answering your profile then. Who's asking is checked before the picture
- * is read, and again as it's given to them.
+ * Gives you the avatar the form brings, answering your profile then. Who's asking is checked before the
+ * picture is read, and again as it's given to them.
  */
 async function changeAvatar(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -663,7 +654,7 @@ async function changeAvatar(request: Request, env: Env): Promise<Response> {
   return yours ? profileAnswer(yours, env) : problem(401, "Not signed in");
 }
 
-/** Takes your avatar away, as ember-rust's `avatars#destroy` does, answering your profile then. */
+/** Takes your avatar away, answering your profile then. */
 async function removeAvatar(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const yours = credentials && (await workspace(env).changeAvatar(credentials, null));
@@ -671,11 +662,10 @@ async function removeAvatar(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Signs this browser out. Its session's sockets close in every room its person is in, so its other
- * tabs go to sign in at once; ember-rust tells all the person's connections to reconnect instead,
- * which their other devices survive (concerns.rs). The rooms close them once this has answered, so
- * as there, a room that can't be reached doesn't keep anyone signed in. The app sends the endpoint of
- * the push subscription it ended first, if there was one, and the person's subscriptions with it go too.
+ * Signs this browser out. Its session's sockets close in every room its person is in, so its other tabs
+ * go to sign in at once. The rooms close them once this has answered, so a room that can't be reached
+ * doesn't keep anyone signed in. The app sends the endpoint of the push subscription it ended first, if
+ * there was one, and the person's subscriptions with it go too.
  */
 async function endSession(request: Request, env: Env): Promise<Response> {
   await signOut(request, env, signOutEndpointOf(await jsonBodyOf(request)));
@@ -694,7 +684,7 @@ async function sidebar(request: Request, env: Env): Promise<Response> {
   return sidebar ? jsonWithETag(request, sidebar satisfies Sidebar, { "Cache-Control": "no-store" }) : problem(401, "Not signed in");
 }
 
-/** Dismisses the welcome card for the signed-in person, for good, as its × does, answering 204. ember-rust's can't be dismissed. */
+/** Dismisses the welcome card for the signed-in person, for good, as its × does, answering 204. The can't be dismissed. */
 async function dismissInvitation(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const dismissed = credentials !== null && (await workspace(env).dismissInvitation(credentials));
@@ -722,8 +712,8 @@ function segmentText(segment: string): string {
 }
 
 /**
- * Someone's page, as ember-rust's `users#show` finds them (users.rs): anyone, whatever their status,
- * with their email address and a new sign-in link for administrators. An id nobody has is 404.
+ * Someone's page: anyone, whatever their status, with their email address and a new sign-in link for
+ * administrators. An id nobody has is 404.
  */
 async function showPerson(request: Request, env: Env, userId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -736,8 +726,8 @@ async function showPerson(request: Request, env: Env, userId: UserId): Promise<R
 }
 
 /**
- * Someone's page, `/users/<id>`, as ember-rust answers it: Campfire's 404 page once signed in, for an
- * id nobody has, and otherwise the app's page, which sends anyone signed out to sign in first.
+ * Someone's page, `/users/<id>`: Campfire's 404 page once signed in, for an id nobody has, and otherwise
+ * the app's page, which sends anyone signed out to sign in first.
  */
 async function personPage(request: Request, env: Env, pathname: string, userId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -746,9 +736,9 @@ async function personPage(request: Request, env: Env, pathname: string, userId: 
 }
 
 /**
- * Whom the mentions prompt offers, as ember-rust's `Autocompletable::UsersController` answers Lexxy: the
- * first 20 by name of the active people in `room_id`, or anywhere without one, whose names contain
- * `filter` (or `query`), as `<lexxy-prompt-item>`s. A room someone isn't in is 404.
+ * Whom the mentions prompt offers: the first 20 by name of the active people in `room_id`, or anywhere
+ * without one, whose names contain `filter` (or `query`), as `<lexxy-prompt-item>`s. A room someone
+ * isn't in is 404.
  */
 async function mentionable(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -771,9 +761,8 @@ const present = (value: string | null) => (value === null || value.trim() === ""
 const ROOM_CREATION_FORBIDDEN = "Only administrators can create rooms";
 
 /**
- * Creates an open room, or a closed one for the people it names, as New room's forms do. As in
- * ember-rust, someone who may not create rooms hears so before anything they sent is checked
- * (rooms/opens.rs).
+ * Creates an open room, or a closed one for the people it names, as New room's forms do. Someone who may
+ * not create rooms hears so before anything they sent is checked.
  */
 async function createRoom(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -790,8 +779,8 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * Starts a DM with the people it names, or opens the one they have, as New direct message does:
- * 201 for a new DM and 200 for one they had, where ember-rust redirects to it (rooms/directs.rs).
+ * Starts a DM with the people it names, or opens the one they have, as New direct message does: 201 for
+ * a new DM and 200 for one they had.
  */
 async function startDirect(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -819,8 +808,8 @@ async function roomSettings(request: Request, env: Env, roomId: RoomId): Promise
 }
 
 /**
- * Changes a room, as its settings page saves it. As in ember-rust, someone who can't change it hears
- * so before anything they sent is checked (rooms/opens.rs).
+ * Changes a room, as its settings page saves it. Someone who can't change it hears so before anything
+ * they sent is checked.
  */
 async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -835,9 +824,8 @@ async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<R
 }
 
 /**
- * Deletes a room or DM, as Delete on its settings page does, answering 204 where ember-rust redirects
- * home (rooms.rs). As with changing a room, someone who can't change it hears so, and anyone in a DM
- * can delete it.
+ * Deletes a room or DM, as Delete on its settings page does, answering 204. As with changing a room,
+ * someone who can't change it hears so, and anyone in a DM can delete it.
  */
 async function deleteRoom(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -850,8 +838,7 @@ async function deleteRoom(request: Request, env: Env, roomId: RoomId): Promise<R
 
 /**
  * Stars a room for the signed-in person, or unstars it, as its header's star does, answering their
- * stars, as ember-rust's `favorites#update` does for JSON (rooms/favorites.rs): 400 for a room id or a
- * `favorite` it can't read, and 403 for a room they can't star.
+ * stars: 400 for a room id or a `favorite` it can't read, and 403 for a room they can't star.
  */
 async function setFavorite(request: Request, env: Env, roomId: string): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -868,10 +855,8 @@ async function setFavorite(request: Request, env: Env, roomId: string): Promise<
 }
 
 /**
- * Gives the signed-in person another notification level in a room, as its bell does, answering it, as
- * ember-rust's `involvements#update` does (rooms/involvements.rs): 404 when they aren't in the room,
- * whatever's sent, then 422 for anything but a level. ember-rust stores a blank level as none at all
- * and fails on any other.
+ * Gives the signed-in person another notification level in a room, as its bell does, answering it: 404
+ * when they aren't in the room, whatever's sent, then 422 for anything but a level.
  */
 async function setInvolvement(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -885,8 +870,8 @@ async function setInvolvement(request: Request, env: Env, roomId: RoomId): Promi
 
 /**
  * Puts the signed-in person's starred rooms in the order listed, as dragging one in their sidebar does,
- * answering their stars, where ember-rust's `sidebars#update_order` answers 204 (users/sidebars.rs): 400
- * for a list it can't read, and 403 for one that isn't exactly the rooms they've starred.
+ * answering their stars: 400 for a list it can't read, and 403 for one that isn't exactly the rooms
+ * they've starred.
  */
 async function setFavoriteOrder(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -903,17 +888,16 @@ async function setFavoriteOrder(request: Request, env: Env): Promise<Response> {
 const SHARED_ORDER_FORBIDDEN = "Only administrators can put rooms in order for everyone, and only the rooms in their sidebar";
 
 /**
- * Puts the rooms in the signed-in administrator's sidebar in the shared order, as saving it on
- * workspace settings does, answering the rooms they're in that it ranks, where ember-rust's
- * `sidebars#update_default_order` answers 204 (users/sidebars.rs): 400 for a list it can't read, and
- * 403 for anyone but an administrator, or a list naming a room outside their sidebar. An empty list
- * clears the order.
+ * Puts the rooms in the signed-in administrator's sidebar in the shared order, as saving it on workspace
+ * settings does, answering the rooms they're in that it ranks: 400 for a list it can't read, and 403 for
+ * anyone but an administrator, or a list naming a room outside their sidebar. An empty list clears the
+ * order.
  */
 async function setSharedOrder(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, "Not signed in");
   const roomIds = parseSharedOrder(await jsonBodyOf(request));
-  // As in ember-rust, someone who isn't an administrator hears so before the list is checked.
+  // Someone who isn't an administrator hears so before the list is checked.
   if (typeof roomIds === "string") {
     const administrator = await workspace(env).canAdminister(credentials);
     if (administrator === null) return problem(401, "Not signed in");
@@ -1074,7 +1058,7 @@ async function isFromBannedAddress(request: Request, env: Env): Promise<boolean>
   return ip !== null && (await workspace(env).isBanned(ip));
 }
 
-/** What a banned IP address's requests to change something answer, as ember-rust's `head(TOO_MANY_REQUESTS)` does. */
+/** What a banned IP address's requests to change something answer. */
 const tooManyRequests = () => new Response(null, { status: 429, headers: { "Content-Type": "text/html" } });
 
 /** What the app's routes answer, before the headers every answer gets. */
@@ -1093,22 +1077,20 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // Nor is Memberful's webhook, which its servers sign with the webhook's secret.
   if (pathname === MEMBERFUL_WEBHOOK_PATH) return memberfulWebhook(request, env);
   const write = request.method !== "GET" && request.method !== "HEAD";
-  // Nor are a room's files, which ember-rust serves from Active Storage's controllers rather than
-  // Campfire's, to whoever has the address, whatever their browser.
+  // Nor are a room's files, to whoever has the address, whatever their browser.
   const file = fileAddressOf(pathname);
   if (file) return write ? notFound(request) : serveFile(request, env, file);
   const action = apiAction(request, env, pathname) ?? botAction(request, env, pathname);
-  // First, as ember-rust's `reject_banned_ip` (concerns.rs): once a route is found, so an unknown
-  // address still answers 404, a banned IP address can't change anything, sign in or join.
+  // First: once a route is found, so an unknown address still answers 404, a banned IP address can't
+  // change anything, sign in or join.
   if (write && action && (await isFromBannedAddress(request, env))) return tooManyRequests();
-  // Then, where ember-rust checks after sign-in and the forgery check: a browser too old for the app
-  // has nothing to sign in to.
+  // Then: a browser too old for the app has nothing to sign in to.
   if (isFromUnsupportedBrowser(request)) return unsupportedBrowserPage(request, env);
   if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
   if (action) return action();
   if (pathname.startsWith("/api/")) return problem(404, "Not found");
   if (pathname === MEMBERFUL_SIGN_IN_PATH) return startMemberfulSignIn(request, env);
-  // Signing in, which as ember-rust's `reject_banned_ip` refuses a banned IP address, though it's a GET.
+  // Signing in, which a banned IP address can't do, though it's a GET.
   if (pathname === MEMBERFUL_CALLBACK_PATH) return (await isFromBannedAddress(request, env)) ? tooManyRequests() : finishMemberfulSignIn(request, env);
   if (isSetupPath(pathname)) return setupPage(request, env);
   if (pathname === SIGN_UP_PATH) return signUpPage(request, env);
@@ -1132,10 +1114,10 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
 }
 
 /**
- * What an exception answers, as ember-rust's does (crates/kit/src/ctx.rs): JSON from the API and the
- * bot API, and Campfire's 500 page otherwise. Setup's form holds the first administrator's password,
- * and recovery its token and a new password, so there the log says only that the request failed, and
- * a bot's key is filtered out of its address, as Campfire's log filters it.
+ * What an exception answers: JSON from the API and the bot API, and Campfire's 500 page otherwise.
+ * Setup's form holds the first administrator's password, and recovery its token and a new password, so
+ * there the log says only that the request failed, and a bot's key is filtered out of its address, as
+ * Campfire's log filters it.
  */
 function failure(request: Request, pathname: string, error: unknown): Response {
   // A JSON body over the limit is refused as too large, rather than failed on.
@@ -1149,12 +1131,12 @@ function failure(request: Request, pathname: string, error: unknown): Response {
 
 export default {
   // Everything but the built app's static files comes here first (`run_worker_first`), page loads
-  // included, so each answer gets ember-rust's headers.
+  // included, so each answer gets the headers in headers.ts.
   async fetch(request, env): Promise<Response> {
     if (!isHttps(request) && requiresHttps(request, env)) return redirectToHttps(request);
     const { pathname } = urlOf(request);
-    // /up skips ember-rust's before-actions, so it's never checked and carries no version, and
-    // Active Storage's files, which Campfire's controllers don't serve, carry none either.
+    // /up skips Campfire's before-actions, being Rails' health check, so it's never checked and carries
+    // no version, and Active Storage's files, which Campfire's controllers don't serve, carry none either.
     const isUp = isUpPath(pathname) && (request.method === "GET" || request.method === "HEAD");
     const isFile = fileAddressOf(pathname) !== null;
     const response = isUp ? up(request) : await route(request, env, pathname).catch((error: unknown) => failure(request, pathname, error));

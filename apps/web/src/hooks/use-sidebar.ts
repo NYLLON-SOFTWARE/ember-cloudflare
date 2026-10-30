@@ -20,9 +20,8 @@ const DEPLOY_SPREAD_MS = [2_000, 10_000] as const;
 
 /**
  * How long, at most, a tab waits to load its sidebar again once an administrator has put the rooms in
- * order for everyone, as each of ember-rust's reloads its frame on `room_order_changed`, or someone is
- * active again, each tab waiting a while at random, so that every tab in the workspace doesn't ask the
- * Workspace at once.
+ * order for everyone, or someone is active again, each tab waiting a while at random, so that every tab
+ * in the workspace doesn't ask the Workspace at once.
  */
 export const RELOAD_SPREAD_MS = 5_000;
 
@@ -65,16 +64,17 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
 
 /**
  * Someone's sidebar, which loads again each time the tab's workspace socket connects, the first time
- * included, as ember-rust's rooms_list_controller.js reloads its frame, since nothing that changed
- * while it wasn't connected reached it. Meanwhile the socket brings rooms as they're made, changed and
+ * included, as Campfire's rooms_list_controller.js reloads its frame, since nothing that changed while
+ * it wasn't connected reached it. Meanwhile the socket brings rooms as they're made, changed and
  * deleted, and as this person is put in them and taken out, marks rooms unread and read, moves DMs as
- * messages come in them, and brings the stars saved in any of their tabs, and the welcome card
- * dismissed in any of them. It loads again when the tab is shown after more than a minute hidden too,
- * as `refresh-room:visible` reloads it (helpers/users.rs), which ember-rust does on a room's page and
- * this does on every page, and, its rooms only, a while after the socket says the shared order has
- * changed, or that someone the people directory lists as removed, banned or suspended is active again,
- * whom the sidebar may suggest a DM with now, and once it says this person has been given another role.
- * `refresh` asks for it again, settling once a list asked for since has come, or failing as that did.
+ * messages come in them, and brings the stars saved in any of their tabs, and the welcome card dismissed
+ * in any of them. It loads again when the tab is shown after more than a minute hidden too, as
+ * `refresh-room:visible` reloads it (Campfire's users/sidebar_helper.rb), which Campfire does on a
+ * room's page and this does on every page, and, its rooms only, a while after the socket says the shared
+ * order has changed, or that someone the people directory lists as removed, banned or suspended is
+ * active again, whom the sidebar may suggest a DM with now, and once it says this person has been given
+ * another role. `refresh` asks for it again, settling once a list asked for since has come, or failing
+ * as that did.
  *
  * `onSessionChanged` hears when who the browser's session signs in changes: null once it has expired,
  * whoever another tab signed in as, or `me` as they are now, once they've been made an administrator,
@@ -194,7 +194,7 @@ export function useSidebar(
             // Only administrators are given the welcome card with their rooms, so a new role loads them again.
             if ((frame.user.role === "administrator") !== heard.current.administrator) reloadRooms();
           } else if (isBack(frame.user)) {
-            // The list suggests only people active when it loaded, as ember-rust's does until it loads again.
+            // The list suggests only people active when it loaded, until it loads again.
             reloadRoomsSoon();
           }
           return changed(frame.user);

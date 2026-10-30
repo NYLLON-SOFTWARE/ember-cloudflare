@@ -189,9 +189,8 @@ class GumboParser extends Parser<TreeMap> {
   }
 
   /**
-   * Moves all of `donor`'s children to `recipient` at once, as ember-rust's `reparent_children`
-   * (crates/richtext/src/dom.rs) does. parse5 detaches them one at a time from the front, so the
-   * adoption agency took time quadratic in the number of children a misnested block had.
+   * Moves all of `donor`'s children to `recipient` at once. parse5 detaches them one at a time from the
+   * front, so the adoption agency took time quadratic in the number of children a misnested block had.
    */
   override _adoptNodes(donor: Parent, recipient: Parent): void {
     for (const child of removeChildren(donor)) append(recipient, child);

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { avatarSvg, type Directory, type DirectoryUser, type UserId } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import { avatarTokenUser, directoryOf } from "../src/avatar-tokens";
@@ -29,7 +28,7 @@ const sha256 = async (text: string) =>
 
 beforeEach(freshDeploy);
 
-describe(feature("users.avatars"), () => {
+describe("Initials avatars", () => {
   it("serves someone's initials at the address the directory gives, to people signed in", async () => {
     const ada = await signIn("Ada Lovelace");
     const { avatarUrl } = await listed(ada, ada.user.id);

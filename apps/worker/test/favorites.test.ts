@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_FAVORITES, type Favorites, type RoomId, type Sidebar, type WorkspaceServerFrame } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import { api, createRoom, direct, freshDeploy, openWorkspaceSocket, signIn, workspaceSql, type Session } from "./support";
@@ -31,7 +30,7 @@ const hide = (session: Session, roomId: RoomId, hidden = true) =>
 
 beforeEach(freshDeploy);
 
-describe(feature("sidebar.favorites"), () => {
+describe("Star rooms", () => {
   it("stars a room for you alone, after your other stars, answering your stars in order", async () => {
     const ada = await signIn("Ada");
     const grace = await signIn("Grace");
@@ -53,7 +52,7 @@ describe(feature("sidebar.favorites"), () => {
 
     expect(await answered(star(ada, ops.id))).toEqual({ rooms: [ops.id, design.id], version: 3 });
     expect(await answered(star(ada, ops.id, false))).toEqual({ rooms: [design.id], version: 4 });
-    // Unstarring it again is answered the same, as ember-rust saves the list it has either way.
+    // Unstarring it again is answered the same.
     expect(await answered(star(ada, ops.id, false))).toEqual({ rooms: [design.id], version: 5 });
     expect(await answered(star(ada, ops.id))).toEqual({ rooms: [design.id, ops.id], version: 6 });
   });
@@ -139,7 +138,7 @@ describe(feature("sidebar.favorites"), () => {
     expect((await api(`/api/rooms/${gone.id}`, { method: "DELETE", headers: { Cookie: grace.cookie } })).status).toBe(204);
 
     expect(await favoritesOf(ada)).toEqual({ rooms: [], version: 3 });
-    // As in ember-rust, they're kept until then, so a room shown again is starred again.
+    // They're kept until then, so a room shown again is starred again.
     await hide(ada, hidden.id, false);
     expect(await favoritesOf(ada)).toEqual({ rooms: [hidden.id], version: 3 });
     await hide(ada, hidden.id);
@@ -171,7 +170,7 @@ describe(feature("sidebar.favorites"), () => {
   });
 });
 
-describe(feature("sidebar.favorite-order"), () => {
+describe("Reorder starred rooms", () => {
   it("puts your stars in the order you list, answering it, and tells every tab of yours and nobody else", async () => {
     const ada = await signIn("Ada");
     const grace = await signIn("Grace");
@@ -213,7 +212,7 @@ describe(feature("sidebar.favorite-order"), () => {
 
     expect(await answered(reorder(ada, [ops.id, design.id]))).toEqual({ rooms: [ops.id, design.id], version: 4 });
     expect(await storedStars(ada)).toEqual([ops.id, design.id]);
-    // Shown again, the room isn't starred, as in ember-rust.
+    // Shown again, the room isn't starred.
     await hide(ada, hidden.id, false);
     expect(await favoritesOf(ada)).toEqual({ rooms: [ops.id, design.id], version: 4 });
   });

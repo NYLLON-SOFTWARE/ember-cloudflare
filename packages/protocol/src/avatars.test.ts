@@ -1,16 +1,15 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { avatarColor, avatarSvg, crc32, initials } from "./avatars.ts";
 
-// Rails' own renderings of users/avatars/show.svg, from ember-rust's crates/views/tests/golden/a/
-// avatar_david.svg (user 127326141, "David") and avatar_three_initials.svg (773523956, "Anna Bea Cole").
+// Rails' own renderings of Campfire's users/avatars/show.svg, for user 127326141, "David", and user
+// 773523956, "Anna Bea Cole".
 const DAVID =
   "<svg version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"\n  viewBox=\"0 0 512 512\" class=\"avatar\" aria-hidden=\"true\">\n  <defs>\n    <clipPath id=\"porthole\">\n      <circle cx=\"50%\" cy=\"50%\" r=\"50%\" />\n    </clipPath>\n  </defs>\n\n  <g>\n    <rect width=\"100%\" height=\"100%\" rx=\"50\" fill=\"#736356\" />\n\n    <text x=\"50%\" y=\"50%\" fill=\"#FFFFFF\"\n      text-anchor=\"middle\" dy=\"0.35em\"\n      \n      font-family=\"-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif\"\n      font-size=\"230\"\n      font-weight=\"800\"\n      letter-spacing=\"-5\">\n      D\n    </text>\n  </g>\n</svg>\n";
 const THREE_INITIALS =
   "<svg version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\"\n  viewBox=\"0 0 512 512\" class=\"avatar\" aria-hidden=\"true\">\n  <defs>\n    <clipPath id=\"porthole\">\n      <circle cx=\"50%\" cy=\"50%\" r=\"50%\" />\n    </clipPath>\n  </defs>\n\n  <g>\n    <rect width=\"100%\" height=\"100%\" rx=\"50\" fill=\"#5D618F\" />\n\n    <text x=\"50%\" y=\"50%\" fill=\"#FFFFFF\"\n      text-anchor=\"middle\" dy=\"0.35em\"\n      textLength=\"85%\" lengthAdjust=\"spacingAndGlyphs\"\n      font-family=\"-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif\"\n      font-size=\"230\"\n      font-weight=\"800\"\n      letter-spacing=\"-5\">\n      ABC\n    </text>\n  </g>\n</svg>\n";
 
-describe(feature("users.avatars"), () => {
-  it("picks colors with zlib's CRC32 of the id, as ember-rust does", () => {
+describe("Initials avatars", () => {
+  it("picks colors with zlib's CRC32 of the id", () => {
     expect(crc32("1")).toBe(0x83dcefb7);
     expect(["1", "2", "42", "1000"].map(avatarColor)).toEqual(["#BF7C2A", "#698F9C", "#D07B53", "#BFA07A"]);
   });
@@ -34,7 +33,7 @@ describe(feature("users.avatars"), () => {
     expect(initials("Ada Byron King Lovelace Countess")).toBe("ABKLC");
   });
 
-  it("draws them byte for byte as ember-rust does, squeezing three or more", () => {
+  it("draws them byte for byte, squeezing three or more", () => {
     expect(avatarSvg("127326141", "David")).toBe(DAVID);
     expect(avatarSvg("773523956", "Anna Bea Cole")).toBe(THREE_INITIALS);
   });

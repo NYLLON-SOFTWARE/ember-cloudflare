@@ -1,15 +1,14 @@
-import { feature } from "@ember/parity";
 import type { Bootstrap } from "@ember/protocol";
 import { expect, test } from "../../fixtures";
 import { ADMINISTRATOR, drawnPicture, shownPicture } from "../../fixtures";
 import { SETUP_TOKEN } from "../../projects/first-run";
 
-// Each test server starts empty, so this sets it up through the Set up Ember page before any other
-// suite runs; they then find the workspace, its general and random rooms, and its administrator there.
-// The server has a setup token, as a deployed Worker has, so the page takes the setup link that
-// carries it (`auth.protected-setup`), which `wrangler dev` on localhost without one wouldn't ask for.
+// Each test server starts empty, so this sets it up through the Set up Ember page before any other suite
+// runs; they then find the workspace, its general and random rooms, and its administrator there. The
+// server has a setup token, as a deployed Worker has, so the page takes the setup link that carries it,
+// which `wrangler dev` on localhost without one wouldn't ask for.
 
-test.describe(feature("auth.first-run"), () => {
+test.describe("Set up the workspace", () => {
   test("whoever has the setup link sets up Ember and lands in general as its administrator", async ({ page, request }) => {
     const { setup, setupAccess } = (await (await request.get("/api/bootstrap")).json()) as Bootstrap;
     test.skip(setup === "complete", "The test server was set up by an earlier run, which reuseExistingServer kept");

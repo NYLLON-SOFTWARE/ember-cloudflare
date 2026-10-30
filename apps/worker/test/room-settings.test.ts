@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { CloseCode, type NewRoomForm, type RoomId, type RoomSettings, type SharedRoom, type UserId } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,7 +40,7 @@ async function reconnect(roomId: RoomId, session: Session): Promise<"welcome" | 
   });
 }
 
-describe(feature("rooms.create-open"), () => {
+describe("Create an open room", () => {
   it("lists everyone active for New room, by name whatever its case", async () => {
     const ada = await signIn("ada");
     const [grace, linus] = [await signIn("Grace"), await signIn("Linus")];
@@ -57,7 +56,7 @@ describe(feature("rooms.create-open"), () => {
   });
 });
 
-describe(feature("rooms.settings-page"), () => {
+describe("Room settings page", () => {
   it("shows a room's settings to whoever made it, with everyone active and whether they're in it", async () => {
     const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
     const room = await createRoom("Leads", { closedTo: [ada.user.id, linus.user.id], as: ada });
@@ -121,7 +120,7 @@ describe(feature("rooms.settings-page"), () => {
   });
 });
 
-describe(feature("rooms.edit-permissions"), () => {
+describe("Who can change a room", () => {
   it("lets the room's creator and administrators change it", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const room = await createRoom("Design", { as: ada });
@@ -204,7 +203,7 @@ describe(feature("rooms.edit-permissions"), () => {
   });
 });
 
-describe(feature("rooms.convert-access"), () => {
+describe("Switch a room between open and private", () => {
   it("makes a private room open, adding everyone active and keeping members' notification levels", async () => {
     const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
     const room = await createRoom("Leads", { closedTo: [ada.user.id], as: ada });
@@ -242,7 +241,7 @@ describe(feature("rooms.convert-access"), () => {
   });
 });
 
-describe(feature("rooms.members"), () => {
+describe("Add and remove private room members", () => {
   it("adds and takes out a private room's people as its settings save them, adding anyone who exists", async () => {
     const [ada, grace, linus, mary] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus"), await signIn("Mary")];
     const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });

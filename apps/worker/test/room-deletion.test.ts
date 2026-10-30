@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { CloseCode, type RoomId, type Sidebar } from "@ember/protocol";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -88,7 +87,7 @@ async function outcome(roomId: RoomId, access: Access): Promise<"welcome" | numb
   });
 }
 
-describe(feature("rooms.delete"), () => {
+describe("Delete a room", () => {
   it("deletes a room for whoever made it, closing every socket in it, whose people find it gone", async () => {
     const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
     const [room, annex] = [await createRoom("Design", { as: ada }), await createRoom("Annex", { as: ada })];
@@ -383,7 +382,7 @@ describe(feature("rooms.delete"), () => {
   });
 });
 
-describe(feature("rooms.legacy-rooms"), () => {
+describe("Rooms from before memberships", () => {
   it("doesn't bring back a room it registered once it's deleted", async () => {
     const ada = await signIn("Ada");
     await promote(ada);

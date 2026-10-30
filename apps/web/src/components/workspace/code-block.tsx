@@ -53,8 +53,8 @@ const tokenNode = (token: Token): ReactNode =>
 
 /**
  * A message's code block, highlighted once highlight.js has loaded, as Campfire's `MessageFormatter`
- * highlights one (reference/app/javascript/models/message_formatter.js): only when it holds nothing
- * but text, so not when an address in it is linked.
+ * highlights one (app/javascript/models/message_formatter.js): only when it holds nothing but text, so
+ * not when an address in it is linked.
  */
 export function CodeBlock({ block, children, ...props }: ComponentProps<"pre"> & { block: DisplayElement }) {
   const code = codeOf(block);

@@ -1,5 +1,5 @@
-// Makes a key pair for push notifications (VAPID, RFC 8292), as `web-push generate-vapid-keys` does
-// for ember-rust, and prints it as the Worker's two settings, ready for .dev.vars or `wrangler secret put`:
+// Makes a key pair for push notifications (VAPID, RFC 8292), as `web-push generate-vapid-keys` does, and
+// prints it as the Worker's two settings, ready for .dev.vars or `wrangler secret put`:
 //
 //   pnpm vapid:keys
 //

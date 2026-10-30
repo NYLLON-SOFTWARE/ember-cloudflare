@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Locator } from "@playwright/test";
 import { ROOM_SOCKET } from "../../fixtures";
 import { expect, paste, test, type Member } from "./fixtures";
@@ -14,7 +13,7 @@ const box = async (locator: Locator) => {
 /** The composer's card, around the text and its buttons. */
 const card = (member: Member) => member.page.locator("form.composer > div:has([role=textbox])");
 
-/** Formatting options, which screen readers call "Rich text", as in ember-rust. */
+/** Formatting options, which screen readers call "Rich text". */
 const formattingOptions = (member: Member) => member.page.getByRole("button", { name: "Rich text" });
 
 /** Lexxy's formatting toolbar in the composer. */
@@ -36,7 +35,7 @@ async function openRoom(member: Member, name: string) {
   await member.connected();
 }
 
-test.describe(feature("composer.layout"), () => {
+test.describe("Composer", () => {
   test("is a card at least 108px tall, with the text on top and Attach files, Formatting options and a round Send button below", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
     const field = ada.composer();
@@ -122,7 +121,7 @@ test.describe(feature("composer.layout"), () => {
   });
 });
 
-test.describe(feature("composer.formatting-toolbar"), () => {
+test.describe("Formatting toolbar", () => {
   test("Formatting options shows Lexxy's toolbar under the text, without the tools Campfire leaves out", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await expect(toolbar(ada)).toBeHidden();
@@ -170,7 +169,6 @@ test.describe(feature("composer.formatting-toolbar"), () => {
     await expect(grace.message("Block of code").locator(".message-content pre")).toHaveText("Block of code");
   });
 
-  // ember-rust's keeps the format the cursor had as it sends for the next message, with the toolbar shut.
   test("leaves no formatting on for the next message", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -251,7 +249,6 @@ test.describe(feature("composer.formatting-toolbar"), () => {
     await expect(grace.message("Ember").getByRole("link", { name: "Ember" })).toHaveAttribute("href", "https://example.com/");
   });
 
-  // ember-rust opens the field in its hidden toolbar, so nothing shows and what's typed next replaces what was selected.
   test("shows the toolbar with its Link field on Ctrl or Cmd+K, and shuts it again as the field closes", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -343,7 +340,7 @@ test.describe(feature("composer.formatting-toolbar"), () => {
   });
 });
 
-test.describe(feature("composer.paste"), () => {
+test.describe("Pasting into the composer", () => {
   test("pastes an address as a link, and over selected text, links the text to it", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -424,7 +421,7 @@ test.describe(feature("composer.paste"), () => {
   });
 });
 
-test.describe(feature("composer.send"), () => {
+test.describe("Send from the keyboard", () => {
   test("sends on Enter, starts a new line on Shift+Enter and never sends a blank message", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -502,7 +499,7 @@ test.describe(feature("composer.send"), () => {
   });
 });
 
-test.describe(feature("composer.draft"), () => {
+test.describe("Keep drafts", () => {
   test("keeps what's written in a room, formatting and all, until it's sent", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.composer().pressSequentially("Half a **thought** so far");
@@ -537,7 +534,7 @@ test.describe(feature("composer.draft"), () => {
   });
 });
 
-test.describe(feature("messages.rich-text"), () => {
+test.describe("Rich text, safely", () => {
   test("sends the formatting Markdown makes as it's typed", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");

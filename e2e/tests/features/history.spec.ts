@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { HISTORY_PAGE_SIZE, type Message } from "@ember/protocol";
 import type { Page } from "@playwright/test";
 import { expect, test, type Member } from "./fixtures";
@@ -55,7 +54,7 @@ const daysOf = (messages: Message[]) => [...new Set(messages.map((m) => new Intl
 const scrollToTop = (member: Member) => member.timeline().evaluate((el) => el.scrollTo({ top: 0 }));
 const scrollToBottom = (member: Member) => member.timeline().evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
 
-test.describe(feature("messages.history"), () => {
+test.describe("Scroll back through history", () => {
   test("opens on the newest page and loads earlier messages when you scroll up, keeping your place", async ({ members }) => {
     const ada = await members.signIn("Ada");
 
@@ -117,7 +116,7 @@ test.describe(feature("messages.history"), () => {
   });
 });
 
-test.describe(feature("messages.day-separators"), () => {
+test.describe("Day separators", () => {
   test("dates the first message loaded, and then the day's first as earlier pages load", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { timezoneId: "UTC", locale: "en-US" } });
     const separators = ada.timeline().getByRole("heading", { level: 2 });
@@ -132,7 +131,7 @@ test.describe(feature("messages.day-separators"), () => {
   });
 });
 
-test.describe(feature("ui.scroll"), () => {
+test.describe("Stay at the newest message", () => {
   test("follows new messages while you're at the bottom", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -146,7 +145,7 @@ test.describe(feature("ui.scroll"), () => {
     const jump = ada.page.getByRole("button", { name: "Jump to newest message" });
 
     await ada.timeline().evaluate((el) => el.scrollTo({ top: el.scrollHeight - el.clientHeight - 800 }));
-    // Scrolling up alone doesn't offer it, as in ember-rust.
+    // Scrolling up alone doesn't offer it.
     await expect(ada.message(body(COUNT))).not.toBeInViewport();
     await expect(jump).toHaveCount(0);
 
@@ -184,7 +183,7 @@ test.describe(feature("ui.scroll"), () => {
   });
 });
 
-test.describe(feature("messages.permalink"), () => {
+test.describe("Link to a message", () => {
   test("opens an old message's permalink on the page around it, with the message centred and outlined", async ({ members }) => {
     const ada = await members.signIn("Ada", { path: permalink(15), beforeOpen: recordOutlines });
     await expect(ada.message(body(15))).toBeInViewport();

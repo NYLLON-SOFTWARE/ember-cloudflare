@@ -7,11 +7,10 @@ import { dateLabel } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import { CopyButton, ROUND_BUTTON } from "./link-buttons";
 
-// This port's own Invite by email card in Membership (`accounts.invitations`), for administrators,
-// whichever ways to join are on: email addresses to invite, which it sends `INVITATIONS_AT_ONCE` at a
-// time, and the invitations no one has accepted yet, each to send again or revoke. While Ember can't
-// email them, it holds each new link for the administrator to copy, since the server keeps only their
-// digests. Laid out as the Email card is.
+// The Invite by email card in Membership, for administrators, whichever ways to join are on: email
+// addresses to invite, which it sends `INVITATIONS_AT_ONCE` at a time, and the invitations no one has
+// accepted yet, each to send again or revoke. While Ember can't email them, it holds each new link for
+// the administrator to copy, since the server keeps only their digests. Laid out as the Email card is.
 
 /** What revoking an invitation asks first. */
 export const CONFIRM_REVOKE = "Are you sure you want to revoke this invitation? Its link will stop working.";

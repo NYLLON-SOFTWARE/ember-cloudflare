@@ -120,7 +120,7 @@ type UserFields = SignUp | EmailLinkSignUp | NewBot | BotChanges;
 
 /**
  * A form bringing `photo` as its `avatar` and `variant`, as the Worker reads one, and with `fields` as
- * JSON in its `user`, as ember-rust's forms send `user[avatar]` with the rest of `user`.
+ * JSON in its `user`.
  */
 function photoForm({ file, variant }: ChosenPhoto, fields?: UserFields): FormData {
   const form = new FormData();
@@ -153,7 +153,7 @@ export function dropWorkspacePreloads(): void {
  * browser in as them. A photo that's refused fails with an ApiError for the `avatar` field.
  */
 export async function setUpWorkspace(administrator: SignUp, photo: ChosenPhoto | null = null, setupToken: string | null = null): Promise<NewWorkspace> {
-  // The setup link's token goes as a bearer token, where ember-rust's goes in a form of its own and a cookie.
+  // The setup link's token goes as a bearer token.
   const headers = setupToken === null ? undefined : { Authorization: `Bearer ${setupToken}` };
   return request<NewWorkspace>("/api/first_run", { method: "POST", headers, body: userBody(administrator, photo) });
 }
@@ -168,9 +168,9 @@ export async function joinWorkspace(joinCode: string, person: SignUp, photo: Cho
 }
 
 /**
- * Signs up while anyone may (`auth.open-sign-up`), as someone new, with the photo they chose, if any,
- * and the token of Turnstile's check while the page shows one, and signs this browser in as them. A
- * check that didn't pass fails with an ApiError for the `turnstile` field.
+ * Signs up while anyone may, as someone new, with the photo they chose, if any, and the token of
+ * Turnstile's check while the page shows one, and signs this browser in as them. A check that didn't
+ * pass fails with an ApiError for the `turnstile` field.
  */
 export async function signUp(person: OpenSignUp, photo: ChosenPhoto | null = null): Promise<Me> {
   return (await request<{ user: Me }>("/api/join", { method: "POST", body: userBody(person, photo) })).user;
@@ -185,41 +185,41 @@ export async function lookUpEmailLink(token: string): Promise<EmailLinkFor> {
 const EMAIL_LINK_JOINS: Record<EmailLinkKind, string> = { invitation: "/api/join/invitation", email_domain: "/api/join/email" };
 
 /**
- * Joins with a link Ember emailed, of `kind`: an invitation (`auth.invitation-sign-up`), or one asked for
- * with an address at the workspace's email domains (`auth.email-domain-sign-up`), as the person `person`
- * describes, with the email address it was sent to and the photo they chose, if any, and signs this
- * browser in as them. A link that has stopped working fails with a 404 ApiError, and an address with an
- * account since with one that names the sign-in page to go to.
+ * Joins with a link Ember emailed, of `kind`: an invitation, or one asked for with an address at the
+ * workspace's email domains, as the person `person` describes, with the email address it was sent to and
+ * the photo they chose, if any, and signs this browser in as them. A link that has stopped working fails
+ * with a 404 ApiError, and an address with an account since with one that names the sign-in page to go
+ * to.
  */
 export async function joinWithEmailLink(kind: EmailLinkKind, person: EmailLinkSignUp, photo: ChosenPhoto | null = null): Promise<Me> {
   return (await request<{ user: Me }>(EMAIL_LINK_JOINS[kind], { method: "POST", body: userBody(person, photo) })).user;
 }
 
 /**
- * Asks Ember to email a link to join with an address at the workspace's email domains
- * (`auth.email-domain-sign-up`), with the token of Turnstile's check while the page shows one. It
- * answers the same whether or not the address has an account. A check that didn't pass fails with an
- * ApiError for the `turnstile` field, and an address Ember won't email with one for `emailAddress`.
+ * Asks Ember to email a link to join with an address at the workspace's email domains, with the token of
+ * Turnstile's check while the page shows one. It answers the same whether or not the address has an
+ * account. A check that didn't pass fails with an ApiError for the `turnstile` field, and an address
+ * Ember won't email with one for `emailAddress`.
  */
 export async function askForEmailLink(asked: EmailLinkRequest): Promise<void> {
   await request<unknown>("/api/email_links", { method: "POST", body: JSON.stringify(asked) });
 }
 
 /**
- * Asks Ember to email a code to reset the password of whoever has `asked.emailAddress`
- * (`auth.password-reset`), with the token of Turnstile's check while the page shows one. It answers the
- * same whether or not anyone has the address. A check that didn't pass fails with an ApiError for the
- * `turnstile` field, and one while Ember can't send email with a 503.
+ * Asks Ember to email a code to reset the password of whoever has `asked.emailAddress`, with the token
+ * of Turnstile's check while the page shows one. It answers the same whether or not anyone has the
+ * address. A check that didn't pass fails with an ApiError for the `turnstile` field, and one while
+ * Ember can't send email with a 503.
  */
 export async function askForPasswordResetCode(asked: PasswordResetRequest): Promise<void> {
   await request<unknown>("/api/password_resets", { method: "POST", body: JSON.stringify(asked) });
 }
 
 /**
- * Gives whoever has `reset.emailAddress` the password `reset.password`, with the code Ember emailed them
- * (`auth.password-reset`), ending all their sessions, and signs this browser in as them: who they are, or
- * null when they sign in themselves, as Memberful's members do while it's members only. A code that
- * doesn't work fails with an ApiError for the `code` field.
+ * Gives whoever has `reset.emailAddress` the password `reset.password`, with the code Ember emailed
+ * them, ending all their sessions, and signs this browser in as them: who they are, or null when they
+ * sign in themselves, as Memberful's members do while it's members only. A code that doesn't work fails
+ * with an ApiError for the `code` field.
  */
 export async function resetPasswordWithCode(reset: PasswordResetWithCode): Promise<Me | null> {
   return (await request<PasswordResetDone>("/api/password_resets", { method: "PUT", body: JSON.stringify(reset) })).user;
@@ -227,8 +227,8 @@ export async function resetPasswordWithCode(reset: PasswordResetWithCode): Promi
 
 /**
  * Signs in with an email address and password: who signed in, or, for a member whose password checks out
- * while Memberful is members only, until they've connected their Memberful account, where to connect
- * it (`auth.memberful-connect`), which signs them in and opens the page `credentials.returnTo` names.
+ * while Memberful is members only, until they've connected their Memberful account, where to connect it,
+ * which signs them in and opens the page `credentials.returnTo` names.
  */
 export async function signIn(credentials: PasswordSignIn): Promise<Me | MemberfulConnection> {
   const answer = await request<{ user: Me } | MemberfulConnection>("/api/session", { method: "POST", body: JSON.stringify(credentials) });
@@ -302,10 +302,9 @@ export async function fetchProfile(): Promise<ProfileAnswer> {
 }
 
 /**
- * Starts connecting your account to an account at the Memberful site (`auth.memberful-connect`), with your
- * password while you have one: where to sign in there, which sends the browser back to your profile.
- * Fails with a 422 ApiError without your password, or with one that isn't yours, and a 409 once you've
- * connected one.
+ * Starts connecting your account to an account at the Memberful site, with your password while you have
+ * one: where to sign in there, which sends the browser back to your profile. Fails with a 422 ApiError
+ * without your password, or with one that isn't yours, and a 409 once you've connected one.
  */
 export async function connectMemberful(currentPassword?: string): Promise<MemberfulConnection> {
   const start: MemberfulConnectionStart = currentPassword === undefined ? {} : { currentPassword };
@@ -480,9 +479,9 @@ export async function forgetTurnstileKeys(): Promise<TurnstileSettings["turnstil
 }
 
 /**
- * Invites each of `emailAddresses`, no more than `INVITATIONS_AT_ONCE`, by email (`accounts.invitations`),
- * answering what came of each, in order. Fails with a 422 ApiError for a list it doesn't take, and a 403
- * one for anyone but an administrator.
+ * Invites each of `emailAddresses`, no more than `INVITATIONS_AT_ONCE`, by email, answering what came of
+ * each, in order. Fails with a 422 ApiError for a list it doesn't take, and a 403 one for anyone but an
+ * administrator.
  */
 export async function inviteByEmail(emailAddresses: string[]): Promise<InvitationOutcome[]> {
   return (await request<Invited>("/api/invitations", { method: "POST", body: JSON.stringify({ emailAddresses }) })).outcomes;
@@ -630,7 +629,7 @@ export async function deleteRoom(roomId: RoomId): Promise<void> {
 
 /**
  * The preview of the page `url` goes to, for a link pasted in the composer, or null when it has none, as
- * ember-rust's unfurl_controller.js asks for it. The page has none when it answers 204.
+ * Campfire's unfurl_controller.js asks for it. The page has none when it answers 204.
  */
 export async function fetchLinkPreview(url: string, signal: AbortSignal): Promise<LinkPreview | null> {
   const preview = await request<Partial<LinkPreview>>("/api/unfurl", { method: "POST", body: JSON.stringify({ url }), signal });
@@ -653,8 +652,8 @@ export async function clearSearches(): Promise<void> {
 }
 
 /**
- * Where a room's @ prompt asks for the people it offers, as ember-rust's `mention_prompt_src`: Lexxy adds
- * what's typed after the @ as `filter`, and the answer is its prompt items.
+ * Where a room's @ prompt asks for the people it offers: Lexxy adds what's typed after the @ as
+ * `filter`, and the answer is its prompt items.
  */
 export const mentionPromptSrc = (roomId: RoomId) => `/api/autocompletable/users?room_id=${encodeURIComponent(roomId)}`;
 

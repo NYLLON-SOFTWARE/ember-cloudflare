@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { isViewing, VIEWING_TTL_MS, viewersOf, type Viewing } from "../src/viewing";
@@ -19,7 +18,7 @@ const heard = (room: string) =>
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-describe(feature("realtime.presence"), () => {
+describe("Presence", () => {
   describe("whether a socket counts as viewing", () => {
     const at = Date.UTC(2026, 9, 14);
 
@@ -113,7 +112,7 @@ describe(feature("realtime.presence"), () => {
   });
 });
 
-describe(feature("platform.hibernation"), () => {
+describe("Hibernating rooms", () => {
   it("keeps whether each tab is shown, and when it last pinged, when the room hibernates", async () => {
     const room = await freshRoom("hibernate-viewing");
     const ada = await connect(room, "Ada", { visible: true });

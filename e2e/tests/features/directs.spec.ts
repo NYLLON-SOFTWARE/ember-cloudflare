@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Sidebar } from "@ember/protocol";
 import { cookieHeader } from "../../fixtures";
 import { expect, startDirect, test, unique, type Member } from "./fixtures";
@@ -32,7 +31,7 @@ async function pick(member: Member, others: Member[]): Promise<void> {
   }
 }
 
-test.describe(feature("dms.create"), () => {
+test.describe("Start or reopen a direct message", () => {
   test("lists a DM in its members' sidebars as it starts, and they talk there", async ({ members, request }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"));
@@ -56,7 +55,7 @@ test.describe(feature("dms.create"), () => {
   });
 });
 
-test.describe(feature("dms.naming"), () => {
+test.describe("Group DMs and DM names", () => {
   test("names a group DM for the others in it, in the sidebar, its header, the tab and its settings", async ({ members, request }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"));
@@ -80,7 +79,7 @@ test.describe(feature("dms.naming"), () => {
   });
 });
 
-test.describe(feature("dms.delete"), () => {
+test.describe("Delete a direct message", () => {
   test("deletes a DM from its settings for anyone in it who confirms, and the others find it deleted", async ({ members, request, rooms }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"));
@@ -144,7 +143,7 @@ test.describe(feature("dms.delete"), () => {
   });
 });
 
-test.describe(feature("dms.picker"), () => {
+test.describe("New direct message dialog", () => {
   test("starts a DM with the people picked from the rail's DMs, and goes there for its composer to take focus", async ({ members }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"));
@@ -227,7 +226,7 @@ test.describe(feature("dms.picker"), () => {
   });
 });
 
-test.describe(feature("sidebar.dm-order"), () => {
+test.describe("DM order", () => {
   test("lists the DM with the latest message first, moving it at once in everyone's sidebar, and keeps the order on reload", async ({ members, request }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"));
@@ -252,7 +251,7 @@ test.describe(feature("sidebar.dm-order"), () => {
   });
 });
 
-test.describe(feature("dms.suggestions"), () => {
+test.describe("Suggested people", () => {
   test("starts a DM with someone suggested, whom the sidebar suggests no more, and goes there for its composer to take focus", async ({ members, request }) => {
     const ada = await members.signIn(unique("Ada"));
     // Everyone new is suggested the server's oldest accounts, the administrator's first.

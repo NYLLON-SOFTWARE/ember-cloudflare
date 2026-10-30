@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -123,7 +122,7 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("users.profile"), () => {
+describe("Edit your profile", () => {
   it("reads Your profile, titled with your name, with Go Back and Log out in the top bar", () => {
     showPage();
     expect(document.title).toBe("Ada Lovelace");
@@ -159,7 +158,7 @@ describe(feature("users.profile"), () => {
     expect(field("Bio")).toHaveValue("");
   });
 
-  it("asks for each field as ember-rust's form does", () => {
+  it("asks for each field", () => {
     showPage();
     const name = field("Name");
     expect(name).toHaveAttribute("autocomplete", "name");
@@ -177,7 +176,7 @@ describe(feature("users.profile"), () => {
     expect(password).toHaveAttribute("type", "password");
     expect(password).toHaveAttribute("autocomplete", "new-password");
     expect(password).toHaveAttribute("placeholder", "Change password");
-    // At least as long as first run's, where ember-rust's form takes any.
+    // At least as long as first run's.
     expect(password).toHaveAttribute("minlength", "8");
     expect(password).toHaveAttribute("maxlength", "72");
     expect(password).toHaveAccessibleDescription("Leave blank to keep your current password.");
@@ -189,7 +188,7 @@ describe(feature("users.profile"), () => {
     expect(bio).toHaveAttribute("maxlength", "200");
   });
 
-  it("saves what you changed with the notice ✓, and empties the new password, as ember-rust's page comes back", async () => {
+  it("saves what you changed with the notice ✓, and empties the new password", async () => {
     const { onFailed, user } = showPage();
     await loaded();
     await user.clear(field("Name"));
@@ -261,7 +260,7 @@ describe(feature("users.profile"), () => {
     expect(saveButton()).toBeEnabled();
   });
 
-  it("asks for your current password while you have one, where ember-rust doesn't, sending it with your changes and emptying it once they're saved", async () => {
+  it("asks for your current password while you have one, sending it with your changes and emptying it once they're saved", async () => {
     const { user } = showPage();
     await loaded();
     const current = field("Current password");
@@ -327,7 +326,7 @@ describe(feature("users.profile"), () => {
     expect(saveButton()).toBeDisabled();
   });
 
-  it("goes back to the page it was opened from, or home, as ember-rust's `link_back` goes to the referrer", () => {
+  it("goes back to the page it was opened from, or home", () => {
     showPage();
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/");
     act(() => navigate("/rooms/general"));
@@ -336,15 +335,15 @@ describe(feature("users.profile"), () => {
   });
 });
 
-describe(feature("auth.sign-out"), () => {
-  it("logs out from the top bar, as ember-rust's profile does", async () => {
+describe("Sign out", () => {
+  it("logs out from the top bar", async () => {
     const { onSignOut, user } = showPage();
     await user.click(screen.getByRole("button", { name: "Log out" }));
     expect(onSignOut).toHaveBeenCalledOnce();
   });
 });
 
-describe(feature("accounts.translation-buttons"), () => {
+describe("Translation buttons", () => {
   it("has a translation button by each field once an administrator shows them", async () => {
     showPage({ ...account, hideTranslationButtons: false });
     expect(screen.getAllByText("Translate")).toHaveLength(4);
@@ -359,7 +358,7 @@ describe(feature("accounts.translation-buttons"), () => {
   });
 });
 
-describe(feature("auth.sign-in-link"), () => {
+describe("Private sign-in link", () => {
   const signInLink = () => screen.queryByRole("textbox", { name: "Use this link to login automatically on another device" });
 
   it("ends with a sign-in link for you once your profile loads", async () => {
@@ -370,7 +369,7 @@ describe(feature("auth.sign-in-link"), () => {
     expect(saveButton().compareDocumentPosition(signInLink()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it("shows a new one each time it saves, as ember-rust's page comes back with one", async () => {
+  it("shows a new one each time it saves", async () => {
     const { user } = showPage();
     await loaded();
     await user.type(field("Bio"), "!");
@@ -379,7 +378,7 @@ describe(feature("auth.sign-in-link"), () => {
   });
 });
 
-describe(feature("notifications.profile-list"), () => {
+describe("Levels on your profile", () => {
   const design: SidebarRoom = { id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" };
   const notifications = () => screen.queryByRole("list", { name: "Conversation notifications" });
 
@@ -409,7 +408,7 @@ describe(feature("notifications.profile-list"), () => {
   });
 });
 
-describe(feature("auth.memberful-connect"), () => {
+describe("Connect Memberful", () => {
   const memberful = () => screen.queryByRole("region", { name: "Memberful" });
 
   it("has a Memberful section between the form and your rooms' levels while members sign in with Memberful", async () => {
@@ -445,10 +444,10 @@ describe(feature("auth.memberful-connect"), () => {
   });
 });
 
-describe(feature("notifications.install-instructions"), () => {
+describe("Install as an app", () => {
   const install = () => screen.queryByText("Install Ember as a web app.")?.closest("details");
 
-  it("says how to install Ember under the page's heading, closed, to a browser ember-rust says it to", async () => {
+  it("says how to install Ember under the page's heading, closed, to a browser that gets install steps", async () => {
     showPage(account, null, SAFARI_MAC);
     await loaded();
     expect(install()).not.toHaveAttribute("open");
@@ -456,14 +455,14 @@ describe(feature("notifications.install-instructions"), () => {
     expect(install()!.compareDocumentPosition(field("Name"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
-  it("says nothing of it to Chrome, as ember-rust doesn't", async () => {
+  it("says nothing of it to Chrome", async () => {
     showPage(account, null, CHROME_MAC);
     await loaded();
     expect(install()).toBeUndefined();
   });
 });
 
-describe(feature("users.avatar-upload"), () => {
+describe("Upload an avatar", () => {
   const avatar = () => screen.getByRole("img", { name: "Your avatar" });
   const picker = () => screen.getByLabelText("Upload avatar", { exact: false });
   const removeButton = () => screen.queryByRole("button", { name: "Remove avatar" });
@@ -480,7 +479,7 @@ describe(feature("users.avatar-upload"), () => {
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   });
 
-  it("shows your avatar above the form, to change with a photo, as ember-rust's profile does", async () => {
+  it("shows your avatar above the form, to change with a photo", async () => {
     showPage();
     expect(picker()).toBeDisabled();
     await loaded();
@@ -494,7 +493,7 @@ describe(feature("users.avatar-upload"), () => {
     expect(removeButton()).toBeNull();
   });
 
-  it("saves a photo as soon as it's picked, showing it meanwhile, with its variant and ember-rust's notice", async () => {
+  it("saves a photo as soon as it's picked, showing it meanwhile, with its variant and a notice", async () => {
     let answer = (_: Response) => {};
     serve({ uploaded: () => new Promise((resolve) => (answer = resolve)) });
     const { onFailed, user } = showPage();
@@ -515,14 +514,14 @@ describe(feature("users.avatar-upload"), () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:moon");
     expect(picker()).toBeEnabled();
     expect(removeButton()).toBeInTheDocument();
-    // A new sign-in link, as ember-rust's page comes back with one.
+    // A new sign-in link.
     expect(screen.getByRole("textbox", { name: "Use this link to login automatically on another device" })).toHaveValue(
       `http://localhost:3000/session/transfers#token=${SAVED_LINK}`,
     );
     expect(onFailed).not.toHaveBeenCalled();
   });
 
-  it("removes your avatar with Remove avatar, saying nothing, as ember-rust's page comes back", async () => {
+  it("removes your avatar with Remove avatar, saying nothing", async () => {
     serve({ loaded: () => Response.json({ profile: { ...profile, avatarUrl: UPLOADED, avatar: true }, transferId: LOADED_LINK }) });
     const { user } = showPage();
     await loaded();
@@ -586,7 +585,7 @@ describe(feature("users.avatar-upload"), () => {
   });
 });
 
-describe(feature("accounts.custom-css"), () => {
+describe("Custom CSS", () => {
   it("keeps the passwords typed out of their fields' value attributes, where custom CSS could read them", async () => {
     const { user } = showPage();
     await loaded();

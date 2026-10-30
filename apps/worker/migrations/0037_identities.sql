@@ -1,8 +1,8 @@
--- Who signs in with an account elsewhere, kept by the Workspace (scope "workspace" in src/migrations.ts):
--- each account by its issuer, the address of the Memberful site it's on, and its subject there, its
--- member id, linked to the person it signs in as. ember-rust signs people in with passwords alone. Keyed
--- by the issuer too, so a member of another site never signs in as anyone here, and a person has at
--- most one account at each issuer.
+-- Who signs in with an account elsewhere, kept by the Workspace (scope "workspace" in
+-- src/migrations.ts): each account by its issuer, the address of the Memberful site it's on, and its
+-- subject there, its member id, linked to the person it signs in as. Keyed by the issuer too, so a
+-- member of another site never signs in as anyone here, and a person has at most one account at each
+-- issuer.
 CREATE TABLE IF NOT EXISTS identities (
   issuer TEXT NOT NULL,
   subject TEXT NOT NULL,

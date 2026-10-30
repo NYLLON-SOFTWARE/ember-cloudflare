@@ -5,8 +5,7 @@ import { useRoomDrag, type OrderStatus } from "@/hooks/use-room-drag";
 import { isSignedOut, setFavoriteOrder } from "@/lib/api";
 
 /**
- * How long a starred room's row is held before it's dragged, as in ember-rust's sidebar, so that a
- * finger can still scroll the list.
+ * How long a starred room's row is held before it's dragged, so that a finger can still scroll the list.
  */
 const HOLD_MS = 400;
 
@@ -24,11 +23,11 @@ interface Options {
 
 /**
  * Reorders someone's starred rooms in the sidebar's list, by holding a starred row and dragging it or
- * pressing Alt and an arrow on one, as ember-rust's sidebar does (`useRoomDrag`), saving each move. It
- * answers the order to show their stars in: while a row is dragged, the order it's been dragged to, and
- * while an order saves, that order, until the answer comes or news that the stars changed otherwise. A
- * failed save puts the stars back as the server last said they were, which is the order before the move
- * unless they changed meanwhile.
+ * pressing Alt and an arrow on one (`useRoomDrag`), saving each move. It answers the order to show their
+ * stars in: while a row is dragged, the order it's been dragged to, and while an order saves, that
+ * order, until the answer comes or news that the stars changed otherwise. A failed save puts the stars
+ * back as the server last said they were, which is the order before the move unless they changed
+ * meanwhile.
  *
  * The list's element takes `listRef` and `listProps`, its rows carry `data-room-id`, and the element the
  * list scrolls in takes `scrollerRef`.
@@ -73,7 +72,7 @@ export function useStarOrder({ favorites, shown, nameOf, onSaved, onSessionChang
     onCancel: () => setStatus({ message: "Room move canceled.", error: false }),
   });
 
-  // News that the stars changed ends a hold or a drag, as it does in ember-rust's sidebar.
+  // News that the stars changed ends a hold or a drag.
   const { release } = drag;
   useEffect(() => release(), [favorites.version, release]);
 

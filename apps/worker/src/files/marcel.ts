@@ -2,7 +2,7 @@ import { extname } from "./filename";
 import { EXTENSIONS, MAGIC, TYPE_PARENTS, type Match } from "./marcel-tables";
 
 // Marcel 1.1.0's content type identification (`Marcel::MimeType.for`), which Active Storage names each
-// upload's type with, as ember-rust's crates/storage/src/marcel.rs ports it, over the same tables.
+// upload's type with, over the same tables.
 
 export const BINARY = "application/octet-stream";
 

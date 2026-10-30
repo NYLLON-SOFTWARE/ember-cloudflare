@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { DirectoryUser } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,7 +33,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("users.avatars"), () => {
+describe("Initials avatars", () => {
   it("lists no one until it loads, then everyone by id", async () => {
     const { result } = renderHook(() => useDirectory());
     expect(result.current.people.size).toBe(0);
@@ -77,7 +76,7 @@ describe(feature("users.avatars"), () => {
   });
 });
 
-describe(feature("accounts.roles"), () => {
+describe("Make or revoke administrators", () => {
   it("changes someone as the workspace socket or a change made here says they are now", async () => {
     const { result } = renderHook(() => useDirectory());
     await reload(result);

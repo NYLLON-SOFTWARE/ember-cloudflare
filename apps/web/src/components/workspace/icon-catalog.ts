@@ -1,9 +1,8 @@
 import type { RoomIconName } from "@ember/protocol";
 import type { IconContext } from "@/components/icons/room-icon-label";
 
-// The icon pickers' catalog and its search, as ember-rust's helpers/icon_catalog.js has them (pull
-// request #24, d49621e): the catalog's orders do the editorial ranking, and a search keeps them,
-// putting the icons named for it before those only tagged for it.
+// The icon pickers' catalog and its search: the catalog's orders do the editorial ranking, and a search
+// keeps them, putting the icons named for it before those only tagged for it.
 
 /** Where an icon comes from, or, for the picker's tabs, either. */
 export type IconCollection = "All" | "Lucide" | "Iconoir";
@@ -22,7 +21,7 @@ export interface CatalogIcon {
   svg: string;
 }
 
-/** ember-rust's crates/assets/overrides/icons/catalog.json: every icon, by name, and an order of them for each context. */
+/** The picker's catalog (icons/picker/catalog.json): every icon, by name, and an order of them for each context. */
 export interface Catalog {
   icons: CatalogIcon[];
   roomOrder: RoomIconName[];

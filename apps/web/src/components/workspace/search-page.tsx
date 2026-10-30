@@ -15,7 +15,7 @@ import { ROUND_BUTTON } from "./link-buttons";
 import { MessageItem, type MessageEditors } from "./message-item";
 import { PageHeader } from "./page-header";
 
-/** What ember-rust's broom asks before it clears your recent searches (searches/_recents.html). */
+/** What the trash can asks before it clears your recent searches. */
 export const CONFIRM_CLEAR_SEARCHES = "Are you sure you want to clear your recent searches?";
 
 /** Results can't be edited or replied to, so nothing opens an editor or writes in a composer. */
@@ -23,22 +23,21 @@ const NO_EDITORS: MessageEditors = { open() {}, close() {}, returnFocus() {}, at
 
 interface Props {
   me: Me;
-  /** Where Exit search goes: the last room visited, as ember-rust's `return_to_room_id`, or home. */
+  /** Where Exit search goes: the last room visited, or home. */
   back: string;
   /** Says why a search failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
 
 /**
- * ember-rust's search page (searches/index.html), at `/searches?q=`: what was searched for and how many
- * messages it found in the top bar, your recent searches, then the messages it found, scrolled to the
- * newest, as messages that can't be changed, each naming its room, and the search field where the
- * composer would be. Searching records the search as your newest and goes to its address, and Escape
- * goes to `/searches`, as the field's × does. Each visit asks for its address's search afresh, as each
- * of ember-rust's pages is drawn, but the one a search goes to, which shows what the search answered.
- * Until a visit's search answers, the page, its field too, goes on showing the last one, marked busy, as
- * ember-rust's stays until Turbo draws the next, and drops it if the search fails. What the person types
- * in the field meanwhile stays there, where Turbo's next page would draw over it.
+ * The search page, at `/searches?q=`: what was searched for and how many messages it found in the top
+ * bar, your recent searches, then the messages it found, scrolled to the newest, as messages that can't
+ * be changed, each naming its room, and the search field where the composer would be. Searching records
+ * the search as your newest and goes to its address, and Escape goes to `/searches`, as the field's ×
+ * does. Each visit asks for its address's search afresh, but the one a search goes to, which shows what
+ * the search answered. Until a visit's search answers, the page, its field too, goes on showing the last
+ * one, marked busy, and drops it if the search fails. What the person types in the field meanwhile stays
+ * there.
  */
 export function SearchPage({ me, back, onFailed }: Props) {
   const q = useQueryParam("q");
@@ -84,13 +83,12 @@ export function SearchPage({ me, back, onFailed }: Props) {
   // The field holds the search the page was drawn for, or the address's until it's drawn.
   const drawn = page ?? { q, field: visit };
 
-  // As ember-rust's search_results_controller.js does, the newest message shows, at the bottom.
+  // The newest message shows, at the bottom.
   useLayoutEffect(() => {
     if (list.current) list.current.scrollTop = list.current.scrollHeight;
   }, [results]);
 
-  // A DM is named after everyone in it, you too, as ember-rust names a result's room
-  // (`room_display_name(message.room, for_user: nil)`, controllers/presenters.rs).
+  // A DM is named after everyone in it, you too.
   const roomNames = useMemo(
     () => new Map<RoomId, string>(results?.rooms.map((room) => [room.id, room.kind === "direct" ? toSentence(room.members.map(nameOf)) : room.name])),
     [results, nameOf],
@@ -104,7 +102,7 @@ export function SearchPage({ me, back, onFailed }: Props) {
     recordSearch(typed)
       .then(
         (found) => {
-          // A page the person has gone to meanwhile stays, as a visit stops ember-rust's form going on.
+          // A page the person has gone to meanwhile stays.
           if (!mounted.current || pageMark() !== mark) return;
           const query = sanitizeSearch(typed);
           answered.current = { query, results: found };
@@ -115,7 +113,7 @@ export function SearchPage({ me, back, onFailed }: Props) {
       .finally(() => mounted.current && setSearching(false));
   };
 
-  // As ember-rust's broom does, asked first, then the page without a search.
+  // Asked first, then the page without a search.
   const clear = () => {
     if (!confirm(CONFIRM_CLEAR_SEARCHES)) return;
     const mark = pageMark();
@@ -125,7 +123,7 @@ export function SearchPage({ me, back, onFailed }: Props) {
     );
   };
 
-  // Escape follows the field's ×, as ember-rust's form_controller.js `cancel` clicks it.
+  // Escape follows the field's ×.
   const cancel = (event: KeyboardEvent) => pressedAlone(event.nativeEvent, "Escape") && navigate(SEARCHES_PATH);
 
   const messages = results?.messages ?? [];
@@ -141,7 +139,7 @@ export function SearchPage({ me, back, onFailed }: Props) {
       >
         {results && results.recent.length > 0 && <RecentSearches searches={results.recent} onClear={clear} />}
         {messages.length > 0 ? (
-          // ember-rust's `.messages.searches__results` (zz-ember.css), which scrolls between the recent searches and the field.
+          // The results, which scroll between the recent searches and the field.
           <section
             ref={list}
             aria-label="Search results"
@@ -158,7 +156,7 @@ export function SearchPage({ me, back, onFailed }: Props) {
           <div className="flex-1" />
         )}
 
-        {/* ember-rust's search footer (`.searches #footer` in zz-ember.css), clear of a phone's home indicator, as the composer is. */}
+        {/* The search footer, clear of a phone's home indicator, as the composer is. */}
         <footer className="flex flex-none items-center gap-[1ch] border-t bg-background px-[22px] pt-3 pb-[max(12px,env(safe-area-inset-bottom))] max-md:gap-[5px] max-md:px-2.5 max-md:pt-2.5 max-md:pb-[max(10px,env(safe-area-inset-bottom))]">
           <PageLink href={back} className="grid size-9 shrink-0 place-items-center rounded-[0.5em] border bg-background touch:size-11">
             <ArrowLeft className="size-[1.3em]" />
@@ -168,9 +166,8 @@ export function SearchPage({ me, back, onFailed }: Props) {
             {/* Campfire's `.input--actor`: the field's border holds the hint, the field, its × and the button. */}
             <div className="flex min-h-11 w-full min-w-0 items-center gap-[1ch] rounded-[9px] border px-[0.8em] py-[0.5em] text-base focus-within:border-muted-foreground max-md:px-2">
               <Search className="size-5 shrink-0 max-md:hidden" />
-              {/* Afresh with each search drawn, holding it, and focused, as ember-rust's `autofocus` field is on each page drawn,
-                  but for one typed in while it loaded. It takes taps from the top of its box to the bottom, which ember-rust's
-                  leaves to the box around it. */}
+              {/* Afresh with each search drawn, holding it, and focused, but for one typed in while it loaded. It takes
+                  taps from the top of its box to the bottom. */}
               <input
                 key={drawn.field}
                 name="q"
@@ -187,7 +184,7 @@ export function SearchPage({ me, back, onFailed }: Props) {
                 className="peer -my-[0.5em] min-w-0 flex-1 self-stretch bg-transparent py-[0.5em] placeholder:text-muted-foreground focus-visible:outline-none"
               />
               {/* Hidden while the field is empty, as Campfire's `.searches__input:required:invalid ~ .searches__reset` is,
-                  and 44px for fingers, as the button beside it is, where ember-rust's is only its 14px icon. */}
+                  and 44px for fingers, as the button beside it is. */}
               <PageLink href={SEARCHES_PATH} role="button" className="grid shrink-0 place-items-center peer-invalid:hidden touch:-my-[0.4em] touch:size-11">
                 <Xmark className="size-5" />
                 <span className="sr-only">Clear search field</span>
@@ -212,9 +209,8 @@ export function SearchPage({ me, back, onFailed }: Props) {
 }
 
 /**
- * ember-rust's `.searches__query` (searches/index.html): the search, in quotes and cut short first, and
- * how many messages it found, at most 40% of the top bar. It's a `.btn--reversed` there, but the top bar
- * clears every `.btn` in it (zz-ember.css, `#nav .btn`), so it shows as plain text.
+ * What was searched for: the search, in quotes and cut short first, and how many messages it found, at
+ * most 40% of the top bar, as plain text.
  */
 function SearchedFor({ query, count }: { query: string; count: number }) {
   return (
@@ -226,10 +222,9 @@ function SearchedFor({ query, count }: { query: string; count: number }) {
 }
 
 /**
- * ember-rust's recent searches (searches/_recents.html; `.mb-search-recents` in zz-ember.css, over
- * Campfire's `.searches__recents` in sidebar.css): a row of your recent searches, newest first, each at
- * most 20 characters wide and spread across the row, that scrolls sideways under a fading left edge, then
- * the trash can, which clears them.
+ * Recent searches, after Campfire's `.searches__recents` (sidebar.css): a row of your recent searches,
+ * newest first, each at most 20 characters wide and spread across the row, that scrolls sideways under a
+ * fading left edge, then the trash can, which clears them.
  */
 function RecentSearches({ searches, onClear }: { searches: string[]; onClear: () => void }) {
   return (
@@ -256,9 +251,8 @@ function RecentSearches({ searches, onClear }: { searches: string[]; onClear: ()
 }
 
 /**
- * ember-rust's `.message-area--empty` (searches/index.html, zz-ember.css), centred where the results would
- * be: a magnifying glass, faded, over what to do, which tells a search that found nothing from no search
- * at all.
+ * Campfire's `.message-area--empty`, centred where the results would be: a magnifying glass, faded, over
+ * what to do, which tells a search that found nothing from no search at all.
  */
 function NoResults({ searched }: { searched: boolean }) {
   return (

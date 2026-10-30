@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Locator } from "@playwright/test";
 import { cookieHeader } from "../../fixtures";
 import { expect, test, type Member } from "./fixtures";
@@ -49,7 +48,7 @@ async function sendMention(member: Member, before: string, filter: string, peopl
 }
 
 // After Campfire's "mentioning a user with @ inserts a mention attachment" (composer_test.rb).
-test.describe(feature("mentions.autocomplete"), () => {
+test.describe("@-mention people", () => {
   test("lists the room's people whose names have what follows @, you too, with avatars, and Up, Down and Tab pick one", async ({ members, participant }) => {
     const tag = newTag();
     await participant(`Jason ${tag}`);
@@ -131,7 +130,7 @@ test.describe(feature("mentions.autocomplete"), () => {
   });
 });
 
-test.describe(feature("composer.send"), () => {
+test.describe("Send from the keyboard", () => {
   test("sends a message holding only a mention", async ({ members, participant }) => {
     const tag = newTag();
     await participant(`Bea ${tag}`);
@@ -142,7 +141,7 @@ test.describe(feature("composer.send"), () => {
   });
 });
 
-test.describe(feature("composer.draft"), () => {
+test.describe("Keep drafts", () => {
   test("keeps mentions in what's written", async ({ members, participant }) => {
     const tag = newTag();
     await participant(`Bea ${tag}`);
@@ -157,7 +156,7 @@ test.describe(feature("composer.draft"), () => {
   });
 });
 
-test.describe(feature("mentions.highlight"), () => {
+test.describe("Highlight mentions of you", () => {
   test("highlights messages that mention you, not ones that only type your name", async ({ members }) => {
     const tag = newTag();
     const ada = await members.signIn(`Ada ${tag}`);
@@ -174,7 +173,7 @@ test.describe(feature("mentions.highlight"), () => {
   });
 });
 
-test.describe(feature("mentions.render"), () => {
+test.describe("How mentions look", () => {
   test("shows a mention as the person's avatar and name, renamed everywhere at once when they're renamed", async ({ members, request }) => {
     const tag = newTag();
     const ada = await members.signIn(`Ada ${tag}`);
@@ -190,7 +189,7 @@ test.describe(feature("mentions.render"), () => {
   });
 });
 
-test.describe(feature("messages.edit"), () => {
+test.describe("Edit a message", () => {
   // After Campfire's "editing a message with a mention keeps the mention" (composer_test.rb).
   test("keeps a message's mentions through an edit, where Escape closes just the @ prompt's list", async ({ members, participant }) => {
     const tag = newTag();

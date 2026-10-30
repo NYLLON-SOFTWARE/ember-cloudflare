@@ -1,6 +1,5 @@
-// Rails' safe-list sanitizer (`Rails::HTML5::SafeListSanitizer` with a `PermitScrubber`, over
-// Loofah's HTML5 scrubbing), as ember-rust's crates/richtext/src/sanitizer.rs reproduces it: every
-// sanitizing layer is this one scrubber with a different pair of allowlists.
+// Rails' safe-list sanitizer (`Rails::HTML5::SafeListSanitizer` with a `PermitScrubber`, over Loofah's
+// HTML5 scrubbing): every sanitizing layer is this one scrubber with a different pair of allowlists.
 
 import { type HtmlParser, BODY } from "./markup";
 import { strip } from "./ruby";
@@ -15,12 +14,12 @@ const DEFAULT_ALLOWED_TAGS = [
 ];
 
 /**
- * `DEFAULT_ALLOWED_ATTRIBUTES` without `name`, which ember-rust drops so a message can't clobber
- * the page's DOM globals (`<img name="body">` shadows `document.body`).
+ * `DEFAULT_ALLOWED_ATTRIBUTES` without `name`, which Ember drops so a message can't clobber the page's
+ * DOM globals (`<img name="body">` shadows `document.body`).
  */
 const DEFAULT_ALLOWED_ATTRIBUTES = ["abbr", "alt", "cite", "class", "datetime", "height", "href", "lang", "src", "title", "width", "xml:lang"];
 
-/** `ContentFilters::EDITOR_FORMATTING_TAGS` and `_ATTRIBUTES` (reference/app/helpers/content_filters.rb) */
+/** Campfire's `ContentFilters::EDITOR_FORMATTING_TAGS` and `_ATTRIBUTES` (app/helpers/content_filters.rb) */
 const EDITOR_FORMATTING_TAGS = ["s", "u", "mark", "table", "thead", "tbody", "tfoot", "tr", "th", "td"];
 const EDITOR_FORMATTING_ATTRIBUTES = ["data-language"];
 
@@ -45,8 +44,8 @@ const SANITIZE_TAGS_ALLOWED_TAGS = new Set([
 ]);
 
 /**
- * `ActionText::ContentHelper.allowed_tags` and `allowed_attributes` as configured at boot: Action
- * Text's defaults, then Lexxy's additions, then Ember's (reference/lib/rails_ext/action_text_allowed_tags.rb).
+ * `ActionText::ContentHelper.allowed_tags` and `allowed_attributes` as configured at boot: Action Text's
+ * defaults, then Lexxy's additions, then Campfire's (lib/rails_ext/action_text_allowed_tags.rb).
  */
 export const ACTION_TEXT: SafeList = {
   tags: new Set([

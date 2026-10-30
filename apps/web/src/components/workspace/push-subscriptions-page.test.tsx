@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -70,8 +69,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("notifications.test-page"), () => {
-  it("lists your browsers' subscriptions as ember-rust's page does, titled and headed as it is, with Go Back to the last room visited", async () => {
+describe("Push subscriptions page", () => {
+  it("lists your browsers' subscriptions under the page's title and heading, with Go Back to the last room visited", async () => {
     showPage();
     expect(document.title).toBe("Push notification subscriptions");
     expect(screen.getByRole("heading", { level: 1, name: "Push Notification Subscriptions" })).toBeInTheDocument();
@@ -86,7 +85,7 @@ describe(feature("notifications.test-page"), () => {
     }
   });
 
-  it("names a browser the user agent says nothing of as ember-rust does, with what's left", async () => {
+  it("names a browser the user agent says nothing of with what's left", async () => {
     serve({ listed: () => Response.json({ subscriptions: [{ id: 3, endpoint: PHONE.endpoint, browser: "Mozilla", version: "4.0", platform: "" }] }) });
     showPage();
     const [row] = await listed(1);

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { CloseCode, MAX_EMAIL_ADDRESS_LENGTH, SIGN_IN_LIMITED, SIGN_IN_REJECTED, type Bootstrap, type NewWorkspace, type User } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -41,11 +40,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("auth.sign-in"), () => {
+describe("Sign in with email and password", () => {
   it("signs in an active person with their email address and password, in a session of its own", async () => {
     const { user: shownAs, cookie: firstRunCookie } = await setUp();
     const user = { ...shownAs, administrator: true };
-    // Someone already signed in can sign in again, as in ember-rust.
+    // Someone already signed in can sign in again.
     const response = await signInWith({ emailAddress: ada.emailAddress, password: ada.password }, { headers: { Cookie: firstRunCookie, "User-Agent": "Ada's phone" } });
     expect(response.status).toBe(201);
     expect(await response.json()).toEqual({ user });
@@ -73,7 +72,7 @@ describe(feature("auth.sign-in"), () => {
     ["a null body", null],
     ["a number for a body", 42],
     ["a body that isn't JSON", "email_address=ada@example.com&password=analytical+engine"],
-  ])("refuses %s with ember-rust's alert", async (_, body) => {
+  ])("refuses %s with an alert", async (_, body) => {
     await setUp();
     const response = await signInWith(body);
     expect(response.status).toBe(401);
@@ -106,7 +105,7 @@ describe(feature("auth.sign-in"), () => {
 
   it("never signs in someone without a password", async () => {
     await setUp();
-    // Bots, and in ember-rust people who joined with an empty password, have an address but no digest.
+    // Bots, and in Campfire people who joined with an empty password, have an address but no digest.
     const now = new Date().toISOString();
     await workspaceSql(
       "INSERT INTO users (id, name, email_address, password_digest, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -205,7 +204,7 @@ describe(feature("auth.sign-in"), () => {
   });
 });
 
-describe(feature("auth.rate-limit"), () => {
+describe("Sign-in attempt limit", () => {
   it("allows each IP 10 attempts, successful or not, then answers 429 without checking the password", async () => {
     await setUp();
     const wrong = { emailAddress: ada.emailAddress, password: "difference engine" };
@@ -249,7 +248,7 @@ describe(feature("auth.rate-limit"), () => {
   });
 });
 
-describe(feature("auth.sign-out"), () => {
+describe("Sign out", () => {
   it("closes the sockets this browser opened, in every room, and leaves the person's other sessions connected", async () => {
     const laptop = await setUp();
     const lobby = await freshRoom("lobby");
@@ -321,8 +320,8 @@ describe(feature("auth.sign-out"), () => {
   });
 });
 
-describe(feature("auth.sign-in"), () => {
-  it("names no administrator to anyone signed out, as ember-rust's pull request #24 takes the help contact off its sign-in and join pages", async () => {
+describe("Sign in with email and password", () => {
+  it("names no administrator to anyone signed out", async () => {
     await setUp();
     const shown = await bootstrap();
     expect(shown).not.toHaveProperty("helpContact");
@@ -330,7 +329,7 @@ describe(feature("auth.sign-in"), () => {
   });
 });
 
-describe(feature("platform.version"), () => {
+describe("Version", () => {
   it("is APP_VERSION, else GIT_REVISION, else the release, counting blank values as unset", async () => {
     expect((await bootstrap()).version).toBe("0.1");
     expect((await bootstrap({ APP_VERSION: "1.2.3", GIT_REVISION: "abc123" })).version).toBe("1.2.3");

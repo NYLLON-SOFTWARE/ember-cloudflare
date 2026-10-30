@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -18,8 +17,8 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("accounts.settings-page"), () => {
-  it("links everyone to workspace settings' three sections, by the fragments ember-rust's pull request #24 gives them", () => {
+describe("Community settings page", () => {
+  it("links everyone to workspace settings' three sections, by their fragments", () => {
     render(<SettingsNavigation section="community-settings" administrator={false} />);
     expect(links().map((link) => link.textContent)).toEqual(["General", "Rooms and permissions", "Membership"]);
     expect(links().map((link) => link.getAttribute("href"))).toEqual([
@@ -98,7 +97,7 @@ describe(feature("accounts.settings-page"), () => {
   });
 });
 
-describe(feature("bots.list"), () => {
+describe("Chat bots page", () => {
   it("links administrators to Chat bots, after workspace settings' sections, and members not at all", () => {
     const { rerender } = render(<SettingsNavigation section="chat-bots" administrator />);
     expect(screen.getByRole("link", { name: "Chat bots" })).toHaveAttribute("href", "/account/bots");
@@ -109,7 +108,7 @@ describe(feature("bots.list"), () => {
   });
 });
 
-describe(feature("accounts.custom-css"), () => {
+describe("Custom CSS", () => {
   it("links administrators to Custom styles, last, and members not at all", () => {
     const { rerender } = render(<SettingsNavigation section="custom-styles" administrator />);
     expect(screen.getByRole("link", { name: "Custom styles" })).toHaveAttribute("href", "/account/custom_styles/edit");
@@ -120,7 +119,7 @@ describe(feature("accounts.custom-css"), () => {
   });
 });
 
-describe(feature("accounts.custom-domain"), () => {
+describe("Custom domain", () => {
   it("links administrators to Domain settings, after Membership, and members not at all", () => {
     const { rerender } = render(<SettingsNavigation section="domain-settings" administrator />);
     const domain = screen.getByRole("link", { name: "Domain settings" });

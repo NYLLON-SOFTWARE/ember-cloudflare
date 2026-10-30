@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import type { Env } from "../src/env";
@@ -62,7 +61,7 @@ const keptAt = async (key: string) => {
   return object && new Uint8Array(await object.arrayBuffer());
 };
 
-describe(feature("bots.api-post"), () => {
+describe("Bots post messages", () => {
   it("keeps a file that fits in a part in one put, identified by its bytes and kept under its name", async () => {
     const { bucket, stored } = recordingBucket();
     const moon = recordedImage("moon-thumb.jpg");

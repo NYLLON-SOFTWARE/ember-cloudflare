@@ -1,11 +1,10 @@
 import { EMAIL_SIGN_UP_PATH, SIGN_UP_PATH } from "@ember/protocol";
 import type { LinkSharing } from "./link-buttons";
 
-// The join link, which ember-rust's invite block on workspace settings
-// (crates/views/templates/accounts/_invite.html) and the welcome card (rooms/show/_invitation.html)
-// both hand on with the same buttons, as Membership hands on open sign-up's page.
+// The join link, which the invite block on workspace settings and the welcome card both hand on with the
+// same buttons, as Membership hands on open sign-up's page.
 
-/** The join link for `joinCode`, absolute, as ember-rust writes it (`ctx.url`). */
+/** The join link for `joinCode`, absolute. */
 export const joinUrl = (joinCode: string) => new URL(`/join/${joinCode}`, location.origin).href;
 
 /** What the join link's buttons are called, and what sharing it sends. */

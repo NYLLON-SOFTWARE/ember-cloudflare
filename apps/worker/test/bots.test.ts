@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type {
   BotAnswer,
   BotRoom,
@@ -133,7 +132,7 @@ async function mentionable(viewer: Session, roomId: RoomId, filter: string): Pro
 
 beforeEach(freshDeploy);
 
-describe(feature("bots.create-edit"), () => {
+describe("Add and edit a bot", () => {
   it("adds a bot with a key of its id and 12 random letters and digits, in every open room, answering it as its edit page shows it", async () => {
     const administrator = await setUp();
     const [general, random] = await firstRooms();
@@ -169,7 +168,7 @@ describe(feature("bots.create-edit"), () => {
     expect(tokens.size).toBe(3);
   });
 
-  it("gives a bot no webhook without a URL, where ember-rust saves an empty one, and trims the URL it's given", async () => {
+  it("gives a bot no webhook without a URL, and trims the URL it's given", async () => {
     const administrator = await setUp();
     const withoutUrl = await added(administrator, { name: "Quiet Bot" });
     const withBlankUrl = await added(administrator, { name: "Blank Bot", webhookUrl: "  " });
@@ -204,7 +203,7 @@ describe(feature("bots.create-edit"), () => {
     expect(await changeBot(administrator, bot.id, {}).then(botOf)).toEqual(await showBot(administrator, bot.id).then(botOf));
   });
 
-  it("writes only what changes, as ember-rust does", async () => {
+  it("writes only what changes", async () => {
     const administrator = await setUp();
     const bot = await added(administrator, { name: "Build Bot", webhookUrl: "https://example.com/hook" });
     await workspaceSql("UPDATE users SET updated_at = 'before' WHERE id = ?", bot.id);
@@ -257,7 +256,7 @@ describe(feature("bots.create-edit"), () => {
       [{ name: "Bot", webhookUrl: "javascript:alert(1)" }, WEBHOOK_URL_REFUSED],
       [{ name: "Bot", webhookUrl: "example.com/hook" }, WEBHOOK_URL_REFUSED],
       [{ name: "Bot", webhookUrl: "https://" }, WEBHOOK_URL_REFUSED],
-      // Plain http, which would show anyone on the way the bot's key, where ember-rust takes it.
+      // Plain http, which would show anyone on the way the bot's key.
       [{ name: "Bot", webhookUrl: "http://ci.example.com/hooks/ember" }, WEBHOOK_URL_REFUSED],
       [{ name: "Bot", webhookUrl: "http://127.0.0.1.example.com/hook" }, WEBHOOK_URL_REFUSED],
       [{ name: "Bot", webhookUrl: "http://localhost.example.com/hook" }, WEBHOOK_URL_REFUSED],
@@ -312,7 +311,7 @@ describe(feature("bots.create-edit"), () => {
     expect(await stored(deleted.id)).toMatchObject({ name: "Old Bot" });
   });
 
-  it("answers Campfire's 404 page for the settings page of anyone but an active bot, as ember-rust does for administrators", async () => {
+  it("answers Campfire's 404 page for the settings page of anyone but an active bot", async () => {
     const administrator = await setUp();
     const member = await joinAsGrace();
     const bot = await added(administrator, { name: "Build Bot" });
@@ -331,7 +330,7 @@ describe(feature("bots.create-edit"), () => {
   });
 });
 
-describe(feature("bots.list"), () => {
+describe("Chat bots page", () => {
   it("lists the active bots by name, ignoring case, each with its key and its rooms but DMs, by name, and never people", async () => {
     const administrator = await setUp();
     const [general, random] = await firstRooms();
@@ -357,7 +356,7 @@ describe(feature("bots.list"), () => {
   });
 });
 
-describe(feature("bots.delete"), () => {
+describe("Delete a bot", () => {
   it("deactivates a bot: it leaves the bots page and every room but its DMs, keeping its token and webhook, and everyone hears of it", async () => {
     const administrator = await setUp();
     const member = await joinAsGrace();
@@ -397,7 +396,7 @@ describe(feature("bots.delete"), () => {
   });
 });
 
-describe(feature("bots.reset-key"), () => {
+describe("Generate a new bot key", () => {
   it("gives a bot a new token of 12 random letters and digits, so its key changes at once", async () => {
     const administrator = await setUp();
     const bot = await added(administrator, { name: "Build Bot", webhookUrl: "https://example.com/hook" });
@@ -425,7 +424,7 @@ describe(feature("bots.reset-key"), () => {
   });
 });
 
-describe(feature("bots.membership"), () => {
+describe("Where bots show up", () => {
   it("puts a new bot in every open room at mentions, and in a private room once it's made open, as it does everyone active", async () => {
     const administrator = await setUp();
     const secrets = await createRoom("Secrets", { closedTo: [administrator.user.id], as: administrator });
@@ -475,7 +474,7 @@ describe(feature("bots.membership"), () => {
   });
 });
 
-describe(feature("bots.profile"), () => {
+describe("A bot's profile", () => {
   it("answers a bot's page without a sign-in link, even to administrators, with Campfire's bot picture for its avatar, until it's deleted", async () => {
     const administrator = await setUp();
     const bot = await added(administrator, { name: "Build Bot" });

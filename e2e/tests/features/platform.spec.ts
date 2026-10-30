@@ -1,11 +1,9 @@
 import { createHash } from "node:crypto";
-import { feature } from "@ember/parity";
 import { expect, test } from "./fixtures";
 
 /**
- * The SHA-256 of each icon the manifest lists: ember-rust's own app icons (crates/assets/overrides/logos/)
- * and, for the shortcuts, Iconoir's plus and user, as the project's owner chose, where ember-rust lists
- * Campfire's add and person (app/assets/images/).
+ * The SHA-256 of each icon the manifest lists: Ember's app icons and, for the shortcuts, Iconoir's plus
+ * and user, as the project's owner chose, where Campfire lists its add and person (app/assets/images/).
  */
 const ICONS: Record<string, string> = {
   "/logos/app-icon-192.png": "49ff9160e2e167043fe948e7b78695c1b55270dff701479ebc6f574eedff6126",
@@ -20,7 +18,7 @@ interface Manifest {
   screenshots: Array<{ src: string; sizes: string }>;
 }
 
-test.describe(feature("platform.manifest"), () => {
+test.describe("Web app manifest", () => {
   test("Chrome reads the manifest the page links without errors, and can install Ember", async ({ playwright, baseURL }) => {
     // Chrome installs nothing from an incognito window, which every context Playwright opens is, so
     // this opens a profile of its own.
@@ -42,7 +40,7 @@ test.describe(feature("platform.manifest"), () => {
     }
   });
 
-  test("lists ember-rust's icons, and Campfire's for its shortcuts, byte for byte", async ({ request }) => {
+  test("lists Ember's icons, and Iconoir's for its shortcuts, byte for byte", async ({ request }) => {
     const manifest = (await (await request.get("/webmanifest.json")).json()) as Manifest;
     const sources = [...manifest.icons, ...manifest.shortcuts.flatMap((shortcut) => shortcut.icons)].map((icon) => icon.src);
     expect(new Set(sources)).toEqual(new Set(Object.keys(ICONS)));
@@ -68,8 +66,8 @@ test.describe(feature("platform.manifest"), () => {
   });
 });
 
-test.describe(feature("platform.head-tags"), () => {
-  test("every page links the manifest and Ember's icons, with ember-rust's theme colors", async ({ page, request }) => {
+test.describe("Installable page head", () => {
+  test("every page links the manifest and Ember's icons, with the theme colors", async ({ page, request }) => {
     for (const path of ["/", "/session/new", "/rooms/all-talk"]) {
       const html = await (await request.get(path)).text();
       // The page as the server sends it, since its script recolors the theme at once (ui.appearance).

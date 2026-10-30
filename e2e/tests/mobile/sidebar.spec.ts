@@ -1,10 +1,9 @@
-import { feature } from "@ember/parity";
 import type { Sidebar } from "@ember/protocol";
 import { cookieHeader, createRoom, keepOtherRoomsOut, openRoom, rowsWithStars, signInAs } from "../../fixtures";
 import { settle } from "./audits";
 import { expect, hasDrawerLayout, test } from "./fixtures";
 
-test.describe(feature("sidebar.favorite-order"), () => {
+test.describe("Reorder starred rooms", () => {
   test("a finger held on a starred room drags it to a new place", async ({ page, request, session }) => {
     const rooms = [await createRoom(request, session, "general"), await createRoom(request, session, "random")];
     for (const room of rooms) {

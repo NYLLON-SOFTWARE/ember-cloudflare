@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -21,7 +20,7 @@ function show() {
   return screen.getByRole("button", { name: "Share" });
 }
 
-describe(feature("attachments.download-share"), () => {
+describe("Download and share files", () => {
   it("says to choose Share again when the file came too late for the click, which then shares it", async () => {
     const share = vi.fn().mockRejectedValueOnce(new DOMException("Must be handling a user gesture", "NotAllowedError")).mockResolvedValue(undefined);
     const fetch = vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(["moon"], { type: "image/jpeg" }) });

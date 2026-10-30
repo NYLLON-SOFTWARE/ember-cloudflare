@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -59,7 +58,7 @@ function run(at: string, token: string | null = TOKEN) {
   return new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => child.on("close", (status) => resolve({ status, stdout, stderr })));
 }
 
-describe(feature("platform.health"), () => {
+describe("Health check", () => {
   it("sends the recovery token to /api/health alone, and hears the Worker's storage", async () => {
     const { status, stdout, stderr } = await run(address);
     expect({ status, stderr }).toEqual({ status: 0, stderr: "" });

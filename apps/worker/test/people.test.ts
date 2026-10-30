@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Directory, DirectoryUser, NewWorkspace, Person, PersonAnswer, UserId } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import notFoundPage from "../../web/public/404.html";
@@ -32,7 +31,7 @@ const page = (viewer: Session | null, path: string) => apiWith({ ASSETS: builtPa
 
 beforeEach(freshDeploy);
 
-describe(feature("users.show"), () => {
+describe("Someone's profile page", () => {
   it("tells anyone about someone as the people directory lists them, with no copy kept", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace Hopper");
@@ -78,7 +77,7 @@ describe(feature("users.show"), () => {
     expect(await signedOut.json()).toEqual({ error: "Not signed in" });
   });
 
-  it("answers Campfire's 404 page for the page of someone nobody is, once signed in, as ember-rust does", async () => {
+  it("answers Campfire's 404 page for the page of someone nobody is, once signed in", async () => {
     const administrator = await setUp();
     const known = await page(administrator, `/users/${administrator.user.id}`);
     expect(known.status).toBe(200);

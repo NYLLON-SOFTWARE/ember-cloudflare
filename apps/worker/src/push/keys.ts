@@ -2,10 +2,9 @@ import { toBase64url, urlsafeDecode64 } from "../encoding";
 import type { Env } from "../env";
 
 // The key pair that signs Web Push requests (VAPID, RFC 8292), read from VAPID_PUBLIC_KEY and
-// VAPID_PRIVATE_KEY as ember-rust reads them (`VapidConfig`, crates/ember/src/integrations/web_push/vapid.rs):
-// missing or invalid keys turn Web Push off rather than failing each push.
+// VAPID_PRIVATE_KEY: missing or invalid keys turn Web Push off rather than failing each push.
 
-/** Why Web Push is off, in ember-rust's words. */
+/** Why Web Push is off. */
 export const KEYS_MISSING = "VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY aren't set";
 export const INVALID_PUBLIC_KEY = "VAPID_PUBLIC_KEY isn't a Base64 P-256 public key";
 export const INVALID_PRIVATE_KEY = "VAPID_PRIVATE_KEY isn't a Base64 P-256 private key";
@@ -33,8 +32,8 @@ const PKCS8_SCALAR_PREFIX = Uint8Array.from([
 let read: { from: string; webPush: Promise<WebPush> } | undefined;
 
 /**
- * Web Push as the deployment's keys allow it. Blank settings count as unset, as in ember-rust, which
- * logs a warning when they're missing and an error when they're invalid.
+ * Web Push as the deployment's keys allow it. Blank settings count as unset, which logs a warning when
+ * they're missing and an error when they're invalid.
  */
 export function webPush(env: Env): Promise<WebPush> {
   const settings = [env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY].map((value) => (value?.trim() ? value : undefined));
@@ -49,8 +48,8 @@ function logged(webPush: WebPush): WebPush {
 }
 
 /**
- * ember-rust's `VapidConfig::new`: the public key is a P-256 point, compressed or not, and the private
- * key a scalar of up to 32 bytes, left-padded, both in URL-safe Base64, and the point must be the scalar's.
+ * Reads the VAPID keys: the public key is a P-256 point, compressed or not, and the private key a scalar
+ * of up to 32 bytes, left-padded, both in URL-safe Base64, and the point must be the scalar's.
  */
 async function readKeys(publicText: string | undefined, privateText: string | undefined): Promise<WebPush> {
   if (publicText === undefined || privateText === undefined) return { on: false, reason: KEYS_MISSING };

@@ -1,12 +1,11 @@
 import { lookUp, type DnsFetch } from "../dns";
 import { isBlockedAddress, parseAddress } from "./addresses";
 
-// ember-rust's private network guard (crates/ember/src/integrations/net/guard.rs, after Rails'
-// `RestrictedHTTP::PrivateNetworkGuard`), with two differences that come from a Worker's `fetch`
-// connecting by name, so the address checked can't be pinned for the connection:
+// The private network guard, with two differences that come from a Worker's `fetch` connecting by name,
+// so the address checked can't be pinned for the connection:
 //
-// - A name must resolve only to public addresses. ember-rust drops the blocked ones and connects to
-//   the first public one, which here would let the connection pick a blocked one.
+// - A name must resolve only to public addresses, since connecting to the first public one would here
+//   let the connection pick a blocked one.
 // - A host written as an address, in any of the notations `inet_aton` reads (`127.0.0.1`,
 //   `2130706433`, `0x7f.1`, `[::1]`), is never fetched, public or not. Workers can't fetch one anyway.
 
@@ -35,8 +34,8 @@ export function isHostName(host: string): boolean {
 }
 
 /**
- * Checks that `host` is a name that resolves, and only to public addresses, throwing a GuardError with
- * ember-rust's message when it isn't.
+ * Checks that `host` is a name that resolves, and only to public addresses, throwing a GuardError when
+ * it isn't.
  */
 export async function checkHost(host: string, resolve: Resolve): Promise<void> {
   if (!isHostName(host)) throw new GuardError(`Attempt to access private IP via ${host}`);

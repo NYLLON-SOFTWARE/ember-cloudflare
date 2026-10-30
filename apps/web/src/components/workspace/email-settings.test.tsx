@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -47,7 +46,7 @@ const stopButton = () => screen.queryByRole("button", { name: "Stop sending emai
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("platform.email"), () => {
+describe("Sending email", () => {
   it("says Ember can't send email yet, and what that keeps it from, with Set up email", async () => {
     serve();
     const { user, onSetUp } = showCard(NEW_EMAIL);

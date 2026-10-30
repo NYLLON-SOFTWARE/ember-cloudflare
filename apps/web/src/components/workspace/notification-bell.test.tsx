@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Account, Room } from "@ember/protocol";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -45,7 +44,7 @@ function turningOn() {
 
 afterEach(() => vi.clearAllMocks());
 
-describe(feature("notifications.enable"), () => {
+describe("Turn on notifications", () => {
   it("offers to turn notifications on until this browser has them on, saving nothing", async () => {
     renderBell();
     expect(enableButton()).toHaveAttribute("title", "Enable notifications");
@@ -133,7 +132,7 @@ describe(feature("notifications.enable"), () => {
   });
 });
 
-describe(feature("notifications.levels"), () => {
+describe("Notification levels", () => {
   /** The level's bell in general's header, with notifications on, whose saves `fetch` answers. */
   async function renderLevelBell(fetch: () => Promise<Response>) {
     vi.mocked(isPushOn).mockResolvedValueOnce(true);
@@ -220,7 +219,7 @@ describe(feature("notifications.levels"), () => {
   });
 });
 
-describe(feature("accounts.custom-domain"), () => {
+describe("Custom domain", () => {
   const MOVED: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: "chat.example.com", joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} };
   /** The bell in general's header, at this address while Ember's custom domain is `customDomain`. */
   const bellWhile = (customDomain: string | null) => (

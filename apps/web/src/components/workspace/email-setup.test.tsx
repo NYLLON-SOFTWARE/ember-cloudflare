@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
@@ -135,7 +134,7 @@ async function cloudflareFrom() {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("platform.email"), () => {
+describe("Sending email", () => {
   it("starts with what sends email, saying Cloudflare Email Service needs Workers Paid", async () => {
     serve(NEW_EMAIL);
     const { user, onClose } = showSetup(NEW_EMAIL);

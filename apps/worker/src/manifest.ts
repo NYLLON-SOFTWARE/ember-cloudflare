@@ -1,20 +1,19 @@
 import type { Env } from "./env";
 import { ACCOUNT_NAME, workspace } from "./workspace";
 
-// The web app manifest, which lets browsers install Ember as an app: ember-rust's
-// crates/views/templates/pwa/manifest.json, served by crates/ember/src/controllers/pwa.rs.
+// The web app manifest, which lets browsers install Ember as an app: Campfire's
+// app/views/pwa/manifest.json.erb.
 
 /**
- * What the manifest says the app is. ember-rust keeps Campfire's "A chat app from the makers of
- * Basecamp and HEY.", which isn't this project, so this is the README's own description.
+ * What the manifest says the app is: the README's own description, since Campfire's "A chat app from the
+ * makers of Basecamp and HEY." isn't this project.
  */
 const DESCRIPTION = "A real-time chat app that runs entirely on Cloudflare.";
 
 /**
  * The manifest for a workspace named `name` whose logo is at `logo`. Its icons are the logo's variants,
- * as ember-rust's are, or Ember's stock icons while there's no logo. Its screenshots have ember-rust's
- * sizes and labels, but they're Ember's own, which `pnpm screenshots` makes, where ember-rust's show
- * Campfire's Android app.
+ * or Ember's stock icons while there's no logo. Its screenshots have Campfire's sizes and labels, but
+ * they're Ember's own, which `pnpm screenshots` makes.
  */
 export function webManifest(name: string, logo: string | null) {
   const [small, large] = logo ? [`${logo}&size=small`, logo] : ["/logos/app-icon-192.png", "/logos/app-icon.png"];
@@ -33,7 +32,7 @@ export function webManifest(name: string, logo: string | null) {
     theme_color: "#ffffff",
     background_color: "#ffffff",
     shortcuts: [
-      // Relative, as in ember-rust, so it resolves against the manifest's address to /rooms/opens/new.
+      // Relative, so it resolves against the manifest's address to /rooms/opens/new.
       { name: "New chat room", description: "Open Ember and start a new chat room", url: "rooms/opens/new", icons: [{ src: "/shortcuts/plus.svg", sizes: "any" }] },
       { name: "My profile", description: "Open Ember and view your profile", url: "/users/me/profile", icons: [{ src: "/shortcuts/user.svg", sizes: "any" }] },
     ],
@@ -53,7 +52,7 @@ export function manifestFormatOf(pathname: string): string | null {
 
 /** `GET /webmanifest.json`, which pages link, and `/webmanifest`: public, and named after the workspace. */
 export async function manifest(env: Env, format: string): Promise<Response> {
-  // As in ember-rust, which answers only JSON.
+  // It's answered only as JSON.
   if (format !== "" && format !== "json") return new Response(null, { status: 406 });
   const account = await workspace(env).account();
   return new Response(JSON.stringify(webManifest(account?.name ?? ACCOUNT_NAME, account?.logo ?? null)), {

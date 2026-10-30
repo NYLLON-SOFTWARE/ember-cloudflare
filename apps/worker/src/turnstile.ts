@@ -4,12 +4,11 @@ import type { Env } from "./env";
 import { isLoopback } from "./loopback";
 import { workspace } from "./workspace";
 
-// Cloudflare Turnstile (`auth.turnstile`), on the open sign-up form (`auth.open-sign-up`) and the forms
-// that ask Ember to email a link to join (`auth.email-domain-sign-up`) or a code to reset a password
-// (`auth.password-reset`), while Ember has a widget's keys: the deployment's secrets, or else those an
-// administrator gave it in Set up Turnstile. The page shows Turnstile's check, which gives it a token,
-// and the Worker asks Cloudflare's siteverify whether the token is from a check that passed before it
-// does anything else with the form
+// Cloudflare Turnstile, on the open sign-up form and the forms that ask Ember to email a link to join or
+// a code to reset a password, while Ember has a widget's keys: the deployment's secrets, or else those
+// an administrator gave it in Set up Turnstile. The page shows Turnstile's check, which gives it a
+// token, and the Worker asks Cloudflare's siteverify whether the token is from a check that passed
+// before it does anything else with the form
 // (https://developers.cloudflare.com/turnstile/get-started/server-side-validation/). A token is good
 // once, for 5 minutes. Siteverify's answers are logged by their error codes alone.
 

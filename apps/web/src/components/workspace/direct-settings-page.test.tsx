@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { DirectoryUser, DirectRoom, User } from "@ember/protocol";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -38,7 +37,7 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("dms.naming"), () => {
+describe("Group DMs and DM names", () => {
   it("shows a card for each of the others in the DM, titled for them, with Go Back to the last room visited", () => {
     showPage(withGraceAndLinus);
     expect(cards()).toEqual(["Grace Hopper", "Linus Torvalds"]);
@@ -61,7 +60,7 @@ describe(feature("dms.naming"), () => {
   });
 });
 
-describe(feature("dms.delete"), () => {
+describe("Delete a direct message", () => {
   const deleteButton = () => screen.getByRole("button", { name: "Delete Ping" });
   const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
   const deleted = () => new Response(null, { status: 204 });
@@ -160,7 +159,7 @@ describe(feature("dms.delete"), () => {
   });
 });
 
-describe(feature("users.avatar-links"), () => {
+describe("Avatars open people's pages", () => {
   it("links each card's avatar to the person's page, titled with their name and bio, and goes there in place", async () => {
     const listed: DirectoryUser = { ...grace, bio: "Wrote the first compiler", role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
     const { user } = showPage(withGraceAndLinus, new Map([[grace.id, listed]]));

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Bootstrap } from "@ember/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fromHex, toBase64url } from "../src/encoding";
@@ -47,7 +46,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("notifications.web-push-keys"), () => {
+describe("Web Push configuration", () => {
   it("turns push on with a key pair, saying so in /api/health and giving the app the public key", async () => {
     const keys = await keyPair();
     expect(await healthWith(keys)).toEqual({ on: true });

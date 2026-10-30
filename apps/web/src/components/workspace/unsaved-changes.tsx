@@ -5,16 +5,14 @@ import { useMounted } from "@/hooks/use-mounted";
 import { guardLeaving } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 
-// ember-rust's guard for room forms (crates/assets/overrides/ember/settings.js) and its dialog
-// (components/unsaved_changes.html), styled by zz-ember.css (.mb-unsaved-*). They guard workspace
-// settings' room order too, which ember-rust drops unsaved without asking. Where the app's other
-// dialogs are native ones, as ember-rust's are, this is a Radix dialog, so it can open over the
-// drawer, a Radix dialog itself, which would keep the pointer and focus from a native one.
+// The guard for room forms and its dialog, which guard workspace settings' room order too. Where the
+// app's other dialogs are native ones, this is a Radix dialog, so it can open over the drawer, a Radix
+// dialog itself, which would keep the pointer and focus from a native one.
 
-/** What the dialog says about a room's form, as ember-rust's says it. */
+/** What the dialog says about a room's form. */
 const ROOM_CHANGES = "You’ve made changes to this room. Save them before you leave, or discard them to keep things as they were.";
 
-/** `.mb-unsaved-actions .btn`: Campfire's `.btn`, 42px tall, 44px for fingers, and sharing a phone's width. */
+/** The dialog's buttons: Campfire's `.btn`, 42px tall, 44px for fingers, and sharing a phone's width. */
 const ACTION = "inline-flex min-h-[42px] cursor-pointer items-center justify-center rounded-[9px] border px-[22px] py-[0.5em] font-semibold touch:min-h-11 disabled:cursor-default upto-480px:flex-1";
 /** Save, the dialog's main action, in ink, and Discard, the other, which dialogs styled as this one share. */
 export const MAIN_ACTION = cn(ACTION, "border-transparent bg-foreground text-background hover:not-active:brightness-70");
@@ -39,7 +37,7 @@ interface Props<T> {
   stays: (path: string) => boolean;
   /**
    * Saves the changes, settling with what's saved once the server has it, after which the page compares
-   * its form with that, as settings.js does, in case it stays: when signing out fails, say.
+   * its form with that, in case it stays: when signing out fails, say.
    */
   onSave: () => Promise<T>;
   /** What the page does instead when it stays after Save, with what was saved: New room shows the room it made. */
@@ -72,12 +70,12 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
     if (!changed) return;
     return guardLeaving((path, go) => {
       if (released.current || (path !== null && stays(path))) return false;
-      // While Save is under way, leaving waits for it, as in ember-rust.
+      // While Save is under way, leaving waits for it.
       if (saving) return true;
       proceed.current = go;
       setFailed(false);
-      // The page's own dialogs, such as its icon pickers, are native ones, which would stay above this one
-      // and keep it from being answered, where ember-rust's, native too, opens above them. They close first.
+      // The page's own dialogs, such as its icon pickers, are native ones, which would stay above this
+      // one and keep it from being answered. They close first.
       for (const dialog of document.querySelectorAll<HTMLDialogElement>("dialog[open]")) dialog.close();
       setAsking(true);
       return true;
@@ -85,7 +83,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
   }, [changed, stays, saving]);
 
   // Listening only while there's something to lose keeps the page eligible for the browser's
-  // back/forward cache, as ember-rust keeps it.
+  // back/forward cache.
   useEffect(() => {
     if (!changed) return;
     const unload = (event: BeforeUnloadEvent) => {
@@ -112,8 +110,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
     if (!mounted.current) return;
     // Anywhere `stayed` goes, it goes without asking.
     stayed?.();
-    // A sign-out that fails leaves the page as it was, so the form is guarded again, as ember-rust's
-    // settings.js guards it again when the form it let through isn't sent.
+    // A sign-out that fails leaves the page as it was, so the form is guarded again.
     released.current = false;
   };
 
@@ -128,7 +125,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
     try {
       saved = await onSave();
     } catch {
-      // Whatever went wrong, as ember-rust says for anything but a confirmed save.
+      // Anything but a confirmed save failed, whatever went wrong.
       setFailed(true);
       return;
     } finally {
@@ -143,7 +140,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
         showCloseButton={false}
         aria-busy={saving || undefined}
         overlayClassName={DIALOG_BACKDROP}
-        // As ember-rust's opens on Save and stays open when the page behind it is clicked.
+        // Focused on Save, and staying open when the page behind it is clicked.
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           saveButton.current?.focus();

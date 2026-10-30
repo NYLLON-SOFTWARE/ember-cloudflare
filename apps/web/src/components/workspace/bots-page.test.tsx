@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -77,8 +76,8 @@ afterEach(() => {
   Reflect.deleteProperty(navigator, "clipboard");
 });
 
-describe(feature("bots.list"), () => {
-  it("is ember-rust's Chat bots page, with Add a chat bot, and Go Back to workspace settings", () => {
+describe("Chat bots page", () => {
+  it("is the Chat bots page, with Add a chat bot, and Go Back to workspace settings", () => {
     showPage();
     expect(document.title).toBe("Chat bots");
     expect(screen.getByRole("heading", { level: 1, name: "Chat bots" })).toBeInTheDocument();
@@ -159,7 +158,7 @@ describe(feature("bots.list"), () => {
     expect(screen.queryAllByRole("listitem")).toEqual([]);
   });
 
-  it("sends anyone but an administrator to workspace settings, saying why, where ember-rust answers an empty 403", async () => {
+  it("sends anyone but an administrator to workspace settings, saying why", async () => {
     serve(() => Response.json({ error: "Only administrators can manage bots" }, { status: 403 }));
     const { onFailed } = showPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Only administrators can manage bots");
@@ -175,7 +174,7 @@ describe(feature("bots.list"), () => {
   });
 });
 
-describe(feature("bots.slack-webhook"), () => {
+describe("Slack-compatible webhooks", () => {
   it("gives each of a bot's rooms its Slack-compatible webhook URL, on this host, with a button that copies it", async () => {
     showPage();
     const [build] = await listed(2);
@@ -195,7 +194,7 @@ describe(feature("bots.slack-webhook"), () => {
   });
 });
 
-describe(feature("accounts.translation-buttons"), () => {
+describe("Translation buttons", () => {
   it("has a translation button for Chat bots once an administrator shows them", () => {
     showPage({ ...account, hideTranslationButtons: false });
     expect(screen.getByText("Translate")).toBeInTheDocument();

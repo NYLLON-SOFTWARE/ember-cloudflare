@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { prepareBody, writtenBody } from "./body";
 import { editableBody, mentionContent, mentionedUsers, mentionPromptItem, mentionSgid, userIdFromSgid, userIdsIn, writtenMentions, type MentionCard } from "./mentions";
@@ -10,7 +9,7 @@ const mention = (n: number) => `<action-text-attachment content-type="applicatio
 const contentAttachment = (content: string) =>
   `<action-text-attachment content-type="text/html" content="${content.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}"></action-text-attachment>`;
 
-describe(feature("mentions.render"), () => {
+describe("How mentions look", () => {
   it("names users by their ids, which Lexxy keeps where it drops anything shaped like a URL", () => {
     expect(mentionSgid("0mgx5k2p9abc1234")).toBe("0mgx5k2p9abc1234");
     expect(userIdFromSgid("0mgx5k2p9abc1234")).toBe("0mgx5k2p9abc1234");
@@ -62,7 +61,7 @@ describe(feature("mentions.render"), () => {
   });
 });
 
-describe(feature("mentions.autocomplete"), () => {
+describe("@-mention people", () => {
   const ada = { id: id(1), name: `Ada "<Lovelace>" & co`, avatarUrl: "/users/1.x/avatar?v=1&a=<b>" };
   const avatar = '<img class="avatar" aria-hidden="true" src="/users/1.x/avatar?v=1&amp;a=&lt;b&gt;" width="48" height="48">';
   const name = "Ada &quot;&lt;Lovelace&gt;&quot; &amp; co";
@@ -84,7 +83,7 @@ describe(feature("mentions.autocomplete"), () => {
     // What the room will make of it, as a message being sent shows until the room says.
     expect(writtenBody(parseHtml, `<p>Hi ${written(grace)}!</p>`)).toEqual({ plainText: "Hi @Grace!", mentions: [{ id: id(2), name: "Grace" }] });
     expect(writtenBody(parseHtml, "<p>Hi all</p>")).toEqual({ plainText: "Hi all", mentions: [] });
-    // ember-rust's own mentions link the avatar, and a mention without content goes unnamed.
+    // Campfire's own mentions link the avatar, and a mention without content goes unnamed.
     const linked = `<span class="mention"><a title="Grace" class="btn avatar" href="/users/2"><img src="/a.svg"></a> Grace</span>`;
     expect(writtenMentions(parseHtml, `<ul><li><action-text-attachment sgid="${id(2)}" content="${linked.replaceAll('"', "&quot;")}"></action-text-attachment></li></ul>`)).toEqual([{ id: id(2), name: "Grace" }]);
     expect(writtenMentions(parseHtml, `<p>${mention(1)}</p>`)).toEqual([{ id: id(1), name: "" }]);

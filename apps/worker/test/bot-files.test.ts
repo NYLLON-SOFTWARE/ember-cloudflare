@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { FILE_NAME_NOT_KEPT, type BotAnswer, type BotSettings, type NewWorkspace, type RoomId } from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,10 +22,9 @@ import {
   type Session,
 } from "./support";
 
-// A bot's files, as ember-rust's bot API takes them (crates/ember/src/controllers/messages/by_bots.rs):
-// a form's `attachment`, as `curl -F "attachment=@<path>"` sends it, posted as the bot's message, or given
-// to one of its messages in place of its file. R2 keeps the file as it arrives, as it does a browser's
-// upload.
+// A bot's files: a form's `attachment`, as `curl -F "attachment=@<path>"` sends it, posted as the bot's
+// message, or given to one of its messages in place of its file. R2 keeps the file as it arrives, as it
+// does a browser's upload.
 
 const files = (env as unknown as Env).FILES!;
 
@@ -132,7 +130,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("bots.api-post"), () => {
+describe("Bots post messages", () => {
   it("posts the file a form sends as `attachment`, as `curl -F` sends one, as the bot's message, which reaches everyone at once", async () => {
     const { administrator, bot, general } = await withBot();
     const inRoom = await connect(general, administrator);
@@ -233,7 +231,7 @@ describe(feature("bots.api-post"), () => {
     expect(await storedFiles()).toEqual([]);
   });
 
-  it("answers 400 to a body typed as a form that names no boundary to read it by, which ember-rust posts as text, posting nothing", async () => {
+  it("answers 400 to a body typed as a form that names no boundary to read it by, posting nothing", async () => {
     const { bot, general } = await withBot();
     const form = await formBody(formWith(new File(["Build passed"], "build.log")));
 
@@ -273,7 +271,7 @@ describe(feature("bots.api-post"), () => {
   });
 });
 
-describe(feature("bots.api-edit-delete"), () => {
+describe("Bots edit and delete their messages", () => {
   it("gives the bot's own message the file a form sends with PUT or PATCH, in place of the one it had, live, answering the message as the list has it", async () => {
     const { administrator, bot, general } = await withBot();
     const id = await postedFile(bot.key, general, new File(["Build failed"], "build.log", { type: "text/plain" }));
@@ -304,7 +302,7 @@ describe(feature("bots.api-edit-delete"), () => {
     expect(await storedIn(general)).toMatchObject([{ id, plain_text: "Build log attached", file: expect.any(String) }]);
   });
 
-  it("takes a message's file away when the form's `attachment` is empty, as ember-rust's update does, and R2 deletes it", async () => {
+  it("takes a message's file away when the form's `attachment` is empty, and R2 deletes it", async () => {
     const { administrator, bot, general } = await withBot();
     const id = await postedFile(bot.key, general, moon());
     const file = await fileOf(general, id);
@@ -339,7 +337,7 @@ describe(feature("bots.api-edit-delete"), () => {
     expect(await storedFiles()).toEqual([objectKey(theirs.attachment.id)]);
   });
 
-  it("answers 400 to a body typed as a form that names no boundary, which ember-rust saves as the message's text, changing nothing", async () => {
+  it("answers 400 to a body typed as a form that names no boundary, changing nothing", async () => {
     const { bot, general } = await withBot();
     const id = await postedText(bot.key, general, "Deploying...");
 

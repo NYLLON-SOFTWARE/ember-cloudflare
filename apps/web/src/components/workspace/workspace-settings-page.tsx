@@ -48,7 +48,7 @@ import { HowPeopleJoin, WaysToJoin } from "./ways-to-join";
 
 interface Props {
   me: Me;
-  /** Where Go Back goes: the last room visited, as ember-rust's `link_back_to_last_room_visited` has it. */
+  /** Where Go Back goes: the last room visited. */
   back: string;
   /**
    * Called as the page asks for the workspace, by loading or saving it. What it returns is called with
@@ -74,25 +74,22 @@ interface Props {
 }
 
 /**
- * ember-rust's workspace settings, as its pull request #24 splits them into three sections
- * (accounts/edit.html, d49621e), and a fourth, this port's own, of which the address's fragment shows one,
- * all of them staying drawn so what's typed in one waits there while another shows:
+ * Workspace settings, in four sections, of which the address's fragment shows one, all of them staying
+ * drawn so what's typed in one waits there while another shows:
  *
- * - General, ember-rust's Community (accounts/_community_settings.html), where administrators change the
- *   workspace's icon, which one picked saves at once, showing it meanwhile, and Remove icon takes away,
- *   then rename the workspace, give it a tagline, this port's own, and show or hide the translation
- *   buttons, which Save changes saves together. Members see its icon, name and tagline. The rail's icons,
- *   which ember-rust's form has here too, are in Custom styles (`NavigationIconSettings`), where the
- *   project's owner moved them.
- * - Rooms and permissions (accounts/_room_settings.html): New room, which members don't get while only
- *   administrators can create rooms, then for administrators, the switch that says so and the rooms'
- *   order for everyone, each linking to its settings.
- * - Membership (accounts/_membership_settings.html): for administrators, who can join, this port's own,
- *   with switches for Open, the join link, which they can regenerate, and Memberful, how Ember sends
- *   email, and whether Cloudflare Turnstile checks who joins, its own too, or for members, the links that
- *   let people in, then the administrators and members, whom administrators can make administrators or
- *   members and remove.
- * - Domain settings, this port's own: for administrators, the custom domain Ember answers at.
+ * - General, where administrators change the workspace's icon, which one picked saves at once, showing it
+ *   meanwhile, and Remove icon takes away, then rename the workspace, give it a tagline, and show or hide
+ *   the translation buttons, which Save changes saves together. Members see its icon, name and tagline.
+ *   The rail's icons are in Custom styles (`NavigationIconSettings`), where the project's owner moved
+ *   them.
+ * - Rooms and permissions: New room, which members don't get while only administrators can create
+ *   rooms, then for administrators, the switch that says so and the rooms' order for everyone, each
+ *   linking to its settings.
+ * - Membership: for administrators, who can join, with switches for Open, the join link, which they can
+ *   regenerate, and Memberful, how Ember sends email, and whether Cloudflare Turnstile checks who joins,
+ *   or for members, the links that let people in, then the administrators and members, whom
+ *   administrators can make administrators or members and remove.
+ * - Domain settings: for administrators, the custom domain Ember answers at.
  */
 export function WorkspaceSettingsPage({
   me,
@@ -139,7 +136,7 @@ export function WorkspaceSettingsPage({
   const section = workspaceSectionOf(useHash());
   useTitle("Community settings");
 
-  // Another section starts at its top, as community_settings.js scrolls the page when the fragment changes.
+  // Another section starts at its top: the page scrolls up as the fragment changes.
   useLayoutEffect(scrollMainContentToTop, [section]);
 
   // A page that has gone only reports a session that's ended, which goes to sign in.
@@ -148,7 +145,7 @@ export function WorkspaceSettingsPage({
     [reloadPeople, onFailed, mounted],
   );
 
-  // As ember-rust lists everyone as the page loads, rather than as the directory last loaded.
+  // Everyone's listed as the page loads, rather than as the directory last loaded.
   useEffect(() => listPeople(), [listPeople]);
 
   // Loaded again when someone makes them an administrator or a member, which changes what they can do here.
@@ -173,8 +170,7 @@ export function WorkspaceSettingsPage({
     return () => void (stopped = true);
   }, [administrator, askForAccount, onJoinCodeChanged, onFailed]);
 
-  // The name, the tagline and, if it was moved, the translation buttons' switch, as ember-rust's form
-  // sends them together.
+  // The name, the tagline and, if it was moved, the translation buttons' switch, sent together.
   const save = (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -205,7 +201,7 @@ export function WorkspaceSettingsPage({
   // The picked logo's address is let go of once the saved one takes its place.
   useEffect(() => () => void (pickedLogo && URL.revokeObjectURL(pickedLogo)), [pickedLogo]);
 
-  /** Saves `file` as the workspace's logo, as ember-rust's picker sends the account's form once a logo is picked. */
+  /** Saves `file` as the workspace's logo, once it's picked. */
   const saveLogo = (file: File) => {
     if (file.size > MAX_LOGO_SIZE) return flash("alert", LOGO_TOO_LARGE);
     setPickedLogo(URL.createObjectURL(file));
@@ -234,7 +230,7 @@ export function WorkspaceSettingsPage({
     );
   }
 
-  // As ember-rust's switches do: saved at once, with no notice after, then `settled` is called.
+  // A switch saves at once, with no notice after, then `settled` is called.
   const saveSwitch = (settings: AccountSettings, settled: () => void) => {
     const answered = askForAccount();
     changeAccount({ settings }).then(
@@ -288,7 +284,7 @@ export function WorkspaceSettingsPage({
   /** Shows where Ember's Turnstile keys come from as Set up Turnstile, or turning Turnstile off, changes it, which only workspace settings shows. */
   const showTurnstile = (turnstile: WorkspaceSettings["turnstile"]) => setSettings((settings) => settings && { ...settings, turnstile });
 
-  // As ember-rust's Regenerate join link does: no confirmation first, and no notice after.
+  // Regenerate join link: no confirmation first, and no notice after.
   const regenerate = () => {
     setRegenerating(true);
     regenerateJoinCode().then(
@@ -306,9 +302,9 @@ export function WorkspaceSettingsPage({
     );
   };
 
-  // As ember-rust's crowns do: no notice after. Once the workspace socket or a load has said the person
-  // changed while the answer was on its way, the answer may be older than that, so it's left out, and the
-  // directory loads again unless they already have the role it gives them.
+  // A crown: no notice after. Once the workspace socket or a load has said the person changed while the
+  // answer was on its way, the answer may be older than that, so it's left out, and the directory loads
+  // again unless they already have the role it gives them.
   const changeRoleOf = useCallback(
     (person: DirectoryUser, role: PersonRole) =>
       changeRole(person.id, role).then(
@@ -324,8 +320,8 @@ export function WorkspaceSettingsPage({
     [onPersonChanged, onFailed, mounted, listPeople],
   );
 
-  // As ember-rust's Delete does: no notice after, once it's confirmed. The person leaves the list as the
-  // directory hears they're removed, from this answer or the workspace socket, as a role's answer is kept.
+  // Delete: no notice after, once it's confirmed. The person leaves the list as the directory hears
+  // they're removed, from this answer or the workspace socket, as a role's answer is kept.
   const removeOf = useCallback(
     (person: DirectoryUser) =>
       removePerson(person.id).then(
@@ -364,13 +360,12 @@ export function WorkspaceSettingsPage({
                 description="Choose a community icon"
                 onChoose={saveLogo}
                 disabled={savingLogo}
-                // As ember-rust's Remove icon does: no confirmation first, and no notice after.
+                // Remove icon: no confirmation first, and no notice after.
                 remove={account.logo ? { label: "Remove icon", onRemove: () => showLogo(removeLogo()) } : null}
               />
-              {/* `.mb-community-form`. */}
               <form onSubmit={save} className="flex flex-col gap-6">
                 <Field id="account_name" label="Community name" translation="account_name">
-                  {/* Not focused as the page opens, and the cursor goes where it's put, as in ember-rust. */}
+                  {/* Not focused as the page opens, and the cursor goes where it's put. */}
                   <Input
                     id="account_name"
                     autoComplete="off"
@@ -379,7 +374,7 @@ export function WorkspaceSettingsPage({
                     data-ember-preserve-selection
                     value={name}
                     onChange={(event) => setTypedName(event.target.value)}
-                    // zz-ember.css takes the focus ring off this field alone.
+                    // This field alone has no focus ring.
                     className={cn(FIELD_INPUT, "focus-visible:outline-none")}
                   />
                 </Field>
@@ -430,7 +425,6 @@ export function WorkspaceSettingsPage({
           ))}
       </Panel>
       <Panel id="channel-settings" hidden={section !== "channel-settings"} aria-labelledby="channel-settings-heading" className="flex flex-col gap-6">
-        {/* `.mb-channel-settings-heading`. */}
         <div className="flex flex-wrap items-center justify-between gap-3 upto-500px:items-start">
           <h2 id="channel-settings-heading" className="text-[24px] font-semibold upto-500px:text-[22px]">
             Room order and permissions
@@ -447,7 +441,6 @@ export function WorkspaceSettingsPage({
         </div>
         {settings?.canAdminister ? (
           <>
-            {/* `.mb-channel-settings-permissions`. */}
             <div className="flex items-center gap-x-[1ch] gap-y-4 border-t pt-5">
               <div className="flex min-w-0 grow items-center gap-x-[1ch] text-start">
                 <Crown className="size-[18px]" />
@@ -470,7 +463,6 @@ export function WorkspaceSettingsPage({
           Invite people and manage access to your community.
         </PageHeading>
         {settings && (
-          // `.mb-membership-content`.
           <div className="min-w-0">
             {settings.canAdminister ? (
               <div className="flex flex-col gap-6">

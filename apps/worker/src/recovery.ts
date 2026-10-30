@@ -5,15 +5,13 @@ import { passwordHasher } from "./passwords";
 import { bearerTokenOf, isSecretToken, isToken } from "./secrets";
 import { workspace } from "./workspace";
 
-// Password recovery, which ember-rust does with `ember reset-password <email>` beside its database
-// (crates/ember/src/admin.rs), run by emberctl's `reset-password` (deploy/installer/emberctl.py). A
-// Worker has no shell beside its data, so here it's an endpoint behind a secret of its own, which
-// apps/worker/scripts/reset-password.ts calls as emberctl calls `ember`.
+// Password recovery. A Worker has no shell beside its data, so it's an endpoint behind a secret of its
+// own, which apps/worker/scripts/reset-password.ts calls.
 
 /** The recovery endpoint's address. */
 export const RECOVERY_PATH = "/api/recovery/reset-password";
 
-/** What emberctl says once it's done, since the endpoint closes the person's live connections as emberctl's restart does. */
+/** What the endpoint answers once it's done, having closed the person's live connections too. */
 const PASSWORD_RESET = "Password updated; existing sessions and live connections for this user were revoked.";
 
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
@@ -35,17 +33,15 @@ export async function carriesRecoveryToken(request: Request, env: Env): Promise<
 
 /**
  * `POST /api/recovery/reset-password`, with EMBER_RECOVERY_TOKEN as its bearer token: gives whoever has
- * the email address the body names the body's password, as `ember reset-password` does, ending their
- * sessions and closing their live connections, as emberctl's restart does. Anything without the token
- * answers 404, as an address the API doesn't have does, so a deployment doesn't say whether it has a
- * recovery door, and one without EMBER_RECOVERY_TOKEN has none.
+ * the email address the body names the body's password, ending their sessions and closing their live
+ * connections. Anything without the token answers 404, as an address the API doesn't have does, so a
+ * deployment doesn't say whether it has a recovery door, and one without EMBER_RECOVERY_TOKEN has none.
  */
 export async function resetPassword(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST" || !(await carriesRecoveryToken(request, env))) return problem(404, "Not found");
   const reset = parsePasswordReset(await jsonBodyOf(request));
   if (typeof reset === "string") return problem(400, reset);
-  // Before anything is hashed or read, as in ember-rust, which takes up to 4096 bytes. Sign-in takes no
-  // more than its form sends, so neither does this.
+  // Before anything is hashed or read. Sign-in takes no more than its form sends, so neither does this.
   if (isPasswordTooShort(reset.password)) return problem(422, "password must contain at least 8 characters");
   if (isPasswordTooLong(reset.password)) return problem(422, "password must contain at most 72 characters");
 

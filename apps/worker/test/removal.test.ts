@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { CloseCode, type ChangedPerson, type Directory, type DirectoryUser, type Me, type NewWorkspace, type ProfileAnswer, type UserId } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -84,7 +83,7 @@ const signedIn = async (session: Session) => (await api("/api/me", { headers: { 
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("accounts.remove-person"), () => {
+describe("Remove someone from the workspace", () => {
   it("removes someone active, answering them as the directory then lists them, removed", async () => {
     const administrator = await setUp();
     const member = await join(grace);
@@ -169,7 +168,7 @@ describe(feature("accounts.remove-person"), () => {
     expect((await stored(linus.user.id)).email_address).toBeNull();
   });
 
-  it("writes it before every @, as ember-rust's Rust does, where Campfire's Ruby writes it before the first", async () => {
+  it("writes it before every @, where Campfire's Ruby writes it before the first", async () => {
     const administrator = await setUp();
     const member = await join(grace);
     await workspaceSql("UPDATE users SET email_address = ? WHERE id = ?", '"a@b"@example.com', member.user.id);
@@ -207,7 +206,7 @@ describe(feature("accounts.remove-person"), () => {
     for (const socket of sockets) expect(await socket.next()).toEqual({ type: "user.updated", user });
   });
 
-  it("removes bots too, as ember-rust's does", async () => {
+  it("removes bots too", async () => {
     const administrator = await setUp();
     const now = new Date().toISOString();
     await workspaceSql("INSERT INTO users (id, name, role, created_at, updated_at) VALUES ('robot', 'Build Bot', 2, ?, ?)", now, now);
@@ -240,7 +239,7 @@ describe(feature("accounts.remove-person"), () => {
     expect(await workspaceSql("SELECT status FROM users WHERE id IN ('removed', 'banned') ORDER BY id")).toEqual([{ status: 2 }, { status: 1 }]);
   });
 
-  it("doesn't let administrators remove themselves, so there's always one, unlike ember-rust", async () => {
+  it("doesn't let administrators remove themselves, so there's always one", async () => {
     const administrator = await setUp();
     const response = await remove(administrator, administrator.user.id);
     expect(response.status).toBe(403);

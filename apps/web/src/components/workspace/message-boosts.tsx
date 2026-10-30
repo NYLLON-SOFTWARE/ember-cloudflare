@@ -10,10 +10,10 @@ import { cn } from "@/lib/utils";
 import type { MessageActions } from "./message-item";
 import { AvatarLink, UserAvatar } from "./user-avatar";
 
-/** A custom reaction starts with something other than a space (messages/boosts/new.html). */
+/** A custom reaction starts with something other than a space. */
 const CUSTOM_REACTION = String.raw`\S+.*`;
 
-/** The Custom reaction form's buttons (zz-ember.css, `.mb-custom-reaction-actions .btn`), 44px for fingers. */
+/** The Custom reaction form's buttons, 44px for fingers. */
 const FORM_BUTTON =
   "inline-flex min-h-10 cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border px-3 py-2 text-[13px] font-medium touch:min-h-11";
 
@@ -36,10 +36,9 @@ interface Props {
 }
 
 /**
- * The reactions under a message (messages/boosts/_boosts.html, boosts.css, zz-ember.css): a pill for
- * each, oldest first, then Add a boost, which opens the message's bar with More reactions showing, or the
- * Custom reaction form that New boost opens in its place. Add a boost shows once the message has a
- * reaction, as messages.css shows it.
+ * The reactions under a message (Campfire's boosts.css): a pill for each, oldest first, then Add a
+ * boost, which opens the message's bar with More reactions showing, or the Custom reaction form that New
+ * boost opens in its place. Add a boost shows once the message has a reaction, as messages.css shows it.
  */
 export function MessageBoosts({ message, me, threaded, actions, customizing, customField, onAddBoost, onCloseCustom, returnFocus }: Props) {
   const hint = useId();
@@ -105,10 +104,10 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, cus
 }
 
 /**
- * One reaction (messages/boosts/_boost.html): its booster's avatar, named "<name> boosted <content>",
- * then the content, larger when it's all emoji. Clicking your own, or pressing Enter on it, reveals Delete
- * this boost and focuses it, as boost_delete_controller.js does, and Delete shrinks it away while it goes.
- * Other people's do nothing.
+ * One reaction: its booster's avatar, named "<name> boosted <content>", then the content, larger when
+ * it's all emoji. Clicking your own, or pressing Enter on it, reveals Delete this boost and focuses it,
+ * as boost_delete_controller.js does, and Delete shrinks it away while it goes. Other people's do
+ * nothing.
  */
 function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDelete: (() => boolean) | null }) {
   const nameOf = useNameOf();
@@ -133,13 +132,13 @@ function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDe
     <li
       className={cn(
         "relative mt-1 flex max-w-full items-center gap-x-[0.4ch] rounded-[4rem] border bg-background pt-[0.1em] pb-[0.1em] pl-[0.1em] hover:not-active:border-muted-foreground",
-        // ember-rust's pill keeps the gap before its Delete form while the button in it is hidden.
+        // The pill keeps the gap before its Delete button while that's hidden.
         reveal ? "pr-[0.2em]" : "pr-[calc(0.2em+0.4ch)]",
         deleting && "pointer-events-none animate-scale-fade-out motion-reduce:animate-none motion-reduce:opacity-0",
       )}
     >
       {/*
-       * 2.2ch of the medium weight of ember-rust's avatar button, over the button that takes the rest of the
+       * 2.2ch of the medium weight of the avatar button, over the button that takes the rest of the
        * pill's clicks. A pill has no room for two targets a fingertip can find, so on touch screens your own
        * is all that button.
        */}
@@ -181,9 +180,9 @@ function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDe
 }
 
 /**
- * New boost's form (messages/boosts/new.html, zz-ember.css's `.mb-custom-reaction`): your avatar and
- * "Custom reaction", a field for up to 16 characters that can't start with a space, and Cancel and Add
- * reaction. Escape cancels. It scrolls itself into view, as its scroll-into-view controller does.
+ * New boost's form: your avatar and "Custom reaction", a field for up to 16 characters that can't start
+ * with a space, and Cancel and Add reaction. Escape cancels. It scrolls itself into view, as its
+ * scroll-into-view controller does.
  */
 function CustomReaction({ me, fieldRef, onAdd, onCancel }: { me: Me; fieldRef?: Ref<HTMLInputElement>; onAdd: (content: string) => void; onCancel: () => void }) {
   const form = useRef<HTMLFormElement>(null);

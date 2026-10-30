@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { EMAIL_FROM_REFUSED } from "@ember/protocol";
 import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
@@ -33,7 +32,7 @@ async function openEmail(page: Page) {
   return page.getByRole("region", { name: "Email", exact: true });
 }
 
-test.describe(feature("platform.email"), () => {
+test.describe("Sending email", () => {
   test("the administrator sets up Resend with an API key Ember checks, a From address and a test email", async ({ page, baseURL }) => {
     const email = await openEmail(page);
     await expect(email).toContainText("Ember can't send email yet, so it can't email invitations, the links people at your email domains join with, or codes to reset a forgotten password.");

@@ -1,8 +1,7 @@
-import { feature } from "@ember/parity";
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
-/** Where a flash is, stopped mid-animation so it stays to be measured, as ember-rust's tests stop theirs. */
+/** Where a flash is, stopped mid-animation so it stays to be measured. */
 async function hold(flash: Locator) {
   await flash.evaluate((node: HTMLElement) => {
     node.style.animation = "none";
@@ -14,8 +13,8 @@ async function hold(flash: Locator) {
 const leaveForNextPage = (page: Page, message: { kind: "notice" | "alert"; text: string }) =>
   page.evaluate((message) => sessionStorage.setItem("ember:flash", JSON.stringify(message)), message);
 
-test.describe(feature("ui.flash"), () => {
-  test("centers an alert over the page, 12px below the header, at each width ember-rust measures", async ({ members }) => {
+test.describe("Saved notices", () => {
+  test("centers an alert over the page, 12px below the header, at 1311, 1000 and 390px wide", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1311, height: 900 } } });
     for (const width of [1311, 1000, 390]) {
       await ada.page.setViewportSize({ width, height: 900 });
@@ -68,7 +67,7 @@ test.describe(feature("ui.flash"), () => {
     expect(flash).toMatchObject({ width: 48, height: 48 });
     await expect(notice.locator("svg")).toHaveCount(1);
     const [background, green] = await notice.evaluate((node) => {
-      // Campfire's --color-positive, as ember-rust sets it.
+      // Campfire's --color-positive.
       const probe = document.body.appendChild(document.createElement("div"));
       probe.style.backgroundColor = "oklch(65.59% 0.234 142.49)";
       const colors = [getComputedStyle(node).backgroundColor, getComputedStyle(probe).backgroundColor];

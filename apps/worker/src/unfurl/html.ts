@@ -1,13 +1,12 @@
 import { ENTITIES } from "./entities";
 
 // The slice of `Nokogiri::HTML(html)` (libxml2's legacy HTML parser, in recovery mode) that a link
-// preview reads: its `<meta>` elements. Ported from ember-rust's
-// crates/ember/src/integrations/opengraph/html.rs, so pages tokenize as they do there: the page is read
-// as UTF-8, with any byte that isn't valid UTF-8 taken as Latin-1, a NUL ends it, `<script>` and
-// `<style>` hold raw text, comments and `<!…>`/`<?…>` markup are skipped, tag and attribute names are
-// lowercased, the first of a repeated attribute wins, and attribute values decode HTML 4 entities
-// only when they end with `;`, and numeric references with or without one (an invalid one cuts the
-// value short, as the NUL it produces ends libxml2's C string).
+// preview reads: its `<meta>` elements. Pages tokenize as they do there: the page is read as UTF-8, with
+// any byte that isn't valid UTF-8 taken as Latin-1, a NUL ends it, `<script>` and `<style>` hold raw
+// text, comments and `<!…>`/`<?…>` markup are skipped, tag and attribute names are lowercased, the first
+// of a repeated attribute wins, and attribute values decode HTML 4 entities only when they end with `;`,
+// and numeric references with or without one (an invalid one cuts the value short, as the NUL it
+// produces ends libxml2's C string).
 
 export type Attributes = ReadonlyMap<string, string>;
 

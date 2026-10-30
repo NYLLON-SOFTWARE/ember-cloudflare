@@ -5,15 +5,14 @@ import { useMounted } from "@/hooks/use-mounted";
 import { forgetTurnstileKeys, isSignedOut } from "@/lib/api";
 import { BUTTON } from "./email-settings";
 
-// This port's own Turnstile card in Membership (`auth.turnstile`), for administrators: whether Cloudflare
-// Turnstile checks that whoever signs up, or asks Ember to email them, is a person, with the keys of the
-// widget an administrator gave Ember, or the deployment's secrets, which nothing here changes. Its switch
-// says whether it does, as the ways to join's switches say whether they let people in, and as
-// ember-rust's account settings show theirs (accounts/edit.html, Campfire's `.switch`), which the
-// project's owner chose to show plainly that it's on, over a badge or a green edge (2026-10-30).
-// Turning it on opens the steps to it (`TurnstileSetup`), as their switches open setup that's missing,
-// as the owner asked (2026-10-26), and turning it off takes the keys away. Change keys opens the steps
-// with the keys given.
+// The Turnstile card in Membership, for administrators: whether Cloudflare Turnstile checks that whoever
+// signs up, or asks Ember to email them, is a person, with the keys of the widget an administrator gave
+// Ember, or the deployment's secrets, which nothing here changes. Its switch says whether it does, as
+// the ways to join's switches say whether they let people in (Campfire's `.switch`), which the project's
+// owner chose to show plainly that it's on, over a badge or a green edge (2026-10-30). Turning it on
+// opens the steps to it (`TurnstileSetup`), as their switches open setup that's missing, as the owner
+// asked (2026-10-26), and turning it off takes the keys away. Change keys opens the steps with the keys
+// given.
 
 /** What turning Turnstile off asks first, since the limits on each network stand in for its check then. */
 export const CONFIRM_STOP_TURNSTILE =

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -115,7 +114,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("realtime.reconnect"), () => {
+describe("Catch up after a reconnect", () => {
   it("opens the room's socket, which the session cookie signs in", () => {
     joinGeneral({ connect: false });
     expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3");
@@ -414,7 +413,7 @@ describe(feature("realtime.reconnect"), () => {
   });
 });
 
-describe(feature("rooms.show"), () => {
+describe("Open a room", () => {
   it("takes the room's socket opened ahead of it, with what the room sent by then, and tells the room the tab is shown", async () => {
     openRoomSocketAhead("/rooms/general");
     socket().open();
@@ -453,7 +452,7 @@ describe(feature("rooms.show"), () => {
   });
 });
 
-describe(feature("realtime.keepalive"), () => {
+describe("Keeping the connection alive", () => {
   it("sends a heartbeat every 25 seconds while connected", () => {
     joinGeneral();
     wait(24_999);
@@ -489,7 +488,7 @@ describe(feature("realtime.keepalive"), () => {
   });
 });
 
-describe(feature("realtime.connection"), () => {
+describe("Connection sign-in and revocation", () => {
   it("signs out when the room refuses the socket because the session expired", async () => {
     const fetch = vi.fn(async () => Response.json({ error: "Not signed in" }, { status: 401 }));
     vi.stubGlobal("fetch", fetch);
@@ -641,7 +640,7 @@ const paragraphOf = (length: number) => `<p>${"x".repeat(length)}</p>`;
 /** A short message in more markup than a frame carries. */
 const overformatted = `<p>${"<b></b>".repeat(Math.ceil(MAX_MESSAGE_HTML_LENGTH / 7))}x</p>`;
 
-describe(feature("messages.create"), () => {
+describe("Send a message", () => {
   it(`says a message over ${MAX_MESSAGE_LENGTH} characters, or in more markup than a frame carries, is too long instead of sending it`, () => {
     const { result } = joinGeneral();
     let sent: boolean | undefined;
@@ -665,7 +664,7 @@ describe(feature("messages.create"), () => {
   });
 });
 
-describe(feature("messages.optimistic"), () => {
+describe("See your message before it's saved", () => {
   it("shows a message at once, then swaps in the room's copy", () => {
     const { result } = joinGeneral();
     act(() => result.current.postMessage("Hello"));
@@ -704,7 +703,7 @@ describe(feature("messages.optimistic"), () => {
   });
 });
 
-describe(feature("attachments.upload"), () => {
+describe("Attach files", () => {
   /** An upload useRoom started, which the test answers. */
   interface Started {
     file: File;
@@ -814,7 +813,7 @@ describe(feature("attachments.upload"), () => {
   });
 });
 
-describe(feature("realtime.typing"), () => {
+describe("Typing indicator", () => {
   it("tells the room you're typing at most once a second, and at once when you stop", () => {
     const { result } = joinGeneral();
     act(() => result.current.typing(true));
@@ -827,7 +826,7 @@ describe(feature("realtime.typing"), () => {
     expect(socket().sentOfType("typing.start")).toHaveLength(2);
     act(() => result.current.typing(false));
     expect(socket().sentOfType("typing.stop")).toHaveLength(1);
-    // As in ember-rust, stopping doesn't let the next start through any sooner.
+    // Stopping doesn't let the next start through any sooner.
     act(() => result.current.typing(true));
     expect(socket().sentOfType("typing.start")).toHaveLength(2);
     wait(1_000);
@@ -860,7 +859,7 @@ describe(feature("realtime.typing"), () => {
   });
 });
 
-describe(feature("messages.history"), () => {
+describe("Scroll back through history", () => {
   it("asks for the page before the oldest message, once at a time", () => {
     const { result } = joinGeneral({ messages: [message("m1"), message("m2")], hasMore: true });
     act(() => result.current.loadOlder());
@@ -908,7 +907,7 @@ describe(feature("messages.history"), () => {
   });
 });
 
-describe(feature("messages.permalink"), () => {
+describe("Link to a message", () => {
   it("opens the room around the message its permalink names, and connects again without it once in", () => {
     renderHook(() => useRoom("general", ada, () => {}, "m 5"));
     expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&around=m%205");
@@ -949,7 +948,7 @@ describe(feature("messages.permalink"), () => {
   });
 });
 
-describe(feature("ui.scroll"), () => {
+describe("Stay at the newest message", () => {
   it("jumps to the newest message where it is when the timeline holds it, or else on the newest page the room sends", () => {
     const { result } = joinGeneral({ messages: [message("m1")], hasNewer: true });
     act(() => result.current.jump(null));
@@ -1001,7 +1000,7 @@ describe(feature("ui.scroll"), () => {
   });
 });
 
-describe(feature("messages.edit"), () => {
+describe("Edit a message", () => {
   it("sends edits to the room and shows them when the room confirms", () => {
     const { result } = joinGeneral({ messages: [message("m1")] });
     act(() => result.current.messageActions.edit("m1", "<p>Better</p>"));
@@ -1033,7 +1032,7 @@ describe(feature("messages.edit"), () => {
   });
 });
 
-describe(feature("messages.delete"), () => {
+describe("Delete a message", () => {
   it("sends deletions to the room and removes the message when the room confirms", () => {
     const { result } = joinGeneral({ messages: [message("m1"), message("m2")] });
     act(() => result.current.messageActions.remove("m1"));
@@ -1043,7 +1042,7 @@ describe(feature("messages.delete"), () => {
   });
 });
 
-describe(feature("boosts.add"), () => {
+describe("React to a message", () => {
   it("sends reactions to the room and shows them when the room confirms", () => {
     const { result } = joinGeneral({ messages: [message("m1")] });
     let sent: boolean | undefined;
@@ -1058,7 +1057,7 @@ describe(feature("boosts.add"), () => {
   });
 });
 
-describe(feature("boosts.remove"), () => {
+describe("Take back a reaction", () => {
   it("sends the removal to the room and drops the reaction when the room confirms", () => {
     const boost = { id: "b1", messageId: "m1", booster: ada, content: "🎉", createdAt: "" };
     const { result } = joinGeneral({ messages: [message("m1", { boosts: [boost] })] });
@@ -1073,7 +1072,7 @@ describe(feature("boosts.remove"), () => {
   });
 });
 
-describe(feature("realtime.presence"), () => {
+describe("Presence", () => {
   it("keeps the list of who's here current", () => {
     const { result } = joinGeneral();
     socket().receive({ type: "presence.joined", user: grace });
@@ -1128,7 +1127,7 @@ describe(feature("realtime.presence"), () => {
   });
 });
 
-describe(feature("rooms.member-only-access"), () => {
+describe("Only members see a room", () => {
   it("stops connecting to a room that's gone for the person, deleted or no longer theirs", async () => {
     const fetch = vi.fn(async () => Response.json({ user: ada }));
     vi.stubGlobal("fetch", fetch);

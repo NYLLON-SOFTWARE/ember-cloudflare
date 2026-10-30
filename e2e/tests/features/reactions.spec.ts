@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Locator } from "@playwright/test";
 import { expect, test, type Member } from "./fixtures";
 
@@ -22,7 +21,7 @@ async function newBoost(member: Member, text: string): Promise<Locator> {
   return field;
 }
 
-test.describe(feature("boosts.add"), () => {
+test.describe("React to a message", () => {
   test("adds a quick reaction from the bar for everyone to see, with the avatar of who added it", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -64,15 +63,13 @@ test.describe(feature("boosts.add"), () => {
     await expect(avatars.nth(0)).toHaveAccessibleName("Grace boosted 👏");
     await expect(avatars.nth(1)).toHaveAccessibleName("Ada boosted 👏");
 
-    // Unlike ember-rust's, a second 👏 from Ada does nothing, so the 👍 after it is the third reaction.
+    // A second 👏 from Ada does nothing, so the 👍 after it is the third reaction.
     await react(ada, text, "Clapping");
     await react(ada, text, "Thumbs up");
     await expect(avatars.nth(2)).toHaveAccessibleName("Ada boosted 👍");
     await expect(avatars).toHaveCount(3);
   });
 
-  // After ember-rust's "inline Add a boost opens the shared emoji tray and survives reaction-frame
-  // replacement" (parity/kro/workspace.test.mjs).
   test("opens the bar with More reactions from Add a boost, and Escape hands focus back to it", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1200, height: 900 } } });
     const text = "React from either control.";
@@ -108,9 +105,8 @@ test.describe(feature("boosts.add"), () => {
   });
 });
 
-test.describe(feature("boosts.custom"), () => {
-  // After ember-rust's "custom reactions use a spaced form with validation, cancel, and mobile layouts"
-  // (parity/kro/workspace.test.mjs), whose phone layouts the mobile suite checks.
+test.describe("Custom reactions", () => {
+  // The mobile suite checks the form's phone layouts.
   test("adds a reaction of your own from New boost, but not a blank one or one starting with a space", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1008, height: 797 } } });
     const grace = await members.signIn("Grace");
@@ -183,7 +179,7 @@ test.describe(feature("boosts.custom"), () => {
   });
 });
 
-test.describe(feature("boosts.remove"), () => {
+test.describe("Take back a reaction", () => {
   // After Campfire's "deleting a boost" (boosting_messages_test.rb).
   test("takes back your own reaction from Delete this boost, for everyone", async ({ members }) => {
     const ada = await members.signIn("Ada");

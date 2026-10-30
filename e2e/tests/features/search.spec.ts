@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 
@@ -24,7 +23,7 @@ async function searchUntil(page: Page, query: string, found: Locator) {
   }).toPass();
 }
 
-test.describe(feature("search.messages"), () => {
+test.describe("Search messages", () => {
   test("finds messages from the rail's Search, oldest first and the newest in view, each linking to the message from its room's name", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada");
     const word = uniqueWord("zebra");
@@ -59,7 +58,7 @@ test.describe(feature("search.messages"), () => {
     await ada.send(`The ${one} ${two}`);
     await ada.page.goto("/searches");
     const found = results(ada.page).getByRole("article");
-    // Punctuation turns to spaces, as ember-rust's search does, and the address keeps them.
+    // Punctuation turns to spaces, and the address keeps them.
     await expect(async () => {
       await field(ada.page).fill(`${two}, ${one}!`);
       await field(ada.page).press("Enter");
@@ -75,7 +74,7 @@ test.describe(feature("search.messages"), () => {
   });
 });
 
-test.describe(feature("search.page"), () => {
+test.describe("Search page", () => {
   test("opens from a room's header, clears the field with its × or Escape, and goes back to the room on Exit", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada");
     await ada.page.getByRole("navigation", { name: "Page" }).getByRole("link", { name: "Search messages" }).click();
@@ -108,7 +107,7 @@ test.describe(feature("search.page"), () => {
 
 });
 
-test.describe(feature("search.recent"), () => {
+test.describe("Recent searches", () => {
   test("keeps your own recent searches, newest first, to search again, until you clear them", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.page.goto("/searches");

@@ -1,12 +1,10 @@
-import { feature } from "@ember/parity";
 import { MAX_MESSAGE_HTML_LENGTH, MESSAGE_TOO_LONG } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { MAX_ROOM_FRAME_SIZE, MAX_WORKSPACE_FRAME_SIZE } from "../src/sockets";
 import { closeOf, connect, freshRoom, openWorkspaceSocket, settle, signIn } from "./support";
 
 // A Durable Object reads one frame at a time, for every socket it serves, so it closes a socket that
-// sends a frame larger than it takes before reading it, as ember-rust's cable closes a connection
-// sent a message of more than 1 MiB (crates/cable/src/socket.rs).
+// sends a frame larger than it takes before reading it.
 
 /** A ping the runtime doesn't answer itself, of `bytes` in UTF-8: JSON may end in as many spaces as it likes. */
 const paddedPing = (bytes: number) => JSON.stringify({ type: "ping" }).padEnd(bytes, " ");
@@ -14,7 +12,7 @@ const paddedPing = (bytes: number) => JSON.stringify({ type: "ping" }).padEnd(by
 /** A ping with `nonce`, which takes 26 bytes more than it. */
 const ping = (nonce: string) => JSON.stringify({ type: "ping", nonce });
 
-describe(feature("platform.limits"), () => {
+describe("Request and connection limits", () => {
   it("reads a frame of 1 MiB on a room's socket, and closes one sent a byte more, before reading it", async () => {
     const room = await freshRoom("frame-limit");
     const ada = await connect(room, "Ada");

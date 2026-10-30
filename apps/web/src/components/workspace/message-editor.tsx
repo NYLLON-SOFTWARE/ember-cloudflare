@@ -32,21 +32,20 @@ export interface MessageEditorHandle {
 }
 
 /**
- * ember-rust's edit form (messages/edit.html, Campfire's composer.css and messages.css, zz-ember.css), in
- * the message's place: a card holding the text in Lexxy, with its formatting toolbar above the text on
- * wide screens with a mouse (rich-text-editor.css), and round Save changes and Delete message buttons
- * under it, beside a button that closes it. Ctrl or Cmd+Enter saves, Escape closes it, and Enter starts a
- * new paragraph. @ offers the room's people, as the composer's does. Like ember-rust's, it takes no files
- * and tells no one you're typing.
+ * The edit form (Campfire's composer.css and messages.css), in the message's place: a card holding the
+ * text in Lexxy, with its formatting toolbar above the text on wide screens with a mouse
+ * (rich-text-editor.css), and round Save changes and Delete message buttons under it, beside a button
+ * that closes it. Ctrl or Cmd+Enter saves, Escape closes it, and Enter starts a new paragraph. @ offers
+ * the room's people, as the composer's does. It takes no files and tells no one you're typing.
  */
 export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const container = useRef<HTMLDivElement>(null);
   const people = useContext(PeopleContext);
-  // ember-rust's editable body: its mentions as the editor draws them, of the people as they are now, and its
-  // link previews as the message shows them here. It drops a mention of no one, and a message from before messages
-  // named the people they mention knows them only from the directory, so for such a message the editor waits for
-  // the directory to load, when it lists everyone.
+  // The editable body: its mentions as the editor draws them, of the people as they are now, and its link previews
+  // as the message shows them here. It drops a mention of no one, and a message from before messages named the
+  // people they mention knows them only from the directory, so for such a message the editor waits for the
+  // directory to load, when it lists everyone.
   const knowsMentions = useContext(DirectoryLoaded) || message.mentions.every((person) => person.name !== "");
   const editableNow = () =>
     editableBody(
@@ -76,7 +75,7 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
 
   return (
     // The card and the close button sit half a character apart, and the close button as far from the
-    // message's edge, where ember-rust's empty delete form takes another gap.
+    // message's edge.
     <div ref={container} className="col-start-2 flex min-w-0 gap-x-[0.5ch] py-1 pr-[0.5ch] text-sm">
       <div className="message-edit min-w-0 flex-1 rounded-[10px] border bg-surface p-3">
         {/* Not validated, as the composer isn't, so the toolbar's hidden Link field can't stop Save. */}
@@ -139,11 +138,10 @@ interface FixedMessageEditorProps {
 }
 
 /**
- * ember-rust's edit form for a file message (messages/edit.html), whose text can't be edited: the message as
- * it shows, its file, with Delete message centered under it, beside the button that closes it. A message with
- * cards, whose text the room won't change, opens it too. It focuses Delete message as it opens, as the text
- * editor focuses the text, where ember-rust's form leaves focus behind, and Escape closes it, as the text
- * editor's form does. Delete message asks first.
+ * The edit form for a file message, whose text can't be edited: the message as it shows, its file, with
+ * Delete message centered under it, beside the button that closes it. A message with cards, whose text
+ * the room won't change, opens it too. It focuses Delete message as it opens, as the text editor focuses
+ * the text, and Escape closes it, as the text editor's form does. Delete message asks first.
  */
 export function FixedMessageEditor({ children, onDelete, onClose, ref }: FixedMessageEditorProps) {
   const container = useRef<HTMLDivElement>(null);

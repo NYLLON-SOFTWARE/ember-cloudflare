@@ -7,11 +7,8 @@ import { iconLabel, roomIconLabel, type IconContext } from "@/components/icons/r
 import { cn } from "@/lib/utils";
 import { displayLabel, ICON_COLLECTIONS, prepareCatalog, searchIcons, type Catalog, type CatalogIcon, type IconCollection, type PreparedCatalog } from "./icon-catalog";
 
-// ember-rust's icon pickers as its pull request #24 (d49621e) has them: the room's
-// (rooms/layouts/_icon_picker.html) and their dialog (components/icon_picker_dialog.html), run as its
-// crates/assets/overrides/controllers/icon_picker_controller.js runs them and styled by zz-ember.css
-// (.mb-icon-picker, .mb-icon-dialog). The icon applied here is saved with the form. ember-rust offers
-// a plain select without JavaScript, which the app can't run without.
+// The icon pickers, the room's and the rail's, and their dialog. The icon applied here is saved with the
+// form.
 
 /** How many icons the grid shows at a time. */
 const PAGE_SIZE = 72;
@@ -39,9 +36,9 @@ function resultsLabel(count: number, shown: number, collection: IconCollection):
   return `${count.toLocaleString()} ${count === 1 ? "icon" : "icons"}${count > shown ? ` · ${shown} shown` : ""}`;
 }
 
-/** Campfire's `.btn` as ember-rust's zz-ember.css sets it, which no hover changes. */
+/** Campfire's `.btn`, which no hover changes. */
 const BUTTON = "inline-flex cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-[1.1em] py-[0.5em] font-medium text-foreground";
-/** `.mb-icon-dialog-footer .btn`, 44px tall on touch screens, where ember-rust's are at 600px wide and below. */
+/** The dialog's footer buttons, 44px tall on touch screens. */
 const FOOTER_BUTTON = "min-h-10 px-3.5 py-2 touch:min-h-11";
 
 /** What the dialog opens for: an icon chosen so far, its default, and where the icon applied goes. */
@@ -74,9 +71,9 @@ interface IconDialogProps {
 }
 
 /**
- * ember-rust's icon_picker_dialog.html: every icon in the catalog, in Lucide's and Iconoir's tabs or
- * both, to search, page through and pick from, by pointer or keyboard, before applying one or keeping
- * the icon as it was. A picker opens it with what it's choosing.
+ * The icon dialog: every icon in the catalog, in Lucide's and Iconoir's tabs or both, to search, page
+ * through and pick from, by pointer or keyboard, before applying one or keeping the icon as it was. A
+ * picker opens it with what it's choosing.
  */
 export function IconDialog({ ref, context, title, description, group, catalogUrl = CATALOG_URL }: IconDialogProps) {
   const titleId = useId();
@@ -89,7 +86,7 @@ export function IconDialog({ ref, context, title, description, group, catalogUrl
   const [choice, setChoice] = useState<IconChoice | null>(null);
   const [catalog, setCatalog] = useState<PreparedCatalog | null>(null);
   const [status, setStatus] = useState<"loading" | "failed" | "ready">("loading");
-  // The tab, which stays as it was the next time the dialog opens, as ember-rust's does.
+  // The tab, which stays as it was the next time the dialog opens.
   const [collection, setCollection] = useState<IconCollection>("All");
   // The tab as it is now, which icons still loading when another was chosen are searched in.
   const collectionNow = useRef(collection);
@@ -137,8 +134,8 @@ export function IconDialog({ ref, context, title, description, group, catalogUrl
 
   useImperativeHandle(ref, () => ({
     open(next) {
-      // Cleared here, as ember-rust's open() clears it, since the search reads the field itself: a
-      // catalog already in is searched before React would draw the field again.
+      // Cleared here, since the search reads the field itself: a catalog already in is searched before
+      // React would draw the field again.
       if (searchBox.current) searchBox.current.value = "";
       setChoice(next);
       setStaged(next.icon);
@@ -231,7 +228,7 @@ export function IconDialog({ ref, context, title, description, group, catalogUrl
       onClick={backdrop}
       className={cn(
         "m-auto w-[600px] overflow-hidden rounded-2xl border bg-background p-0 text-foreground shadow-[0_16px_60px_var(--color-dialog-shadow)] backdrop:bg-dialog-backdrop open:flex open:flex-col",
-        // Centered in the safe area, clear of the notch and the home indicator, which ember-rust's isn't.
+        // Centered in the safe area, clear of the notch and the home indicator.
         "inset-[env(safe-area-inset-top)_env(safe-area-inset-right)_env(safe-area-inset-bottom)_env(safe-area-inset-left)]",
         "max-h-[min(720px,calc(100dvh-40px-env(safe-area-inset-top)-env(safe-area-inset-bottom)))] max-w-[calc(100dvw-32px-env(safe-area-inset-left)-env(safe-area-inset-right))]",
         "upto-600px:max-h-[calc(100dvh-24px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] upto-600px:max-w-[calc(100dvw-24px-env(safe-area-inset-left)-env(safe-area-inset-right))]",
@@ -250,7 +247,7 @@ export function IconDialog({ ref, context, title, description, group, catalogUrl
         </button>
       </header>
 
-      {/* A label, where ember-rust's is a box, so a tap anywhere on it reaches the field. */}
+      {/* A label, so a tap anywhere on it reaches the field. */}
       <label className="mx-6 mb-4 flex flex-none cursor-text items-center gap-2.5 rounded-[9px] border px-3 py-2.5 focus-within:border-foreground focus-within:ring-1 focus-within:ring-foreground upto-600px:mx-4 short:mb-2">
         <Search className="size-[18px] flex-[0_0_18px] text-muted-foreground" />
         <input
@@ -271,7 +268,7 @@ export function IconDialog({ ref, context, title, description, group, catalogUrl
         />
       </label>
 
-      {/* Its tabs are 44px tall on touch screens, where ember-rust's are 40px at 600px wide and below. */}
+      {/* Its tabs are 44px tall on touch screens. */}
       <div role="tablist" aria-label="Icon collection" onKeyDown={navigateCollections} className="mx-6 mb-4 flex flex-none gap-1 rounded-[9px] border bg-surface p-1 upto-600px:mx-4 short:mb-2">
         {ICON_COLLECTIONS.map((name) => (
           <button
@@ -290,7 +287,7 @@ export function IconDialog({ ref, context, title, description, group, catalogUrl
         ))}
       </div>
 
-      {/* ember-rust keeps 150px of icons, which pushes the footer off a phone in landscape. */}
+      {/* At least 150px of icons, but on a short screen, where that would push the footer off a phone in landscape. */}
       <div
         ref={browse}
         id={`${titleId}_results`}
@@ -333,7 +330,7 @@ export function IconDialog({ ref, context, title, description, group, catalogUrl
                 onClick={() => setStaged(option.name)}
                 className="flex min-h-[66px] min-w-0 cursor-pointer flex-col items-center justify-center gap-[7px] rounded-[9px] border border-transparent bg-background px-[3px] pt-[9px] pb-[7px] text-foreground hover:bg-hover focus-visible:outline-offset-0 aria-pressed:border-foreground aria-pressed:bg-hover"
               >
-                {/* The catalog's own markup, checked by catalog.test.ts, as ember-rust draws it. */}
+                {/* The catalog's own markup, checked by catalog.test.ts. */}
                 <span aria-hidden="true" className="flex [&>svg]:size-[23px]" dangerouslySetInnerHTML={{ __html: option.svg }} />
                 <span className="line-clamp-2 min-h-[2.6em] w-full text-[11px] leading-[1.3] wrap-anywhere hyphens-auto text-muted-foreground">{label}</span>
               </button>
@@ -382,7 +379,7 @@ interface IconTriggerProps {
   onOpen: (trigger: HTMLButtonElement) => void;
 }
 
-/** `.mb-icon-picker-trigger`: the icon chosen and what it is, with a chevron, opening the dialog to choose another. */
+/** The picker's button: the icon chosen and what it is, with a chevron, opening the dialog to choose another. */
 export function IconTrigger({ label, preview, title, subtitle, disabled, onOpen }: IconTriggerProps) {
   return (
     <button

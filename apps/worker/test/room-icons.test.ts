@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { RoomId, RoomSettings, SharedRoom, Sidebar } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import { api, createRoom, direct, freshDeploy, signIn, workspaceSql, type Session } from "./support";
@@ -18,7 +17,7 @@ const icons = async (session: Session) =>
 
 const stored = async (roomId: RoomId) => (await workspaceSql("SELECT name, icon FROM rooms WHERE id = ?", roomId))[0];
 
-describe(feature("rooms.icons"), () => {
+describe("Room icons", () => {
   it("makes a room with the icon chosen, or the default `#` with none or \"\", and lists it for everyone in it", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const coffee = await createRoom("Coffee", { icon: "coffee", as: ada });

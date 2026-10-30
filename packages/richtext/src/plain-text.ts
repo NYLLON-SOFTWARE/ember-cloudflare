@@ -1,4 +1,4 @@
-// `ActionText::PlainTextConversion` (ember-rust's crates/richtext/src/plain_text.rs).
+// `ActionText::PlainTextConversion`.
 
 import { chompNewlines, isBlank } from "./ruby";
 import { ancestors, nodeName, textContent, type Element, type Node, type Parent } from "./tree";

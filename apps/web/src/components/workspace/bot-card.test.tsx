@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Card, CardPart } from "@ember/protocol";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -17,7 +16,7 @@ function show(...cards: Card[]) {
 /** The bar down a card's frame. */
 const barOf = (frame: HTMLElement) => frame.querySelector<HTMLElement>(":scope > span[aria-hidden]")!;
 
-describe(feature("bots.cards"), () => {
+describe("Bot cards", () => {
   it("shows an attachment's pretext above its frame, then its author, title, text, fields, image, buttons and footer, with its thumbnail beside them", () => {
     const at = 1792612211;
     const [frame] = show(

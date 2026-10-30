@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { avatarSvg, type DirectoryUser, type User } from "@ember/protocol";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -17,7 +16,7 @@ function picture(avatar: React.ReactElement, people: People = new Map([[ada.id, 
   return { image: container.querySelector("img")!, rerender: (next: People) => rerender(<PeopleContext value={next}>{avatar}</PeopleContext>) };
 }
 
-describe(feature("users.avatars"), () => {
+describe("Initials avatars", () => {
   it("shows the image the directory gives the address of, over the initials, hidden from screen readers", () => {
     const { image } = picture(<UserAvatar user={ada} />);
     expect(image).toHaveAttribute("src", ada.avatarUrl);
@@ -82,7 +81,7 @@ describe(feature("users.avatars"), () => {
   });
 });
 
-describe(feature("users.avatar-links"), () => {
+describe("Avatars open people's pages", () => {
   afterEach(() => history.replaceState(null, "", "/"));
 
   it("links to the person's page, titled with their name and bio as the directory lists them, around the image screen readers skip", () => {
@@ -110,7 +109,7 @@ describe(feature("users.avatar-links"), () => {
     expect(screen.getByRole("link")).toHaveAttribute("href", "/users/a%2Fb%3Fc");
   });
 
-  it("goes to the person's page in place, as Turbo follows ember-rust's", async () => {
+  it("goes to the person's page in place", async () => {
     picture(<AvatarLink user={ada} />);
     const length = history.length;
     await userEvent.click(screen.getByRole("link"));

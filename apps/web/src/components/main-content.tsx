@@ -4,10 +4,10 @@ import { cn } from "@/lib/utils";
 const MAIN_CONTENT = "main-content";
 
 /**
- * ember-rust's "Skip to main content" (layouts/application.html), first in the tab order and hidden
- * until it's focused, when it shows as a button below the header's left end, as Campfire's
- * `.skip-navigation` places it (nav.css), or where `className` places it. It focuses the page's main
- * content and leaves the address as it is, where following ember-rust's adds `#main-content`.
+ * "Skip to main content", first in the tab order and hidden until it's focused, when it shows as a
+ * button below the header's left end, as Campfire's `.skip-navigation` places it (nav.css), or where
+ * `className` places it. It focuses the page's main content and leaves the address as it is, rather than
+ * adding `#main-content`.
  */
 export function SkipLink({ className }: { className?: string }) {
   return (

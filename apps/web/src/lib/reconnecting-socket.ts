@@ -128,9 +128,9 @@ function replay(socket: WebSocket, heard: Event[]) {
 
 /**
  * A WebSocket that connects again whenever it closes, waiting half a second, doubling to fifteen, give
- * or take a quarter. ember-rust's ActionCable waits longer, 6 seconds growing 15% a try. An open socket
- * pings every 25 seconds and reconnects when a ping goes unanswered, and it's checked again when the
- * tab is shown or the network comes back, as ActionCable's ConnectionMonitor checks for a stale one.
+ * or take a quarter. ActionCable waits longer, 6 seconds growing 15% a try. An open socket pings every
+ * 25 seconds and reconnects when a ping goes unanswered, and it's checked again when the tab is shown or
+ * the network comes back, as ActionCable's ConnectionMonitor checks for a stale one.
  */
 export function reconnectingSocket(options: ReconnectingSocketOptions): ReconnectingSocket {
   let stopped = false;

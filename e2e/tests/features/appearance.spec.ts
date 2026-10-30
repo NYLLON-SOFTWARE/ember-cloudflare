@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Page } from "@playwright/test";
 import { expect, test, type Member } from "./fixtures";
 
@@ -17,7 +16,7 @@ async function choose(member: Member, appearance: "Light" | "Dark" | "System") {
   await expect(menu.getByRole("radio", { name: appearance })).toBeChecked();
 }
 
-test.describe(feature("ui.appearance"), () => {
+test.describe("Light, dark or system appearance", () => {
   test("opens a dialog of radio buttons from a button named for the choice", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { colorScheme: "light" } });
     const button = appearanceButton(ada.page);

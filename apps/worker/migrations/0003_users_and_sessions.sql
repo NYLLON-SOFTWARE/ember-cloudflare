@@ -1,13 +1,13 @@
--- People and their sessions, kept by the Workspace (scope "workspace" in src/migrations.ts). The
--- columns follow ember-rust's users and sessions (crates/db/src/schema.sql), with string ids, ISO
--- times, and a digest of each session's token where ember-rust stores the token itself.
+-- People and their sessions, kept by the Workspace (scope "workspace" in src/migrations.ts). The columns
+-- follow Campfire's users and sessions (db/schema.rb), with string ids, ISO times, and a digest of each
+-- session's token where Campfire stores the token itself.
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   -- Guests have neither.
   email_address TEXT,
   password_digest TEXT,
-  -- ember-rust's values: 0 member, 1 administrator, 2 bot.
+  -- Campfire's values: 0 member, 1 administrator, 2 bot.
   role INTEGER NOT NULL DEFAULT 0,
   -- 0 active, 1 deactivated, 2 banned.
   status INTEGER NOT NULL DEFAULT 0,

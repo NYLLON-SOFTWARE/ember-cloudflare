@@ -1,9 +1,8 @@
 -- The links Ember emails people to join with, kept by the Workspace (scope "workspace" in
--- src/migrations.ts), this port's own: an administrator's invitation to an email address
--- (`accounts.invitations`). A link works once, until it expires, and only by submitting the join form,
--- which deletes its row as it adds the person, so the mail filters that open the links in incoming mail
--- never spend one. Resending replaces the link, so only the newest works, and an address has one of
--- each kind.
+-- src/migrations.ts): an administrator's invitation to an email address. A link works once, until it
+-- expires, and only by submitting the join form, which deletes its row as it adds the person, so the
+-- mail filters that open the links in incoming mail never spend one. Resending replaces the link, so
+-- only the newest works, and an address has one of each kind.
 CREATE TABLE IF NOT EXISTS email_links (
   id TEXT PRIMARY KEY,
   -- The link's secret's HMAC under SESSION_SECRET, as a session token's is kept, since the secret alone joins.

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
 import { ICON_CATALOG_LOADED, signInAsAdministrator, useOwnAddress } from "../../fixtures";
@@ -6,12 +5,12 @@ import { ICON_CATALOG_LOADED, signInAsAdministrator, useOwnAddress } from "../..
 /** The rail's Home link. */
 const homeOf = (page: Page) => page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Home", exact: true });
 
-test.describe(feature("accounts.navigation-icons"), () => {
+test.describe("Navigation icons", () => {
   test("the administrator gives Home a coffee cup in Custom styles, which every tab's rail shows at once, then gives Home its own back", async ({ page }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit");
     await signInAsAdministrator(page);
-    // Not in General, where ember-rust's pull request #24 has them.
+    // Not in General.
     await expect(page.getByRole("heading", { level: 1, name: "Basic community settings" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Navigation icons" })).toHaveCount(0);
     await page.getByRole("navigation", { name: "Community settings" }).getByRole("link", { name: "Custom styles" }).click();

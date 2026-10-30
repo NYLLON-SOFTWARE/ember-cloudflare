@@ -1,5 +1,5 @@
 // What a bot's reply is, by its content type, as Campfire's `Webhook#deliver` reads it with Net::HTTP
-// and Rails' `Mime::Type.lookup`, and ember-rust's integrations/webhook.rs ports them.
+// and Rails' `Mime::Type.lookup`.
 
 import { strip } from "@ember/richtext";
 
@@ -39,7 +39,7 @@ const MIME_REGEXP = new RegExp(String.raw`^(?:\*\/\*|${MIME_NAME}\/(?:\*|${MIME_
 
 /**
  * `Mime::LOOKUP` in Campfire: Action Dispatch's registrations and turbo-rails', each type or synonym
- * with its symbol and the type it's registered as, as ember-rust lists them.
+ * with its symbol and the type it's registered as.
  */
 const MIME_LOOKUP = new Map(
   (

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Account } from "@ember/protocol";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -24,7 +23,7 @@ function renderOnRail() {
 const dialog = () => screen.queryByRole("dialog", { name: "Appearance" });
 const radio = (name: string) => screen.getByRole("radio", { name });
 
-describe(feature("ui.appearance"), () => {
+describe("Light, dark or system appearance", () => {
   it("is a button named and titled for the choice shown, with its icon", async () => {
     const user = userEvent.setup();
     const button = renderOnRail();
@@ -121,7 +120,7 @@ describe(feature("ui.appearance"), () => {
   });
 });
 
-describe(feature("accounts.navigation-icons"), () => {
+describe("Navigation icons", () => {
   function AccountWith({ navigationIcons }: { navigationIcons: Account["navigationIcons"] }) {
     return (
       <AccountContext value={{ ...useAccount(), navigationIcons }}>

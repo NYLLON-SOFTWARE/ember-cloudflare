@@ -13,15 +13,15 @@ import { cn } from "@/lib/utils";
 import { opensNewDirect } from "./new-direct-dialog";
 import { UserAvatar } from "./user-avatar";
 
-/** A row of the list, a room's or a DM's, as ember-rust's `.room` and `.direct` are (zz-ember.css). */
+/** A row of the list, a room's or a DM's. */
 const ROW =
   "flex min-h-9 items-center gap-2.5 rounded-lg px-[9px] py-[7px] text-sm leading-[22px] text-foreground no-underline touch:min-h-11 hover:bg-hover aria-[current=page]:bg-hover aria-[current=page]:font-semibold";
 
-/** How many avatars a group DM's row shows, as ember-rust's `_direct.html` takes them. */
+/** How many avatars a group DM's row shows. */
 const MAX_FACES = 4;
 
 interface Props {
-  /** The workspace's name, which heads the list, as ember-rust's users/sidebars/show.html has it. */
+  /** The workspace's name, which heads the list. */
   workspaceName: string;
   /** Who the sidebar is for, whose DMs name the others in them. */
   meId: UserId;
@@ -51,17 +51,13 @@ interface Props {
 
 /**
  * The conversation list: rooms, then DMs, under the workspace name, and under that in small type the
- * tagline an administrator gave it, this port's own, if it has one. The starred rooms come first, then
- * the ones the shared order ranks, in its order, then the rest by name, and a starred room's row ends
- * with a star, as channel_order_controller.js marks it (`.mb-room-favorite-marker`), without the grip
- * it shows before the star (`.mb-room-drag-handle`), which the project's owner chose to drop: held, the
- * row can be dragged among the other starred rows, or moved with Alt and an arrow (`useStarOrder`). The
- * DMs come latest active first, and a DM's row shows who else is in it, as ember-rust's `_direct.html`
- * does. People suggested for DMs follow, as ember-rust's `_direct_placeholder.html` lists them. A room
- * or DM marked unread is bold with a dot at the end of its row, as ember-rust's `.unread` and
- * `.mb-room-status` are (zz-ember.css). With Activity on, only those rows show, as shell.js's
- * `filterRooms` leaves them, and with none it says everything's read; with it off and nothing to list,
- * it says it found nothing.
+ * tagline an administrator gave it, if it has one. The starred rooms come first, then the ones the
+ * shared order ranks, in its order, then the rest by name, and a starred room's row ends with a star,
+ * with no grip, as the project's owner chose: held, the row can be dragged among the other starred rows,
+ * or moved with Alt and an arrow (`useStarOrder`). The DMs come latest active first, and a DM's row shows
+ * who else is in it. People suggested for DMs follow. A room or DM marked unread is bold with a dot at
+ * the end of its row. With Activity on, only those rows show, and with none it says everything's read;
+ * with it off and nothing to list, it says it found nothing.
  */
 export function Sidebar({
   workspaceName,
@@ -90,7 +86,7 @@ export function Sidebar({
   const listed = useMemo(() => inSidebarOrder(shared, order, sharedOrder), [shared, order, sharedOrder]);
   const starred = useMemo(() => new Set(order), [order]);
   const directsListed = useMemo(() => inDirectOrder(directs), [directs]);
-  // Activity hides the suggestions, as shell.js's `filterRooms` hides their forms.
+  // Activity hides the suggestions.
   const suggested = useMemo(() => (unreadOnly ? [] : suggestedPeople(suggestions, rooms)), [unreadOnly, suggestions, rooms]);
   const empty = loaded && listed.length === 0 && directsListed.length === 0 && suggested.length === 0;
   const helpId = useId();
@@ -98,8 +94,7 @@ export function Sidebar({
   const mounted = useMounted();
   // Who's suggested whose DM is starting, which another click doesn't start again.
   const [starting, setStarting] = useState<UserId | null>(null);
-  // A suggestion starts its DM once the page's guard lets it, as settings.js asks before ember-rust's
-  // suggestion posts its form from a page with changes to lose.
+  // A suggestion starts its DM once the page's guard lets it, from a page with changes to lose.
   const startWith = (person: User) => {
     if (starting) return;
     leave(async () => {
@@ -119,10 +114,10 @@ export function Sidebar({
   };
   return (
     <div ref={scrollerRef} className="flex h-full flex-col gap-3.5 overflow-y-auto overflow-x-hidden bg-surface px-3 pt-5 pb-[max(20px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] narrow:px-2 max-md:gap-4 max-md:px-2.5 max-md:pt-4 max-md:pb-[max(16px,env(safe-area-inset-bottom))]">
-      {/* ember-rust's `.mb-workspace-heading`, as an hgroup, HTML's element for a heading and its tagline. At
-          900px and below the drawer's close button sits at the end of the name's row, and the tagline keeps
-          clear of it too. A long name wraps where ember-rust's runs under the sidebar's edge, and so does a
-          tagline in a narrower sidebar or wider letters than its length allows for. */}
+      {/* The workspace's heading, as an hgroup, HTML's element for a heading and its tagline. At 900px and
+          below the drawer's close button sits at the end of the name's row, and the tagline keeps clear of it
+          too. A long name wraps rather than running under the sidebar's edge, and so does a tagline in a
+          narrower sidebar or wider letters than its length allows for. */}
       <hgroup className="px-1.5 max-md:pr-10">
         <h2 className="flex min-h-7 items-center gap-2 text-[17px] leading-6 font-[650] wrap-anywhere">{workspaceName}</h2>
         {tagline && <p className="text-[13px] leading-[18px] text-muted-foreground wrap-anywhere">{tagline}</p>}
@@ -146,8 +141,8 @@ export function Sidebar({
                 href={roomPath(room.id)}
                 draggable={false}
                 aria-current={room.id === currentRoomId ? "page" : undefined}
-                // Every row says how the stars are reordered, as ember-rust's do, and a marked one says it's
-                // unread, which ember-rust's shows only by its weight and dot.
+                // Every row says how the stars are reordered, and a marked one says it's unread, which the eye
+                // sees by its weight and dot.
                 aria-describedby={unread ? `${unreadId} ${helpId}` : helpId}
                 aria-keyshortcuts={star ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
                 onClick={(event) => select(event, room.id)}
@@ -162,14 +157,14 @@ export function Sidebar({
                 <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
                 <span className="truncate">{room.name}</span>
                 {/* The dot and star sit together at the row's end, pushed there by one auto margin. The star's
-                    muted at 65%, as ember-rust's pull request #24 fades `.mb-room-favorite-marker`. */}
+                    muted at 65%. */}
                 {unread && <span aria-hidden="true" className="ml-auto size-[7px] shrink-0 rounded-full bg-foreground" />}
                 {star && <StarSolid aria-label="Favorite" className={cn("size-3.5 shrink-0 text-muted-foreground/65", !unread && "ml-auto")} />}
               </a>
             );
           })}
         </div>
-        {/* Moves are told to screen readers, and a save that fails is shown, as ember-rust's `.mb-channel-order-status`. */}
+        {/* Moves are told to screen readers, and a save that fails is shown. */}
         <p role="status" className={status?.error ? "mx-[9px] my-1 text-xs leading-normal text-negative wrap-anywhere" : "sr-only"}>
           {status?.message}
         </p>
@@ -220,9 +215,8 @@ interface DirectRowProps {
 }
 
 /**
- * A DM's row, as ember-rust's `_direct.html` draws it: the avatar of the one other person in it, or of
- * up to four in a group, at 24px or 14px each (zz-ember.css, `.direct .avatar__group`), then their names,
- * or yours in a DM with yourself.
+ * A DM's row: the avatar of the one other person in it, or of up to four in a group, at 24px or 14px
+ * each, then their names, or yours in a DM with yourself.
  */
 function DirectRow({ room, meId, current, unreadId, onClick }: DirectRowProps) {
   const nameOf = useNameOf();
@@ -262,8 +256,8 @@ interface SuggestionRowProps {
 }
 
 /**
- * Someone suggested for a DM, as ember-rust's `_direct_placeholder.html` draws them: a button in a DM
- * row's style with their avatar and name, which starts the DM with them.
+ * Someone suggested for a DM: a button in a DM row's style with their avatar and name, which starts the
+ * DM with them.
  */
 function SuggestionRow({ person, starting, onClick }: SuggestionRowProps) {
   const nameOf = useNameOf();

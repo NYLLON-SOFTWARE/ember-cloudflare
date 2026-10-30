@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { BotAnswer, Bots, BotSettings, NewWorkspace, UserId } from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,8 +5,7 @@ import { DEFAULT_BOT_AVATAR } from "../src/default-bot-avatar";
 import type { Env } from "../src/env";
 import { api, apiWith, cookieOf, freshDeploy, openWorkspaceSocket, origin, recordedImage, shown, workspaceSql, type Session } from "./support";
 
-// Bots' avatars, as ember-rust's bot form saves `user[avatar]` with the rest of the bot
-// (crates/ember/src/controllers/accounts/bots.rs `create` and `update`).
+// Bots' avatars.
 
 const files = (env as unknown as Env).FILES!;
 
@@ -33,10 +31,10 @@ async function joinAsGrace(): Promise<Session> {
   return { user: shown(((await response.json()) as { user: Session["user"] }).user), cookie: cookieOf(response) };
 }
 
-/** moon.jpg, a JPEG of 640×640, as ember-rust's tests upload it. */
+/** moon.jpg, a JPEG of 640×640. */
 const moon = () => new File([recordedImage("moon-thumb.jpg")], "moon.jpg", { type: "image/jpeg" });
 
-/** ember-rust's variant of moon.jpg, a WebP of 512×512, standing in for the one the browser makes. */
+/** The variant of moon.jpg, a WebP of 512×512, standing in for the one the browser makes. */
 const moonVariant = () => new File([recordedImage("moon-avatar.webp")], "blob", { type: "image/webp" });
 
 /** A bot form with `fields` as JSON in its `user`, and moon.jpg and its variant as the avatar unless `avatar` says otherwise. */
@@ -75,7 +73,7 @@ const avatarKeyOf = async (userId: UserId) => ((await workspaceSql("SELECT avata
 
 const pendingDeletions = () => workspaceSql("SELECT object_key FROM pending_picture_deletions ORDER BY object_key");
 
-describe(feature("bots.create-edit"), () => {
+describe("Add and edit a bot", () => {
   it("adds a bot with the avatar its form brings, served as the variant the browser made, keeping the picture as it came", async () => {
     const administrator = await setUp();
     const bot = await botOf(await addBot(administrator, botForm({ name: "Build Bot", webhookUrl: "https://ci.example.com/hook" })), 201);
@@ -96,7 +94,7 @@ describe(feature("bots.create-edit"), () => {
     const member = await joinAsGrace();
     const added = await botOf(await addBot(administrator, botForm({ name: "Build Bot" }, null)), 201);
     expect(await (await avatar(added.avatarUrl, administrator)).text()).toBe(DEFAULT_BOT_AVATAR);
-    // An avatar's address counts seconds, as ember-rust's does, so the bot was added a while ago.
+    // An avatar's address counts seconds, so the bot was added a while ago.
     await workspaceSql("UPDATE users SET updated_at = ? WHERE id = ?", LONG_AGO, added.id);
     const bot = await botOf(await api(`/api/account/bots/${added.id}`, { headers: { Cookie: administrator.cookie } }));
     const workspace = await openWorkspaceSocket(member);
@@ -119,7 +117,7 @@ describe(feature("bots.create-edit"), () => {
     await vi.waitFor(async () => expect(await storedAvatars()).toEqual([second, `${second}/512`]), { timeout: 5_000 });
   });
 
-  it("keeps a bot's avatar through a change that brings none, as ember-rust's form does with no picture chosen", async () => {
+  it("keeps a bot's avatar through a change that brings none", async () => {
     const administrator = await setUp();
     const bot = await botOf(await addBot(administrator, botForm({ name: "Build Bot" })), 201);
     const key = await avatarKeyOf(bot.id);

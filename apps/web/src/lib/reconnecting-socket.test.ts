@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OFFLINE_AFTER_MS, openAhead, reconnectingSocket, waitingAhead, type ReconnectingSocket, type ReconnectingSocketOptions, type SocketStatus } from "./reconnecting-socket";
 
@@ -97,7 +96,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("realtime.keepalive"), () => {
+describe("Keeping the connection alive", () => {
   it("connects to the address it's given, saying it's connecting, then reconnecting after a close", () => {
     const { heard } = connect();
     expect(socket().url).toBe("ws://localhost/socket");
@@ -293,7 +292,7 @@ describe(feature("realtime.keepalive"), () => {
   });
 });
 
-describe(feature("realtime.reconnect"), () => {
+describe("Catch up after a reconnect", () => {
   it(`counts as offline ${OFFLINE_AFTER_MS / 1000} seconds after the connection drops, until the server lets one in again`, () => {
     const { live, heard } = connected();
     socket().drop();
@@ -336,7 +335,7 @@ describe(feature("realtime.reconnect"), () => {
   });
 });
 
-describe(feature("rooms.show"), () => {
+describe("Open a room", () => {
   it("takes the socket opened ahead to its address, hearing what it heard before it was taken, in order", async () => {
     openAhead("ws://localhost/socket");
     socket().open();

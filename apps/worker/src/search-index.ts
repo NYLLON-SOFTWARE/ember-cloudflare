@@ -31,7 +31,7 @@ export interface SearchHit {
 
 /**
  * How many of the newest matches a search reads, in rooms the searcher is in or not, before it asks for
- * only the ones in theirs, as ember-rust's `SEARCH_PROBE_LIMIT` (message.rs).
+ * only the ones in theirs.
  */
 export const SEARCH_PROBE_LIMIT = 1_000;
 
@@ -42,10 +42,10 @@ const PER_MILLISECOND = 1024;
 const FORGOTTEN = Number.MAX_SAFE_INTEGER;
 
 /**
- * ember-rust's search probe (`search_reachable_sql`, message.rs): the newest `SEARCH_PROBE_LIMIT` matches
- * of ?1, the FTS5 query, wherever they are, each saying whether it's in one of the rooms the JSON array
- * ?2 lists, and only then with what results show of it. It walks the index from its largest number, with
- * nothing to sort, so it reads only as many as are read from it.
+ * The search probe: the newest `SEARCH_PROBE_LIMIT` matches of ?1, the FTS5 query, wherever they are,
+ * each saying whether it's in one of the rooms the JSON array ?2 lists, and only then with what results
+ * show of it. It walks the index from its largest number, with nothing to sort, so it reads only as many
+ * as are read from it.
  */
 export const SEARCH_PROBE = `SELECT search_messages.message_id AS messageId, search_messages.room_id AS roomId,
     search_messages.room_id IN (SELECT value FROM json_each(?2)) AS reachable,
@@ -54,7 +54,7 @@ export const SEARCH_PROBE = `SELECT search_messages.message_id AS messageId, sea
   WHERE search_index MATCH ?1 ORDER BY search_index.rowid DESC LIMIT ${SEARCH_PROBE_LIMIT}`;
 
 /**
- * ember-rust's search when the probe fills up with matches in rooms the searcher isn't in: the newest
+ * The search for when the probe fills up with matches in rooms the searcher isn't in: the newest
  * `SEARCH_LIMIT` matches of ?1 in the rooms ?2 lists, by whichever plan SQLite finds, such as looking at
  * just those rooms' messages.
  */
@@ -76,11 +76,11 @@ const firstNumber = (createdAt: string) => Date.parse(createdAt) * PER_MILLISECO
 const byTime = (a: IndexedMessage, b: IndexedMessage) => firstNumber(a.createdAt) - firstNumber(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /**
- * Searches every room's messages at once, as ember-rust's one index does, so a search costs one query
- * however many rooms someone is in. It has an object of its own, as an FTS5 query over a large index
- * can take milliseconds, which nothing else should wait for, and its tables live in its own storage
- * even when everyone else's are in D1 (`SEARCH_MIGRATIONS`). So it reads and writes them through the
- * storage's own SQL, whose queries run at once and whose results can be read a row at a time.
+ * Searches every room's messages at once, so a search costs one query however many rooms someone is in.
+ * It has an object of its own, as an FTS5 query over a large index can take milliseconds, which nothing
+ * else should wait for, and its tables live in its own storage even when everyone else's are in D1
+ * (`SEARCH_MIGRATIONS`). So it reads and writes them through the storage's own SQL, whose queries run at
+ * once and whose results can be read a row at a time.
  */
 export class SearchIndex extends DurableObject<Env> {
   private readonly sql: SqlStorage;
@@ -168,9 +168,8 @@ export class SearchIndex extends DurableObject<Env> {
 
   /**
    * The newest `SEARCH_LIMIT` messages, newest first, with what results show of each, in the rooms
-   * `roomIds` lists that match `terms`, an FTS5 query, as ember-rust's `search_reachable` finds them
-   * (message.rs): from the probe, read a match at a time until the page is full, unless it holds that
-   * many matches outside those rooms that the page may not be.
+   * `roomIds` lists that match `terms`, an FTS5 query: from the probe, read a match at a time until the
+   * page is full, unless it holds that many matches outside those rooms that the page may not be.
    */
   search(terms: string, roomIds: RoomId[]): SearchHit[] {
     // FTS5 refuses an empty query.

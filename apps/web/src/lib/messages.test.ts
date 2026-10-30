@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Message } from "@ember/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
@@ -18,7 +17,7 @@ const at = (iso: string, creatorId = "u1"): Message => ({
   boosts: [],
 });
 
-describe(feature("messages.grouping"), () => {
+describe("Group messages by author", () => {
   it("threads a person's messages up to five minutes apart, either way, and no further", () => {
     const items = timeline([
       at("2026-10-12T09:00:00"),
@@ -41,7 +40,7 @@ describe(feature("messages.grouping"), () => {
   });
 });
 
-describe(feature("messages.day-separators"), () => {
+describe("Day separators", () => {
   it("starts a day at the first message and wherever the date changes in the reader's time zone", () => {
     const items = timeline([at("2026-10-11T23:59:59"), at("2026-10-12T00:00:00", "u2"), at("2026-10-12T18:00:00"), at("2026-10-14T08:00:00")]);
     expect(items.map((i) => i.firstOfDay)).toEqual([true, true, false, true]);
@@ -72,7 +71,7 @@ describe(feature("messages.day-separators"), () => {
   });
 });
 
-describe(feature("messages.reply"), () => {
+describe("Reply with a quote", () => {
   const MENTION = 'content-type="application/vnd.campfire.mention" sgid="0123456789abcdef"';
   const LINK = "https://ember.test/rooms/general/@m1";
   const CITE = `<cite>Ada <a href="${LINK}">#</a></cite><p><br></p>`;

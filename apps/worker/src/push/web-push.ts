@@ -1,9 +1,8 @@
 import { toBase64url, urlsafeDecode64 } from "../encoding";
 import type { VapidKeys } from "./keys";
 
-// A push as the web-push gem sends it, and ember-rust after it: encrypted for the browser's keys with
-// the `aes128gcm` content coding (RFC 8291 and RFC 8188, crates/ember/src/integrations/web_push/encryption.rs),
-// and signed with the deployment's VAPID key (RFC 8292, web_push/vapid.rs), all with WebCrypto.
+// A push as the web-push gem sends it: encrypted for the browser's keys with the `aes128gcm` content
+// coding, and signed with the deployment's VAPID key, all with WebCrypto.
 
 /** What the gem raises as an `ArgumentError`: a blank message or key, a key that isn't Base64, or a push too big to send. */
 export class PushArgumentError extends Error {}

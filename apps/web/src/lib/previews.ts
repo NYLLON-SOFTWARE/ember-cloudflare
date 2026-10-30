@@ -1,15 +1,13 @@
 import { AVATAR_BOX, isPreviewableSize, isPreviewed, isVariable, LOGO_BOXES, PREVIEW_MAX_HEIGHT, PREVIEW_MAX_WIDTH } from "@ember/protocol";
 
 // Previews of files, which the uploader's browser makes and the app sends before a file's last part, where
-// ember-rust makes them on the server: a picture's thumbnail, as Active Storage's `:thumb` variant resizes
-// it to fit 1200×800 (crates/ember/src/controllers/presenters.rs), and a video's poster, which ember-rust's
-// ffmpeg takes from its first frame and Ember from a tenth of a second in, past the blank frame some
-// browsers draw at the start. Both are still, so an animated picture's is its first frame. An avatar's
-// variant is made as a picture's thumbnail is, to fit 512×512, as ember-rust's `:square` variant
-// resizes it (crates/ember/src/controllers/users/avatars.rs), and a logo's two as PNGs within 512×512
-// and 192×192, as its logo controller resizes them (crates/ember/src/controllers/accounts/logos.rs).
-// None is made of a picture or video over 250 megapixels, which isn't decoded, as ember-rust makes none
-// since its pull request #24 (`process::transform` and `video_preview_dimensions_allowed`).
+// Campfire makes them on the server: a picture's thumbnail, as its `:thumb` variant resizes it to fit
+// 1200×800, and a video's poster, which Campfire's ffmpeg takes from its first frame and Ember from a
+// tenth of a second in, past the blank frame some browsers draw at the start. Both are still, so an
+// animated picture's is its first frame. An avatar's variant is made as a picture's thumbnail is, to fit
+// 512×512, as Campfire's `:square` variant resizes it, and a logo's two as PNGs within 512×512 and
+// 192×192, as its logo's `:large` and `:small` variants are. None is made of a picture or video over 250
+// megapixels, which isn't decoded, as Campfire makes none (`THUMBNAIL_MAX_PIXELS`).
 
 /** A picture's or video's width and height, in pixels. */
 export interface Size {
@@ -58,8 +56,8 @@ export async function previewOf(file: File): Promise<Blob | null> {
 
 /**
  * The variant of `file` that the app sends with it as someone's avatar: the picture within 512×512, or
- * null for a file ember-rust doesn't resize, and where this browser can't decode it or doesn't within
- * five seconds, as for a preview.
+ * null for a file Campfire doesn't resize, and where this browser can't decode it or doesn't within five
+ * seconds, as for a preview.
  */
 export async function avatarVariantOf(file: File): Promise<Blob | null> {
   if (!isVariable(file.type)) return null;

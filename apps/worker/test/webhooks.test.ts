@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { BotAnswer, BotSettings, NewWorkspace, RoomId, User, UserId } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
@@ -35,8 +34,7 @@ import {
 } from "./support";
 
 // Which bots' webhooks a new message is delivered to, and how, as Campfire's `Webhook#deliver` does
-// (reference/app/models/webhook.rb, test/models/webhook_test.rb) and ember-rust's integrations/webhook.rs
-// and jobs.rs follow it.
+// (app/models/webhook.rb, test/models/webhook_test.rb).
 
 /** Sets Ember up with Ada as its administrator, signed in, answering her session and first run's general room. */
 async function setUp(): Promise<{ ada: Session; general: RoomId }> {
@@ -183,7 +181,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("bots.webhook-delivery"), () => {
+describe("Webhooks", () => {
   it("delivers a message to the webhooks of the bots in the room it mentions, as Campfire's JSON, with Net::HTTP's headers", async () => {
     const { ada, general } = await setUp();
     const bot = await addBot(ada, "Build Bot", "https://bots.example.com/hooks/build?team=ops");
@@ -391,7 +389,7 @@ describe(feature("bots.webhook-delivery"), () => {
   });
 });
 
-describe(feature("bots.webhook-reply"), () => {
+describe("Webhook replies", () => {
   it("posts what a bot says back as its message, which the room shows at once, as Campfire's receive_text_reply_to does", async () => {
     const { ada, general } = await setUp();
     const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
@@ -651,7 +649,7 @@ describe(feature("bots.webhook-reply"), () => {
   });
 });
 
-describe(feature("bots.reset-key"), () => {
+describe("Generate a new bot key", () => {
   it("gives the bot's new key in the room's path once it's reset", async () => {
     const { ada, general } = await setUp();
     const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
@@ -668,7 +666,7 @@ describe(feature("bots.reset-key"), () => {
   });
 });
 
-describe(feature("bots.webhook-jobs"), () => {
+describe("Webhooks run in the background", () => {
   it("runs a room's deliveries two at a time, in turn, reading each message as it is when its turn comes", async () => {
     const { ada, general } = await setUp();
     const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
@@ -713,7 +711,7 @@ describe(feature("bots.webhook-jobs"), () => {
     client.close();
   });
 
-  it("sends nothing waiting its turn to a bot deleted, taken out of the room or left without a webhook by then, logging why, where ember-rust delivers to the first two", async () => {
+  it("sends nothing waiting its turn to a bot deleted, taken out of the room or left without a webhook by then, logging why", async () => {
     const { ada } = await setUp();
     const [busy, deleted, removed, unhooked] = [
       await addBot(ada, "Busy Bot", "https://bots.example.com/busy"),
@@ -779,7 +777,7 @@ describe(feature("bots.webhook-jobs"), () => {
   it("stops delivering to a webhook saved before with an http URL elsewhere than localhost, saying why in its log", async () => {
     const { ada, general } = await setUp();
     const bot = await addBot(ada, "Build Bot", "https://bots.example.com/build");
-    // As ember-rust saves it, and Ember did.
+    // As Ember once saved it.
     await workspaceSql("UPDATE webhooks SET url = 'http://bots.example.com/build' WHERE user_id = ?", bot.id);
     const delivered = bots();
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});

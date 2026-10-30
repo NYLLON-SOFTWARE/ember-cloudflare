@@ -15,7 +15,6 @@
     "test:features": "pnpm --filter @ember/e2e test:e2e --project features",
     "test:mobile": "pnpm --filter @ember/e2e test:e2e --project 'mobile *'",
     "screenshots": "pnpm --filter @ember/e2e test:e2e --project screenshots --update-snapshots",
-    "parity": "pnpm --filter @ember/parity regenerate",
     "deploy": "node apps/worker/scripts/deploy.ts",
     "vapid:keys": "node apps/worker/scripts/vapid-keys.ts",
     "perf": "pnpm --filter @ember/perf start"

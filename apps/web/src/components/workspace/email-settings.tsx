@@ -4,11 +4,11 @@ import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, changeAccount, isSignedOut, sendTestEmail } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-// This port's own Email card in Membership (`platform.email`), for administrators: what Ember sends
-// email with, and from, and Send me a test email, which says where it went, or why it wasn't sent. Until
-// Ember can send email, it says so, and Set up email opens the steps to it (`EmailSetup`), as Change
-// does once it can, and Stop sending email takes its From address away, as saving the From field blank
-// did before Set up email. Laid out as Custom domain's card is: what it says, then its buttons in a row.
+// The Email card in Membership, for administrators: what Ember sends email with, and from, and Send me a
+// test email, which says where it went, or why it wasn't sent. Until Ember can send email, it says so,
+// and Set up email opens the steps to it (`EmailSetup`), as Change does once it can, and Stop sending
+// email takes its From address away, as saving the From field blank did before Set up email. Laid out as
+// Custom domain's card is: what it says, then its buttons in a row.
 
 /** What Stop sending email asks first, since what Ember emails stops until email is set up again. */
 export const CONFIRM_STOP_EMAIL =

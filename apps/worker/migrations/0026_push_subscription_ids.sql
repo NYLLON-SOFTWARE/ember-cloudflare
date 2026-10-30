@@ -1,7 +1,7 @@
--- Numbers push subscriptions with AUTOINCREMENT, as ember-rust's `push_subscriptions` does
--- (crates/db/src/schema.sql), so a deleted subscription's number is never given to another: a push
--- service answering late that a subscription is gone can't then forget a browser's that has taken its
--- number since. SQLite can't add AUTOINCREMENT to a table, so the table is made again with its rows.
+-- Numbers push subscriptions with AUTOINCREMENT, as Campfire's `push_subscriptions` does, so a deleted
+-- subscription's number is never given to another: a push service answering late that a subscription is
+-- gone can't then forget a browser's that has taken its number since. SQLite can't add AUTOINCREMENT to
+-- a table, so the table is made again with its rows.
 CREATE TABLE push_subscriptions_numbered (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id TEXT NOT NULL REFERENCES users (id),

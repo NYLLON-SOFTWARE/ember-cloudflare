@@ -22,10 +22,9 @@ interface Props {
 
 /**
  * Custom styles: the rail's icons (`NavigationIconSettings`), which the project's owner moved here from
- * Community, where ember-rust's pull request #24 has them, then ember-rust's Custom CSS page
- * (accounts/custom_styles/edit.html), where administrators write CSS for every page, which saving
- * applies at once, here and in everyone's tabs, with the notice "✓". Ctrl or ⌘ + Enter saves too.
- * Anyone else is sent to workspace settings with an alert, where ember-rust's answers an empty 403 page.
+ * Community, then the Custom CSS page, where administrators write CSS for every page, which saving
+ * applies at once, here and in everyone's tabs, with the notice "✓". Ctrl or ⌘ + Enter saves too. Anyone
+ * else is sent to workspace settings with an alert.
  */
 export function CustomStylesPage({ askForAccount, onFailed }: Props) {
   const [customStyles, setCustomStyles] = useState<string | null>(null);
@@ -105,7 +104,7 @@ export function CustomStylesPage({ askForAccount, onFailed }: Props) {
             value={customStyles ?? ""}
             onChange={(event) => setCustomStyles(event.target.value)}
             disabled={customStyles === null}
-            // Campfire's `.input--code`, in 16px, where ember-rust's phones get 13px, so iOS doesn't zoom in.
+            // Campfire's `.input--code`, in 16px, so iOS doesn't zoom in.
             className="w-full resize-none rounded-[9px] border bg-transparent px-[0.8em] py-[0.5em] font-mono text-base break-words whitespace-pre-wrap focus:border-selected-dark"
           />
           {/* A `.btn--reversed` circle holding a check, which darkens under the pointer: 36px, or 44px for fingers. */}

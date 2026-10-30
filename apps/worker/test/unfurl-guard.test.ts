@@ -1,9 +1,8 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { isBlockedAddress, parseAddress } from "../src/unfurl/addresses";
 import { checkHost, GuardError, resolveOverHttps } from "../src/unfurl/guard";
 
-/** guard.rs's `classifies_addresses_like_surfguard`. */
+/** Addresses a preview never fetches. */
 const BLOCKED = [
   "0.0.0.0", "10.1.2.3", "100.64.0.1", "127.0.0.1", "168.63.129.16", "169.254.169.254", "172.16.0.0", "172.31.255.255",
   "192.0.0.8", "192.0.2.1", "192.88.99.1", "192.168.1.1", "198.18.0.1", "198.51.100.1", "203.0.113.1", "224.0.0.1", "240.0.0.1",
@@ -29,7 +28,7 @@ function resolverOf(answers: Record<string, string[]>) {
   return { lookups, resolve };
 }
 
-describe(feature("unfurl.guard"), () => {
+describe("Link preview safety limits", () => {
   it("classifies addresses as Surfguard does", () => {
     for (const ip of BLOCKED) expect(isBlockedAddress(parseAddress(ip)!), ip).toBe(true);
     for (const ip of PUBLIC) expect(isBlockedAddress(parseAddress(ip)!), ip).toBe(false);
@@ -56,7 +55,7 @@ describe(feature("unfurl.guard"), () => {
     await expect(checkHost("private.example", resolve)).rejects.toThrow(new GuardError("Attempt to access private IP via private.example"));
     await expect(checkHost("mapped.example", resolve)).rejects.toThrow(new GuardError("Attempt to access private IP via mapped.example"));
     await expect(checkHost("nowhere.example", resolve)).rejects.toThrow(new GuardError("Host could not be resolved"));
-    // ember-rust also fetches a public address written as one, such as 8.8.8.8. A Worker can't fetch an address.
+    // A Worker can't fetch an address, so a host written as one is refused, even a public one such as 8.8.8.8.
     const addresses = ["8.8.8.8", "[2606:2800:220:1:248:1893:25c8:1946]", "127.0.0.1", "[::1]", "::1", "[fd00::1]", "[v1.x]"];
     // Every shape `inet_aton` might read as an address, valid or not.
     const numeric = ["0x7f.1", "2130706433", "127.1", "0177.0.0.01", "10.0.258", "09.1.1.1", "256.1.1.1", "1.2.3.4.", "01.2.3.4."];

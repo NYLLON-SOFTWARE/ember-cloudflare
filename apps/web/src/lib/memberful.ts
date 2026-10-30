@@ -8,10 +8,9 @@ import {
 } from "@ember/protocol";
 import type { FlashMessage } from "./flash";
 
-// What signing in with Memberful, or connecting a Memberful account (`auth.memberful-connect`), came to,
-// as the Worker's callback names it in the address it sends the browser back to (`?memberful=`): the
-// sign-in page says what went wrong, and a page of the workspace flashes it, or that your Memberful
-// account is connected.
+// What signing in with Memberful, or connecting a Memberful account, came to, as the Worker's callback
+// names it in the address it sends the browser back to (`?memberful=`): the sign-in page says what went
+// wrong, and a page of the workspace flashes it, or that your Memberful account is connected.
 
 /** What a Memberful sign-in or connection that came back to this page came to, as its address names it, if it does. */
 export function memberfulOutcomeOnArrival(): MemberfulSignInProblem | typeof MEMBERFUL_CONNECTED | null {

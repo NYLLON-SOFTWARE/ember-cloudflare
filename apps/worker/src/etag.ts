@@ -1,8 +1,8 @@
 import { toHex } from "./encoding";
 
-// ETags as ember-rust's Rack::ETag makes them (crates/kit/src/ctx.rs, `rack_etag`): weak, from the
-// first 128 bits of the body's SHA-256 in hex. A request whose If-None-Match lists the ETag, or `*`,
-// gets 304 Not Modified with no body instead, as `is_fresh` decides there.
+// ETags as Rack::ETag makes them: weak, from the first 128 bits of the body's SHA-256 in hex. A request
+// whose If-None-Match lists the ETag, or `*`, gets 304 Not Modified with no body instead, as `is_fresh`
+// decides there.
 
 const encoder = new TextEncoder();
 

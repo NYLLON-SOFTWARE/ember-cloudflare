@@ -9,16 +9,16 @@ export type Flasher = (kind: FlashMessage["kind"], text: string) => void;
 const FlashContext = createContext<Flasher | null>(null);
 
 /**
- * Flashes messages over every page, signed in or not, as ember-rust's layout does: one at a time, so
- * a new one, or the same one again, takes the place of any still showing and fades in afresh. Over
- * the workspace, they're centered on the page beside the rail and sidebar, where those show.
+ * Flashes messages over every page, signed in or not: one at a time, so a new one, or the same one
+ * again, takes the place of any still showing and fades in afresh. Over the workspace, they're centered
+ * on the page beside the rail and sidebar, where those show.
  */
 export function FlashProvider({ workspace = false, children }: { workspace?: boolean; children: ReactNode }) {
   // Keyed, so the same message twice fades in again.
   const [shown, setShown] = useState<(FlashMessage & { key: number }) | null>(null);
   const flash = useCallback<Flasher>((kind, text) => setShown((current) => ({ kind, text, key: (current?.key ?? 0) + 1 })), []);
 
-  // What the page before a full page load left to flash, as ember-rust flashes after a redirect.
+  // What the page before a full page load left to flash.
   useEffect(() => {
     const message = takeFlashFromLastPage();
     if (message) flash(message.kind, message.text);
@@ -48,14 +48,13 @@ export function useFlash(): Flasher {
 }
 
 /**
- * ember-rust's flash (crates/views/templates/layouts/application.html, styled in zz-ember.css): a
- * notice in white on green with a check, or an alert on red with a warning sign, 12px below
- * the header. A notice of just "✓" shows only the check, read as "Changes saved". It fades in after
- * 0.3s and out again by 3.3s (Campfire's flash.css), and then goes. Unlike ember-rust's, it:
+ * The flash: a notice in white on green with a check, or an alert on red with a warning sign, 12px
+ * below the header. A notice of just "✓" shows only the check, read as "Changes saved". It fades in after
+ * 0.3s and out again by 3.3s (Campfire's flash.css), and then goes. It:
  * - shows at once under reduced motion, without fading, until the fade would have ended, where
- *   Campfire's reset cuts the animation to nothing, so ember-rust's never shows;
- * - grows to fit its text, up to the screen's width less 24px, where ember-rust's stops at half the
- *   screen's width, as Campfire's flash.css centers it from the middle, and so wraps early on a phone;
+ *   Campfire's reset cuts the animation to nothing, so its flash never shows;
+ * - grows to fit its text, up to the screen's width less 24px, where Campfire's stops at half the
+ *   screen's width, as its flash.css centers it from the middle, and so wraps early on a phone;
  * - keeps 12px below the header, and centered on the page, where they make room for a notch.
  */
 function Flash({ message: { kind, text }, workspace, onDone }: { message: FlashMessage; workspace: boolean; onDone: () => void }) {
@@ -63,8 +62,8 @@ function Flash({ message: { kind, text }, workspace, onDone }: { message: FlashM
   return (
     <div
       onAnimationEnd={onDone}
-      // z-30, as ember-rust's: over the page, under menus and dialogs, and, unlike ember-rust's, under
-      // the drawer on a phone, which is a modal dialog here.
+      // z-30: over the page, under menus and dialogs, and under the drawer on a phone, which is a modal
+      // dialog here.
       className={cn(
         "pointer-events-none fixed top-[calc(var(--spacing-header)+12px)] left-1/2 max-md:top-[calc(56px+env(safe-area-inset-top)+12px)] z-30 flex w-max max-w-[calc(100dvw-24px)] -translate-x-1/2 justify-center",
         workspace &&

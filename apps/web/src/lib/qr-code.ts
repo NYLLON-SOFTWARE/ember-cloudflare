@@ -1,6 +1,6 @@
 /**
- * Where the Worker draws `url` as a QR code: `/qr_code/` and the URL's UTF-8 as padded URL-safe
- * base64, as ember-rust's `link_to_zoom_qr_code` writes it (crates/views/src/helpers/application.rs).
+ * Where the Worker draws `url` as a QR code: `/qr_code/` and the URL's UTF-8 as padded URL-safe base64,
+ * as Campfire's `link_to_zoom_qr_code` writes it.
  */
 export function qrCodePath(url: string): string {
   let binary = "";

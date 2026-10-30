@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
@@ -158,7 +157,7 @@ afterEach(() => {
   jsdom.reconfigure({ url: "http://localhost:3000/" });
 });
 
-describe(feature("accounts.custom-domain"), () => {
+describe("Custom domain", () => {
   it("asks for the domain where a deploy puts Ember, then says how to add it in Cloudflare, where its DNS is", async () => {
     serve();
     const { user } = showSection(settingsAt("ember.kro.workers.dev"));

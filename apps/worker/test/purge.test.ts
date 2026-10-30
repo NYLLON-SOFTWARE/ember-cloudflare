@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { uploadPartPath, uploadPreviewPath, type RoomId, type Upload } from "@ember/protocol";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -9,8 +8,7 @@ import { DELETE_FILES_OF, DELETE_UNFINISHED, DELETED_FILES, FORGET_FILES, object
 import { UPLOAD_PART_SIZE } from "../src/files/uploads";
 import { api, apiWith, connect, createRoom, freshDeploy, freshRoom, post, recordedImage, roomSql, roomStub, sendPart, signIn, startUpload, upload, type FileMessage, type Session } from "./support";
 
-// Files leaving R2 with their messages, as ember-rust purges a blob once the message it's attached to is
-// destroyed (crates/db/src/models/message.rs, crates/ember/src/active_storage.rs `purge`).
+// Files leaving R2 with their messages.
 
 const bindings = env as unknown as Env;
 const files = bindings.FILES!;
@@ -100,7 +98,7 @@ async function breakDeletes(room: RoomId): Promise<() => Promise<void>> {
   return () => runInDurableObject(roomStub(room), (instance: ChatRoom) => void ((instance as unknown as { env: Env }).env = original!));
 }
 
-describe(feature("attachments.purge"), () => {
+describe("Files leave with their messages", () => {
   it("has R2 delete a file message's file and preview a moment after the message goes, after which its links answer 404", async () => {
     const room = await freshRoom("lobby");
     const ada = await connect(room, "Ada");

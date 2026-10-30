@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { plainText } from "./body";
 import { parseHtml } from "./parse";
@@ -7,7 +6,7 @@ import { testUserId, testUsers } from "./testing/users";
 const { resolve } = testUsers("David");
 const read = (html: string) => plainText(parseHtml, html, resolve);
 
-describe(feature("messages.plain-text"), () => {
+describe("Plain-text version of a message", () => {
   it("reads text as it is", () => {
     expect(read("<span>My hovercraft is full of eels</span>")).toBe("My hovercraft is full of eels");
     expect(read("First post!")).toBe("First post!");

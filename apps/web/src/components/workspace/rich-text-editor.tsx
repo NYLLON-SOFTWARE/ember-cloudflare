@@ -3,10 +3,10 @@ import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE } from "@ember/richt
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
 import "./rich-text-editor.css";
 
-// ember-rust's editor, Lexxy 0.9.24, set up as Campfire sets it up. This is a chunk of its own, loaded
-// as the first editor shows (editor.ts), since it's bigger than the rest of the app.
+// The editor, Lexxy 0.9.24, set up as Campfire sets it up. This is a chunk of its own, loaded as the
+// first editor shows (editor.ts), since it's bigger than the rest of the app.
 
-/** Campfire's CiteNode (reference/app/javascript/lib/rich_text/cite_node.js): the `<cite>` naming whom a reply quotes. */
+/** Campfire's CiteNode (app/javascript/lib/rich_text/cite_node.js): the `<cite>` naming whom a reply quotes. */
 class CiteNode extends Lexical.ElementNode {
   static getType() {
     return "cite";
@@ -42,7 +42,7 @@ class CiteNode extends Lexical.ElementNode {
 }
 
 /**
- * Campfire's CampfireRichTextExtension (reference/app/javascript/lib/rich_text/campfire_extension.js):
+ * Campfire's CampfireRichTextExtension (app/javascript/lib/rich_text/campfire_extension.js):
  * what Campfire's messages hold beyond what Lexxy writes, which the editor keeps rather than strips.
  */
 class CampfireRichTextExtension extends Extension {
@@ -64,20 +64,19 @@ class CampfireRichTextExtension extends Extension {
   }
 }
 
-// Campfire's settings (reference/app/javascript/initializers/rich_text.js), which have to come before
-// Lexxy defines its elements, on the tick after it loads. Mentions keep the content type Campfire has
-// always given them, application/vnd.campfire.mention. Files go as messages of their own, from the
-// composer's button rather than the editor's, and there's one heading, as Trix had.
+// Campfire's settings (app/javascript/initializers/rich_text.js), which have to come before Lexxy
+// defines its elements, on the tick after it loads. Mentions keep the content type Campfire has always
+// given them, application/vnd.campfire.mention. Files go as messages of their own, from the composer's
+// button rather than the editor's, and there's one heading, as Trix had.
 configure({
   global: { attachmentContentTypeNamespace: "campfire", extensions: [CampfireRichTextExtension] },
   default: { toolbar: { attachments: false }, headings: ["h1"] },
 });
 
 /**
- * ember-rust's @ prompt (rooms/show/_composer.html, messages/edit.html): typing @ lists the people `src`
- * answers with as prompt items, those whose names hold what follows the @, which Lexxy adds as `filter`.
- * Lexxy opens the list under the cursor where it fits the window, or else above it, or always above it
- * with `above`.
+ * The @ prompt: typing @ lists the people `src` answers with as prompt items, those whose names hold
+ * what follows the @, which Lexxy adds as `filter`. Lexxy opens the list under the cursor where it fits
+ * the window, or else above it, or always above it with `above`.
  */
 function mentionPrompt(src: string, above: boolean): HTMLElement {
   const prompt = document.createElement("lexxy-prompt");
@@ -96,9 +95,8 @@ const LOOK_AGAIN = Symbol("look again");
 /**
  * Has `lexxy`'s @ prompt list the people for what's typed after the @ as the list shows, when that's
  * changed since the prompt asked for the list. Lexxy (0.9.24, and still 1.0.1) hears what's typed only
- * once the list shows, so a quick "@ka" would list everyone until the next key, as ember-rust's does.
- * Lexxy reads what's typed as it adds the list to the editor, and as it unpins the list (`data-anchored`)
- * to open it again.
+ * once the list shows, so a quick "@ka" would list everyone until the next key. Lexxy reads what's typed
+ * as it adds the list to the editor, and as it unpins the list (`data-anchored`) to open it again.
  */
 function lookAgainAsListShows(lexxy: LexxyEditor): MutationObserver {
   const typed = () => lexxy.contents.textBackUntil("@");
@@ -209,8 +207,8 @@ export default function RichTextEditor({
       const lexxy = editor.current;
       if (!lexxy) return;
       lexxy.value = "";
-      // Lexxy keeps the format the cursor had, so in ember-rust a message sent all in bold leaves the next
-      // one bold too, with the toolbar that would show it shut.
+      // Lexxy keeps the format the cursor had, so a message sent all in bold would leave the next one bold
+      // too, with the toolbar that would show it shut.
       lexxy.editor.update(
         () => {
           const selection = Lexical.$getSelection();
@@ -224,7 +222,7 @@ export default function RichTextEditor({
     isBlank: () => editor.current?.isBlank ?? true,
     hasOpenPrompt: () => editor.current?.hasOpenPrompt ?? false,
     focus: () => editor.current?.focus(),
-    // ember-rust's composer_controller.js#replaceMessageContent.
+    // Campfire's composer_controller.js#replaceMessageContent, for Reply's quote.
     replace: (markup) => {
       const lexxy = editor.current;
       if (!lexxy) return;
@@ -248,7 +246,7 @@ export default function RichTextEditor({
     const lexxy = document.createElement("lexxy-editor") as LexxyEditor;
     lexxy.className = "lexxy-content";
     lexxy.setAttribute("rows", String(rows));
-    // As in ember-rust, mentions and link previews, which only the composer adds, but every editor keeps.
+    // Mentions and link previews, which only the composer adds, but every editor keeps.
     lexxy.setAttribute("permitted-attachment-types", `${MENTION_CONTENT_TYPE} ${OPENGRAPH_EMBED_CONTENT_TYPE}`);
     // Read as the editor connects, without telling anyone it changed.
     if (initialValue) lexxy.setAttribute("value", initialValue);
@@ -263,7 +261,7 @@ export default function RichTextEditor({
       if (lexxy.editorContentElement?.contains(event.target as Node)) keyPressed(event);
     };
     lexxy.addEventListener("keydown", keyDown, { capture: true });
-    // Inside the editor, as ember-rust's is, which it finds as it connects, after the editor.
+    // Inside the editor, which finds it there as it connects.
     if (mentionsFrom) lexxy.append(mentionPrompt(mentionsFrom, mentionsAbove));
     const prompting = mentionsFrom ? lookAgainAsListShows(lexxy) : undefined;
     editor.current = lexxy;

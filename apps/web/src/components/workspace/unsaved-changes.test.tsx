@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRef, type ComponentProps } from "react";
@@ -47,8 +46,8 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("rooms.unsaved-changes"), () => {
-  it("asks before another page, with ember-rust's words and Save to hand", async () => {
+describe("Unsaved changes guard", () => {
+  it("asks before another page, saying what's unsaved, with Save to hand", async () => {
     const { user } = showForm();
     goTo("/rooms/general");
     const dialog = await screen.findByRole("dialog", { name: "Unsaved Changes" });

@@ -16,12 +16,11 @@ interface Props {
 }
 
 /**
- * The star in a room's header, which stars the room for you or unstars it, as ember-rust's does
- * (rooms/show/_nav.html, `.mb-favorite-button` in zz-ember.css and room_favorite_controller.js). It
- * shows what the server answers rather than what was asked, and when a save fails it says so in a note
- * under it, until it's pressed again. While it saves it's dimmed and ignores presses, as Campfire's
- * disabled buttons are (buttons.css), but with `aria-disabled`, so it keeps the keyboard's focus where
- * `disabled` would drop it.
+ * The star in a room's header, which stars the room for you or unstars it. It shows what the server
+ * answers rather than what was asked, and when a save fails it says so in a note under it, until it's
+ * pressed again. While it saves it's dimmed and ignores presses, as Campfire's disabled buttons are
+ * (buttons.css), but with `aria-disabled`, so it keeps the keyboard's focus where `disabled` would drop
+ * it.
  */
 export function FavoriteButton({ roomId, favorite, onSaved, onSessionChanged }: Props) {
   const [saving, setSaving] = useState(false);
@@ -29,9 +28,9 @@ export function FavoriteButton({ roomId, favorite, onSaved, onSessionChanged }: 
   const mounted = useMounted();
   const note = useRef<HTMLSpanElement>(null);
 
-  // ember-rust's note hangs from the star's left edge, so once a long name has pushed the star to the
-  // end of the top bar, the note runs off the screen, or under a phone's rounded corner. This keeps it
-  // inside the bar's padding, which clears them.
+  // A note hanging from the star's left edge would, once a long name has pushed the star to the end of
+  // the top bar, run off the screen, or under a phone's rounded corner. This keeps it inside the bar's
+  // padding, which clears them.
   useLayoutEffect(() => {
     const bar = note.current?.closest("nav");
     if (!note.current || !bar) return;
@@ -66,8 +65,7 @@ export function FavoriteButton({ roomId, favorite, onSaved, onSessionChanged }: 
         title={favorite ? "Remove from favorites" : "Add to favorites"}
         onClick={save}
         className={cn(
-          // 44px for fingers, where ember-rust's is 32px wide and 36px tall everywhere. Muted at 65%, as its
-          // pull request #24 fades `.mb-favorite-button`.
+          // 32px wide and 36px tall, and 44px for fingers. Muted at 65%.
           "flex min-h-9 w-8 items-center justify-center rounded-lg p-1.5 text-muted-foreground/65 hover:bg-hover touch:size-11",
           "aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-disabled:grayscale aria-disabled:contrast-50",
         )}

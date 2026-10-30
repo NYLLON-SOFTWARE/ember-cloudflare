@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { avatarSvg, type DirectoryUser, type User } from "@ember/protocol";
 import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { render, screen, within } from "@testing-library/react";
@@ -24,7 +23,7 @@ async function highlighted(content: Element) {
   await vi.waitFor(() => expect(content.querySelector("pre:last-of-type [class^=hljs-]")).not.toBeNull());
 }
 
-describe(feature("messages.rich-text"), () => {
+describe("Rich text, safely", () => {
   it("shows the formatting a message keeps", () => {
     const body = [
       "<p><strong>Bold</strong> <em>italic</em> <s>struck</s> <u>underlined</u> <mark>marked</mark> <code>code</code></p>",
@@ -111,7 +110,7 @@ function mention(people: People, mentions: User[], body = `<p>Hi ${GRACE_MENTION
   return container.querySelector(".message-content")!;
 }
 
-describe(feature("mentions.render"), () => {
+describe("How mentions look", () => {
   it("shows the person's avatar, hidden from screen readers, then their name as the directory lists them now", () => {
     const content = mention(new Map([[grace.id, grace]]), [{ id: grace.id, name: "Grace" }]);
     expect(content).toHaveTextContent("Hi Grace Hopper!");
@@ -132,7 +131,7 @@ describe(feature("mentions.render"), () => {
   });
 });
 
-describe(feature("users.avatar-links"), () => {
+describe("Avatars open people's pages", () => {
   it("links a mention's avatar to the person's page, titled with their name and bio, and follows it in place", async () => {
     const content = mention(new Map([[grace.id, { ...grace, bio: "Wrote the first compiler" }]]), [{ id: grace.id, name: "Grace" }]);
     const link = screen.getByRole("link", { name: "Grace Hopper – Wrote the first compiler" });
@@ -154,7 +153,7 @@ describe(feature("users.avatar-links"), () => {
   });
 });
 
-describe(feature("messages.autolink"), () => {
+describe("Links in message text", () => {
   it("opens a link to another site in a new tab", () => {
     show("<p>See https://example.com/docs?page=2.</p>");
     const link = screen.getByRole("link", { name: "https://example.com/docs?page=2" });
@@ -197,7 +196,7 @@ function preview(details: Parameters<typeof previewContent>[0]): string {
   return attachment.outerHTML;
 }
 
-describe(feature("unfurl.render"), () => {
+describe("Link previews in messages", () => {
   const basecamp = { href: "https://basecamp.com/", url: "https://basecamp.com/og.png", filename: "Basecamp", description: "Calm, at https://basecamp.com/calm" };
 
   it("shows a preview as a card: its title linking to the page in a new tab, its description, and its image, loaded without a referrer", () => {

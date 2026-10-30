@@ -2,15 +2,15 @@ import { strip } from "@ember/richtext";
 import { checkHost, type Resolve } from "./guard";
 import { parseHttpUri, requestTarget, type HttpUri } from "./uri";
 
-// Reading a page, or an image's content type, for a link preview: ember-rust's `Location` and `Fetch`
-// (crates/ember/src/integrations/opengraph/location.rs and fetch.rs) with the parts of its HTTP client
-// they rely on (net/http.rs). Every host, the first and each redirect's, passes the guard first.
+// Reading a page, or an image's content type, for a link preview: Campfire's `Opengraph::Location` and
+// `Opengraph::Fetch`, with the parts of Net::HTTP they rely on. Every host, the first and each
+// redirect's, passes the guard first.
 
 /** The most a page may be, by its Content-Length and by what's read of it, after decompression. */
 export const MAX_BODY_SIZE = 5 * 1024 * 1024;
 /** Responses read for one fetch: the first and up to nine redirects. */
 const MAX_RESPONSES = 10;
-/** ember-rust's 5 seconds for each connect and each read: here, for a response's headers and for each read of its body. */
+/** 5 seconds for a response's headers and for each read of its body. */
 const IDLE_TIMEOUT_MS = 5_000;
 /**
  * The subrequests one unfurl may make, of the 50 a Worker on the Free plan gets for a request, leaving
@@ -19,7 +19,7 @@ const IDLE_TIMEOUT_MS = 5_000;
 const MAX_SUBREQUESTS = 45;
 const LOOKUP_SUBREQUESTS = 2;
 
-/** ember-rust sends Ruby's. This one says what's asking, with "bot" in it, which sites that serve tags only to bots look for. */
+/** Campfire sends Ruby's. This one says what's asking, with "bot" in it, which sites that serve tags only to bots look for. */
 export const USER_AGENT = "Mozilla/5.0 (compatible; Emberbot; +https://github.com/NYLLON-SOFTWARE/ember-cloudflare)";
 
 /** `FILES_AND_MEDIA_URL_REGEX`'s extensions, after the URL's `\bhttps?://\S+`. */

@@ -46,11 +46,11 @@ interface Props {
 
 /**
  * Whether this browser has notifications on, for every page of the workspace, and turning them on. It's
- * checked as the workspace opens, where ember-rust's bell checks on each page, which would show the bell
- * that turns them on for a moment each time a room opens, and when they're on, this browser's
- * subscription is saved again, so the server keeps it (`savePushAgain`), but at an address Ember has
- * moved from to its custom domain, where the one this browser saved there replaced it (`replaceOnSave`),
- * and saving it again would have everything pushed to both.
+ * checked as the workspace opens, rather than by the bell on each page, which would show the bell that
+ * turns them on for a moment each time a room opens, and when they're on, this browser's subscription is
+ * saved again, so the server keeps it (`savePushAgain`), but at an address Ember has moved from to its
+ * custom domain, where the one this browser saved there replaced it (`replaceOnSave`), and saving it
+ * again would have everything pushed to both.
  */
 export function PushProvider({ vapidPublicKey, platform, children }: Props) {
   const [on, setOn] = useState(false);
@@ -71,7 +71,7 @@ export function PushProvider({ vapidPublicKey, platform, children }: Props) {
   useEffect(() => subscribeToPushEnding(() => setOn(false)), []);
 
   const turnOn = useCallback(async () => {
-    // One at a time, as ember-rust's bell ignores presses while it's turning them on.
+    // One at a time: the bell ignores presses while it's turning them on.
     if (turning.current) return null;
     turning.current = true;
     setTurningOn(true);

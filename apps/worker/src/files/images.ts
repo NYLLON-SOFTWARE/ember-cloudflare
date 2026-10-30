@@ -1,6 +1,6 @@
-// The width and height Active Storage records for an image (`ImageAnalyzer::Vips#metadata`, which ember-rust
-// ports in crates/storage/src/analyze.rs), read without libvips from the headers of JPEG, PNG, GIF, WebP, TIFF
-// and HEIF files, AVIF and HEIC among them, as libvips 8.16's loaders for them read them.
+// The width and height Active Storage records for an image, read without libvips from the headers of
+// JPEG, PNG, GIF, WebP, TIFF and HEIF files, AVIF and HEIC among them, as libvips 8.16's loaders for
+// them read them.
 
 export interface ImageSize {
   width: number;

@@ -1,14 +1,13 @@
 // Web Push subscriptions, as `/api/push-subscriptions` takes and lists them, and signing out forgets
-// this browser's: ember-rust's `push_subscriptions` (crates/ember/src/controllers/users/push_subscriptions.rs)
-// and `sessions#destroy` (crates/ember/src/controllers/sessions.rs).
+// this browser's, as Campfire's `push_subscriptions` and `sessions#destroy` do.
 
 /** The longest endpoint saved. Push services' are a few hundred characters. */
 export const MAX_PUSH_ENDPOINT_LENGTH = 2048;
 /** The longest key saved. A browser's P-256 key is 87 characters of Base64, and its auth secret 22. */
 export const MAX_PUSH_KEY_LENGTH = 256;
 /**
- * How many browsers' subscriptions one person keeps: the ones they saved most recently. ember-rust keeps
- * any number and pushes each message to every one, so one person saving thousands could have every
+ * How many browsers' subscriptions one person keeps: the ones they saved most recently. Keeping any
+ * number, and pushing each message to every one, would let one person saving thousands have every
  * message that notifies them pushed thousands of times.
  */
 export const MAX_PUSH_SUBSCRIPTIONS = 10;
@@ -25,7 +24,7 @@ export interface PushSubscriptionKeys {
 /**
  * What `POST /api/push-subscriptions` takes: a browser's push subscription, and the P-256 key of the one
  * the same browser had at the address its page moved from to Ember's custom domain, which this one
- * replaces (`accounts.custom-domain`).
+ * replaces.
  */
 export interface PushSubscriptionSave extends PushSubscriptionKeys {
   replacing?: string;
@@ -33,8 +32,7 @@ export interface PushSubscriptionSave extends PushSubscriptionKeys {
 
 /**
  * One of your saved subscriptions, as `GET /api/push-subscriptions` lists them, with the browser that
- * saved it as ember-rust's push subscriptions page names it from its user agent: each name is "" where
- * the agent gives none.
+ * saved it: each name is "" where the agent gives none.
  */
 export interface SavedPushSubscription {
   id: number;
@@ -56,9 +54,8 @@ export interface SignOut {
 
 /**
  * Parses what `POST /api/push-subscriptions` takes. Returns why it's refused instead: the endpoint and
- * both keys are required and have to be text, where ember-rust saves a missing key as none at all. A
- * `replacing` that can't be a key is left out rather than refused, so that whatever a page's address
- * carried can't stop notifications being turned on.
+ * both keys are required and have to be text. A `replacing` that can't be a key is left out rather than
+ * refused, so that whatever a page's address carried can't stop notifications being turned on.
  */
 export function parsePushSubscription(data: unknown): PushSubscriptionSave | string {
   const { endpoint, p256dhKey, authKey, replacing } = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};

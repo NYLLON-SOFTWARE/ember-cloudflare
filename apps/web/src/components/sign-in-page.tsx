@@ -27,16 +27,14 @@ import { forgetJoiningProblem, joiningProblemOnArrival } from "@/lib/joining";
 import { forgetMemberfulOutcome, memberfulOutcomeOnArrival } from "@/lib/memberful";
 import { returnPath } from "@/lib/return-path";
 
-// ember-rust's sign-in page (crates/views/templates/sessions/new.html, styled by the .mb-auth-* rules
-// in zz-ember.css). A refused sign-in shakes the card and says why at the top of the form, as ember-rust's
-// pull request #24 does in place of its flash, keeping the email address and emptying the password, as
-// its page does when it's shown again. While Memberful is members only, this port's own, the card offers
-// signing in with Memberful instead, and the email and password form to those who ask for it:
-// administrators, and members with an account from before, whose password then asks them to connect their
-// Memberful account. Otherwise, while Memberful's members sign in with it, the card links to that under
-// the form. While anyone may sign up, it links to the page for that (`auth.open-sign-up`), and it says why a
-// way to join that's off sent someone here (`accounts.ways-to-join`). While Ember can send email, the form
-// links to resetting a forgotten password with a code Ember emails (`auth.password-reset`).
+// The sign-in page. A refused sign-in shakes the card and says why at the top of the form, in place of a
+// flash, keeping the email address and emptying the password. While Memberful is members only, the card
+// offers signing in with Memberful instead, and the email and password form to those who ask for it:
+// administrators, and members with an account from before, whose password then asks them to connect
+// their Memberful account. Otherwise, while Memberful's members sign in with it, the card links to that
+// under the form. While anyone may sign up, it links to the page for that, and it says why a way to join
+// that's off sent someone here. While Ember can send email, the form links to resetting a forgotten
+// password with a code Ember emails.
 
 /** What a Memberful sign-in that came back here says went wrong, as this page's address names it, if it does. */
 function memberfulProblemOnArrival() {
@@ -47,8 +45,8 @@ function memberfulProblemOnArrival() {
 /**
  * Signs in with an email address and password, or with Memberful while its members sign in with it, or
  * with just a name when the workspace allows it, or, while Memberful is members only, with Memberful, or
- * a password for administrators, which asks anyone else to connect their Memberful account
- * (`auth.memberful-connect`) until they have.
+ * a password for administrators, which asks anyone else to connect their Memberful account until they
+ * have.
  */
 export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWorkspace; onSignedIn: (me: Me) => void }) {
   const { memberfulSignIn: membersOnly } = workspace.account;
@@ -120,7 +118,6 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
                 }}
               >
                 {refusal && (
-                  // ember-rust's `.mb-auth-error`.
                   <p id="sign-in-error" role="alert" className="rounded-[8px] border border-auth-error-border bg-auth-error-background px-3.5 py-3 text-[14px] leading-normal text-auth-error">
                     {refusal}
                   </p>

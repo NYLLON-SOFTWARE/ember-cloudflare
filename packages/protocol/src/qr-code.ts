@@ -1,8 +1,7 @@
-// QR codes, ported from ember-rust's port of rqrcode_core 2.1.0 and rqrcode 3.2.0's `as_svg`
-// (crates/ember/src/controllers/qr_code/rqrcode.rs), which Campfire draws with
-// `RQRCode::QRCode.new(url).as_svg(viewbox: true, fill: :white, color: :black)`. The Worker draws
-// them at `/qr_code/<id>`, and the app draws a sign-in link's itself, so the link never reaches the
-// Worker. Neither imports this from the package's index, so the app loads it only once it's needed.
+// QR codes, ported from rqrcode_core 2.1.0 and rqrcode 3.2.0's `as_svg`, which Campfire draws them with:
+// `RQRCode::QRCode.new(url).as_svg(viewbox: true, fill: :white, color: :black)`. The Worker draws them
+// at `/qr_code/<id>`, and the app draws a sign-in link's itself, so the link never reaches the Worker.
+// Neither imports this from the package's index, so the app loads it only once it's needed.
 //
 // The SVG has to be byte for byte the gem's, so this follows its algorithms rather than the QR spec's
 // best choices: a single segment whose mode is numeric, alphanumeric or 8-bit byte (in that order of

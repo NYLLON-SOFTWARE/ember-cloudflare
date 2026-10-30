@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   AVATAR_TOO_LARGE,
   JOINING_PROBLEMS,
@@ -68,8 +67,8 @@ const photo = () => screen.getByRole("img", { name: "Your profile photo" });
 const photoField = () => screen.getByLabelText("Upload photo");
 const moon = () => new File(["moon"], "moon.jpg", { type: "image/jpeg" });
 
-describe(feature("auth.sign-up"), () => {
-  it("asks for a name, email address and password, as ember-rust's join page does", () => {
+describe("Sign up with the join link", () => {
+  it("asks for a name, email address and password", () => {
     render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
     expect(document.title).toBe("Sign up");
     expect(screen.getByRole("img", { name: "Ember" })).toBeInTheDocument();
@@ -90,7 +89,7 @@ describe(feature("auth.sign-up"), () => {
     expect(password).toHaveAttribute("type", "password");
     expect(password).toHaveAttribute("autocomplete", "new-password");
     expect(password).toHaveAttribute("placeholder", "Password");
-    // At least as long as first run's, where ember-rust's join page takes any.
+    // At least as long as first run's.
     expect(password).toHaveAttribute("minlength", String(MIN_PASSWORD_LENGTH));
     expect(password).toHaveAttribute("maxlength", String(MAX_PASSWORD_LENGTH));
     expect(password).toBeRequired();
@@ -150,7 +149,7 @@ describe(feature("auth.sign-up"), () => {
     expect(screen.getByLabelText("Email address")).toHaveValue("grace@example.com");
   });
 
-  it("offers a photo, optional, with Upload photo, which shows as it's chosen, as ember-rust's join page does", async () => {
+  it("offers a photo, optional, with Upload photo, which shows as it's chosen", async () => {
     render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
     expect(photo()).toHaveAttribute("src", avatarPlaceholder);
     expect(photoField()).toMatchObject({ type: "file", accept: "image/*" });
@@ -212,7 +211,7 @@ describe(feature("auth.sign-up"), () => {
   });
 });
 
-describe(feature("auth.open-sign-up"), () => {
+describe("Sign up without a link", () => {
   const open = { ...workspace, account: { ...workspace.account, openSignUp: true } };
   const SITE_KEY = "1x00000000000000000000AA";
   const checked = { ...open, turnstileSiteKey: SITE_KEY };
@@ -328,7 +327,7 @@ describe(feature("auth.open-sign-up"), () => {
   });
 });
 
-describe(feature("platform.version"), () => {
+describe("Version", () => {
   it("shows Ember's version under the card, as the sign-in page does, and nobody to email", () => {
     render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
     const card = screen.getByRole("heading", { name: /^Join / }).closest("section")!;
@@ -337,7 +336,7 @@ describe(feature("platform.version"), () => {
   });
 });
 
-describe(feature("accounts.translation-buttons"), () => {
+describe("Translation buttons", () => {
   it("has a translation button by the name, the email address and the password once an administrator shows them", () => {
     const shown = { ...workspace.account, hideTranslationButtons: false };
     render(
@@ -350,8 +349,8 @@ describe(feature("accounts.translation-buttons"), () => {
   });
 });
 
-describe(feature("accounts.logo"), () => {
-  it("shows the workspace's logo in place of Ember's flame, as ember-rust's join page does", () => {
+describe("Workspace logo", () => {
+  it("shows the workspace's logo in place of Ember's flame", () => {
     const logo = "/account/logo?v=20261017120000";
     render(<JoinPage workspace={{ ...workspace, account: { ...workspace.account, logo } }} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
     expect(screen.getByRole("img", { name: "Account logo" })).toHaveAttribute("src", logo);
@@ -359,7 +358,7 @@ describe(feature("accounts.logo"), () => {
   });
 });
 
-describe(feature("accounts.custom-css"), () => {
+describe("Custom CSS", () => {
   it("keeps the password typed out of its field's value attribute, where custom CSS could read it", async () => {
     render(<JoinPage workspace={workspace} joinCode={JOIN_CODE} onJoined={vi.fn()} />);
     const password = screen.getByLabelText("Password");

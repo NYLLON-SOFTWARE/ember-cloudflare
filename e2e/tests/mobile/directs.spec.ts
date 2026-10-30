@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Sidebar } from "@ember/protocol";
 import { openRoom, signInAs } from "../../fixtures";
 import { settle } from "./audits";
@@ -9,7 +8,7 @@ test.beforeEach(async ({ page, session, room }) => {
   await openRoom(page, room);
 });
 
-test.describe(feature("dms.picker"), () => {
+test.describe("New direct message dialog", () => {
   test("New direct message fits, with someone picked, and Cancel closes it", async ({ page, room, screenIsFine }) => {
     await page.goto("/rooms/directs/new");
     const dialog = page.getByRole("dialog", { name: "New direct message" });
@@ -60,7 +59,7 @@ test.describe(feature("dms.picker"), () => {
   });
 });
 
-test.describe(feature("dms.suggestions"), () => {
+test.describe("Suggested people", () => {
   test("the people suggested for DMs fit under the DMs, and are easy to tap", async ({ page, room, screenIsFine }) => {
     // The server's suggestions, the oldest accounts, with only this test's room.
     await page.route("**/api/sidebar", async (route) => {

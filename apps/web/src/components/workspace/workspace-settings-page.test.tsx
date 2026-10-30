@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
@@ -283,7 +282,7 @@ afterEach(() => {
   section = "community-settings";
 });
 
-describe(feature("accounts.settings-page"), () => {
+describe("Community settings page", () => {
   const community = () => screen.queryByRole("region", { name: "Basic community settings" });
   const rooms = () => screen.queryByRole("region", { name: "Room order and permissions" });
   const membership = () => screen.queryByRole("region", { name: "Membership" });
@@ -352,15 +351,15 @@ describe(feature("accounts.settings-page"), () => {
   });
 });
 
-describe(feature("platform.version"), () => {
-  it("doesn't show Ember's version, as ember-rust's pull request #24 takes it off", async () => {
+describe("Version", () => {
+  it("doesn't show Ember's version", async () => {
     showPage();
     await nameField();
     expect(screen.queryByText(/version/)).not.toBeInTheDocument();
   });
 });
 
-describe(feature("accounts.name"), () => {
+describe("Rename the workspace", () => {
   it("lets an administrator rename the workspace, saying Changes saved.", async () => {
     const { onAccountChanged, user } = showPage();
     const name = await nameField();
@@ -376,14 +375,14 @@ describe(feature("accounts.name"), () => {
     expect(name).toHaveValue("Difference Engines");
   });
 
-  it("saves with Enter, and says Changes saved. when the name hasn't changed, as ember-rust does", async () => {
+  it("saves with Enter, and says Changes saved. when the name hasn't changed", async () => {
     const { user } = showPage();
     await user.type(await nameField(), "{Enter}");
     expect(await screen.findByRole("alert")).toHaveTextContent(CHANGES_SAVED);
     expect(saved()).toEqual([{ name: "Analytical Engines", tagline: "" }]);
   });
 
-  it("leaves the field unfocused, and its text where you click, as ember-rust does", async () => {
+  it("leaves the field unfocused, and its text where you click", async () => {
     showPage();
     const name = await nameField();
     expect(name).not.toHaveFocus();
@@ -423,7 +422,7 @@ describe(feature("accounts.name"), () => {
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
   });
 
-  it("shows members a new name as soon as the workspace socket says it, where ember-rust's shows it on the next load", async () => {
+  it("shows members a new name as soon as the workspace socket says it", async () => {
     serve(asMember);
     showPage();
     await screen.findByRole("heading", { level: 2, name: "Analytical Engines" });
@@ -432,7 +431,7 @@ describe(feature("accounts.name"), () => {
   });
 });
 
-describe(feature("accounts.tagline"), () => {
+describe("Workspace tagline", () => {
   const TAGLINE = "Engines for every occasion";
   const tagged: WorkspaceSettings = { ...asAdministrator, account: { ...asAdministrator.account, tagline: TAGLINE } };
   const taglineField = () => screen.findByRole("textbox", { name: "Tagline" });
@@ -522,7 +521,7 @@ describe(feature("accounts.tagline"), () => {
   });
 });
 
-describe(feature("accounts.logo"), () => {
+describe("Workspace logo", () => {
   const logo = () => screen.getByRole("img", { name: "Community icon" });
   const picker = () => screen.getByLabelText("Upload icon", { exact: false });
   const removeButton = () => screen.queryByRole("button", { name: "Remove icon" });
@@ -540,7 +539,7 @@ describe(feature("accounts.logo"), () => {
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   });
 
-  it("shows administrators Ember's stock icon above the workspace's name, to change with a logo, as ember-rust does", async () => {
+  it("shows administrators Ember's stock icon above the workspace's name, to change with a logo", async () => {
     showPage();
     await nameField();
     expect(logo()).toHaveAttribute("src", "/logos/app-icon.png");
@@ -579,7 +578,7 @@ describe(feature("accounts.logo"), () => {
     expect(onFailed).not.toHaveBeenCalled();
   });
 
-  it("removes the logo with Remove icon, saying nothing, as ember-rust's page comes back", async () => {
+  it("removes the logo with Remove icon, saying nothing", async () => {
     serve(withLogo);
     const { onAccountChanged, user } = showPage();
     await nameField();
@@ -639,7 +638,7 @@ describe(feature("accounts.logo"), () => {
   });
 });
 
-describe(feature("accounts.translation-buttons"), () => {
+describe("Translation buttons", () => {
   const hideSwitch = () => screen.findByRole("switch", { name: "Hide translation buttons" });
 
   it("lets an administrator show translation buttons, and hide them again, saved with the name by Save changes", async () => {
@@ -716,7 +715,7 @@ describe(feature("accounts.translation-buttons"), () => {
   });
 });
 
-describe(feature("accounts.custom-domain"), () => {
+describe("Custom domain", () => {
   const moved: WorkspaceSettings = {
     ...asAdministrator,
     account: { ...asAdministrator.account, customDomain: "chat.example.com" },
@@ -758,7 +757,7 @@ describe(feature("accounts.custom-domain"), () => {
   });
 });
 
-describe(feature("auth.memberful-sign-in"), () => {
+describe("Sign in with Memberful", () => {
   const SITE = "https://example.memberful.com";
   const withKeys: WorkspaceSettings = { ...asAdministrator, memberfulSite: SITE };
   /** `settings` with Memberful on, and members only if `membersOnly`. */
@@ -981,7 +980,7 @@ describe(feature("auth.memberful-sign-in"), () => {
   });
 });
 
-describe(feature("accounts.ways-to-join"), () => {
+describe("Ways to join", () => {
   showingSection("membership-settings");
   const SITE = "https://example.memberful.com";
   const withKeys: WorkspaceSettings = { ...asAdministrator, memberfulSite: SITE };
@@ -1211,7 +1210,7 @@ describe(feature("accounts.ways-to-join"), () => {
   });
 });
 
-describe(feature("auth.email-domain-sign-up"), () => {
+describe("Join with an email domain", () => {
   showingSection("membership-settings");
   const sending: WorkspaceSettings = { ...asAdministrator, email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: "Ember <ember@example.com>" } };
   /** `settings` with Email domain on, letting in `domains`. */
@@ -1469,7 +1468,7 @@ describe(feature("auth.email-domain-sign-up"), () => {
   });
 });
 
-describe(feature("platform.email"), () => {
+describe("Sending email", () => {
   showingSection("membership-settings");
 
   it("gives administrators the Email card after Who can join, whose Set up email shows what it set up", async () => {
@@ -1523,7 +1522,7 @@ describe(feature("platform.email"), () => {
   });
 });
 
-describe(feature("auth.turnstile"), () => {
+describe("Check that people are people with Cloudflare Turnstile", () => {
   showingSection("membership-settings");
 
   const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
@@ -1576,7 +1575,7 @@ describe(feature("auth.turnstile"), () => {
   });
 });
 
-describe(feature("accounts.invitations"), () => {
+describe("Invite people by email", () => {
   showingSection("membership-settings");
 
   const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
@@ -1622,7 +1621,7 @@ describe(feature("accounts.invitations"), () => {
   });
 });
 
-describe(feature("accounts.join-link"), () => {
+describe("Join link", () => {
   showingSection("membership-settings");
 
   it("shows everyone the join link, and tells the welcome card its code", async () => {
@@ -1635,10 +1634,10 @@ describe(feature("accounts.join-link"), () => {
   });
 });
 
-describe(feature("accounts.regenerate-join-link"), () => {
+describe("Regenerate the join link", () => {
   showingSection("membership-settings");
 
-  it("lets an administrator regenerate the link at once, with no notice, as ember-rust does", async () => {
+  it("lets an administrator regenerate the link at once, with no notice", async () => {
     const { onJoinCodeChanged, user } = showPage();
     await user.click(await screen.findByRole("button", { name: "Regenerate join link" }));
     await waitFor(async () => expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${NEW_JOIN_CODE}`));
@@ -1669,7 +1668,7 @@ describe(feature("accounts.regenerate-join-link"), () => {
   });
 });
 
-describe(feature("rooms.create-open"), () => {
+describe("Create an open room", () => {
   showingSection("channel-settings");
 
   it("has New room in Rooms and permissions, which opens the form in place", async () => {
@@ -1682,7 +1681,7 @@ describe(feature("rooms.create-open"), () => {
   });
 });
 
-describe(feature("rooms.creation-permission"), () => {
+describe("Only administrators create rooms (setting)", () => {
   const restrictSwitch = () => screen.findByRole("switch", { name: "Must be admin to create new rooms" });
   const roomsSection = () => screen.getByRole("region", { name: "Room order and permissions" });
   const ADMINS_MANAGE = "Community admins manage room order and permissions.";
@@ -1740,7 +1739,7 @@ describe(feature("rooms.creation-permission"), () => {
     expect(within(roomsSection()).getByRole("link", { name: "New room" })).toBeInTheDocument();
   });
 
-  it("gives members New room while anyone can create rooms, saying admins manage the rest, as ember-rust does", async () => {
+  it("gives members New room while anyone can create rooms, saying admins manage the rest", async () => {
     serve(asMember);
     showPage(asLinus);
     const rooms = roomsSection();
@@ -1751,7 +1750,7 @@ describe(feature("rooms.creation-permission"), () => {
   });
 });
 
-describe(feature("sidebar.shared-order"), () => {
+describe("Shared room order", () => {
   const HELP = "Drag a room to reorder your community sidebar. Click a room to set its permissions.";
   const orderList = () => screen.getByRole("list", { name: "Room order" });
   const orderRows = () => within(orderList()).getAllByRole("listitem");
@@ -1887,7 +1886,7 @@ describe(feature("sidebar.shared-order"), () => {
     expect(ordered()).toEqual(["random", "Design", "general"]);
   });
 
-  it("links each room to its settings, saying who it's open to, as ember-rust's pull request #24 does", async () => {
+  it("links each room to its settings, saying who it's open to", async () => {
     const { user } = showPage();
     await screen.findByRole("list", { name: "Room order" });
     const design = within(orderRow("Design")).getByRole("link", { name: "Settings for Design" });
@@ -2123,7 +2122,7 @@ const roleChanges = () =>
     .mock.calls.filter(([input, init]) => init?.method === "PATCH" && String(input).startsWith("/api/account/users/"))
     .map(([input, init]) => [String(input).split("/").at(-1), (JSON.parse(String(init?.body)) as RoleChange).role]);
 
-describe(feature("accounts.people"), () => {
+describe("People list", () => {
   showingSection("membership-settings");
 
   it("lists everyone but bots by name, administrators under Admins, then the members under Members, after the join link", async () => {
@@ -2174,7 +2173,7 @@ describe(feature("accounts.people"), () => {
     expect(avatar).toHaveAttribute("loading", "lazy");
   });
 
-  it("loads the people directory again as it shows, as ember-rust lists everyone as its page loads", async () => {
+  it("loads the people directory again as it shows", async () => {
     const { reloadPeople } = showPage();
     await peopleLists();
     expect(reloadPeople).toHaveBeenCalledOnce();
@@ -2189,7 +2188,7 @@ describe(feature("accounts.people"), () => {
   });
 });
 
-describe(feature("accounts.roles"), () => {
+describe("Make or revoke administrators", () => {
   showingSection("membership-settings");
 
   it("gives administrators a crown on each person's row, pressed for administrators, and their own can't be pressed", async () => {
@@ -2203,7 +2202,7 @@ describe(feature("accounts.roles"), () => {
     expect(await crownOf("linus Torvalds")).toHaveAccessibleName("Role: Member");
   });
 
-  it("makes someone an administrator with their crown, at once, with no notice, as ember-rust does", async () => {
+  it("makes someone an administrator with their crown, at once, with no notice", async () => {
     const { onPersonChanged, user } = showPage();
     await user.click(await crownOf("linus Torvalds"));
     expect(await crownOf("linus Torvalds")).toBeChecked();
@@ -2223,7 +2222,7 @@ describe(feature("accounts.roles"), () => {
     expect(await readList()).toEqual([["Ada Lovelace"], ["Grace Hopper", "linus Torvalds", "Mallory"]]);
   });
 
-  it("can be pressed from the keyboard, where ember-rust's checkbox is hidden from it, keeping the focus as its row changes group", async () => {
+  it("can be pressed from the keyboard, keeping the focus as its row changes group", async () => {
     const { onPersonChanged, user } = showPage();
     (await crownOf("Grace Hopper")).focus();
     // Past Grace's Delete, and linus's avatar, which links to his page.
@@ -2321,7 +2320,7 @@ const removals = () =>
     .map(([input]) => String(input).split("/").at(-1));
 const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
 
-describe(feature("accounts.remove-person"), () => {
+describe("Remove someone from the workspace", () => {
   showingSection("membership-settings");
 
   it("gives administrators Delete on each active person's row but their own, white on red, named for them", async () => {
@@ -2333,7 +2332,7 @@ describe(feature("accounts.remove-person"), () => {
     expect(await deleteOf("linus Torvalds")).toBeInTheDocument();
     expect(await deleteOf("Ada Lovelace")).toBeNull();
     expect(await deleteOf("Mallory")).toBeNull();
-    // After the crown, as in ember-rust's row.
+    // After the crown.
     expect((await crownOf("linus Torvalds")).closest("label")!.nextElementSibling).toBe(await deleteOf("linus Torvalds"));
   });
 
@@ -2343,7 +2342,7 @@ describe(feature("accounts.remove-person"), () => {
     for (const list of await peopleLists()) expect(within(list).queryAllByRole("button")).toEqual([]);
   });
 
-  it("removes someone once you confirm, with no notice, as ember-rust does, and they leave the list", async () => {
+  it("removes someone once you confirm, with no notice, and they leave the list", async () => {
     const confirm = confirmed(true);
     const { onPersonChanged, user } = showPage();
     await user.click((await deleteOf("linus Torvalds"))!);
@@ -2405,7 +2404,7 @@ describe(feature("accounts.remove-person"), () => {
   });
 });
 
-describe(feature("auth.memberful-memberships"), () => {
+describe("Memberful memberships", () => {
   showingSection("membership-settings");
   const SITE = "https://example.memberful.com";
   const withKeys: WorkspaceSettings = { ...asAdministrator, memberfulSite: SITE };
@@ -2468,7 +2467,7 @@ describe(feature("auth.memberful-memberships"), () => {
   });
 });
 
-describe(feature("users.avatar-links"), () => {
+describe("Avatars open people's pages", () => {
   showingSection("membership-settings");
 
   it("links each person's avatar to their page, titled with their name and bio, a banned person's too, and goes there in place", async () => {

@@ -9,11 +9,10 @@ const ACTION =
   "grid size-8 flex-none cursor-pointer place-items-center rounded-full text-[0.8rem] touch:size-11 [@media(hover:hover)_and_(pointer:fine)]:hover:not-active:bg-border";
 
 /**
- * ember-rust's card for a file a message doesn't show as a picture or a video (`file_link` in
- * crates/views/src/messages/presentation.rs, zz-ember.css): the file's icon on a tile, its name, which
- * wraps anywhere rather than overflow, Download, which Ember added to an iPhone's or iPad's home screen
- * hides, as Campfire's `.hide-in-ios-pwa` does, since it can't download, and Share, where the browser can
- * share, which shares the file untitled.
+ * The card for a file a message doesn't show as a picture or a video: the file's icon on a tile, its
+ * name, which wraps anywhere rather than overflow, Download, which Ember added to an iPhone's or iPad's
+ * home screen hides, as Campfire's `.hide-in-ios-pwa` does, since it can't download, and Share, where
+ * the browser can share, which shares the file untitled.
  */
 export function FileCard({ file }: { file: StoredFile }) {
   return (

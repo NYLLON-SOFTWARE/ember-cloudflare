@@ -56,7 +56,7 @@ export function RoomView({ room, messageId, invitation, onDismissInvitation, me,
   const name = roomName(room, me.id, nameOf);
   const direct = room.kind === "direct";
   useTitle(name);
-  // As ember-rust's rooms#show remembers the room it shows, for home and Go Back to return to.
+  // The room shown is remembered, for home and Go Back to return to.
   useEffect(() => rememberLastRoom(room.id), [room.id]);
   const foundGone = state.status === "gone";
   const roomGone = useEffectEvent(() => onGone(room));
@@ -66,9 +66,8 @@ export function RoomView({ room, messageId, invitation, onDismissInvitation, me,
   const deleted = gone || foundGone;
 
   // The room opens at the message its address names. Following its permalink, or one to another message
-  // in it, or the room's own link, goes there, or to the newest, as Turbo renders ember-rust's page
-  // afresh, even when it's the page shown. One followed while the room is away goes there once the room
-  // lets the page in again.
+  // in it, or the room's own link, goes there, or to the newest, even when it's the page shown. One
+  // followed while the room is away goes there once the room lets the page in again.
   const visit = useVisit();
   const visited = useRef({ messageId, visit });
   const goTo = useEffectEvent((messageId: string | null) => jump(messageId));
@@ -84,14 +83,13 @@ export function RoomView({ room, messageId, invitation, onDismissInvitation, me,
 
   const editors = useMemo<MessageEditors>(() => {
     const open = new Map<string, MessageEditorHandle>();
-    // As an editor closes, focus goes back to the composer, where ember-rust's is lost, except on touch
-    // screens, where it would bring up the keyboard.
+    // As an editor closes, focus goes back to the composer, except on touch screens, where it would
+    // bring up the keyboard.
     const returnFocus = () => {
       if (!hasTouchKeyboard()) composer.current?.focus();
     };
     return {
-      // Up Arrow returns to your newest message's editor if it's open, where ember-rust's finds no Edit
-      // button there to press, and does nothing.
+      // Up Arrow returns to your newest message's editor if it's open.
       open: (messageId) => {
         const editor = open.get(messageId);
         if (editor) editor.focus();
@@ -111,8 +109,8 @@ export function RoomView({ room, messageId, invitation, onDismissInvitation, me,
   }, []);
   useImperativeHandle(ref, () => ({ focusComposer: editors.returnFocus }), [editors]);
 
-  // ember-rust's Up Arrow edits your newest message, unless it's still on its way, or the timeline is
-  // reading older history and may not hold it.
+  // Up Arrow edits your newest message, unless it's still on its way, or the timeline is reading older
+  // history and may not hold it.
   const editLastMessage = () => {
     if (state.hasNewer) return;
     const newest = state.messages.findLast((message) => message.creator.id === me.id);

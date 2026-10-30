@@ -51,7 +51,7 @@ interface Props {
 
 const FIELDS = ["name", "emailAddress", "bio"] as const;
 
-/** What ember-rust's profile says once it has saved a new avatar. */
+/** What the profile says once it has saved a new avatar. */
 export const AVATAR_CHANGED = "It may take up to 30 minutes to change everywhere.";
 
 /** Your avatar as the page shows it: its address, and whether you've uploaded one, which Remove avatar takes away. */
@@ -65,8 +65,8 @@ const fieldsOf = ({ name, emailAddress, bio }: Profile): Fields => ({ name, emai
 
 /**
  * The fields `typed` differently from `saved`, the profile as the page last loaded or saved it, and
- * `password` and `currentPassword` if they're typed. Only they're sent, where ember-rust's form sends
- * every field, so a save doesn't put back what another tab has saved since.
+ * `password` and `currentPassword` if they're typed. Only they're sent, so a save doesn't put back what
+ * another tab has saved since.
  */
 function changesOf(saved: Fields, typed: Fields, password: string, currentPassword: string): ProfileChanges {
   const changes: ProfileChanges = password ? { password } : {};
@@ -95,17 +95,15 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
 }
 
 /**
- * ember-rust's profile (users/profiles/show.html): how to install Ember, for the browsers ember-rust
- * tells, then your avatar, which a photo picked saves at once, showing it meanwhile, with the notice
- * "It may take up to 30 minutes to change everywhere.", and Remove avatar takes away, then your name,
- * email address, a new password, your current password while you have one, which changing your email
- * address or password takes, where ember-rust asks for none, and your bio, which Save changes saves
- * with the notice "✓", keeping the page where ember-rust reloads it, then, while members sign in with
- * Memberful, this port's own, connecting your Memberful account, then your notification level in
- * each of your rooms and DMs, then a sign-in link for you, a new one each time the page loads or saves,
- * as each of ember-rust's pages has, and Log out in the top bar. Go Back returns to the page it was
- * opened from. Your avatar, name and bio reach everyone's open pages at once, through the workspace
- * socket, as they reach the rail.
+ * Your profile: how to install Ember, for the browsers that get steps, then your avatar, which a photo
+ * picked saves at once, showing it meanwhile, with the notice "It may take up to 30 minutes to change
+ * everywhere.", and Remove avatar takes away, then your name, email address, a new password, your
+ * current password while you have one, which changing your email address or password takes, and your
+ * bio, which Save changes saves with the notice "✓", keeping the page, then, while members sign in with
+ * Memberful, connecting your Memberful account, then your notification level in each of your rooms and
+ * DMs, then a sign-in link for you, a new one each time the page loads or saves, and Log out in the top
+ * bar. Go Back returns to the page it was opened from. Your avatar, name and bio reach everyone's open
+ * pages at once, through the workspace socket, as they reach the rail.
  */
 export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
@@ -167,7 +165,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     setTransferId(transferId);
   }
 
-  /** Saves `file` as your avatar, as ember-rust's picker sends its form once a photo is picked. */
+  /** Saves `file` as your avatar, once a photo is picked. */
   const saveAvatar = (file: File) => {
     if (file.size > MAX_AVATAR_SIZE) return flash("alert", AVATAR_TOO_LARGE);
     setPicked(URL.createObjectURL(file));
@@ -211,7 +209,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
         const now = fieldsOf(answer.profile);
         saved.current = now;
         setFields((fields) => fields && settled(fields, sent, now));
-        // The passwords leave their fields, as ember-rust's page comes back without them, unless others were typed meanwhile.
+        // The passwords leave their fields, unless others were typed meanwhile.
         if (passwordInput.current?.value === password) passwordInput.current.value = "";
         if (currentPasswordInput.current?.value === currentPassword) currentPasswordInput.current.value = "";
         showAnswer(answer);
@@ -252,7 +250,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
           remove={picture?.avatar ? { label: "Remove avatar", onRemove: () => savePicture(removeAvatar()) } : null}
         />
         <form onSubmit={save} className={AUTH_FORM}>
-          {/* Nothing is focused as the page opens, as in ember-rust. */}
+          {/* Nothing is focused as the page opens. */}
           <Field id="user_name" label="Name" translation="user_name">
             <Input
               id="user_name"
@@ -295,7 +293,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
               className={FIELD_INPUT}
             />
             <p id="profile-password-help" className="text-[0.8em] text-muted-foreground">
-              {/* Everyone in ember-rust has a password, where someone who signed in with Memberful or just a name has none. */}
+              {/* Someone who signed in with Memberful or just a name has no password. */}
               {fields && !hasPassword ? "Leave blank to keep signing in without a password." : "Leave blank to keep your current password."}
             </p>
           </Field>
@@ -319,7 +317,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
             </Field>
           )}
           <Field id="user_bio" label="Bio" translation="bio">
-            {/* Campfire's `.input` as a textarea: three rows, which zz-ember.css lets you make taller. */}
+            {/* Campfire's `.input` as a textarea: three rows, which you can make taller. */}
             <textarea
               id="user_bio"
               rows={3}

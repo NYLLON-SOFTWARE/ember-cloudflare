@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   endPushSubscriptionAt,
@@ -32,7 +31,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("notifications.subscriptions"), () => {
+describe("Save push subscriptions", () => {
   it("ends this browser's push subscription, answering its endpoint", async () => {
     const { registration, unsubscribe } = subscribed();
     const getRegistration = registered(registration);
@@ -93,7 +92,7 @@ describe(feature("notifications.subscriptions"), () => {
   });
 });
 
-describe(feature("notifications.test-page"), () => {
+describe("Push subscriptions page", () => {
   it("ends this browser's push subscription when the one deleted is at its endpoint, saying so", async () => {
     const ended = vi.fn();
     const stop = subscribeToPushEnding(ended);
@@ -135,7 +134,7 @@ describe(feature("notifications.test-page"), () => {
   });
 });
 
-describe(feature("accounts.custom-domain"), () => {
+describe("Custom domain", () => {
   /** The P-256 key of the push subscription this browser had at the address its page moved from. */
   const MOVED_FROM = "BOv7-moved_from";
   /** What saving this browser's subscription sends, replacing the subscription with the key `replacing`, if given. */
@@ -244,7 +243,7 @@ const FAILED = {
   help: false,
 };
 
-describe(feature("notifications.enable"), () => {
+describe("Turn on notifications", () => {
   it("asks for permission before it awaits anything, as Safari only prompts from the click", () => {
     const { requestPermission } = pushable();
     saving();

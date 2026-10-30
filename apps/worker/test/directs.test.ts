@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { CloseCode, MAX_LISTED_USERS, type DirectRoom, type RoomId, type Sidebar, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RoomEvent } from "../src/room-log";
@@ -69,7 +68,7 @@ async function opened(roomId: RoomId, session: Session): Promise<"welcome" | num
   });
 }
 
-describe(feature("dms.create"), () => {
+describe("Start or reopen a direct message", () => {
   it("starts a DM between you and the people named, answering 201 with everyone in it, at the everything level", async () => {
     const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
     const response = await startDirect(ada, [grace.user.id, linus.user.id]);
@@ -183,7 +182,7 @@ async function heard(tab: WorkspaceSocket, room?: RoomId): Promise<WorkspaceServ
 
 const lastMessageAt = async (roomId: RoomId) => ((await workspaceSql("SELECT last_message_at FROM rooms WHERE id = ?", roomId))[0] as { last_message_at: string | null }).last_message_at;
 
-describe(feature("sidebar.dm-order"), () => {
+describe("DM order", () => {
   it("lists a DM as active when it started until a message comes, then when its latest came, telling everyone in it at once, its author too", async () => {
     const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
     const room = await direct(ada, grace);
@@ -246,7 +245,7 @@ describe(feature("sidebar.dm-order"), () => {
   });
 });
 
-describe(feature("dms.suggestions"), () => {
+describe("Suggested people", () => {
   /** Adds someone active whose account was made at `createdAt`, answering their id. */
   async function person(name: string, createdAt: string, role = 0): Promise<UserId> {
     const id = `person-${crypto.randomUUID()}`;
@@ -274,7 +273,7 @@ describe(feature("dms.suggestions"), () => {
     expect(await suggestedTo(ada)).not.toContain("Ada");
   });
 
-  it("leaves out everyone you share a DM with, and as many more as there are people in your DMs, you included, as ember-rust does", async () => {
+  it("leaves out everyone you share a DM with, and as many more as there are people in your DMs, you included", async () => {
     const ids = await twentyFive();
     const ada = await signIn("Ada");
     // A DM with yourself takes 18.
@@ -311,7 +310,7 @@ describe(feature("dms.suggestions"), () => {
   });
 });
 
-describe(feature("dms.naming"), () => {
+describe("Group DMs and DM names", () => {
   it("lists everyone in each DM with the names they have now", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const room = await direct(ada, grace);
@@ -320,7 +319,7 @@ describe(feature("dms.naming"), () => {
   });
 });
 
-describe(feature("dms.delete"), () => {
+describe("Delete a direct message", () => {
   it("deletes a DM for any of its members, closing its sockets, and takes it out of their sidebars alone", async () => {
     const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
     const room = await direct(ada, grace);

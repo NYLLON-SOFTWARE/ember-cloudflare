@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -66,7 +65,7 @@ function checkSays(said: unknown, { source = frame().contentWindow, origin = loc
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("auth.turnstile"), () => {
+describe("Check that people are people with Cloudflare Turnstile", () => {
   it("starts with the widget to make for Ember's hostname, linking to Turnstile in the Cloudflare dashboard", async () => {
     const fetch = serve();
     const { user, onClose } = showSetup();

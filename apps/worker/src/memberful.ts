@@ -19,16 +19,15 @@ import { urlOf } from "./request-url";
 import { isToken } from "./secrets";
 import { MEMBERFUL_ROUND_TRIP_MS, workspace } from "./workspace";
 
-// Signing in with Memberful (`auth.memberful-sign-in`), this port's own, as ember-rust signs people in
-// with passwords alone. Memberful speaks OAuth 2.0 but not OpenID Connect, so this follows its guide for
-// a server-side custom app (memberful.com/docs/api-reference/sign-in-for-apps-via-oauth): Sign in with
-// Memberful sends the browser to the site's `/oauth` with a random state, which a cookie keeps, and the
-// site sends it back to the callback with that state and a code, which the Worker exchanges, with the
-// app's client secret, for an access token to ask the member API who signed in. It works only while the
-// deployment has the app's keys, and lets someone new in only while an administrator has Memberful on, but
-// signs in the members who joined with it once it's off too, since they have no password. While it's
-// members only, someone who has an account here already connects their Memberful account to it the same
-// way (`auth.memberful-connect`), once their password has checked out, from their profile, or as they sign
+// Signing in with Memberful. Memberful speaks OAuth 2.0 but not OpenID Connect, so this follows its
+// guide for a server-side custom app (memberful.com/docs/api-reference/sign-in-for-apps-via-oauth): Sign
+// in with Memberful sends the browser to the site's `/oauth` with a random state, which a cookie keeps,
+// and the site sends it back to the callback with that state and a code, which the Worker exchanges,
+// with the app's client secret, for an access token to ask the member API who signed in. It works only
+// while the deployment has the app's keys, and lets someone new in only while an administrator has
+// Memberful on, but signs in the members who joined with it once it's off too, since they have no
+// password. While it's members only, someone who has an account here already connects their Memberful
+// account to it the same way, once their password has checked out, from their profile, or as they sign
 // in: the Workspace keeps the state's digest for the callback, which connects the account to theirs.
 
 /** The cookie that keeps a sign-in's state, and the page to come back to, until Memberful sends the browser back. */
@@ -83,7 +82,7 @@ function returnPathOf(returnTo: string | null, origin: string): string {
   return path.length <= MAX_RETURN_PATH_LENGTH ? path : "/";
 }
 
-/** What the state cookie of a connection (`auth.memberful-connect`) ends with, after the page to come back to. */
+/** What the state cookie of a connection ends with, after the page to come back to. */
 const CONNECTING = "connecting";
 
 /**
@@ -134,12 +133,12 @@ export async function startMemberfulSignIn(request: Request, env: Env): Promise<
 
 /**
  * Starts connecting the account of `userId`, whose password's digest `passwordDigest` the Worker checked
- * the password they gave against, or "" without one, to an account at the Memberful site
- * (`auth.memberful-connect`), to come back to the page `returnTo` names: where to sign in there, and the
- * `Set-Cookie` that keeps the state it goes with, whose digest the Workspace keeps for the callback. Null
- * unless the deployment has Memberful's keys and the Workspace kept it (`startMemberfulConnection`).
- * Asked at an address Ember has moved from to its custom domain, as a tab left open there is, it starts
- * nothing, and answers that page at the custom domain instead, to sign in and connect there.
+ * the password they gave against, or "" without one, to an account at the Memberful site, to come back
+ * to the page `returnTo` names: where to sign in there, and the `Set-Cookie` that keeps the state it
+ * goes with, whose digest the Workspace keeps for the callback. Null unless the deployment has
+ * Memberful's keys and the Workspace kept it (`startMemberfulConnection`). Asked at an address Ember has
+ * moved from to its custom domain, as a tab left open there is, it starts nothing, and answers that page
+ * at the custom domain instead, to sign in and connect there.
  */
 export async function memberfulConnectionFor(
   request: Request,
@@ -207,12 +206,11 @@ async function signedInWithMemberful(request: Request, env: Env): Promise<Respon
 
 /**
  * `POST /webhooks/memberful`, where the Memberful site says a member's account, subscription or order
- * changed (`auth.memberful-memberships`): once its signature checks out, the Workspace queues checking
- * that member's membership with the admin API, if they're linked to someone here, rather than trusting
- * what it says, as Memberful advises, since its webhooks can come in any order
- * (memberful.com/docs/api-reference/webhooks). Answers 404 without the webhook's secret and the API key
- * to check with, 401 to a signature that doesn't check out, 413 to a body over the limit, and 204 to
- * anything else, which Memberful takes as delivered.
+ * changed: once its signature checks out, the Workspace queues checking that member's membership with
+ * the admin API, if they're linked to someone here, rather than trusting what it says, as Memberful
+ * advises, since its webhooks can come in any order (memberful.com/docs/api-reference/webhooks). Answers
+ * 404 without the webhook's secret and the API key to check with, 401 to a signature that doesn't check
+ * out, 413 to a body over the limit, and 204 to anything else, which Memberful takes as delivered.
  */
 export async function memberfulWebhook(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") return notFound(request);

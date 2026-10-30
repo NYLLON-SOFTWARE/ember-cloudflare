@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { AccountSettings } from "@ember/protocol";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
@@ -30,7 +29,7 @@ async function signedOut(browser: Browser, baseURL: string): Promise<Page> {
   return page;
 }
 
-test.describe(feature("auth.open-sign-up"), () => {
+test.describe("Sign up without a link", () => {
   test("the administrator turns Open on, once they confirm, and someone new creates an account from the sign-in page, until it's off", async ({ page, browser, baseURL }) => {
     await openMembership(page);
     const open = page.getByRole("switch", { name: "Open" });
@@ -66,7 +65,7 @@ test.describe(feature("auth.open-sign-up"), () => {
   });
 });
 
-test.describe(feature("accounts.ways-to-join"), () => {
+test.describe("Ways to join", () => {
   test("the administrator turns the join link off, which sends it to sign in saying so, and on again with the same link", async ({ page, browser, baseURL }) => {
     await openMembership(page);
     const field = page.getByRole("textbox", { name: "Share to invite more people" });

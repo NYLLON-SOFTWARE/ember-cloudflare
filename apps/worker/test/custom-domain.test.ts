@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   CUSTOM_DOMAIN_NOT_A_HOST,
   NOT_A_CUSTOM_DOMAIN,
@@ -117,7 +116,7 @@ const subscriptionsOf = async (session: Session) =>
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("accounts.custom-domain"), () => {
+describe("Custom domain", () => {
   it("makes the address the page asking is open at Ember's, which every page then learns", async () => {
     const administrator = await setUp();
     const member = await signIn("Grace");
@@ -353,7 +352,7 @@ function internet(answer: { with: (request: Request) => Promise<Response> }): Se
 /** Matches the address of a probe the Worker sends to `origin`. */
 const probeAt = (origin: string) => new RegExp(`^${origin.replace(/\./g, "\\.")}/api/custom_domain_probes/[\\w-]{32}$`);
 
-describe(feature("accounts.custom-domain"), () => {
+describe("Custom domain", () => {
   it("checks that a domain reaches this Ember by asking it for a probe only this Ember waits for, once", async () => {
     const administrator = await setUp();
     // As Cloudflare sends the domain to this Worker, once its dashboard has added it.
@@ -464,7 +463,7 @@ describe(feature("accounts.custom-domain"), () => {
   });
 });
 
-describe(feature("accounts.custom-domain"), () => {
+describe("Custom domain", () => {
   /** Ember as a deploy left it, opened at its workers.dev address, with Ada as its administrator, signed in. */
   async function deployed(): Promise<Session> {
     const administrator = await setUp();
@@ -718,7 +717,7 @@ function resolverWith(answers: Record<string, DnsAnswer | (() => Promise<Respons
   return asked;
 }
 
-describe(feature("accounts.custom-domain"), () => {
+describe("Custom domain", () => {
   it("looks up the zone a domain is in, and whose nameservers serve it, by asking Cloudflare's resolver two things", async () => {
     const administrator = await setUp();
     const asked = resolverWith({ [`${DOMAIN} SOA`]: inZone("example.com", NXDOMAIN), ...zoneServedBy("example.com", CLOUDFLARE_NAMESERVERS) });

@@ -5,8 +5,7 @@ import { Button } from "@/components/ui/button";
 
 import { cn } from "@/lib/utils";
 
-// shadcn/ui's dialog without its fade and zoom, since ember-rust's dialogs are native ones, which open
-// and close at once.
+// shadcn/ui's dialog without its fade and zoom, so it opens and closes at once, as a native dialog does.
 
 function Dialog({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;

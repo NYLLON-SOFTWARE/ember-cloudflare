@@ -1,9 +1,8 @@
-import { feature } from "@ember/parity";
 import type { WebSocketRoute } from "@playwright/test";
 import { ROOM_SOCKET } from "../../fixtures";
 import { expect, test, type Member, type Members } from "./fixtures";
 
-test.describe(feature("realtime.who-is-here"), () => {
+test.describe("Who's here", () => {
   test("shows who is in the room as people come and go", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await expect(ada.presence()).toHaveText("1 here now");
@@ -18,7 +17,7 @@ test.describe(feature("realtime.who-is-here"), () => {
   });
 });
 
-test.describe(feature("realtime.presence"), () => {
+test.describe("Presence", () => {
   test("counts someone with two tabs open once", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -31,7 +30,7 @@ test.describe(feature("realtime.presence"), () => {
   });
 });
 
-test.describe(feature("realtime.typing"), () => {
+test.describe("Typing indicator", () => {
   test("shows who is typing until they send or clear their message", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -83,7 +82,7 @@ test.describe(feature("realtime.typing"), () => {
   });
 });
 
-test.describe(feature("realtime.reconnect"), () => {
+test.describe("Catch up after a reconnect", () => {
   /**
    * Routes Ada's room socket so the test can cut it, and keep it cut, like a network drop. `addresses`
    * lists the addresses it has connected to.

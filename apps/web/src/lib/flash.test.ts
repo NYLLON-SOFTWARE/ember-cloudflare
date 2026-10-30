@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { flashOnNextPage, takeFlashFromLastPage } from "./flash";
 import { loadPage } from "./page";
@@ -8,7 +7,7 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
-describe(feature("ui.flash"), () => {
+describe("Saved notices", () => {
   it("keeps a message for the next page this tab loads, once", () => {
     flashOnNextPage({ kind: "notice", text: "✓" });
     expect(takeFlashFromLastPage()).toEqual({ kind: "notice", text: "✓" });

@@ -5,7 +5,7 @@ export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "gone";
 
 /**
  * The most messages the timeline keeps, and how many more it takes before it's cut back to that, as
- * ember-rust's message_paginator.js keeps the page's (`MAX_MESSAGES`, `MAX_MESSAGES_LEEWAY`).
+ * Campfire's message_paginator.js keeps the page's (`MAX_MESSAGES`, `MAX_MESSAGES_LEEWAY`).
  */
 export const MAX_MESSAGES = 300;
 export const MAX_MESSAGES_LEEWAY = 20;
@@ -19,7 +19,7 @@ export interface PendingMessage extends Message {
   upload?: PendingUpload;
 }
 
-/** A file being uploaded, as ember-rust's card for it shows it (composer_controller.js#pendingUploadProgress). */
+/** A file being uploaded, as its card shows it. */
 export interface PendingUpload {
   name: string;
   size: number;
@@ -53,7 +53,7 @@ export interface RoomState {
   hasMore: boolean;
   /**
    * Whether it has newer ones, as when it opened at a permalink, or once paging back has cut the newest
-   * off: ember-rust's paginator isn't `upToDate` then. New messages wait for the timeline to page forward
+   * off: Campfire's paginator isn't `upToDate` then. New messages wait for the timeline to page forward
    * to them, rather than show after the gap, and count as `arrivals`.
    */
   hasNewer: boolean;
@@ -75,7 +75,7 @@ export interface RoomState {
   notice: string | null;
   /**
    * Whether the room had more than a page of messages (`HISTORY_PAGE_SIZE`) when it first answered, or null until then.
-   * As ember-rust decides when it renders the room's page, it holds until the room is opened again.
+   * Once it's known, it holds until the room is opened again.
    */
   paged: boolean | null;
   /**
@@ -182,7 +182,7 @@ const showing = (state: RoomState, page: TimelinePage) => ({
 
 /**
  * The timeline cut back to `MAX_MESSAGES` once it holds more than `MAX_MESSAGES_LEEWAY` over: from its
- * start after it grows at the end, and from its end after it grows at the start, as ember-rust's paginator
+ * start after it grows at the end, and from its end after it grows at the start, as Campfire's paginator
  * drops the end the reader is furthest from. What's cut is paged to again from the new `oldestId` or
  * `newestId`. Messages waiting for the room aren't cut.
  */
@@ -205,18 +205,17 @@ const uploading = (messages: RoomState["messages"], clientMessageId: string, upd
   messages.map((m) => (isPending(m) && m.upload && m.clientMessageId === clientMessageId ? { ...m, upload: update(m.upload) } : m));
 
 /**
- * `message` as the room stored it. A confirmed message goes where the room put it, at the end, not where its
- * optimistic copy sat: the room may have stored someone else's first. ember-rust's messages_controller does
- * the same. One the timeline has already, as when an upload's answer and the room both bring it, stays
- * where it is.
+ * `message` as the room stored it. A confirmed message goes where the room put it, at the end, not where
+ * its optimistic copy sat: the room may have stored someone else's first. One the timeline has already,
+ * as when an upload's answer and the room both bring it, stays where it is.
  */
 function received(state: RoomState, message: Message): RoomState {
   const others = state.messages.filter((m) => !confirms(message, m));
   const typing = withoutTyping(state.typing, message.creator.id);
   const shown = others.some((m) => m.id === message.id);
   const arrivals = others.length < state.messages.length || shown ? state.arrivals : state.arrivals + 1;
-  // A timeline that doesn't hold the newest messages shows this one once it pages forward to it, where
-  // ember-rust's adds it after the gap.
+  // A timeline that doesn't hold the newest messages shows this one once it pages forward to it, rather
+  // than after the gap.
   if (state.hasNewer) return { ...state, messages: others, typing, arrivals };
   const messages = shown ? replace(others, message.id, () => message) : [...others, message];
   return cut({ ...state, messages, typing, arrivals }, "start");
@@ -254,7 +253,7 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
     case "offline":
       return action.offline ? unsent({ ...state, offline: true }) : { ...state, offline: false };
     case "pending": {
-      // Sending goes to the end of the timeline, as ember-rust's insertPendingMessage scrolls there, once
+      // Sending goes to the end of the timeline, as Campfire's insertPendingMessage scrolls there, once
       // the newest page has come, which useRoom asks for first when the timeline doesn't hold it.
       const focus = state.hasNewer || state.loadingPage ? state.focus : { messageId: null };
       return unsent({ ...state, messages: [...state.messages, action.message], focus });
@@ -266,7 +265,7 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
     case "upload-progress":
       return { ...state, messages: uploading(state.messages, action.clientMessageId, (upload) => ({ ...upload, percent: action.percent })) };
     // An upload whose message the room has brought already stays posted, as its answer may be lost after
-    // the room has stored it, as ember-rust's composer keeps it.
+    // the room has stored it.
     case "upload-failed":
       return { ...state, messages: uploading(state.messages, action.clientMessageId, (upload) => ({ ...upload, error: action.error })) };
     // The room's broadcast usually brings the message first, and then anything done to it since, which the
@@ -309,7 +308,7 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         loadingNewer: false,
         loadingPage: false,
         typing: {},
-        // As ember-rust's `paged?` asks, whatever the page: whether the room has more than a page of messages.
+        // Whatever the page: whether the room has more than a page of messages.
         paged: state.paged ?? (frame.hasMore || frame.hasNewer || frame.messages.length > HISTORY_PAGE_SIZE),
         connections: state.connections + 1,
       };

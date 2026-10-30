@@ -16,8 +16,8 @@ export interface Env {
   /** Only bound when D1 is configured in wrangler.jsonc. */
   DB?: D1Database;
   /**
-   * The R2 bucket that keeps the files people upload to rooms, as ember-rust keeps them on disk.
-   * Unbound, Ember keeps none: uploading answers 503 and a file's address 404.
+   * The R2 bucket that keeps the files people upload to rooms. Unbound, Ember keeps none: uploading
+   * answers 503 and a file's address 404.
    */
   FILES?: R2Bucket;
   STORAGE_BACKEND: StorageBackend;
@@ -92,27 +92,26 @@ export interface Env {
   /** Where Resend's API is, for the browser tests' stand-in, which only a loopback address can be. */
   RESEND_API_URL?: string;
   /**
-   * The public half of the P-256 key pair that signs push notifications (VAPID), as ember-rust takes
-   * it: the point, compressed or not, in URL-safe Base64. `pnpm vapid:keys` makes a pair. Without both
-   * halves, or with a pair that doesn't match, push notifications are off. Browsers subscribe with it,
-   * so changing it orphans every subscription.
+   * The public half of the P-256 key pair that signs push notifications (VAPID): the point, compressed
+   * or not, in URL-safe Base64. `pnpm vapid:keys` makes a pair. Without both halves, or with a pair that
+   * doesn't match, push notifications are off. Browsers subscribe with it, so changing it orphans every
+   * subscription.
    */
   VAPID_PUBLIC_KEY?: string;
   /** The private half of the VAPID key pair: its scalar, up to 32 bytes, in URL-safe Base64. */
   VAPID_PRIVATE_KEY?: string;
   /**
-   * Whom push services may contact about this deployment's pushes, a `mailto:` or `https:` address, as
-   * ember-rust's `VAPID_SUBJECT` says it. Unset, it's this project's address.
+   * Whom push services may contact about this deployment's pushes, a `mailto:` or `https:` address.
+   * Unset, it's this project's address.
    */
   VAPID_SUBJECT?: string;
-  /** What to call this deployment's version, as ember-rust's `APP_VERSION` does. */
+  /** What to call this deployment's version. */
   APP_VERSION?: string;
   /** The commit deployed, which stands in for the version when APP_VERSION isn't set. */
   GIT_REVISION?: string;
   /**
    * Any value but a blank one lets plain HTTP through rather than redirecting it to HTTPS, and leaves
-   * out HSTS, as ember-rust's `DISABLE_SSL` does. Loopback addresses, where `wrangler dev` serves,
-   * never need it.
+   * out HSTS. Loopback addresses, where `wrangler dev` serves, never need it.
    */
   DISABLE_SSL?: string;
 }

@@ -1,9 +1,8 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { isSearchable, MAX_SEARCH_LENGTH, parseSearch, sanitizeSearch, SEARCH_TOO_LONG, searchPath, searchTerms } from "./index";
 
-describe(feature("search.messages"), () => {
-  it("turns every character but a word's into a space, one each, as ember-rust's tests find Ruby does", () => {
+describe("Search messages", () => {
+  it("turns every character but a word's into a space, one each", () => {
     expect(sanitizeSearch("héllo wörld_1 ２ 日本語 ‿ a-b \u{fe0f} ❤ é")).toBe("héllo wörld_1 ２ 日本語 ‿ a b \u{fe0f}   é");
     expect(sanitizeSearch('"quoted" OR NEAR(x*)')).toBe(" quoted  OR NEAR x  ");
     expect(sanitizeSearch("hello, world!")).toBe("hello  world ");
@@ -31,8 +30,8 @@ describe(feature("search.messages"), () => {
   });
 });
 
-describe(feature("search.recent"), () => {
-  it("gives a search's address as ember-rust's `search_path` does, spaces as + and everything else escaped", () => {
+describe("Recent searches", () => {
+  it("gives a search's address, spaces as + and everything else escaped", () => {
     expect(searchPath("hello  world")).toBe("/searches?q=hello++world");
     expect(searchPath(sanitizeSearch("café_1 日本"))).toBe("/searches?q=caf%C3%A9_1+%E6%97%A5%E6%9C%AC");
     expect(searchPath("")).toBe("/searches?q=");

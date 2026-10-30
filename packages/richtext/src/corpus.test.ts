@@ -1,8 +1,7 @@
-// The golden tests: ember-rust's corpus of message bodies with what Campfire's real Rails pipeline
-// made of each (corpus/README.md). Every case must read as it did in Rails, or be listed in
+// The golden tests: the corpus of message bodies with what Campfire's real Rails pipeline made of each
+// (corpus/README.md). Every case must read as it did in Rails, or be listed in
 // testing/known-differences.ts with the reason it doesn't.
 
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { OPENGRAPH_EMBED_CONTENT_TYPE } from "./attachments";
 import { autoLink } from "./autolink";
@@ -55,7 +54,7 @@ function expectRailsReadings(field: Field, read: (body: CorpusCase) => { expecte
   expect(nowMatching).toEqual([]);
 }
 
-describe(feature("messages.plain-text"), () => {
+describe("Plain-text version of a message", () => {
   it("reads every body's plain text as Rails did", () => {
     expectRailsReadings("plain_text", (body) => ({
       expected: expectedOutcome(body.plain_text),
@@ -64,7 +63,7 @@ describe(feature("messages.plain-text"), () => {
   });
 });
 
-describe(feature("mentions.render"), () => {
+describe("How mentions look", () => {
   it("finds the users every body mentions as Rails did", () => {
     expectRailsReadings("mentioned", (body) => ({
       expected: "ok" in body.mentioned ? JSON.stringify(emberUserIds(body.mentioned.ok)) : RAISES,
@@ -73,7 +72,7 @@ describe(feature("mentions.render"), () => {
   });
 });
 
-describe(feature("messages.rich-text"), () => {
+describe("Rich text, safely", () => {
   // Loofah scrubs the CSS in `style` attributes, which the last sanitizing removes anyway
   const withoutStyles = (html: string) => html.replace(/ style="[^"]*"/g, "");
 
@@ -93,8 +92,8 @@ describe(feature("messages.rich-text"), () => {
         // message_presentation rescues and shows nothing, unless logging the error raises too
         actual = error instanceof UnloggableRailsError ? "(unrenderable)" : "";
       }
-      // Deliberate (ember-rust): a missing attachable Rails can't find a partial for, like a deleted
-      // user's mention, shows ☒ rather than raising and blanking the message
+      // Deliberate: a missing attachable Rails can't find a partial for, like a deleted user's mention,
+      // shows ☒ rather than raising and blanking the message
       if (body.presentation_raised_message?.includes("to_missing_attachable_partial_path")) {
         return { expected: "a rendering with ☒", actual: actual.includes("☒") ? "a rendering with ☒" : actual };
       }
@@ -133,7 +132,7 @@ describe(feature("messages.rich-text"), () => {
   });
 });
 
-describe(feature("messages.rich-text"), () => {
+describe("Rich text, safely", () => {
   const STORED: SafeList = {
     tags: new Set([...[...AUTO_LINK.tags].filter((tag) => tag !== "img"), "action-text-attachment"]),
     attributes: new Set([...[...AUTO_LINK.attributes].filter((name) => name !== "class"), "content-type", "sgid"]),

@@ -54,23 +54,23 @@ export interface Client {
   userAgent: string | null;
 }
 
-/** ember-rust's user statuses (crates/db/src/models/user.rs). Only active people can sign in. */
+/** The user statuses. Only active people can sign in. */
 const ACTIVE = 0;
 const DEACTIVATED = 1;
 const BANNED = 2;
-/** This port's own, for a member whose Memberful membership has lapsed, until it's renewed (`auth.memberful-memberships`). */
+/** For a member whose Memberful membership has lapsed, until it's renewed. */
 const SUSPENDED = 3;
-/** ember-rust's role for everyone who neither runs the workspace nor is a bot (user.rs). */
+/** The role for everyone who neither runs the workspace nor is a bot. */
 const MEMBER = 0;
-/** ember-rust's role for the people who run the workspace (user.rs). */
+/** The role for the people who run the workspace. */
 const ADMINISTRATOR = 1;
-/** ember-rust's role for bots (user.rs). */
+/** The role for bots. */
 const BOT = 2;
-/** ember-rust's roles and statuses (user.rs), each at the number it stores. */
+/** The roles and statuses, each at the number it stores. */
 const ROLES: readonly Role[] = ["member", "administrator", "bot"];
 const STATUSES: readonly UserStatus[] = ["active", "deactivated", "banned", "suspended"];
 
-/** The settings ember-rust writes out for a new account (crates/db/src/models/account.rs). */
+/** The settings a new account starts with. */
 const NEW_ACCOUNT_SETTINGS = JSON.stringify({ restrict_room_creation_to_administrators: false });
 
 /**
@@ -165,7 +165,7 @@ export interface NewPerson {
   passwordDigest: string;
   /** The avatar they chose, which R2 has stored under a key the Workspace reserved, or null. */
   avatar: StoredPicture | null;
-  /** The administrator whose invitation they joined with, if they did (`auth.invitation-sign-up`). */
+  /** The administrator whose invitation they joined with, if they did. */
   invitedBy?: UserId;
 }
 
@@ -245,9 +245,8 @@ export interface StoredSignIn {
 }
 
 /**
- * A code someone was emailed to reset their password, as it's kept (`auth.password-reset`): its digest,
- * the address it went to and the digest of the password it replaces, as they were, and when it was made
- * and stops working.
+ * A code someone was emailed to reset their password, as it's kept: its digest, the address it went to
+ * and the digest of the password it replaces, as they were, and when it was made and stops working.
  */
 export interface SavedPasswordReset {
   userId: UserId;
@@ -363,7 +362,7 @@ export interface PushDelivery {
 /**
  * A new message's delivery to a bot's webhook, as its room queues it: who wrote the message and where,
  * as the delivery names them, and the bot, whose webhook is found again once the delivery's turn comes
- * (`BotWebhook`), as ember-rust's job finds it then.
+ * (`BotWebhook`).
  */
 export interface MessageWebhook {
   messageId: string;
@@ -676,7 +675,7 @@ interface BotRow extends DirectoryRow {
 
 const storedBot = (row: BotRow, rooms: BotRoom[]): StoredBot => ({ ...directoryEntry(row), token: row.bot_token, rooms });
 
-/** Whether a value is `present?`, as ember-rust reads a setting (account.rs): not null, false, blank, or empty. */
+/** Whether a value is `present?`: not null, false, blank, or empty. */
 function isPresent(value: unknown): boolean {
   if (value === null || value === false || value === undefined) return false;
   if (typeof value === "string") return value.trim() !== "";
@@ -696,9 +695,9 @@ function storedSettings(settings: string | null): Record<string, unknown> | null
 }
 
 /**
- * Whether the account's settings hide the translation buttons, as ember-rust reads them (account.rs,
- * `hide_translation_buttons`): hidden until the setting is stored, even for an existing account, then
- * only while it's present, so a stored false or blank shows them. Settings that don't parse hide them.
+ * Whether the account's settings hide the translation buttons: hidden until the setting is stored, even
+ * for an existing account, then only while it's present, so a stored false or blank shows them. Settings
+ * that don't parse hide them.
  */
 function hidesTranslationButtons(settings: Record<string, unknown> | null): boolean {
   const hide = settings ? settings.hide_translation_buttons : true;
@@ -706,41 +705,41 @@ function hidesTranslationButtons(settings: Record<string, unknown> | null): bool
 }
 
 /**
- * Whether the account's settings let only administrators create rooms, as ember-rust reads them
- * (account.rs, `restrict_room_creation_to_administrators`): only while the setting is present.
+ * Whether the account's settings let only administrators create rooms: only while the setting is
+ * present.
  */
 const restrictsRoomCreation = (settings: Record<string, unknown> | null) => isPresent(settings?.restrict_room_creation_to_administrators);
 
-/** The account's tagline, which its settings keep as `tagline`, ember-rust having none, or empty while it has none. */
+/** The account's tagline, which its settings keep as `tagline`, or empty while it has none. */
 const taglineIn = (settings: Record<string, unknown> | null) => (typeof settings?.tagline === "string" ? settings.tagline : "");
 
-/** The account's custom domain, which its settings keep as `custom_domain`, ember-rust having none, or null while it has none. */
+/** The account's custom domain, which its settings keep as `custom_domain`, or null while it has none. */
 const customDomainIn = (settings: Record<string, unknown> | null) => (typeof settings?.custom_domain === "string" ? settings.custom_domain : null);
 
-/** Where a deploy puts Ember, which the account's settings keep as `deployed_address`, this port's own, or null until a page there told it. */
+/** Where a deploy puts Ember, which the account's settings keep as `deployed_address`, or null until a page there told it. */
 const deployedAddressIn = (settings: Record<string, unknown> | null) =>
   typeof settings?.deployed_address === "string" && isHost(settings.deployed_address) ? settings.deployed_address : null;
 
-/** The custom domains Ember has moved away from, newest first, which the account's settings keep as `other_addresses`, this port's own. */
+/** The custom domains Ember has moved away from, newest first, which the account's settings keep as `other_addresses`. */
 function otherAddressesIn(settings: Record<string, unknown> | null): string[] {
   const kept = settings?.other_addresses;
   if (!Array.isArray(kept)) return [];
   return [...new Set(kept.filter((address: unknown): address is string => typeof address === "string" && isHost(address)))].slice(0, MAX_OTHER_ADDRESSES);
 }
 
-/** The address Ember's email comes from, which the account's settings keep as `email_from`, this port's own, as `mailboxText` writes it, or null while it has none. */
+/** The address Ember's email comes from, which the account's settings keep as `email_from`, as `mailboxText` writes it, or null while it has none. */
 function emailFromIn(settings: Record<string, unknown> | null): string | null {
   const mailbox = typeof settings?.email_from === "string" ? mailboxOf(settings.email_from) : null;
   return mailbox && mailboxText(mailbox);
 }
 
-/** The Resend API key an administrator gave Ember, sealed, which the account's settings keep as `resend_api_key`, this port's own, or null while it has none. */
+/** The Resend API key an administrator gave Ember, sealed, which the account's settings keep as `resend_api_key`, or null while it has none. */
 const resendApiKeyIn = (settings: Record<string, unknown> | null) => (typeof settings?.resend_api_key === "string" ? settings.resend_api_key : null);
 
 /**
  * The keys of the Turnstile widget an administrator gave Ember, which the account's settings keep as
- * `turnstile_keys`, this port's own, both together, `{ site_key, secret_key }`, the secret key sealed, or
- * null while it has none.
+ * `turnstile_keys`, both together, `{ site_key, secret_key }`, the secret key sealed, or null while it
+ * has none.
  */
 function turnstileKeysIn(settings: Record<string, unknown> | null): SavedTurnstileKeys | null {
   const kept = settings?.turnstile_keys;
@@ -750,40 +749,40 @@ function turnstileKeysIn(settings: Record<string, unknown> | null): SavedTurnsti
 }
 
 /**
- * Whether the join link lets people in, which the account's settings keep as `join_link`, this port's
- * own: until the setting is stored, as for an account from before it, then only while it's present, as
- * translation buttons are read. Settings that don't parse leave it on.
+ * Whether the join link lets people in, which the account's settings keep as `join_link`: until the
+ * setting is stored, as for an account from before it, then only while it's present, as translation
+ * buttons are read. Settings that don't parse leave it on.
  */
 function joinsWithLinkIn(settings: Record<string, unknown> | null): boolean {
   const on = settings ? settings.join_link : true;
   return on === undefined || isPresent(on);
 }
 
-/** Whether anyone may sign up without a link, which the account's settings keep as `open_sign_up`, this port's own: only while the setting is present. */
+/** Whether anyone may sign up without a link, which the account's settings keep as `open_sign_up`: only while the setting is present. */
 const signsUpOpenlyIn = (settings: Record<string, unknown> | null) => isPresent(settings?.open_sign_up);
 
 /**
- * Whether Memberful is members only, which the account's settings keep as `memberful_sign_in`, this
- * port's own: only while the setting is present, and Memberful is on (`joinsWithMemberfulIn`).
+ * Whether Memberful is members only, which the account's settings keep as `memberful_sign_in`: only
+ * while the setting is present, and Memberful is on (`joinsWithMemberfulIn`).
  */
 const signsInWithMemberful = (settings: Record<string, unknown> | null) => isPresent(settings?.memberful_sign_in) && joinsWithMemberfulIn(settings);
 
 /**
- * Whether Memberful's members join with it, which the account's settings keep as `memberful_join`, this
- * port's own: only while the setting is present, or, until it's stored, as for an account from before it,
- * while `memberful_sign_in` is, which let them join while it was Memberful's only setting.
+ * Whether Memberful's members join with it, which the account's settings keep as `memberful_join`: only
+ * while the setting is present, or, until it's stored, as for an account from before it, while
+ * `memberful_sign_in` is, which let them join while it was Memberful's only setting.
  */
 function joinsWithMemberfulIn(settings: Record<string, unknown> | null): boolean {
   const on = settings?.memberful_join;
   return isPresent(on === undefined ? settings?.memberful_sign_in : on);
 }
 
-/** Whether people may join with an address at the email domains, which the account's settings keep as `email_domain_sign_up`, this port's own: only while the setting is present. */
+/** Whether people may join with an address at the email domains, which the account's settings keep as `email_domain_sign_up`: only while the setting is present. */
 const signsUpWithEmailDomainIn = (settings: Record<string, unknown> | null) => isPresent(settings?.email_domain_sign_up);
 
 /**
- * The domains Email domain lets in, which the account's settings keep as `email_domains`, this port's
- * own, each as `emailDomainOf` has domains and once, leaving out anything else, or none while they keep none.
+ * The domains Email domain lets in, which the account's settings keep as `email_domains`, each as
+ * `emailDomainOf` has domains and once, leaving out anything else, or none while they keep none.
  */
 function emailDomainsIn(settings: Record<string, unknown> | null): string[] {
   const kept = settings?.email_domains;
@@ -792,9 +791,8 @@ function emailDomainsIn(settings: Record<string, unknown> | null): string[] {
 }
 
 /**
- * The navigation icons the account's settings keep as `ember_navigation_icons`, as ember-rust reads them
- * (account.rs, `navigation_icons`, pull request #24): an object of slots, where any other value is none,
- * and a slot or an icon Ember doesn't know is left out, as ember-rust draws an unknown icon as its default.
+ * The navigation icons the account's settings keep as `ember_navigation_icons`: an object of slots,
+ * where any other value is none, and a slot or an icon Ember doesn't know is left out.
  */
 function navigationIconsIn(settings: Record<string, unknown> | null): NavigationIcons {
   const stored = settings?.ember_navigation_icons;
@@ -884,10 +882,10 @@ const ACTIVE_AT = `coalesce(rooms.last_message_at, rooms.created_at) AS active_a
 
 /**
  * The rooms someone is in, hidden ones too, with whether each is marked unread for them, their level in
- * it and when it was last active, which orders DMs, in the order they were made, for the app to go
- * home to the oldest and to `/rooms` to the newest, as ember-rust's `original_for_user` and
- * `last_for_user` find them (room.rs), and each room's place in the shared order. Rooms from before the Workspace kept a list (`LEGACY_ROOMS`) have
- * ids that don't sort by time, so they go by when they were listed.
+ * it and when it was last active, which orders DMs, in the order they were made, for the app to go home
+ * to the oldest and to `/rooms` to the newest, and each room's place in the shared order. Rooms from
+ * before the Workspace kept a list (`LEGACY_ROOMS`) have ids that don't sort by time, so they go by when
+ * they were listed.
  */
 export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}, memberships.unread_at IS NOT NULL AS unread,
     memberships.involvement, rooms.shared_position
@@ -902,9 +900,9 @@ const sharedOrderOf = (rows: SidebarRow[]): RoomId[] =>
     .map((row) => row.id);
 
 /**
- * The workspace's first room, where the welcome card shows: its oldest, of any kind, as ember-rust's
- * `Room::original` finds it (room.rs). Rooms from before the Workspace kept a list (`LEGACY_ROOMS`)
- * count from when they were listed, as they do in `ROOMS_FOR_USER`, so the old preview's is its general.
+ * The workspace's first room, where the welcome card shows: its oldest, of any kind. Rooms from before
+ * the Workspace kept a list (`LEGACY_ROOMS`) count from when they were listed, as they do in
+ * `ROOMS_FOR_USER`, so the old preview's is its general.
  */
 export const ORIGINAL_ROOM = `SELECT id FROM rooms ORDER BY created_at, id LIMIT 1`;
 
@@ -915,8 +913,7 @@ export const ORIGINAL_ROOM = `SELECT id FROM rooms ORDER BY created_at, id LIMIT
 export const PEOPLE_JOINED_SINCE = `SELECT count(*) AS joined FROM (SELECT 1 FROM users WHERE created_at >= ?1 AND role != ?2 LIMIT ?3)`;
 
 /**
- * Who's in each of someone's DMs, them included, a DM at a time, each DM's people by id, as ember-rust
- * finds them in the order its memberships' index has them (`room.users`, room.rs).
+ * Who's in each of someone's DMs, them included, a DM at a time, each DM's people by id.
  */
 export const DIRECT_MEMBERS_FOR_USER = `SELECT members.room_id, users.id, users.name
   FROM memberships AS mine JOIN rooms ON rooms.id = mine.room_id
@@ -931,14 +928,14 @@ const directKey = (memberIds: UserId[]) => JSON.stringify([...new Set(memberIds)
 
 /**
  * Adds a DM, ?1, made by ?2 for the people ?3 is the key of, as of ?4, unless those people have one
- * already, as ember-rust's `find_or_create_direct_for` makes one (room.rs), answering it if it added it.
+ * already, answering it if it added it.
  */
 const INSERT_DIRECT = `INSERT INTO rooms (id, kind, creator_id, direct_key, created_at, updated_at) VALUES (?1, 'direct', ?2, ?3, ?4, ?4)
   ON CONFLICT (direct_key) DO NOTHING RETURNING id`;
 
 /**
- * Puts the people key ?3 names in DM ?1, as of ?2, if `INSERT_DIRECT` added it, at ember-rust's
- * `default_involvement` for a DM, everything (room.rs).
+ * Puts the people key ?3 names in DM ?1, as of ?2, if `INSERT_DIRECT` added it, at Campfire's
+ * `default_involvement` for a DM, everything.
  */
 const GRANT_DIRECT = `INSERT INTO memberships (room_id, user_id, involvement, created_at, updated_at)
   SELECT ?1, users.id, 'everything', ?2, ?2 FROM users
@@ -952,10 +949,9 @@ const DIRECT_WITH_KEY = `SELECT rooms.id AS room_id, ${ACTIVE_AT}, users.id, use
 
 /**
  * The people the sidebar suggests ?1 start a DM with, before it leaves out as many as their DMs take:
- * the active people with the oldest accounts who share no DM with them, never them, as ember-rust's
- * `find_direct_placeholder_users` finds them (controllers/presenters/accounts.rs). The people in their
- * DMs come from a subquery, where ember-rust binds them as a list, and the index on users' age lets it
- * stop at the last one it needs rather than sorting everyone.
+ * the active people with the oldest accounts who share no DM with them, never them. The people in their
+ * DMs come from a subquery, and the index on users' age lets it stop at the last one it needs rather
+ * than sorting everyone.
  */
 export const SUGGESTED_FOR_USER = `SELECT id, name FROM users
   WHERE status = ${ACTIVE} AND id <> ?1 AND id NOT IN (
@@ -1078,17 +1074,16 @@ export const ROOM_ACCESS = `SELECT EXISTS (SELECT 1 FROM memberships WHERE room_
 
 /**
  * Marks a room unread, as of a message, for its members who aren't marked already, haven't hidden it,
- * didn't write the message and aren't among the people a JSON list names, who are viewing it, as
- * ember-rust's `unread_memberships` does (room.rs), answering a row for each. It writes only the rows
- * it changes, where ember-rust rewrites every member who isn't connected. Nothing changes once the
- * Workspace has applied the message's event, so one delivered again is applied once.
+ * didn't write the message and aren't among the people a JSON list names, who are viewing it, answering
+ * a row for each. It writes only the rows it changes. Nothing changes once the Workspace has applied the
+ * message's event, so one delivered again is applied once.
  */
 export const MARK_UNREAD = `UPDATE memberships SET unread_at = ?1
   WHERE room_id = ?2 AND unread_at IS NULL AND involvement <> 'invisible' AND user_id <> ?3
     AND user_id NOT IN (SELECT value FROM json_each(?4)) AND ?5 > (SELECT applied_seq FROM rooms WHERE id = ?2)
   RETURNING user_id`;
 
-/** Clears someone's unread mark on a room, as ember-rust's `read` does (membership.rs), answering a row if there was one, once for each event. */
+/** Clears someone's unread mark on a room, answering a row if there was one, once for each event. */
 export const MARK_READ = `UPDATE memberships SET unread_at = NULL
   WHERE room_id = ?1 AND user_id = ?2 AND unread_at IS NOT NULL AND ?3 > (SELECT applied_seq FROM rooms WHERE id = ?1)
   RETURNING user_id`;
@@ -1101,13 +1096,12 @@ const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
   WHERE room_id = ?1 AND ?2 > (SELECT applied_seq FROM rooms WHERE id = ?1 AND kind = 'direct')`;
 
 /**
- * Where a new message, numbered ?5, by ?2 in room ?1 is pushed, as ember-rust's `MessagePusher` finds it
- * (push_subscription.rs): to the subscriptions of the room's active members other than its author and
- * the people a JSON list ?3 names, who are viewing it, at all messages, then of those at @mentions whom
- * it mentions, a JSON list ?4, each in the order they were saved. Guests are left out unless ?6 says
- * they can stay signed in. Each comes with the room, its author's name and the count its push sets the
- * badge to: how many of its owner's conversations are marked unread, as ember-rust's `badge` counts
- * them. Nothing once the Workspace has applied the message's event.
+ * Where a new message, numbered ?5, by ?2 in room ?1 is pushed: to the subscriptions of the room's
+ * active members other than its author and the people a JSON list ?3 names, who are viewing it, at all
+ * messages, then of those at @mentions whom it mentions, a JSON list ?4, each in the order they were
+ * saved. Guests are left out unless ?6 says they can stay signed in. Each comes with the room, its
+ * author's name and the count its push sets the badge to: how many of its owner's conversations are
+ * marked unread. Nothing once the Workspace has applied the message's event.
  */
 export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
@@ -1122,8 +1116,8 @@ export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.
   ORDER BY memberships.involvement = 'mentions', push_subscriptions.id`;
 
 /**
- * Whether push subscription ?1 is still saved, for someone active, as ember-rust's `delivery_allowed`
- * (pull request #24) asks. Its id is never another's, as AUTOINCREMENT numbers them.
+ * Whether push subscription ?1 is still saved, for someone active. Its id is never another's, as
+ * AUTOINCREMENT numbers them.
  */
 const PUSHABLE = `SELECT 1 FROM push_subscriptions JOIN users ON users.id = push_subscriptions.user_id
   WHERE push_subscriptions.id = ?1 AND users.status = ${ACTIVE}`;
@@ -1160,13 +1154,12 @@ const deliveryOf = (row: DeliveryRow): PushDelivery => ({
 });
 
 /**
- * The bots' webhooks a new message, numbered ?4, by ?2 in room ?1 is delivered to, as ember-rust's
- * `deliver_webhooks_to_bots` finds them (messages.rs): in a DM, those of the active bots in it, and in
- * any other room, those of the active bots in it whom the message mentions, a JSON list ?3; never its
- * author's. Each comes with the room's name, but a DM's, and the author's, and its bot's id, whose
- * webhook `BOT_WEBHOOK` reads once the delivery's turn comes. Nothing once the Workspace has applied
- * the message's event. Webhooks are few, so they're read first, and each one's bot and membership found
- * by their keys.
+ * The bots' webhooks a new message, numbered ?4, by ?2 in room ?1 is delivered to: in a DM, those of the
+ * active bots in it, and in any other room, those of the active bots in it whom the message mentions, a
+ * JSON list ?3; never its author's. Each comes with the room's name, but a DM's, and the author's, and
+ * its bot's id, whose webhook `BOT_WEBHOOK` reads once the delivery's turn comes. Nothing once the
+ * Workspace has applied the message's event. Webhooks are few, so they're read first, and each one's bot
+ * and membership found by their keys.
  */
 export const MESSAGE_WEBHOOKS = `SELECT users.id,
     (SELECT name FROM rooms WHERE id = ?1 AND kind <> 'direct') AS room_name, (SELECT name FROM users AS authors WHERE authors.id = ?2) AS author_name
@@ -1190,10 +1183,8 @@ const messageWebhooks = ({ userId, message }: RoomEvent, rows: WebhookRow[]): Me
 
 /**
  * Bot ?2's webhook, with its name and token now, as a delivery to it in room ?1 finds it when its turn
- * comes and again before what the bot says back is posted, as ember-rust's `Bot::WebhookJob` reads the
- * bot and its webhook then (integrations/jobs.rs): nothing once the bot isn't an active one in the room
- * with a webhook, as `MESSAGE_WEBHOOKS` would find none for it then. ember-rust still delivers to a bot
- * deleted or taken out of the room since, and posts its reply.
+ * comes and again before what the bot says back is posted: nothing once the bot isn't an active one in
+ * the room with a webhook, as `MESSAGE_WEBHOOKS` would find none for it then.
  */
 export const BOT_WEBHOOK = `SELECT users.name, users.bot_token, webhooks.url FROM users JOIN webhooks ON webhooks.user_id = users.id
   WHERE users.id = ?2 AND users.role = ${BOT} AND users.status = ${ACTIVE}
@@ -1213,15 +1204,13 @@ const APPLIED_WITH_MESSAGE = `UPDATE rooms SET applied_seq = ?1, last_message_at
 export const ACTIVE_ADMINISTRATOR = `SELECT 1 FROM users WHERE id = ? AND role = ${ADMINISTRATOR} AND status = ${ACTIVE}`;
 
 /**
- * Renames the workspace and records when, unless it has that name already, as ember-rust's
- * `Account::update` changes only what differs (account.rs).
+ * Renames the workspace and records when, unless it has that name already.
  */
 const RENAME_ACCOUNT = `UPDATE accounts SET name = ?1, updated_at = ?2 WHERE name IS NOT ?1`;
 
 /**
- * Sets the account's setting `key` to the JSON value ?1, and records when. The other settings stay,
- * as ember-rust merges a change into them (account.rs, `assign`), and settings that aren't a JSON
- * object start afresh, as ember-rust reads them.
+ * Sets the account's setting `key` to the JSON value ?1, and records when. The other settings stay, and
+ * settings that aren't a JSON object start afresh.
  */
 const setSetting = (key: string) => `UPDATE accounts SET settings = json_set(
     CASE WHEN json_valid(settings) AND json_type(settings) = 'object' THEN settings ELSE '{}' END,
@@ -1259,8 +1248,7 @@ const navigationIconsPatch = (changes: NavigationIconChanges) => Object.fromEntr
 /**
  * Changes the slots the JSON object ?1 names in the account's navigation icons, and records when: a slot
  * whose icon is null has its default again. As a merge patch it leaves the other slots, and the other
- * settings, as they are, as ember-rust's `update_navigation_icons` merges a change into them (account.rs,
- * pull request #24), and navigation icons that aren't an object start afresh, as ember-rust reads them.
+ * settings, as they are, and navigation icons that aren't an object start afresh.
  */
 const CHANGE_NAVIGATION_ICONS = `UPDATE accounts SET settings = json_set(
     CASE WHEN json_valid(settings) AND json_type(settings) = 'object' THEN settings ELSE '{}' END,
@@ -1275,12 +1263,11 @@ const CHANGE_NAVIGATION_ICONS = `UPDATE accounts SET settings = json_set(
 /** Saves the workspace's custom CSS as typed and records when, unless it's that already. */
 const CHANGE_CUSTOM_STYLES = `UPDATE accounts SET custom_styles = ?1, updated_at = ?2 WHERE custom_styles IS NOT ?1`;
 
-/** Gives the join link a new code and records when, as ember-rust's `reset_join_code` does (account.rs). */
+/** Gives the join link a new code and records when. */
 const CHANGE_JOIN_CODE = `UPDATE accounts SET join_code = ?, updated_at = ?`;
 
 /**
- * The rooms someone, ?1, can star: the ones they're in and haven't hidden, but not DMs, as ember-rust's
- * `set_channel_favorite` finds them (account.rs).
+ * The rooms someone, ?1, can star: the ones they're in and haven't hidden, but not DMs.
  */
 const STARRABLE_ROOMS = `SELECT memberships.room_id FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ?1 AND memberships.involvement <> 'invisible' AND rooms.kind <> 'direct'`;
@@ -1305,9 +1292,8 @@ const STAR = `INSERT INTO favorites (user_id, room_id, position)
 const UNSTAR = `DELETE FROM favorites WHERE user_id = ?1 AND room_id = ?2 AND ${STARRABLE}`;
 
 /**
- * What follows a change to someone's stars, once `saved` says it did what was asked: dropping ?1's
- * stars on rooms they can't star now, as ember-rust drops them (account.rs), and counting the change,
- * answering the new version.
+ * What follows a change to someone's stars, once `saved` says it did what was asked: dropping ?1's stars
+ * on rooms they can't star now, and counting the change, answering the new version.
  */
 const afterStarring = (saved: string) => ({
   drop: `DELETE FROM favorites WHERE user_id = ?1 AND room_id NOT IN (${STARRABLE_ROOMS}) AND ${saved}`,
@@ -1347,26 +1333,25 @@ const COUNT_HIDDEN_STAR = `UPDATE users SET favorites_version = favorites_versio
 const SET_INVOLVEMENT = `UPDATE memberships SET involvement = ?3 WHERE user_id = ?1 AND room_id = ?2 RETURNING involvement`;
 
 /**
- * Whether ?2, a JSON array of distinct room ids, is exactly the rooms ?1 has starred and can star, as
- * ember-rust's `set_favorite_order` requires (account.rs), so that an order from a tab that hasn't
- * heard of a star or unstar since can't undo it. The ids go in as one value, since there can be
- * thousands.
+ * Whether ?2, a JSON array of distinct room ids, is exactly the rooms ?1 has starred and can star, so
+ * that an order from a tab that hasn't heard of a star or unstar since can't undo it. The ids go in as
+ * one value, since there can be thousands.
  */
 const THEIR_STARS = `(SELECT count(*) FROM json_each(?2)) = (SELECT count(*) FROM favorites WHERE user_id = ?1 AND room_id IN (${STARRABLE_ROOMS}))
   AND NOT EXISTS (SELECT 1 FROM json_each(?2) WHERE value NOT IN (SELECT room_id FROM favorites WHERE user_id = ?1 AND room_id IN (${STARRABLE_ROOMS})))`;
 
 /**
  * Puts ?1's stars in the order ?2 lists them, if it lists exactly their stars. Their stars on rooms they
- * can't star now, which ?2 leaves out, are dropped after it, as ember-rust's new list loses them.
+ * can't star now, which ?2 leaves out, are dropped after it.
  */
 const REORDER_STARS = `UPDATE favorites SET position = listed.key FROM json_each(?2) AS listed
   WHERE favorites.user_id = ?1 AND favorites.room_id = listed.value AND ${THEIR_STARS}`;
 const AFTER_REORDER = afterStarring(THEIR_STARS);
 
 /**
- * Whether ?1 can put ?2, a JSON array of distinct room ids, in the shared order, as ember-rust's
- * `set_default_room_order` requires (account.rs): they're an active administrator, and each room is
- * one in their sidebar, not a DM. The ids go in as one value, since there can be thousands.
+ * Whether ?1 can put ?2, a JSON array of distinct room ids, in the shared order: they're an active
+ * administrator, and each room is one in their sidebar, not a DM. The ids go in as one value, since
+ * there can be thousands.
  */
 const MAY_ORDER_ROOMS = `SELECT EXISTS (SELECT 1 FROM users WHERE id = ?1 AND role = ${ADMINISTRATOR} AND status = ${ACTIVE})
   AND NOT EXISTS (SELECT 1 FROM json_each(?2) WHERE value NOT IN (${STARRABLE_ROOMS})) AS allowed`;
@@ -1388,11 +1373,10 @@ const SHARED_ORDER_FOR_USER = `SELECT rooms.id FROM memberships JOIN rooms ON ro
   WHERE memberships.user_id = ?1 AND rooms.shared_position IS NOT NULL ORDER BY rooms.shared_position`;
 
 /**
- * The shared order once an administrator has put the rooms they could order in the order `roomIds`
- * lists them, given the order `saved` as it is, as ember-rust's `set_default_room_order` merges them
- * (account.rs): each place held by a room they could order goes to the next of `roomIds` in turn, or
- * goes once `roomIds` runs out; the rooms they couldn't order, which another administrator may have
- * placed, keep their places; and the rest of `roomIds` follow.
+ * The shared order once an administrator has put the rooms they could order in the order `roomIds` lists
+ * them, given the order `saved` as it is: each place held by a room they could order goes to the next of
+ * `roomIds` in turn, or goes once `roomIds` runs out; the rooms they couldn't order, which another
+ * administrator may have placed, keep their places; and the rest of `roomIds` follow.
  */
 export function mergedSharedOrder(saved: Array<{ id: RoomId; orderable: boolean }>, roomIds: RoomId[]): RoomId[] {
   const listed = roomIds.values();
@@ -1404,41 +1388,37 @@ export function mergedSharedOrder(saved: Array<{ id: RoomId; orderable: boolean 
   return [...merged, ...listed];
 }
 
-/** Everyone active, by name, as ember-rust lists them for New room (`User.active.ordered`, user.rs). */
+/** Everyone active, by name. */
 export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE} ORDER BY lower(name), id`;
 
 /** Everyone, for the people directory: removed and banned people too, whose messages stay. */
 const DIRECTORY = `SELECT id, name, bio, role, status, updated_at FROM users ORDER BY id`;
 
-/** Someone active, as the directory lists them, as ember-rust finds whom to change (`User.active.find`, accounts/users.rs). */
+/** Someone active, as the directory lists them. */
 const ACTIVE_PERSON = `SELECT id, name, bio, role, status, updated_at FROM users WHERE id = ? AND status = ${ACTIVE}`;
 
 /** The same, or someone suspended for their membership's lapsing, as an administrator can remove them too. */
 const REMOVABLE_PERSON = `SELECT id, name, bio, role, status, updated_at FROM users WHERE id = ? AND status IN (${ACTIVE}, ${SUSPENDED})`;
 
-/** The active bots, by name, with their tokens, as ember-rust's bots page lists them (`User.active_bots.ordered`, user.rs). */
+/** The active bots, by name, with their tokens. */
 const ACTIVE_BOTS = `SELECT id, name, bio, role, status, updated_at, bot_token FROM users
   WHERE status = ${ACTIVE} AND role = ${BOT} ORDER BY lower(name), id`;
 
 /**
- * The rooms the active bots are in but their DMs, by name, as the bots page lists each bot's
- * (`bot.rooms.without_directs.ordered`, presenters/accounts.rs).
+ * The rooms the active bots are in but their DMs, by name, as the bots page lists each bot's.
  */
 const ACTIVE_BOTS_ROOMS = `SELECT memberships.user_id, rooms.id, rooms.name
   FROM users JOIN memberships ON memberships.user_id = users.id JOIN rooms ON rooms.id = memberships.room_id
   WHERE users.status = ${ACTIVE} AND users.role = ${BOT} AND rooms.kind <> 'direct' ORDER BY lower(rooms.name), rooms.id`;
 
 /**
- * An active bot, with its token and where its webhook delivers, as ember-rust finds the bot to change
- * (`User.active_bots.find`, accounts/bots.rs).
+ * An active bot, with its token and where its webhook delivers.
  */
 const ACTIVE_BOT = `SELECT users.id, users.name, users.bio, users.role, users.status, users.updated_at, users.bot_token, webhooks.url AS webhook_url
   FROM users LEFT JOIN webhooks ON webhooks.user_id = users.id WHERE users.id = ? AND users.status = ${ACTIVE} AND users.role = ${BOT}`;
 
 /**
- * An active bot's token, with whether it's in room ?1, as ember-rust finds the bot a key names
- * (`User.authenticate_bot`, user.rs) and then the room it posts to or reads
- * (`Current.user.rooms.find_by`, messages/by_bots.rs).
+ * An active bot's token, with whether it's in room ?1.
  */
 const ACTIVE_BOT_KEY = `SELECT id, name, bot_token, EXISTS (SELECT 1 FROM memberships WHERE room_id = ?1 AND user_id = users.id) AS member
   FROM users WHERE id = ?2 AND status = ${ACTIVE} AND role = ${BOT}`;
@@ -1447,48 +1427,47 @@ const ACTIVE_BOT_KEY = `SELECT id, name, bot_token, EXISTS (SELECT 1 FROM member
 const BOT_ROOMS = `SELECT rooms.id, rooms.name FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? AND rooms.kind <> 'direct' ORDER BY lower(rooms.name), rooms.id`;
 
-/** Adds a bot, with its avatar, as ember-rust's `User.create_bot!` does (user.rs). */
+/** Adds a bot, with its avatar. */
 const INSERT_BOT = `INSERT INTO users (id, name, role, bot_token, avatar_key, avatar_variant, created_at, updated_at) VALUES (?, ?, ${BOT}, ?, ?, ?, ?, ?)`;
 
 /**
  * Has a bot's webhook deliver to ?2, adding one if it has none, and records when, unless it delivers
- * there already, as ember-rust's `Webhook#update_url` then does nothing (webhook.rs).
+ * there already.
  */
 const SAVE_WEBHOOK = `INSERT INTO webhooks (user_id, url, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)
   ON CONFLICT (user_id) DO UPDATE SET url = excluded.url, updated_at = excluded.updated_at WHERE url <> excluded.url`;
 
-/** Renames a bot and records when, unless that's its name already, as ember-rust's `User#update` writes only what differs. */
+/** Renames a bot and records when, unless that's its name already. */
 const RENAME_BOT = `UPDATE users SET name = ?1, updated_at = ?2 WHERE id = ?3 AND name <> ?1`;
 
 /** Gives a bot a new token, and records when. */
 const CHANGE_BOT_TOKEN = `UPDATE users SET bot_token = ?, updated_at = ? WHERE id = ?`;
 
 /**
- * Records a search as someone's newest, as ember-rust's `Search::record` does (search.rs): a search they
- * have already moves to the front, rather than being added again.
+ * Records a search as someone's newest: a search they have already moves to the front, rather than being
+ * added again.
  */
 const RECORD_SEARCH = `INSERT INTO searches (user_id, query, position)
   VALUES (?1, ?2, (SELECT coalesce(max(position), 0) + 1 FROM searches WHERE user_id = ?1))
   ON CONFLICT (user_id, query) DO UPDATE SET position = excluded.position`;
 
 /**
- * Forgets someone's searches past their newest ?2 + 1, as ember-rust's `trim_recent_searches` does
- * (search.rs), which it runs as it adds one. With no more than that, the subquery finds none to keep the
- * rest newer than, and nothing goes.
+ * Forgets someone's searches past their newest ?2 + 1, as Campfire's `trim_recent_searches` does, which
+ * it runs as it adds one. With no more than that, the subquery finds none to keep the rest newer than,
+ * and nothing goes.
  */
 const TRIM_SEARCHES = `DELETE FROM searches WHERE user_id = ?1
   AND position < (SELECT position FROM searches WHERE user_id = ?1 ORDER BY position DESC LIMIT 1 OFFSET ?2)`;
 
-/** Someone's recent searches, newest first, as ember-rust's `ordered_for_user` lists them (search.rs). */
+/** Someone's recent searches, newest first. */
 const RECENT_SEARCHES_FOR_USER = `SELECT query FROM searches WHERE user_id = ? ORDER BY position DESC LIMIT ?`;
 
 /**
- * Saves a browser's push subscription for someone, as ember-rust's `push_subscriptions#create` does,
- * with its user agent, or, when they've saved one at the same endpoint before, records that it was
- * saved again, as ember-rust touches it, with the keys and user agent it has now. ember-rust adds
- * another for keys that differ, which each message then pushes to as well. It saves nothing once their
- * session ?7, which was checked first, has ended, answering a row only if it saves: on D1 a password
- * reset can end the session in between, and a subscription saved after would outlive it.
+ * Saves a browser's push subscription for someone, with its user agent, or, when they've saved one at
+ * the same endpoint before, records that it was saved again, with the keys and user agent it has now. It
+ * saves nothing once their session ?7, which was checked first, has ended, answering a row only if it
+ * saves: on D1 a password reset can end the session in between, and a subscription saved after would
+ * outlive it.
  */
 const SAVE_PUSH_SUBSCRIPTION = `INSERT INTO push_subscriptions (user_id, endpoint, p256dh_key, auth_key, user_agent, created_at, updated_at)
   SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6 WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?7 AND user_id = ?1)
@@ -1506,15 +1485,15 @@ const FORGET_REPLACED_PUSH_SUBSCRIPTION = `DELETE FROM push_subscriptions WHERE 
   AND EXISTS (SELECT 1 FROM sessions WHERE id = ?4 AND user_id = ?1)`;
 
 /**
- * Forgets someone's push subscriptions past the ?2 they saved most recently, which ember-rust never
- * does, so that saving many can't have a message that notifies them pushed as many times.
+ * Forgets someone's push subscriptions past the ?2 they saved most recently, so that saving many can't
+ * have a message that notifies them pushed as many times.
  */
 const TRIM_PUSH_SUBSCRIPTIONS = `DELETE FROM push_subscriptions WHERE user_id = ?1
   AND id NOT IN (SELECT id FROM push_subscriptions WHERE user_id = ?1 ORDER BY updated_at DESC, id DESC LIMIT ?2)`;
 
 /**
  * Forgets the subscriptions with endpoint ?2 of whoever's session has the token digest ?1, as signing out
- * does in ember-rust (`destroy_by_endpoint`), before the session ends.
+ * does in Campfire (`destroy_by`), before the session ends.
  */
 const FORGET_SESSION_PUSH_ENDPOINT = `DELETE FROM push_subscriptions
   WHERE user_id = (SELECT user_id FROM sessions WHERE token_digest = ?1) AND endpoint = ?2`;
@@ -1523,25 +1502,23 @@ const FORGET_SESSION_PUSH_ENDPOINT = `DELETE FROM push_subscriptions
 const CHANGE_ROLE = `UPDATE users SET role = ?, updated_at = ? WHERE id = ?`;
 
 /**
- * Takes someone out of every room but their DMs, which they stay in, as ember-rust's `User#deactivate`
- * does (user.rs). It looks up each of their rooms, where `room_id IN (SELECT ...)` would read them all.
+ * Takes someone out of every room but their DMs, which they stay in. It looks up each of their rooms,
+ * where `room_id IN (SELECT ...)` would read them all.
  */
 const LEAVE_SHARED_ROOMS = `DELETE FROM memberships WHERE user_id = ?
   AND EXISTS (SELECT 1 FROM rooms WHERE rooms.id = memberships.room_id AND rooms.kind <> 'direct')`;
 
 /**
  * Marks someone removed and records when, writing the first value before each "@" of their email
- * address, which frees it, as ember-rust's `deactivated_email_address` does (user.rs). No email address
- * stays none.
+ * address, which frees it. No email address stays none.
  */
 const DEACTIVATE = `UPDATE users SET status = ${DEACTIVATED}, email_address = replace(email_address, '@', ?), updated_at = ? WHERE id = ?`;
 
-/** Someone as the directory lists them, whatever their status, as ember-rust finds whom to ban (`find_user`, users.rs). */
+/** Someone as the directory lists them, whatever their status. */
 const PERSON = `SELECT id, name, bio, role, status, updated_at FROM users WHERE id = ?`;
 
 /**
- * The IP addresses recorded on someone's sessions, each once, without none or blanks, as ember-rust
- * reads them to ban (`create_bans_from_sessions`, user.rs).
+ * The IP addresses recorded on someone's sessions, each once, without none or blanks.
  */
 const SESSION_IP_ADDRESSES = `SELECT DISTINCT ip_address FROM sessions WHERE user_id = ? AND trim(ip_address) <> ''`;
 
@@ -1581,13 +1558,12 @@ export const PEOPLE_WITH_IDS = `SELECT id, name FROM users WHERE id IN (SELECT v
 /** The same, as the people directory lists them. */
 const DIRECTORY_WITH_IDS = `SELECT id, name, bio, role, status, updated_at FROM users WHERE id IN (SELECT value FROM json_each(?))`;
 
-/** How many people the mentions prompt offers: ember-rust's first page of them, the only one Lexxy asks for. */
+/** How many people the mentions prompt offers: the first page of them, the only one Lexxy asks for. */
 export const MENTIONABLE_PAGE = 20;
 
 /**
- * Active people whose names contain ?1, by name, as ember-rust offers them to mention outside a room
- * (`User.active.filtered_by(query).ordered`, autocompletable.rs). It's `LIKE`, so only ASCII letters
- * ignore case, `%` and `_` match anything, and "" matches everyone.
+ * Active people whose names contain ?1, by name. It's `LIKE`, so only ASCII letters ignore case, `%` and
+ * `_` match anything, and "" matches everyone.
  */
 const MENTIONABLE_PEOPLE = `SELECT id, name, bio, role, status, updated_at FROM users
   WHERE status = ${ACTIVE} AND name LIKE '%' || ?1 || '%' ORDER BY lower(name), id LIMIT ${MENTIONABLE_PAGE}`;
@@ -1598,7 +1574,7 @@ const MENTIONABLE_MEMBERS = `SELECT users.id, users.name, users.bio, users.role,
   WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.name LIKE '%' || ?1 || '%'
   ORDER BY lower(users.name), users.id LIMIT ${MENTIONABLE_PAGE}`;
 
-/** Whether someone in a room can change it: administrators and the room's creator can, as ember-rust's `can_administer` says (user.rs). */
+/** Whether someone in a room can change it: administrators and the room's creator can. */
 const CAN_ADMINISTER = `(users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id) AS can_administer`;
 
 /** A room someone is in, unless it's a DM, and whether they can change it. */
@@ -1615,13 +1591,13 @@ const ROOM_TO_DELETE = `SELECT rooms.kind, ${CAN_ADMINISTER}
 // backends bind at most 100 values a statement. A WHERE clause comes before each ON CONFLICT, which
 // SQLite would otherwise read as part of a join.
 
-/** Puts someone new in every open room, as ember-rust does for every person and bot who joins (user.rs). */
+/** Puts someone new in every open room. */
 const GRANT_OPEN_ROOMS_TO_USER = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT id, ?, ?, ? FROM rooms WHERE kind = 'open' ON CONFLICT DO NOTHING`;
 
 /**
- * Puts every active person in an open room, keeping the memberships they already have (room.rs), and
- * answers whom it put in.
+ * Puts every active person in an open room, keeping the memberships they already have, and answers whom
+ * it put in.
  */
 const GRANT_ROOM_TO_ACTIVE_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT ?, id, ?, ? FROM users WHERE status = ${ACTIVE} ON CONFLICT DO NOTHING RETURNING user_id`;
@@ -1641,8 +1617,7 @@ const GRANT_FIRST_ROOM = `INSERT INTO memberships (room_id, user_id, created_at,
 const OPEN_ROOM_NAMED = `SELECT id, kind, name, icon FROM rooms WHERE kind = 'open' AND name = ? ORDER BY created_at, id LIMIT 1`;
 
 /**
- * Puts the people a JSON list names in a room, whatever their status, as ember-rust's private rooms do,
- * and answers whom it put in.
+ * Puts the people a JSON list names in a room, whatever their status, and answers whom it put in.
  */
 const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT DO NOTHING RETURNING user_id`;
@@ -1659,8 +1634,7 @@ const ROOM_RANKED = `SELECT shared_position IS NOT NULL AS ranked FROM rooms WHE
 
 /**
  * Renames a room, changes its kind and sets its icon, keeping whichever is null as it is, and records
- * when, unless nothing changes, as ember-rust's `Room::update` does (room.rs). An icon of "" is the
- * default `#`, stored as null.
+ * when, unless nothing changes. An icon of "" is the default `#`, stored as null.
  */
 const UPDATE_ROOM = `UPDATE rooms SET name = coalesce(?1, name), kind = coalesce(?2, kind),
     icon = CASE WHEN ?3 IS NULL THEN icon ELSE nullif(?3, '') END, updated_at = ?4
@@ -1790,12 +1764,11 @@ export class WorkspaceStore {
   }
 
   /**
-   * Creates the workspace as ember-rust's first run does (crates/db/src/models/first_run.rs): the
-   * account, its first administrator, open rooms that take in every active person, and the
-   * administrator's session, who also joins every other open room. It adds `rooms` in order, all made
-   * at once, so the first is the workspace's first room by its id, except any the workspace has an
-   * open room of the same name for already, and answers the first, which opens. If there's an account
-   * already, its singleton guard refuses the first statement, and so the whole batch.
+   * Creates the workspace: the account, its first administrator, open rooms that take in every active
+   * person, and the administrator's session, who also joins every other open room. It adds `rooms` in
+   * order, all made at once, so the first is the workspace's first room by its id, except any the
+   * workspace has an open room of the same name for already, and answers the first, which opens. If
+   * there's an account already, its singleton guard refuses the first statement, and so the whole batch.
    */
   async createWorkspace(
     account: NewAccount,
@@ -1830,10 +1803,10 @@ export class WorkspaceStore {
 
   /**
    * Adds someone who joined with the join link as a member, with their session, in every open room,
-   * as ember-rust's `User::create` does (user.rs), recording who invited them, if they joined with an
-   * invitation. Any invitation to their email address is accepted, and the links to it spent, whichever
-   * way they joined. If someone has their email address already, the address's unique index refuses the
-   * first statement, and so the whole batch, which leaves the links as they were.
+   * recording who invited them, if they joined with an invitation. Any invitation to their email address
+   * is accepted, and the links to it spent, whichever way they joined. If someone has their email
+   * address already, the address's unique index refuses the first statement, and so the whole batch,
+   * which leaves the links as they were.
    */
   async createMember(person: NewPerson, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<void> {
     await this.db.batch([
@@ -1977,7 +1950,7 @@ export class WorkspaceStore {
     return new Set(rows.map((row) => row.email_address));
   }
 
-  /** The invitations no one has accepted, newest first (`accounts.invitations`). */
+  /** The invitations no one has accepted, newest first. */
   async invitations(): Promise<EmailInvitation[]> {
     return (await this.db.all<InvitationRow>(INVITATIONS)).map(invitationOf);
   }
@@ -2055,9 +2028,9 @@ export class WorkspaceStore {
   }
 
   /**
-   * Keeps `reset`, the code someone was emailed to reset their password (`auth.password-reset`), in place
-   * of any they had, deleting in the same batch the codes that stopped working by the time it was made,
-   * which nobody used, so that those don't pile up.
+   * Keeps `reset`, the code someone was emailed to reset their password, in place of any they had,
+   * deleting in the same batch the codes that stopped working by the time it was made, which nobody
+   * used, so that those don't pile up.
    */
   async savePasswordReset({ userId, codeDigest, emailAddress, passwordDigest, createdAt, expiresAt }: SavedPasswordReset): Promise<void> {
     await this.db.batch([
@@ -2113,8 +2086,8 @@ export class WorkspaceStore {
   }
 
   /**
-   * The active person whose email address is exactly `emailAddress`, as ember-rust matches it
-   * (user.rs), and their password's digest. People without a password never sign in with one.
+   * The active person whose email address is exactly `emailAddress`, and their password's digest. People
+   * without a password never sign in with one.
    */
   async passwordFor(emailAddress: string): Promise<{ userId: UserId; passwordDigest: string } | null> {
     const [row] = await this.db.all<{ id: UserId; password_digest: string }>(
@@ -2170,7 +2143,7 @@ export class WorkspaceStore {
     return row ? storedSession(row) : null;
   }
 
-  /** Records that the session is in use from `client`, as ember-rust's `resume` does. */
+  /** Records that the session is in use from `client`. */
   async touchSession(id: string, client: Client, now: string): Promise<void> {
     await this.db.run(
       `UPDATE sessions SET last_active_at = ?, ip_address = ?, user_agent = ?, updated_at = ? WHERE id = ?`,
@@ -2198,8 +2171,8 @@ export class WorkspaceStore {
   }
 
   /**
-   * Whoever has exactly the email address `emailAddress`, whatever their status, as ember-rust's
-   * `find_by_email_address` finds them (user.rs), and whether they're a bot.
+   * Whoever has exactly the email address `emailAddress`, whatever their status, and whether they're a
+   * bot.
    */
   async personWithEmailAddress(emailAddress: string): Promise<{ id: UserId; bot: boolean } | null> {
     const [row] = await this.db.all<{ id: UserId; role: number }>(`SELECT id, role FROM users WHERE email_address = ?`, emailAddress);
@@ -2208,11 +2181,10 @@ export class WorkspaceStore {
 
   /**
    * Gives someone the password `passwordDigest` is the digest of, recording when, and ends all their
-   * sessions, keeping their role and status, as ember-rust's `reset-password` does (admin.rs), and
-   * forgets their push subscriptions, which ember-rust keeps, the accounts elsewhere their old password
-   * started connecting (`auth.memberful-connect`), and any code they were emailed to reset it
-   * (`auth.password-reset`). In the same transaction it queues closing each session's sockets with `code`
-   * in every room they're in, due at `dueAt`, as signing out does. Answers whether it queued any.
+   * sessions, keeping their role and status, and forgets their push subscriptions, the accounts
+   * elsewhere their old password started connecting, and any code they were emailed to reset it. In the
+   * same transaction it queues closing each session's sockets with `code` in every room they're in, due
+   * at `dueAt`, as signing out does. Answers whether it queued any.
    */
   async resetPassword(userId: UserId, passwordDigest: string, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
     const [queued] = await this.db.batch([
@@ -2227,12 +2199,11 @@ export class WorkspaceStore {
   }
 
   /**
-   * Removes someone from the workspace, as ember-rust's `User#deactivate` does (user.rs), in one
-   * transaction: queues closing each of their sessions' sockets with `code` in every room they're in,
-   * DMs included, due at `dueAt`, takes them out of every room but their DMs, ends their sessions,
-   * forgets their recent searches and push subscriptions, and marks them removed, recording when, with
-   * `-deactivated-<uuid>` before each "@" of their email address. Their messages, boosts, DMs, role and
-   * avatar stay. Answers whether it queued any.
+   * Removes someone from the workspace, in one transaction: queues closing each of their sessions'
+   * sockets with `code` in every room they're in, DMs included, due at `dueAt`, takes them out of every
+   * room but their DMs, ends their sessions, forgets their recent searches and push subscriptions, and
+   * marks them removed, recording when, with `-deactivated-<uuid>` before each "@" of their email
+   * address. Their messages, boosts, DMs, role and avatar stay. Answers whether it queued any.
    */
   async removePerson(userId: UserId, uuid: string, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
     const [queued] = await this.db.batch([
@@ -2248,13 +2219,12 @@ export class WorkspaceStore {
   }
 
   /**
-   * Bans someone, as ember-rust's `User#ban` does (user.rs), in one transaction: queues closing each of
-   * their sessions' sockets with `code` in every room they're in, due at `dueAt`, blocks each of
-   * `ipAddresses`, ends their sessions, marks them banned, recording when, unless they were already,
-   * and queues deleting their messages in every room they can have written in, due then too. It queues
-   * having every room tell the sockets from those addresses to reconnect, due then as well, so they
-   * come back able only to read. Their memberships, role and avatar stay. Answers whether it queued
-   * anything.
+   * Bans someone, in one transaction: queues closing each of their sessions' sockets with `code` in
+   * every room they're in, due at `dueAt`, blocks each of `ipAddresses`, ends their sessions, marks them
+   * banned, recording when, unless they were already, and queues deleting their messages in every room
+   * they can have written in, due then too. It queues having every room tell the sockets from those
+   * addresses to reconnect, due then as well, so they come back able only to read. Their memberships,
+   * role and avatar stay. Answers whether it queued anything.
    */
   async banPerson(userId: UserId, ipAddresses: string[], code: CloseCode, reconnect: CloseCode, dueAt: number, now: string): Promise<boolean> {
     const [revocations, , reconnections, , , purges] = (await this.db.batch([
@@ -2270,12 +2240,11 @@ export class WorkspaceStore {
   }
 
   /**
-   * Lifts someone's ban, as ember-rust's `User#unban` does (user.rs): unblocks their IP addresses and
-   * makes them active, recording when, unless they were already, whatever their status was. The rooms
-   * yet to delete their messages delete only those written by then, as ember-rust's job finds only
-   * what they'd written when it runs, at once (jobs.rs). It queues having every room tell the sockets
-   * from those addresses to reconnect, due at `dueAt`, so they come back able to change things again,
-   * unless another ban blocks them too. Answers whether it queued anything.
+   * Lifts someone's ban: unblocks their IP addresses and makes them active, recording when, unless they
+   * were already, whatever their status was. The rooms yet to delete their messages delete only those
+   * written by then, at once. It queues having every room tell the sockets from those addresses to
+   * reconnect, due at `dueAt`, so they come back able to change things again, unless another ban blocks
+   * them too. Answers whether it queued anything.
    */
   async unbanPerson(userId: UserId, reconnect: CloseCode, dueAt: number, now: string): Promise<boolean> {
     const [reconnections] = (await this.db.batch([
@@ -2514,7 +2483,7 @@ export class WorkspaceStore {
     return { rooms: rows.map((row) => roomOf(row, membersByRoom.get(row.id))), recent: recent.map((row) => row.query) };
   }
 
-  /** Forgets all of someone's recent searches, as ember-rust's `destroy_all_for_user` does (search.rs). */
+  /** Forgets all of someone's recent searches. */
   async clearSearches(userId: UserId): Promise<void> {
     await this.db.run(`DELETE FROM searches WHERE user_id = ?`, userId);
   }
@@ -2559,7 +2528,7 @@ export class WorkspaceStore {
     return row ? deliveryOf(row) : null;
   }
 
-  /** Deletes someone's push subscription `id`, if it's theirs, as ember-rust's `push_subscriptions#destroy` does. */
+  /** Deletes someone's push subscription `id`, if it's theirs. */
   async deletePushSubscription(userId: UserId, id: number): Promise<void> {
     await this.db.run(`DELETE FROM push_subscriptions WHERE id = ? AND user_id = ?`, id, userId);
   }
@@ -2596,13 +2565,13 @@ export class WorkspaceStore {
 
   /**
    * Puts the rooms in administrator `userId`'s sidebar, DMs aside, in the shared order in the order
-   * `roomIds` lists them, as saving it on ember-rust's workspace settings does (`set_default_room_order`,
-   * account.rs), merged with the order as `mergedSharedOrder` says, or clears the order when `roomIds`
-   * is empty. Answers the rooms they're in that the order ranks, in its order, as their sidebar lists
-   * them then, or null, having changed nothing, unless they're an active administrator and every room
-   * is one they could order, and the order holds at most `MAX_SHARED_ORDER` rooms. The Workspace makes
-   * this change one at a time with the others that change who can see a room or order them, so nothing
-   * changes what the first batch read before the second.
+   * `roomIds` lists them, as saving it on workspace settings does, merged with the order as
+   * `mergedSharedOrder` says, or clears the order when `roomIds` is empty. Answers the rooms they're in
+   * that the order ranks, in its order, as their sidebar lists them then, or null, having changed
+   * nothing, unless they're an active administrator and every room is one they could order, and the
+   * order holds at most `MAX_SHARED_ORDER` rooms. The Workspace makes this change one at a time with the
+   * others that change who can see a room or order them, so nothing changes what the first batch read
+   * before the second.
    */
   async setSharedOrder(userId: UserId, roomIds: RoomId[]): Promise<RoomId[] | null> {
     const [[may], saved] = (await this.db.batch([
@@ -2622,10 +2591,10 @@ export class WorkspaceStore {
   }
 
   /**
-   * Puts someone's stars in the order `roomIds` lists them, as dragging one does in ember-rust's sidebar
-   * (`set_favorite_order`, account.rs), in one transaction that also drops their stars on rooms they
-   * can't star any more. Answers their stars as they are then, or null, having changed nothing, when
-   * `roomIds` isn't exactly the rooms they've starred and can star.
+   * Puts someone's stars in the order `roomIds` lists them, as dragging one does in the sidebar, in one
+   * transaction that also drops their stars on rooms they can't star any more. Answers their stars as
+   * they are then, or null, having changed nothing, when `roomIds` isn't exactly the rooms they've
+   * starred and can star.
    */
   async setFavoriteOrder(userId: UserId, roomIds: RoomId[]): Promise<Favorites | null> {
     const listed = JSON.stringify(roomIds);
@@ -2639,11 +2608,10 @@ export class WorkspaceStore {
   }
 
   /**
-   * Stars room `roomId` for someone, after their other stars, or unstars it, as ember-rust's
-   * `set_channel_favorite` does (account.rs), in one transaction that also drops their stars on rooms
-   * they can't star any more. Answers their stars as they are then, or null, having changed nothing,
-   * when they can't star the room, a DM or one they've hidden or aren't in, or have as many stars as
-   * they can have.
+   * Stars room `roomId` for someone, after their other stars, or unstars it, in one transaction that
+   * also drops their stars on rooms they can't star any more. Answers their stars as they are then, or
+   * null, having changed nothing, when they can't star the room, a DM or one they've hidden or aren't
+   * in, or have as many stars as they can have.
    */
   async setFavorite(userId: UserId, roomId: RoomId, favorite: boolean): Promise<Favorites | null> {
     const after = favorite ? AFTER_STAR : AFTER_UNSTAR;
@@ -2657,10 +2625,9 @@ export class WorkspaceStore {
   }
 
   /**
-   * Gives someone level `involvement` in room `roomId`, as ember-rust's `involvements#update` does
-   * (rooms/involvements.rs), answering it, with their stars as they are then when hiding the room or
-   * showing it again changed them. Answers "not found" when they aren't in the room, and "invalid" for
-   * no level at all, having changed nothing.
+   * Gives someone level `involvement` in room `roomId`, answering it, with their stars as they are then
+   * when hiding the room or showing it again changed them. Answers "not found" when they aren't in the
+   * room, and "invalid" for no level at all, having changed nothing.
    */
   async setInvolvement(
     userId: UserId,
@@ -2820,7 +2787,7 @@ export class WorkspaceStore {
 
   /**
    * Adds a bot, with its webhook if it has somewhere to deliver and its avatar if it has one, in every
-   * open room, as ember-rust's `User.create_bot!` does (user.rs), in one batch.
+   * open room, in one batch.
    */
   async createBot({ id, name, token, webhookUrl, avatar }: NewStoredBot, now: string): Promise<void> {
     await this.db.batch([
@@ -2832,9 +2799,9 @@ export class WorkspaceStore {
   }
 
   /**
-   * Changes a bot as ember-rust's `update_bot!` does (user.rs), in one batch: its webhook first, which
-   * delivers to `webhookUrl`, or goes when that's "", then its name, then its avatar, as `changeAvatar`
-   * gives someone theirs. What's left out stays as it is.
+   * Changes a bot, in one batch: its webhook first, which delivers to `webhookUrl`, or goes when that's
+   * "", then its name, then its avatar, as `changeAvatar` gives someone theirs. What's left out stays as
+   * it is.
    */
   async changeBot(botId: UserId, { name, webhookUrl }: BotChanges, now: string, avatar: AvatarChange | null): Promise<void> {
     await this.db.batch([
@@ -2859,7 +2826,7 @@ export class WorkspaceStore {
    * Saves someone's profile, and a new password when `passwordDigest` is one's, recording when. With a
    * new password, in the same transaction it ends the sessions and forgets the push subscriptions
    * `ended` says, queuing closing those sessions' sockets, and forgets the accounts elsewhere their old
-   * password started connecting (`auth.memberful-connect`). Answers whether it queued any.
+   * password started connecting. Answers whether it queued any.
    */
   async changeProfile(userId: UserId, { name, emailAddress, bio, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
     const change = statement(CHANGE_PROFILE, name, emailAddress, bio, passwordDigest, now, userId);
@@ -2977,11 +2944,11 @@ export class WorkspaceStore {
   }
 
   /**
-   * Makes `changes` to a room in one transaction, where ember-rust takes two (closeds.rs): renames
-   * it, and makes it open to everyone active, or private to just the people `memberIds` names, taking
-   * anyone else out but those suspended in a room that was private already, whom its settings don't
-   * list, and queueing closing their sockets there with `code`, due at `dueAt`. Answers what it
-   * changed, who's in the room then, and whether the shared order ranks it.
+   * Makes `changes` to a room in one transaction: renames it, and makes it open to everyone active, or
+   * private to just the people `memberIds` names, taking anyone else out but those suspended in a room
+   * that was private already, whom its settings don't list, and queueing closing their sockets there
+   * with `code`, due at `dueAt`. Answers what it changed, who's in the room then, and whether the shared
+   * order ranks it.
    */
   async changeRoom(roomId: RoomId, changes: RoomChanges, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
     const update = statement(UPDATE_ROOM, changes.name ?? null, changes.kind ?? null, changes.icon ?? null, now, roomId);
@@ -3023,11 +2990,10 @@ export class WorkspaceStore {
   }
 
   /**
-   * Deletes a room and who is in it, as ember-rust's `Room::destroy` does (room.rs), and in the same
-   * transaction queues closing every socket in it with `code`, due at `dueAt`, in place of whatever
-   * else the outbox had for it. The room's own object deletes its messages when that reaches it. The
-   * room is remembered as deleted, so registering `LEGACY_ROOMS` doesn't bring it back. Answers who was
-   * in it.
+   * Deletes a room and who is in it, and in the same transaction queues closing every socket in it with
+   * `code`, due at `dueAt`, in place of whatever else the outbox had for it. The room's own object
+   * deletes its messages when that reaches it. The room is remembered as deleted, so registering
+   * `LEGACY_ROOMS` doesn't bring it back. Answers who was in it.
    */
   async deleteRoom(roomId: RoomId, code: CloseCode, dueAt: number, now: string): Promise<UserId[]> {
     const [, , members] = (await this.db.batch([
@@ -3069,8 +3035,7 @@ export class WorkspaceStore {
 
   /**
    * The DM whose people are exactly the ones `memberIds` names, who all exist, adding it as `roomId`,
-   * made by `creatorId`, if they have none, in one transaction, as ember-rust's
-   * `find_or_create_direct_for` does (room.rs). Answers it, and whether it added it.
+   * made by `creatorId`, if they have none, in one transaction. Answers it, and whether it added it.
    */
   async startDirect(roomId: RoomId, creatorId: UserId, memberIds: UserId[], now: string): Promise<{ room: DirectRoom; started: boolean }> {
     const key = directKey(memberIds);

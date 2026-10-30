@@ -11,13 +11,13 @@ import { DeleteButton, isMissing } from "./room-settings-page";
 import { Panel, SettingsPage } from "./settings-page";
 import { AvatarLink } from "./user-avatar";
 
-/** What Delete Ping asks first, as ember-rust's DM settings do, in the browser's own dialog as Turbo asks it. */
+/** What Delete Ping asks first, in the browser's own dialog. */
 export const CONFIRM_DELETE_DIRECT = "Are you sure you want to delete this ping and all messages in it? This can’t be undone.";
 
 interface Props {
   room: DirectRoom;
   me: User;
-  /** Where Go Back goes: the last room visited, as ember-rust's `link_back_to_last_room_visited` has it. */
+  /** Where Go Back goes: the last room visited. */
   back: string;
   /** Called as the DM is deleted, with what lists it, for the sidebar, as the server answers. */
   askForRoom: () => (answer: RoomAnswer) => void;
@@ -28,9 +28,9 @@ interface Props {
 }
 
 /**
- * ember-rust's DM settings (rooms/directs/edit.html): a card for each of the others in the DM, or for
- * you in your DM with yourself, then Delete Ping, which any of its members can press, and which goes
- * home once the DM is deleted. Its members never change, so there's nothing to save.
+ * DM settings: a card for each of the others in the DM, or for you in your DM with yourself, then Delete
+ * Ping, which any of its members can press, and which goes home once the DM is deleted. Its members
+ * never change, so there's nothing to save.
  */
 export function DirectSettingsPage({ room, me, back, askForRoom, onMissing, onFailed }: Props) {
   const nameOf = useNameOf();
@@ -46,7 +46,7 @@ export function DirectSettingsPage({ room, me, back, askForRoom, onMissing, onFa
     deleteRoom(room.id).then(
       () => {
         answered({ type: "gone", roomId: room.id });
-        // As ember-rust goes home once the DM's deleted, with no alert.
+        // Home once the DM's deleted, with no alert.
         if (mounted.current) navigate("/");
       },
       (error: unknown) => {
@@ -62,9 +62,9 @@ export function DirectSettingsPage({ room, me, back, askForRoom, onMissing, onFa
   return (
     <SettingsPage back={back}>
       <Panel className="text-center">
-        {/* ember-rust's page has no heading, so this one is for screen readers only. */}
+        {/* The page shows no heading, so this one is for screen readers only. */}
         <h1 className="sr-only">{title}</h1>
-        {/* Campfire's `.directs--edit` (sidebar.css), two to a row at 900px and below as zz-ember.css has it. */}
+        {/* Campfire's `.directs--edit` (sidebar.css), two to a row at 900px and below. */}
         <section className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(33%,1fr))] grid-rows-[min-content] place-items-center gap-[1ch] max-md:grid-cols-2">
           {membersShown(room, me.id).map((member) => (
             <MemberCard key={member.id} member={member} name={nameOf(member)} />
@@ -78,7 +78,7 @@ export function DirectSettingsPage({ room, me, back, askForRoom, onMissing, onFa
 
 /**
  * Campfire's `.member` card (sidebar.css): a square of the sidebar's shade with the person's avatar,
- * 10ch across, over their name in bold. A long name wraps where ember-rust's runs out of the card.
+ * 10ch across, over their name in bold, which wraps rather than run out of the card.
  */
 function MemberCard({ member, name }: { member: User; name: string }) {
   return (

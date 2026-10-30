@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   CANT_EMAIL_LINKS,
   EMAIL_LINK_GONE,
@@ -111,7 +110,7 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("auth.email-domain-sign-up"), () => {
+describe("Join with an email domain", () => {
   it("asks for an address at the workspace's email domains, then says to look for the link in that inbox", async () => {
     const fetch = serve(emailed);
     open();

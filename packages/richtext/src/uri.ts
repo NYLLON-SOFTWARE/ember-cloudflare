@@ -1,8 +1,7 @@
-// The slice of Ruby's `URI.parse` (uri 1.1, its RFC 3986 parser) that link previews read their
-// addresses with, and that reads a message as a tweet's address (ember-rust's
-// crates/richtext/src/uri.rs): which strings parse, into which parts, and which raise. Ruby's
-// patterns are written out as JavaScript's, whose backtracking finds the same matches: nothing Ruby
-// matches possessively could give back a character that what follows it would take.
+// The slice of Ruby's `URI.parse` (uri 1.1, its RFC 3986 parser) that link previews read their addresses
+// with, and that reads a message as a tweet's address: which strings parse, into which parts, and which
+// raise. Ruby's patterns are written out as JavaScript's, whose backtracking finds the same matches:
+// nothing Ruby matches possessively could give back a character that what follows it would take.
 
 /** A URI's parts, as `URI::Generic` keeps them once it's parsed. */
 export interface Uri {

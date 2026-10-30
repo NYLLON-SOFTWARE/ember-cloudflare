@@ -1,7 +1,6 @@
 // Which addresses a link preview may be fetched from: `Surfguard.blocked_address?` with its default
-// policy (gem revision 59e278c), ported from ember-rust's crates/ember/src/integrations/net/guard.rs,
-// with the address parsing of Rust's `IpAddr::from_str`. An IPv4 address is a number, and an IPv6
-// address a bigint.
+// policy (gem revision 59e278c), with the address parsing of Rust's `IpAddr::from_str`. An IPv4 address
+// is a number, and an IPv6 address a bigint.
 
 export type Address = number | bigint;
 

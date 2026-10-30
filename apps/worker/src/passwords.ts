@@ -4,10 +4,10 @@ import { fromBase64, toBase64 } from "./encoding";
 import type { Env } from "./env";
 
 // Passwords are kept as scrypt digests that name their scheme and cost, in the PHC string format:
-// `$scrypt$ln=<log2 N>,r=<r>,p=<p>$<salt>$<hash>`. ember-rust uses bcrypt, which Workers could only
-// run compiled to WebAssembly, where Node's scrypt runs natively, and scrypt is memory-hard where
-// bcrypt and PBKDF2 aren't, so a guess costs an attacker's GPU about what it costs here. Digests from
-// before scrypt, PBKDF2-SHA256 at the 100,000 iterations Web Crypto allows on Workers
+// `$scrypt$ln=<log2 N>,r=<r>,p=<p>$<salt>$<hash>`. Campfire uses bcrypt, which Workers could only run
+// compiled to WebAssembly, where Node's scrypt runs natively, and scrypt is memory-hard where bcrypt and
+// PBKDF2 aren't, so a guess costs an attacker's GPU about what it costs here. Digests from before
+// scrypt, PBKDF2-SHA256 at the 100,000 iterations Web Crypto allows on Workers
 // (`$pbkdf2-sha256$i=<iterations>$<salt>$<hash>`), still verify, and are replaced as their passwords
 // sign in. Because each digest says how it was made, a stronger hash later is the same move again.
 
@@ -55,9 +55,9 @@ async function pbkdf2(password: string, salt: Uint8Array, iterations: number, by
 }
 
 /**
- * A digest made like any other from a random password that was then thrown away, so checking a
- * password against it takes as long as a real check and never matches. ember-rust's `DUMMY_DIGEST`
- * does the same for unknown email addresses (crates/db/src/models/user.rs).
+ * A digest made like any other from a random password that was then thrown away, so checking a password
+ * against it takes as long as a real check and never matches. The `DUMMY_DIGEST` does the same for
+ * unknown email addresses.
  */
 export const DUMMY_DIGEST = "$scrypt$ln=15,r=8,p=3$cXt5Up9/mQWmqmnLLqmevQ$kAon/70wa5yerAyUhn+tnjdjQ1XQcGWQCb3GbPU4TQI";
 

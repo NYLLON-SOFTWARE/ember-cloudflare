@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -22,7 +21,7 @@ afterEach(() => {
 // Closed, it's hidden, so it has no accessible name to find it by.
 const viewer = () => document.querySelector("dialog")!;
 
-describe(feature("attachments.lightbox"), () => {
+describe("Image viewer", () => {
   it("shows the image with Close, and Download saving it under its name, labelled for screen readers", () => {
     render(<Lightbox src={QR_CODE} filename="QR code.svg" onClose={() => {}} />);
     const dialog = screen.getByRole("dialog", { name: "Image Viewer (Press escape to close)" });
@@ -31,7 +30,7 @@ describe(feature("attachments.lightbox"), () => {
     expect(screen.getByRole("button", { name: "Close image viewer" })).toBeInTheDocument();
     const download = screen.getByRole("link", { name: "Download file" });
     expect(download).toHaveAttribute("href", QR_CODE);
-    // Without it, a QR code, which isn't served as an attachment, would open in the tab, as ember-rust's does.
+    // Without it, a QR code, which isn't served as an attachment, would open in the tab.
     expect(download).toHaveAttribute("download", "QR code.svg");
   });
 
@@ -75,7 +74,7 @@ describe(feature("attachments.lightbox"), () => {
     const [{ files, ...data }] = share.mock.calls[0] as [{ files: File[]; title: string; text: string }];
     expect(data).toEqual({ title: "", text: "" });
     expect(files).toHaveLength(1);
-    // ember-rust's name would end ".svg+xml; charset=utf-8", the whole of the type after its "/".
+    // Not the whole of the type after its "/", which would end ".svg+xml; charset=utf-8".
     expect(files[0]!.name).toMatch(/^Ember_[a-z0-9]+\.svg$/);
     expect(files[0]!.type).toBe("image/svg+xml; charset=utf-8");
   });

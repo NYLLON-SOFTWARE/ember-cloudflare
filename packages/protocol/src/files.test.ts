@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import {
   FILE_TOO_LARGE,
@@ -17,7 +16,7 @@ import {
 
 const clientMessageId = "5s1fw6nd9fk";
 
-describe(feature("attachments.size-limit"), () => {
+describe("250 MB file limit", () => {
   it("takes a file of up to 250,000,000 bytes, and an empty one", () => {
     const largest = { name: "earth.png", type: "image/png", size: MAX_FILE_SIZE, clientMessageId };
     expect(parseNewUpload(largest)).toEqual(largest);
@@ -27,7 +26,7 @@ describe(feature("attachments.size-limit"), () => {
   });
 });
 
-describe(feature("attachments.upload"), () => {
+describe("Attach files", () => {
   it("takes the id the app gives the file's message", () => {
     const upload = { name: "notes.txt", type: "text/plain", size: 5, clientMessageId: "m".repeat(MAX_ID_LENGTH) };
     expect(parseNewUpload(upload)).toEqual(upload);
@@ -44,7 +43,7 @@ describe(feature("attachments.upload"), () => {
   });
 });
 
-describe(feature("attachments.types"), () => {
+describe("How files are recognized", () => {
   it("keeps the name and type as the browser gives them, whatever they are", () => {
     const upload = { name: "  weird & -name- ünï.png ", type: "application/x-anything; charset=utf-8", size: 42, clientMessageId };
     expect(parseNewUpload(upload)).toEqual(upload);
@@ -75,8 +74,8 @@ describe(feature("attachments.types"), () => {
   });
 });
 
-describe(feature("attachments.previews"), () => {
-  it("previews the pictures ember-rust makes thumbnails of and every video, and sends a preview beside the upload's parts", () => {
+describe("Image, video and file previews", () => {
+  it("previews the pictures Campfire makes thumbnails of and every video, and sends a preview beside the upload's parts", () => {
     const previewed = ["image/png", "image/gif", "image/jpeg", "image/tiff", "image/webp", "image/avif", "image/heic", "image/heif", "video/mp4", "video/quicktime", "video/webm"];
     expect(previewed.filter(isPreviewed)).toEqual(previewed);
     // Campfire leaves BMP, ICO and PSD out, and SVGs get previews of their own.
@@ -85,7 +84,6 @@ describe(feature("attachments.previews"), () => {
   });
 
   it("previews a picture or video of up to 250 megapixels, whose width and height are both known and above 0", () => {
-    // ember-rust's own cases (`preview_limit_tests`, crates/storage/src/blob.rs).
     expect(isPreviewableSize({ width: 25_000, height: 10_000 })).toBe(true);
     expect(isPreviewableSize({ width: 1920, height: 1080 })).toBe(true);
     for (const [width, height] of [

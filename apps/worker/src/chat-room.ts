@@ -79,11 +79,11 @@ const HAS_CARDS = "Messages with cards can't be edited.";
 /** What the room tells a tab running an app older than its protocol, whose messages and edits it refuses. */
 const OUTDATED = "Ember has been updated. Reload the page to keep chatting.";
 /**
- * What the room tells a socket from a banned IP address that tries to change something, as the app
- * says of the 429 that ember-rust, and the Worker, answer such a request with.
+ * What the room tells a socket from a banned IP address that tries to change something, as the app says
+ * of the 429 the Worker answers such a request with.
  */
 const BANNED = "Request failed (429)";
-/** The frames that change something, which a banned address's sockets can't send, as ember-rust's are all requests it refuses. */
+/** The frames that change something, which a banned address's sockets can't send. */
 const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete"]);
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
@@ -113,12 +113,11 @@ export const NOT_FOUND = "not found";
 export const FORBIDDEN = "forbidden";
 /** What the room answers a bot whose boost has nothing in it. */
 export const BLANK = "blank";
-/** Why the room keeps no longer boost, where ember-rust's column holds 16 characters but SQLite keeps any. */
+/** Why the room keeps no longer boost. */
 const BOOST_TOO_LONG = `Boosts can be up to ${MAX_BOOST_LENGTH} characters.`;
 
 /**
- * How many of a room's deliveries to bots' webhooks run at once, as many as ember-rust's job runner
- * runs by default (`JOB_CONCURRENCY`), and how many more can wait, as many as it lets wait (`QUEUE_CAPACITY`).
+ * How many of a room's deliveries to bots' webhooks run at once, and how many more can wait.
  */
 const WEBHOOKS_AT_ONCE = 2;
 const WEBHOOKS_WAITING = 1024;
@@ -134,8 +133,7 @@ const KEY_LENGTH = 28;
 /**
  * How many messages deleting the room deletes in each write, and has the search index forget in each
  * call, so that a large room holds up neither the rooms sharing D1 or the index for long, nor fails for
- * its size each time it's tried, as ember-rust's room cleanup deletes a few at a time since its pull
- * request #24 (`BATCH_SIZE`, room_deletion.rs). A page of history's worth, where ember-rust's is 32.
+ * its size each time it's tried. A page of history's worth.
  */
 export const MESSAGES_DELETED_AT_ONCE = 100;
 
@@ -173,7 +171,7 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Who has read the room since its latest message, as far as this object has seen. Only a new message
    * marks a room unread, so until one comes another read of theirs would change nothing, and isn't
-   * logged, as ember-rust's `read` writes nothing for a membership that's read (membership.rs).
+   * logged.
    */
   private readonly readers = new Set<UserId>();
 
@@ -267,12 +265,11 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Closes every socket in a room the Workspace has deleted, with `code`, and deletes its messages, as
-   * ember-rust's `Room::destroy` does (room.rs), with their files, and has the search index forget them,
-   * each `MESSAGES_DELETED_AT_ONCE` at a time. Nobody is left to hear who leaves. The record that the
-   * room was deleted stays, turning away sockets let through before then, until none of those could
-   * still arrive, when the alarm erases it. A failure has the Workspace ask again, which goes on from
-   * the batch that failed.
+   * Closes every socket in a room the Workspace has deleted, with `code`, and deletes its messages, with
+   * their files, and has the search index forget them, each `MESSAGES_DELETED_AT_ONCE` at a time. Nobody
+   * is left to hear who leaves. The record that the room was deleted stays, turning away sockets let
+   * through before then, until none of those could still arrive, when the alarm erases it. A failure has
+   * the Workspace ask again, which goes on from the batch that failed.
    */
   private async destroy(roomId: RoomId, code: CloseCode): Promise<void> {
     for (const socket of this.ctx.getWebSockets()) this.close(socket, code);
@@ -328,9 +325,8 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Deletes up to `limit` of `userId`'s messages here, with their boosts, telling everyone in the room
-   * of each, as ember-rust's `RemoveBannedContentJob` does once someone is banned (jobs.rs), and
-   * answers whether any of theirs are left. Once the ban has been lifted, at `liftedAt`, only those
-   * written by then count.
+   * of each, and answers whether any of theirs are left. Once the ban has been lifted, at `liftedAt`,
+   * only those written by then count.
    */
   async removeMessagesBy(roomId: RoomId, userId: UserId, limit: number, liftedAt: string | null): Promise<boolean> {
     return this.serially(async () => {
@@ -371,12 +367,11 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Posts `markup` as a message from the bot the Workspace let in, as ember-rust's bot API does
-   * (messages/by_bots.rs `create`): as a socket's message.create does, with a client message id of its
-   * own, as Campfire gives one (`Random.uuid`, message.rb), and with `cards` under its text, as a Slack
-   * incoming webhook's attachments show. Answers the message, why the room keeps nothing of it, or null
-   * once the room has heard that the bot's access ended, or the room was deleted, after the Workspace
-   * checked, as it turns away a socket then.
+   * Posts `markup` as a message from the bot the Workspace let in: as a socket's message.create does,
+   * with a client message id of its own, as Campfire gives one (`Random.uuid`, message.rb), and with
+   * `cards` under its text, as a Slack incoming webhook's attachments show. Answers the message, why the
+   * room keeps nothing of it, or null once the room has heard that the bot's access ended, or the room
+   * was deleted, after the Workspace checked, as it turns away a socket then.
    */
   async createBotMessage(roomId: RoomId, { bot, authorizedAt }: BotAccess, markup: string, cards: Card[] = []): Promise<Message | string | null> {
     return this.serially(async () => {
@@ -389,8 +384,8 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * A page of the room's messages for the bot API, as ember-rust's `index` reads one (messages/by_bots.rs):
-   * the page `cursor` names, with how many messages the room has, or null when the cursor isn't one of them.
+   * A page of the room's messages for the bot API: the page `cursor` names, with how many messages the
+   * room has, or null when the cursor isn't one of them.
    */
   async botPage(roomId: RoomId, cursor: PageCursor): Promise<BotPage | null> {
     return this.serially(async () => {
@@ -401,10 +396,10 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Replaces the text of the bot's message `messageId` with `markup`, as ember-rust's bot API does
-   * (messages/by_bots.rs `update`): as a socket's message.update does, answering the message as it is
-   * now. Answers `NOT_FOUND` when the room turns the bot away, as `createBotMessage` does, or has no such
-   * message, `FORBIDDEN` when it's someone else's, then why the room keeps nothing of `markup`.
+   * Replaces the text of the bot's message `messageId` with `markup`: as a socket's message.update does,
+   * answering the message as it is now. Answers `NOT_FOUND` when the room turns the bot away, as
+   * `createBotMessage` does, or has no such message, `FORBIDDEN` when it's someone else's, then why the
+   * room keeps nothing of `markup`.
    */
   async editBotMessage(roomId: RoomId, { bot, authorizedAt }: BotAccess, messageId: string, markup: string): Promise<Message | string> {
     return this.serially(async () => {
@@ -419,10 +414,9 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Deletes the bot's message `messageId`, with its boosts, as ember-rust's bot API does
-   * (messages/by_bots.rs `destroy`): as a socket's message.delete does, answering null, or `NOT_FOUND`
-   * when the room turns the bot away, as `createBotMessage` does, or has no such message, and `FORBIDDEN`
-   * when it's someone else's.
+   * Deletes the bot's message `messageId`, with its boosts: as a socket's message.delete does, answering
+   * null, or `NOT_FOUND` when the room turns the bot away, as `createBotMessage` does, or has no such
+   * message, and `FORBIDDEN` when it's someone else's.
    */
   async deleteBotMessage(roomId: RoomId, { bot, authorizedAt }: BotAccess, messageId: string): Promise<string | null> {
     return this.serially(async () => {
@@ -436,11 +430,10 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Adds the bot's boost of `content`, trimmed, to the message `messageId`, as ember-rust's bot API does
-   * (messages/boosts/by_bots.rs `create`): as a socket's boost.create does, but even when the bot has
-   * added the same one, as there, answering it. Answers `NOT_FOUND` when the room turns the bot away, as
-   * `createBotMessage` does, or has no such message, then `BLANK` when `content` is only spaces, or why
-   * the room keeps no boost of it.
+   * Adds the bot's boost of `content`, trimmed, to the message `messageId`: as a socket's boost.create
+   * does, but even when the bot has added the same one, as there, answering it. Answers `NOT_FOUND` when
+   * the room turns the bot away, as `createBotMessage` does, or has no such message, then `BLANK` when
+   * `content` is only spaces, or why the room keeps no boost of it.
    */
   async addBotBoost(roomId: RoomId, { bot, authorizedAt }: BotAccess, messageId: string, content: string): Promise<Boost | string> {
     return this.serially(async () => {
@@ -456,10 +449,9 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Removes the bot's boost `boostId` from the message `messageId`, as ember-rust's bot API does
-   * (messages/boosts/by_bots.rs `destroy`): as a socket's boost.delete does, answering whether it did,
-   * which it does only when the boost is the bot's own, on that message, and the room doesn't turn the
-   * bot away, as `createBotMessage` does.
+   * Removes the bot's boost `boostId` from the message `messageId`: as a socket's boost.delete does,
+   * answering whether it did, which it does only when the boost is the bot's own, on that message, and
+   * the room doesn't turn the bot away, as `createBotMessage` does.
    */
   async removeBotBoost(roomId: RoomId, { bot, authorizedAt }: BotAccess, messageId: string, boostId: string): Promise<boolean> {
     return this.serially(async () => {
@@ -540,13 +532,12 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Posts `uploader`'s upload `key`, which R2 has all of, as their message, as ember-rust stores a file and
-   * its message in one write (messages.rs `create_message`): records that the upload has finished, what
-   * its one part said the file is when `identified` says, and the message, in one transaction, then tells
-   * everyone in the room and sends the Workspace and the search index their logs, as for any new message.
-   * Answers the message, with whether this posted it, or the message an earlier request posted it as,
-   * which was, unless it's been deleted since. Answers null when the room turns the uploader away, as
-   * `startUpload` does, or they have no such upload.
+   * Posts `uploader`'s upload `key`, which R2 has all of, as their message: records that the upload has
+   * finished, what its one part said the file is when `identified` says, and the message, in one
+   * transaction, then tells everyone in the room and sends the Workspace and the search index their
+   * logs, as for any new message. Answers the message, with whether this posted it, or the message an
+   * earlier request posted it as, which was, unless it's been deleted since. Answers null when the room
+   * turns the uploader away, as `startUpload` does, or they have no such upload.
    */
   async finishUpload(roomId: RoomId, uploader: Uploader, key: string, identified?: Identified): Promise<{ message: Message; posted: boolean } | null> {
     return this.serially(async () => {
@@ -590,12 +581,11 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Posts the bot's file `key`, which R2 has all of, as it came to in `file`, as the bot's message, as
-   * ember-rust's bot API does (messages/by_bots.rs `create`), recording that its upload has finished and
-   * the message in one transaction, as `finishUpload` does. With `messageId`, gives it to the bot's
-   * message in place of the file that had, as `update` does. Answers the message, or `NOT_FOUND` when
-   * the room turns the bot away, as `createBotMessage` does, or has no such upload or message, and
-   * `FORBIDDEN` when the message is someone else's.
+   * Posts the bot's file `key`, which R2 has all of, as it came to in `file`, as the bot's message,
+   * recording that its upload has finished and the message in one transaction, as `finishUpload` does.
+   * With `messageId`, gives it to the bot's message in place of the file that had, as `update` does.
+   * Answers the message, or `NOT_FOUND` when the room turns the bot away, as `createBotMessage` does, or
+   * has no such upload or message, and `FORBIDDEN` when the message is someone else's.
    */
   async finishBotUpload(roomId: RoomId, { bot, authorizedAt }: BotAccess, { key, file }: KeptFile, messageId?: string): Promise<Message | string> {
     return this.serially(async () => {
@@ -611,8 +601,7 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Takes the file away from the bot's message `messageId`, as ember-rust's bot API does when an edit's
-   * form gives `attachment` nothing (messages/by_bots.rs `update`), answering the message as it is now, or
+   * Takes the file away from the bot's message `messageId`, answering the message as it is now, or
    * `NOT_FOUND` or `FORBIDDEN` as `editBotMessage` does. A message without a file stays as it was.
    */
   async removeBotFile(roomId: RoomId, { bot, authorizedAt }: BotAccess, messageId: string): Promise<Message | string> {
@@ -702,7 +691,7 @@ export class ChatRoom extends DurableObject<Env> {
       case "boost.create": {
         const message = await store.find(frame.messageId);
         if (!message) return this.refuse(ws, "That message no longer exists");
-        // Unlike ember-rust, a person adds each reaction once, so one they've already added is a repeated click.
+        // A person adds each reaction once, so one they've already added is a repeated click.
         if (message.boosts.some((b) => b.booster.id === user.id && b.content === frame.content)) return;
         await this.addBoost(store, frame.messageId, user, frame.content, now);
         return;
@@ -771,9 +760,9 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Posts `posted`'s file, `blob`, as `user`'s message, as `create` posts one. A file message's text is
-   * empty, and its plain text, which search, pushes and webhooks read, is its file's name, as ember-rust's
-   * `plain_text_body` falls back to (message.rs). An upload started without an id for its message, as one
-   * from before files were messages or a bot's is, gets one, as a bot's text does.
+   * empty, and its plain text, which search, pushes and webhooks read, is its file's name. An upload
+   * started without an id for its message, as one from before files were messages or a bot's is, gets
+   * one, as a bot's text does.
    */
   private postFile(store: MessageStore, user: User, blob: RoomBlob, posted: PostedFile, now: string, kind?: "message" | "reply"): Promise<Message> {
     const body = { html: "", plainText: posted.file.name, mentions: [] };
@@ -855,8 +844,8 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * The bot `bot`'s message `messageId`, or `NOT_FOUND` or `FORBIDDEN` when the room has no such message
-   * or it's someone else's, as ember-rust's `set_message` and `ensure_can_administer` decide. A bot is
-   * never an administrator, so the only messages it can change are its own.
+   * or it's someone else's. A bot is never an administrator, so the only messages it can change are its
+   * own.
    */
   private async botsOwn(store: MessageStore, bot: User, messageId: string): Promise<Message | string> {
     const message = await store.find(messageId);
@@ -865,8 +854,8 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Whether `user` may edit or delete `message`: its author or an administrator, as ember-rust's
-   * `can_administer?` decides (messages.rs). Only someone else's message asks the Workspace.
+   * Whether `user` may edit or delete `message`: its author or an administrator. Only someone else's
+   * message asks the Workspace.
    */
   private async canAdminister(user: User, message: Message): Promise<boolean> {
     return message.creator.id === user.id || (await workspace(this.env).isAdministrator(user.id));
@@ -966,13 +955,12 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Delivers a new message to a bot's webhook in its turn, as ember-rust's `Bot::WebhookJob` does
-   * (integrations/jobs.rs): the message as it is by then, to the bot's webhook as the Workspace finds it
-   * then, and nothing once either is gone, and posts what the bot says back, text or a file. Unlike
-   * ember-rust, which delivers to a bot deleted or taken out of the room since, the Workspace finds no
-   * webhook for one, so deleting a bot, taking it out of a room or removing its webhook stops what was
-   * on its way to it, and a new URL or key takes effect at once. Each delivery is logged, without its URL
-   * or the bot's key, and one the queue has no room for is dropped.
+   * Delivers a new message to a bot's webhook in its turn: the message as it is by then, to the bot's
+   * webhook as the Workspace finds it then, and nothing once either is gone, and posts what the bot says
+   * back, text or a file. The Workspace finds no webhook for a bot deleted or taken out of the room
+   * since, so deleting a bot, taking it out of a room or removing its webhook stops what was on its way
+   * to it, and a new URL or key takes effect at once. Each delivery is logged, without its URL or the
+   * bot's key, and one the queue has no room for is dropped.
    */
   private async deliver(roomId: RoomId, delivery: MessageWebhook): Promise<void> {
     const job = `Bot::WebhookJob of message ${delivery.messageId} to bot ${delivery.botId}`;
@@ -1098,9 +1086,8 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Has R2 delete the files the room has marked deleted, as many as one call takes, with their previews,
-   * then forgets them, as ember-rust's purge job deletes a blob's files once its message is destroyed
-   * (active_storage.rs `purge`), and answers how many. Uploads still unfinished a day after they started
-   * are marked first, and their uploads in parts aborted. Without a bucket, the room only forgets them.
+   * then forgets them, and answers how many. Uploads still unfinished a day after they started are
+   * marked first, and their uploads in parts aborted. Without a bucket, the room only forgets them.
    */
   private async purgeFiles(roomId: RoomId): Promise<number> {
     const blobs = this.blobsFor(roomId);

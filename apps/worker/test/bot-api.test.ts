@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   HISTORY_PAGE_SIZE,
   MAX_BOOST_LENGTH,
@@ -196,7 +195,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("bots.api-auth"), () => {
+describe("Bot keys", () => {
   it("posts as the bot whose key is in the address, with or without .json, spaces around the key and anything after a second '-' ignored", async () => {
     const { administrator, bot, general } = await withBot();
     const inRoom = await connect(general, administrator);
@@ -210,7 +209,7 @@ describe(feature("bots.api-auth"), () => {
     expect((await storedIn(general)).map(({ creator_id }) => creator_id)).toEqual([bot.id, bot.id, bot.id, bot.id]);
   });
 
-  it("answers 401 to a key that isn't an active bot's, posting and reading nothing, where ember-rust sends it to sign in", async () => {
+  it("answers 401 to a key that isn't an active bot's, posting and reading nothing", async () => {
     const { administrator, bot, general } = await withBot();
     const keys = [
       `${bot.id}-wrongwrongxx`,
@@ -330,7 +329,7 @@ describe(feature("bots.api-auth"), () => {
     expect(await listedBy(bot.key, room.id)).toMatchObject([{ body: { plain_text: "Hello, Ada" }, creator: { id: bot.id } }]);
   });
 
-  it("never reads a session, so a cookie makes no difference and posts from other sites are taken, where ember-rust acts as the cookie's person", async () => {
+  it("never reads a session, so a cookie makes no difference and posts from other sites are taken", async () => {
     const { administrator, bot, general } = await withBot();
     const fromElsewhere = { Cookie: administrator.cookie, "Sec-Fetch-Site": "cross-site", Origin: "https://elsewhere.example" };
     expect((await postAs(bot.key, general, "From CI", fromElsewhere)).status).toBe(201);
@@ -365,7 +364,7 @@ describe(feature("bots.api-auth"), () => {
   });
 });
 
-describe(feature("bots.api-post"), () => {
+describe("Bots post messages", () => {
   it("posts the request's body, whatever its type, as the bot's message, which reaches everyone in the room at once", async () => {
     const { administrator, bot, general } = await withBot();
     const inRoom = await connect(general, administrator);
@@ -381,7 +380,7 @@ describe(feature("bots.api-post"), () => {
     expect((await inRoom.next("message.created")).message.plainText).toBe("Deploy finished 🚀 ünïcödé");
   });
 
-  it("answers 201 with an empty body and the message's permalink, on the host it was asked at, where ember-rust gives /messages/<id>", async () => {
+  it("answers 201 with an empty body and the message's permalink, on the host it was asked at", async () => {
     const { bot, general } = await withBot();
     const response = await postAs(bot.key, general, "Hello!");
     const [stored] = await storedIn(general);
@@ -393,7 +392,7 @@ describe(feature("bots.api-post"), () => {
     expect(elsewhere.headers.get("Location")).toMatch(new RegExp(`^https://chat\\.example\\.org/rooms/${general}/@`));
   });
 
-  it("replaces bytes that aren't UTF-8, as ember-rust does", async () => {
+  it("replaces bytes that aren't UTF-8", async () => {
     const { bot, general } = await withBot();
     expect((await postAs(bot.key, general, new Uint8Array([0x48, 0x69, 0xff, 0x21]), { "Content-Type": "application/octet-stream" })).status).toBe(201);
     expect((await listedBy(bot.key, general))[0]!.body.plain_text).toBe("Hi\uFFFD!");
@@ -434,7 +433,7 @@ describe(feature("bots.api-post"), () => {
     expect(await storedIn(general)).toEqual([]);
   });
 
-  it("refuses markup that shows nothing, or more text than a message can have, with 422 and why, where ember-rust posts it", async () => {
+  it("refuses markup that shows nothing, or more text than a message can have, with 422 and why", async () => {
     const { bot, general } = await withBot();
     const empty = await postAs(bot.key, general, "<p> </p><p><br></p>");
     expect([empty.status, await empty.json()]).toEqual([422, { error: "Your message is empty." }]);
@@ -444,7 +443,7 @@ describe(feature("bots.api-post"), () => {
     expect((await postAs(bot.key, general, "x".repeat(MAX_MESSAGE_LENGTH))).status).toBe(201);
   });
 
-  it("answers 413 to more markup than a message can arrive as, sent whole or in pieces, where ember-rust takes up to 16 MiB", async () => {
+  it("answers 413 to more markup than a message can arrive as, sent whole or in pieces", async () => {
     const { bot, general } = await withBot();
     const whole = await postAs(bot.key, general, "x".repeat(MAX_MESSAGE_HTML_LENGTH + 1));
     expect([whole.status, await whole.json()]).toEqual([413, { status: 413, error: "Content Too Large" }]);
@@ -474,7 +473,7 @@ describe(feature("bots.api-post"), () => {
   });
 });
 
-describe(feature("bots.api-list"), () => {
+describe("Bots read messages", () => {
   /** Posts `count` messages as the bot, numbered from 1, answering their ids in order. */
   async function postMany(key: string, room: RoomId, count: number): Promise<string[]> {
     const ids: string[] = [];
@@ -513,7 +512,7 @@ describe(feature("bots.api-list"), () => {
     expect(last.headers.get("Link")).toBeNull();
   });
 
-  it("reads before ?before when ?after is given too, with a Link after the page's last message, as ember-rust does", async () => {
+  it("reads before ?before when ?after is given too, with a Link after the page's last message", async () => {
     const { bot, general } = await withBot();
     const ids = await postMany(bot.key, general, 10);
     const both = await readAs(bot.key, general, `?after=${ids[0]}&before=${ids[5]}`);
@@ -627,7 +626,7 @@ describe(feature("bots.api-list"), () => {
   });
 });
 
-describe(feature("bots.api-edit-delete"), () => {
+describe("Bots edit and delete their messages", () => {
   it("replaces the text of the bot's own message, with PATCH or PUT, live, answering 200 with the message as the list has it", async () => {
     const { administrator, bot, general } = await withBot();
     const inRoom = await connect(general, administrator);
@@ -701,7 +700,7 @@ describe(feature("bots.api-edit-delete"), () => {
     expect(await storedIn(general)).toMatchObject([{ id, body: "Deploying..." }]);
   });
 
-  it("refuses text that shows nothing, or too much, with 422 and why, where ember-rust empties the message or takes it", async () => {
+  it("refuses text that shows nothing, or too much, with 422 and why", async () => {
     const { bot, general } = await withBot();
     const id = await posted(bot.key, general, "Deploying...");
     for (const body of [null, "", " \n ", "<p> </p>"]) {
@@ -753,7 +752,7 @@ describe(feature("bots.api-edit-delete"), () => {
   });
 });
 
-describe(feature("bots.api-boosts"), () => {
+describe("Bots boost messages", () => {
   /** A boost as the bot API answers it, parsed. */
   interface BoostAnswer {
     id: string;
@@ -795,7 +794,7 @@ describe(feature("bots.api-boosts"), () => {
     expect([json.status, ((await json.json()) as BoostAnswer).content]).toEqual([201, "Nice!"]);
   });
 
-  it("boosts any message in the room, its own included, and adds the same boost again, as ember-rust does", async () => {
+  it("boosts any message in the room, its own included, and adds the same boost again", async () => {
     const { bot, general } = await withBot();
     const id = await posted(bot.key, general, "Deployed.");
     const first = (await (await boostAs(bot.key, general, id, "🎉")).json()) as BoostAnswer;
@@ -807,7 +806,7 @@ describe(feature("bots.api-boosts"), () => {
     ]);
   });
 
-  it(`trims a boost, and refuses one with more than ${MAX_BOOST_LENGTH} characters with 422 and why, where ember-rust keeps any`, async () => {
+  it(`trims a boost, and refuses one with more than ${MAX_BOOST_LENGTH} characters with 422 and why`, async () => {
     const { bot, general } = await withBot();
     const id = await posted(bot.key, general, "Deployed.");
     expect(((await (await boostAs(bot.key, general, id, "  🎉\n")).json()) as BoostAnswer).content).toBe("🎉");
@@ -874,7 +873,7 @@ describe(feature("bots.api-boosts"), () => {
   });
 });
 
-describe(feature("bots.log-redaction"), () => {
+describe("Bot keys in logs", () => {
   it("filters bot keys out of addresses, as Campfire's log does, and leaves other addresses alone", () => {
     expect(withoutBotKeys("POST /rooms/0mgk3x2a9b4c5a/0mgk3x2a9b4c5e-Ab3xK9mQz1Rt/messages")).toBe("POST /rooms/0mgk3x2a9b4c5a/[FILTERED]/messages");
     expect(withoutBotKeys('Link: <https://ember.example/rooms/42/7-Zt9QmK1xz3Ab/messages?before=99>; rel="next"')).toBe(

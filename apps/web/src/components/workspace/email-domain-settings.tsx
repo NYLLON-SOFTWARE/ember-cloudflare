@@ -9,13 +9,12 @@ import { ShareableLink } from "./invite-link";
 import { EMAIL_SIGN_UP_LINK, emailSignUpUrl } from "./join-link";
 import { SetUpTurnstile } from "./turnstile-settings";
 
-// This port's own Email domain card in Membership's ways to join (`auth.email-domain-sign-up`): an
-// administrator lists the domains whose email addresses can join, and people with one ask for a link
-// at /join/email, which Ember emails them. Laid out as the other ways to join are, with its domains
-// while it's on. It can't be on without one, so turning it on before there are any opens the list,
-// and saving them turns it on. Nor can it be on before Ember can send email, so turning it on before
-// then says so and opens Set up email, as the project's owner asked (2026-10-26), and goes on once
-// Ember can.
+// The Email domain card in Membership's ways to join: an administrator lists the domains whose email
+// addresses can join, and people with one ask for a link at /join/email, which Ember emails them. Laid
+// out as the other ways to join are, with its domains while it's on. It can't be on without one, so
+// turning it on before there are any opens the list, and saving them turns it on. Nor can it be on
+// before Ember can send email, so turning it on before then says so and opens Set up email, as the
+// project's owner asked (2026-10-26), and goes on once Ember can.
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 const BUTTON = "inline-flex min-h-11 items-center justify-center rounded-[9px] border bg-background px-3.5 py-2.5 font-medium disabled:opacity-50";

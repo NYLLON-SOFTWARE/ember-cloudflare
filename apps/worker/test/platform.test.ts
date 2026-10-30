@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 import { inlineScriptHashes } from "../src/csp";
@@ -6,7 +5,7 @@ import type { Env } from "../src/env";
 import { withHeaders } from "../src/headers";
 import { api, apiWith, builtPages, cookieOf, freshRoom, origin, signIn, upgrade } from "./support";
 
-// User agents from ember-rust's vectors/campfire_user_agents.json, with whether it blocks them.
+// User agents from fixtures/user-agents.json, with whether Campfire blocks them.
 /** Chrome 119, one version too old. */
 const OLD_CHROME = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.6045.199 Safari/537.36";
 const CHROME = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -53,7 +52,7 @@ const upgradePageScripts = async () => {
   return hashes;
 };
 
-describe(feature("platform.health"), () => {
+describe("Health check", () => {
   it("answers /up with Rails' green page", async () => {
     const response = await api("/up");
     expect(response.status).toBe(200);
@@ -105,7 +104,7 @@ describe(feature("platform.health"), () => {
   });
 });
 
-describe(feature("platform.security-headers"), () => {
+describe("Security headers and HTTPS", () => {
   it("adds Rails' default headers to the API's answers, its errors and redirects included", async () => {
     expectRailsDefaults(await api("/api/bootstrap"));
     expectRailsDefaults(await api("/api/me"));
@@ -235,8 +234,8 @@ describe(feature("platform.security-headers"), () => {
   });
 
   it("pins HTTPS with HSTS on every answer, for this host alone", async () => {
-    // ember-rust's includes subdomains, which on a custom domain at a domain's apex would hold every other
-    // site under it to HTTPS.
+    // The includes subdomains, which on a custom domain at a domain's apex would hold every other site
+    // under it to HTTPS.
     for (const response of [await api("/api/bootstrap"), await page("/"), await api("/up")]) {
       expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=63072000");
     }
@@ -252,7 +251,7 @@ describe(feature("platform.security-headers"), () => {
 
     const head = await overHttp("/", { method: "HEAD" });
     expect([head.status, head.headers.get("Content-Type")]).toEqual([301, "text/html; charset=utf-8"]);
-    // Whatever the method, as ember-rust's TLS front answers it.
+    // Whatever the method.
     const post = await overHttp("/api/session", { method: "POST", body: "{}" });
     expect([post.status, post.headers.get("Location"), post.headers.has("Content-Type")]).toEqual([301, "https://ember.test/api/session", false]);
     expect(await post.text()).toBe("");
@@ -271,7 +270,7 @@ describe(feature("platform.security-headers"), () => {
     expect(disabled.status).toBe(200);
     expectRailsDefaults(disabled);
     expect((await apiWith({ DISABLE_SSL: "false" }, "/api/bootstrap")).headers.has("Strict-Transport-Security")).toBe(false);
-    // A blank value counts as unset, as ember-rust's config reads it.
+    // A blank value counts as unset.
     expect((await apiWith({ DISABLE_SSL: " " }, "http://ember.test/api/bootstrap", { redirect: "manual" })).status).toBe(301);
   });
 
@@ -288,7 +287,7 @@ describe(feature("platform.security-headers"), () => {
   });
 });
 
-describe(feature("platform.version"), () => {
+describe("Version", () => {
   it("names the version on pages and the API's answers", async () => {
     expect((await api("/api/bootstrap")).headers.get("X-Version")).toBe("0.1");
     expect((await page("/")).headers.get("X-Version")).toBe("0.1");
@@ -305,7 +304,7 @@ describe(feature("platform.version"), () => {
   });
 });
 
-describe(feature("platform.browser-support"), () => {
+describe("Supported browsers", () => {
   it("answers an old browser with the upgrade page, status 200, whatever it asked for", async () => {
     for (const path of ["/", "/rooms/general", "/session/new", "/join/AAAA-BBBB-CCCC", "/first_run", "/api/bootstrap", "/webmanifest.json", "/qr_code/aHR0cHM6Ly9lbWJlci50ZXN0"]) {
       const response = await page(path, as(OLD_CHROME, { headers: { Accept: "application/json" } }));
@@ -355,12 +354,12 @@ describe(feature("platform.browser-support"), () => {
   });
 });
 
-describe(feature("accounts.translation-buttons"), () => {
+describe("Translation buttons", () => {
   const upgradePage = async () => (await page("/", as(OLD_CHROME))).text();
   /** The flags and translations the upgrade page's globe lists. */
   const listedIn = (html: string) => [...html.matchAll(/<dt>(.+?)<\/dt><dd>(.+?)<\/dd>/g)].map((match) => match.slice(1));
 
-  it("puts a globe by the upgrade page's message once an administrator shows them, as ember-rust's does", async () => {
+  it("puts a globe by the upgrade page's message once an administrator shows them", async () => {
     expect(await upgradePage()).not.toContain("Translate");
     const setUp = await api("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" }) });
     const show = (shown: boolean) =>
@@ -375,7 +374,7 @@ describe(feature("accounts.translation-buttons"), () => {
     const listed = listedIn(html);
     expect(listed.map(([flag]) => flag)).toEqual(["🇺🇸", "🇪🇸", "🇫🇷", "🇮🇳", "🇩🇪", "🇧🇷", "🇯🇵"]);
     expect(listed[0]![1]).toBe("Upgrade to a supported web browser. Ember requires a modern web browser. Please use one of the browsers listed below and make sure auto-updates are enabled.");
-    // Escaped, as ember-rust escapes them.
+    // Escaped.
     expect(listed[2]![1]).toContain("Veuillez utiliser l&#39;un des navigateurs");
 
     await show(false);

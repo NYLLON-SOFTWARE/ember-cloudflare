@@ -1,9 +1,8 @@
 import type { User, UserId } from "@ember/protocol";
 
 /**
- * How long a room socket counts after the room last heard from it, as ember-rust's
- * `Membership::CONNECTION_TTL` (membership.rs) counts a connection that has stopped refreshing. The app
- * pings every 25 seconds, so only a connection that dropped without closing goes this long unheard.
+ * How long a room socket counts after the room last heard from it. The app pings every 25 seconds, so
+ * only a connection that dropped without closing goes this long unheard.
  */
 export const VIEWING_TTL_MS = 60_000;
 
@@ -17,8 +16,9 @@ export interface Viewing {
 }
 
 /**
- * Whether a socket has its person viewing the room, as a connected membership has in ember-rust: its tab is
- * shown, and the room heard from it, or the runtime answered its ping (`lastPing`), within `VIEWING_TTL_MS`.
+ * Whether a socket has its person viewing the room, as a connected membership has in Campfire: its tab
+ * is shown, and the room heard from it, or the runtime answered its ping (`lastPing`), within
+ * `VIEWING_TTL_MS`.
  */
 export function isViewing({ visible, heardAt }: Pick<Viewing, "visible" | "heardAt">, lastPing: Date | null, now: number): boolean {
   return visible && now - Math.max(heardAt, lastPing?.getTime() ?? 0) <= VIEWING_TTL_MS;

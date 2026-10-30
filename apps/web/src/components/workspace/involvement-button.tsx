@@ -31,11 +31,10 @@ interface Props {
 }
 
 /**
- * ember-rust's notification bell (`button_to_change_involvement`, helpers/rooms.rs): the icon for your
- * level in a room, as a checkbox that's always checked, named for what the level does, which a press
- * moves on to the next level. It shows what the server answers rather than what was asked, unless
- * another tab saves a newer level before the answer comes. While it saves it's dimmed and ignores presses,
- * as the star does.
+ * The notification bell: the icon for your level in a room, as a checkbox that's always checked, named
+ * for what the level does, which a press moves on to the next level. It shows what the server answers
+ * rather than what was asked, unless another tab saves a newer level before the answer comes. While it
+ * saves it's dimmed and ignores presses, as the star does.
  */
 export function InvolvementButton({ room, involvement, askForRoom, onFailed, onSaved, autoFocus, className }: Props) {
   const label = useId();

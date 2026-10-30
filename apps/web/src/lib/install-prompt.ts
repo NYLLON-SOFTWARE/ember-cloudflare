@@ -1,13 +1,13 @@
 import type { Platform } from "@ember/protocol";
 
 // A browser's offer to install Ember as an app, which Campfire's pwa_install_controller.js keeps for
-// Install now, and ember-rust with it. The browser makes it once a page load, perhaps before anything
-// with Install now has shown, so the app listens for it from the start.
+// Install now. The browser makes it once a page load, perhaps before anything with Install now has
+// shown, so the app listens for it from the start.
 
 /**
- * Whether ember-rust gives this browser the steps to install Ember, and Install now with them: not
- * Chrome, which is what Chromium Edge and Brave are too by their user agents, nor Firefox but on Android
- * (`pwa/_install_instructions.html`).
+ * Whether this browser is given the steps to install Ember, and Install now with them, as Campfire's
+ * app/views/pwa/_install_instructions.html.erb gives them: not Chrome, which is what Chromium Edge and
+ * Brave are too by their user agents, nor Firefox but on Android.
  */
 export const givesInstallSteps = ({ chrome, firefox, android }: Platform) => !(chrome || (firefox && !android));
 
@@ -42,8 +42,8 @@ export function listenForInstallPrompt(): void {
 
 /**
  * Has Install now take the place of the browser's own offer from now on where `platform` is given the
- * steps to install Ember, as Campfire's controller does on the pages that show them, which in ember-rust
- * are every room's and your profile. Any other browser keeps its own, as there.
+ * steps to install Ember, as Campfire's controller does on the pages that show them, here every room's
+ * and your profile. Any other browser keeps its own, as there.
  */
 export function replaceInstallPromptsFor(platform: Platform): void {
   replacing = givesInstallSteps(platform);

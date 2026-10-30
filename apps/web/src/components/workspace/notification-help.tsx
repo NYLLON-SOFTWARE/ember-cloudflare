@@ -17,10 +17,9 @@ import {
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { canInstall, givesInstallSteps, promptInstall, subscribeToInstallPrompt } from "@/lib/install-prompt";
 
-// ember-rust's help with turning notifications on (crates/views/templates/pwa/_browser_settings.html,
-// _system_settings.html and _install_instructions.html), styled as Campfire's base.css styles
-// `.notifications-help`. Its steps are for the browser and system the Worker reads from the user agent,
-// as ember-rust's are. A section's sides are Campfire's `--inline-space`, which the setup dialog widens.
+// Help with turning notifications on, styled as Campfire's base.css styles `.notifications-help`. Its
+// steps are for the browser and system the Worker reads from the user agent. A section's sides are
+// Campfire's `--inline-space`, which the setup dialog widens.
 
 interface SectionProps {
   platform: Platform;
@@ -29,9 +28,9 @@ interface SectionProps {
 }
 
 /**
- * Which sections of help ember-rust gives: the browser's settings, but not for Safari or Chrome on an
- * iPhone or iPad, which have none; the system's, only in the installed app; and how to install Ember,
- * but not for Chrome, nor for Firefox but on Android, nor in the installed app.
+ * Which sections of help to give: the browser's settings, but not for Safari or Chrome on an iPhone or
+ * iPad, which have none; the system's, only in the installed app; and how to install Ember, but not for
+ * Chrome, nor for Firefox but on Android, nor in the installed app.
  */
 function useSections(platform: Platform) {
   const inBrowser = useMediaQuery("(display-mode: browser)");
@@ -43,7 +42,7 @@ function useSections(platform: Platform) {
   };
 }
 
-/** All the help ember-rust's Notification setup dialog gives, whose only section, if it has just one, starts open. */
+/** All the help the Notification setup dialog gives, whose only section, if it has just one, starts open. */
 export function NotificationHelp({ platform }: { platform: Platform }) {
   const sections = useSections(platform);
   const open = Object.values(sections).filter(Boolean).length === 1;
@@ -56,15 +55,15 @@ export function NotificationHelp({ platform }: { platform: Platform }) {
   );
 }
 
-/** How to install Ember, where ember-rust's profile gives it, if it gives it to this browser. */
+/** How to install Ember, as your profile gives it, if it gives it to this browser. */
 export function InstallInstructions({ platform }: { platform: Platform }) {
   return useSections(platform).install && <InstallSteps platform={platform} />;
 }
 
-/** Ruby's `String#capitalize`, as ember-rust names the browser: its first letter upper case, and the rest lower. */
+/** Ruby's `String#capitalize`, as Campfire names the browser: its first letter upper case, and the rest lower. */
 const capitalize = ([first = "", ...rest]: string) => first.toUpperCase() + rest.join("").toLowerCase();
 
-/** The address of Ember's home page, as ember-rust's `ctx.url("/")` writes it. */
+/** The address of Ember's home page. */
 const siteAddress = () => new URL("/", location.href).href;
 
 function BrowserSettings({ platform, open }: SectionProps) {
@@ -256,8 +255,8 @@ function SystemSettings({ platform, open }: SectionProps) {
 }
 
 /**
- * ember-rust's steps for Chrome on Android never show, since Chrome gets no install steps, and Edge's run
- * its button into the next word, which these keep apart.
+ * How to install Ember. Chrome gets no install steps, so Chrome on Android's never show, and Edge's keep
+ * its button apart from the next word.
  */
 function InstallSteps({ platform, open }: SectionProps) {
   const browser = capitalize(platform.browser);
@@ -315,8 +314,8 @@ function InstallSteps({ platform, open }: SectionProps) {
 
 /**
  * Campfire's `.pwa__installer`: Install now, which shows the browser's prompt to install Ember once the
- * browser has offered to. It's ember-rust's ink button wherever it shows, where in the dialog the header's
- * styles make ember-rust's clear, its icon white on white.
+ * browser has offered to. It's an ink button wherever it shows, even in the dialog, where the header's
+ * styles would make it clear, its icon white on white.
  */
 function InstallNow() {
   const installable = useSyncExternalStore(subscribeToInstallPrompt, canInstall);
@@ -341,15 +340,15 @@ interface SystemStepsProps {
   platform: Platform;
   /** Whose notifications to allow. */
   app: string;
-  /** What ember-rust names the switch for them in Windows Settings, and in macOS's System Settings. */
+  /** What the switch for them is named in Windows Settings, and in macOS's System Settings. */
   windowsSwitch: string;
   macSwitch: string;
 }
 
 /**
  * The steps to allow `app`'s notifications in Windows Settings or in macOS's System Settings. Other
- * systems, such as Linux and ChromeOS, get ember-rust's sentence for a system it has no steps for, where
- * ember-rust gives every desktop but Windows macOS's steps.
+ * systems, such as Linux and ChromeOS, get a sentence for a system with no steps, rather than macOS's
+ * steps.
  */
 function SystemSteps({ platform, app, windowsSwitch, macSwitch }: SystemStepsProps) {
   if (platform.windows)
@@ -371,8 +370,8 @@ function SystemSteps({ platform, app, windowsSwitch, macSwitch }: SystemStepsPro
   return (
     <Steps>
       <li>
-        {/* The Apple logo, in the private-use character Apple's fonts draw it as. ember-rust labels the `em`,
-            which screen readers don't read, so this names it as a picture. */}
+        {/* The Apple logo, in the private-use character Apple's fonts draw it as, named as a picture, since
+            screen readers don't read a label on the `em`. */}
         Click{" "}
         <em role="img" aria-label="the Apple menu">
           {"\uF8FF"}
@@ -412,7 +411,7 @@ function HelpSection({ icon: Icon, title, open = false, children }: { icon: Comp
   );
 }
 
-/** The box each picture in the steps is drawn in, as wide as it's tall, as ember-rust sizes them. */
+/** The box each picture in the steps is drawn in, as wide as it's tall. */
 const PICTURE_SIZES = { 16: "size-4", 20: "size-5", 22: "size-[22px]" };
 
 /** What a picture in the steps is given, whether it's Iconoir's or Campfire's. */

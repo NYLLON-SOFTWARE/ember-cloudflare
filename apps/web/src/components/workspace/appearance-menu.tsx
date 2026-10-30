@@ -11,11 +11,10 @@ const OPTIONS = [
 ] as const;
 
 /**
- * The rail's appearance button, from ember-rust's components/appearance.html: it's named for the
- * choice shown and opens a small dialog of Light, Dark and System radio buttons. A choice applies at
- * once and leaves the dialog open, which Escape or a click elsewhere closes. Its icons are those an
- * administrator chose in Community settings, as ember-rust's pull request #24 has them, or, like the
- * rail's, Iconoir's, where ember-rust draws Lucide's sun, moon and monitor.
+ * The rail's appearance button: it's named for the choice shown and opens a small dialog of Light, Dark
+ * and System radio buttons. A choice applies at once and leaves the dialog open, which Escape or a click
+ * elsewhere closes. Its icons are those an administrator chose in Community settings, or, like the
+ * rail's, Iconoir's.
  */
 export function AppearanceMenu() {
   const appearance = useAppearance();
@@ -40,8 +39,7 @@ export function AppearanceMenu() {
         align="end"
         sideOffset={8}
         className="w-[190px] rounded-[12px] bg-background p-2 shadow-[0_8px_24px_#0002]"
-        // Opening focuses the current choice, and Tab closes the dialog and goes on from its button,
-        // as workspace-appearance.js has them.
+        // Opening focuses the current choice, and Tab closes the dialog and goes on from its button.
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           choices.current?.querySelector<HTMLInputElement>("input:checked")?.focus();

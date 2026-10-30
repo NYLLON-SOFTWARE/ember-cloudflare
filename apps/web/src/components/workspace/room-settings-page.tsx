@@ -11,10 +11,10 @@ import { workspaceSectionPath } from "./settings-navigation";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { UnsavedChanges } from "./unsaved-changes";
 
-/** Whether `error` says the room isn't there for this person, as ember-rust's `set_room` finds rooms. */
+/** Whether `error` says the room isn't there for this person. */
 export const isMissing = (error: unknown) => error instanceof ApiError && error.status === 404;
 
-/** What Delete asks first, as ember-rust's `button_to_delete_room` does, in the browser's own dialog as Turbo asks it. */
+/** What Delete asks first, in the browser's own dialog. */
 export const CONFIRM_DELETE = "Are you sure you want to delete this room and all messages in it? This can’t be undone.";
 
 const membersOf = (settings: RoomSettings) => new Set(settings.people.flatMap((person) => (person.member ? [person.id] : [])));
@@ -39,17 +39,16 @@ interface Props {
 }
 
 /**
- * ember-rust's room settings (rooms/layouts/_edit.html with rooms/opens/edit.html or
- * rooms/closeds/edit.html). Whoever can change the room renames it, and with the Everyone switch,
- * which swaps one form for the other in place, opens it to everyone or makes it private to the people
- * whose switches are on; under the form, they can delete it. Leaving with changes asks first. Everyone
- * else sees its name and people, in the form for the room's kind.
+ * A room's settings. Whoever can change the room renames it, and with the Everyone switch, which swaps
+ * one form for the other in place, opens it to everyone or makes it private to the people whose switches
+ * are on; under the form, they can delete it. Leaving with changes asks first. Everyone else sees its
+ * name and people, in the form for the room's kind.
  */
 export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, onFailed }: Props) {
   const [settings, setSettings] = useState<RoomSettings | null>(null);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<RoomIconName | null>(null);
-  // Who the private form lets in, starting with the room's members, as ember-rust's does.
+  // Who the private form lets in, starting with the room's members.
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
   // Saving or deleting, either of which keeps both buttons from being pressed until it answers.
   const [busy, setBusy] = useState(false);
@@ -80,8 +79,8 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
     return () => void (stopped = true);
   }, [roomId, onMissing, onFailed]);
 
-  // Whoever can change the room picks the form; anyone else sees the one for its kind. ember-rust shows
-  // them either, which would describe the room wrongly.
+  // Whoever can change the room picks the form; anyone else sees the one for its kind, as the other
+  // would describe the room wrongly.
   const kind = settings && !settings.canAdminister ? settings.room.kind : null;
   useEffect(() => {
     if (kind && kind !== access) navigate(roomSettingsPath(kind, roomId), { replace: true });
@@ -117,7 +116,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
     setBusy(true);
     send().then((left) => {
       if (!mounted.current) return;
-      // As ember-rust shows the room saved, which sends someone no longer in it home with its alert.
+      // Saved, the room shows, or sends someone no longer in it home with its alert.
       if (left) onMissing();
       else navigate(roomPath(roomId));
     }, failed);
@@ -129,15 +128,15 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
     const answered = askForRoom();
     deleteRoom(roomId).then(() => {
       answered({ type: "gone", roomId });
-      // As ember-rust goes home once the room's deleted, with no alert.
+      // Deleted, it goes home, with no alert.
       if (mounted.current) navigate("/");
     }, failed);
   };
 
   const open = access === "open";
   const flip = () => navigate(roomSettingsPath(open ? "closed" : "open", roomId), { replace: true });
-  // Whether the form differs from how it loaded or was last saved, the form its address names included,
-  // as ember-rust's settings.js compares them. Saving or deleting isn't guarded.
+  // Whether the form differs from how it loaded or was last saved, the form its address names included.
+  // Saving or deleting isn't guarded.
   const changed =
     !!settings?.canAdminister &&
     !busy &&
@@ -145,7 +144,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   // The Everyone switch moves between the room's two forms, keeping the draft.
   const stays = useCallback((path: string) => path === roomSettingsPath("open", roomId) || path === roomSettingsPath("closed", roomId), [roomId]);
   return (
-    // Go Back returns to Rooms and permissions, as ember-rust's pull request #24 links it.
+    // Go Back returns to Rooms and permissions.
     <SettingsPage back={workspaceSectionPath("channel-settings")}>
       <Panel aria-busy={settings === null}>
         <PageHeading title="Room settings">Manage the room name, access, and members.</PageHeading>
@@ -158,7 +157,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
             onIconChange={setIcon}
             // The private form has the Everyone row only for whoever can change the room.
             everyone={settings.canAdminister ? { on: open, onFlip: flip } : open ? { on: true } : null}
-            // A private room lists its members first, as ember-rust's does.
+            // A private room lists its members first.
             groups={open ? [settings.people] : [settings.people.filter((p) => p.member), settings.people.filter((p) => !p.member)]}
             mark={(person) =>
               settings.canAdminister &&
@@ -184,13 +183,12 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   );
 }
 
-/** Campfire's `.btn.btn--negative` (buttons.css): red, with its icon white in both modes as zz-ember.css makes it, and 36px tall in a panel. */
+/** Campfire's `.btn.btn--negative` (buttons.css): red, with its icon white in both modes, and 36px tall in a panel. */
 export const NEGATIVE_BUTTON =
   "inline-flex min-h-9 max-w-full cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border border-transparent bg-negative-button px-[1.1em] py-[0.5em] text-start font-medium text-white touch:min-h-11 hover:not-active:brightness-70 disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50";
 
 /**
- * ember-rust's `button_to_delete_room` (crates/views/src/rooms.rs), and a DM's Delete Ping
- * (rooms/directs/edit.html): a negative button with a trash can.
+ * A room's Delete, and a DM's Delete Ping: a negative button with a trash can.
  */
 export function DeleteButton({ label, text, disabled, onClick }: { label: string; text: string; disabled: boolean; onClick: () => void }) {
   return (

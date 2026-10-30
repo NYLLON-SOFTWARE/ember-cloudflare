@@ -1,6 +1,6 @@
 -- The workspace itself, kept by the Workspace (scope "workspace" in src/migrations.ts). The columns
--- follow ember-rust's accounts (crates/db/src/schema.sql), with a string id and ISO times. First run
--- creates the only one, and the unique index on singleton_guard refuses a second.
+-- follow Campfire's accounts (db/schema.rb), with a string id and ISO times. First run creates the only
+-- one, and the unique index on singleton_guard refuses a second.
 CREATE TABLE IF NOT EXISTS accounts (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,

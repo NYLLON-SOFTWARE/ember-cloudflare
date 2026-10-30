@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { RoomIconName } from "@ember/protocol";
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -55,7 +54,7 @@ async function open(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(within(dialog()).getByRole("group", { name: "Room icons" })).not.toHaveAttribute("aria-busy"));
 }
 
-describe(feature("rooms.icon-picker"), () => {
+describe("Room icon picker", () => {
   it("shows the room's icon on the button that opens the picker, named for what the room is for", () => {
     showPicker("coffee");
     expect(screen.getByText("Room icon")).toBeInTheDocument();
@@ -341,8 +340,8 @@ describe(feature("rooms.icon-picker"), () => {
   });
 });
 
-describe(feature("ui.select-on-entry"), () => {
-  it("leaves what's in the search box alone when it's entered, as ember-rust's does", async () => {
+describe("Select a field's text on entry", () => {
+  it("leaves what's in the search box alone when it's entered", async () => {
     serveCatalog();
     renderHook(() => useSelectOnEntry());
     const { user } = showPicker();

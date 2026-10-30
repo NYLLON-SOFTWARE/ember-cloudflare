@@ -3,12 +3,11 @@ import { RefreshDouble, UserPlus } from "@/components/icons/iconoir";
 import { JOIN_LINK, joinUrl } from "./join-link";
 import { LinkButtons, ROUND_BUTTON, type LinkSharing } from "./link-buttons";
 
-// ember-rust's invite block on workspace settings (crates/views/templates/accounts/_invite.html): the
-// join link in Campfire's `.input--actor` field, then its buttons, Campfire's round `.btn`s (inputs.css,
-// buttons.css), as zz-ember.css sizes them in a panel. Open sign-up's link shows the same way.
+// The invite block on workspace settings: the join link in Campfire's `.input--actor` field, then its
+// buttons, Campfire's round `.btn`s (inputs.css, buttons.css). Open sign-up's link shows the same way.
 
 interface ShareableLinkProps {
-  /** What the field's ids start with: ember-rust's `invite` for the join link. */
+  /** What the field's ids start with: `invite` for the join link. */
   id: string;
   label: string;
   url: string;

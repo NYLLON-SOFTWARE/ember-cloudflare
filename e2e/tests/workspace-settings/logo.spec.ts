@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
 import { drawnPicture, nextSecond, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
@@ -15,7 +14,7 @@ const fetchedPicture = (page: Page, src: string) =>
     return { type: picture.type, width, height };
   }, src);
 
-test.describe(feature("accounts.logo"), () => {
+test.describe("Workspace logo", () => {
   test("the administrator uploads a logo, which every page shows at once, sign-in included, and removes it", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit");

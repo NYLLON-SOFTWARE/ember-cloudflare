@@ -1,7 +1,7 @@
-// Mentions: `<action-text-attachment>` elements whose `sgid` names a user. Ember's sgid is the
-// user's id. ember-rust's are signed global ids, but any member can list every user's, so a
-// signature protects nothing; and Lexxy, the composer, drops an sgid that starts like a URL, as
-// `gid://` does, since DOMPurify vets every attribute's value as one.
+// Mentions: `<action-text-attachment>` elements whose `sgid` names a user. Ember's sgid is the user's
+// id. Campfire's are signed global ids, but any member can list every user's, so a signature protects
+// nothing; and Lexxy, the composer, drops an sgid that starts like a URL, as `gid://` does, since
+// DOMPurify vets every attribute's value as one.
 
 import { attachmentNodes, loadContent, MAX_CONTENT_ATTACHMENT_DEPTH, sanitizeContentAttribute } from "./content";
 import { detach, getAttr, setAttr, textContent, type Element } from "./tree";
@@ -32,19 +32,19 @@ export interface MentionCard extends MentionUser {
 }
 
 /**
- * Campfire's users/_mention.html: a mention as the editor shows it, the content of its attachment. Unlike
- * ember-rust's, its avatar doesn't link to the person's page, which would leave what's being written: a
- * click on it picks the mention, to move or delete it, as a click on the name does.
+ * Campfire's users/_mention.html.erb: a mention as the editor shows it, the content of its attachment.
+ * Unlike Campfire's, its avatar doesn't link to the person's page, which would leave what's being
+ * written: a click on it picks the mention, to move or delete it, as a click on the name does.
  */
 export function mentionContent({ id, name, avatarUrl }: MentionCard): string {
   return `<span class="mention" sgid="${htmlEscape(mentionSgid(id))}">${avatarTag(avatarUrl)} ${htmlEscape(name)}</span>`;
 }
 
 /**
- * autocompletable/users/_prompt_item.html: someone as Lexxy's mentions prompt offers them, by their
- * avatar and name, and the mention picking them writes. Unlike ember-rust's, the avatar isn't a link: a
- * click anywhere on someone listed picks them, and screen readers can't reach a link in a list's option,
- * whose content ARIA makes presentational.
+ * Campfire's autocompletable/users/_prompt_item.html.erb: someone as Lexxy's mentions prompt offers
+ * them, by their avatar and name, and the mention picking them writes. Unlike Campfire's, the avatar
+ * isn't a link: a click anywhere on someone listed picks them, and screen readers can't reach a link in
+ * a list's option, whose content ARIA makes presentational.
  */
 export function mentionPromptItem(person: MentionCard): string {
   const name = htmlEscape(person.name);
@@ -56,11 +56,10 @@ export function mentionPromptItem(person: MentionCard): string {
 }
 
 /**
- * ember-rust's `editable_value` (lib.rs) for a body Ember stored: the markup the editor opens with,
- * each mention given the content Lexxy shows it by, since Lexxy drops an attachment without content. A
- * mention of someone `card` doesn't know goes, as one of someone deleted does there. Each link preview
- * is written again from what it shows on `host`, the one the page is served from, so that the editor
- * no more loads an image from this Ember than the message does.
+ * The markup the editor opens with for a body Ember stored: each mention given the content Lexxy shows
+ * it by, since Lexxy drops an attachment without content. A mention of someone `card` doesn't know goes.
+ * Each link preview is written again from what it shows on `host`, the one the page is served from, so
+ * that the editor no more loads an image from this Ember than the message does.
  */
 export function editableBody(parse: HtmlParser, stored: string, card: (userId: string) => MentionCard | undefined, host: string): string {
   if (isPlainParagraph(stored)) return stored;
@@ -95,7 +94,7 @@ export function writtenMentions(parse: HtmlParser, markup: string): MentionUser[
   return [...people.values()];
 }
 
-/** `avatar_tag` (helpers/users.rs), without its link: an image screen readers skip. */
+/** Campfire's `avatar_tag` (users/avatars_helper.rb), without its link: an image screen readers skip. */
 const avatarTag = (url: string) => `<img class="avatar" aria-hidden="true" src="${htmlEscape(url)}" width="48" height="48">`;
 
 /**

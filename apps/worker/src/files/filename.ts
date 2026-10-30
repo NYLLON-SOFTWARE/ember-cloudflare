@@ -1,7 +1,6 @@
-// File names as Active Storage keeps and serves them, as ember-rust ports it: `ActiveStorage::Filename`,
-// with Ruby's `File.basename` and `File.extname` (crates/storage/src/filename.rs), the `Content-Disposition`
-// Rails sends a file with (crates/rails_compat/src/content_disposition.rs), and the escaping its routes give
-// a name in an address (crates/storage/src/disposition.rs).
+// File names as Active Storage keeps and serves them: `ActiveStorage::Filename`, with Ruby's
+// `File.basename` and `File.extname`, the `Content-Disposition` Rails sends a file with, and the
+// escaping its routes give a name in an address.
 
 import { strip } from "@ember/richtext";
 
@@ -30,7 +29,7 @@ export function extname(path: string): string {
   return dot < 0 ? "" : name.slice(dot);
 }
 
-/** `I18n::Backend::Transliterator::HashTransliterator::DEFAULT_APPROXIMATIONS`, from i18n 1.14.7 as ember-rust dumped it. */
+/** `I18n::Backend::Transliterator::HashTransliterator::DEFAULT_APPROXIMATIONS`, from i18n 1.14.7. */
 const APPROXIMATIONS: Record<string, string> = {
   À: "A", Á: "A", Â: "A", Ã: "A", Ä: "A", Å: "A", Æ: "AE", Ç: "C", È: "E", É: "E", Ê: "E", Ë: "E", Ì: "I", Í: "I",
   Î: "I", Ï: "I", Ð: "D", Ñ: "N", Ò: "O", Ó: "O", Ô: "O", Õ: "O", Ö: "O", "×": "x", Ø: "O", Ù: "U", Ú: "U", Û: "U",

@@ -4,15 +4,12 @@ import { PageLink } from "@/components/page-link";
 import { BOTS_PATH, CUSTOM_STYLES_PATH, WORKSPACE_SETTINGS_PATH, type Route } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 
-// Community settings, as ember-rust's pull request #24 lays them out (d49621e, not yet on its main): the
-// pages that set the workspace up share a layout whose column of links to them takes the conversations'
-// place (accounts/_navigation.html, `.mb-settings-navigation` in zz-ember.css), and workspace settings
-// show one of their sections at a time, the one the address's fragment names
-// (ember/community_settings.js): ember-rust's three, and this port's own Domain settings, where
-// administrators give Ember a custom domain. The first is General, where ember-rust's is Community, as
-// the project's owner renamed it.
+// Community settings: the pages that set the workspace up share a layout whose column of links to them
+// takes the conversations' place, and workspace settings show one of their sections at a time, the one
+// the address's fragment names: General, Rooms and permissions, Membership, and Domain settings, where
+// administrators give Ember a custom domain.
 
-/** The sections of community settings, by the ids ember-rust's pages give them (`settings_section`). */
+/** The sections of community settings, by their ids. */
 export type SettingsSection = "community-settings" | "channel-settings" | "membership-settings" | "domain-settings" | "chat-bots" | "custom-styles";
 
 const WORKSPACE_SECTIONS = ["community-settings", "channel-settings", "membership-settings", "domain-settings"] as const;
@@ -23,12 +20,12 @@ export type WorkspaceSection = (typeof WORKSPACE_SECTIONS)[number];
 /** The address of one of workspace settings' sections. */
 export const workspaceSectionPath = (section: WorkspaceSection) => `${WORKSPACE_SETTINGS_PATH}#${section}`;
 
-/** The section of workspace settings an address's fragment shows, as community_settings.js picks it: the first, unless it names another. */
+/** The section of workspace settings an address's fragment shows: the first, unless it names another. */
 export function workspaceSectionOf(hash: string): WorkspaceSection {
   return WORKSPACE_SECTIONS.find((section) => `#${section}` === hash) ?? "community-settings";
 }
 
-/** The section of community settings a page is part of, as ember-rust's views say, or null for any other page. */
+/** The section of community settings a page is part of, or null for any other page. */
 export function settingsSectionOf(route: Route, hash: string): SettingsSection | null {
   switch (route.page) {
     case "workspace-settings":

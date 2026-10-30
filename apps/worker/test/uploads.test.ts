@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { CloseCode, FILE_TOO_LARGE, MAX_FILE_SIZE, MAX_PREVIEW_SIZE, uploadPartPath, uploadPreviewPath, type RoomId, type Upload } from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,8 +27,7 @@ import {
   type Session,
 } from "./support";
 
-// Uploading files to a room in parts, which R2 keeps, and serving them from the addresses Ember signs, as
-// ember-rust's Active Storage routes serve them (crates/ember/src/active_storage.rs, crates/storage/src/file_server.rs).
+// Uploading files to a room in parts, which R2 keeps, and serving them from the addresses Ember signs.
 
 /** An Active Storage key. */
 const KEY = /^[0-9a-z]{28}$/;
@@ -102,14 +100,14 @@ function pngHeader(width: number, height: number): Uint8Array {
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("attachments.upload"), () => {
+describe("Attach files", () => {
   it("posts a file as its uploader's message once R2 has all of it, under the app's id for it, which everyone in the room sees at once", async () => {
     const room = await freshRoom("lobby");
     const [ada, grace] = [await connect(room, "Ada"), await connect(room, "Grace")];
     const moon = recordedImage("moon-thumb.jpg");
 
     const message = await upload(ada.session, room, "moon.jpg", moon, "", "5s1fw6nd9fk");
-    // Its text is empty, and its plain text its file's name, as ember-rust's `plain_text_body` falls back to.
+    // Its text is empty, and its plain text its file's name.
     expect(message).toEqual({
       id: expect.any(String),
       clientMessageId: "5s1fw6nd9fk",
@@ -253,7 +251,7 @@ describe(feature("attachments.upload"), () => {
   });
 });
 
-describe(feature("attachments.types"), () => {
+describe("How files are recognized", () => {
   it("uploads a file in one part, naming its type from its bytes and recording an image's size", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
@@ -367,7 +365,7 @@ describe(feature("attachments.types"), () => {
   });
 });
 
-describe(feature("attachments.previews"), () => {
+describe("Image, video and file previews", () => {
   it("shows an image by the thumbnail its uploader's browser sent, at the image's own size, and a video by its poster, at the poster's", async () => {
     const room = await freshRoom("lobby");
     const ada = await connect(room, "Ada");
@@ -491,7 +489,7 @@ describe(feature("attachments.previews"), () => {
   });
 });
 
-describe(feature("attachments.serving"), () => {
+describe("File links", () => {
   it("serves a preview to anyone with its address, under its file's signature, named for its type", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
@@ -689,7 +687,7 @@ describe(feature("attachments.serving"), () => {
   });
 });
 
-describe(feature("attachments.size-limit"), () => {
+describe("250 MB file limit", () => {
   it("refuses a file over 250 MB before any of it arrives, and takes one of exactly 250 MB in 24 parts", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");
@@ -736,7 +734,7 @@ describe(feature("attachments.size-limit"), () => {
   });
 });
 
-describe(feature("rooms.member-only-access"), () => {
+describe("Only members see a room", () => {
   it("lets only the room's members upload to it, each to their own uploads, once signed in", async () => {
     const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
     const design = await createRoom("design", { closedTo: [ada.user.id, grace.user.id], as: ada });
@@ -819,7 +817,7 @@ describe(feature("rooms.member-only-access"), () => {
   });
 });
 
-describe(feature("platform.health"), () => {
+describe("Health check", () => {
   it("answers 503 to an upload, and 404 at a file's address, when no bucket is bound", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("lobby");

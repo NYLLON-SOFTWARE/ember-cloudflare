@@ -11,22 +11,20 @@ import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "./user-avatar";
 
-// ember-rust's New direct message dialog (crates/views/templates/components/direct_message.html), which
-// direct_message_controller.js drives and zz-ember.css styles (`.mb-dm-*`). It lists the people
-// directory the page already has, so it searches as you type where ember-rust's asks the server 180ms
-// after you stop, and "Searching…" never shows.
+// The New direct message dialog. It lists the people directory the page already has, so it searches as
+// you type, without asking the server.
 
-/** Campfire's `.btn` as ember-rust's zz-ember.css sets it. */
+/** Campfire's `.btn`. */
 const BUTTON = "inline-flex cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-[1.1em] py-[0.5em] font-medium text-foreground";
-/** `.mb-dm-footer .btn`, 44px tall for fingers and at 500px wide and below. */
+/** The footer's buttons, 44px tall for fingers and at 500px wide and below. */
 const FOOTER_BUTTON = "min-h-[42px] px-4 py-2.5 touch:min-h-11 upto-500px:min-h-11";
-/** `.mb-dm-more`. */
+/** Show more people, and Try again. */
 const MORE_BUTTON = "m-2 px-3 py-2 text-[13px] touch:min-h-11";
 
 /**
- * A link's click that opens New direct message in place, as direct_message_controller.js takes a plain
- * click on the rail's DMs and the sidebar's New direct message, leaving one with a modifier key to
- * follow the link to `/rooms/directs/new`, as into a new tab.
+ * A link's click that opens New direct message in place: a plain click on the rail's DMs and the
+ * sidebar's New direct message, leaving one with a modifier key to follow the link to
+ * `/rooms/directs/new`, as into a new tab.
  */
 export function opensNewDirect(open: (opener: HTMLElement) => void) {
   return (event: MouseEvent<HTMLAnchorElement>) => {
@@ -38,7 +36,7 @@ export function opensNewDirect(open: (opener: HTMLElement) => void) {
 
 /**
  * Puts focus back on what opened the dialog, or, when that's gone with the drawer it was in, on the
- * drawer's toggle, as direct_message_controller.js's `close` does.
+ * drawer's toggle.
  */
 function returnFocus(opener: HTMLElement | null) {
   opener?.focus({ preventScroll: true });
@@ -97,8 +95,8 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
   const unloaded = people.size === 0;
   const optionId = (userId: UserId) => `${listId}-${userId}`;
 
-  // Each opening asks for the directory again, as ember-rust asks for the people each time, so someone
-  // who joined since shows up. Until a first copy comes, there's nobody to list.
+  // Each opening asks for the directory again, so someone who joined since shows up. Until a first copy
+  // comes, there's nobody to list.
   const load = () => {
     setLoading("loading");
     reloadPeople().then(
@@ -108,14 +106,14 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
   };
   useEffect(load, []);
 
-  // Anything picked or typed takes the place of a failure to start, as the list's status does in ember-rust's.
+  // Anything picked or typed takes the place of a failure to start.
   const changed = () => setStartFailed(false);
 
   const close = () => {
     if (!starting) setOpen(false);
   };
 
-  // Going Back or Forward closes it too, as the visit closes ember-rust's (turbo:before-cache).
+  // Going Back or Forward closes it too.
   const historyMoved = useEffectEvent(close);
   useEffect(() => {
     const listener = () => historyMoved();
@@ -193,8 +191,8 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
     }
   };
 
-  // A page with changes to lose asks before a conversation starts, as settings.js guards the dialog's
-  // form, and Keep editing comes back here with the people picked.
+  // A page with changes to lose asks before a conversation starts, and Keep editing comes back here with
+  // the people picked.
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (picked.length > 0 && !starting) leave(startConversation);
@@ -261,7 +259,7 @@ export function NewDirectDialog({ opener, meId, reloadPeople, askForRoom, onClos
               ))}
             </div>
           )}
-          {/* A label, where ember-rust's is a box, so a tap anywhere on it reaches the field. */}
+          {/* A label, so a tap anywhere on it reaches the field. */}
           <label className="mx-6 flex min-h-[46px] cursor-text items-center gap-2.5 rounded-[10px] border px-3 py-2.5 focus-within:border-muted-foreground focus-within:ring-1 focus-within:ring-muted-foreground upto-500px:mx-4">
             <Search className="size-[19px] flex-[0_0_19px] text-muted-foreground" />
             <span className="sr-only">Search people</span>

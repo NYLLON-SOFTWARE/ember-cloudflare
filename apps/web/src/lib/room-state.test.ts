@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { HISTORY_PAGE_SIZE, type ClientFrame, type Message, type TimelinePage, type User } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { timeline } from "./messages";
@@ -36,7 +35,7 @@ const created = (state: RoomState, m: Message) => frame(state, { type: "frame", 
 const sending = (id: string): PendingMessage => ({ ...message({ id, clientMessageId: id }), pending: true });
 const ids = (state: RoomState) => state.messages.map((m) => m.id);
 
-describe(feature("messages.optimistic"), () => {
+describe("See your message before it's saved", () => {
   it("replaces an optimistic message with the stored one", () => {
     let state = roomReducer(initialRoomState, { type: "pending", message: { ...message({ id: "c1" }), pending: true } });
     state = frame(state, { type: "frame", frame: { type: "message.created", message: message(), seq: 1 }, now: 0 });
@@ -115,7 +114,7 @@ describe(feature("messages.optimistic"), () => {
   });
 });
 
-describe(feature("realtime.reconnect"), () => {
+describe("Catch up after a reconnect", () => {
   /** A room of `ids`, all loaded, oldest first, with older history to page to. */
   const loaded = (...ids: string[]) =>
     frame(initialRoomState, { type: "frame", frame: { type: "welcome", you: ada, messages: ids.map((id) => message({ id, clientMessageId: id })), present: [ada], hasMore: true, hasNewer: false, around: null, seq: 1 }, now: 0 });
@@ -288,7 +287,7 @@ describe(feature("realtime.reconnect"), () => {
   });
 });
 
-describe(feature("attachments.progress"), () => {
+describe("Upload progress", () => {
   const CONNECTION_LOST = "Connection lost. Please attach the file and try again.";
   /** A file this page is uploading as `id`, as its card shows it. */
   const uploading = (id: string, upload: Partial<PendingUpload> = {}): PendingMessage => ({
@@ -361,7 +360,7 @@ describe(feature("attachments.progress"), () => {
   });
 });
 
-describe(feature("boosts.add"), () => {
+describe("React to a message", () => {
   it("adds and removes boosts", () => {
     let state = frame(initialRoomState, { type: "frame", frame: { type: "message.created", message: message(), seq: 1 }, now: 0 });
     const boost = { id: "b1", messageId: "m1", booster: ada, content: "👍", createdAt: "" };
@@ -372,7 +371,7 @@ describe(feature("boosts.add"), () => {
   });
 });
 
-describe(feature("boosts.remove"), () => {
+describe("Take back a reaction", () => {
   it("counts the times the room answers a reaction's deletion with an error, so reactions shown as going can come back", () => {
     const refused = (state: RoomState, failed?: ClientFrame["type"]) => frame(state, { type: "frame", frame: { type: "error", message: "Request failed (429)", failed }, now: 0 });
     expect(initialRoomState.refusedUnboosts).toBe(0);
@@ -385,7 +384,7 @@ describe(feature("boosts.remove"), () => {
   });
 });
 
-describe(feature("realtime.presence"), () => {
+describe("Presence", () => {
   it("adds who arrives and drops who leaves, listing each person once", () => {
     let state = frame(initialRoomState, { type: "frame", frame: { type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 }, now: 0 });
     state = frame(state, { type: "frame", frame: { type: "presence.joined", user: grace }, now: 0 });
@@ -396,7 +395,7 @@ describe(feature("realtime.presence"), () => {
   });
 });
 
-describe(feature("realtime.typing"), () => {
+describe("Typing indicator", () => {
   it("expires stale typing indicators", () => {
     let state = frame(initialRoomState, { type: "frame", frame: { type: "typing", user: ada, typing: true }, now: 1_000 });
     expect(Object.keys(state.typing)).toEqual(["u1"]);
@@ -420,7 +419,7 @@ describe(feature("realtime.typing"), () => {
   });
 });
 
-describe(feature("messages.history"), () => {
+describe("Scroll back through history", () => {
   it("stops waiting for older history after a reconnect", () => {
     let state = roomReducer(initialRoomState, { type: "loading-older" });
     state = frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada], hasMore: true, hasNewer: false, around: null, seq: 0 }, now: 0 });
@@ -476,7 +475,7 @@ describe(feature("messages.history"), () => {
     expect(newer).toMatchObject({ messages: state.messages, loadingNewer: false });
   });
 
-  it("cuts the newest messages once an older page takes it past 320, as ember-rust's paginator does, and pages forward to them again", () => {
+  it("cuts the newest messages once an older page takes it past 320, and pages forward to them again", () => {
     let state = opened(stored(41, 340), { hasMore: true });
     state = frame(state, { type: "frame", frame: { type: "history", before: "m041", messages: stored(1, 40), hasMore: false }, now: 0 });
     expect(state.messages).toHaveLength(MAX_MESSAGES);
@@ -506,7 +505,7 @@ describe(feature("messages.history"), () => {
   });
 });
 
-describe(feature("ui.scroll"), () => {
+describe("Stay at the newest message", () => {
   it("counts the messages that come, but not this page's own, so the timeline can offer the way to them", () => {
     let state = roomReducer(opened([]), { type: "pending", message: sending("c1") });
     state = created(state, message({ id: "m1", clientMessageId: "c1" }));
@@ -550,7 +549,7 @@ describe(feature("ui.scroll"), () => {
   });
 });
 
-describe(feature("messages.permalink"), () => {
+describe("Link to a message", () => {
   it("opens around the message a permalink names, going to it", () => {
     const state = opened(stored(1, 81), { hasMore: true, hasNewer: true, around: "m041" });
     expect(state).toMatchObject({ focus: { messageId: "m041" }, hasMore: true, hasNewer: true, oldestId: "m001", newestId: "m081", paged: true });
@@ -567,26 +566,26 @@ describe(feature("messages.permalink"), () => {
   });
 });
 
-describe(feature("rooms.invitation-card"), () => {
+describe("Welcome and invite card", () => {
   const page = (count: number) => Array.from({ length: count }, (_, i) => message({ id: `m${i}`, clientMessageId: `c${i}` }));
   const welcome = (state: RoomState, messages: Message[], hasMore = false) =>
     frame(state, { type: "frame", frame: { type: "welcome", you: ada, messages, present: [ada], hasMore, hasNewer: false, around: null, seq: 0 }, now: 0 });
 
-  it("counts a room as paged once it holds more than a page of ember-rust's", () => {
+  it("counts a room as paged once it holds more than a page of history", () => {
     expect(initialRoomState.paged).toBeNull();
     expect(welcome(initialRoomState, page(HISTORY_PAGE_SIZE)).paged).toBe(false);
     expect(welcome(initialRoomState, page(HISTORY_PAGE_SIZE + 1)).paged).toBe(true);
     expect(welcome(initialRoomState, page(50), true).paged).toBe(true);
   });
 
-  it("keeps what the room first said across reconnects, as ember-rust's page does until it's loaded again", () => {
+  it("keeps what the room first said across reconnects, until it's opened again", () => {
     const opened = welcome(initialRoomState, page(3));
     expect(welcome(opened, page(50), true).paged).toBe(false);
     expect(roomReducer(opened, { type: "reset" }).paged).toBeNull();
   });
 });
 
-describe(feature("rooms.member-only-access"), () => {
+describe("Only members see a room", () => {
   it("shows nobody here, or typing, in a room that's gone, nor that it's offline, and keeps its messages", () => {
     let state = frame(initialRoomState, { type: "frame", frame: { type: "welcome", you: ada, messages: [message()], present: [ada, grace], hasMore: false, hasNewer: false, around: null, seq: 0 }, now: 0 });
     state = frame(state, { type: "frame", frame: { type: "typing", user: grace, typing: true }, now: 0 });

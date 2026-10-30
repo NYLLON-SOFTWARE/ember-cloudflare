@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { searchPath } from "@ember/protocol";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -24,7 +23,7 @@ import {
 
 afterEach(() => history.replaceState(null, "", "/"));
 
-describe(feature("rooms.show"), () => {
+describe("Open a room", () => {
   it("reads the room from /rooms/:id", () => {
     expect(roomIdFromPath("/rooms/general")).toBe("general");
     expect(roomIdFromPath("/rooms/caf%C3%A9")).toBe("café");
@@ -74,7 +73,7 @@ describe(feature("rooms.show"), () => {
   });
 });
 
-describe(feature("messages.permalink"), () => {
+describe("Link to a message", () => {
   it("reads a message's permalink as its room's page, naming the message", () => {
     expect(messagePath("general", "m 1")).toBe("/rooms/general/@m%201");
     expect(routeOf("/rooms/general/@m%201")).toEqual({ page: "room", roomId: "general", messageId: "m 1" });
@@ -93,7 +92,7 @@ describe(feature("messages.permalink"), () => {
   });
 });
 
-describe(feature("rooms.index"), () => {
+describe("Room addresses", () => {
   it("has the newest room at /rooms", () => {
     expect(routeOf("/rooms")).toEqual({ page: "newest-room" });
   });
@@ -104,7 +103,7 @@ describe(feature("rooms.index"), () => {
     expect(routeOf("/rooms/directs/ada-grace")).toEqual({ page: "room-of-kind", kind: "direct", roomId: "ada-grace" });
   });
 
-  it("reads /rooms/opens and the others as room ids, as ember-rust matches /rooms/<id> first", () => {
+  it("reads /rooms/opens and the others as room ids, matching /rooms/<id> first", () => {
     expect(routeOf("/rooms/opens")).toEqual({ page: "room", roomId: "opens" });
     expect(routeOf("/rooms/closeds")).toEqual({ page: "room", roomId: "closeds" });
     expect(routeOf("/rooms/directs")).toEqual({ page: "room", roomId: "directs" });
@@ -115,22 +114,22 @@ describe(feature("rooms.index"), () => {
   });
 });
 
-describe(feature("rooms.create-open"), () => {
+describe("Create an open room", () => {
   it("has New room at /rooms/opens/new", () => {
     expect(newRoomPath("open")).toBe("/rooms/opens/new");
     expect(routeOf("/rooms/opens/new")).toEqual({ page: "new-room", access: "open" });
   });
 });
 
-describe(feature("rooms.create-closed"), () => {
+describe("Create a private room", () => {
   it("has the private room form at /rooms/closeds/new", () => {
     expect(newRoomPath("closed")).toBe("/rooms/closeds/new");
     expect(routeOf("/rooms/closeds/new")).toEqual({ page: "new-room", access: "closed" });
   });
 });
 
-describe(feature("rooms.settings-page"), () => {
-  it("has a room's settings at the address for its kind, as ember-rust's edit_path gives it", () => {
+describe("Room settings page", () => {
+  it("has a room's settings at the address for its kind", () => {
     expect(roomSettingsPath("open", "general")).toBe("/rooms/opens/general/edit");
     expect(roomSettingsPath("closed", "café")).toBe("/rooms/closeds/caf%C3%A9/edit");
     expect(roomSettingsPath("direct", "ada-grace")).toBe("/rooms/directs/ada-grace/edit");
@@ -139,7 +138,7 @@ describe(feature("rooms.settings-page"), () => {
   });
 });
 
-describe(feature("accounts.settings-page"), () => {
+describe("Community settings page", () => {
   it("has workspace settings at /account/edit", () => {
     expect(routeOf("/account/edit")).toEqual({ page: "workspace-settings" });
   });
@@ -152,12 +151,12 @@ describe(feature("accounts.settings-page"), () => {
   });
 });
 
-describe(feature("users.profile"), () => {
+describe("Edit your profile", () => {
   it("has your profile at /users/me/profile", () => {
     expect(routeOf("/users/me/profile")).toEqual({ page: "profile" });
   });
 
-  it("goes back to the page another was opened from, as ember-rust's `link_back` goes to the referrer", async () => {
+  it("goes back to the page another was opened from, as a referrer would", async () => {
     history.replaceState(null, "", "/rooms/general");
     const { result } = renderHook(() => useBackPath());
     act(() => navigate("/users/me/profile"));
@@ -192,7 +191,7 @@ describe(feature("users.profile"), () => {
   });
 });
 
-describe(feature("search.page"), () => {
+describe("Search page", () => {
   it("has search at /searches, reading what's searched for from its query string as the address changes", async () => {
     history.replaceState(null, "", "/searches?q=hello++world");
     const { result } = renderHook(() => ({ route: useRoute(), q: useQueryParam("q") }));
@@ -237,7 +236,7 @@ describe(feature("search.page"), () => {
   });
 });
 
-describe(feature("auth.sign-up"), () => {
+describe("Sign up with the join link", () => {
   it("reads the join code from /join/:code, as the link has it", () => {
     expect(joinCodeFromPath("/join/aB3d-Ef5h-iJ7k")).toBe("aB3d-Ef5h-iJ7k");
     expect(joinCodeFromPath("/join/")).toBeNull();
@@ -259,7 +258,7 @@ describe(feature("auth.sign-up"), () => {
   });
 });
 
-describe(feature("rooms.unsaved-changes"), () => {
+describe("Unsaved changes guard", () => {
   /** A guard that holds the app on its page, keeping how to go on. */
   function holdingGuard() {
     const asked: (string | null)[] = [];

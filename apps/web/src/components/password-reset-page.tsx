@@ -21,11 +21,10 @@ import { ApiError, askForPasswordResetCode, resetPasswordWithCode } from "@/lib/
 import { loadPage } from "@/lib/page";
 import { takeReturnPath } from "@/lib/return-path";
 
-// This port's own page for resetting a forgotten password (`auth.password-reset`), since ember-rust
-// resets one only from its server, as the recovery script does here: someone gives their email address,
-// Ember emails them a code if it has an account with a password, and they give the code back here with a
-// new password, which signs them in. Asking waits for Turnstile's check while Ember has a widget's
-// keys, as asking for a link to join does, and nothing the page says tells who has an account.
+// The page for resetting a forgotten password: someone gives their email address, Ember emails them a
+// code if it has an account with a password, and they give the code back here with a new password, which
+// signs them in. Asking waits for Turnstile's check while Ember has a widget's keys, as asking for a
+// link to join does, and nothing the page says tells who has an account.
 
 const SIGN_IN_PATH = "/session/new";
 const NO_CONNECTION = "Couldn't reach Ember. Check your connection and try again.";
@@ -200,7 +199,7 @@ function NewPassword({ workspace, emailAddress, onAskAgain }: NewPasswordProps) 
           }}
         >
           {refusal && (
-            // ember-rust's `.mb-auth-error`, as sign-in shows it.
+            // The error, as sign-in shows it.
             <p role="alert" className="rounded-[8px] border border-auth-error-border bg-auth-error-background px-3.5 py-3 text-[14px] leading-normal text-auth-error">
               {refusal}
             </p>

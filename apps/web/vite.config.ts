@@ -8,7 +8,7 @@ import { defineConfig } from "vitest/config";
 /**
  * Serves each icon a room can have as an SVG of its own, which `RoomIcon` draws: Lucide's at
  * /lucide/icons/<name>.svg and Iconoir's at /iconoir/icons/<variant>/<name>.svg, as `roomIconUrl` has
- * them, writing them from ember-rust's picker catalog in src/components/icons/picker/ (its README says more).
+ * them, writing them from the picker's catalog in src/components/icons/picker/ (its README says more).
  */
 function roomIcons(): Plugin {
   type Catalog = { icons: Array<{ name: string; svg: string }> };

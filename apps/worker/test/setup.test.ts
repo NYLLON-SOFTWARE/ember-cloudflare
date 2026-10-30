@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   EMAIL_ADDRESS_TOO_LONG,
   MAX_EMAIL_ADDRESS_LENGTH,
@@ -34,7 +33,7 @@ const page = (path: string, init: RequestInit<IncomingRequestCfProperties> = {})
 
 beforeEach(freshDeploy);
 
-describe(feature("auth.first-run"), () => {
+describe("Set up the workspace", () => {
   it("starts out waiting to be set up, with the setup page open to the first visitor", async () => {
     expect(await bootstrap()).toEqual({
       setup: "pending",
@@ -241,7 +240,7 @@ const nothingCreated = async () => {
   for (const table of ["accounts", "users", "rooms", "sessions"]) expect(await count(table), table).toBe(0);
 };
 
-describe(feature("auth.protected-setup"), () => {
+describe("Installer-protected setup link", () => {
   it("sets Ember up only through the deploy's setup link: without its token the form is refused before it's read", async () => {
     expect(await setupAccessAt(origin, SETUP_TOKEN)).toBe("link");
     const refused = await firstRunWith({});
@@ -308,7 +307,7 @@ describe(feature("auth.protected-setup"), () => {
   });
 });
 
-describe(feature("rooms.legacy-rooms"), () => {
+describe("Rooms from before memberships", () => {
   it("makes no second general or random where they were registered, and opens the old general", async () => {
     await workspaceStub().registerLegacyRooms(["general", "random"]);
     const response = await setUp(ada);

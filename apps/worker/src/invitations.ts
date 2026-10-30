@@ -5,12 +5,10 @@ import { originFor } from "./custom-domain";
 import type { Env } from "./env";
 import { workspace, type NewEmailLink } from "./workspace";
 
-// Invitations to join by email (`accounts.invitations`), this port's own, since ember-rust sends no
-// email: administrators invite addresses, which Membership sends `INVITATIONS_AT_ONCE` at a time, give
-// an invitation a new link, or revoke it. Each link is a secret in the address's fragment, which only
-// its digest is kept in place of, and looking one up spends nothing (`auth.invitation-sign-up`), as
-// looking up one someone asked for with an address at the workspace's email domains spends nothing
-// (`auth.email-domain-sign-up`).
+// Invitations to join by email: administrators invite addresses, which Membership sends
+// `INVITATIONS_AT_ONCE` at a time, give an invitation a new link, or revoke it. Each link is a secret in
+// the address's fragment, which only its digest is kept in place of, and looking one up spends nothing,
+// as looking up one someone asked for with an address at the workspace's email domains spends nothing.
 
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
 

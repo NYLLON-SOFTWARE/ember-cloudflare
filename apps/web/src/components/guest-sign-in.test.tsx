@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,7 +7,7 @@ const respond = (status: number, body: unknown) => vi.spyOn(globalThis, "fetch")
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("auth.guest-sign-in"), () => {
+describe("Sign in with a display name", () => {
   it("asks for the name people will see, and joins with it", async () => {
     const ada = { id: "u1", name: "Ada" };
     const fetch = respond(201, { user: ada });

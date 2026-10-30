@@ -64,7 +64,7 @@ describe("opensLink", () => {
 });
 
 describe("savesEdit", () => {
-  it("is Ctrl+Enter or Cmd+Enter, as ember-rust's edit form takes them", () => {
+  it("is Ctrl+Enter or Cmd+Enter", () => {
     expect(savesEdit(press("Enter", { ctrlKey: true }))).toBe(true);
     expect(savesEdit(press("Enter", { metaKey: true }))).toBe(true);
   });

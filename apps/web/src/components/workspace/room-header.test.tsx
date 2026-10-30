@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { avatarSvg, type Room, type User } from "@ember/protocol";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -48,7 +47,7 @@ function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, on
   );
 }
 
-describe(feature("realtime.who-is-here"), () => {
+describe("Who's here", () => {
   it("shows up to four faces of the people here, and how many more", () => {
     renderHeader({ present: people(6) });
     expect(screen.getByText("6 here now")).toBeInTheDocument();
@@ -89,7 +88,7 @@ describe(feature("realtime.who-is-here"), () => {
   });
 });
 
-describe(feature("ui.room-header"), () => {
+describe("Room header", () => {
   it("shows the room's name after a # in the Page navigation, and screen readers hear just the name", () => {
     renderHeader();
     expect(screen.getByRole("navigation", { name: "Page" })).toHaveTextContent(/^#general/);
@@ -97,7 +96,7 @@ describe(feature("ui.room-header"), () => {
   });
 });
 
-describe(feature("sidebar.favorites"), () => {
+describe("Star rooms", () => {
   it("has a star after the room's name, pressed while it's starred", () => {
     const { unmount } = renderHeader();
     const star = screen.getByRole("button", { name: "Favorite room" });
@@ -115,7 +114,7 @@ describe(feature("sidebar.favorites"), () => {
   });
 });
 
-describe(feature("dms.naming"), () => {
+describe("Group DMs and DM names", () => {
   it("shows a DM's name after a chat bubble, saying to screen readers whom it's with", () => {
     renderHeader({ room: adaDirect, name: "Ada" });
     const heading = screen.getByRole("heading", { level: 1 });
@@ -132,7 +131,7 @@ describe(feature("dms.naming"), () => {
   });
 });
 
-describe(feature("rooms.settings-page"), () => {
+describe("Room settings page", () => {
   it("links to the room's settings at the address for its kind, showing them in place", async () => {
     renderHeader({ room: { id: "leads", name: "Leads", kind: "closed", icon: null } });
     const settings = screen.getByRole("link", { name: "Settings for this room" });
@@ -143,7 +142,7 @@ describe(feature("rooms.settings-page"), () => {
   });
 });
 
-describe(feature("search.page"), () => {
+describe("Search page", () => {
   it("links to search before the room's settings, in rooms and DMs alike, showing it in place", async () => {
     for (const [room, name] of [[general, "general"], [adaDirect, "Ada"]] as const) {
       const { unmount } = renderHeader({ room, name });
@@ -159,7 +158,7 @@ describe(feature("search.page"), () => {
   });
 });
 
-describe(feature("realtime.reconnect"), () => {
+describe("Catch up after a reconnect", () => {
   it.each([
     ["connecting", "Connecting…"],
     ["reconnecting", "Reconnecting…"],
@@ -184,7 +183,7 @@ describe(feature("realtime.reconnect"), () => {
   });
 });
 
-describe(feature("ui.mobile-drawer"), () => {
+describe("Conversations drawer on phones", () => {
   it("has a button that opens the conversations drawer", async () => {
     const onOpenChange = vi.fn();
     renderHeader({}, onOpenChange);
@@ -195,7 +194,7 @@ describe(feature("ui.mobile-drawer"), () => {
   });
 });
 
-describe(feature("rooms.icons"), () => {
+describe("Room icons", () => {
   it("shows the room's icon before its name, or `#`", () => {
     const { unmount } = renderHeader({ room: { ...general, icon: "rocket" } });
     const icon = document.querySelector<HTMLElement>('[data-icon="rocket"]')!;
@@ -208,7 +207,7 @@ describe(feature("rooms.icons"), () => {
   });
 });
 
-describe(feature("notifications.levels"), () => {
+describe("Notification levels", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("puts the bell for your level between Search and the settings, in rooms and DMs alike", () => {

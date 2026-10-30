@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   EMAIL_LINK_GONE,
   INVITATION_GONE,
@@ -149,7 +148,7 @@ async function joinAsGrace(): Promise<Session> {
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("accounts.invitations"), () => {
+describe("Invite people by email", () => {
   it("emails each address an administrator invites its own link, from the From address, which joins with it for 7 days", async () => {
     const administrator = await setUp();
     await saveFrom(administrator, "Ember <ember@example.com>");
@@ -338,7 +337,7 @@ describe(feature("accounts.invitations"), () => {
   });
 });
 
-describe(feature("accounts.invitations"), () => {
+describe("Invite people by email", () => {
   describe("sending again", () => {
     it("gives an invitation a new link, which only it joins with, answering it while Ember didn't email it", async () => {
       const administrator = await setUp();
@@ -399,7 +398,7 @@ describe(feature("accounts.invitations"), () => {
   });
 });
 
-describe(feature("auth.invitation-sign-up"), () => {
+describe("Join with an invitation", () => {
   describe("the page", () => {
     /** The page as the browser asks for it, with the built app standing in, without following a redirect. */
     const page = (init: RequestInit<IncomingRequestCfProperties> = {}) => apiWith({ ASSETS: builtPages }, "/join/invitation", { redirect: "manual", ...init });

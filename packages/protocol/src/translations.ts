@@ -1,8 +1,7 @@
-// ember-rust's translations (crates/views/src/helpers/translations_table.rs, from Campfire's
-// app/helpers/translations_helper.rb), copied verbatim: for each field that has a translation button,
-// what it asks for in English, Spanish, French, Hindi, German, Brazilian Portuguese and Japanese, each
-// after its country's flag. The app's translation buttons show them, and so does the Worker's page for
-// browsers too old for the app.
+// Campfire's translations (app/helpers/translations_helper.rb), with Ember in place of its name: for
+// each field that has a translation button, what it asks for in English, Spanish, French, Hindi, German,
+// Brazilian Portuguese and Japanese, each after its country's flag. The app's translation buttons show
+// them, and so does the Worker's page for browsers too old for the app.
 
 export const TRANSLATIONS = {
   email_address: [
@@ -124,5 +123,5 @@ export const TRANSLATIONS = {
   ],
 } as const satisfies Record<string, ReadonlyArray<readonly [flag: string, text: string]>>;
 
-/** A field's translations, by the name ember-rust gives them, such as `account_name`. */
+/** A field's translations, by the name Campfire's `TRANSLATIONS` gives them, such as `account_name`. */
 export type TranslationKey = keyof typeof TRANSLATIONS;

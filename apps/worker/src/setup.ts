@@ -19,15 +19,14 @@ import { urlOf } from "./request-url";
 import { bearerTokenOf, isSecretToken, isToken } from "./secrets";
 import { workspace } from "./workspace";
 
-// First run, which creates the workspace and its first administrator. Ported from ember-rust's
-// crates/ember/src/controllers/first_runs.rs, path for path, except that the form posts to
-// /api/first_run. Whoever has the deploy's setup link sets Ember up, and nobody else: the link ends in
-// the EMBER_SETUP_TOKEN secret that `pnpm run deploy` makes for a Worker (apps/worker/scripts/deploy.ts),
-// which the Set up Ember page reads off the address's fragment and sends as the form's bearer token, so
-// the first stranger to find a new deployment can't make themselves its administrator. Unlike
-// ember-rust's private setup link (first_runs/access.rs), there's no cookie, lock or expiry: setup
-// closes once an administrator exists, which is all the link needs. Over loopback, where `wrangler dev`
-// serves and nobody on the Internet can reach, a deployment without a token is open, as Campfire is.
+// First run, which creates the workspace and its first administrator, at Campfire's paths, except that
+// the form posts to /api/first_run. Whoever has the deploy's setup link sets Ember up, and nobody else:
+// the link ends in the EMBER_SETUP_TOKEN secret that `pnpm run deploy` makes for a Worker
+// (apps/worker/scripts/deploy.ts), which the Set up Ember page reads off the address's fragment and
+// sends as the form's bearer token, so the first stranger to find a new deployment can't make themselves
+// its administrator. There's no cookie, lock or expiry: setup closes once an administrator exists, which
+// is all the link needs. Over loopback, where `wrangler dev` serves and nobody on the Internet can
+// reach, a deployment without a token is open, as Campfire is.
 
 /** What `POST /api/first_run` answers without the setup link's token. */
 export const SETUP_LINK_NEEDED = "Open the setup link the deploy printed to set up Ember";
@@ -38,8 +37,7 @@ export const NO_SETUP_TOKEN = "This deployment has no setup token, so nobody can
 
 /**
  * What the Set up Ember form suggests, as `/api/bootstrap` tells the app: the deployment's own name and
- * email address, else Kevin Rose's, in place of ember-rust's Jane Cooper (first_runs/show.html). A blank
- * setting counts as unset.
+ * email address, else Kevin Rose's. A blank setting counts as unset.
  */
 export const setupPlaceholdersOf = (env: Env): SetupPlaceholders => ({
   name: env.EMBER_SETUP_NAME_PLACEHOLDER?.trim() || "Kevin Rose",
@@ -79,9 +77,9 @@ const isSetUp = async (env: Env) => (await workspace(env).account()) !== null;
 
 /** `/first_run`: the Set up Ember page, which is the app's own, until the workspace exists. */
 async function setupForm(request: Request, env: Env, format: string | undefined): Promise<Response> {
-  // ember-rust's `prevent_repeats`: once the workspace exists, setup sends everyone home.
+  // Campfire's `prevent_repeats`: once the workspace exists, setup sends everyone home.
   if (await isSetUp(env)) return home(request);
-  // The form is a page, like ember-rust's, which answers 406 for `/first_run.json`.
+  // The form is a page, which answers 406 for `/first_run.json`.
   if (format !== undefined) return empty(406);
   const page = await appPage(request, env, "/");
   page.headers.set("Cache-Control", "no-store");
@@ -114,9 +112,8 @@ export async function firstRun(request: Request, env: Env): Promise<Response> {
   if ("error" in sent) return formAnswer({ error: sent.error, field: "avatar" }, sent.status);
   const form = parseSignUp(sent.fields);
   if (typeof form === "string") return signUpRefusal(form);
-  // Before anything is hashed or saved, as in ember-rust. Unlike bcrypt, which ignores all but a
-  // password's first 72 bytes, scrypt hashes every character, so the server takes no more than the
-  // form can send.
+  // Before anything is hashed or saved. Unlike bcrypt, which ignores all but a password's first 72
+  // bytes, scrypt hashes every character, so the server takes no more than the form can send.
   if (isPasswordTooLong(form.password)) return formAnswer({ error: PASSWORD_TOO_LONG, field: "password" }, 422);
   if (isPasswordTooShort(form.password)) return formAnswer({ error: PASSWORD_TOO_SHORT, field: "password" }, 422);
   const avatar = await userFormPhoto(env, sent.photo);
@@ -126,7 +123,7 @@ export async function firstRun(request: Request, env: Env): Promise<Response> {
   const token = newSessionToken();
   const administrator = { name: form.name, emailAddress: form.emailAddress, passwordDigest, avatar };
   const created = await workspace(env).createWorkspace(administrator, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
-  // Another first run finished first. Like ember-rust, send this one home without signing it in.
+  // Another first run finished first, so this one goes home without signing in.
   if (!created) return formAnswer(setUp, 409);
   return formAnswer(created satisfies NewWorkspace, 201, sessionCookie(request, token));
 }

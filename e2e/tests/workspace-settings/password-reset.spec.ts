@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { PASSWORD_RESET_CODE_WRONG, type AccountChanges, type WorkspaceSettings } from "@ember/protocol";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
@@ -66,7 +65,7 @@ async function signInStatus(request: APIRequestContext, emailAddress: string, pa
   return response.status();
 }
 
-test.describe(feature("auth.password-reset"), () => {
+test.describe("Reset a forgotten password with an emailed code", () => {
   test("someone who forgot their password asks for a code from sign in, then chooses a new one with it, signed in", async ({ browser, request, baseURL }) => {
     await giveResendKey(request);
     await changeAccount(request, { emailFrom: FROM });

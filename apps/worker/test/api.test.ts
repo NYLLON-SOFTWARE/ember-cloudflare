@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Directory } from "@ember/protocol";
 import { listDurableObjectIds } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -12,7 +11,7 @@ const withCookie = (cookie: string) => ({ headers: { Cookie: cookie } });
 /** A well-formed token that no session has. */
 const unknownSession = `__Host-session_token=${"A".repeat(43)}`;
 
-describe(feature("auth.guest-sign-in"), () => {
+describe("Sign in with a display name", () => {
   it("signs in with a trimmed display name and a session cookie", async () => {
     const response = await api("/api/session", { method: "POST", body: JSON.stringify({ name: "  Ada Lovelace  " }) });
     expect(response.status).toBe(201);
@@ -73,7 +72,7 @@ describe(feature("auth.guest-sign-in"), () => {
   });
 });
 
-describe(feature("auth.require-sign-in"), () => {
+describe("Pages need a signed-in person", () => {
   it("answers 401 to requests without a valid session", async () => {
     expect((await api("/api/me")).status).toBe(401);
     expect((await api("/api/sidebar")).status).toBe(401);
@@ -84,7 +83,7 @@ describe(feature("auth.require-sign-in"), () => {
   });
 });
 
-describe(feature("realtime.connection"), () => {
+describe("Connection sign-in and revocation", () => {
   it("refuses room sockets without a valid session", async () => {
     expect((await api("/api/rooms/general/socket", upgrade())).status).toBe(401);
     expect((await api("/api/rooms/general/socket", upgrade(unknownSession))).status).toBe(401);
@@ -101,7 +100,7 @@ describe(feature("realtime.connection"), () => {
   });
 });
 
-describe(feature("platform.health"), () => {
+describe("Health check", () => {
   /** A recovery token the Worker can be given, and sent. */
   const TOKEN = "ab".repeat(32);
   const asRecovery = { headers: { Authorization: `Bearer ${TOKEN}` } };

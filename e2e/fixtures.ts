@@ -90,7 +90,7 @@ export async function signInAsAdministrator(page: Page, password = ADMINISTRATOR
   await page.getByRole("button", { name: "Sign in" }).click();
 }
 
-/** Logs out as ember-rust does: from your profile, which the rail's avatar links to. */
+/** Logs out: from your profile, which the rail's avatar links to. */
 export async function logOut(page: Page): Promise<void> {
   await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Your profile" }).click();
   await page.getByRole("button", { name: "Log out" }).click();
@@ -290,7 +290,7 @@ export function editorField(scope: Page | Locator, name: string): Locator {
 
 /**
  * Waits for the clock's next second, so a change after it gives an avatar or the logo a new address:
- * their versions count seconds, as ember-rust's do, and a browser keeps a picture at an address a while.
+ * their versions count seconds, and a browser keeps a picture at an address a while.
  */
 export async function nextSecond(): Promise<void> {
   const second = Math.floor(Date.now() / 1000);

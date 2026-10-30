@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { CloseCode, type Me, type NewWorkspace } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -77,7 +76,7 @@ const sessionsOf = async (userId: string) => ((await workspaceSql("SELECT count(
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("accounts.reset-password"), () => {
+describe("Reset a password from the server", () => {
   it("gives someone a new password, as the script sends it, which signs them in where the old one doesn't", async () => {
     await setUp();
     await joinAsGrace();
@@ -122,7 +121,7 @@ describe(feature("accounts.reset-password"), () => {
     expect((await connect(lobby, await signInAsGrace("new password"))).me).toEqual(laptop.user);
   });
 
-  it("forgets their push subscriptions and nobody else's, where ember-rust keeps them, so a browser no longer signed in as them gets none of their pushes", async () => {
+  it("forgets their push subscriptions and nobody else's, so a browser no longer signed in as them gets none of their pushes", async () => {
     const administrator = await setUp();
     const laptop = await joinAsGrace();
     const phone = await signInAsGrace();

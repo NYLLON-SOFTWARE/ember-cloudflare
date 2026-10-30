@@ -1,11 +1,10 @@
 import { MAX_USER_NAME_LENGTH, type DirectoryUser, type RoomId } from "./index.ts";
 
-// Chat bots, as administrators add, change and delete them through `/api/account/bots`: ember-rust's
-// `accounts/bots` and `accounts/bots/keys` controllers (crates/ember/src/controllers/accounts/bots.rs),
-// which port Campfire's.
+// Chat bots, as administrators add, change and delete them through `/api/account/bots`, as Campfire's
+// `accounts/bots` and `accounts/bots/keys` controllers do.
 
 /**
- * Where a bot posts messages to a room and reads them, as ember-rust's `room_bot_messages_path` gives it,
+ * Where a bot posts messages to a room and reads them, as Campfire's `room_bot_messages_path` gives it,
  * with the bot's key: `/rooms/<room id>/<bot key>/messages`.
  */
 export const botMessagesPath = (roomId: RoomId, key: string) => `/rooms/${encodeURIComponent(roomId)}/${key}/messages`;
@@ -71,9 +70,8 @@ export interface NewBot {
 
 /**
  * Parses an untrusted change to a bot. Returns why it's refused instead: a name has to have more than
- * spaces, and no more than a person's name can (`MAX_USER_NAME_LENGTH`), where ember-rust saves
- * whatever the form sends. The name is saved as typed, and the webhook URL trimmed, as the form's URL
- * field sends it; the Worker checks that it's a URL.
+ * spaces, and no more than a person's name can (`MAX_USER_NAME_LENGTH`). The name is saved as typed, and
+ * the webhook URL trimmed, as the form's URL field sends it; the Worker checks that it's a URL.
  */
 export function parseBotChanges(data: unknown): BotChanges | string {
   if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";

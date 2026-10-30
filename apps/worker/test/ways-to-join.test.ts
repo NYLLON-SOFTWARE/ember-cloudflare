@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   JOINING_PROBLEMS,
   MAX_TURNSTILE_TOKEN_LENGTH,
@@ -150,7 +149,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("accounts.ways-to-join"), () => {
+describe("Ways to join", () => {
   it("starts with the join link on and Open off, before first run too", async () => {
     expect((await bootstrap()).account).toMatchObject({ joinLink: true, openSignUp: false });
     await setUp();
@@ -207,7 +206,7 @@ describe(feature("accounts.ways-to-join"), () => {
     ["null", '{"join_link":null,"open_sign_up":null}', false, false],
     ["blank text", '{"join_link":" ","open_sign_up":" "}', false, false],
     ["settings that don't parse", "not JSON", true, false],
-  ])("reads %s as ember-rust reads a setting, the join link on until one is stored", async (_, stored, joinLink, openSignUp) => {
+  ])("reads %s, the join link on until one is stored", async (_, stored, joinLink, openSignUp) => {
     await setUp();
     await storeSettings(stored);
     expect((await bootstrap()).account).toMatchObject({ joinLink, openSignUp });
@@ -275,7 +274,7 @@ describe(feature("accounts.ways-to-join"), () => {
   });
 });
 
-describe(feature("accounts.join-link"), () => {
+describe("Join link", () => {
   it("sends people to sign in while it's off, saying so, and refuses its form before it's read", async () => {
     const administrator = await setUp();
     const code = await joinCode();
@@ -337,7 +336,7 @@ describe(feature("accounts.join-link"), () => {
   });
 });
 
-describe(feature("auth.open-sign-up"), () => {
+describe("Sign up without a link", () => {
   describe("the page", () => {
     it("sends people to sign in, saying signing up is closed, until an administrator turns Open on, before first run too", async () => {
       const closed = `${origin}/session/new?joining=closed`;

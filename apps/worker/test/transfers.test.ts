@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { TRANSFER_PATH, type LinkSignIn, type Me, type NewWorkspace, type PersonAnswer, type ProfileAnswer, type UserId } from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -51,7 +50,7 @@ async function whoIs(cookie: string): Promise<Me | number> {
   return response.ok ? ((await response.json()) as { user: Me }).user : response.status;
 }
 
-/** Expects `response` to refuse, as ember-rust's empty 400 does, signing nobody in. */
+/** Expects `response` to refuse, signing nobody in. */
 async function expectRefused(response: Response, why: string) {
   expect(response.status, why).toBe(400);
   expect(await response.text(), why).toBe("");
@@ -60,7 +59,7 @@ async function expectRefused(response: Response, why: string) {
 
 beforeEach(freshDeploy);
 
-describe(feature("auth.sign-in-link"), () => {
+describe("Private sign-in link", () => {
   describe("its id", () => {
     const someone = { userId: "someone", sessionId: "0123456789abcdef" };
 
@@ -139,7 +138,7 @@ describe(feature("auth.sign-in-link"), () => {
       expect(cookie).not.toBe(grace.cookie);
       expect(await whoIs(cookie)).toMatchObject({ id: grace.user.id });
     }
-    // The sessions the link replaced stay signed in, as ember-rust's do.
+    // The sessions the link replaced stay signed in.
     expect(await whoIs(administrator.cookie)).toMatchObject({ id: administrator.user.id });
     expect(await whoIs(grace.cookie)).toMatchObject({ id: grace.user.id });
     expect(await workspaceSql("SELECT COUNT(*) AS count FROM sessions WHERE user_id = ?", grace.user.id)).toEqual([{ count: 4 }]);
@@ -271,12 +270,12 @@ describe(feature("auth.sign-in-link"), () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe("page /");
     }
-    // ember-rust's addresses, with the id in the path, are no page or route here, so no request holds
-    // the id: the built app answers Campfire's 404 page for the page's.
+    // The addresses, with the id in the path, are no page or route here, so no request holds the id: the
+    // built app answers Campfire's 404 page for the page's.
     const path = `${TRANSFER_PATH}/${transferId}`;
     expect(await (await page(path)).text()).toBe(`page ${path}`);
     expect((await api(`/api/session/transfers/${transferId}`, { method: "PUT" })).status).toBe(404);
-    // ember-rust's page signs in with a PUT to itself, which this one sends to the API.
+    // Campfire's page signs in with a PUT to itself, which this one sends to the API.
     expect((await page(TRANSFER_PATH, { method: "PUT" })).status).toBe(404);
   });
 });

@@ -11,7 +11,7 @@ import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { UNKNOWN_PERSON } from "./message-body";
 
-/** With a mouse, the bar overlaps its message, as ember-rust's `.mb-message-actions--overlapping` does. */
+/** With a mouse, the bar overlaps its message. */
 const OVERLAPPING = "(hover: hover) and (pointer: fine)";
 
 /** How long a bar that hovering opened stays after the pointer leaves it, so the pointer can cross to it. */
@@ -21,20 +21,19 @@ const LEAVE_DELAY_MS = 180;
 let openBar: { close(): void } | null = null;
 
 /**
- * The bar's buttons (zz-ember.css, `.mb-message-actions-menu .message__action-btn`): 32px, with 16px
- * icons. For fingers they're 44px, as Ember's controls are, where ember-rust's are 34px wide.
+ * The bar's buttons: 32px, with 16px icons. For fingers they're 44px, as Ember's controls are.
  */
 const ACTION =
   "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-[6px] text-[0.8rem] font-medium text-message-muted transition-colors duration-150 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground touch:size-11 [&_svg]:size-4";
 
-/** The bar and the tray of more reactions (`.mb-message-action-bar`, `.mb-message-reaction-tray`). */
+/** The bar and the tray of more reactions. */
 const PANEL = "rounded-[11px] border border-message-border bg-background shadow-[0_1px_3px_#0000001a]";
 
 /** An item of More actions: its icon, as the bar draws it, then its name, the panel's whole width. */
 const ITEM =
   "flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-[6px] px-2 text-left text-sm whitespace-nowrap text-message-ink transition-colors duration-150 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground touch:h-11 [&_svg]:size-4 [&_svg]:shrink-0";
 
-/** Campfire's `btn--success` (buttons.css) in ember-rust's colors: Copy link turns green as it copies. */
+/** Campfire's `btn--success` (buttons.css) in Ember's colors: Copy link turns green as it copies. */
 const COPIED = ["text-positive", "motion-safe:animate-success"];
 
 interface Props {
@@ -67,16 +66,14 @@ export interface MessageActionsHandle {
 }
 
 /**
- * ember-rust's message actions (messages/_actions.html, message_actions_controller.js, zz-ember.css):
- * Message options, which opens a bar of three quick reactions, Reply, or a file message's Download, Copy
- * link, Edit and More reactions, whose tray holds the other reactions and New boost. With a mouse, hovering the message opens the bar
- * too, laid over the message's top edge at the timeline's right, with Message options pinned as its last
- * button. On touch screens it opens beside Message options. Once opened, the bar stays in the page while
- * it's shut, as ember-rust's does, so Copy link keeps its color.
+ * The message actions: Message options, which opens a bar of three quick reactions, Reply, or a file
+ * message's Download, Copy link, Edit and More reactions, whose tray holds the other reactions and New
+ * boost. With a mouse, hovering the message opens the bar too, laid over the message's top edge at the
+ * timeline's right, with Message options pinned as its last button. On touch screens it opens beside
+ * Message options. Once opened, the bar stays in the page while it's shut, so Copy link keeps its color.
  *
  * With a mouse, Message options then opens More actions under the bar, as Slack's does: Copy text, Copy
- * link, and on messages you can change, Edit message and Delete message. ember-rust has no such menu, and
- * clicking its Message options there only keeps the bar open, which shows nothing.
+ * link, and on messages you can change, Edit message and Delete message.
  */
 export function MessageActionsMenu({ message, nodes, row, editable, onReact, onReply, onEdit, onDelete, onNewBoost, ref }: Props) {
   const [open, setOpen] = useState(false);
@@ -121,7 +118,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     setActionsOpen(false);
   };
 
-  // As ember-rust's bar closes once a reaction is sent (messages/_reaction.html), handing focus to Message options.
+  // The bar closes once a reaction is sent, handing focus to Message options.
   const closeAfterReacting = () => {
     close();
     trigger.current?.focus({ preventScroll: true });
@@ -173,8 +170,8 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     setTrayOpen((shown) => !shown);
   };
 
-  // Opening More actions keeps the bar open, as clicking Message options alone does in ember-rust, and makes it
-  // Message options' bar, so Escape shuts More actions first even where Add a boost opened the bar.
+  // Opening More actions keeps the bar open and makes it Message options' bar, so Escape shuts More
+  // actions first even where Add a boost opened the bar.
   const toggleActions = () => {
     clearTimeout(leaveTimer.current);
     hoverOpened.current = false;
@@ -253,8 +250,8 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     if (!container.current?.contains(target) && !boostTrigger.current?.contains(target)) close();
   });
 
-  // Focus leaving the bar closes it. ember-rust's closes as focus lands anywhere else, but here that would
-  // shut a bar the pointer opened as the composer, ready a moment after the messages show, takes focus.
+  // Focus leaving the bar closes it, rather than focus landing anywhere else, which would shut a bar the
+  // pointer opened as the composer, ready a moment after the messages show, takes focus.
   const focusLeft = useEffectEvent((event: FocusEvent) => {
     if (event.relatedTarget && !container.current?.contains(event.relatedTarget as Node)) close();
   });
@@ -262,7 +259,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
   // Escape closes a bar Add a boost opened, handing focus back to it. Otherwise it closes the tray first,
   // handing focus to More reactions, or More actions, handing it to Message options, then the bar, handing
   // it to Message options. While you're elsewhere, as in the composer under a bar the pointer opened, it
-  // only closes the bar, where ember-rust's takes your focus to Message options.
+  // only closes the bar.
   const keyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.key !== "Escape" || event.defaultPrevented) return;
     const from = boostTrigger.current;
@@ -342,9 +339,9 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
           // moment with a mouse, and half shown for fingers.
           "opacity-0 touch:opacity-50 group-hover/message:opacity-100! group-focus-within/message:opacity-100! aria-expanded:opacity-100!",
           "[@media(hover:hover)_and_(pointer:fine)]:transition-opacity [@media(hover:hover)_and_(pointer:fine)]:delay-150 [@media(hover:hover)_and_(pointer:fine)]:duration-150 [@media(hover:hover)_and_(pointer:fine)]:ease-in-out",
-          // `.message__options-btn` (zz-ember.css): at the top right of the message's text, 6px further out
-          // for fingers. With a mouse, the open bar keeps room for it as its last button, which stays shaded
-          // while More actions is open, as More reactions does while its tray is.
+          // Message options: at the top right of the message's text, 6px further out for fingers. With a
+          // mouse, the open bar keeps room for it as its last button, which stays shaded while More actions
+          // is open, as More reactions does while its tray is.
           pinned
             ? "fixed top-(--trigger-top) left-(--trigger-left) z-31"
             : "absolute -top-1.5 right-5 max-md:right-3 touch:-top-[11px] touch:translate-x-1.5",
@@ -378,7 +375,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
             <button type="button" title="Copy link" aria-label="Copy link" className={ACTION} onClick={(event) => void copyLink(event, message)}>
               <Copy />
             </button>
-            {/* As ember-rust's `.message__edit-btn` shows (Campfire's messages.css). */}
+            {/* As Campfire's `.message__edit-btn` shows (messages.css). */}
             {editable && (
               <button type="button" title="Edit" aria-label="Edit" className={ACTION} onClick={edit}>
                 <Edit />
@@ -456,7 +453,7 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
   );
 }
 
-/** One of the reactions (messages/_reaction.html): the emoji, named by its title. */
+/** One of the reactions: the emoji, named by its title. */
 function Reaction({ emoji, title, onClick }: { emoji: string; title: string; onClick: () => void }) {
   return (
     <button type="button" title={title} className={ACTION} onClick={onClick}>
@@ -469,7 +466,7 @@ function Reaction({ emoji, title, onClick }: { emoji: string; title: string; onC
 }
 
 /**
- * A file message's Download and Share, in Reply's place, as ember-rust's bar has them (messages/_actions.html).
+ * A file message's Download and Share, in Reply's place.
  * Download is hidden in Ember added to an iPhone's or iPad's home screen, as the file's card hides it, and
  * Share shows where the browser can share, sharing the file titled with its name.
  */
@@ -508,9 +505,8 @@ function ReplyButton({ message, nodes, onClick }: { message: Message; nodes: Dis
 }
 
 /**
- * Copies `text`, then turns the button clicked green and plays its success animation from the start, as
- * ember-rust's copy_to_clipboard_controller.js does. It stays green until it's clicked again, and a
- * clipboard that refuses leaves it as it was.
+ * Copies `text`, then turns the button clicked green and plays its success animation from the start. It
+ * stays green until it's clicked again, and a clipboard that refuses leaves it as it was.
  */
 async function copy({ currentTarget: button }: MouseEvent<HTMLButtonElement>, text: string) {
   button.classList.remove(...COPIED);
@@ -524,7 +520,7 @@ async function copy({ currentTarget: button }: MouseEvent<HTMLButtonElement>, te
   }
 }
 
-/** Copies the message's address, as Copy link does. Pages carry only the path, made absolute against the page, as ember-rust's do. */
+/** Copies the message's address, as Copy link does. Pages carry only the path, made absolute against the page. */
 function copyLink(event: MouseEvent<HTMLButtonElement>, message: Message) {
   return copy(event, new URL(messagePath(message.roomId, message.id), document.baseURI).href);
 }
@@ -543,13 +539,13 @@ interface Placed {
 }
 
 /**
- * Places an open bar as ember-rust's message_actions_controller.js#position does, within the timeline
- * less 8px on each side, and within what's on screen. With a mouse, it overlaps the row, its top 17px
- * above the row's and its right 16px in from the timeline's, with Message options pinned as its last
- * button, and the tray or More actions opens below it, or above when there's more room there. For
- * fingers, it opens 6px below its anchor, lined up with its right edge, or above when it doesn't fit, or
- * beside it when it fits neither, so it doesn't cover what opened it, as ember-rust's covers Add a boost.
- * Answers false, placing nothing, once the row is out of the timeline's sight, when the bar should close.
+ * Places an open bar within the timeline less 8px on each side, and within what's on screen. With a
+ * mouse, it overlaps the row, its top 17px above the row's and its right 16px in from the timeline's,
+ * with Message options pinned as its last button, and the tray or More actions opens below it, or above
+ * when there's more room there. For fingers, it opens 6px below its anchor, lined up with its right
+ * edge, or above when it doesn't fit, or beside it when it fits neither, so it doesn't cover what opened
+ * it. Answers false, placing nothing, once the row is out of the timeline's sight, when the bar should
+ * close.
  */
 function placeMenu({ row, container, trigger, anchor, menu, bar, panel, overlapping }: Placed): boolean {
   const viewport = window.visualViewport;
@@ -599,7 +595,7 @@ function placeMenu({ row, container, trigger, anchor, menu, bar, panel, overlapp
     else if (above >= bounds.top) y = above;
     else {
       // With room neither below nor above, as on a phone held sideways with the tray open, it opens to the
-      // left of its anchor, where ember-rust's covers Message options, or to its right where only that has room.
+      // left of its anchor, clear of Message options, or to its right where only that has room.
       y = Math.max(bounds.top, Math.min(anchorBox.top, bounds.bottom - menuBox.height));
       const roomLeft = anchorBox.left - 6 - bounds.left >= menuBox.width;
       const roomRight = bounds.right - anchorBox.right - 6 >= menuBox.width;

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import {
   canBeCustomDomain,
@@ -110,7 +109,7 @@ const parse = (frame: object) => parseClientFrame(JSON.stringify(frame));
 /** What a room socket's address with `params` says, as the worker's URLSearchParams reads it. */
 const read = (params: Record<string, string>) => parseRoomSocketParams({ get: (name) => params[name] ?? null });
 
-describe(feature("messages.create"), () => {
+describe("Send a message", () => {
   it("accepts a well-formed message, leaving its markup for the room to read", () => {
     for (const body of ["<p>hi</p>", "  <p>hi</p>\n", "", " "]) {
       expect(parse({ type: "message.create", clientMessageId: "c1", body }), body).toEqual({ type: "message.create", clientMessageId: "c1", body });
@@ -148,14 +147,14 @@ describe(feature("messages.create"), () => {
   });
 });
 
-describe(feature("boosts.custom"), () => {
+describe("Custom reactions", () => {
   it("limits reactions to the stored column width", () => {
     expect(parse({ type: "boost.create", messageId: "m1", content: "x".repeat(MAX_BOOST_LENGTH) })).not.toBeNull();
     expect(parse({ type: "boost.create", messageId: "m1", content: "x".repeat(MAX_BOOST_LENGTH + 1) })).toBeNull();
   });
 });
 
-describe(feature("messages.history"), () => {
+describe("Scroll back through history", () => {
   it("clamps history page sizes", () => {
     expect(parse({ type: "history.before", before: "m1", limit: 5000 })).toEqual({ type: "history.before", before: "m1", limit: 100 });
     expect(parse({ type: "history.before", before: "m1", limit: 0 })).toEqual({ type: "history.before", before: "m1", limit: 1 });
@@ -172,7 +171,7 @@ describe(feature("messages.history"), () => {
   });
 });
 
-describe(feature("messages.permalink"), () => {
+describe("Link to a message", () => {
   it("asks for the page around a message, or the newest page when it names none", () => {
     expect(parse({ type: "history.around", messageId: "m1" })).toEqual({ type: "history.around", messageId: "m1" });
     expect(parse({ type: "history.around" })).toEqual({ type: "history.around", messageId: undefined });
@@ -188,7 +187,7 @@ describe(feature("messages.permalink"), () => {
   });
 });
 
-describe(feature("realtime.reconnect"), () => {
+describe("Catch up after a reconnect", () => {
   it("checks a bounded list of client message ids", () => {
     const check = (clientMessageIds: unknown) => parse({ type: "message.check", clientMessageIds });
     expect(check(["c1", "c2"])).toEqual({ type: "message.check", clientMessageIds: ["c1", "c2"] });
@@ -210,7 +209,7 @@ describe(feature("realtime.reconnect"), () => {
   });
 });
 
-describe(feature("realtime.presence"), () => {
+describe("Presence", () => {
   it("takes whether a tab is shown, as a boolean", () => {
     expect(parse({ type: "presence.visible", visible: false })).toEqual({ type: "presence.visible", visible: false });
     expect(parse({ type: "presence.visible", visible: true, extra: 1 })).toEqual({ type: "presence.visible", visible: true });
@@ -229,7 +228,7 @@ describe(feature("realtime.presence"), () => {
   });
 });
 
-describe(feature("platform.live-socket"), () => {
+describe("One live connection per tab outside the open room", () => {
   it("takes only pings on the workspace socket", () => {
     expect(parseWorkspaceClientFrame('{"type":"ping"}')).toEqual({ type: "ping" });
     expect(parseWorkspaceClientFrame('{"type":"ping","nonce":"n1"}')).toEqual({ type: "ping" });
@@ -249,7 +248,7 @@ describe(feature("platform.live-socket"), () => {
   });
 });
 
-describe(feature("rooms.show"), () => {
+describe("Open a room", () => {
   it("takes sortable ids and legacy rooms' addresses as room ids, and nothing else", () => {
     expect(isRoomId("mgp3x2c4a1b2c3d4")).toBe(true);
     expect(isRoomId("general")).toBe(true);
@@ -262,16 +261,15 @@ describe(feature("rooms.show"), () => {
   });
 });
 
-describe(feature("rooms.icons"), () => {
+describe("Room icons", () => {
   it("takes the name of every icon in the catalog, Lucide's and Iconoir's", () => {
     expect(ROOM_ICON_NAMES).toHaveLength(3540);
     expect(ROOM_ICON_NAMES).toEqual(expect.arrayContaining(["coffee", "rocket", "star", "hash", "iconoir:regular:coffee-cup", "iconoir:solid:heart"]));
     expect(ROOM_ICON_NAMES.filter((name) => !isRoomIcon(name))).toEqual([]);
   });
 
-  it("refuses anything that isn't exactly one, as ember-rust does", () => {
+  it("refuses anything that isn't exactly one", () => {
     const values = ["not-a-lucide-icon", "../coffee", "<svg></svg>", " coffee ", "Coffee", "home", "constructor", "", null, true, [], ["coffee"], 7, {}];
-    // As ember-rust's picker_icons.rs refuses them.
     const iconoir = ["lucide:house", "iconoir:heart", "iconoir:solid:../heart", "iconoir:regular:not-an-icon", "iconoir:Regular:coffee-cup"];
     expect([...values, ...iconoir].filter(isRoomIcon)).toEqual([]);
   });
@@ -285,14 +283,14 @@ describe(feature("rooms.icons"), () => {
     expect(parseRoomChanges({ name: "Design" })).toHaveProperty("icon", undefined);
   });
 
-  it.each(["not-a-lucide-icon", "../coffee", "<svg></svg>", " coffee ", "Coffee", null, true, []])("refuses the icon %j, as ember-rust answers 422", (icon) => {
+  it.each(["not-a-lucide-icon", "../coffee", "<svg></svg>", " coffee ", "Coffee", null, true, []])("refuses the icon %j", (icon) => {
     const refused = 'Icon must be one of the room icons, or "" for the default';
     expect(parseNewRoom({ kind: "open", name: "Design", icon })).toBe(refused);
     expect(parseRoomChanges({ name: "Design", icon })).toBe(refused);
   });
 });
 
-describe(feature("rooms.create-open"), () => {
+describe("Create an open room", () => {
   it("takes a kind and a trimmed name", () => {
     expect(parseNewRoom({ kind: "open", name: "  Design  " })).toEqual({ kind: "open", name: "Design" });
     expect(parseNewRoom({ kind: "open", name: "x".repeat(MAX_ROOM_NAME_LENGTH) })).toEqual({ kind: "open", name: "x".repeat(MAX_ROOM_NAME_LENGTH) });
@@ -312,7 +310,7 @@ describe(feature("rooms.create-open"), () => {
   });
 });
 
-describe(feature("rooms.create-closed"), () => {
+describe("Create a private room", () => {
   it("takes a closed room's members, or nobody", () => {
     expect(parseNewRoom({ kind: "closed", name: "Leads", memberIds: ["u1", "u2"] })).toEqual({ kind: "closed", name: "Leads", memberIds: ["u1", "u2"] });
     expect(parseNewRoom({ kind: "closed", name: "Leads" })).toEqual({ kind: "closed", name: "Leads", memberIds: [] });
@@ -327,7 +325,7 @@ describe(feature("rooms.create-closed"), () => {
   });
 });
 
-describe(feature("rooms.settings-page"), () => {
+describe("Room settings page", () => {
   it("takes a trimmed name, or nothing to change", () => {
     expect(parseRoomChanges({ name: "  Design  " })).toEqual({ name: "Design" });
     expect(parseRoomChanges({})).toEqual({});
@@ -345,14 +343,14 @@ describe(feature("rooms.settings-page"), () => {
   });
 });
 
-describe(feature("rooms.convert-access"), () => {
+describe("Switch a room between open and private", () => {
   it("takes making a room open, with or without a new name, and ignores members it doesn't need", () => {
     expect(parseRoomChanges({ kind: "open" })).toEqual({ kind: "open" });
     expect(parseRoomChanges({ name: " Design ", kind: "open", memberIds: ["u1"] })).toEqual({ name: "Design", kind: "open" });
   });
 });
 
-describe(feature("rooms.members"), () => {
+describe("Add and remove private room members", () => {
   it("takes a private room's members, even nobody", () => {
     expect(parseRoomChanges({ name: "Leads", kind: "closed", memberIds: ["u1", "u2"] })).toEqual({ name: "Leads", kind: "closed", memberIds: ["u1", "u2"] });
     expect(parseRoomChanges({ kind: "closed", memberIds: [] })).toEqual({ kind: "closed", memberIds: [] });
@@ -366,7 +364,7 @@ describe(feature("rooms.members"), () => {
   });
 });
 
-describe(feature("dms.create"), () => {
+describe("Start or reopen a direct message", () => {
   it("takes the people to start a DM with, or nobody, for a DM with yourself", () => {
     expect(parseNewDirect({ userIds: ["u1", "u2"] })).toEqual({ userIds: ["u1", "u2"] });
     expect(parseNewDirect({ userIds: [] })).toEqual({ userIds: [] });
@@ -383,8 +381,8 @@ describe(feature("dms.create"), () => {
   });
 });
 
-describe(feature("dms.suggestions"), () => {
-  it("suggests 20 people less those in your DMs, you included, and one more, as ember-rust counts them", () => {
+describe("Suggested people", () => {
+  it("suggests 20 people less those in your DMs, you included, and one more", () => {
     expect(suggestedCount(0)).toBe(19);
     expect(suggestedCount(1)).toBe(18);
     expect(suggestedCount(2)).toBe(17);
@@ -393,7 +391,7 @@ describe(feature("dms.suggestions"), () => {
   });
 });
 
-describe(feature("accounts.name"), () => {
+describe("Rename the workspace", () => {
   it("takes the workspace's name as typed, even blank, or nothing to change", () => {
     expect(parseAccountChanges({ name: "  Ember Studio " })).toEqual({ name: "  Ember Studio " });
     expect(parseAccountChanges({ name: "" })).toEqual({ name: "" });
@@ -412,7 +410,7 @@ describe(feature("accounts.name"), () => {
   });
 });
 
-describe(feature("accounts.tagline"), () => {
+describe("Workspace tagline", () => {
   it("takes a tagline on one line, with no space at either end, or blank for none, with the name or alone", () => {
     expect(parseAccountChanges({ tagline: "Engines for every occasion" })).toEqual({ tagline: "Engines for every occasion" });
     expect(parseAccountChanges({ name: "Ember", tagline: " Engines\tfor\r\nevery\u00a0 occasion  " })).toEqual({ name: "Ember", tagline: "Engines for every occasion" });
@@ -439,7 +437,7 @@ describe(feature("accounts.tagline"), () => {
   });
 });
 
-describe(feature("accounts.translation-buttons"), () => {
+describe("Translation buttons", () => {
   it("takes Hide translation buttons as true or false, with the name or alone", () => {
     expect(parseAccountChanges({ settings: { hideTranslationButtons: false } })).toEqual({ settings: { hideTranslationButtons: false } });
     expect(parseAccountChanges({ name: "Ember Studio", settings: { hideTranslationButtons: true } })).toEqual({
@@ -460,7 +458,7 @@ describe(feature("accounts.translation-buttons"), () => {
   });
 });
 
-describe(feature("accounts.navigation-icons"), () => {
+describe("Navigation icons", () => {
   it("takes an icon for any of the rail's buttons and appearance modes, or \"\" for its own", () => {
     expect(parseAccountChanges({ navigationIcons: { home: "coffee", dark: "iconoir:solid:heart", search: "" } })).toEqual({
       navigationIcons: { home: "coffee", dark: "iconoir:solid:heart", search: "" },
@@ -469,7 +467,7 @@ describe(feature("accounts.navigation-icons"), () => {
     expect(parseAccountChanges({ name: "Ember" })).toEqual({ name: "Ember" });
   });
 
-  it("takes a slot's own icon as its default, as ember-rust saves it", () => {
+  it("takes a slot's own icon as its default", () => {
     expect(NAVIGATION_SLOTS.every((slot) => isRoomIcon(DEFAULT_NAVIGATION_ICONS[slot]))).toBe(true);
     expect(parseAccountChanges({ navigationIcons: { home: "iconoir:regular:home", dms: "iconoir:regular:home" } })).toEqual({
       navigationIcons: { home: "", dms: "iconoir:regular:home" },
@@ -499,7 +497,7 @@ describe(feature("accounts.navigation-icons"), () => {
   });
 });
 
-describe(feature("accounts.custom-domain"), () => {
+describe("Custom domain", () => {
   it("takes a custom domain as a host, with its port where it has one, or null for none", () => {
     expect(parseAccountChanges({ customDomain: "chat.example.com" })).toEqual({ customDomain: "chat.example.com" });
     expect(parseAccountChanges({ customDomain: "chat.example.com:8443" })).toEqual({ customDomain: "chat.example.com:8443" });
@@ -555,7 +553,7 @@ describe(feature("accounts.custom-domain"), () => {
   });
 });
 
-describe(feature("platform.email"), () => {
+describe("Sending email", () => {
   it("reads a From address as an address, or a name, in quotes or not, and an address in angle brackets", () => {
     expect(mailboxOf("ember@example.com")).toEqual({ name: null, address: "ember@example.com" });
     expect(mailboxOf("  Ember <ember@example.com> ")).toEqual({ name: "Ember", address: "ember@example.com" });
@@ -629,7 +627,7 @@ describe(feature("platform.email"), () => {
   });
 });
 
-describe(feature("rooms.creation-permission"), () => {
+describe("Only administrators create rooms (setting)", () => {
   it("takes Must be admin to create new rooms as true or false, beside the other settings", () => {
     expect(parseAccountChanges({ settings: { restrictRoomCreation: true } })).toEqual({ settings: { restrictRoomCreation: true } });
     expect(parseAccountChanges({ settings: { restrictRoomCreation: false, hideTranslationButtons: true } })).toEqual({
@@ -639,7 +637,7 @@ describe(feature("rooms.creation-permission"), () => {
   });
 });
 
-describe(feature("accounts.ways-to-join"), () => {
+describe("Ways to join", () => {
   it("takes the join link's switch and Open as true or false, beside the other settings", () => {
     expect(parseAccountChanges({ settings: { joinLink: false, openSignUp: true } })).toEqual({ settings: { joinLink: false, openSignUp: true } });
     expect(parseAccountChanges({ settings: { joinLink: "off" } })).toBe("Join link must be true or false");
@@ -666,7 +664,7 @@ describe(feature("accounts.ways-to-join"), () => {
   });
 });
 
-describe(feature("auth.open-sign-up"), () => {
+describe("Sign up without a link", () => {
   it("takes a sign-up as the join form sends it, with Turnstile's token if there is one", () => {
     const signUp = { name: " Ada ", emailAddress: "ada@example.com", password: "secret words" };
     expect(parseOpenSignUp(signUp)).toEqual({ name: "Ada", emailAddress: "ada@example.com", password: "secret words" });
@@ -692,7 +690,7 @@ describe(feature("auth.open-sign-up"), () => {
   });
 });
 
-describe(feature("accounts.invitations"), () => {
+describe("Invite people by email", () => {
   it("takes 1 to 20 email addresses to invite, each once whatever its case, as first given", () => {
     expect(parseInvitationRequest({ emailAddresses: ["ann@example.com", "Bob@Example.com", "ANN@example.com", "bob@example.com"] })).toEqual(["ann@example.com", "Bob@Example.com"]);
     const most = Array.from({ length: INVITATIONS_AT_ONCE }, (_, n) => `person${n}@example.com`);
@@ -740,7 +738,7 @@ describe(feature("accounts.invitations"), () => {
   });
 });
 
-describe(feature("auth.invitation-sign-up"), () => {
+describe("Join with an invitation", () => {
   it("puts an invitation's secret in its link's fragment", () => {
     expect(invitationLink("Ab-_9z")).toBe(`${INVITATION_PATH}#token=Ab-_9z`);
     expect(INVITATION_PATH).toBe("/join/invitation");
@@ -761,7 +759,7 @@ describe(feature("auth.invitation-sign-up"), () => {
   });
 });
 
-describe(feature("auth.email-domain-sign-up"), () => {
+describe("Join with an email domain", () => {
   it("puts the secret of a link someone asked for in its fragment, at its page", () => {
     expect(emailSignUpLink("Ab-_9z")).toBe(`${EMAIL_SIGN_UP_PATH}#token=Ab-_9z`);
     expect(EMAIL_SIGN_UP_PATH).toBe("/join/email");
@@ -858,7 +856,7 @@ describe(feature("auth.email-domain-sign-up"), () => {
   });
 });
 
-describe(feature("auth.memberful-sign-in"), () => {
+describe("Sign in with Memberful", () => {
   it("takes Memberful and its Members only as true or false, beside the other settings", () => {
     expect(parseAccountChanges({ settings: { memberfulJoin: true } })).toEqual({ settings: { memberfulJoin: true } });
     expect(parseAccountChanges({ settings: { memberfulSignIn: true } })).toEqual({ settings: { memberfulSignIn: true } });
@@ -881,7 +879,7 @@ describe(feature("auth.memberful-sign-in"), () => {
   });
 });
 
-describe(feature("sidebar.shared-order"), () => {
+describe("Shared room order", () => {
   it("takes a list of distinct rooms, or none, which clears the order", () => {
     expect(parseSharedOrder({ roomIds: ["0000000000000002", "general"] })).toEqual(["0000000000000002", "general"]);
     expect(parseSharedOrder({ roomIds: [] })).toEqual([]);
@@ -895,12 +893,12 @@ describe(feature("sidebar.shared-order"), () => {
     ["more rooms than an order can rank", { roomIds: Array.from({ length: MAX_SHARED_ORDER + 1 }, (_, i) => `room-${i}`) }, "too many rooms"],
     ["a room twice", { roomIds: ["general", "general"] }, "room IDs must be unique and valid"],
     ["an id that isn't a room's", { roomIds: ["general", 7] }, "room IDs must be unique and valid"],
-  ])("refuses %s as ember-rust's `parse_order` does, and says why", (_, body, error) => {
+  ])("refuses %s, and says why", (_, body, error) => {
     expect(parseSharedOrder(body)).toBe(error);
   });
 });
 
-describe(feature("accounts.custom-css"), () => {
+describe("Custom CSS", () => {
   it("takes custom CSS as typed, even blank, or nothing to change", () => {
     expect(parseCustomStyles({ customStyles: "  body { color: red }\n" })).toEqual({ customStyles: "  body { color: red }\n" });
     expect(parseCustomStyles({ customStyles: "" })).toEqual({ customStyles: "" });
@@ -919,7 +917,7 @@ describe(feature("accounts.custom-css"), () => {
   });
 });
 
-describe(feature("accounts.roles"), () => {
+describe("Make or revoke administrators", () => {
   it("makes someone an administrator only for exactly \"administrator\", and a member for anything else", () => {
     expect(parseRoleChange({ role: "administrator" })).toEqual({ role: "administrator" });
     for (const role of ["member", "", "Administrator", " administrator", "bot", null, 1, ["administrator"]]) {
@@ -937,7 +935,7 @@ describe(feature("accounts.roles"), () => {
   });
 });
 
-describe(feature("notifications.levels"), () => {
+describe("Notification levels", () => {
   it("takes exactly one of the four levels", () => {
     expect(INVOLVEMENTS).toEqual(["mentions", "everything", "nothing", "invisible"]);
     for (const involvement of INVOLVEMENTS) {
@@ -967,7 +965,7 @@ describe(feature("notifications.levels"), () => {
   });
 });
 
-describe(feature("users.profile"), () => {
+describe("Edit your profile", () => {
   it("takes each field as typed, even blank, leaving out what isn't sent", () => {
     const typed = { name: " ", emailAddress: "", password: " ".repeat(MIN_PASSWORD_LENGTH), bio: "Countess of Lovelace\n", currentPassword: " ", pushSubscriptionEndpoint: "" };
     expect(parseProfileChanges(typed)).toEqual(typed);
@@ -1007,7 +1005,7 @@ describe(feature("users.profile"), () => {
   });
 });
 
-describe(feature("accounts.reset-password"), () => {
+describe("Reset a password from the server", () => {
   it("takes an email address and a password as they're given", () => {
     expect(parsePasswordReset({ emailAddress: " Ada@example.com", password: "  correct horse  " })).toEqual({
       emailAddress: " Ada@example.com",
@@ -1028,7 +1026,7 @@ describe(feature("accounts.reset-password"), () => {
   });
 });
 
-describe(feature("auth.password-reset"), () => {
+describe("Reset a forgotten password with an emailed code", () => {
   it("takes an ask for a code with the address as given, and Turnstile's token if it has one", () => {
     expect(parsePasswordResetRequest({ emailAddress: " Ada@example.com" })).toEqual({ emailAddress: " Ada@example.com" });
     expect(parsePasswordResetRequest({ emailAddress: "ada", turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" })).toEqual({ emailAddress: "ada", turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" });
@@ -1073,7 +1071,7 @@ describe(feature("auth.password-reset"), () => {
   });
 });
 
-describe(feature("auth.turnstile"), () => {
+describe("Check that people are people with Cloudflare Turnstile", () => {
   const keys = { siteKey: "0x4AAAAAAA-a-widgets-site-key", secretKey: "0x4AAAAAAA-a-widgets-secret-key", turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" };
 
   it("takes a widget's keys as Cloudflare writes them, and its test keys, without the spaces pasted around them", () => {
@@ -1119,7 +1117,7 @@ describe(feature("auth.turnstile"), () => {
   });
 });
 
-describe(feature("auth.first-run"), () => {
+describe("Set up the workspace", () => {
   it("takes a name, an email address and a password, trimming only the name", () => {
     expect(parseSignUp({ name: "  Ada Lovelace ", emailAddress: "ada@example.com", password: " secret  words " })).toEqual({
       name: "Ada Lovelace",

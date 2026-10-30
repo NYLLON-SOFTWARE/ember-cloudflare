@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_ROOM_NAME_LENGTH, TRANSLATIONS, type User } from "@ember/protocol";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -34,7 +33,7 @@ function renderForm(props: Partial<ComponentProps<typeof RoomForm<User>>> = {}, 
 /** The names listed, in order, not counting the avatars' initials. */
 const names = () => screen.queryAllByRole("listitem").map((row) => row.querySelector("strong")!.textContent);
 
-describe(feature("rooms.create-open"), () => {
+describe("Create an open room", () => {
   it("asks for the room's name, focused, and saves with Enter", async () => {
     const onNameChange = vi.fn();
     const { onSave, user } = renderForm({ onNameChange });
@@ -80,7 +79,7 @@ describe(feature("rooms.create-open"), () => {
   });
 });
 
-describe(feature("rooms.create-closed"), () => {
+describe("Create a private room", () => {
   it("names the Everyone switch for opening the room when it's off", () => {
     renderForm({ everyone: { on: false, onFlip: vi.fn() } });
     expect(screen.getByRole("switch", { name: "Give everyone access to this room" })).not.toBeChecked();
@@ -94,7 +93,7 @@ describe(feature("rooms.create-closed"), () => {
   });
 });
 
-describe(feature("rooms.icon-picker"), () => {
+describe("Room icon picker", () => {
   it("shows the room's icon after its name, to choose another", () => {
     renderForm({ icon: "coffee" });
     const name = screen.getByRole("textbox", { name: "Room name" });
@@ -116,7 +115,7 @@ describe(feature("rooms.icon-picker"), () => {
   });
 });
 
-describe(feature("rooms.settings-page"), () => {
+describe("Room settings page", () => {
   it("shows people who can't change the room its name as a heading, with no Save", () => {
     renderForm({ canAdminister: false, mark: () => null });
     expect(screen.getByRole("heading", { level: 2, name: "Design" })).toBeInTheDocument();
@@ -149,7 +148,7 @@ describe(feature("rooms.settings-page"), () => {
   });
 });
 
-describe(feature("accounts.translation-buttons"), () => {
+describe("Translation buttons", () => {
   it("has a translation button by the room's name once an administrator shows them", () => {
     renderForm({}, ({ children }) => <AccountContext value={{ name: "Ember", tagline: "", hideTranslationButtons: false, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} }}>{children}</AccountContext>);
     expect(screen.getByText("Translate")).toBeInTheDocument();
@@ -157,7 +156,7 @@ describe(feature("accounts.translation-buttons"), () => {
   });
 });
 
-describe(feature("users.avatar-links"), () => {
+describe("Avatars open people's pages", () => {
   it("links each person's avatar to their page, titled with their name, loading as it's scrolled to", () => {
     renderForm();
     const links = screen.getAllByRole("link");

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { LinkPreview } from "@ember/protocol";
 import type { Locator } from "@playwright/test";
 import { expect, paste, test, type Member } from "./fixtures";
@@ -25,7 +24,7 @@ const box = async (locator: Locator) => {
   return rect;
 };
 
-test.describe(feature("unfurl.composer"), () => {
+test.describe("Link previews while writing", () => {
   test("adds a pasted link's preview below it, which goes with the message", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -61,7 +60,7 @@ test.describe(feature("unfurl.composer"), () => {
   });
 });
 
-test.describe(feature("composer.draft"), () => {
+test.describe("Keep drafts", () => {
   test("keeps a pasted link's preview in what's written", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await previewWith(ada, basecamp);
@@ -76,7 +75,7 @@ test.describe(feature("composer.draft"), () => {
   });
 });
 
-test.describe(feature("unfurl.render"), () => {
+test.describe("Link previews in messages", () => {
   test("shows a message that's only a link as its preview: the page's title, linked, its description and its image", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
     await previewWith(ada, basecamp);

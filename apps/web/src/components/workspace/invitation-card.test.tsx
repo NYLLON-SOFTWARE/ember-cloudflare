@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { TRANSLATIONS } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -24,7 +23,7 @@ afterEach(() => {
   for (const name of stubbed.splice(0)) delete (navigator as unknown as Record<string, unknown>)[name];
 });
 
-describe(feature("rooms.invitation-card"), () => {
+describe("Welcome and invite card", () => {
   it("welcomes people with the workspace's join link, labelled for screen readers", () => {
     render(<InvitationCard joinCode={JOIN_CODE} onDismiss={dismiss} />);
     expect(screen.getByRole("img", { name: "Ember" })).toBeInTheDocument();
@@ -42,7 +41,7 @@ describe(feature("rooms.invitation-card"), () => {
   });
 });
 
-describe(feature("rooms.invitation-dismissal"), () => {
+describe("Welcome card for administrators, until they dismiss it", () => {
   it("ends its heading with an × that dismisses it, 36px, or 44px for fingers", async () => {
     const onDismiss = vi.fn(async () => {});
     render(<InvitationCard joinCode={JOIN_CODE} onDismiss={onDismiss} />);
@@ -78,7 +77,7 @@ describe(feature("rooms.invitation-dismissal"), () => {
   });
 });
 
-describe(feature("accounts.join-link"), () => {
+describe("Join link", () => {
   it("copies the link, and plays its success each time", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     stubNavigator("clipboard", { writeText });
@@ -112,7 +111,7 @@ describe(feature("accounts.join-link"), () => {
     expect(screen.queryByRole("button", { name: "Share join link" })).not.toBeInTheDocument();
   });
 
-  it("shares ember-rust's invitation with the link", async () => {
+  it("shares the invitation with the link", async () => {
     const share = vi.fn().mockRejectedValue(new DOMException("Closed", "AbortError"));
     stubNavigator("canShare", () => true);
     stubNavigator("share", share);
@@ -122,7 +121,7 @@ describe(feature("accounts.join-link"), () => {
   });
 });
 
-describe(feature("accounts.qr-codes"), () => {
+describe("QR codes for links", () => {
   it("opens the join link's QR code in the image viewer", async () => {
     render(<InvitationCard joinCode={JOIN_CODE} onDismiss={dismiss} />);
     const link = screen.getByRole("link", { name: "Show join link QR code" });
@@ -135,7 +134,7 @@ describe(feature("accounts.qr-codes"), () => {
     expect(within(viewer).getByRole("link", { name: "Download file" })).toHaveAttribute("download", "QR code.svg");
   });
 
-  it("puts it before Copy and Share, as ember-rust does", () => {
+  it("puts it before Copy and Share", () => {
     render(<InvitationCard joinCode={JOIN_CODE} onDismiss={dismiss} />);
     const show = screen.getByRole("link", { name: "Show join link QR code" });
     expect(show.previousElementSibling).toBeNull();
@@ -143,7 +142,7 @@ describe(feature("accounts.qr-codes"), () => {
   });
 });
 
-describe(feature("accounts.translation-buttons"), () => {
+describe("Translation buttons", () => {
   it("has a translation button for its invitation once an administrator shows them", () => {
     render(
       <AccountContext value={{ name: "Ember", tagline: "", hideTranslationButtons: false, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} }}>
@@ -155,8 +154,8 @@ describe(feature("accounts.translation-buttons"), () => {
   });
 });
 
-describe(feature("accounts.logo"), () => {
-  it("shows the workspace's logo in place of Ember's flame, as ember-rust's welcome card does", () => {
+describe("Workspace logo", () => {
+  it("shows the workspace's logo in place of Ember's flame", () => {
     const logo = "/account/logo?v=20261017120000";
     render(
       <AccountContext value={{ name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} }}>

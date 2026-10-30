@@ -7,9 +7,7 @@ import { workspace } from "../workspace";
 import { sendTestPush } from "./delivery";
 import { endpointErrors } from "./endpoints";
 
-// Your browsers' push subscriptions, as ember-rust's `push_subscriptions` controller keeps them
-// (crates/ember/src/controllers/users/push_subscriptions.rs), and the test pushes its
-// `test_notifications` controller sends them (push_subscriptions/test_notifications.rs).
+// Your browsers' push subscriptions, and the test pushes its `test_notifications` controller sends them.
 
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
 
@@ -17,7 +15,7 @@ const NOT_SIGNED_IN = "Not signed in";
 
 /**
  * `GET /api/push-subscriptions`: yours, oldest first, each with the browser that saved it as its user
- * agent names it, as ember-rust's `index` lists them.
+ * agent names it.
  */
 export async function listPushSubscriptions(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -29,12 +27,11 @@ export async function listPushSubscriptions(request: Request, env: Env): Promise
 
 /**
  * `POST /api/push-subscriptions`, `{ endpoint, p256dhKey, authKey }`: saves a browser's subscription for
- * you, with its user agent, as ember-rust's `create` does, or, when you've saved one at that endpoint
- * before, records that it was saved again with the keys it has now, where ember-rust adds another for
- * keys that differ, answering 204 where ember-rust answers 200. You keep the `MAX_PUSH_SUBSCRIPTIONS`
- * you saved most recently, where ember-rust keeps any number, and one can replace the one its browser
- * had at the address it moved from to Ember's custom domain (`replacing`). An endpoint pushes may not
- * go to is refused (422) with ember-rust's errors, which it leaves out of its answer.
+ * you, with its user agent, or, when you've saved one at that endpoint before, records that it was saved
+ * again with the keys it has now, answering 204. You keep the `MAX_PUSH_SUBSCRIPTIONS` you saved most
+ * recently, and one can replace the one its browser had at the address it moved from to Ember's custom
+ * domain (`replacing`). An endpoint pushes may not go to is refused (422) with Campfire's errors, which
+ * it leaves out of its answer.
  */
 export async function savePushSubscription(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -52,8 +49,7 @@ const refusal = (errors: string[]) => (errors.length > 0 ? `Endpoint ${errors.jo
 
 /**
  * `DELETE /api/push-subscriptions/:id`: deletes your subscription `id`, and does nothing if it's someone
- * else's or there's no such subscription, as ember-rust's `destroy` does, answering 204 either way where
- * it redirects to the list.
+ * else's or there's no such subscription, answering 204 either way where Campfire redirects to the list.
  */
 export async function deletePushSubscription(request: Request, env: Env, id: string): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -65,10 +61,9 @@ export async function deletePushSubscription(request: Request, env: Env, id: str
 
 /**
  * `POST /api/push-subscriptions/:id/test-notifications`: pushes "Ember Test" to your subscription `id`
- * at once, with a random text, your unread count as its badge, and this page to open, as ember-rust's
- * `test_notifications#create` does, answering 204 where it redirects to the list. Someone else's
- * subscription is 404, and Web Push being off, or the push failing, is 500, without forgetting a
- * subscription whose push service says it's gone.
+ * at once, with a random text, your unread count as its badge, and this page to open, answering 204
+ * where Campfire redirects to the list. Someone else's subscription is 404, and Web Push being off, or
+ * the push failing, is 500, without forgetting a subscription whose push service says it's gone.
  */
 export async function sendTestNotification(request: Request, env: Env, id: string): Promise<Response> {
   const credentials = await credentialsOf(request, env);

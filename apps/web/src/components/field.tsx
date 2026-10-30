@@ -4,16 +4,15 @@ import { TranslationButton } from "@/components/translation-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-// ember-rust's form pieces (styled in zz-ember.css), which its sign-in and join cards and its settings
-// panels share.
+// Form pieces, which the sign-in and join cards and the settings panels share.
 
-/** Campfire's `.input` with ember-rust's `.mb-field > .input`: 16px text, so phones don't zoom in. */
+/** Campfire's `.input`, with 16px text, so phones don't zoom in. */
 export const FIELD_INPUT =
   "h-auto min-h-[42px] touch:min-h-11 rounded-[9px] border-border bg-background px-[11px] py-[9px] text-base md:text-base shadow-none focus:border-muted-foreground focus-visible:border-muted-foreground focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-solid focus-visible:outline-foreground";
 
 /**
- * ember-rust's `.mb-field`: a 13px label over its input, and beside the label, in `.mb-field-label`, the
- * translation button for what the field asks, if it has one.
+ * A field: a 13px label over its input, and beside the label the translation button for what the field
+ * asks, if it has one.
  */
 export function Field({ id, label, translation, children }: { id: string; label: string; translation?: TranslationKey; children: ReactNode }) {
   return (
@@ -27,10 +26,10 @@ export function Field({ id, label, translation, children }: { id: string; label:
   );
 }
 
-/** ember-rust's `.mb-primary-button`, as a `Button`'s classes: a full-width button in ink. */
+/** The primary button, as a `Button`'s classes: a full-width button in ink. */
 export const PRIMARY_BUTTON = "h-auto min-h-[42px] w-full rounded-[9px] border border-primary px-4 py-2.5 text-sm font-[550] touch:min-h-11";
 
-/** ember-rust's `.mb-primary-button`, which sends its form. */
+/** The primary button, which sends its form. */
 export function SubmitButton({ disabled, className, children }: { disabled: boolean; className?: string; children: ReactNode }) {
   return (
     <Button type="submit" disabled={disabled} className={cn(PRIMARY_BUTTON, className)}>

@@ -1,9 +1,8 @@
-import { feature } from "@ember/parity";
 import { MAX_BOOST_LENGTH, REACTIONS } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { connect, freshRoom, post, settle } from "./support";
 
-describe(feature("boosts.add"), () => {
+describe("React to a message", () => {
   it("adds a reaction to a message for everyone, attributed to whoever reacted", async () => {
     const room = await freshRoom("boost");
     const ada = await connect(room, "Ada");
@@ -53,7 +52,7 @@ describe(feature("boosts.add"), () => {
   });
 });
 
-describe(feature("boosts.custom"), () => {
+describe("Custom reactions", () => {
   it(`stores free-text reactions up to ${MAX_BOOST_LENGTH} characters, trimmed`, async () => {
     const ada = await connect(await freshRoom("custom"), "Ada");
     const message = await post(ada, "Custom");
@@ -69,7 +68,7 @@ describe(feature("boosts.custom"), () => {
   });
 });
 
-describe(feature("boosts.remove"), () => {
+describe("Take back a reaction", () => {
   it("lets people take back their own reactions, for everyone", async () => {
     const room = await freshRoom("unboost");
     const ada = await connect(room, "Ada");

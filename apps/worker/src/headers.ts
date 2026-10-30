@@ -6,12 +6,9 @@ import { isLoopback } from "./loopback";
 import { urlOf } from "./request-url";
 import { versionOf } from "./version";
 
-// What ember-rust adds around everything its app answers, for every answer the Worker makes: Rails'
-// default headers (crates/kit/src/app.rs `rails_default_headers`, which ctx.rs `finish` adds), the
-// version (crates/ember/src/concerns.rs `set_version_headers`), and HTTPS, which its TLS front
-// insists on (crates/kit/src/front/tls.rs) and its Rails middleware pins with HSTS
-// (crates/kit/src/adapter.rs `rails_middleware`). Static files come straight from the assets with
-// none of them, as ember-rust's public files come without the first two.
+// What Campfire adds around everything it answers, for every answer the Worker makes: Rails' default
+// headers, the version, and HTTPS, which its `force_ssl` insists on and pins with HSTS. Static files
+// come straight from the assets with none of them.
 
 /** `config.action_dispatch.default_headers`, as Rails 7.1 sets them. */
 const DEFAULT_HEADERS: [string, string][] = [
@@ -33,16 +30,15 @@ const HSTS = "max-age=63072000";
 export const isLoopbackHost = (request: Request) => isLoopback(urlOf(request));
 
 /**
- * Whether the request's host has to be reached over HTTPS, as ember-rust's `force_ssl` makes every
- * host unless DISABLE_SSL is set. A loopback host doesn't, wherever it's served: browsers already
- * treat plain HTTP there as secure, and HSTS on it would send every other server on the machine to
- * HTTPS for two years.
+ * Whether the request's host has to be reached over HTTPS. A loopback host doesn't, wherever it's
+ * served: browsers already treat plain HTTP there as secure, and HSTS on it would send every other
+ * server on the machine to HTTPS for two years.
  */
 export const requiresHttps = (request: Request, env: Env) => !env.DISABLE_SSL?.trim() && !isLoopbackHost(request);
 
 /**
- * Sends plain HTTP to the same address over HTTPS, without its port, as ember-rust's TLS front does
- * with Thruster's redirect: 301, with a link to follow when it's a GET.
+ * Sends plain HTTP to the same address over HTTPS, without its port: 301, with a link to follow when
+ * it's a GET.
  */
 export function redirectToHttps(request: Request): Response {
   const { hostname, pathname, search } = urlOf(request);
@@ -55,7 +51,7 @@ export function redirectToHttps(request: Request): Response {
 }
 
 interface Additions {
-  /** X-Version and X-Rev, which ember-rust's before-actions add to every answer but /up's. */
+  /** X-Version and X-Rev. */
   version: boolean;
   /**
    * The Content-Security-Policy (csp.ts), which a room's files go without: nothing served from
@@ -66,10 +62,9 @@ interface Additions {
 }
 
 /**
- * `response` with the headers ember-rust's answers carry: Rails' defaults, where it hasn't set its
- * own; the version, if asked; and HSTS, wherever HTTPS is required; and, beyond ember-rust's, the
- * policy, where it hasn't set its own. A socket's upgrade goes as it is, as ember-rust's live
- * connection carries none of them.
+ * `response` with the headers every answer carries: Rails' defaults, where it hasn't set its own; the
+ * version, if asked; HSTS, wherever HTTPS is required; and the policy, where it hasn't set its own. A
+ * socket's upgrade goes as it is.
  */
 export function withHeaders(response: Response, request: Request, env: Env, { version, policy = true }: Additions): Response {
   if (response.webSocket) return response;

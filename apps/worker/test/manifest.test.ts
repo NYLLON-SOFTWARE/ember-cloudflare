@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { beforeEach, describe, expect, it } from "vitest";
 import { api, apiWith, builtPages, cookieOf, freshDeploy } from "./support";
 
@@ -6,7 +5,7 @@ const manifest = async (path = "/webmanifest.json") => (await (await api(path)).
 
 beforeEach(freshDeploy);
 
-describe(feature("platform.manifest"), () => {
+describe("Web app manifest", () => {
   it("answers JSON without sign-in, naming the app Ember until the workspace is set up", async () => {
     const response = await api("/webmanifest.json");
     expect(response.status).toBe(200);
@@ -25,7 +24,7 @@ describe(feature("platform.manifest"), () => {
     expect(await manifest()).toMatchObject({ name: "Analytical Engines" });
   });
 
-  it("lists Ember's icons and screenshots and ember-rust's shortcuts, colors and categories, with this project's description", async () => {
+  it("lists Ember's icons and screenshots and Campfire's shortcuts, colors and categories, with this project's description", async () => {
     expect(await manifest()).toEqual({
       name: "Ember",
       icons: [

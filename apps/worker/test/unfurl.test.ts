@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { unfurl } from "../src/unfurl";
@@ -52,7 +51,7 @@ function streamedPage(request: Request, rest: (controller: ReadableStreamDefault
 
 const unfurlRequest = (url: unknown, cookie: string) => api("/api/unfurl", { method: "POST", headers: { Cookie: cookie }, body: JSON.stringify({ url }) });
 
-describe(feature("unfurl.endpoint"), () => {
+describe("Link preview lookup", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("answers a page's preview, read by a Durable Object over the Internet", async () => {
@@ -143,7 +142,7 @@ describe(feature("unfurl.endpoint"), () => {
   });
 });
 
-describe(feature("unfurl.guard"), () => {
+describe("Link preview safety limits", () => {
   it("asks for any type, as a bot, following redirects itself", async () => {
     const { network, requests } = internetOf((request) => (request.method === "HEAD" ? image() : html(PAGE)));
     expect(await unfurl("http://www.example.com/", network)).toEqual(PREVIEW);
@@ -170,7 +169,7 @@ describe(feature("unfurl.guard"), () => {
     expect(Date.now() - started).toBeLessThan(2_000);
   });
 
-  // ember-rust's stops_reading_a_gzip_bomb_at_the_limit: a Worker's fetch decompresses as it's read.
+  // A gzip bomb: a Worker's fetch decompresses as it's read.
   it("stops reading a page once it's past 5 MiB", async () => {
     let page: ReturnType<typeof streamedPage> | undefined;
     const chunk = new Uint8Array(64 * 1024).fill(0x20);
@@ -186,7 +185,7 @@ describe(feature("unfurl.guard"), () => {
     expect(page!.state.sent).toBeLessThan(MAX_BODY_SIZE + 2 * chunk.length);
   });
 
-  // ember-rust's gives_up_on_a_trickling_page: a byte every 50 ms never trips the 5-second wait for a read.
+  // A byte every 50 ms never trips the 5-second wait for a read.
   it("gives up on a page that trickles in, and stops reading it", async () => {
     let page: ReturnType<typeof streamedPage> | undefined;
     const { network } = internetOf((request) => {

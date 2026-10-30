@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   MAX_ACCOUNT_NAME_LENGTH,
   MAX_TAGLINE_LENGTH,
@@ -54,7 +53,7 @@ const storedSettings = async () => ((await workspaceSql("SELECT settings, update
 
 const storedJoinCode = async () => ((await workspaceSql("SELECT join_code FROM accounts")) as Array<{ join_code: string }>)[0]!.join_code;
 
-/** A join code as ember-rust makes them: 12 letters and digits, in fours. */
+/** A join code: 12 letters and digits, in fours. */
 const JOIN_CODE = /^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){2}$/;
 
 /** What the Workspace's store would answer, from inside the Workspace. */
@@ -62,7 +61,7 @@ const storeOf = (workspace: Workspace) => (workspace as unknown as { store: Work
 
 beforeEach(freshDeploy);
 
-describe(feature("accounts.settings-page"), () => {
+describe("Community settings page", () => {
   it("shows anyone signed in the workspace, its join code, and whether they can change it", async () => {
     const administrator = await setUp();
     const member = await signIn("Grace");
@@ -83,7 +82,7 @@ describe(feature("accounts.settings-page"), () => {
   });
 });
 
-describe(feature("ui.rail"), () => {
+describe("Rail", () => {
   it("tells the app whether whoever is signed in is an administrator, for the rail's Admin link", async () => {
     const administrator = await setUp();
     const member = await signIn("Grace");
@@ -94,7 +93,7 @@ describe(feature("ui.rail"), () => {
   });
 });
 
-describe(feature("accounts.name"), () => {
+describe("Rename the workspace", () => {
   it("renames the workspace for an administrator, wherever its name shows", async () => {
     const administrator = await setUp();
     const member = await signIn("Grace");
@@ -136,7 +135,7 @@ describe(feature("accounts.name"), () => {
     expect((await storedAccount()).updated_at > long).toBe(true);
   });
 
-  it("tells everyone's workspace sockets the new name, where ember-rust's pages show it as they next load", async () => {
+  it("tells everyone's workspace sockets the new name", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace");
     const sockets = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(grace)];
@@ -224,7 +223,7 @@ describe(feature("accounts.name"), () => {
   });
 });
 
-describe(feature("accounts.tagline"), () => {
+describe("Workspace tagline", () => {
   const TAGLINE = "Engines for every occasion";
   /** The new workspace, with `tagline`. */
   const tagged = (tagline: string): Account => ({ ...named("Ember"), tagline });
@@ -323,7 +322,7 @@ describe(feature("accounts.tagline"), () => {
   });
 });
 
-describe(feature("accounts.navigation-icons"), () => {
+describe("Navigation icons", () => {
   /** The new workspace, with `navigationIcons`. */
   const iconed = (navigationIcons: Account["navigationIcons"]): Account => ({ ...named("Ember"), navigationIcons });
   const storedIcons = async () => (JSON.parse((await storedSettings()).settings!) as { ember_navigation_icons?: unknown }).ember_navigation_icons;
@@ -444,7 +443,7 @@ describe(feature("accounts.navigation-icons"), () => {
   });
 });
 
-describe(feature("accounts.join-link"), () => {
+describe("Join link", () => {
   it("keeps settings, which hold the join code, out of every cache", async () => {
     const response = await settings(await setUp());
     expect((await response.json()) as WorkspaceSettings).toMatchObject({ joinCode: expect.stringMatching(JOIN_CODE) });
@@ -452,7 +451,7 @@ describe(feature("accounts.join-link"), () => {
   });
 });
 
-describe(feature("accounts.translation-buttons"), () => {
+describe("Translation buttons", () => {
   const shown = { ...named("Ember"), hideTranslationButtons: false };
 
   it("hides them until an administrator shows them, before first run too", async () => {
@@ -490,7 +489,7 @@ describe(feature("accounts.translation-buttons"), () => {
     ["an empty list", '{"hide_translation_buttons":[]}', false],
     ["settings that aren't an object", "[]", true],
     ["settings that don't parse", "not JSON", true],
-  ])("reads %s as ember-rust does", async (_, stored, hidden) => {
+  ])("reads %s", async (_, stored, hidden) => {
     await setUp();
     await workspaceSql("UPDATE accounts SET settings = ?", stored);
     // Started afresh, the Workspace has to read the account again.
@@ -528,7 +527,7 @@ describe(feature("accounts.translation-buttons"), () => {
     expect(JSON.parse((await storedSettings()).settings!)).toEqual({ hide_translation_buttons: false });
   });
 
-  it("tells everyone's workspace sockets once it changes, where ember-rust's pages change as they next load", async () => {
+  it("tells everyone's workspace sockets once it changes", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace");
     const sockets = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(grace)];
@@ -563,7 +562,7 @@ describe(feature("accounts.translation-buttons"), () => {
   });
 });
 
-describe(feature("accounts.regenerate-join-link"), () => {
+describe("Regenerate the join link", () => {
   it("gives the join link a new code for an administrator, wherever the link shows", async () => {
     const administrator = await setUp();
     const member = await signIn("Grace");
@@ -578,7 +577,7 @@ describe(feature("accounts.regenerate-join-link"), () => {
     expect(joinCode).toMatch(JOIN_CODE);
     expect(joinCode).not.toBe(old);
     expect(await storedJoinCode()).toBe(joinCode);
-    // As ember-rust's `reset_join_code` does, which changes the logo's address too.
+    // As Campfire's `reset_join_code` does, which changes the logo's address too.
     expect((await storedAccount()).updated_at > long).toBe(true);
 
     expect(((await (await settings(member)).json()) as WorkspaceSettings).joinCode).toBe(joinCode);

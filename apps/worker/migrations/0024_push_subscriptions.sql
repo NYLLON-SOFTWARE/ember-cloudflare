@@ -1,8 +1,8 @@
 -- Push subscriptions, kept by the Workspace (scope "workspace" in src/migrations.ts): each browser that
 -- turned notifications on for someone, with the keys its pushes are encrypted for and the browser's user
--- agent, as ember-rust's `push_subscriptions` keeps them (crates/db/src/schema.sql). Unlike there, the
--- endpoint and keys are required, and a person has each set once, so a browser saving its subscription
--- again is an upsert; the unique index also finds a person's subscriptions, as ember-rust's by person does.
+-- agent, as Campfire's `push_subscriptions` keeps them (db/schema.rb). Unlike there, the endpoint and
+-- keys are required, and a person has each set once, so a browser saving its subscription again is an
+-- upsert; the unique index also finds a person's subscriptions, as Campfire's by person does.
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id INTEGER PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users (id),

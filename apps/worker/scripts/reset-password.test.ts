@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -57,7 +56,7 @@ function run(args: string[], { stdin = "correct horse\n", token = TOKEN }: { std
   return new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => child.on("close", (status) => resolve({ status, stdout, stderr })));
 }
 
-describe(feature("accounts.reset-password"), () => {
+describe("Reset a password from the server", () => {
   it("reads stdin as ember reset-password does, keeping spaces and dropping one line ending", () => {
     expect(readPassword(bytes("  correct horse  \r\n"))).toBe("  correct horse  ");
     expect(readPassword(bytes("correct horse\n"))).toBe("correct horse");
@@ -80,7 +79,7 @@ describe(feature("accounts.reset-password"), () => {
     expect(() => readPassword(input)).toThrow(error);
   });
 
-  it("asks on a terminal without showing what's typed, as emberctl's getpass does", async () => {
+  it("asks on a terminal without showing what's typed", async () => {
     const { input, output, written, type } = terminal();
     const answered = askHidden("New password: ", input, output);
     type("correct hosre");
@@ -103,7 +102,7 @@ describe(feature("accounts.reset-password"), () => {
     expect(input.setRawMode).toHaveBeenLastCalledWith(false);
   });
 
-  it("asks twice on a terminal, refusing what emberctl refuses and what sign-in can't take", async () => {
+  it("asks twice on a terminal, refusing a password too short or long for sign-in, or typed differently", async () => {
     /** What comes of typing `lines` on a terminal, one at each prompt. */
     const asked = async (...lines: string[]) => {
       const { input, output, type } = terminal();

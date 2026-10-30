@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { DirectoryUser, DirectRoom } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -89,7 +88,7 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("bots.membership"), () => {
+describe("Where bots show up", () => {
   it("finds active bots with everyone else, but not deleted ones", async () => {
     const bots = [{ ...person("b1", "Build Bot"), role: "bot" as const }, { ...person("b2", "Old Bot", "deactivated"), role: "bot" as const }];
     const { user } = showDialog({ people: [...everyone, ...bots] });
@@ -99,14 +98,14 @@ describe(feature("bots.membership"), () => {
   });
 });
 
-describe(feature("dms.picker"), () => {
-  it("opens titled as ember-rust's, focused on the search, listing everyone else active by name", async () => {
+describe("New direct message dialog", () => {
+  it("opens titled New direct message, focused on the search, listing everyone else active by name", async () => {
     showDialog();
     const dialog = screen.getByRole("dialog", { name: "New direct message" });
     expect(dialog).toHaveAccessibleDescription("Find people by full name. You can also type @name.");
     expect(search()).toHaveFocus();
     expect(search()).toHaveAttribute("placeholder", "Search by name or @name");
-    // Entering it keeps the usual cursor, as ember-rust marks it.
+    // Entering it keeps the usual cursor.
     expect(search()).toHaveAttribute("data-ember-preserve-selection");
     expect(search()).toHaveAttribute("aria-controls", screen.getByRole("listbox", { name: "People" }).id);
     // Ada, deactivated Edsger and the case of a name don't count.
@@ -236,7 +235,7 @@ describe(feature("dms.picker"), () => {
     expect(status()).toHaveTextContent("Starting conversation…");
     expect(start()).toBeDisabled();
 
-    // It can't close or change while the DM starts, as ember-rust's can't.
+    // It can't close or change while the DM starts.
     await user.keyboard("{Escape}");
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     await user.click(screen.getByRole("button", { name: "Close" }));
@@ -352,7 +351,7 @@ describe(feature("dms.picker"), () => {
     expect(screen.getByRole("link", { name: "DMs" })).toHaveFocus();
   });
 
-  it("closes as Back or Forward goes to another page, as ember-rust's closes as the page changes", async () => {
+  it("closes as Back or Forward goes to another page", async () => {
     const { onClose } = showDialog();
     goBack();
     await waitFor(() => expect(onClose).toHaveBeenCalledOnce());

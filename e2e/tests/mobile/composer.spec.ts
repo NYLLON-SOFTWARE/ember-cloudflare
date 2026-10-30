@@ -9,7 +9,7 @@ test("Enter starts a new line on a phone, and Send posts", async ({ page, room }
   await openRoom(page, room);
   const composer = editorField(page, "Write a message");
   await composer.tap();
-  // Phone keyboards have no Shift+Enter, so Enter has to start the new paragraph, as in ember-rust.
+  // Phone keyboards have no Shift+Enter, so Enter has to start the new paragraph.
   await page.keyboard.type("First line");
   await page.keyboard.press("Enter");
   await page.keyboard.type("Second line");

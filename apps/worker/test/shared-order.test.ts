@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_SHARED_ORDER, type NewWorkspace, type RoomId, type Sidebar, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import { mergedSharedOrder } from "../src/workspace-store";
@@ -48,7 +47,7 @@ const FORBIDDEN = { error: "Only administrators can put rooms in order for every
 
 beforeEach(freshDeploy);
 
-describe(feature("sidebar.shared-order"), () => {
+describe("Shared room order", () => {
   it("puts the rooms in an administrator's sidebar in order for everyone, answering their order", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace");
@@ -219,7 +218,7 @@ describe(feature("sidebar.shared-order"), () => {
     expect(await stored()).toEqual([design.id]);
   });
 
-  it("refuses an order that would rank more rooms than it can hold, as ember-rust does", async () => {
+  it("refuses an order that would rank more rooms than it can hold", async () => {
     const administrator = await setUp();
     const design = await createRoom("Design");
     // Rooms the administrator isn't in, which another administrator could have ordered, fill it.
@@ -256,8 +255,8 @@ describe(feature("sidebar.shared-order"), () => {
   });
 });
 
-describe(feature("sidebar.shared-order"), () => {
-  it("merges an order as ember-rust's `set_default_room_order` does", () => {
+describe("Shared room order", () => {
+  it("merges an order", () => {
     const saved = (ids: string, orderable: string) => [...ids].map((id) => ({ id, orderable: orderable.includes(id) }));
     // Each place a room the administrator could order holds goes to the next listed, in turn.
     expect(mergedSharedOrder(saved("abc", "abc"), ["c", "a", "b"])).toEqual(["c", "a", "b"]);

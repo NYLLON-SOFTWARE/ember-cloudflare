@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   JOINING_PROBLEMS,
   MAX_PASSWORD_LENGTH,
@@ -49,8 +48,8 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
-describe(feature("auth.sign-in"), () => {
-  it("asks for an email address and password, as ember-rust's sign-in page does", () => {
+describe("Sign in with email and password", () => {
+  it("asks for an email address and password", () => {
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     expect(document.title).toBe("Sign in");
     expect(screen.getByRole("img", { name: "Ember" })).toBeInTheDocument();
@@ -98,7 +97,7 @@ describe(feature("auth.sign-in"), () => {
     render(<SignInPage workspace={workspace} onSignedIn={onSignedIn} />, { wrapper: FlashProvider });
     await signIn("wrong horse");
 
-    // In place of the flash, as ember-rust's pull request #24 says it, in `.mb-auth-error`.
+    // At the top of the form, in place of a flash.
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Incorrect email or password. Please try again.");
     expect(alert).toHaveAttribute("id", "sign-in-error");
@@ -141,7 +140,7 @@ describe(feature("auth.sign-in"), () => {
   });
 });
 
-describe(feature("ui.accessibility"), () => {
+describe("Landmarks and names", () => {
   it("starts with Skip to main content, which focuses the main content", async () => {
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     const skip = screen.getByRole("link", { name: "Skip to main content" });
@@ -151,7 +150,7 @@ describe(feature("ui.accessibility"), () => {
   });
 });
 
-describe(feature("auth.rate-limit"), () => {
+describe("Sign-in attempt limit", () => {
   it("says to wait after too many attempts, shaking the card as for a wrong password", async () => {
     respond(429, { error: SIGN_IN_LIMITED });
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
@@ -161,15 +160,15 @@ describe(feature("auth.rate-limit"), () => {
   });
 });
 
-describe(feature("platform.version"), () => {
-  it("shows Ember's version under the card, where ember-rust's pull request #24 takes away the help contact", () => {
+describe("Version", () => {
+  it("shows Ember's version under the card", () => {
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     expect(card().nextElementSibling).toHaveTextContent(/^Ember version 0\.1$/);
     expect(screen.queryByRole("link", { name: /@/ })).not.toBeInTheDocument();
   });
 });
 
-describe(feature("auth.guest-sign-in"), () => {
+describe("Sign in with a display name", () => {
   it("offers joining with just a name when the workspace allows it, and back", async () => {
     const user = userEvent.setup();
     render(<SignInPage workspace={{ ...workspace, guestSignIn: true }} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
@@ -201,11 +200,11 @@ describe(feature("auth.guest-sign-in"), () => {
   });
 });
 
-describe(feature("accounts.logo"), () => {
+describe("Workspace logo", () => {
   const logo = "/account/logo?v=20261017120000";
   const withLogo = { ...workspace, account: { ...workspace.account, logo }, guestSignIn: true };
 
-  it("shows the workspace's logo in place of Ember's flame, as ember-rust's sign-in page does", () => {
+  it("shows the workspace's logo in place of Ember's flame", () => {
     render(<SignInPage workspace={withLogo} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     expect(screen.getByRole("img", { name: "Account logo" })).toHaveAttribute("src", logo);
     expect(screen.queryByRole("img", { name: "Ember" })).toBeNull();
@@ -219,7 +218,7 @@ describe(feature("accounts.logo"), () => {
   });
 });
 
-describe(feature("accounts.custom-css"), () => {
+describe("Custom CSS", () => {
   it("keeps the password typed out of its field's value attribute, where custom CSS could read it", async () => {
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
     const password = screen.getByLabelText("Password");
@@ -229,7 +228,7 @@ describe(feature("accounts.custom-css"), () => {
   });
 });
 
-describe(feature("auth.memberful-sign-in"), () => {
+describe("Sign in with Memberful", () => {
   const withMemberful = { ...workspace, signInWithMemberful: true, account: { ...workspace.account, memberfulJoin: true, memberfulSignIn: true } };
 
   it("offers Sign in with Memberful in place of the password form while Memberful is members only, coming back to the page this tab was sent from", async () => {
@@ -321,7 +320,7 @@ describe(feature("auth.memberful-sign-in"), () => {
   });
 });
 
-describe(feature("auth.open-sign-up"), () => {
+describe("Sign up without a link", () => {
   const open = { ...workspace, account: { ...workspace.account, openSignUp: true }, guestSignIn: true };
 
   it("offers Create an account while anyone may sign up, before joining with just a name", () => {
@@ -341,7 +340,7 @@ describe(feature("auth.open-sign-up"), () => {
   });
 });
 
-describe(feature("auth.email-domain-sign-up"), () => {
+describe("Join with an email domain", () => {
   const atDomains = { ...workspace, account: { ...workspace.account, emailDomainSignUp: true, emailDomains: ["example.org", "example.com"] } };
   const joinWithIt = () => screen.queryByRole("link", { name: "Join with it" });
 
@@ -369,7 +368,7 @@ describe(feature("auth.email-domain-sign-up"), () => {
   });
 });
 
-describe(feature("accounts.ways-to-join"), () => {
+describe("Ways to join", () => {
   it.each(Object.entries(JOINING_PROBLEMS))("says why a way to join sent the browser here, once, taking it out of the address: %s", (problem, says) => {
     history.replaceState(null, "", `${signInSaying(problem as keyof typeof JOINING_PROBLEMS)}&email_address=ada%40example.com#top`);
     render(<SignInPage workspace={workspace} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
@@ -389,7 +388,7 @@ describe(feature("accounts.ways-to-join"), () => {
   });
 });
 
-describe(feature("auth.memberful-connect"), () => {
+describe("Connect Memberful", () => {
   const withMemberful = { ...workspace, signInWithMemberful: true, account: { ...workspace.account, memberfulJoin: true, memberfulSignIn: true } };
   /** Where the Memberful site signs someone in to connect their account there. */
   const MEMBERFUL_OAUTH = "https://example.memberful.com/oauth?response_type=code&client_id=ember&state=s7a7e";
@@ -430,7 +429,7 @@ describe(feature("auth.memberful-connect"), () => {
   });
 });
 
-describe(feature("auth.password-reset"), () => {
+describe("Reset a forgotten password with an emailed code", () => {
   const sendsEmail = { ...workspace, passwordResetCodes: true };
   const resetIt = () => screen.queryByRole("link", { name: "Reset it" });
 

@@ -1,7 +1,6 @@
 import { createServer, type IncomingHttpHeaders, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { gzipSync } from "node:zlib";
-import { feature } from "@ember/parity";
 import { devices, type APIResponse, type Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
 import { ADMINISTRATOR, drawnPicture, editorField, nextSecond, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
@@ -95,7 +94,7 @@ const FORM = { "Content-Type": "application/x-www-form-urlencoded" };
 /** The address of the message a bot's post made, under the room's address for the bot, `url`. */
 const messageUrl = (url: string, posted: APIResponse) => `${url}/${posted.headers()["location"]!.split("/@")[1]}`;
 
-test.describe(feature("bots.create-edit"), () => {
+test.describe("Add and edit a bot", () => {
   test("the administrator adds a bot, which gets commands for posting to every open room, and renames it", async ({ page }) => {
     await openBots(page);
     const name = `Build Bot ${crypto.randomUUID().slice(0, 8)}`;
@@ -138,7 +137,7 @@ test.describe(feature("bots.create-edit"), () => {
 
     await botNamed(page, name).getByRole("link", { name: `Edit ${name}` }).click();
     await expect(preview).toHaveAttribute("src", first);
-    // An avatar's address changes with the second it was given, as ember-rust's does.
+    // An avatar's address changes with the second it was given.
     await nextSecond();
     await page.getByLabel("Upload bot avatar").setInputFiles(await drawnPicture(page, "robot.png", 300, 600));
     await page.getByRole("button", { name: "Save changes" }).click();
@@ -148,7 +147,7 @@ test.describe(feature("bots.create-edit"), () => {
   });
 });
 
-test.describe(feature("bots.reset-key"), () => {
+test.describe("Generate a new bot key", () => {
   test("the administrator gives a bot a new key after asking, which its commands then carry", async ({ page }) => {
     await openBots(page);
     const name = `Build Bot ${crypto.randomUUID().slice(0, 8)}`;
@@ -168,7 +167,7 @@ test.describe(feature("bots.reset-key"), () => {
   });
 });
 
-test.describe(feature("bots.delete"), () => {
+test.describe("Delete a bot", () => {
   test("the administrator deletes a bot after asking, which leaves the bots page, and its settings answer 404", async ({ page }) => {
     await openBots(page);
     const name = `Build Bot ${crypto.randomUUID().slice(0, 8)}`;
@@ -190,7 +189,7 @@ test.describe(feature("bots.delete"), () => {
   });
 });
 
-test.describe(feature("bots.api-post"), () => {
+test.describe("Bots post messages", () => {
   test("a bot's command posts to its room as the bot, which shows there at once, and the bot reads it back", async ({ page }) => {
     const name = `Build Bot ${crypto.randomUUID().slice(0, 8)}`;
     const url = await openGeneralFor(page, name);
@@ -218,7 +217,7 @@ test.describe(feature("bots.api-post"), () => {
   });
 });
 
-test.describe(feature("bots.slack-webhook"), () => {
+test.describe("Slack-compatible webhooks", () => {
   test("what a tool sends a bot's Slack-compatible webhook shows in its room at once, formatted, as the bot", async ({ page }) => {
     await openBots(page);
     const name = `Build Bot ${crypto.randomUUID().slice(0, 8)}`;
@@ -241,7 +240,7 @@ test.describe(feature("bots.slack-webhook"), () => {
   });
 });
 
-test.describe(feature("bots.cards"), () => {
+test.describe("Bot cards", () => {
   test("an attachment sent to a bot's Slack-compatible webhook shows as a card under its text, on a computer and a phone, in light and dark", async ({ page, browser, baseURL }) => {
     await openBots(page);
     // A room of its own, so the phone's screen holds no other test's messages, which the audit would check too. It's
@@ -425,7 +424,7 @@ test.describe(feature("bots.cards"), () => {
   });
 });
 
-test.describe(feature("bots.api-edit-delete"), () => {
+test.describe("Bots edit and delete their messages", () => {
   test("a bot edits its message, then deletes it, which the room shows at once", async ({ page }) => {
     const url = await openGeneralFor(page, `Build Bot ${crypto.randomUUID().slice(0, 8)}`);
     const tag = crypto.randomUUID().slice(0, 8);
@@ -461,7 +460,7 @@ test.describe(feature("bots.api-edit-delete"), () => {
   });
 });
 
-test.describe(feature("bots.api-boosts"), () => {
+test.describe("Bots boost messages", () => {
   test("a bot boosts a message, then takes its boost back, which the room shows at once", async ({ page }) => {
     const name = `Build Bot ${crypto.randomUUID().slice(0, 8)}`;
     const url = await openGeneralFor(page, name);
@@ -479,7 +478,7 @@ test.describe(feature("bots.api-boosts"), () => {
   });
 });
 
-test.describe(feature("bots.webhook-delivery"), () => {
+test.describe("Webhooks", () => {
   test("mentioning a bot in the composer delivers the message to its webhook, as Campfire's JSON", async ({ page }) => {
     const webhook = await listenAsWebhook();
     try {
@@ -509,7 +508,7 @@ test.describe(feature("bots.webhook-delivery"), () => {
   });
 });
 
-test.describe(feature("bots.webhook-reply"), () => {
+test.describe("Webhook replies", () => {
   test("what a bot's webhook answers, gzipped, shows in the room as the bot's message", async ({ page }) => {
     const webhook = await listenAsWebhook((response) => response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Content-Encoding": "gzip" }).end(gzipSync("Zipped reply")));
     try {
@@ -547,7 +546,7 @@ test.describe(feature("bots.webhook-reply"), () => {
   });
 });
 
-test.describe(feature("bots.list"), () => {
+test.describe("Chat bots page", () => {
   test("a member who opens the bot pages is sent to workspace settings, told why", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit#membership-settings");
@@ -565,7 +564,7 @@ test.describe(feature("bots.list"), () => {
   });
 });
 
-test.describe(feature("bots.membership"), () => {
+test.describe("Where bots show up", () => {
   test("a bot is offered to mention, to message and for a private room, but isn't among the people", async ({ page }) => {
     const tag = crypto.randomUUID().slice(0, 8);
     const name = `Build Bot ${tag}`;
@@ -595,7 +594,7 @@ test.describe(feature("bots.membership"), () => {
   });
 });
 
-test.describe(feature("bots.profile"), () => {
+test.describe("A bot's profile", () => {
   test("a bot's page, opened from its avatar, shows that and a button that starts a DM with it, until it's deleted", async ({ page }) => {
     await openBots(page);
     const name = `Build Bot ${crypto.randomUUID().slice(0, 8)}`;

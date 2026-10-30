@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { CloseCode, type RoomId, type SidebarRoom } from "@ember/protocol";
 import { listDurableObjectIds, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -45,7 +44,7 @@ async function roomObjectExists(roomId: RoomId): Promise<boolean> {
 const membersOf = async (roomId: RoomId) =>
   (await workspaceSql("SELECT user_id, involvement FROM memberships WHERE room_id = ? ORDER BY user_id", roomId)) as Array<{ user_id: string; involvement: string }>;
 
-describe(feature("rooms.open"), () => {
+describe("Open rooms everyone is in", () => {
   it("puts everyone in every open room, whether they joined before or after it was made", async () => {
     const ada = await signIn("Ada");
     const room = await createRoom("Design");
@@ -76,7 +75,7 @@ describe(feature("rooms.open"), () => {
   });
 });
 
-describe(feature("rooms.index"), () => {
+describe("Room addresses", () => {
   it("lists someone's rooms in the order they were made, for the app to find the oldest and newest", async () => {
     const ada = await signIn("Ada");
     const as = { closedTo: [ada.user.id] };
@@ -85,7 +84,7 @@ describe(feature("rooms.index"), () => {
   });
 });
 
-describe(feature("rooms.member-only-access"), () => {
+describe("Only members see a room", () => {
   it("opens a room's socket only for its members, telling anyone else it's not there without waking the room", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const room = await createRoom("Leads", { closedTo: [ada.user.id] });
@@ -114,7 +113,7 @@ describe(feature("rooms.member-only-access"), () => {
   });
 });
 
-describe(feature("rooms.create-open"), () => {
+describe("Create an open room", () => {
   it("answers the room it made", async () => {
     const response = await api("/api/rooms", {
       method: "POST",
@@ -139,14 +138,14 @@ describe(feature("rooms.create-open"), () => {
   });
 });
 
-describe(feature("rooms.create-closed"), () => {
+describe("Create a private room", () => {
   it("puts just the people it names in a closed room, whatever their status, and skips ids nobody has", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const former = await deactivatedPerson("Former");
     const room = await createRoom("Leads", { closedTo: [ada.user.id, former, "nobody", ada.user.id], as: grace });
 
     expect(room.kind).toBe("closed");
-    // The creator isn't added unless they're named, as in ember-rust, whose form names them itself.
+    // The creator isn't added unless they're named, whose form names them itself.
     expect((await membersOf(room.id)).map((m) => m.user_id).sort()).toEqual([ada.user.id, former].sort());
     expect(await listed(grace, room.id)).toEqual([]);
   });
@@ -157,7 +156,7 @@ describe(feature("rooms.create-closed"), () => {
   });
 });
 
-describe(feature("rooms.legacy-rooms"), () => {
+describe("Rooms from before memberships", () => {
   /** A room with messages and a reaction from before the Workspace kept a list, as the old preview's are. */
   async function legacyRoom() {
     const id = `legacy-${crypto.randomUUID().slice(0, 8)}`;

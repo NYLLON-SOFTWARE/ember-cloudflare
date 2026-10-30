@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   CloseCode,
   ROOM_PROTOCOL,
@@ -155,7 +154,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("accounts.ban"), () => {
+describe("Ban and unban people", () => {
   it("bans someone active, answering them as the directory then lists them, banned, with their role and avatar", async () => {
     const administrator = await setUp();
     const member = await join(grace);
@@ -289,7 +288,7 @@ describe(feature("accounts.ban"), () => {
     expect(await written(lobby, administrator.user.id)).toEqual([adas.id]);
     expect(await written(group, linus.user.id)).toEqual([linuss.id]);
     expect(await written(theirs, administrator.user.id)).toEqual([elsewhere.id]);
-    // Her boost on Ada's message stays, as ember-rust deletes only messages, and Ada's on hers went with it.
+    // Her boost on Ada's message stays, and Ada's on hers went with it.
     expect(await roomSql(lobby, "SELECT message_id, booster_id FROM boosts WHERE room_id = ?", lobby)).toEqual([{ message_id: adas.id, booster_id: member.user.id }]);
     // A new tab doesn't see them either.
     expect((await connect(lobby, administrator)).welcome.messages.map(({ id }) => id)).toEqual([adas.id]);
@@ -361,7 +360,7 @@ describe(feature("accounts.ban"), () => {
     expect(await socket.answers()).toBe(true);
   });
 
-  it("bans removed people and bots too, as ember-rust does", async () => {
+  it("bans removed people and bots too", async () => {
     const administrator = await setUp();
     const removed = await deactivatedPerson("Former");
     const now = new Date().toISOString();
@@ -404,7 +403,7 @@ describe(feature("accounts.ban"), () => {
     }
   });
 
-  it("doesn't let administrators ban themselves, so there's always one, unlike ember-rust", async () => {
+  it("doesn't let administrators ban themselves, so there's always one", async () => {
     const administrator = await setUp();
     const response = await ban(administrator, administrator.user.id);
     expect(response.status).toBe(403);
@@ -543,7 +542,7 @@ describe(feature("accounts.ban"), () => {
     expect(await socket.answers()).toBe(true);
   });
 
-  it("makes whoever it's lifted for active, as ember-rust does, removed people too", async () => {
+  it("makes whoever it's lifted for active, removed people too", async () => {
     const administrator = await setUp();
     const removed = await deactivatedPerson("Former");
     const response = await unban(administrator, removed);
@@ -744,8 +743,7 @@ describe(feature("accounts.ban"), () => {
     }
   });
 
-  // ember-rust's tests of `Ban::validate` (crates/db/src/models/ban.rs), and more of what it inherits
-  // from Rust's `IpAddr` and Ruby's `IPAddr`.
+  // The tests of `Ban::validate`, and more of what it inherits from Rust's `IpAddr` and Ruby's `IPAddr`.
   describe("which addresses a ban can block", () => {
     it("blocks public addresses", () => {
       for (const ip of ["8.8.8.8", "2001:4860:4860::8888", "203.0.113.7", "::ffff:8.8.8.8", "FE00::1", "fec0::1", "::1.2.3.4", "::"]) {
@@ -792,7 +790,7 @@ describe(feature("accounts.ban"), () => {
   });
 });
 
-describe(feature("accounts.ban-enforcement"), () => {
+describe("What a ban blocks", () => {
   const banned = "203.0.113.7";
 
   /** `init` sent from the IP address `ip`, in `session` if given. */
@@ -815,7 +813,7 @@ describe(feature("accounts.ban-enforcement"), () => {
     return { administrator, member };
   }
 
-  it("answers everything a banned address asks to change with ember-rust's empty 429, signing in, joining and out included", async () => {
+  it("answers everything a banned address asks to change with an empty 429, signing in, joining and out included", async () => {
     const { administrator, member } = await banGrace();
     const linus = await signIn("Linus Torvalds");
     const room = await createRoom("lobby", { as: administrator });
@@ -896,7 +894,7 @@ describe(feature("accounts.ban-enforcement"), () => {
     for (const method of ["POST", "PUT", "DELETE"]) expect((await api("/api/nothing", fromAddress(banned, administrator, { method }))).status, method).toBe(404);
   });
 
-  it("checks the ban before a request from another site or an old browser, as ember-rust does", async () => {
+  it("checks the ban before a request from another site or an old browser", async () => {
     const { administrator } = await banGrace();
     const crossSite = { method: "POST", headers: { "Sec-Fetch-Site": "cross-site" }, body: JSON.stringify({ name: "Hal" }) };
     expect((await api("/api/session", fromAddress(banned, null, crossSite))).status).toBe(429);
@@ -911,7 +909,7 @@ describe(feature("accounts.ban-enforcement"), () => {
     expect(await elsewhere.text()).toContain("Upgrade to a supported web browser");
   });
 
-  it("leaves password recovery to its script wherever it runs, as ember-rust's runs on the server", async () => {
+  it("leaves password recovery to its script wherever it runs", async () => {
     await banGrace();
     const token = "0123456789abcdef".repeat(4);
     const response = await apiWith({ EMBER_RECOVERY_TOKEN: token }, RECOVERY_PATH, {
@@ -1006,7 +1004,7 @@ describe(feature("accounts.ban-enforcement"), () => {
     expect((await post(linusElsewhere, "Still here")).body).toBe("Still here");
   });
 
-  it("lets a banned address's room sockets read, catch up and say they're typing, but refuses each change, as ember-rust refuses its requests", async () => {
+  it("lets a banned address's room sockets read, catch up and say they're typing, but refuses each change", async () => {
     const administrator = await setUp();
     const member = await join(grace);
     await signInAsGrace(banned);

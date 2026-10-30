@@ -4,9 +4,9 @@ import { useAccount } from "@/hooks/use-account";
 import { useVisit } from "@/hooks/use-route";
 import { moveTo, staysAtAnyAddress, thisPageAt } from "@/lib/custom-domain";
 
-// This port's own (`accounts.custom-domain`): a tab left open at another address as Ember is given a custom
-// domain, which a page opened afresh would move to, says so, with a link to the page it shows there. It sits
-// where the workspace's flashes do, under them.
+// A tab left open at another address as Ember is given a custom domain, which a page opened afresh would
+// move to, says so, with a link to the page it shows there. It sits where the workspace's flashes do,
+// under them.
 
 /** Says Ember has moved to its custom domain, until it's closed, on any page that would move there. */
 export function MovedNotice() {

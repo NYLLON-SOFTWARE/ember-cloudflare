@@ -2,10 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Keyboar
 import type { RoomId } from "@ember/protocol";
 import { movedBefore } from "@/lib/room-list";
 
-// A row moves as in ember-rust's channel_order_controller.js: pressed with a mouse, a pen or a finger,
-// and held a while first where the list asks for that, unless it moves 8px meanwhile, then dragged, the
-// list scrolling 8px a frame while the pointer is within 64px of its top or bottom, and placed where it's
-// let go. A click within 500ms of letting go is ignored, so a drop never opens a room.
+// A row is pressed with a mouse, a pen or a finger, and held a while first where the list asks for that,
+// unless it moves 8px meanwhile, then dragged, the list scrolling 8px a frame while the pointer is
+// within 64px of its top or bottom, and placed where it's let go. A click within 500ms of letting go is
+// ignored, so a drop never opens a room.
 const STILL_PX = 8;
 const EDGE_PX = 64;
 const SCROLL_PX = 8;
@@ -60,9 +60,9 @@ const anywhere = () => true;
 
 /**
  * Moves the rows of a list of rooms among themselves, by dragging one or pressing Alt and an arrow on
- * one, as ember-rust's channel_order_controller.js moves the sidebar's stars and the rooms an
- * administrator puts in order for everyone. It answers the order to show the rooms in: while a row is
- * dragged, the order it's been dragged to, and otherwise `order`, which `onMove` changes.
+ * one: the sidebar's stars, and the rooms an administrator puts in order for everyone. It answers the
+ * order to show the rooms in: while a row is dragged, the order it's been dragged to, and otherwise
+ * `order`, which `onMove` changes.
  *
  * The list's element takes `listRef` and `listProps`, its rows carry `data-room-id`, and the element the
  * list scrolls in takes `scrollerRef`, unless that's the list itself.
@@ -215,9 +215,9 @@ export function useRoomDrag({ order, movable, holdMs, grabs = anywhere, isLocked
     };
     const onTouchEnd = () => pressedWith("touch") && latest.current.finish();
     const onCancel = () => latest.current.cancel();
-    // Escape puts a dragged row back wherever the focus is, where ember-rust's list hears it only from
-    // within, which a click doesn't move the focus to in Safari. Heard before anything else, it closes
-    // nothing else, such as the drawer the list is in.
+    // Escape puts a dragged row back wherever the focus is, even outside the list, which a click doesn't
+    // move the focus to in Safari. Heard before anything else, it closes nothing else, such as the
+    // drawer the list is in.
     const onEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape" || !press.current?.dragging) return;
       event.preventDefault();

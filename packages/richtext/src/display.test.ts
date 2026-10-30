@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { autoLink } from "./autolink";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, RenderError } from "./attachments";
@@ -71,7 +70,7 @@ function linkedAsShown(html: string): string {
   return toHtml(fragment);
 }
 
-describe(feature("messages.rich-text"), () => {
+describe("Rich text, safely", () => {
   it("shows all a stored body holds, linked as Rails linked it, for every corpus body", { timeout: 30_000 }, () => {
     const differences: string[] = [];
     for (const { name, body } of corpus.cases) {
@@ -167,7 +166,7 @@ describe(feature("messages.rich-text"), () => {
   });
 });
 
-describe(feature("messages.reply"), () => {
+describe("Reply with a quote", () => {
   /** `nodes` with each mention as `text`, and without previews. */
   const mentionsAs = (nodes: DisplayNode[], text: string): DisplayNode[] =>
     nodes.flatMap((node): DisplayNode[] => {
@@ -199,7 +198,7 @@ describe(feature("messages.reply"), () => {
   });
 });
 
-describe(feature("messages.autolink"), () => {
+describe("Links in message text", () => {
   it("links addresses, leaving the target to the web app", () => {
     expect(display("<p>See https://example.com/a?b=1&amp;c=2.</p>")).toEqual([
       {

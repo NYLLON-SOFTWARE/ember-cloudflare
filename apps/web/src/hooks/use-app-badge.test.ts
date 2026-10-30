@@ -1,10 +1,9 @@
-import { feature } from "@ember/parity";
 import { renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { badgeTheApp } from "@/test-badge";
 import { useAppBadge } from "./use-app-badge";
 
-describe(feature("notifications.app-badge"), () => {
+describe("App icon badge", () => {
   it("badges the app with the count once there is one, again as it changes, and clears the badge at 0, as badge_dot_controller.js does", () => {
     const badges = badgeTheApp();
     const { rerender } = renderHook(({ count }) => useAppBadge(count), { initialProps: { count: null as number | null } });

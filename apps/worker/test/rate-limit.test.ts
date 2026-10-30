@@ -1,8 +1,7 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { FixedWindowLimit } from "../src/rate-limit";
 
-describe(feature("auth.rate-limit"), () => {
+describe("Sign-in attempt limit", () => {
   it("counts each key in a fixed window that starts at its first attempt", () => {
     const limit = new FixedWindowLimit(2, 1_000);
     expect(limit.attempt("a", 0)).toBe(true);

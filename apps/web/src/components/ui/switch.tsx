@@ -3,9 +3,9 @@ import { Switch as SwitchPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 
-// shadcn/ui's switch, restyled as Campfire's `.switch` (app/assets/stylesheets/inputs.css), which
-// ember-rust draws at 14px: a 3em by 1.75em track, ink when on and muted when off, with a 1.35em
-// knob in the canvas color, dimmed while the pointer is over it.
+// shadcn/ui's switch, restyled as Campfire's `.switch` (app/assets/stylesheets/inputs.css), drawn at
+// 14px: a 3em by 1.75em track, ink when on and muted when off, with a 1.35em knob in the canvas color,
+// dimmed while the pointer is over it.
 
 function Switch({ className, ...props }: React.ComponentProps<typeof SwitchPrimitive.Root>) {
   return (

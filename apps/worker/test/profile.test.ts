@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   CloseCode,
   CURRENT_PASSWORD_NEEDED,
@@ -116,7 +115,7 @@ const LONG_AGO = "2026-01-01T00:00:00.000Z";
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("users.profile"), () => {
+describe("Edit your profile", () => {
   it("shows you your name, email address and bio, or none for someone who signed in with just a name, and whether you have a password", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace Hopper");
@@ -163,7 +162,7 @@ describe(feature("users.profile"), () => {
     expect((await initialsOf(grace)).avatarUrl).not.toBe(initials.avatarUrl);
   });
 
-  it("takes the name as typed, even blank, as ember-rust's server does", async () => {
+  it("takes the name as typed, even blank", async () => {
     const grace = await signIn("Grace Hopper");
     for (const name of ["  Amazing Grace ", ""]) {
       expect(await (await save(grace, { name })).json()).toMatchObject({ profile: { name } });
@@ -186,7 +185,7 @@ describe(feature("users.profile"), () => {
     }
   });
 
-  it("refuses an email address someone else has, saving nothing, where ember-rust fails", async () => {
+  it("refuses an email address someone else has, saving nothing", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace Hopper");
     await workspaceSql("UPDATE users SET updated_at = ? WHERE id = ?", LONG_AGO, grace.user.id);
@@ -208,7 +207,7 @@ describe(feature("users.profile"), () => {
     expect((await signInWith(ada.emailAddress, "difference engine")).status).toBe(201);
   });
 
-  it("asks for your current password to change your email address or password, where ember-rust doesn't, refusing a missing or wrong one and saving nothing", async () => {
+  it("asks for your current password to change your email address or password, refusing a missing or wrong one and saving nothing", async () => {
     const administrator = await setUp();
     await workspaceSql("UPDATE users SET updated_at = ? WHERE id = ?", LONG_AGO, administrator.user.id);
     const before = await stored(administrator.user.id);
@@ -251,7 +250,7 @@ describe(feature("users.profile"), () => {
     expect((await save(administrator, { password: "difference engine", currentPassword: ada.password })).status).toBe(200);
   });
 
-  it("ends your other sessions with a new password, where ember-rust's stay signed in, closing their sockets in every room and the workspace's", async () => {
+  it("ends your other sessions with a new password, closing their sockets in every room and the workspace's", async () => {
     const administrator = await setUp();
     const laptop = await anotherSession(administrator);
     const grace = await signIn("Grace Hopper");
@@ -297,7 +296,7 @@ describe(feature("users.profile"), () => {
     expect(await subscriptions()).toEqual([{ user_id: grace.user.id, endpoint: endpointOf("grace") }]);
   });
 
-  it("keeps your password, and every session, when the new one is blank, as ember-rust ignores it", async () => {
+  it("keeps your password, and every session, when the new one is blank", async () => {
     const administrator = await setUp();
     const laptop = await anotherSession(administrator);
     const { password_digest: digest } = await stored(administrator.user.id);

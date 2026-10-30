@@ -5,14 +5,13 @@ import type { Env } from "./env";
 import { isAppleMessages, isUnsupportedBrowser } from "./user-agent";
 import { workspace } from "./workspace";
 
-// ember-rust's AllowBrowser (crates/ember/src/concerns.rs `allow_browser`): an old browser gets
-// "Upgrade to a supported web browser" (crates/views/templates/sessions/incompatible_browser.html),
-// with status 200, whatever it asked for. The Worker writes the page itself, in plain CSS old
-// browsers can read, since the app's stylesheet needs the browsers the page names. It's the
-// signed-out layout whoever asks, as nothing past it runs there. The translation globe beside the
-// message shows once an administrator shows translation buttons, as ember-rust's does.
+// Campfire's AllowBrowser: an old browser gets "Upgrade to a supported web browser", with status 200,
+// whatever it asked for. The Worker writes the page itself, in plain CSS old browsers can read, since
+// the app's stylesheet needs the browsers the page names. It's the signed-out layout whoever asks, as
+// nothing past it runs there. The translation globe beside the message shows once an administrator shows
+// translation buttons.
 
-/** The browsers the page names and the version each needs: `ALLOW_BROWSER_VERSIONS` in crates/views/src/sessions.rs. */
+/** The browsers the page names and the version each needs: Campfire's `AllowBrowser::VERSIONS`. */
 const SUPPORTED_BROWSERS = [
   ["safari", "Safari", "17.2"],
   ["chrome", "Chrome", "120"],
@@ -26,11 +25,11 @@ const browserList = SUPPORTED_BROWSERS.map(
 ).join("\n          ");
 
 /**
- * ember-rust's `translation_button(ctx, "incompatible_browser_messsage")` (crates/views/src/helpers/translations.rs):
- * a globe, Iconoir's where ember-rust's is Campfire's, on a `<details>` whose summary Tab skips, listing the
- * message in seven languages. Escape or a click elsewhere closes it, as Campfire's popup_controller.js does.
- * The summary opens and closes it too, by its `open` attribute, as Internet Explorer has no details element,
- * and the list hides itself while that's missing.
+ * Campfire's `translation_button(:incompatible_browser_messsage)`: a globe, Iconoir's, on a `<details>`
+ * whose summary Tab skips, listing the message in seven languages. Escape or a click elsewhere closes
+ * it, as Campfire's popup_controller.js does. The summary opens and closes it too, by its `open`
+ * attribute, as Internet Explorer has no details element, and the list hides itself while that's
+ * missing.
  */
 const globe = `<details class="translations">
               <summary tabindex="-1"><img src="/globe.svg" alt="" aria-hidden="true"><span class="for-screen-reader">Translate</span></summary>
@@ -56,12 +55,11 @@ const togglesGlobe = `<script>
 
 /**
  * The page. It applies the app's saved appearance, or the system's, before it paints, as index.html
- * does. Its styles are the palette (zz-ember.css's canvas, surface, border and ink, as index.css has
- * them), the signed-out panel from zz-ember.css, Campfire's `.browser-list` from signup.css, and the
- * globe as the app draws its translation buttons (translation-button.tsx), turned white in dark mode, as
- * an image draws Iconoir's lines in black, with margins for the gaps, which older browsers lay out, and
- * the list kept to a narrow screen by its own width. Internet Explorer has no `max-content`, so there the
- * menu takes the width a narrow screen leaves it, up to 40ch.
+ * does. Its styles are the palette, the signed-out panel, Campfire's `.browser-list` from signup.css,
+ * and the globe as the app draws its translation buttons (translation-button.tsx), turned white in dark
+ * mode, as an image draws Iconoir's lines in black, with margins for the gaps, which older browsers lay
+ * out, and the list kept to a narrow screen by its own width. Internet Explorer has no `max-content`, so
+ * there the menu takes the width a narrow screen leaves it, up to 40ch.
  */
 const page = (title: string, translations: boolean) => `<!DOCTYPE html>
 <html lang="en">
@@ -187,7 +185,7 @@ const page = (title: string, translations: boolean) => `<!DOCTYPE html>
 </html>
 `;
 
-/** Whether `request` gets the upgrade page. The live connection isn't checked, as ember-rust's isn't. */
+/** Whether `request` gets the upgrade page. The live connection isn't checked. */
 export const isFromUnsupportedBrowser = (request: Request) =>
   request.headers.get("Upgrade") !== "websocket" && isUnsupportedBrowser(request.headers.get("User-Agent"));
 

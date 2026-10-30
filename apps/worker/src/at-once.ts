@@ -17,8 +17,8 @@ export async function eachAtMost<T>(items: T[], limit: number, work: (item: T) =
 }
 
 /**
- * Runs jobs `limit` at a time as they come, keeping up to `capacity` more waiting their turn and dropping
- * any beyond, as ember-rust's job runner does for each kind of job (jobs.rs).
+ * Runs jobs `limit` at a time as they come, keeping up to `capacity` more waiting their turn and
+ * dropping any beyond.
  */
 export class JobQueue {
   private running = 0;

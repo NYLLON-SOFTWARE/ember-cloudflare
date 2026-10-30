@@ -5,9 +5,8 @@ import { JoinPage } from "@/components/join-page";
 import { useEmailLink, useLinksOpened } from "@/hooks/use-email-link";
 import { useTitle } from "@/hooks/use-title";
 
-// This port's own page for an invitation's link (`auth.invitation-sign-up`), which holds its secret in
-// the fragment: it looks the link up, as `useEmailLink` does, and shows the join form with the address
-// it's for, or says the link doesn't work.
+// The page for an invitation's link, which holds its secret in the fragment: it looks the link up, as
+// `useEmailLink` does, and shows the join form with the address it's for, or says the link doesn't work.
 
 interface Props {
   workspace: SignedOutWorkspace;

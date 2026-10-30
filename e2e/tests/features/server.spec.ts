@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
-import { feature } from "@ember/parity";
 import type { Page } from "@playwright/test";
 import { expect, expectsPolicyViolation, test } from "../../fixtures";
 
@@ -10,7 +9,7 @@ import { expect, expectsPolicyViolation, test } from "../../fixtures";
 // too old to run Ember. These start signed out and need no rooms, so they use Playwright's own fixtures: with the
 // app's, making a test's rooms would ask the API as the old browsers below, and get the upgrade page.
 
-/** Chrome 119, a version short of what ember-rust allows. */
+/** Chrome 119, a version short of what Campfire allows. */
 const OLD_CHROME = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.6045.199 Safari/537.36";
 /** Apple Messages fetching a link's preview: Safari 9's engine, naming the crawlers it stands in for. */
 const APPLE_MESSAGES =
@@ -22,7 +21,7 @@ const signInHeading = (page: Page) => page.getByRole("heading", { level: 1, name
 /** One of the files the web app serves as it is, from apps/web/public/. */
 const publicFile = (name: string) => readFileSync(resolve(import.meta.dirname, "../../../apps/web/public", name), "utf8");
 
-test.describe(feature("platform.browser-support"), () => {
+test.describe("Supported browsers", () => {
   test.describe("on an old browser", () => {
     test.use({ userAgent: OLD_CHROME });
 
@@ -71,7 +70,7 @@ test.describe(feature("platform.browser-support"), () => {
   });
 });
 
-test.describe(feature("platform.security-headers"), () => {
+test.describe("Security headers and HTTPS", () => {
   test("pages come with Rails' default headers", async ({ page }) => {
     const response = await page.goto("/session/new");
     await expect(page.getByRole("heading", { level: 1, name: "Sign in to Ember" })).toBeVisible();
@@ -110,7 +109,7 @@ test.describe(feature("platform.security-headers"), () => {
   });
 });
 
-test.describe(feature("platform.version"), () => {
+test.describe("Version", () => {
   test("pages say which version answered them", async ({ page, request }) => {
     const response = await page.goto("/session/new");
     const { version } = (await (await request.get("/api/bootstrap")).json()) as { version: string };
@@ -118,7 +117,7 @@ test.describe(feature("platform.version"), () => {
   });
 });
 
-test.describe(feature("platform.health"), () => {
+test.describe("Health check", () => {
   // Uptime checks come from anything, so /up answers even an old browser.
   test.use({ userAgent: OLD_CHROME });
 
@@ -136,7 +135,7 @@ test.describe(feature("platform.health"), () => {
   });
 });
 
-test.describe(feature("platform.error-pages"), () => {
+test.describe("Error pages", () => {
   test("an address Ember has no page at answers 404 with Campfire's page, whose Go back goes home", async ({ page }) => {
     const response = await page.goto("/no-such-page");
     expect(response!.status()).toBe(404);
@@ -149,7 +148,7 @@ test.describe(feature("platform.error-pages"), () => {
     await expect(signInHeading(page)).toBeVisible();
   });
 
-  test("so do Rails' unused actions, as in ember-rust, and a write to a page", async ({ request }) => {
+  test("so do Rails' unused actions, and a write to a page", async ({ request }) => {
     for (const path of ["/rooms/new", "/rooms/all-talk/edit", "/rooms/all-talk/extra", "/messages"]) {
       const response = await request.get(path);
       expect(response.status(), path).toBe(404);

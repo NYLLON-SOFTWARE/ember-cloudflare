@@ -1,6 +1,6 @@
-// A flash message, as ember-rust shows one at the top of a page: a notice, or an alert when something
-// went wrong. One meant for the page after a full page load waits in this tab's storage, as
-// ember-rust keeps a flash in the session for the request after a redirect (crates/kit/src/session.rs).
+// A flash message, shown at the top of a page: a notice, or an alert when something went wrong. One
+// meant for the page after a full page load waits in this tab's storage, as Rails keeps a flash in the
+// session for the request after a redirect.
 
 export interface FlashMessage {
   kind: "notice" | "alert";
