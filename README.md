@@ -500,6 +500,16 @@ which storage it uses too, and why when it's down. It sends the token only to an
 or an `http://` one on this machine, and follows no redirect with it. The preview's link is on the
 run's summary and under the repository's Deployments.
 
+### A demo from GitHub Actions
+
+The Demo workflow (`.github/workflows/demo.yml`), run by hand from the Actions tab, deploys `main` to
+a Worker of its own, `ember-demo`, with its own R2 bucket, and has `pnpm seed`'s made-up team set it
+up and talk, for people to try Ember without touching the preview. It takes the same two repository
+secrets, and the bucket has to exist first: `pnpm exec wrangler r2 bucket create ember-demo`. Its
+first run takes a setup token (`openssl rand -hex 32`) and everyone's password, which the run masks
+in its log. Sign in as Maya Chen, its administrator, to find its join link in Membership, and pass that
+on to whoever's trying it. A run without them brings the demo up to `main`'s code.
+
 ### Resetting a password
 
 While Ember can send email, above, someone who forgot their password resets it themselves: the
