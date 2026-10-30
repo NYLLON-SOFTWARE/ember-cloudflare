@@ -38,13 +38,24 @@ jobs:
       - name: Mask the inputs
         id: given
         run: |
+          # The runner decodes %25, %0D and %0A in a command's value, so they're encoded to mask the value whole.
+          mask() {
+            local value=${1//"%"/"%25"}
+            value=${value//$'\r'/"%0D"}
+            echo "::add-mask::${value//$'\n'/"%0A"}"
+          }
           token=$(jq -r '.inputs.setup_token // ""' "$GITHUB_EVENT_PATH")
           password=$(jq -r '.inputs.password // ""' "$GITHUB_EVENT_PATH")
-          if [ -n "$token" ]; then echo "::add-mask::$token"; fi
-          if [ -n "$password" ]; then
-            echo "::add-mask::$password"
-            echo "seed=true" >> "$GITHUB_OUTPUT"
-          fi
+          if [ -n "$token" ]; then mask "$token"; fi
+          if [ -n "$password" ]; then mask "$password"; fi
+          # Nobody can type a line break into a sign-in form, so a value with one is refused before anything prints it.
+          case "$token$password" in
+            *$'\n'* | *$'\r'*)
+              echo "::error::The setup token and password have to be one line each."
+              exit 1
+              ;;
+          esac
+          if [ -n "$password" ]; then echo "seed=true" >> "$GITHUB_OUTPUT"; fi
       # Pinned to commits, as the Preview workflow's are, because this job holds the Cloudflare token.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
