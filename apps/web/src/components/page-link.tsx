@@ -2,9 +2,9 @@ import type { ComponentProps, MouseEvent } from "react";
 import { navigate } from "@/hooks/use-route";
 
 /**
- * A link to another of the app's pages, which it shows in place, as Turbo follows ember-rust's links,
- * unless it's opened somewhere else: with a modifier key, say, or another button. `replace` takes the
- * current page's place in the history, as Turbo's `data-turbo-action="replace"` does.
+ * A link to another of the app's pages, which it shows in place, unless it's opened somewhere else: with
+ * a modifier key, say, or another button. `replace` takes the current page's place in the history, as
+ * Turbo's `data-turbo-action="replace"` does.
  */
 export function PageLink({ href, replace, onClick, ...props }: ComponentProps<"a"> & { href: string; replace?: boolean }) {
   const follow = (event: MouseEvent<HTMLAnchorElement>) => {

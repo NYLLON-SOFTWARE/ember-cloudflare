@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Me, SidebarRoom, User } from "@ember/protocol";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -40,7 +39,7 @@ const rows = () =>
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("notifications.profile-list"), () => {
+describe("Levels on your profile", () => {
   it("lists your rooms by name, ignoring the case of A to Z, then a rule, then your DMs in the order they were made", () => {
     renderList([room("r1", "zebra"), direct("d2", [linus!, grace!]), room("r2", "Éclair"), room("r3", "Apple"), direct("d1", []), room("r4", "banana", "nothing")]);
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Conversation notifications");

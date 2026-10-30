@@ -1,9 +1,9 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { EMAIL_SIGN_UP_PATH, INVITATION_PATH, KIND_SEGMENTS, workspacePageOf, type RoomAccess, type RoomId, type RoomKind, type UserId, type WorkspacePage } from "@ember/protocol";
 
-// The app's few pages, at ember-rust's addresses, which @ember/protocol lists for the Worker too: a
-// small typed router over the History API rather than a library. A page with changes to lose can
-// hold the app on it, as ember-rust's settings.js holds Turbo, by guarding against leaving.
+// The app's few pages, at Campfire's addresses where it has them, which @ember/protocol lists for the
+// Worker too: a small typed router over the History API rather than a library. A page with changes to
+// lose can hold the app on it by guarding against leaving.
 
 export { BOTS_PATH, CUSTOM_STYLES_PATH, NEW_BOT_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
 
@@ -14,14 +14,14 @@ export type Access = RoomAccess;
 export type Route = WorkspacePage;
 
 export const roomPath = (roomId: RoomId) => `/rooms/${encodeURIComponent(roomId)}`;
-/** Someone's page, as ember-rust's `user_path` gives it. */
+/** Someone's page, as Campfire's `user_path` gives it. */
 export const personPath = (userId: UserId) => `/users/${encodeURIComponent(userId)}`;
-/** A message's permalink, as ember-rust's `room_at_message_path` gives it, which opens its room. */
+/** A message's permalink, as Campfire's `room_at_message_path` gives it, which opens its room. */
 export const messagePath = (roomId: RoomId, messageId: string) => `${roomPath(roomId)}/@${encodeURIComponent(messageId)}`;
 export const newRoomPath = (access: Access) => `/rooms/${KIND_SEGMENTS[access]}/new`;
-/** A room's settings page, at the address for its kind, as ember-rust's `edit_path` gives it. */
+/** A room's settings page, at the address for its kind. */
 export const roomSettingsPath = (kind: RoomKind, roomId: RoomId) => `/rooms/${KIND_SEGMENTS[kind]}/${encodeURIComponent(roomId)}/edit`;
-/** A bot's settings page, as ember-rust's `edit_account_bot_path` gives it. */
+/** A bot's settings page, as Campfire's `edit_account_bot_path` gives it. */
 export const botSettingsPath = (botId: UserId) => `/account/bots/${encodeURIComponent(botId)}/edit`;
 
 /**
@@ -82,7 +82,7 @@ function positionOf(state: unknown): number | null {
  * The address of the page the app opened a history entry from, as a browser keeps the page a link was
  * followed from as the referrer, or null for an entry the app didn't open, such as the first one. It
  * keeps the fragment, which a referrer leaves out, so Go Back returns to the section of community
- * settings it was opened from, where ember-rust's shows their first.
+ * settings it was opened from.
  */
 function openedFrom(state: unknown): string | null {
   const from = (state as { from?: unknown } | null)?.from;
@@ -90,8 +90,8 @@ function openedFrom(state: unknown): string | null {
 }
 
 // Each entry the app adds to this tab's history is numbered one past the entry it follows, so the
-// distance Back or Forward went is known, and the guard can go back by it, as ember-rust reads Turbo's
-// restorationIndex. The browser keeps the numbers through a reload.
+// distance Back or Forward went is known, and the guard can go back by it. The browser keeps the numbers
+// through a reload.
 let position = positionOf(history.state) ?? 0;
 history.replaceState({ ...history.state, position }, "");
 
@@ -201,7 +201,7 @@ export function roomIdFromPath(pathname: string): string | null {
 export const routeOf = (pathname: string): Route => workspacePageOf(pathname) ?? { page: "home" };
 
 /**
- * Where Go Back goes on a page that returns to the one it was opened from, as ember-rust's `link_back`
+ * Where Go Back goes on a page that returns to the one it was opened from, as Campfire's `link_back`
  * goes to the referrer: that page, or home when it's this one or the app didn't open it.
  */
 export function useBackPath(): string {

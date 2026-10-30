@@ -41,19 +41,19 @@ export const test = app.extend<MobileOptions & { screenIsFine: (options?: { dens
 export { expect };
 
 /**
- * Your own reactions, ember-rust's 28.8px pills, and the avatars in everyone's sit in running content,
- * as on Slack and Discord, so they get WCAG 2.5.8's 24px floor instead of 44px; at 44px they would
- * double the height of every message with reactions.
+ * Your own reactions, which are 28.8px pills, and the avatars in everyone's sit in running content, as
+ * on Slack and Discord, so they get WCAG 2.5.8's 24px floor instead of 44px; at 44px they would double
+ * the height of every message with reactions.
  */
 export const REACTION_PILLS = "[aria-label=Reactions] :is(button, a)";
 
 /**
- * Switches keep Campfire's size, 42 by 24.5px at the 14px ember-rust sets them to on phones
- * (zz-ember.css), which WCAG 2.5.8's 24px floor allows.
+ * Switches keep Campfire's size, 42 by 24.5px at the 14px they're set to on phones, which WCAG 2.5.8's
+ * 24px floor allows.
  */
 export const SWITCHES = "[role=switch]";
 
-/** True when the page uses the drawer layout, which ember-rust switches to at 900px and below. */
+/** True when the page uses the drawer layout. */
 export function hasDrawerLayout(page: Page): boolean {
   return page.viewportSize()!.width <= 900;
 }

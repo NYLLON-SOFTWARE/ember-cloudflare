@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { FormError, formBoundaryOf, FormReader, isFormType, type FormPart } from "../src/files/form-parts";
 
@@ -49,7 +48,7 @@ async function partsOf(body: ReadableStream<Uint8Array> | null, boundary = BOUND
 
 const fileHeaders = (filename: string, type = "text/plain") => [`Content-Disposition: form-data; name="attachment"; filename="${filename}"`, `Content-Type: ${type}`];
 
-describe(feature("bots.api-post"), () => {
+describe("Bots post messages", () => {
   it("reads a form as a browser sends it, whatever size of pieces it arrives in", async () => {
     const form = new FormData();
     form.set("note", "Hello\r\nthere");

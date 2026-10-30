@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   CANT_EMAIL_CODES,
   EMAIL_ADDRESS_NEEDED,
@@ -40,7 +39,7 @@ const MEMBERFUL_KEYS = { MEMBERFUL_URL: "https://example.memberful.com/", MEMBER
 const TURNSTILE_KEYS = { TURNSTILE_SITE_KEY: "1x00000000000000000000AA", TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA" };
 /** The token Turnstile's test site keys give the page. */
 const TOKEN = "XXXX.DUMMY.TOKEN.XXXX";
-/** Sign-in's limit, ember-rust's: the passwords, and codes, an IP address may try in 3 minutes. */
+/** Sign-in's limit: the passwords, and codes, an IP address may try in 3 minutes. */
 const SIGN_IN_ATTEMPTS = 10;
 const RECOVERY_TOKEN = "0123456789abcdef".repeat(4);
 
@@ -171,7 +170,7 @@ function fakeSiteverify() {
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("auth.password-reset"), () => {
+describe("Reset a forgotten password with an emailed code", () => {
   it("is offered while Ember can send email, from the From address an administrator gave it", async () => {
     expect((await bootstrap()).passwordResetCodes).toBe(false);
     const administrator = await setUp({ emailFrom: null });

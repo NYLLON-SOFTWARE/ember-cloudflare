@@ -12,7 +12,7 @@ import { MessageItem, type MessageActions, type MessageEditors } from "./message
 
 /**
  * How near the end of the room's messages a reader can be and still be at it, which keeps them there as
- * new ones come, as ember-rust's scroll_manager.js has it (`AUTO_SCROLL_THRESHOLD`).
+ * new ones come.
  */
 const AT_END_PX = 100;
 /** How near the view an end of the timeline comes before the page beyond it loads. */
@@ -47,8 +47,8 @@ const rowsIn = (scroller: HTMLElement) => [...scroller.querySelectorAll<HTMLElem
 /**
  * Where the reader is in the timeline: the last message that starts above the view's bottom. Keeping it
  * where it is moves what's above it instead, which keeps the place of someone reading as older messages
- * come in above or the oldest are cut, or as a message above the view's bottom grows, as ember-rust's
- * maintain_scroll_controller.js keeps the bottom for an edit or a boost above the fold.
+ * come in above or the oldest are cut, or as a message above the view's bottom grows with an edit or a
+ * boost.
  */
 function placeIn(scroller: HTMLElement): Place | null {
   const rows = rowsIn(scroller);
@@ -73,8 +73,8 @@ function restore(scroller: HTMLElement, { row, offset }: Place) {
 }
 
 /**
- * ember-rust's `.message__day-separator` (_message.html, zz-ember.css): a heading over the first message of
- * a day, with the day's date written out and, on hover, the message's date and time.
+ * The day separator: a heading over the first message of a day, with the day's date written out and, on
+ * hover, the message's date and time.
  */
 function DaySeparator({ at }: { at: string }) {
   const date = new Date(at);
@@ -107,14 +107,14 @@ interface Props {
   onLoadNewer: () => void;
   /** Goes to the newest messages, answering whether it could, which it can't while the room is away and they aren't loaded. */
   onJumpToNewest: () => boolean;
-  /** Files dropped on the messages, which go to the composer, as ember-rust's message area sends them. */
+  /** Files dropped on the messages, which go to the composer. */
   onDropFiles?: (files: FileList) => void;
 }
 
 /**
- * The scrolling timeline, as ember-rust's messages_controller.js keeps it. At the end of the room's
- * messages, it stays there as new ones come. Anywhere else, it keeps the reader's place, loads the pages
- * before and after as they near either end, and offers Jump to newest message when new ones come.
+ * The scrolling timeline. At the end of the room's messages, it stays there as new ones come. Anywhere
+ * else, it keeps the reader's place, loads the pages before and after as they near either end, and
+ * offers Jump to newest message when new ones come.
  */
 export function MessageList({ roomName, direct = false, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {} }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
@@ -152,8 +152,8 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
     place.current = placeIn(el);
   });
 
-  // Goes to a message, centred and outlined, as ember-rust's opens a permalink's, or, for none, to the
-  // end, as sending and Jump to newest message go.
+  // Goes to a message, centred and outlined, as a permalink opens it, or, for none, to the end, as
+  // sending and Jump to newest message go.
   const go = useEffectEvent((messageId: string | null) => {
     const el = scroller.current!;
     const row = messageId === null ? undefined : rowsIn(el).find((r) => r.dataset.messageId === messageId);
@@ -171,11 +171,11 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
   });
 
   // Something open in a message that scrolls itself into view, as its editor or New boost's form, grows and scrolls
-  // as the browser has it, as ember-rust's do: the timeline doesn't scroll as what it shows resizes until it's closed.
-  // Following the end, or keeping the place of a message below it, would push it up by however much it grows, out of
-  // view, and setting the scroll would stop its own to the middle of the timeline, or undo Lexxy's to its caret. New
-  // messages still bring a reader near the end to them, as ember-rust's do, and the timeline still keeps the reader
-  // at the end, or in their place, as it resizes itself, as a window or a phone's keyboard resizes it.
+  // as the browser has it: the timeline doesn't scroll as what it shows resizes until it's closed. Following the
+  // end, or keeping the place of a message below it, would push it up by however much it grows, out of view, and
+  // setting the scroll would stop its own to the middle of the timeline, or undo Lexxy's to its caret. New messages
+  // still bring a reader near the end to them, and the timeline still keeps the reader at the end, or in their
+  // place, as it resizes itself, as a window or a phone's keyboard resizes it.
   const opened = useCallback(() => {
     open.current++;
     return () => {
@@ -254,9 +254,9 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
     place.current = placeIn(el);
   };
 
-  // As in ember-rust, the card shows in its room while the room is new, and it's the room's welcome, but
-  // only to the administrators who haven't dismissed it, who alone are given the invitation, and only while
-  // its join link lets people in: not once an administrator turns it off, or Memberful is members only.
+  // The card shows in its room while the room is new, and it's the room's welcome, but only to the
+  // administrators who haven't dismissed it, who alone are given the invitation, and only while its join
+  // link lets people in: not once an administrator turns it off, or Memberful is members only.
   const linkJoins = joinsWithLink(useAccount());
   const welcomeCard = invitation !== null && state.paged === false && linkJoins;
   // Until the room lets the socket in, which brings its messages afresh. The timeline is busy then, and while it
@@ -266,7 +266,7 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
   return (
     <div className="min-h-0 flex-1" {...dropTarget(onDropFiles)}>
       {/* `isolate` keeps the message controls' z-indexes inside the timeline, so Jump to newest message
-          below stays above them, as in ember-rust (zz-ember.css, `.message-area__return-to-latest`). */}
+          below stays above them. */}
       <div ref={scroller} onScroll={onScroll} className="isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages ${direct ? "with" : "in"} ${roomName}`} aria-busy={waiting || newestFirst || undefined}>
         <div ref={content}>
           <div ref={top} aria-hidden className="h-px" />
@@ -301,7 +301,7 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
         </div>
       </div>
 
-      {/* ember-rust's sits 160px above the bottom of the main content, which holds the composer too. */}
+      {/* 160px above the bottom of the main content, which holds the composer too. */}
       {behind && (
         <button
           type="button"

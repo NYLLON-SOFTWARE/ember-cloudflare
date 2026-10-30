@@ -25,7 +25,7 @@ test("message actions open with a tap and fit the phone", async ({ page, room, p
   await screenIsFine();
   await tray.getByRole("button", { name: "Fire" }).tap();
   await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button", { name: "🔥" })).toBeVisible();
-  // As in ember-rust, a reaction closes the bar, and focus goes back to Message options.
+  // A reaction closes the bar, and focus goes back to Message options.
   await expect(actions).toBeHidden();
   await expect(options).toBeFocused();
 
@@ -37,8 +37,6 @@ test("message actions open with a tap and fit the phone", async ({ page, room, p
   await screenIsFine({ denseTargets: [REACTION_PILLS] });
 });
 
-// After ember-rust's "custom reactions use a spaced form with validation, cancel, and mobile layouts"
-// and "inline Add a boost opens the shared emoji tray" (parity/kro/workspace.test.mjs).
 test("Add a boost, New boost's form and Delete this boost fit the phone", async ({ page, room, participant, screenIsFine }) => {
   const ada = await participant("Ada");
   await ada.say("React to this in your own words");

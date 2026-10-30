@@ -1,8 +1,8 @@
 import { cn } from "@/lib/utils";
 
 /**
- * "Ember version" and this deployment's version in Campfire's `.version-badge` (base.css), as ember-rust
- * shows it under the sign-in and join cards since its pull request #24.
+ * "Ember version" and this deployment's version in Campfire's `.version-badge` (base.css), shown under
+ * the sign-in and join cards.
  */
 export function Version({ version, className }: { version: string; className?: string }) {
   return (

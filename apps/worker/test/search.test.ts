@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_SEARCH_LENGTH, SEARCH_TOO_LONG, searchTerms, type Me, type Message, type NewWorkspace, type RoomId, type SearchResults, type UserId } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -108,7 +107,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("search.messages"), () => {
+describe("Search messages", () => {
   it("finds a message by its words, stemmed, as its text is now", async () => {
     const room = await freshRoom("eels");
     const ada = await connect(room, "Ada");
@@ -133,7 +132,7 @@ describe(feature("search.messages"), () => {
     const jason = await connect(room, "Jason");
     const message = await post(jason, "Do NOT feed the eel OR the shark");
     await indexed(room);
-    // As ember-rust's test asks the index, quoting each word but not sanitizing them first.
+    // Asking the index itself, quoting each word but not sanitizing them first.
     for (const query of ["NOT", "OR", "AND", "NEAR", "eel NOT", "NOT eel", "shark OR", '"', "*", "", "a\0b", "\0", "́"]) {
       await expect(searchIndexStub().search(searchTerms(query), [room]), JSON.stringify(query)).resolves.toBeInstanceOf(Array);
       expect((await searchAs(jason.session, query)).status, JSON.stringify(query)).toBe(200);
@@ -479,7 +478,7 @@ describe(feature("search.messages"), () => {
   });
 });
 
-describe(feature("search.recent"), () => {
+describe("Recent searches", () => {
   it("records a search, punctuation turned to spaces, and answers what it finds with your recent searches, newest first", async () => {
     const room = await freshRoom("greetings");
     const ada = await connect(room, "Ada");

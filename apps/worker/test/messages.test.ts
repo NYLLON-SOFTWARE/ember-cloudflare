@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type NewWorkspace, type PersonRole, type UserId } from "@ember/protocol";
 import { bodyFromPlainText, MENTION_CONTENT_TYPE, mentionSgid, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext";
 import { describe, expect, it } from "vitest";
@@ -23,7 +22,7 @@ async function changeRole(session: Session, userId: UserId, role: PersonRole): P
 /** A mention of `userId`, as Lexxy writes one. */
 const mention = (userId: string) => `<action-text-attachment sgid="${mentionSgid(userId)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
 
-describe(feature("messages.create"), () => {
+describe("Send a message", () => {
   it("delivers a message to everyone in the room, attributed to its sender", async () => {
     const room = await freshRoom("create");
     const ada = await connect(room, "Ada");
@@ -134,14 +133,14 @@ describe(feature("messages.create"), () => {
   });
 });
 
-describe(feature("messages.plain-text"), () => {
+describe("Plain-text version of a message", () => {
   it("keeps each message's plain text, as Action Text writes it", async () => {
     const ada = await connect(await freshRoom("plain-text"), "Ada");
     expect((await post(ada, "<p>One</p><ul><li>Two</li><li>Three</li></ul>")).plainText).toBe("One\n\n• Two\n• Three");
   });
 });
 
-describe(feature("mentions.render"), () => {
+describe("How mentions look", () => {
   it("keeps whom a message mentions, named as they are now, and a mention of no one as ☒", async () => {
     const room = await freshRoom("mentions");
     const ada = await connect(room, "Ada");
@@ -168,7 +167,7 @@ describe(feature("mentions.render"), () => {
 /** `value` in an attribute, as the room writes it. */
 const attribute = (value: string) => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-describe(feature("unfurl.render"), () => {
+describe("Link previews in messages", () => {
   it("keeps a link preview as Lexxy writes the composer's, with the link's text, which is all of the plain text", async () => {
     const ada = await connect(await freshRoom("previews"), "Ada");
     const card = previewContent({ href: "https://basecamp.com/", url: "https://basecamp.com/og.png", filename: "Basecamp", description: "Calm & organized" });
@@ -186,7 +185,7 @@ describe(feature("unfurl.render"), () => {
   });
 });
 
-describe(feature("messages.edit"), () => {
+describe("Edit a message", () => {
   it("lets the author change a message, for everyone, and keeps the change", async () => {
     const room = await freshRoom("edit");
     const ada = await connect(room, "Ada");
@@ -281,7 +280,7 @@ describe(feature("messages.edit"), () => {
   });
 });
 
-describe(feature("messages.delete"), () => {
+describe("Delete a message", () => {
   it("lets the author delete a message, with its reactions, for everyone", async () => {
     const room = await freshRoom("delete");
     const ada = await connect(room, "Ada");
@@ -359,7 +358,7 @@ describe(feature("messages.delete"), () => {
   });
 });
 
-describe(feature("messages.history"), () => {
+describe("Scroll back through history", () => {
   it("opens a room on its newest 40 messages, oldest first, and says when there are more", async () => {
     const room = await freshRoom("page");
     const ada = await connect(room, "Ada");
@@ -441,7 +440,7 @@ describe(feature("messages.history"), () => {
     expect(last.messages.map((m) => m.body)).toEqual(["message 5"]);
     expect(last.hasNewer).toBe(false);
 
-    // Past the newest message, a page is empty, where ember-rust answers 204.
+    // Past the newest message, a page is empty.
     ada.send({ type: "history.after", after: posted[4]!.id });
     expect(await ada.next("history.after")).toMatchObject({ messages: [], hasNewer: false });
 
@@ -519,7 +518,7 @@ describe(feature("messages.history"), () => {
   });
 });
 
-describe(feature("messages.permalink"), () => {
+describe("Link to a message", () => {
   it("opens a socket at a permalink on the page around its message: up to 40 before it, it, and up to 40 after", async () => {
     const room = await freshRoom("around");
     const ada = await connect(room, "Ada");

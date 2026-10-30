@@ -21,9 +21,9 @@ export interface PhotoChoice {
 
 /**
  * The photo someone picks in the setup, join or bot form, which shows at once, as Campfire's
- * upload_preview_controller.js shows it, while its variant is made (`avatarVariantOf`). A photo over
- * 16 MB is refused at once, where ember-rust takes any, and the form shows nothing for a field that
- * has nothing picked, where Campfire's keeps showing a photo it won't send.
+ * upload_preview_controller.js shows it, while its variant is made (`avatarVariantOf`). A photo over 16
+ * MB is refused at once, and the form shows nothing for a field that has nothing picked, where
+ * Campfire's keeps showing a photo it won't send.
  */
 export function useChosenPhoto(): PhotoChoice {
   const input = useRef<HTMLInputElement>(null);

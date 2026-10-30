@@ -1,6 +1,6 @@
-// Where to go once signed in: the page this tab was on when it was sent to sign in, as ember-rust
-// keeps `return_to_after_authenticating` in the session (crates/ember/src/concerns.rs). The tab keeps
-// it, so a sign-in in another tab doesn't take this one's.
+// Where to go once signed in: the page this tab was on when it was sent to sign in, as Campfire keeps
+// `return_to_after_authenticating` in the session. The tab keeps it, so a sign-in in another tab doesn't
+// take this one's.
 
 const KEY = "ember:return-to";
 

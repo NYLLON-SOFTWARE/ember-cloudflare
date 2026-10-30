@@ -1,8 +1,7 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { isAppPage, MAX_ID_LENGTH, TRANSFER_PATH, transferLink, workspacePageOf } from "./index";
 
-describe(feature("platform.error-pages"), () => {
+describe("Error pages", () => {
   it("names the pages the app shows, for the Worker to serve the app at", () => {
     const pages = ["/", "/rooms", "/rooms/general", "/rooms/caf%C3%A9", "/rooms/opens/general", "/rooms/directs/ada-grace", "/rooms/opens/new", "/rooms/closeds/new"];
     for (const path of [...pages, "/rooms/opens/general/edit", "/account/edit", "/account/custom_styles/edit", "/session/new"]) expect(isAppPage(path), path).toBe(true);
@@ -14,7 +13,7 @@ describe(feature("platform.error-pages"), () => {
     for (const path of paths) expect(isAppPage(path), path).toBe(false);
   });
 
-  it("names nothing at Rails' unused actions, which ember-rust answers 404 for", () => {
+  it("names nothing at Rails' unused actions", () => {
     for (const path of ["/rooms/new", "/rooms/general/edit"]) expect(isAppPage(path), path).toBe(false);
   });
 
@@ -27,14 +26,14 @@ describe(feature("platform.error-pages"), () => {
   });
 });
 
-describe(feature("dms.picker"), () => {
+describe("New direct message dialog", () => {
   it("shows New direct message at its address", () => {
     expect(workspacePageOf("/rooms/directs/new")).toEqual({ page: "new-direct" });
     for (const path of ["/rooms/directs/new/", "/rooms/directs/new/edit"]) expect(workspacePageOf(path), path).not.toEqual({ page: "new-direct" });
   });
 });
 
-describe(feature("dms.naming"), () => {
+describe("Group DMs and DM names", () => {
   it("shows a DM's settings at its address", () => {
     expect(workspacePageOf("/rooms/directs/ada-grace/edit")).toEqual({ page: "direct-settings", roomId: "ada-grace" });
     expect(workspacePageOf("/rooms/directs/caf%C3%A9/edit")).toEqual({ page: "direct-settings", roomId: "café" });
@@ -42,7 +41,7 @@ describe(feature("dms.naming"), () => {
   });
 });
 
-describe(feature("messages.permalink"), () => {
+describe("Link to a message", () => {
   it("opens a message's room at its permalink, around the message", () => {
     expect(workspacePageOf("/rooms/caf%C3%A9/@m-1")).toEqual({ page: "room", roomId: "café", messageId: "m-1" });
     expect(workspacePageOf("/rooms/general/@m%2D1")).toEqual({ page: "room", roomId: "general", messageId: "m-1" });
@@ -67,15 +66,15 @@ describe(feature("messages.permalink"), () => {
   });
 });
 
-describe(feature("users.profile"), () => {
-  it("shows your profile at anyone's profile address, as ember-rust ignores whose it names", () => {
+describe("Edit your profile", () => {
+  it("shows your profile at anyone's profile address", () => {
     for (const path of ["/users/me/profile", "/users/01J9Z3/profile"]) expect(workspacePageOf(path), path).toEqual({ page: "profile" });
     for (const path of ["/users/me/profile/", "/users/me/profile/edit"]) expect(workspacePageOf(path), path).toBeNull();
   });
 });
 
-describe(feature("notifications.test-page"), () => {
-  it("shows your push subscriptions at anyone's address for them, as ember-rust ignores whose it names", () => {
+describe("Push subscriptions page", () => {
+  it("shows your push subscriptions at anyone's address for them", () => {
     for (const path of ["/users/me/push_subscriptions", "/users/01J9Z3/push_subscriptions"]) {
       expect(workspacePageOf(path), path).toEqual({ page: "push-subscriptions" });
     }
@@ -85,8 +84,8 @@ describe(feature("notifications.test-page"), () => {
   });
 });
 
-describe(feature("users.show"), () => {
-  it("shows someone's page at /users/<id>, whatever the id, as ember-rust's router reads one", () => {
+describe("Someone's profile page", () => {
+  it("shows someone's page at /users/<id>, whatever the id", () => {
     expect(workspacePageOf("/users/0mgk3x2a9b4c5d")).toEqual({ page: "person", userId: "0mgk3x2a9b4c5d" });
     expect(workspacePageOf("/users/caf%C3%A9")).toEqual({ page: "person", userId: "café" });
     // An id nobody has is the page's to answer 404 for.
@@ -95,14 +94,14 @@ describe(feature("users.show"), () => {
   });
 });
 
-describe(feature("bots.list"), () => {
-  it("shows the Chat bots page at `/account/bots`, where a bot's own address names nothing, as in ember-rust", () => {
+describe("Chat bots page", () => {
+  it("shows the Chat bots page at `/account/bots`, where a bot's own address names nothing", () => {
     expect(workspacePageOf("/account/bots")).toEqual({ page: "bots" });
     for (const path of ["/account/bots/", "/account/bots/0mgk3x2a9b4c5e", "/account/bot"]) expect(workspacePageOf(path), path).toBeNull();
   });
 });
 
-describe(feature("bots.create-edit"), () => {
+describe("Add and edit a bot", () => {
   it("shows Add a chat bot at `/account/bots/new`, and a bot's settings at `/account/bots/<id>/edit`", () => {
     expect(workspacePageOf("/account/bots/new")).toEqual({ page: "new-bot" });
     expect(workspacePageOf("/account/bots/0mgk3x2a9b4c5e/edit")).toEqual({ page: "bot-settings", userId: "0mgk3x2a9b4c5e" });
@@ -113,7 +112,7 @@ describe(feature("bots.create-edit"), () => {
   });
 });
 
-describe(feature("auth.sign-in-link"), () => {
+describe("Private sign-in link", () => {
   it("puts a sign-in link's id in the fragment of /session/transfers", () => {
     expect(transferLink("0mgk3x2a9b4c5d.mgk3x2a9.Ab-_9z")).toBe("/session/transfers#token=0mgk3x2a9b4c5d.mgk3x2a9.Ab-_9z");
   });
@@ -124,7 +123,7 @@ describe(feature("auth.sign-in-link"), () => {
   });
 });
 
-describe(feature("search.page"), () => {
+describe("Search page", () => {
   it("shows search at `/searches`, whatever its query string, which the path leaves out", () => {
     expect(workspacePageOf("/searches")).toEqual({ page: "search" });
     expect(isAppPage("/searches")).toBe(true);

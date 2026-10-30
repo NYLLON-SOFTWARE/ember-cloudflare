@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Page } from "@playwright/test";
 import { ADMINISTRATOR, drawnPicture, nextSecond, shownPicture, useOwnAddress } from "../../fixtures";
 import { expect, test } from "./fixtures";
@@ -12,7 +11,7 @@ async function openYourProfile(page: Page): Promise<void> {
   await expect(page.getByLabel("Name", { exact: true })).toBeEnabled();
 }
 
-test.describe(feature("users.profile"), () => {
+test.describe("Edit your profile", () => {
   test("saves your name, email address, password and bio, and everyone's open pages show the new name at once", async ({ members }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"));
@@ -107,7 +106,7 @@ test.describe(feature("users.profile"), () => {
   });
 });
 
-test.describe(feature("users.avatar-upload"), () => {
+test.describe("Upload an avatar", () => {
   test("changes your avatar from your profile, everywhere it shows at once, and removes it", async ({ members }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"));

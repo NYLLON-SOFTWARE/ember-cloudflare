@@ -50,9 +50,9 @@ export function writtenBody(parse: HtmlParser, markup: string): { plainText: str
 }
 
 /**
- * Everything Ember keeps of a body a client sent, or null when it can't be shown: past the
- * parser's limits, or with an attachment that raises as Rails renders it. ember-rust stores such a
- * body and shows it as an empty or unrenderable message; Ember refuses it.
+ * Everything Ember keeps of a body a client sent, or null when it can't be shown: past the parser's
+ * limits, or with an attachment that raises as Rails renders it. Ember refuses such a body rather than
+ * keep what would show as an empty message.
  */
 export function prepareBody(parse: HtmlParser, markup: string, resolve: ResolveMention): PreparedBody | null {
   return preparePlainParagraph(markup) ?? prepareParsedBody(parse, markup, resolve);

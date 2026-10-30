@@ -1,7 +1,7 @@
--- Avatars people upload, kept by the Workspace (scope "workspace" in src/migrations.ts), as ember-rust
--- attaches a user's `avatar` (crates/db/src/schema.sql, `active_storage_attachments`). R2 keeps the
--- file at `avatar_key`, and the variant ember-rust serves of it beside it, which the uploader's browser
--- made, unless it couldn't, or ember-rust can't resize a file of its type (src/files/pictures.ts).
+-- Avatars people upload, kept by the Workspace (scope "workspace" in src/migrations.ts), as Campfire
+-- attaches a user's `avatar` (`active_storage_attachments`). R2 keeps the file at `avatar_key`, and the
+-- variant served of it beside it, which the uploader's browser made, unless it couldn't, or Campfire
+-- doesn't resize a file of its type (src/files/pictures.ts).
 ALTER TABLE users ADD COLUMN avatar_key TEXT;
 -- The variant's type, or null when there's none to serve and the avatar is their initials.
 ALTER TABLE users ADD COLUMN avatar_variant TEXT;

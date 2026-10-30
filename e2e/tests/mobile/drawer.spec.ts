@@ -14,8 +14,8 @@ test("the conversations drawer opens from the header and fits", async ({ page, s
   await expect(drawer).toBeVisible();
   await screenIsFine();
 
-  // As in ember-rust, the drawer leaves a strip of the room showing, so it reads as a drawer
-  // and there's somewhere to tap to close it.
+  // The drawer leaves a strip of the room showing, so it reads as a drawer and there's somewhere to tap
+  // to close it.
   const box = (await drawer.boundingBox())!;
   expect(page.viewportSize()!.width - (box.x + box.width)).toBeGreaterThanOrEqual(16);
 });

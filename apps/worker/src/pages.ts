@@ -57,14 +57,13 @@ function preloadsFor(request: Request): string {
   return paths.map((path) => `<${path}>; rel=preload; as=fetch; crossorigin`).join(", ");
 }
 
-/** `pathname` as ember-rust's router reads it: with runs of slashes squeezed and no trailing slash. */
+/** `pathname`: with runs of slashes squeezed and no trailing slash. */
 const normalized = (pathname: string) => pathname.replace(/\/{2,}/g, "/").replace(/(.)\/$/, "$1");
 
 /**
- * Any other path, as ember-rust's router answers it: the app's page where the app shows one, one of
- * the built app's files, or Campfire's 404 page, which the assets answer for a path they don't have
- * (`not_found_handling`). Where ember-rust ignores extra slashes, this sends the browser to the page's
- * own address, which the app reads.
+ * Any other path: the app's page where the app shows one, one of the built app's files, or Campfire's
+ * 404 page, which the assets answer for a path they don't have (`not_found_handling`). A path with extra
+ * slashes sends the browser to the page's own address, which the app reads.
  */
 export async function anyOtherPage(request: Request, env: Env, pathname: string): Promise<Response> {
   // The assets answer 405 to anything else.
@@ -88,7 +87,7 @@ export function withCookies(response: Response, ...cookies: Array<string | null>
 /** Sends the browser to the app's home page. */
 export const home = (request: Request) => new Response(null, { status: 302, headers: { Location: new URL("/", request.url).href } });
 
-/** Sends the browser to sign in, as ember-rust's `request_authentication` does (crates/ember/src/concerns.rs). */
+/** Sends the browser to sign in. */
 export const signInFirst = (request: Request) => new Response(null, { status: 302, headers: { Location: new URL("/session/new", request.url).href } });
 
 /** A form's answer, which no cache keeps, since it can sign someone in. */

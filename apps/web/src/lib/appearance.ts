@@ -1,7 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-// Light / Dark / System, saved per browser and kept in step across tabs and with the device, as
-// ember-rust's basecoat/src/appearance.js and workspace-appearance.js have it.
+// Light / Dark / System, saved per browser and kept in step across tabs and with the device.
 
 export type Appearance = "light" | "dark" | "system";
 
@@ -40,8 +39,7 @@ export function applyAppearance(appearance: Appearance): void {
   html.classList.toggle("dark", dark);
   html.dataset.appearance = appearance;
   html.style.colorScheme = dark ? "dark" : "light";
-  // The page's background, as workspace-appearance.js sets it, in place of index.html's colors for
-  // the system's scheme.
+  // The page's background, in place of index.html's colors for the system's scheme.
   for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) meta.content = dark ? "#171717" : "#ffffff";
   listeners.forEach((listener) => listener());
 }
@@ -58,12 +56,11 @@ export function chooseAppearance(appearance: Appearance): void {
 
 /**
  * Keeps the page in step with the device while it shows System, and with choices made in other tabs,
- * including clearing the site's storage, which goes back to System. Every page does this, as each of
- * ember-rust's does.
+ * including clearing the site's storage, which goes back to System. Every page does this.
  */
 export function followAppearance(): () => void {
-  // First catch up with what changed while the page loaded, before anything was listening: another
-  // tab's choice, or the device's theme under System. workspace-appearance.js does this as it starts.
+  // First catch up with what changed while the page loaded, before anything was listening: another tab's
+  // choice, or the device's theme under System.
   applyAppearance(savedAppearance());
   const onDeviceChange = () => {
     if (shownAppearance() === "system") applyAppearance("system");

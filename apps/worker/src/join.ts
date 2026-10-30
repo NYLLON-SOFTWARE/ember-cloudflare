@@ -38,16 +38,14 @@ import { passedTurnstile, turnstileKeysFor } from "./turnstile";
 import { workspace } from "./workspace";
 import type { NewPerson } from "./workspace-store";
 
-// Joining with the workspace's join link, ported from ember-rust's crates/ember/src/controllers/users.rs
-// (`new` and `create`), except that the form posts to /api/join/<code>. Where ember-rust fails with
-// 500 before first run, there's no join code to match yet, so every link is a 404. An administrator
-// can turn the link off, and while Memberful is members only (memberful.ts) it's off too: either
-// way it sends people to sign in. Signing up at /join, with no code, is this port's own: anyone may
-// while an administrator lets them (`auth.open-sign-up`), within its limits, and with Turnstile's check
-// while Ember has a widget's keys (`auth.turnstile`). So is joining with an invitation's link
-// (`auth.invitation-sign-up`), whichever ways to join are on, with the address it was sent to, and with a
-// link someone asks Ember to email an address at the workspace's email domains, while an administrator
-// lets those domains in (`auth.email-domain-sign-up`).
+// Joining with the workspace's join link, as Campfire's UsersController does (`new` and `create`),
+// except that the form posts to /api/join/<code>. Before first run, there's no join code to match yet,
+// so every link is a 404. An administrator can turn the link off, and while Memberful is members only
+// (memberful.ts) it's off too: either way it sends people to sign in. Signing up at /join, with no code,
+// is Ember's own: anyone may while an administrator lets them, within its limits, and with Turnstile's
+// check while Ember has a widget's keys. So is joining with an invitation's link, whichever ways to join
+// are on, with the address it was sent to, and with a link someone asks Ember to email an address at the
+// workspace's email domains, while an administrator lets those domains in.
 
 /** What the join form answers while Memberful is members only: why, and where to go instead. */
 const MEMBERFUL_INSTEAD = {
@@ -74,7 +72,7 @@ export const joinCodeOf = (pathname: string) => pathname.match(/^\/join\/([^/]+)
  */
 export async function joinPage(request: Request, env: Env, code: string): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return empty(404);
-  // ember-rust's require_unauthenticated_access comes first: someone signed in goes home.
+  // Campfire's `require_unauthenticated_access` comes first: someone signed in goes home.
   const [session, link] = await Promise.all([authenticate(request, env), workspace(env).joinLink(code)]);
   if (session) return home(request);
   if (link === "not found") return empty(404);
@@ -230,12 +228,12 @@ export async function joinWithEmailLink(request: Request, env: Env, kind: EmailL
 
 /**
  * `POST /api/email_links`, `{ emailAddress, turnstileToken? }`: emails the address a link to join with
- * it, while Email domain lets in its domain (`auth.email-domain-sign-up`), answering 202 whether or not
- * it has an account already, which it's emailed about instead, so that the answer never says who has
- * one. While Email domain is off it answers 403 before the body is read, sending them to sign in, and
- * an address at another domain is refused on its field. Turnstile's check comes next, while Ember has
- * a widget's keys, and else the network's limit, which stands in for it. It answers 503 while
- * Ember can't send email, and 502 when the provider refuses the email.
+ * it, while Email domain lets in its domain, answering 202 whether or not it has an account already,
+ * which it's emailed about instead, so that the answer never says who has one. While Email domain is off
+ * it answers 403 before the body is read, sending them to sign in, and an address at another domain is
+ * refused on its field. Turnstile's check comes next, while Ember has a widget's keys, and else the
+ * network's limit, which stands in for it. It answers 503 while Ember can't send email, and 502 when the
+ * provider refuses the email.
  */
 export async function askForEmailLink(request: Request, env: Env): Promise<Response> {
   const [session, account] = await Promise.all([authenticate(request, env), workspace(env).account()]);
@@ -260,10 +258,10 @@ export async function askForEmailLink(request: Request, env: Env): Promise<Respo
   return formAnswer({}, 202);
 }
 
-/** What a form for joining answers someone signed in: go home, as ember-rust's require_unauthenticated_access sends them. */
+/** What a form for joining answers someone signed in: go home. */
 const signedInAlready = () => formAnswer({ error: "You're signed in already", redirect: "/" }, 409);
 
-/** Why a sign-up's password is refused, as first run refuses it, though ember-rust takes any here, even an empty one, which makes an account nobody can sign in to. */
+/** Why a sign-up's password is refused, as first run refuses it, though Campfire takes any here, even an empty one, which makes an account nobody can sign in to. */
 function passwordRefusal(password: string): Response | null {
   if (isPasswordTooLong(password)) return formAnswer({ error: PASSWORD_TOO_LONG, field: "password" }, 422);
   if (isPasswordTooShort(password)) return formAnswer({ error: PASSWORD_TOO_SHORT, field: "password" }, 422);

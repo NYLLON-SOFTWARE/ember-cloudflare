@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { SIGN_IN_LIMITED, type Directory } from "@ember/protocol";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
@@ -8,7 +7,7 @@ import { join } from "./fixtures";
 /** The sign-in page's heading, which names the workspace, which another test here may have renamed. */
 const signInHeading = (tab: Page) => tab.getByRole("heading", { level: 1, name: /^Sign in to / });
 
-test.describe(feature("accounts.roles"), () => {
+test.describe("Make or revoke administrators", () => {
   test("the administrator makes someone an administrator, and a member again, and that person's pages follow at once", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit#membership-settings");
@@ -27,7 +26,7 @@ test.describe(feature("accounts.roles"), () => {
     await expect(gracesPeople.getByRole("list", { name: "Members" }).getByRole("listitem").filter({ hasText: name })).toBeVisible();
     await expect(grace.getByRole("checkbox")).toHaveCount(0);
 
-    // The administrator's page lists them once it loads again, as ember-rust's does.
+    // The administrator's page lists them once it loads again.
     await page.reload();
     const row = people.getByRole("listitem").filter({ hasText: name });
     await expect(row.getByRole("checkbox", { name: "Role: Member" })).not.toBeChecked();
@@ -54,7 +53,7 @@ test.describe(feature("accounts.roles"), () => {
   });
 });
 
-test.describe(feature("accounts.remove-person"), () => {
+test.describe("Remove someone from the workspace", () => {
   test("the administrator removes someone after asking, and that person's pages go to sign in at once", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit#membership-settings");
@@ -100,7 +99,7 @@ test.describe(feature("accounts.remove-person"), () => {
   });
 });
 
-test.describe(feature("accounts.ban"), () => {
+test.describe("Ban and unban people", () => {
   test("the administrator bans someone from their page after asking, signing them out and deleting their messages, and lifts the ban", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit#membership-settings");
@@ -169,7 +168,7 @@ async function statusOfChange(tab: Page, path: string, act: () => Promise<unknow
   return (await response).status();
 }
 
-test.describe(feature("accounts.ban-enforcement"), () => {
+test.describe("What a ban blocks", () => {
   // Browsers don't send a test's address when they open a WebSocket (see `useOwnAddress`), so the
   // Worker's tests cover what a banned address's room sockets can do.
   test("nobody at a banned address can sign in or change anything, though they can still read, until the ban is lifted", async ({ page, browser, baseURL }) => {
@@ -202,7 +201,7 @@ test.describe(feature("accounts.ban-enforcement"), () => {
     await expect(hal.getByRole("status").filter({ hasText: "Couldn’t save your favorite. Please try again." })).toBeVisible();
     await expect(star).toHaveAttribute("aria-pressed", "false");
     expect(await statusOfChange(visitor, "/api/session", () => signInAsAdministrator(visitor))).toBe(429);
-    // As if they'd tried too often, as ember-rust's 429 is.
+    // As if they'd tried too often.
     await expect(visitor.getByRole("alert")).toHaveText(SIGN_IN_LIMITED);
 
     page.once("dialog", (dialog) => void dialog.accept());

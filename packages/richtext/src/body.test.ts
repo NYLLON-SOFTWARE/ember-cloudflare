@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { prepareBody } from "./body";
 import { mentionSgid } from "./mentions";
@@ -12,7 +11,7 @@ const mention = (n: number, attributes = "") =>
 const storedMention = (n: number) =>
   `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${mentionSgid(testUserId(n))}"></action-text-attachment>`;
 
-describe(feature("messages.rich-text"), () => {
+describe("Rich text, safely", () => {
   it("stores Lexxy's formatting, without classes, styles, targets or scripts", () => {
     const body = '<p class="x" style="color: red">Hi <strong>all</strong><script>alert(1)</script></p><pre data-language="ruby">x = 1</pre>';
     expect(prepare(body)).toEqual({
@@ -58,7 +57,7 @@ describe(feature("messages.rich-text"), () => {
   });
 });
 
-describe(feature("mentions.render"), () => {
+describe("How mentions look", () => {
   it("stores a mention as an attachment that renders the person as they are now, and names them as they are", () => {
     const body = `<p>Hi ${mention(1, ' content="&lt;img src=&quot;/x.png&quot;&gt; David"')} and ${mention(2)}, and ${mention(1)}!</p>`;
     expect(prepare(body)).toEqual({
@@ -86,7 +85,7 @@ describe(feature("mentions.render"), () => {
   });
 });
 
-describe(feature("messages.plain-text"), () => {
+describe("Plain-text version of a message", () => {
   it("reads the body's plain text", () => {
     expect(prepare("<blockquote>q</blockquote><ul><li>a</li></ul>")?.plainText).toBe("“q”\n\n• a");
   });

@@ -31,7 +31,7 @@ test("the search page fits the phone, with recent searches, a long result and it
     await field.fill(query);
     await field.press("Enter");
     // The page goes to a search's address once it has answered. Until then the field's button is
-    // disabled, as Turbo's is in ember-rust, so Enter there does nothing.
+    // disabled, so Enter there does nothing.
     await expect(page).toHaveURL(`/searches?q=${encodeURIComponent(query).replaceAll("%20", "+")}`);
     await expect(page.getByRole("heading", { name: "No messages found" })).toBeVisible();
   }
@@ -45,7 +45,7 @@ test("the search page fits the phone, with recent searches, a long result and it
   await expect(page.getByRole("group", { name: "Recent searches" }).getByRole("link")).toHaveCount(4);
   await screenIsFine();
 
-  // As in ember-rust's footer, Exit and the field are centred on one line.
+  // Exit and the field are centred on one line.
   const exit = page.getByRole("link", { name: "Exit search" });
   expect(Math.abs((await middleOf(exit)) - (await middleOf(field.locator(".."))))).toBeLessThanOrEqual(1);
 });

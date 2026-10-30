@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { CloseCode, type Account, type DirectoryUser, type Me, type SharedRoom, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -137,7 +136,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("sidebar.live-updates"), () => {
+describe("Live sidebar updates", () => {
   it("loads, and loads again each time the workspace socket connects, the first time included", async () => {
     const { result } = await showSidebar();
     expect(result.current.list).toEqual(unstarred([design]));
@@ -301,7 +300,7 @@ describe(feature("sidebar.live-updates"), () => {
   });
 });
 
-describe(feature("sidebar.unread"), () => {
+describe("Unread rooms", () => {
   it("marks rooms unread and read as the workspace socket says", async () => {
     const { result } = await showSidebar();
     socket().connect();
@@ -323,7 +322,7 @@ describe(feature("sidebar.unread"), () => {
   });
 });
 
-describe(feature("notifications.levels"), () => {
+describe("Notification levels", () => {
   it("changes a room's level as the workspace socket says one of Ada's tabs saved it", async () => {
     const { result } = await showSidebar();
     socket().connect();
@@ -356,7 +355,7 @@ describe(feature("notifications.levels"), () => {
   });
 });
 
-describe(feature("sidebar.dm-order"), () => {
+describe("DM order", () => {
   const withGrace = { id: "d1", kind: "direct", members: [ada, { id: grace.id, name: grace.name }], activeAt: "2026-10-15T12:00:00.000Z", unread: false, involvement: "everything" } satisfies SidebarRoom;
 
   it("moves a DM as the workspace socket says a message came in it", async () => {
@@ -380,7 +379,7 @@ describe(feature("sidebar.dm-order"), () => {
   });
 });
 
-describe(feature("accounts.roles"), () => {
+describe("Make or revoke administrators", () => {
   /** Ada's sidebar, connected, telling `onSessionChanged` and the directory's `update`. */
   async function connected() {
     const [onSessionChanged, update] = [vi.fn(), vi.fn()];
@@ -465,7 +464,7 @@ describe(feature("accounts.roles"), () => {
   });
 });
 
-describe(feature("sidebar.favorites"), () => {
+describe("Star rooms", () => {
   it("takes the stars saved in any of Ada's tabs from the workspace socket, keeping the newest", async () => {
     const { result } = await showSidebar();
     socket().connect();
@@ -487,7 +486,7 @@ describe(feature("sidebar.favorites"), () => {
   });
 });
 
-describe(feature("rooms.invitation-dismissal"), () => {
+describe("Welcome card for administrators, until they dismiss it", () => {
   const invited: Sidebar = { ...unstarred([general]), invitation: { roomId: general.id, joinCode: "aB3d-Ef5h-iJ7k" } };
 
   it("takes the welcome card away as the workspace socket says one of Ada's tabs dismissed it, even from a list on its way", async () => {
@@ -534,7 +533,7 @@ describe(feature("rooms.invitation-dismissal"), () => {
   });
 });
 
-describe(feature("sidebar.shared-order"), () => {
+describe("Shared room order", () => {
   it("loads its rooms again a while after the workspace socket says the shared order changed, once for the news that comes meanwhile", async () => {
     const onReload = vi.fn(async () => {});
     const { result } = renderHook(() => useSidebar(ada, () => {}, { people: new Map(), reload: onReload, update: () => {} }));
@@ -602,7 +601,7 @@ describe(feature("sidebar.shared-order"), () => {
   });
 });
 
-describe(feature("dms.suggestions"), () => {
+describe("Suggested people", () => {
   const hedy: Me = { id: "u3", name: "Hedy", administrator: false };
   /** A people directory that lists Hedy as `status`. */
   const listingHedy = (status: DirectoryUser["status"]) => ({ people: new Map([[hedy.id, { ...listed(hedy, "member"), status }]]), reload: async () => {}, update: () => {} });
@@ -639,7 +638,7 @@ describe(feature("dms.suggestions"), () => {
   });
 });
 
-describe(feature("platform.live-socket"), () => {
+describe("One live connection per tab outside the open room", () => {
   it("hands the tab over to whoever its socket's welcome says the session signs in", async () => {
     const onSessionChanged = vi.fn();
     await showSidebar(onSessionChanged);
@@ -695,7 +694,7 @@ describe(feature("platform.live-socket"), () => {
   });
 });
 
-describe(feature("accounts.remove-person"), () => {
+describe("Remove someone from the workspace", () => {
   it("goes to sign in, connecting no more, once the person is removed, which ends their sessions and closes the socket for good", async () => {
     const onSessionChanged = vi.fn();
     await showSidebar(onSessionChanged);
@@ -735,7 +734,7 @@ describe(feature("accounts.remove-person"), () => {
   });
 });
 
-describe(feature("accounts.custom-css"), () => {
+describe("Custom CSS", () => {
   it("says what the workspace is each time its socket connects, and whenever an administrator changes it", async () => {
     const onAccountChanged = vi.fn();
     renderHook(() => useSidebar(ada, () => {}, undefined, onAccountChanged));

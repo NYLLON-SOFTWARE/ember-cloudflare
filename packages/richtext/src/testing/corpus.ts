@@ -1,6 +1,6 @@
-// ember-rust's rich text corpus (corpus/README.md), and how to read it as Rails did: which users
-// its SGIDs name, what Campfire's mention partial renders, and how ember-rust's rendering
-// deliberately differs from what Rails rendered.
+// The rich text corpus (corpus/README.md), and how to read it as Rails did: which users its SGIDs name,
+// what Campfire's mention partial renders, and how Ember's rendering deliberately differs from what
+// Rails rendered.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -65,7 +65,7 @@ export function railsUser(sgid: string): CorpusUser | undefined {
   return userFromPossiblyExpiredSgid(sgid) ?? verifiedUser(sgid);
 }
 
-/** `attachable_from_possibly_expired_sgid` (ember-rust's crates/richtext/src/attachables.rs) */
+/** Campfire's `attachable_from_possibly_expired_sgid` (lib/rails_ext/action_text_attachables.rb) */
 function userFromPossiblyExpiredSgid(sgid: string): CorpusUser | undefined {
   // `sgid.split("--").first`: Ruby drops trailing empty fields, so "" and "--" have no first
   const fields = sgid.split("--");
@@ -174,7 +174,7 @@ function withoutJsonComments(text: string): string | undefined {
   return out;
 }
 
-/** reference/app/views/users/_mention.html.erb, with `avatar_tag`, for the user `mention` names. */
+/** Campfire's app/views/users/_mention.html.erb, with `avatar_tag`, for the user `mention` names. */
 export function railsMentionPartial(mention: MentionUser): string {
   const user = usersByEmberId.get(mention.id)!;
   return (
@@ -201,10 +201,9 @@ export const emberUserIds = (railsIds: number[]): string[] => railsIds.map((id) 
 const INSERTED_LINK = '<a target="_blank" href="';
 
 /**
- * Rails' presentation as ember-rust renders it on purpose (`with_port_divergences` in its
- * tests/corpus.rs): `<` and `>` are escaped in attribute values, the links rails_autolink inserted
- * inside an attribute value (a stored XSS) are left as the text they replaced, and `name`
- * attributes are dropped.
+ * Rails' presentation as Ember renders it on purpose: `<` and `>` are escaped in attribute values, the
+ * links rails_autolink inserted inside an attribute value (a stored XSS) are left as the text they
+ * replaced, and `name` attributes are dropped.
  */
 export function withPortDivergences(rails: string): string {
   let out = "";

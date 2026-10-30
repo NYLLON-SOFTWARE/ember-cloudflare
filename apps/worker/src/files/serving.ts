@@ -8,13 +8,11 @@ import { contentDisposition, sanitizedFilename } from "./filename";
 import { BINARY } from "./marcel";
 import { byteRanges, type ByteRange } from "./ranges";
 
-// Serving a room's files from R2 at the addresses addresses.ts makes, as ember-rust's disk service does
-// (`disk_show` in crates/ember/src/active_storage.rs, over crates/storage/src/file_server.rs, which port
-// `ActiveStorage::DiskController#show` and `Rack::Files#serving`): the whole file or the byte ranges
+// Serving a room's files from R2 at the addresses addresses.ts makes: the whole file or the byte ranges
 // asked for, 304 for a copy the browser has, and 416 for ranges the file doesn't have, each with its
-// type for serving, how to show it, and an hour anyone may cache it for. Several ranges go as
-// ember-rust's proxy route sends them, since the disk route sends them as the file's own type. A file's
-// preview is served the same way, as ember-rust serves a blob's variants.
+// type for serving, how to show it, and an hour anyone may cache it for. Several ranges go as Active
+// Storage's proxy route sends them, since the disk route sends them as the file's own type. A file's
+// preview is served the same way.
 
 /**
  * `/files/<key>/<signature>/<name>`, or `/previews/…` for the file's preview, where the name can be
@@ -25,7 +23,7 @@ const FILE_PATH = /^\/(files|previews)\/([^/]+)\/([^/]+)\/./;
 /** An Active Storage key: 28 lowercase letters and digits. */
 const KEY = /^[0-9a-z]{28}$/;
 
-/** What the disk route's `after_action` adds (reference/config/initializers/active_storage.rb). */
+/** What the disk route's `after_action` adds (Campfire's config/initializers/active_storage.rb). */
 const CACHE_CONTROL = "max-age=3600, public";
 
 /**
@@ -62,9 +60,8 @@ export const hasBody = (object: R2Object): object is R2ObjectBody => "body" in o
 const dispositionOf = (request: Request) => urlOf(request).searchParams.getAll("disposition").at(-1) ?? "inline";
 
 /**
- * What a GET or HEAD of a file's address answers. An address Ember didn't make, a file R2 doesn't
- * have, and a Worker with no bucket bound all answer an empty 404, as ember-rust's does for a key it
- * can't verify or a file it can't find.
+ * What a GET or HEAD of a file's address answers. An address Ember didn't make, a file R2 doesn't have,
+ * and a Worker with no bucket bound all answer an empty 404.
  */
 export async function serveFile(request: Request, env: Env, { key, signature, preview }: FileAddress): Promise<Response> {
   const files = env.FILES;

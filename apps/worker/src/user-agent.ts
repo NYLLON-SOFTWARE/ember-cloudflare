@@ -2,14 +2,11 @@ import type { Platform } from "@ember/protocol";
 import { strip } from "@ember/richtext";
 
 /**
- * Whether Campfire turns a browser away as too old, whether a request is Apple Messages fetching a
- * link preview, the platform the notification setup help is for, and how the push subscriptions page
- * names a browser. Ports ember-rust's `ApplicationPlatform` (crates/ember/src/concerns/platform.rs):
- * `browser_blocked`, `apple_messages` and `to_view`, its push subscriptions' presenter
- * (crates/ember/src/controllers/presenters/accounts.rs), and the parts of its useragent gem port
- * (crates/ember/src/concerns/user_agent.rs) they read. Those port Rails' `allow_browser`
- * (`ActionController::AllowBrowser::BrowserBlocker`) with Campfire's `AllowBrowser::VERSIONS`, Campfire's
- * `ApplicationPlatform#apple_messages?`, and the useragent gem 0.16.11, which reads the header for both.
+ * Whether Campfire turns a browser away as too old, whether a request is Apple Messages fetching a link
+ * preview, the platform the notification setup help is for, and how the push subscriptions page names a
+ * browser. Ports Rails' `allow_browser` (`ActionController::AllowBrowser::BrowserBlocker`) with
+ * Campfire's `AllowBrowser::VERSIONS`, Campfire's `ApplicationPlatform` and its push subscriptions page,
+ * and the useragent gem 0.16.11, which reads the header for all of them.
  *
  * The gem splits the header into products ("Chrome/120.0.0.0"), each with an optional comment
  * ("(Windows NT 10.0; Win64; x64)"), and the first of its browsers to recognize them decides the
@@ -52,7 +49,7 @@ export function isUnsupportedBrowser(userAgent: string | null): boolean {
 
 /**
  * `BrowserBlocker#normalized_browser_name`. Rails looks the minimum up by this name, so an agent that
- * calls itself "IE" is turned away like Internet Explorer; ember-rust only looks for "internet explorer".
+ * calls itself "IE" is turned away like Internet Explorer.
  */
 function normalizedBrowserName(browser: string): string {
   const name = browser.toLowerCase();
@@ -102,8 +99,7 @@ export interface BrowserNames {
 }
 
 /**
- * The browser a push subscription was saved from, as ember-rust's push subscriptions page names it
- * (`push_subscription`, presenters/accounts.rs): each of its name, version and platform is "" where the
+ * The browser a push subscription was saved from: each of its name, version and platform is "" where the
  * gem reads none or raises. One saved without a user agent reads as the gem's "Mozilla/4.0 (compatible)".
  */
 export function browserNamesOf(userAgent: string | null): BrowserNames {

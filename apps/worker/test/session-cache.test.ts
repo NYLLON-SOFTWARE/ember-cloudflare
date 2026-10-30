@@ -1,11 +1,10 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it, vi } from "vitest";
 import { SessionCache } from "../src/session-cache";
 
 /** A lookup that finds `session`, counting its calls. */
 const finding = (session: string | null) => vi.fn(async () => session);
 
-describe(feature("auth.sessions"), () => {
+describe("Stay signed in, per device", () => {
   it("keeps the sessions it finds, so the Workspace looks each up once", async () => {
     const cache = new SessionCache<string>(10);
     const lookUp = finding("Ada's");
@@ -93,7 +92,7 @@ describe(feature("auth.sessions"), () => {
   });
 });
 
-describe(feature("accounts.roles"), () => {
+describe("Make or revoke administrators", () => {
   it("forgets the sessions a change picks, and only those, so they're read again as they are now", async () => {
     const cache = new SessionCache<string>(10);
     cache.remember("a", "Ada's laptop");

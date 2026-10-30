@@ -5,13 +5,13 @@ import { useAccount } from "@/hooks/use-account";
 import { cn } from "@/lib/utils";
 import { WORKERS_DASHBOARD } from "./custom-domain-settings";
 
-// This port's own Memberful card in Membership's ways to join (`auth.memberful-sign-in`): an
-// administrator lets the members of a Memberful site join and sign in with their accounts there, whose
-// custom app's keys the deployment keeps as Worker secrets. While it's off, the card is its name, a line
-// and its switch, as the project's owner asked (2026-10-26): turning it on before the deployment has the
-// keys shows how to make and set them, saving nothing, and once it's on, how to have Memberful's
-// webhooks say when a membership lapses (`auth.memberful-memberships`), with Members only, which keeps
-// everyone else out. Laid out as the other ways to join are, with Members only's switch inside it.
+// The Memberful card in Membership's ways to join: an administrator lets the members of a Memberful site
+// join and sign in with their accounts there, whose custom app's keys the deployment keeps as Worker
+// secrets. While it's off, the card is its name, a line and its switch, as the project's owner asked
+// (2026-10-26): turning it on before the deployment has the keys shows how to make and set them, saving
+// nothing, and once it's on, how to have Memberful's webhooks say when a membership lapses, with Members
+// only, which keeps everyone else out. Laid out as the other ways to join are, with Members only's
+// switch inside it.
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 

@@ -8,9 +8,7 @@ import { anyOtherPage } from "../pages";
 import { workspace } from "../workspace";
 import { isWebhookUrl } from "./webhooks";
 
-// Chat bots, as administrators add, change and delete them, as ember-rust's `accounts/bots` and
-// `accounts/bots/keys` controllers do (crates/ember/src/controllers/accounts/bots.rs). They answer JSON
-// for the app's pages where ember-rust answers pages and redirects to the bots page.
+// Chat bots, as administrators add, change and delete them. They answer JSON for the app's pages.
 
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
 
@@ -18,7 +16,7 @@ const NOT_SIGNED_IN = "Not signed in";
 /** Keys are secrets, which no cache should keep. */
 const PRIVATE = { "Cache-Control": "no-store" };
 
-/** `GET /api/account/bots`: the active bots, by name, each with its key and its rooms, as ember-rust's bots page lists them (`index`). */
+/** `GET /api/account/bots`: the active bots, by name, each with its key and its rooms, as Campfire's bots page lists them (`index`). */
 export async function listBots(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const bots = credentials && (await workspace(env).bots(credentials));
@@ -28,9 +26,9 @@ export async function listBots(request: Request, env: Env): Promise<Response> {
 }
 
 /**
- * A bot's settings page, `/account/bots/<id>/edit`, as ember-rust answers it: Campfire's 404 page for an
- * administrator when `id` isn't an active bot's, and otherwise the app's page, which sends anyone signed
- * out to sign in, and anyone else to workspace settings.
+ * A bot's settings page, `/account/bots/<id>/edit`: Campfire's 404 page for an administrator when `id`
+ * isn't an active bot's, and otherwise the app's page, which sends anyone signed out to sign in, and
+ * anyone else to workspace settings.
  */
 export async function botPage(request: Request, env: Env, pathname: string, botId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -39,10 +37,10 @@ export async function botPage(request: Request, env: Env, pathname: string, botI
 }
 
 /**
- * `POST /api/account/bots`, `{ name, webhookUrl }`: adds a bot, as ember-rust's `create` does, answering
- * 201 with the bot as its edit page shows it. With an avatar, it's a form whose `user` part is that JSON
- * and whose `avatar` and `variant` parts are the picture, as the setup and join forms send a photo. As in
- * ember-rust, someone who isn't an administrator hears so before anything they sent is read.
+ * `POST /api/account/bots`, `{ name, webhookUrl }`: adds a bot, answering 201 with the bot as its edit
+ * page shows it. With an avatar, it's a form whose `user` part is that JSON and whose `avatar` and
+ * `variant` parts are the picture, as the setup and join forms send a photo. Someone who isn't an
+ * administrator hears so before anything they sent is read.
  */
 export async function createBot(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -69,10 +67,10 @@ export async function showBot(request: Request, env: Env, botId: UserId): Promis
 }
 
 /**
- * `PATCH /api/account/bots/:id`, `{ name, webhookUrl }`: changes the active bot `id`, as ember-rust's
- * `update` does, answering it as its edit page then shows it, with a new avatar as `createBot` takes one.
- * As there, someone who isn't an administrator hears so first, then a bot that isn't active isn't found,
- * before anything that was sent is read.
+ * `PATCH /api/account/bots/:id`, `{ name, webhookUrl }`: changes the active bot `id`, answering it as
+ * its edit page then shows it, with a new avatar as `createBot` takes one. As there, someone who isn't
+ * an administrator hears so first, then a bot that isn't active isn't found, before anything that was
+ * sent is read.
  */
 export async function changeBot(request: Request, env: Env, botId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -89,8 +87,7 @@ export async function changeBot(request: Request, env: Env, botId: UserId): Prom
 }
 
 /**
- * `DELETE /api/account/bots/:id`: deletes the active bot `id`, as ember-rust's `destroy` does, which
- * deactivates it, answering 204.
+ * `DELETE /api/account/bots/:id`: deletes the active bot `id`, which deactivates it, answering 204.
  */
 export async function deleteBot(request: Request, env: Env, botId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -101,7 +98,7 @@ export async function deleteBot(request: Request, env: Env, botId: UserId): Prom
   return new Response(null, { status: 204 });
 }
 
-/** `PUT /api/account/bots/:id/key`: gives the active bot `id` a new key, as ember-rust's `keys#update` does, answering the bot with it. */
+/** `PUT /api/account/bots/:id/key`: gives the active bot `id` a new key, answering the bot with it. */
 export async function resetBotKey(request: Request, env: Env, botId: UserId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   return botAnswer(credentials && (await workspace(env).resetBotKey(credentials, botId)));
@@ -116,7 +113,7 @@ function botAnswer(bot: BotSettings | "forbidden" | "not found" | null): Respons
 
 /**
  * Refuses a webhook URL that a webhook may not be delivered to (`isWebhookUrl`), anything but an https
- * URL with a host or an http one on localhost, where ember-rust saves whatever the form sends.
+ * URL with a host or an http one on localhost.
  */
 function withWebAddress<T extends { webhookUrl?: string }>(changes: T | string): T | string {
   if (typeof changes === "string" || !changes.webhookUrl) return changes;

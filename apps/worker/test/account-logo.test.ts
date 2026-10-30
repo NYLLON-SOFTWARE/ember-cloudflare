@@ -1,13 +1,10 @@
-import { feature } from "@ember/parity";
 import { LOGO_PATH, LOGO_TOO_LARGE, MAX_LOGO_SIZE, type Account, type Bootstrap, type NewWorkspace } from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
 import { api, apiWith, cookieOf, freshDeploy, openWorkspaceSocket, origin, recordedImage, shown, signIn, workspaceSql, type Session } from "./support";
 
-// ember-rust's logo controller and the logo picker in workspace settings
-// (crates/ember/src/controllers/accounts/logos.rs and accounts.rs,
-// reference/test/controllers/accounts/logos_controller_test.rb).
+// Campfire's logo controller and the logo picker in workspace settings.
 
 const files = (env as unknown as Env).FILES!;
 
@@ -34,7 +31,7 @@ const bytesOf = async (body: { arrayBuffer(): Promise<ArrayBuffer> }) => new Uin
 
 beforeEach(freshDeploy);
 
-describe(feature("accounts.logo"), () => {
+describe("Workspace logo", () => {
   it("serves Ember's stock app icon to anyone, and its 192-pixel one for size=small, kept five minutes and then a week while it's checked", async () => {
     const large = await logo("/account/logo");
     expect(large.status).toBe(200);
@@ -48,7 +45,7 @@ describe(feature("accounts.logo"), () => {
     expect(small.headers.get("Content-Disposition")).toBe(`inline; filename="app-icon-192.png"; filename*=UTF-8''app-icon-192.png`);
     expect(small.headers.get("ETag")).not.toBe(large.headers.get("ETag"));
 
-    // ember-rust's route takes a format.
+    // The route takes a format.
     expect(await bytesOf(await logo("/account/logo.png"))).toEqual(icons["/logos/app-icon.png"]);
   });
 
@@ -67,7 +64,7 @@ describe(feature("accounts.logo"), () => {
     expect(await head.text()).toBe("");
   });
 
-  it("answers 404 to anything but GET and HEAD, as ember-rust has no other route there but removing a logo", async () => {
+  it("answers 404 to anything but GET and HEAD", async () => {
     expect((await logo("/account/logo", { method: "POST" })).status).toBe(404);
     expect((await logo("/account/logo/large")).status).toBe(404);
   });
@@ -86,7 +83,7 @@ const as = (session: Session | null): Record<string, string> => (session ? { Coo
 /** black_hole.jpg's thumbnail, standing in for the logo as it's chosen. */
 const blackHole = (name = "black_hole.jpg", type = "image/jpeg") => new File([recordedImage("black_hole-thumb.jpg")], name, { type });
 
-/** ember-rust's variants of black_hole.jpg, PNGs within 512×512 and 192×192, standing in for the ones the browser makes. */
+/** The variants of black_hole.jpg, PNGs within 512×512 and 192×192, standing in for the ones the browser makes. */
 const largeVariant = () => new File([recordedImage("black_hole-logo-large.png")], "blob", { type: "image/png" });
 const smallVariant = () => new File([recordedImage("black_hole-logo-small.png")], "blob", { type: "image/png" });
 
@@ -138,7 +135,7 @@ const deleted = () => vi.waitFor(async () => expect(await pendingDeletions()).to
 
 const bootstrap = async () => (await (await api("/api/bootstrap")).json()) as Bootstrap;
 
-/** Waits for the clock's next second, as the logo's address counts seconds, as ember-rust's does. */
+/** Waits for the clock's next second, as the logo's address counts seconds. */
 async function nextSecond(): Promise<void> {
   const second = Math.floor(Date.now() / 1000);
   await vi.waitFor(() => expect(Math.floor(Date.now() / 1000)).toBeGreaterThan(second), { timeout: 2_000, interval: 50 });
@@ -147,7 +144,7 @@ async function nextSecond(): Promise<void> {
 /** The logo's address, versioned by when the account last changed, as `to_fs(:number)` writes it. */
 const LOGO_ADDRESS = /^\/account\/logo\?v=\d{14}$/;
 
-describe(feature("accounts.logo"), () => {
+describe("Workspace logo", () => {
   it("gives the workspace the logo an administrator uploads, served to anyone as the variants their browser made", async () => {
     const ada = await setUp();
 
@@ -214,7 +211,7 @@ describe(feature("accounts.logo"), () => {
     expect((await bootstrap()).account.logo).toBe(account.logo);
   });
 
-  it("keeps any file, serving the stock icon for one ember-rust can't resize, whatever it's named", async () => {
+  it("keeps any file, serving the stock icon for one Campfire doesn't resize, whatever it's named", async () => {
     const ada = await setUp();
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>';
     // An SVG named and typed as a JPEG, with the variants the browser drew of it.

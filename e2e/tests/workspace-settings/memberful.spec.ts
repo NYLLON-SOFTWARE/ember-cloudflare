@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MEMBERFUL_SIGN_IN_PROBLEMS, type Account, type WorkspaceSettings } from "@ember/protocol";
 import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
@@ -70,7 +69,7 @@ const memberfulSection = (page: Page) => page.getByRole("region", { name: "Membe
 /** A name no earlier run of a server kept between runs has used. */
 const nameFor = (name: string) => `${name} ${crypto.randomUUID().slice(0, 8)}`;
 
-test.describe(feature("auth.memberful-sign-in"), () => {
+test.describe("Sign in with Memberful", () => {
   test("a member of the Memberful site signs in as someone new, and as themselves from then on", async ({ page, request }) => {
     const member = site.add(nameFor("Grace"));
     await turnMemberful(request, true);
@@ -118,7 +117,7 @@ test.describe(feature("auth.memberful-sign-in"), () => {
   });
 });
 
-test.describe(feature("accounts.ways-to-join"), () => {
+test.describe("Ways to join", () => {
   test("the administrator turns Memberful on beside the join link, then makes it members only once they confirm, which turns the join link off", async ({ page }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit#membership-settings");
@@ -145,7 +144,7 @@ test.describe(feature("accounts.ways-to-join"), () => {
   });
 });
 
-test.describe(feature("auth.memberful-memberships"), () => {
+test.describe("Memberful memberships", () => {
   test("a member whose membership lapses is signed out, and signs in again once it's renewed", async ({ page, request }) => {
     const member = site.add(nameFor("Katherine"));
     await turnMemberful(request, true);
@@ -167,7 +166,7 @@ test.describe(feature("auth.memberful-memberships"), () => {
   });
 });
 
-test.describe(feature("auth.memberful-connect"), () => {
+test.describe("Connect Memberful", () => {
   test("someone with an account from before connects their Memberful account from their profile, and signs in with it from then on", async ({ page, request }) => {
     await useOwnAddress(page);
     const joiner = await joinWithPassword(page, request, nameFor("Dorothy"));

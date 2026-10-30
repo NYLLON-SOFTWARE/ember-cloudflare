@@ -13,8 +13,8 @@ const encoder = new TextEncoder();
 const SIGNATURE_BYTES = 16;
 
 /**
- * Makes `User#avatar_token`s: someone's id and the first 16 bytes of its HMAC under SESSION_SECRET,
- * as base64url. They never expire, and changing the secret changes them all, as changing ember-rust's
+ * Makes `User#avatar_token`s: someone's id and the first 16 bytes of its HMAC under SESSION_SECRET, as
+ * base64url. They never expire, and changing the secret changes them all, as changing Campfire's
  * `SECRET_KEY_BASE` does.
  */
 async function avatarTokens(secret: string): Promise<(userId: UserId) => Promise<string>> {

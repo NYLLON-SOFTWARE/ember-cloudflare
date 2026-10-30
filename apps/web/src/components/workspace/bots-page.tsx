@@ -16,19 +16,19 @@ import { CopyButton, ROUND_BUTTON } from "./link-buttons";
 import { Panel, SettingsPage } from "./settings-page";
 import { AvatarLink } from "./user-avatar";
 
-/** The command ember-rust's bots page gives for posting a message as a bot to `url` (helpers/users.rs, `curl_text_line`). */
+/** The command the bots page gives for posting a message as a bot to `url`. */
 export const curlTextLine = (url: string) => `curl -d 'Hello!' ${url}`;
 
 /** And for posting a file (`curl_upload_line`). */
 export const curlUploadLine = (url: string) => `curl -F "attachment=@/path/to/file" ${url}`;
 
-/** Campfire's `.input.fill-white` as ember-rust draws it in a panel (zz-ember.css): 42px tall, or 44px for fingers. */
+/** Campfire's `.input.fill-white` in a panel: 42px tall, or 44px for fingers. */
 const INPUT = "min-h-[42px] w-full min-w-0 rounded-[9px] border bg-background px-[0.8em] py-[0.5em] text-base focus:border-muted-foreground touch:min-h-11";
 
 /**
- * Sends anyone but an administrator to workspace settings with an alert, as the Custom CSS page does,
- * where ember-rust's bot pages answer an empty 403 page: `sendAway` with why, and `failed` with an
- * error, which goes to `onFailed` unless the server answered 403.
+ * Sends anyone but an administrator to workspace settings with an alert, as the Custom CSS page does:
+ * `sendAway` with why, and `failed` with an error, which goes to `onFailed` unless the server answered
+ * 403.
  */
 export function useAdministratorsOnly(onFailed: (error: unknown) => void) {
   const flash = useFlash();
@@ -43,10 +43,10 @@ export function useAdministratorsOnly(onFailed: (error: unknown) => void) {
 }
 
 /**
- * ember-rust's Chat bots page (accounts/bots/index.html and _bot.html): Add a chat bot, then each active
- * bot by name, with a link to its settings and, for each room it's in, the commands that post to the
- * room as it, which their buttons copy. Go Back returns to workspace settings. Unlike ember-rust's, a bot
- * deleted or renamed elsewhere leaves or is renamed here as soon as the people directory hears of it.
+ * The Chat bots page: Add a chat bot, then each active bot by name, with a link to its settings and, for
+ * each room it's in, the commands that post to the room as it, which their buttons copy. Go Back returns
+ * to workspace settings. A bot deleted or renamed elsewhere leaves or is renamed here as soon as the
+ * people directory hears of it.
  */
 export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
   const [bots, setBots] = useState<Bot[] | null>(null);
@@ -71,7 +71,7 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
       {/* `.panel--wide`: 900px. */}
       <Panel aria-busy={bots === null} className="w-[900px]">
         <header className="mb-6">
-          {/* ember-rust puts the globe at the panel's corner, `.panel__button`, over the start of the heading. */}
+          {/* The globe sits beside the heading, rather than at the panel's corner over the heading's start. */}
           <div className="mb-1.5 flex items-center gap-2">
             <h1 className="text-[23px] leading-[1.3] font-[650]">Chat bots</h1>
             <TranslationButton translations="chat_bots" />
@@ -101,7 +101,7 @@ export function BotsPage({ onFailed }: { onFailed: (error: unknown) => void }) {
 const listedNow = (bots: Bot[], people: People) =>
   byName(bots.filter(({ id }) => people.get(id)?.status !== "deactivated").map((bot) => ({ ...bot, name: people.get(bot.id)?.name ?? bot.name })));
 
-/** ember-rust's accounts/bots/_bot.html: the bot, with its avatar, name and edit link, then its rooms' commands. */
+/** The bot, with its avatar, name and edit link, then its rooms' commands. */
 function BotItem({ bot }: { bot: Bot }) {
   return (
     <li className="flex flex-col gap-x-[1ch] gap-y-4 rounded-[10px] border bg-surface px-[2ch] py-4">
@@ -125,8 +125,8 @@ function BotItem({ bot }: { bot: Bot }) {
 }
 
 /**
- * The commands that post to `room` as the bot whose key is `botKey`, and its Slack-compatible webhook, which
- * ember-rust doesn't have, in a fieldset with the room's name on its border.
+ * The commands that post to `room` as the bot whose key is `botKey`, and its Slack-compatible webhook, in a
+ * fieldset with the room's name on its border.
  */
 function RoomCommands({ room, botKey }: { room: BotRoom; botKey: string }) {
   const url = new URL(botMessagesPath(room.id, botKey), location.origin).href;

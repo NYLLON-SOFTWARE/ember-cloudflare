@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Me } from "@ember/protocol";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -37,7 +36,7 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("auth.sign-in-link"), () => {
+describe("Private sign-in link", () => {
   it("signs in with the link's id as soon as it opens, sending it in the body, busy until it loads home as whoever the link is for", async () => {
     const fetch = serve(signedIn);
     open();
@@ -49,13 +48,13 @@ describe(feature("auth.sign-in-link"), () => {
     );
   });
 
-  it("takes the id out of the address as it opens, as ember-rust's setup link takes its token out", () => {
+  it("takes the id out of the address as it opens", () => {
     serve(signedIn);
     open(`/session/transfers?from=qr#token=${TRANSFER_ID}`);
     expect(`${location.pathname}${location.search}${location.hash}`).toBe("/session/transfers?from=qr");
   });
 
-  it("loads the page this tab was sent to sign in from instead, as ember-rust returns there", async () => {
+  it("loads the page this tab was sent to sign in from instead", async () => {
     history.replaceState(null, "", "/rooms/r2?q=1#m3");
     rememberThisPage();
     serve(signedIn);
@@ -63,7 +62,7 @@ describe(feature("auth.sign-in-link"), () => {
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/rooms/r2?q=1#m3"));
   });
 
-  it("leaves the page blank when the link doesn't work, as ember-rust's empty answer does", async () => {
+  it("leaves the page blank when the link doesn't work", async () => {
     serve(() => new Response(null, { status: 400 }));
     open();
     await waitFor(() => expect(screen.getByRole("main")).toHaveAttribute("aria-busy", "false"));

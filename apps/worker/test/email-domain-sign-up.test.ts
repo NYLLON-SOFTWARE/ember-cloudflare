@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   CANT_EMAIL_LINKS,
   EMAIL_ADDRESS_NEEDED,
@@ -159,7 +158,7 @@ function fakeSiteverify(answer: () => Response = () => Response.json({ success: 
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("auth.email-domain-sign-up"), () => {
+describe("Join with an email domain", () => {
   describe("the setting", () => {
     it("is off with no domains until an administrator lists one and turns it on, which takes a From address", async () => {
       expect((await bootstrap()).account).toMatchObject({ emailDomainSignUp: false, emailDomains: [] });

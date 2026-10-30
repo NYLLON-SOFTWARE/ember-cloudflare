@@ -13,7 +13,7 @@ const PROP_NAMES: Record<string, string> = { datetime: "dateTime", "xml:lang": "
 /** Elements whose whitespace the browser doesn't show, which React won't put in them. */
 const TABLE_PARTS = new Set(["table", "thead", "tbody", "tfoot", "tr"]);
 
-/** What a mention of someone no one knows shows, as ember-rust's mention of someone deleted does. */
+/** What a mention of someone no one knows shows. */
 export const UNKNOWN_PERSON = "☒";
 
 interface Props {
@@ -29,8 +29,8 @@ interface Props {
 }
 
 /**
- * A message's text, as ember-rust's `messages/_presentation.html` shows it, built from `displayBody`'s
- * nodes rather than set as markup. `.message-content` in index.css styles it.
+ * A message's text, built from `displayBody`'s nodes rather than set as markup. `.message-content` in
+ * index.css styles it.
  */
 export function MessageBody({ nodes, mentions, emoji = false, trailing, className }: Props) {
   const last = nodes.at(-1);
@@ -62,11 +62,11 @@ function nodeOf(node: DisplayNode, mentions: User[], trailing?: ReactNode, inLin
 }
 
 /**
- * ember-rust's users/_mention.html, styled by Campfire's autocomplete.css: the person's avatar, as tall as
- * the line and linking to their page, then their name as they're named now, in semibold, every time
- * they're mentioned. The avatar is a `.btn`'s weight, which its `ch` is measured in. Unlike Campfire's,
- * the mention isn't lifted over what follows, such as the next message's Message options. In a link,
- * the avatar is only an image, as a link can't hold another, where the browser splits ember-rust's in two.
+ * A mention, styled by Campfire's autocomplete.css: the person's avatar, as tall as the line and linking
+ * to their page, then their name as they're named now, in semibold, every time they're mentioned. The
+ * avatar is a `.btn`'s weight, which its `ch` is measured in. Unlike Campfire's, the mention isn't
+ * lifted over what follows, such as the next message's Message options. In a link, the avatar is only an
+ * image, as a link can't hold another.
  */
 function Mention({ userId, mentions, inLink }: { userId: UserId; mentions: User[]; inLink: boolean }) {
   const person = mentionedPerson(useContext(PeopleContext), mentions, userId);
@@ -124,18 +124,16 @@ function holdsOnlyAList(item: DisplayElement): boolean {
 
 /**
  * An image another site serves, as a link preview's or a bot card's is: loaded once it's near the
- * screen, and without a referrer, so the site doesn't learn which Ember shows it, as ember-rust's
- * previews tell it (crates/richtext/src/attachables.rs, under a strict-origin-when-cross-origin
- * Referrer-Policy). The site still sees the reader's IP address, which only serving the image through
- * the Worker would hide.
+ * screen, and without a referrer, so the site doesn't learn which Ember shows it. The site still sees
+ * the reader's IP address, which only serving the image through the Worker would hide.
  */
 export function RemoteImage(props: Omit<ComponentProps<"img">, "referrerPolicy">) {
   return <img loading="lazy" {...props} referrerPolicy="no-referrer" />;
 }
 
 /**
- * A link in a message, which ember-rust's `reply_controller.js` targets: an address on this site
- * opens in place, without a page load for one of the app's pages, and any other in a new tab.
+ * A link in a message: an address on this site opens in place, without a page load for one of the app's
+ * pages, and any other in a new tab.
  */
 export function MessageLink({ href, ...props }: ComponentProps<"a">) {
   if (href === undefined) return <a {...props} />;

@@ -4,9 +4,8 @@ import { cn } from "@/lib/utils";
 export const STOCK_LOGO = "/logos/app-icon.png";
 
 /**
- * ember-rust's `account_logo_tag` (crates/views/src/helpers/users.rs): the workspace's logo at `src`, as
- * "Account logo", square and rounded by half its font size, as Campfire's avatars.css shapes
- * `.account-logo`. `className` sizes and places it, as the tag's style does.
+ * The workspace's logo at `src`, as "Account logo", square and rounded by half its font size, as
+ * Campfire's avatars.css shapes `.account-logo`. `className` sizes and places it.
  */
 export function AccountLogo({ src, className }: { src: string; className?: string }) {
   return (

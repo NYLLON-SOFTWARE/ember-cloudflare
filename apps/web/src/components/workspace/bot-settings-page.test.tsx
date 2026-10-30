@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -110,8 +109,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("bots.create-edit"), () => {
-  it("adds a bot with ember-rust's form, titled New chat bot, with Go Back to the bots page", () => {
+describe("Add and edit a bot", () => {
+  it("adds a bot with the bot form, titled New chat bot, with Go Back to the bots page", () => {
     showNewBot();
     expect(document.title).toBe("New chat bot");
     expect(screen.getByRole("heading", { level: 1, name: "Chat bot setup" })).toBeInTheDocument();
@@ -156,7 +155,7 @@ describe(feature("bots.create-edit"), () => {
     expect(location.pathname).toBe("/account/bots/new");
   });
 
-  it("offers Upload bot avatar, showing Campfire's bot picture until a picture is chosen, then that, as ember-rust's form does", async () => {
+  it("offers Upload bot avatar, showing Campfire's bot picture until a picture is chosen, then that", async () => {
     const { user } = showNewBot();
     expect(avatar()).toHaveAttribute("src", defaultBotAvatar);
     expect(avatarField()).toMatchObject({ type: "file", accept: "image/*" });
@@ -176,7 +175,7 @@ describe(feature("bots.create-edit"), () => {
     expect(sentForm()).toEqual({ user: { name: "Build Bot", webhookUrl: "" }, avatar: expect.objectContaining({ name: "robot.png", type: "image/png" }), variant: expect.objectContaining({ type: "image/webp" }) });
   });
 
-  it("refuses a picture over 16 MB at once, saying so, where ember-rust takes any", async () => {
+  it("refuses a picture over 16 MB at once, saying so", async () => {
     const { user } = showNewBot();
     const huge = robot();
     Object.defineProperty(huge, "size", { value: MAX_AVATAR_SIZE + 1 });
@@ -185,7 +184,7 @@ describe(feature("bots.create-edit"), () => {
     expect(avatar()).toHaveAttribute("src", defaultBotAvatar);
   });
 
-  it("sends anyone but an administrator to workspace settings at once, saying why, where ember-rust answers an empty 403", async () => {
+  it("sends anyone but an administrator to workspace settings at once, saying why", async () => {
     const { onFailed } = showNewBot({ ...ada, administrator: false });
     expect(await screen.findByRole("alert")).toHaveTextContent("Only administrators can manage bots");
     expect(location.pathname).toBe("/account/edit");
@@ -243,7 +242,7 @@ describe(feature("bots.create-edit"), () => {
     expect(sent()).toEqual([[`PATCH /api/account/bots/${BOT.id}`, { webhookUrl: "" }]]);
   });
 
-  it("answers ember-rust's 404 page for anyone but an active bot", async () => {
+  it("answers the 404 page for anyone but an active bot", async () => {
     serve({ loaded: () => refused(404, "Not found") });
     const { onMissing, onFailed } = showSettings();
     await waitFor(() => expect(onMissing).toHaveBeenCalledOnce());
@@ -267,7 +266,7 @@ describe(feature("bots.create-edit"), () => {
   });
 });
 
-describe(feature("bots.delete"), () => {
+describe("Delete a bot", () => {
   it("deletes the bot once it's confirmed, then goes to the bots page", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     const { user } = showSettings();
@@ -299,7 +298,7 @@ describe(feature("bots.delete"), () => {
   });
 });
 
-describe(feature("bots.reset-key"), () => {
+describe("Generate a new bot key", () => {
   it("gives the bot a new key once it's confirmed, then goes to the bots page", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     const { user } = showSettings();
@@ -316,7 +315,7 @@ describe(feature("bots.reset-key"), () => {
   });
 });
 
-describe(feature("accounts.translation-buttons"), () => {
+describe("Translation buttons", () => {
   it("has translation buttons for the name and the webhook URL once an administrator shows them", () => {
     showNewBot(ada, { ...account, hideTranslationButtons: false });
     expect(screen.getAllByText("Translate")).toHaveLength(2);

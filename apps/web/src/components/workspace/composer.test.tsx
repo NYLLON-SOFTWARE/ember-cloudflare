@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_FILE_SIZE, type LinkPreview, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
@@ -49,7 +48,7 @@ afterEach(() => {
   vi.mocked(editorLoaded).mockReturnValue(false);
 });
 
-describe(feature("composer.layout"), () => {
+describe("Composer", () => {
   it("has the text box on top, with Attach files, Formatting options and Send below", async () => {
     const { input } = await showComposer();
     expect(input).toHaveAttribute("placeholder", "Message #general");
@@ -111,14 +110,14 @@ describe(feature("composer.layout"), () => {
   });
 });
 
-describe(feature("dms.naming"), () => {
-  it("asks for a message to the others in a DM by name, as ember-rust's composer does, without the #", async () => {
+describe("Group DMs and DM names", () => {
+  it("asks for a message to the others in a DM by name, without the #", async () => {
     render(<Composer roomId="d1" roomName="Grace and Linus" direct userId="u1" typing={[]} disabled={false} onSend={() => true} onSendFiles={() => {}} onTyping={() => {}} />);
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message Grace and Linus");
   });
 });
 
-describe(feature("composer.formatting-toolbar"), () => {
+describe("Formatting toolbar", () => {
   it("shows the toolbar while Formatting options is pressed, keeping focus in the text", async () => {
     const { input, user, view } = await showComposer();
     const form = view.container.querySelector("form")!;
@@ -133,7 +132,7 @@ describe(feature("composer.formatting-toolbar"), () => {
   });
 });
 
-describe(feature("composer.send"), () => {
+describe("Send from the keyboard", () => {
   it("sends what's written on Enter, then empties the box and keeps focus", async () => {
     const { onSend, input, user } = await showComposer();
     await user.type(input, "Hello there{Enter}");
@@ -227,7 +226,7 @@ function thumbnails() {
   return { made, revoked };
 }
 
-describe(feature("attachments.upload"), () => {
+describe("Attach files", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("waits to send the files picked with Attach files, in order of their names, however often they're picked", async () => {
@@ -256,7 +255,7 @@ describe(feature("attachments.upload"), () => {
     // The name runs to an ellipsis, and the extension doesn't.
     expect(within(archive).getByText("archive.tar.")).toHaveClass("truncate");
     expect(within(archive).getByText("gz")).toHaveClass("shrink-0");
-    // A name with no dot shows whole, where ember-rust's begins with one.
+    // A name with no dot shows whole.
     expect(within(screen.getByRole("button", { name: "Remove README" })).getByText("README")).toHaveClass("truncate");
   });
 
@@ -340,7 +339,7 @@ describe(feature("attachments.upload"), () => {
   });
 });
 
-describe(feature("composer.paste"), () => {
+describe("Pasting into the composer", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("waits to send pasted files rather than writing them, and leaves pasted text to the editor", async () => {
@@ -355,7 +354,7 @@ describe(feature("composer.paste"), () => {
   });
 });
 
-describe(feature("attachments.size-limit"), () => {
+describe("250 MB file limit", () => {
   const tooLarge = (name: string) => `${name} is too large. Choose a file that’s 250 MB or smaller.`;
 
   it("leaves out files over 250 MB, saying so under the others until more are picked, dropped or pasted", async () => {
@@ -388,7 +387,7 @@ describe(feature("attachments.size-limit"), () => {
   });
 });
 
-describe(feature("composer.draft"), () => {
+describe("Keep drafts", () => {
   const draft = (roomId = "r1") => localStorage.getItem(`composer-draft-u1-${roomId}`);
 
   it("keeps what's written in this browser until it's sent", async () => {
@@ -428,7 +427,7 @@ describe(feature("composer.draft"), () => {
   });
 });
 
-describe(feature("messages.reply"), () => {
+describe("Reply with a quote", () => {
   it("writes a reply in place of what's written, with the cursor at its end, keeping it as the draft", async () => {
     const composer = createRef<ComposerHandle>();
     const onTyping = vi.fn();
@@ -481,7 +480,7 @@ describe(feature("messages.reply"), () => {
   });
 });
 
-describe(feature("unfurl.composer"), () => {
+describe("Link previews while writing", () => {
   const basecamp: LinkPreview = { title: "Basecamp", url: "https://basecamp.com/", image: "https://basecamp.com/og.png", description: "Calm & organized" };
 
   /** Answers each ask for a link's preview with what `answer` gives for its address. */
@@ -546,7 +545,7 @@ describe(feature("unfurl.composer"), () => {
   });
 });
 
-describe(feature("realtime.typing"), () => {
+describe("Typing indicator", () => {
   it("reports typing while there's text, and stops when it's cleared, but not when the box loses focus", async () => {
     const { onTyping, input, user } = await showComposer();
     await user.type(input, "Hi");
@@ -611,7 +610,7 @@ describe(feature("realtime.typing"), () => {
   });
 });
 
-describe(feature("rooms.member-only-access"), () => {
+describe("Only members see a room", () => {
   it("says a room that's gone was deleted, in red, shaking once where motion is welcome", () => {
     render(<RoomDeleted />);
     const notice = screen.getByRole("alert");

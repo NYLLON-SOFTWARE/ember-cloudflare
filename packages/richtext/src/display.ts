@@ -1,6 +1,6 @@
-// What a message shows (`MessagesHelper#message_presentation`, after ember-rust): its stored form
-// with addresses linked as rails_autolink linked them, as a tree of the elements and attributes a
-// message can show, which the web app builds the page from rather than from markup.
+// What a message shows (`MessagesHelper#message_presentation`): its stored form with addresses linked as
+// rails_autolink linked them, as a tree of the elements and attributes a message can show, which the web
+// app builds the page from rather than from markup.
 
 import { ATTACHMENT_TAG, isTwitterAvatar, MENTION_CONTENT_TYPE, MISSING_ATTACHABLE, OPENGRAPH_EMBED_CONTENT_TYPE, opengraphEmbedFromNode } from "./attachments";
 import { autoLink } from "./autolink";

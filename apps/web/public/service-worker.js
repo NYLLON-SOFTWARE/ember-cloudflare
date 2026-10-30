@@ -1,6 +1,6 @@
-// ember-rust's service worker (crates/views/templates/pwa/service_worker.js), which is Campfire's: it
-// shows each push as a notification, sets the app's badge to the push's count, and opens the push's
-// page when its notification is clicked. Everything below this comment is ember-rust's, byte for byte.
+// Campfire's service worker (app/views/pwa/service_worker.js): it shows each push as a notification,
+// sets the app's badge to the push's count, and opens the push's page when its notification is clicked.
+// Everything below this comment is Campfire's, byte for byte.
 
 self.addEventListener("push", async (event) => {
   const data = await event.data.json()

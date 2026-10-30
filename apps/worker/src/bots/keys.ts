@@ -1,7 +1,7 @@
 import type { UserId } from "@ember/protocol";
 import { alphanumeric } from "../ids";
 
-// Bots' keys, as ember-rust makes them (`generate_bot_token` and `User#bot_key`, crates/db/src/models/user.rs).
+// Bots' keys.
 
 /** A bot's token: 12 random letters and digits, as `SecureRandom.alphanumeric(12)` makes them. */
 export const newBotToken = () => alphanumeric(12);
@@ -13,9 +13,8 @@ export const newBotToken = () => alphanumeric(12);
 export const botKeyOf = (botId: UserId, token: string | null) => `${botId}-${token ?? ""}`;
 
 /**
- * The bot id and token a key names, as ember-rust's `User.authenticate_bot` reads one (user.rs) once
- * `allow_bot_access` has stripped it (concerns.rs): what comes before its first "-", and what comes
- * between that and the next. Null unless it has both, so a key without a token finds no bot.
+ * The bot id and token a key names: what comes before its first "-", and what comes between that and the
+ * next. Null unless it has both, so a key without a token finds no bot.
  */
 export function botKeyParts(key: string): { botId: UserId; token: string } | null {
   const [botId, token] = key.trim().split("-");

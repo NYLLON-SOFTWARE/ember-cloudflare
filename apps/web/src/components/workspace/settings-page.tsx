@@ -7,9 +7,9 @@ import { HEADER_BUTTON, PageHeader } from "./page-header";
 import { SettingsLayout } from "./settings-navigation";
 
 /**
- * ember-rust's pages beside rooms, such as rooms/layouts/_new.html and _edit.html: Go Back in the top
- * bar, with any `links` the page has at its other end, then panels on the canvas, which scrolls. Its
- * last panel scrolls clear of the home indicator, which ember-rust's settings pages leave it under.
+ * The pages beside rooms, such as New room and a room's settings: Go Back in the top bar, with any
+ * `links` the page has at its other end, then panels on the canvas, which scrolls. Its last panel
+ * scrolls clear of the home indicator.
  */
 export function SettingsPage({ back, links, children }: { back: string; links?: ReactNode; children: ReactNode }) {
   return (
@@ -29,14 +29,13 @@ export function SettingsPage({ back, links, children }: { back: string; links?: 
 }
 
 /**
- * On a page of community settings, `.mb-app.mb-settings-page .panel` (ember-rust's pull request #24): no
- * card, but a 720px column, 36px from its neighbors (28px at 900px and below), whatever width the page
- * gives its panel, as that rule outranks `.panel--wide`.
+ * On a page of community settings, a panel: no card, but a 720px column, 36px from its neighbors (28px
+ * at 900px and below), whatever width the page gives its panel, `.panel--wide` too.
  */
 const SETTINGS_PANEL =
   "my-9 w-[720px] max-w-[calc(100%-64px)] rounded-none border-0 p-0 [&+&]:mt-9 max-md:my-7 max-md:max-w-[calc(100%-40px)] max-md:rounded-none max-md:p-0 max-md:[&+&]:mt-7 upto-500px:max-w-[calc(100%-32px)]";
 
-/** ember-rust's `.panel.mb-settings-panel`: a 640px card, narrower on phones, with no gap between two in a row. */
+/** A panel: a 640px card, narrower on phones, with no gap between two in a row. */
 export function Panel({ className, ...props }: ComponentProps<"section">) {
   const settings = useContext(SettingsLayout);
   return (
@@ -52,13 +51,13 @@ export function Panel({ className, ...props }: ComponentProps<"section">) {
   );
 }
 
-/** What ember-rust's redirect back to settings says once the name is saved, changed or not (accounts.rs). */
+/** What settings say once the name is saved, changed or not. */
 export const CHANGES_SAVED = "Changes saved.";
 
-/** A section's `.mb-page-heading`, 4px above what follows it in the section, which spaces its parts 24px apart. */
+/** A section's heading, 4px above what follows it in the section, which spaces its parts 24px apart. */
 export const SECTION_HEADING = "mb-1";
 
-/** ember-rust's `.mb-page-heading`, whose title a panel sets at 23px. */
+/** A page's heading, whose title a panel sets at 23px. */
 export function PageHeading({ title, id, className, children }: { title: string; id?: string; className?: string; children: ReactNode }) {
   return (
     <header className={cn("mb-6", className)}>

@@ -1,9 +1,9 @@
--- Rooms and who is in them, kept by the Workspace (scope "workspace" in src/migrations.ts). The
--- columns follow ember-rust's rooms and memberships (crates/db/src/schema.sql), with string ids and
--- ISO times. A room's id also names its ChatRoom object, which keeps the room's messages.
+-- Rooms and who is in them, kept by the Workspace (scope "workspace" in src/migrations.ts). The columns
+-- follow Campfire's rooms and memberships (db/schema.rb), with string ids and ISO times. A room's id
+-- also names its ChatRoom object, which keeps the room's messages.
 CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
-  -- ember-rust's type, without Rails' class names: 'open', 'closed' or 'direct'.
+  -- Campfire's type, without Rails' class names: 'open', 'closed' or 'direct'.
   kind TEXT NOT NULL,
   -- Direct messages have none.
   name TEXT,
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS rooms (
   updated_at TEXT NOT NULL
 );
 
--- ember-rust's connections and connected_at are left out: each room's object knows who's connected.
+-- Campfire's connections and connected_at are left out: each room's object knows who's connected.
 CREATE TABLE IF NOT EXISTS memberships (
   room_id TEXT NOT NULL REFERENCES rooms (id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES users (id),

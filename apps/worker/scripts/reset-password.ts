@@ -1,18 +1,17 @@
-// Resets someone's password on a deployed Worker, as ember-rust's `emberctl reset-password <email>`
-// does on its server (deploy/installer/emberctl.py), through the Worker's recovery endpoint
+// Resets someone's password on a deployed Worker, through the Worker's recovery endpoint
 // (src/recovery.ts), which answers only while the Worker's EMBER_RECOVERY_TOKEN secret is set. The
 // script takes the same token from its environment, never from its arguments, which shell history keeps:
 //
 //   node apps/worker/scripts/reset-password.ts https://ember.example.com ada@example.com
 //
-// On a terminal it asks for the new password twice without showing it, as emberctl does. Otherwise it
-// reads exactly one password from stdin, as `ember reset-password` does (crates/ember/src/admin.rs).
+// On a terminal it asks for the new password twice without showing it. Otherwise it reads exactly one
+// password from stdin.
 
 import { isPasswordTooLong, isPasswordTooShort } from "@ember/protocol";
 import { fileURLToPath } from "node:url";
 import { workerUrl } from "./worker-url.ts";
 
-/** The most of stdin `ember reset-password` takes (admin.rs). */
+/** The most of stdin `ember reset-password` takes. */
 const MAX_PASSWORD_BYTES = 4096;
 const LF = 0x0a;
 const CR = 0x0d;
@@ -35,9 +34,8 @@ const CANCEL = new Set(["\u0003", "\u0004"]);
 class UsageError extends Error {}
 
 /**
- * The password `input` holds, as `ember reset-password` reads stdin (admin.rs, `read_password`): one
- * trailing LF or CRLF is dropped, and every other character kept, spaces included. Anything else
- * throws ember-rust's message.
+ * The password `input` holds, read from stdin: one trailing LF or CRLF is dropped, and every other
+ * character kept, spaces included. Anything else throws, saying what's wrong.
  */
 export function readPassword(input: Uint8Array): string {
   if (input.length > MAX_PASSWORD_BYTES) throw new Error(`password input exceeds ${MAX_PASSWORD_BYTES} bytes`);
@@ -60,8 +58,8 @@ export function readPassword(input: Uint8Array): string {
 }
 
 /**
- * Asks `question` on the terminal and reads the answer without showing it, as Python's `getpass` does
- * for emberctl, settling once Enter is pressed. Ctrl-C or Ctrl-D gives up.
+ * Asks `question` on the terminal and reads the answer without showing it, as Python's `getpass` does,
+ * settling once Enter is pressed. Ctrl-C or Ctrl-D gives up.
  */
 export function askHidden(question: string, input: NodeJS.ReadStream, output: NodeJS.WritableStream): Promise<string> {
   output.write(question);
@@ -105,9 +103,8 @@ async function readAll(input: NodeJS.ReadableStream): Promise<Uint8Array> {
 }
 
 /**
- * The new password: asked for twice on a terminal, as emberctl asks, and refused as it refuses one,
- * except that it must fit sign-in's form, which takes 72 characters where ember-rust's takes 4096
- * bytes. Otherwise the one password `input` holds.
+ * The new password: asked for twice on a terminal, and refused unless it has 8 to 72 characters, as
+ * sign-in's form takes, and is typed the same both times. Otherwise the one password `input` holds.
  */
 export async function newPassword(input: NodeJS.ReadStream = process.stdin, output: NodeJS.WritableStream = process.stderr): Promise<string> {
   if (!input.isTTY) return readPassword(await readAll(input));
@@ -141,7 +138,7 @@ async function main(args: string[], token: string | undefined): Promise<string> 
   const [address = "", emailAddress = ""] = args;
   const baseUrl = workerUrl(address);
   if (!baseUrl) throw new UsageError("Pass the Worker's https:// address, or an http:// one on this machine.");
-  // As emberctl checks it, so an option can't pass for one.
+  // Checked so that an option can't pass for one.
   if (!emailAddress || emailAddress.startsWith("-") || emailAddress.includes("\n")) throw new UsageError("Pass an email address.");
   if (!token || !RECOVERY_TOKEN.test(token)) {
     throw new UsageError("Set EMBER_RECOVERY_TOKEN to the Worker's recovery token: 64 lowercase hex characters, from openssl rand -hex 32.");

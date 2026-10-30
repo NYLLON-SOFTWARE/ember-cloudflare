@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Boost, Card, Message, StoredFile, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -148,7 +147,7 @@ const withMouse = () => {
   vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(hover: hover) and (pointer: fine)", media, addEventListener() {}, removeEventListener() {} }));
 };
 
-describe(feature("messages.create"), () => {
+describe("Send a message", () => {
   it("shows the author, the time and the text", () => {
     const { article } = show(message({ plainText: "Line one\nLine two" }));
     expect(within(article).getByText("Ada")).toBeInTheDocument();
@@ -157,7 +156,7 @@ describe(feature("messages.create"), () => {
   });
 });
 
-describe(feature("attachments.previews"), () => {
+describe("Image, video and file previews", () => {
   it("shows a file message's file in place of its text: its icon, its name and Download", () => {
     for (const threaded of [false, true]) {
       const { article } = show(fileMessage(), { threaded });
@@ -190,7 +189,7 @@ describe(feature("attachments.previews"), () => {
   });
 });
 
-describe(feature("attachments.progress"), () => {
+describe("Upload progress", () => {
   /** A file on its way to becoming a message, as its upload's card shows it. */
   const uploading = (upload: Partial<PendingUpload> = {}): PendingMessage => ({
     ...message({ id: "c1", body: "", plainText: "moon.jpg" }),
@@ -224,7 +223,7 @@ describe(feature("attachments.progress"), () => {
   });
 });
 
-describe(feature("attachments.download-share"), () => {
+describe("Download and share files", () => {
   it("offers Download in place of Reply among a file message's actions", async () => {
     const { user } = show(fileMessage(), { me: grace });
     await user.click(optionsOn("Q3 report.pdf"));
@@ -266,7 +265,7 @@ describe(feature("attachments.download-share"), () => {
   });
 });
 
-describe(feature("messages.edit"), () => {
+describe("Edit a message", () => {
   it("edits a file message as its file and Delete message alone, which it focuses as it opens, and the room as it would the text", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     const { actions, editors, user, article } = show(fileMessage());
@@ -304,7 +303,7 @@ describe(feature("messages.edit"), () => {
   });
 });
 
-describe(feature("messages.unrenderable"), () => {
+describe("Messages that can't be shown", () => {
   it("shows a message whose text can't be shown as one that failed to load, with nothing to do to it", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const { article } = show(message({ body: `${"<b>".repeat(401)}deep`, plainText: "deep" }));
@@ -315,7 +314,7 @@ describe(feature("messages.unrenderable"), () => {
   });
 });
 
-describe(feature("messages.autolink"), () => {
+describe("Links in message text", () => {
   it("links the addresses in a message's text", () => {
     const { article } = show(message({ plainText: "Docs at www.example.com, or ask ada@example.com" }));
     expect(within(article).getByRole("link", { name: "www.example.com" })).toHaveAttribute("href", "http://www.example.com");
@@ -323,7 +322,7 @@ describe(feature("messages.autolink"), () => {
   });
 });
 
-describe(feature("messages.emoji-only"), () => {
+describe("Emoji-only messages", () => {
   it("shows a message of nothing but emoji large, pending ones included", () => {
     const large = (m: Message | PendingMessage) => show(m).article.querySelector(".message-content")!.classList.contains("text-[2.4em]");
     expect(large(message({ plainText: "😄🤘" }))).toBe(true);
@@ -333,7 +332,7 @@ describe(feature("messages.emoji-only"), () => {
   });
 });
 
-describe(feature("messages.optimistic"), () => {
+describe("See your message before it's saved", () => {
   it("shows an unconfirmed message as busy, without actions", () => {
     const { article } = show({ ...message(), pending: true });
     expect(article).toHaveAttribute("aria-busy", "true");
@@ -347,7 +346,7 @@ describe(feature("messages.optimistic"), () => {
   });
 });
 
-describe(feature("messages.grouping"), () => {
+describe("Group messages by author", () => {
   it("shows a follow-up without repeating the author", () => {
     const { article } = show(message(), { threaded: true });
     expect(within(article).queryByText("Ada")).not.toBeInTheDocument();
@@ -355,7 +354,7 @@ describe(feature("messages.grouping"), () => {
   });
 });
 
-describe(feature("messages.layout"), () => {
+describe("Message rows", () => {
   it("heads a message with its author and time, and a follow-up with its time alone", () => {
     const { article } = show(message({ createdAt: "2026-10-12T15:04:00" }));
     const heading = within(article).getByRole("heading", { level: 3 });
@@ -386,7 +385,7 @@ describe(feature("messages.layout"), () => {
   });
 });
 
-describe(feature("messages.follow-up-times"), () => {
+describe("Times on follow-up messages", () => {
   it("links each message's time to the message, with its date and time on hover", () => {
     const { article } = show(message({ id: "m 1", createdAt: "2026-10-12T15:04:00" }));
     const time = within(article).getByRole("link", { name: "3:04 PM" });
@@ -406,14 +405,14 @@ describe(feature("messages.follow-up-times"), () => {
   });
 });
 
-describe(feature("messages.edit"), () => {
+describe("Edit a message", () => {
   it("offers Edit on your own messages, and on everyone's to administrators", async () => {
     const { user } = show(message(), { me: grace });
     await user.click(optionsOn("Hello"));
     expect(within(actionBar()).queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
-  it("puts Edit before More reactions, as ember-rust does, and Delete in the editor", async () => {
+  it("puts Edit before More reactions, and Delete in the editor", async () => {
     const { user } = show(message({ creator: grace }), { administrator: true });
     await user.click(optionsOn("Hello"));
     expect(within(actionBar()).getAllByRole("button").map((b) => b.title)).toEqual([
@@ -434,7 +433,7 @@ describe(feature("messages.edit"), () => {
     const editor = await editBox();
     expect(editor).toHaveValue("Hello");
     expect(editor).toHaveFocus();
-    // Like ember-rust's, it takes the place of the author, the time and the reactions too.
+    // It takes the place of the author, the time and the reactions too.
     expect(within(article).queryByText("Ada")).not.toBeInTheDocument();
     expect(article.querySelector("time")).not.toBeInTheDocument();
     expect(within(article).queryByRole("list", { name: "Reactions" })).not.toBeInTheDocument();
@@ -529,7 +528,7 @@ describe(feature("messages.edit"), () => {
   });
 });
 
-describe(feature("messages.actions"), () => {
+describe("Message action bar", () => {
   it("opens the actions from Message options, with three quick reactions, Reply, Copy link and More reactions", async () => {
     const { user } = show(message(), { me: grace });
     const options = optionsOn("Hello");
@@ -648,7 +647,7 @@ describe(feature("messages.actions"), () => {
     fireEvent.pointerMove(article, { pointerType: "mouse" });
     expect(options).toHaveAttribute("aria-expanded", "true");
 
-    // After that, as in ember-rust, only the pointer coming back to the message opens them again.
+    // After that, only the pointer coming back to the message opens them again.
     fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.pointerMove(article, { pointerType: "mouse" });
     expect(options).toHaveAttribute("aria-expanded", "false");
@@ -680,7 +679,7 @@ describe(feature("messages.actions"), () => {
   });
 });
 
-describe(feature("messages.more-actions"), () => {
+describe("More actions on a message", () => {
   /** More actions, while it's open. */
   const moreActions = () => screen.getByRole("group", { name: "More actions" });
 
@@ -854,7 +853,7 @@ describe(feature("messages.more-actions"), () => {
   });
 });
 
-describe(feature("messages.reply"), () => {
+describe("Reply with a quote", () => {
   it("writes a reply in the composer, quoting the message and citing its author with a link to it, and closes the actions", async () => {
     const { editors, user } = show(message({ plainText: "Third time's a charm." }), { me: grace });
     await pressAction(user, "Reply", "Third time's a charm.");
@@ -879,7 +878,7 @@ describe(feature("messages.reply"), () => {
   });
 });
 
-describe(feature("messages.copy-link"), () => {
+describe("Copy a link to a message", () => {
   it("copies the message's address and turns Copy link green, keeping the actions open", async () => {
     const { user } = show(message());
     await pressAction(user, "Copy link");
@@ -897,7 +896,7 @@ describe(feature("messages.copy-link"), () => {
   });
 });
 
-describe(feature("messages.delete"), () => {
+describe("Delete a message", () => {
   it("deletes from the editor, after asking, and hands focus back", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
     const { actions, editors, user } = show(message({ creator: grace }), { administrator: true });
@@ -908,7 +907,7 @@ describe(feature("messages.delete"), () => {
     await user.click(screen.getByRole("button", { name: "Delete message" }));
     expect(actions.remove).toHaveBeenCalledWith("m1");
     expect(editors.returnFocus).toHaveBeenCalled();
-    // The editor stays until the message goes, as ember-rust's does.
+    // The editor stays until the message goes.
     expect(editors.close).not.toHaveBeenCalled();
     expect(await editBox()).toBeInTheDocument();
   });
@@ -923,7 +922,7 @@ describe(feature("messages.delete"), () => {
   });
 });
 
-describe(feature("boosts.add"), () => {
+describe("React to a message", () => {
   it("offers three quick reactions on every message", async () => {
     const { actions, user } = show(message(), { me: grace });
     await user.click(optionsOn("Hello"));
@@ -993,7 +992,7 @@ describe(feature("boosts.add"), () => {
   });
 });
 
-describe(feature("boosts.custom"), () => {
+describe("Custom reactions", () => {
   /** Opens New boost's form on the message, from its bar's tray. */
   async function newBoost(user: UserEvent) {
     await pressAction(user, "More reactions");
@@ -1075,7 +1074,7 @@ describe(feature("boosts.custom"), () => {
   });
 });
 
-describe(feature("boosts.remove"), () => {
+describe("Take back a reaction", () => {
   it("reveals Delete this boost as you click your own reaction, or press Enter on it, focusing it", async () => {
     const { user } = show(message({ boosts: [boost("b1", grace, "👍"), boost("b2", ada, "🎉")] }));
     // Only your own reactions do anything.
@@ -1145,7 +1144,7 @@ describe(feature("boosts.remove"), () => {
   });
 });
 
-describe(feature("mentions.highlight"), () => {
+describe("Highlight mentions of you", () => {
   const highlight = (article: HTMLElement) => article.querySelector(".border-mention");
 
   it("highlights a message that mentions you, wiggling it as it shows unless motion is reduced", () => {
@@ -1165,7 +1164,7 @@ describe(feature("mentions.highlight"), () => {
   });
 });
 
-describe(feature("mentions.render"), () => {
+describe("How mentions look", () => {
   const mention = (id: string) => `<action-text-attachment content-type="application/vnd.campfire.mention" sgid="${id}"></action-text-attachment>`;
   const hopper: User = { id: "0123456789abcdef", name: "Grace" };
   const listed = { ...hopper, name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "" } as const;
@@ -1201,7 +1200,7 @@ describe(feature("mentions.render"), () => {
   });
 });
 
-describe(feature("users.avatar-links"), () => {
+describe("Avatars open people's pages", () => {
   afterEach(() => history.replaceState(null, "", "/"));
 
   it("links the author's avatar to their page, titled with their name, and goes there in place", async () => {
@@ -1229,7 +1228,7 @@ describe(feature("users.avatar-links"), () => {
   });
 });
 
-describe(feature("users.profile"), () => {
+describe("Edit your profile", () => {
   it("names the author and whoever reacted as the people directory lists them now, so a rename shows on messages sent before it", () => {
     const listed = (user: User, name: string) => [user.id, { ...user, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${user.id}/avatar` }] as const;
     const m = message({ boosts: [boost("b1", grace, "👍"), boost("b2", { id: "u3", name: "Linus" }, "👍")] });
@@ -1247,7 +1246,7 @@ describe(feature("users.profile"), () => {
   });
 });
 
-describe(feature("bots.cards"), () => {
+describe("Bot cards", () => {
   it("shows a bot's cards under its text, with no text above them where it sent none", () => {
     const { article } = show(message({ plainText: "Nightly report", cards: [deployCard] }));
     const [text, card] = [within(article).getByText("Nightly report"), within(article).getByRole("article", { name: "Deployed 🚀" })];

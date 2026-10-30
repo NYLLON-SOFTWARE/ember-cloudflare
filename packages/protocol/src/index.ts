@@ -131,13 +131,13 @@ export interface Me extends User {
   administrator: boolean;
 }
 
-/** What someone is in the workspace: ember-rust's user roles (crates/db/src/models/user.rs). */
+/** What someone is in the workspace: Campfire's user roles (`User::Role`). */
 export type Role = "member" | "administrator" | "bot";
 
 /**
  * Whether someone can still sign in: people who were removed are deactivated, and banned people are
- * banned. A member who signs in with Memberful is suspended while their membership has lapsed, until it's
- * renewed (`auth.memberful-memberships`), which ember-rust has no need of.
+ * banned. A member who signs in with Memberful is suspended while their membership has lapsed, until
+ * it's renewed.
  */
 export type UserStatus = "active" | "deactivated" | "banned" | "suspended";
 
@@ -158,16 +158,15 @@ export interface Directory {
 
 export type RoomKind = "open" | "closed" | "direct";
 
-/** A room's icon: the name of one of the Lucide or Iconoir icons in ember-rust's picker catalog. */
+/** A room's icon: the name of one of the Lucide or Iconoir icons in the room icon picker's catalog. */
 export type RoomIconName = (typeof ROOM_ICON_NAMES)[number];
 
 /**
- * A room's icon as New room and a room's settings send it, as ember-rust's forms send `room[icon]`:
- * an icon's name, or "" for the default `#`.
+ * A room's icon as New room and a room's settings send it: an icon's name, or "" for the default `#`.
  */
 export type RoomIconChoice = RoomIconName | "";
 
-/** An open or a private room, which ember-rust calls a shared room (users/sidebars/rooms/_shared.html). */
+/** An open or a private room, which Campfire calls a shared room (users/sidebars/rooms/_shared.html.erb). */
 export interface SharedRoom {
   id: RoomId;
   kind: Exclude<RoomKind, "direct">;
@@ -178,7 +177,7 @@ export interface SharedRoom {
 
 /**
  * A direct message. It has no name or icon of its own: it's named after its members, who are the same
- * for as long as it lasts, as in ember-rust.
+ * for as long as it lasts.
  */
 export interface DirectRoom {
   id: RoomId;
@@ -203,14 +202,13 @@ export interface Invitation {
 }
 
 /**
- * How much someone hears of a room they're in, its notification level, as ember-rust's memberships'
- * `involvement` has it (membership.rs): its @mentions of them, all its messages, nothing, or nothing
- * with the room hidden from their sidebar.
+ * How much someone hears of a room they're in, its notification level: its @mentions of them, all its
+ * messages, nothing, or nothing with the room hidden from their sidebar.
  */
 export const INVOLVEMENTS = ["mentions", "everything", "nothing", "invisible"] as const;
 export type Involvement = (typeof INVOLVEMENTS)[number];
 
-/** The level someone starts at in `room`, as ember-rust grants it: all messages in a DM, and @mentions elsewhere. */
+/** The level someone starts at in `room`: all messages in a DM, and @mentions elsewhere. */
 export const startingInvolvement = (room: Room): Involvement => (room.kind === "direct" ? "everything" : "mentions");
 
 /**
@@ -221,9 +219,9 @@ export const startingInvolvement = (room: Room): Involvement => (room.kind === "
 export type SidebarRoom = Room & { unread: boolean; involvement: Involvement };
 
 /**
- * The rooms someone has starred, which their sidebar lists first, in the order they starred them, as
- * ember-rust's `favorite_channels` keeps them (account.rs). `version` counts the changes to them, so
- * of two lists, the newer is the one with the larger version, whichever arrives last.
+ * The rooms someone has starred, which their sidebar lists first, in the order they starred them.
+ * `version` counts the changes to them, so of two lists, the newer is the one with the larger version,
+ * whichever arrives last.
  */
 export interface Favorites {
   rooms: RoomId[];
@@ -241,26 +239,25 @@ export interface Sidebar {
   favorites: Favorites;
   /**
    * The rooms in `rooms` that the workspace's shared order ranks, in that order, which the sidebar lists
-   * after the stars, before the rest, as ember-rust's `channel_order` has them (users/sidebars.rs). An
-   * administrator sets it on workspace settings, and the ids of rooms someone isn't in never reach them.
+   * after the stars, before the rest. An administrator sets it on workspace settings, and the ids of
+   * rooms someone isn't in never reach them.
    */
   sharedOrder: RoomId[];
   invitation: Invitation | null;
   /**
-   * People to start a DM with, as ember-rust's sidebar suggests them after the DMs
-   * (`find_direct_placeholder_users`, controllers/presenters/accounts.rs): the active people with the
-   * oldest accounts who share no DM with this person, never them, as many as `suggestedCount` says.
+   * People to start a DM with: the active people with the oldest accounts who share no DM with this
+   * person, never them, as many as `suggestedCount` says.
    */
   suggestions: User[];
 }
 
-/** How many people the sidebar's suggestions start from, ember-rust's `DIRECT_PLACEHOLDERS`. */
+/** How many people the sidebar's suggestions start from, Campfire's `DIRECT_PLACEHOLDERS`. */
 export const SUGGESTED_PEOPLE = 20;
 
 /**
  * How many people the sidebar suggests for DMs to someone with `peopleInDirects` people across their
- * DMs, them included, as ember-rust counts them: `SUGGESTED_PEOPLE` less those people, less one more,
- * so 19 with no DMs, 18 with only a DM with themselves and 17 with a DM with one other person.
+ * DMs, them included: `SUGGESTED_PEOPLE` less those people, less one more, so 19 with no DMs, 18 with
+ * only a DM with themselves and 17 with a DM with one other person.
  */
 export const suggestedCount = (peopleInDirects: number) => Math.max(0, SUGGESTED_PEOPLE - peopleInDirects - 1);
 
@@ -281,8 +278,8 @@ export interface NewRoomForm {
 }
 
 /**
- * A DM to start, as ember-rust's `user_ids[]` names its people: the DM between you and them, whom
- * `userIds` names, or your DM with yourself when it names nobody else.
+ * A DM to start: the DM between you and them, whom `userIds` names, or your DM with yourself when it
+ * names nobody else.
  */
 export interface NewDirect {
   userIds: UserId[];
@@ -310,14 +307,14 @@ export type RoomChanges = { name?: string; icon?: RoomIconChoice } & ({ kind?: "
 
 /**
  * The rail's buttons and the appearance modes, whose icons an administrator can choose in Community
- * settings, as ember-rust's `NAVIGATION_ICONS` (helpers/icons.rs, pull request #24) has them.
+ * settings.
  */
 export const NAVIGATION_SLOTS = ["home", "dms", "activity", "search", "admin", "light", "dark", "system"] as const;
 export type NavigationSlot = (typeof NAVIGATION_SLOTS)[number];
 
 /**
  * Each slot's icon until an administrator chooses another: the rail's Iconoir icons, which the project's
- * owner chose over ember-rust's Lucide ones.
+ * owner chose.
  */
 export const DEFAULT_NAVIGATION_ICONS = {
   home: "iconoir:regular:home",
@@ -362,8 +359,8 @@ export interface Account {
   /** Whether only administrators can create rooms, as "Must be admin to create new rooms" says. Off until one turns it on. */
   restrictRoomCreation: boolean;
   /**
-   * The address of the workspace's logo, which changes whenever the account does, as ember-rust's
-   * `fresh_account_logo_path` makes it, or null while there's none, when pages show Ember's flame.
+   * The address of the workspace's logo, which changes whenever the account does, or null while there's
+   * none, when pages show Ember's flame.
    */
   logo: string | null;
   /**
@@ -412,7 +409,7 @@ export interface Account {
   emailDomains: string[];
   /**
    * The icons an administrator chose in Community settings for the rail's buttons and the appearance
-   * modes, as ember-rust's pull request #24 lets them. A slot without one shows its default.
+   * modes. A slot without one shows its default.
    */
   navigationIcons: NavigationIcons;
 }
@@ -438,10 +435,10 @@ export interface WorkspaceSettings {
   memberfulWebhooks: boolean;
   /**
    * Where the keys of the Cloudflare Turnstile widget come from that checks whoever signs up, or asks
-   * Ember to email them, is a person (`auth.turnstile`), as Membership's Turnstile card says: the
-   * deployment's secrets `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`, which take the place of any
-   * others, the ones an administrator gave Ember in Set up Turnstile, or null while it has neither, when
-   * limits on each network stand in for the check.
+   * Ember to email them, is a person, as Membership's Turnstile card says: the deployment's secrets
+   * `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`, which take the place of any others, the ones an
+   * administrator gave Ember in Set up Turnstile, or null while it has neither, when limits on each
+   * network stand in for the check.
    */
   turnstile: "secret" | "saved" | null;
   /** How Ember sends email, which Membership's Email card shows administrators. */
@@ -455,8 +452,8 @@ export interface WorkspaceSettings {
 }
 
 /**
- * An invitation an administrator sent to join with an email address (`accounts.invitations`), until
- * it's accepted or revoked. Its link works once, until it expires, and only for that address.
+ * An invitation an administrator sent to join with an email address, until it's accepted or revoked. Its
+ * link works once, until it expires, and only for that address.
  */
 export interface EmailInvitation {
   id: string;
@@ -644,11 +641,11 @@ export interface AccountChanges {
 }
 
 /**
- * The workspace's settings that workspace settings' switches change, each as ember-rust's `account[settings]`
- * names it, but the ways to join, this port's own: the join link's switch, Open, Memberful, its Members
- * only, which the Worker turns on only with the deployment's Memberful keys, and Email domain, which it
- * turns on only with a domain to let in, while Ember can send email. Members only turns Memberful on with
- * it, turning Memberful off turns it off, and it's never on together with Open.
+ * The workspace's settings that workspace settings' switches change, the ways to join among them: the
+ * join link's switch, Open, Memberful, its Members only, which the Worker turns on only with the
+ * deployment's Memberful keys, and Email domain, which it turns on only with a domain to let in, while
+ * Ember can send email. Members only turns Memberful on with it, turning Memberful off turns it off, and
+ * it's never on together with Open.
  */
 export interface AccountSettings {
   hideTranslationButtons?: boolean;
@@ -753,7 +750,7 @@ export interface PersonAnswer {
   person: Person;
   /**
    * The id in a new sign-in link for them (`transferLink`), which administrators are given for anyone
-   * active who isn't a bot, as ember-rust's page shows them it.
+   * active who isn't a bot.
    */
   transferId?: string;
 }
@@ -773,13 +770,13 @@ export interface Profile {
   password: boolean;
   /**
    * Whether you need a Memberful membership to sign in while Memberful is members only, as everyone does
-   * but administrators and the people they invite (`accounts.invitations`), who sign in with a password too.
+   * but administrators and the people they invite, who sign in with a password too.
    */
   membershipNeeded: boolean;
   /**
    * Whether you've connected your account to an account at the Memberful site, which you can sign in with
-   * then (`auth.memberful-connect`), or null while Memberful isn't members only, or the deployment
-   * lacks its keys, or for a guest, who has nothing to connect.
+   * then, or null while Memberful isn't members only, or the deployment lacks its keys, or for a guest,
+   * who has nothing to connect.
    */
   memberful: boolean | null;
 }
@@ -787,7 +784,7 @@ export interface Profile {
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */
 export interface ProfileAnswer {
   profile: Profile;
-  /** The id in a new sign-in link for you (`transferLink`), as each of ember-rust's profile pages shows a new one. */
+  /** The id in a new sign-in link for you (`transferLink`), as each of the profile pages shows a new one. */
   transferId: string;
 }
 
@@ -845,23 +842,23 @@ export interface Bootstrap {
   /**
    * The site key of the Turnstile widget whose check the open sign-up form shows, and the forms that ask
    * Ember to email a link to join or a code to reset a password, to check that whoever fills them in is a
-   * person (`auth.turnstile`): the deployment's `TURNSTILE_SITE_KEY`, while it has both Turnstile's keys,
-   * or else the one an administrator gave in Set up Turnstile, or null while Ember has neither.
+   * person: the deployment's `TURNSTILE_SITE_KEY`, while it has both Turnstile's keys, or else the one an
+   * administrator gave in Set up Turnstile, or null while Ember has neither.
    */
   turnstileSiteKey: string | null;
   /**
-   * Whether someone who forgot their password can have Ember email them a code to choose a new one with
-   * (`auth.password-reset`), as the sign-in page then offers: while Ember can send email, from the From
-   * address an administrator gave it.
+   * Whether someone who forgot their password can have Ember email them a code to choose a new one with,
+   * as the sign-in page then offers: while Ember can send email, from the From address an administrator
+   * gave it.
    */
   passwordResetCodes: boolean;
-  /** "Ember" before setup, as in ember-rust. */
+  /** "Ember" before setup. */
   account: Account;
   /** This deployment's version: `APP_VERSION`, else `GIT_REVISION`, else the release. */
   version: string;
   /**
    * The public key browsers subscribe to push notifications with, in URL-safe Base64, or null while Web
-   * Push is off, as ember-rust's `vapid-public-key` meta tag carries it.
+   * Push is off.
    */
   vapidPublicKey: string | null;
   /** The browser and system that asked, which choose the steps the notification setup help gives. */
@@ -870,8 +867,7 @@ export interface Bootstrap {
 }
 
 /**
- * A browser and the system it runs on, as ember-rust's `ApplicationPlatform` reads them from the user
- * agent with its port of the `useragent` gem, so Chromium Edge and Brave count as Chrome, for instance.
+ * A browser and the system it runs on, so Chromium Edge and Brave count as Chrome, for instance.
  */
 export interface Platform {
   /** An iPhone or an iPad, though iPadOS Safari says it's a Mac. */
@@ -928,8 +924,8 @@ export interface EmailLinkSignUp {
 }
 
 /**
- * What a link Ember emails people to join with is: an administrator's invitation (`accounts.invitations`),
- * or one someone asked for with an address at the workspace's email domains (`auth.email-domain-sign-up`).
+ * What a link Ember emails people to join with is: an administrator's invitation, or one someone asked
+ * for with an address at the workspace's email domains.
  */
 export type EmailLinkKind = "invitation" | "email_domain";
 
@@ -956,15 +952,15 @@ export interface EmailLinkRequest {
 }
 
 /**
- * How many times Ember emails an address in an hour, at most, whoever asks, so that nobody can have Ember
- * email someone over and over: links to join with it at the email domains (`auth.email-domain-sign-up`)
- * and codes to reset its password (`auth.password-reset`) together. This port's own.
+ * How many times Ember emails an address in an hour, at most, whoever asks, so that nobody can have
+ * Ember email someone over and over: links to join with it at the email domains and codes to reset its
+ * password together.
  */
 export const EMAILS_PER_ADDRESS = 3;
 
 /**
  * How many links to join a network may ask for in an hour while Ember lacks Turnstile's keys, whose
- * check stops the scripts that would ask for many addresses at once (`auth.email-domain-sign-up`).
+ * check stops the scripts that would ask for many addresses at once.
  */
 export const EMAIL_LINKS_PER_NETWORK = 10;
 
@@ -979,8 +975,7 @@ export const EMAIL_LINK_UNSENT = "Ember couldn't email you just now. Try again l
 
 /**
  * Whose password to reset, and to what, as `POST /api/recovery/reset-password` takes it from
- * apps/worker/scripts/reset-password.ts, where ember-rust's `reset-password` takes the address as its
- * argument and the password on stdin.
+ * apps/worker/scripts/reset-password.ts.
  */
 export interface PasswordReset {
   emailAddress: string;
@@ -988,10 +983,9 @@ export interface PasswordReset {
 }
 
 /**
- * Someone who forgot their password asking Ember to email them a code to choose a new one with
- * (`auth.password-reset`), as the Reset your password page sends it to `POST /api/password_resets`, with
- * the token Turnstile's check gave the page while Ember has a widget's keys. The address is taken as
- * given, as sign-in takes it.
+ * Someone who forgot their password asking Ember to email them a code to choose a new one with, as the
+ * Reset your password page sends it to `POST /api/password_resets`, with the token Turnstile's check
+ * gave the page while Ember has a widget's keys. The address is taken as given, as sign-in takes it.
  */
 export interface PasswordResetRequest {
   emailAddress: string;
@@ -1000,7 +994,7 @@ export interface PasswordResetRequest {
 
 /**
  * A new password, with the code Ember emailed the address to choose it with, as the Reset your password
- * page sends it to `PUT /api/password_resets` (`auth.password-reset`).
+ * page sends it to `PUT /api/password_resets`.
  */
 export interface PasswordResetWithCode {
   emailAddress: string;
@@ -1017,11 +1011,11 @@ export interface PasswordResetDone {
 }
 
 /**
- * The codes Ember emails to reset a password (`auth.password-reset`), this port's own: how many digits
- * one has, how many minutes it works for, as its email and page say, and how many times it can be tried
- * before it stops working, so that guessing one takes far more tries than anyone gets. An address is
- * emailed as often as `EMAILS_PER_ADDRESS` says, and a network may ask for a code as often as
- * `PASSWORD_RESETS_PER_NETWORK` says while Ember lacks Turnstile's keys.
+ * The codes Ember emails to reset a password: how many digits one has, how many minutes it works for, as
+ * its email and page say, and how many times it can be tried before it stops working, so that guessing
+ * one takes far more tries than anyone gets. An address is emailed as often as `EMAILS_PER_ADDRESS`
+ * says, and a network may ask for a code as often as `PASSWORD_RESETS_PER_NETWORK` says while Ember
+ * lacks Turnstile's keys.
  */
 export const PASSWORD_RESET_CODE_DIGITS = 8;
 export const PASSWORD_RESET_CODE_MINUTES = 15;
@@ -1043,7 +1037,7 @@ export const PASSWORD_RESET_CODE_NEEDED = `Enter the ${PASSWORD_RESET_CODE_DIGIT
  */
 export const PASSWORD_RESET_CODE_WRONG = "That code is wrong or no longer works. Check the newest email from Ember, or send another code.";
 
-/** Why a code isn't checked once its network has tried as many codes and passwords as sign-in lets it (`auth.rate-limit`). */
+/** Why a code isn't checked once its network has tried as many codes and passwords as sign-in lets it. */
 export const PASSWORD_RESET_LIMITED = "Too many tries. Please wait a few minutes and try again.";
 
 /** What the workspace says once a new password has signed someone in. */
@@ -1085,26 +1079,26 @@ export interface LinkPreview {
 }
 
 /**
- * ember-rust's answer to a sign-in it refuses, since its pull request #24 (d49621e): a wrong password,
- * an unknown email address, or an account removed or banned.
+ * The answer to a sign-in Ember refuses: a wrong password, an unknown email address, or an account
+ * removed or banned.
  */
 export const SIGN_IN_REJECTED = "Incorrect email or password. Please try again.";
 
 /**
- * ember-rust's answer, since its pull request #24, once an address has tried to sign in too often
- * (`auth.rate-limit`), which checking a password anywhere counts against.
+ * The answer once an address has tried to sign in too often, which checking a password anywhere counts
+ * against.
  */
 export const SIGN_IN_LIMITED = "Too many sign-in attempts. Please wait a few minutes and try again.";
 
 /**
- * ember-rust's one answer to a sign-in it refused before its pull request #24, which a Memberful sign-in
- * it refuses still gets, since it can't say which of the two went wrong.
+ * Campfire's one answer to a sign-in it refuses, which a Memberful sign-in Ember refuses still gets,
+ * since it can't say which of the two went wrong.
  */
 export const SIGN_IN_REFUSED = "Too many requests or unauthorized.";
 
 /**
  * Where the sign-in page's Sign in with Memberful goes, which sends the browser on to sign in at the
- * Memberful site (`auth.memberful-sign-in`), naming the page to come back to in `return_to`.
+ * Memberful site, naming the page to come back to in `return_to`.
  */
 export const MEMBERFUL_SIGN_IN_PATH = "/auth/memberful";
 
@@ -1112,8 +1106,8 @@ export const MEMBERFUL_SIGN_IN_PATH = "/auth/memberful";
 export const MEMBERFUL_CALLBACK_PATH = "/auth/memberful/callback";
 
 /**
- * Where the Memberful site's webhooks go, which say when a member's membership changes
- * (`auth.memberful-memberships`). Memberful signs each, and the Worker checks what it says with Memberful.
+ * Where the Memberful site's webhooks go, which say when a member's membership changes. Memberful signs
+ * each, and the Worker checks what it says with Memberful.
  */
 export const MEMBERFUL_WEBHOOK_PATH = "/webhooks/memberful";
 
@@ -1122,8 +1116,8 @@ export const memberfulSignInPath = (returnTo: string | null) =>
   returnTo === null ? MEMBERFUL_SIGN_IN_PATH : `${MEMBERFUL_SIGN_IN_PATH}?return_to=${encodeURIComponent(returnTo)}`;
 
 /**
- * Where your profile's Connect Memberful goes (`auth.memberful-connect`), which answers where to sign in
- * at the Memberful site (`MemberfulConnection`) once it knows it's you.
+ * Where your profile's Connect Memberful goes, which answers where to sign in at the Memberful site
+ * (`MemberfulConnection`) once it knows it's you.
  */
 export const MEMBERFUL_CONNECTIONS_PATH = "/api/users/me/memberful_connections";
 
@@ -1138,11 +1132,11 @@ export interface MemberfulConnectionStart {
 
 /**
  * Where to sign in at the Memberful site, within ten minutes, to connect the account you sign in to there
- * to yours here (`auth.memberful-connect`): what connecting from your profile answers, and what signing in
- * with a password answers a member whose password checks out while Memberful is members only, until
- * they've connected one. Memberful sends the browser back, which connects it. Asked at an address Ember
- * has moved from to its custom domain (`accounts.custom-domain`), where Memberful doesn't send it back, it's
- * the page to come back to at the custom domain instead, to sign in and connect there.
+ * to yours here: what connecting from your profile answers, and what signing in with a password answers a
+ * member whose password checks out while Memberful is members only, until they've connected one.
+ * Memberful sends the browser back, which connects it. Asked at an address Ember has moved from to its
+ * custom domain, where Memberful doesn't send it back, it's the page to come back to at the custom domain
+ * instead, to sign in and connect there.
  */
 export interface MemberfulConnection {
   memberfulConnection: string;
@@ -1218,10 +1212,10 @@ export const joiningProblemOf = (value: string | null): JoiningProblem | null =>
 export const signInSaying = (problem: JoiningProblem) => `/session/new?${JOINING_PARAM}=${problem}`;
 
 /**
- * Open sign-up's limits, this port's own, which stand in for Turnstile's check while Ember lacks its
- * keys: how many people may sign up from an IP address in an hour, and how many new people in
- * the workspace in the last hour, however they joined, stop it, so that a flood can't use up the rows a
- * Workers Free account writes in a day.
+ * Open sign-up's limits, which stand in for Turnstile's check while Ember lacks its keys: how many
+ * people may sign up from an IP address in an hour, and how many new people in the workspace in the last
+ * hour, however they joined, stop it, so that a flood can't use up the rows a Workers Free account
+ * writes in a day.
  */
 export const SIGN_UPS_PER_ADDRESS = 5;
 export const SIGN_UPS_PER_HOUR = 50;
@@ -1236,9 +1230,8 @@ export const SIGN_UP_FULL = "Lots of people have signed up in the last hour. Try
 export const TURNSTILE_FAILED = "Ember couldn't check that you're a person. Try again.";
 
 /**
- * What a room closes a socket with when access to it ends, where ember-rust sends a `disconnect`
- * frame saying whether to reconnect (crates/ember/src/channels/revocation.rs). A close code says the
- * same and can't go missing, as a frame sent just before the close can.
+ * What a room closes a socket with when access to it ends. A close code says the same and can't go
+ * missing, as a frame sent just before the close can.
  */
 export const CloseCode = {
   /**
@@ -1259,11 +1252,10 @@ export const CloseCode = {
 export type CloseCode = (typeof CloseCode)[keyof typeof CloseCode];
 
 /**
- * The shortest new password Ember takes, in characters rather than bytes, as ember-rust's first run
- * counts them; ember-rust takes any password on joining and in your profile.
+ * The shortest new password Ember takes, in characters rather than bytes.
  */
 export const MIN_PASSWORD_LENGTH = 8;
-/** The password fields' `maxlength`, which ember-rust's forms keep from bcrypt's 72-byte limit. */
+/** The password fields' `maxlength`, which Campfire's profile form keeps from bcrypt's 72-byte limit. */
 export const MAX_PASSWORD_LENGTH = 72;
 export const PASSWORD_TOO_SHORT = "Password must be at least 8 characters.";
 export const PASSWORD_TOO_LONG = "Password must be at most 72 characters.";
@@ -1304,8 +1296,8 @@ export interface Message {
   editedAt: string | null;
   boosts: Boost[];
   /**
-   * A file message's file, which it shows in place of its text, as ember-rust's message shows its one
-   * attachment. Its text is empty, and its plain text the file's name.
+   * A file message's file, which it shows in place of its text. Its text is empty, and its plain text
+   * the file's name.
    */
   attachment?: StoredFile;
   /**
@@ -1317,8 +1309,7 @@ export interface Message {
 
 /**
  * What a tab sends on a room socket. A socket from an IP address a ban blocks can read, but the room
- * answers each frame that would change messages or boosts with an `error`, as ember-rust answers such
- * requests with 429.
+ * answers each frame that would change messages or boosts with an `error`.
  */
 export type ClientFrame =
   /** A new message, its body markup, as the composer writes it. The room keeps what it can show of it, or refuses it. */
@@ -1346,8 +1337,7 @@ export type ClientFrame =
   | { type: "ping" };
 
 /**
- * A page of a room's messages that takes the timeline's place: the newest, or the one around a message
- * (ember-rust's `last_page` and `page_around`).
+ * A page of a room's messages that takes the timeline's place: the newest, or the one around a message.
  */
 export interface TimelinePage {
   /** Oldest first. */
@@ -1443,10 +1433,9 @@ export type WorkspaceServerFrame =
   /** They've dismissed the welcome card, in this tab or another, so their sidebar has no invitation from now on. */
   | { type: "invitation.dismissed" }
   /**
-   * An administrator saved the shared room order, so the sidebar loads again, as ember-rust's
-   * `room_order_changed` has every sidebar reload (broadcasts.rs). It names no rooms, since some aren't
-   * everyone's. Sent to everyone, and to the people a room the order ranks takes in, whose sidebars'
-   * order left it out.
+   * An administrator saved the shared room order, so the sidebar loads again. It names no rooms, since
+   * some aren't everyone's. Sent to everyone, and to the people a room the order ranks takes in, whose
+   * sidebars' order left it out.
    */
   | { type: "rooms.reordered" }
   /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */
@@ -1515,53 +1504,54 @@ export const MESSAGE_TOO_LONG = `Messages can be up to ${MAX_MESSAGE_LENGTH.toLo
 export const isMessageTooLong = (plainText: string) => plainText.length > MAX_MESSAGE_LENGTH;
 /** The most characters of markup a message can arrive as: room for the longest message, formatted. */
 export const MAX_MESSAGE_HTML_LENGTH = 100_000;
-/** Matches the `boosts.content varchar(16)` column in ember-rust. */
+/** As long as Campfire's `boosts.content` column can be (`limit: 16`, db/schema.rb). */
 export const MAX_BOOST_LENGTH = 16;
 /**
- * ember-rust's page of messages (`Message::PAGE_SIZE`): the newest a room opens on, what each page of
- * history adds before or after the timeline, and how many a permalink shows on either side of its message.
+ * Campfire's page of messages (`Message::PAGE_SIZE`): the newest a room opens on, what each page of
+ * history adds before or after the timeline, and how many a permalink shows on either side of its
+ * message.
  */
 export const HISTORY_PAGE_SIZE = 40;
 /** How many messages one message.check can ask about: more than anyone sends before a dead socket is noticed. */
 export const MAX_CHECKED_MESSAGES = 50;
-/** ember-rust has no limit; this keeps a name to what a sidebar row and a room's header can show. */
+/** Keeps a room's name to what a sidebar row and a room's header can show. */
 export const MAX_ROOM_NAME_LENGTH = 100;
-/** ember-rust has no limit; this keeps the workspace's name to what the sidebar's heading can show. */
+/** Keeps the workspace's name to what the sidebar's heading can show. */
 export const MAX_ACCOUNT_NAME_LENGTH = 100;
 /**
- * This port's own: what fits on one line under the name at the top of the sidebar, at its full 280px
- * and in the drawer of a phone from 375px wide, as an App Store app's subtitle takes 30 characters
- * under its name. A narrower sidebar, or wider letters, can wrap it onto a second line.
+ * What fits on one line under the name at the top of the sidebar, at its full 280px and in the drawer of
+ * a phone from 375px wide, as an App Store app's subtitle takes 30 characters under its name. A narrower
+ * sidebar, or wider letters, can wrap it onto a second line.
  */
 export const MAX_TAGLINE_LENGTH = 30;
 export const TAGLINE_TOO_LONG = `Tagline must be at most ${MAX_TAGLINE_LENGTH} characters`;
 /** The longest host name DNS has, which a custom domain can be, with a port. */
 const MAX_HOST_NAME_LENGTH = 253;
 /**
- * ember-rust has no limit; this keeps custom CSS, which every page load and workspace socket carries,
- * well within what a row or a socket's message can hold.
+ * Keeps custom CSS, which every page load and workspace socket carries, well within what a row or a
+ * socket's message can hold.
  */
 export const MAX_CUSTOM_STYLES_LENGTH = 100_000;
 /** How many people one request can name: a bound on the request's size, not on a room's. */
 export const MAX_LISTED_USERS = 1_000;
-/** How many rooms someone can star, as ember-rust caps their list (`MAX_CHANNEL_ORDER`, account.rs). */
+/** How many rooms someone can star. */
 export const MAX_FAVORITES = 4_096;
-/** How many rooms the shared order can rank, as ember-rust caps it (`MAX_CHANNEL_ORDER`, account.rs). */
+/** How many rooms the shared order can rank. */
 export const MAX_SHARED_ORDER = 4_096;
-/** The profile's Bio field's `maxlength` (users/profiles/show.html), which the server keeps too. */
+/** The profile's Bio field's `maxlength`, as in Campfire's users/profiles/show.html.erb, which the server keeps too. */
 export const MAX_BIO_LENGTH = 200;
 /**
- * ember-rust has no limit on a person's or a bot's name; this keeps one to what a byline, a mention
- * and a directory row can show. Every message copies its author's name, so a name of megabytes would
- * swell a room's storage and every page of its history for everyone in it.
+ * Keeps a person's or a bot's name to what a byline, a mention and a directory row can show. Every
+ * message copies its author's name, so a name of megabytes would swell a room's storage and every page
+ * of its history for everyone in it.
  */
 export const MAX_USER_NAME_LENGTH = 100;
-/** ember-rust has no limit; no deliverable address is longer (RFC 5321's path limit). */
+/** No deliverable address is longer (RFC 5321's path limit). */
 export const MAX_EMAIL_ADDRESS_LENGTH = 254;
 export const NAME_TOO_LONG = `Name must be at most ${MAX_USER_NAME_LENGTH} characters`;
 export const EMAIL_ADDRESS_TOO_LONG = `Email address must be at most ${MAX_EMAIL_ADDRESS_LENGTH} characters`;
 
-/** ember-rust's `REACTIONS`: the first three are quick reactions, the rest sit in the tray. */
+/** The reactions: the first three are quick reactions, the rest sit in the tray. */
 export const REACTIONS = [
   ["👍", "Thumbs up"],
   ["👏", "Clapping"],
@@ -1662,8 +1652,8 @@ export function isRoomId(value: string): boolean {
 let roomIconNames: ReadonlySet<string> | undefined;
 
 /**
- * Whether `value` is exactly the name of an icon in the catalog, as ember-rust checks a room's
- * icon: `"coffee"` is, but `" coffee "`, `"Coffee"` and `""`, which stands for the default `#`, aren't.
+ * Whether `value` is exactly the name of an icon in the catalog: `"coffee"` is, but `" coffee "`,
+ * `"Coffee"` and `""`, which stands for the default `#`, aren't.
  */
 export function isRoomIcon(value: unknown): value is RoomIconName {
   roomIconNames ??= new Set(ROOM_ICON_NAMES);
@@ -1673,8 +1663,8 @@ export function isRoomIcon(value: unknown): value is RoomIconName {
 const ICON_REFUSED = 'Icon must be one of the room icons, or "" for the default';
 
 /**
- * A room's icon as ember-rust's `parse_room_icon` takes it (rooms.rs): undefined when it's left out,
- * which keeps the icon, or null when it's neither "" nor exactly an icon's name.
+ * A room's icon: undefined when it's left out, which keeps the icon, or null when it's neither "" nor
+ * exactly an icon's name.
  */
 function iconChoice(value: unknown): RoomIconChoice | null | undefined {
   if (value === undefined) return undefined;
@@ -1718,7 +1708,7 @@ const isJsonObject = (data: unknown): data is Record<string, unknown> => typeof 
 
 /**
  * Parses an untrusted request to start a DM. Returns why it's refused instead of the DM. Naming nobody,
- * or leaving `userIds` out, starts your DM with yourself, as ember-rust's does without `user_ids`.
+ * or leaving `userIds` out, starts your DM with yourself.
  */
 export function parseNewDirect(data: unknown): NewDirect | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
@@ -1738,8 +1728,7 @@ const SETTING_NAMES: Record<keyof AccountSettings, string> = {
 };
 
 /**
- * Parses an untrusted order of at most `max` rooms, as ember-rust's `parse_order` reads one
- * (users/sidebars.rs). Returns why it's refused instead of the rooms.
+ * Parses an untrusted order of at most `max` rooms. Returns why it's refused instead of the rooms.
  */
 function parseRoomOrder(data: unknown, max: number): RoomId[] | string {
   const roomIds = typeof data === "object" && data !== null ? (data as Record<string, unknown>).roomIds : undefined;
@@ -1976,9 +1965,8 @@ const taglineOf = (text: string) => text.replace(/\s+/g, " ").trim();
 export const NAVIGATION_ICONS_REFUSED = 'Navigation icons must give the rail\'s buttons and the appearance modes one of the room icons each, or "" for the default';
 
 /**
- * Untrusted changes to navigation icons as ember-rust's `parse_navigation_icons` reads them
- * (controllers/accounts.rs, pull request #24): an object of known slots, each an icon's exact name or ""
- * for its default, which its default's own name stands for too. Undefined for anything else.
+ * Untrusted changes to navigation icons: an object of known slots, each an icon's exact name or "" for
+ * its default, which its default's own name stands for too. Undefined for anything else.
  */
 function navigationIconsOf(data: unknown): NavigationIconChanges | undefined {
   if (!isJsonObject(data)) return undefined;
@@ -1992,12 +1980,12 @@ function navigationIconsOf(data: unknown): NavigationIconChanges | undefined {
 }
 
 /**
- * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. As in
- * ember-rust, the name is saved as typed, even blank. The tagline, this port's own, is kept on one line
- * without space at its ends, and blank is none. Each setting is true or false, and one it doesn't know
- * is refused, where ember-rust fails (account.rs, `assign`). A custom domain is a host or null, which
- * the Worker then checks is the address the request came to. Navigation icons are as `navigationIconsOf`
- * reads them, the From address as `emailFromOf` does, and Email domain's domains as `emailDomainsOf` does.
+ * Parses an untrusted change to the workspace. Returns why it's refused instead of the changes. The name
+ * is saved as typed, even blank. The tagline is kept on one line without space at its ends, and blank is
+ * none. Each setting is true or false, and one it doesn't know is refused. A custom domain is a host or
+ * null, which the Worker then checks is the address the request came to. Navigation icons are as
+ * `navigationIconsOf` reads them, the From address as `emailFromOf` does, and Email domain's domains as
+ * `emailDomainsOf` does.
  */
 export function parseAccountChanges(data: unknown): AccountChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
@@ -2033,7 +2021,7 @@ export function parseAccountChanges(data: unknown): AccountChanges | string {
   return { ...changes, settings: changed };
 }
 
-/** Parses untrusted custom CSS, which is saved as typed, as in ember-rust. Returns why it's refused instead. */
+/** Parses untrusted custom CSS, which is saved as typed. Returns why it's refused instead. */
 export function parseCustomStyles(data: unknown): Partial<CustomStyles> | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
   const { customStyles } = data;
@@ -2044,22 +2032,20 @@ export function parseCustomStyles(data: unknown): Partial<CustomStyles> | string
 }
 
 /**
- * Parses an untrusted role change as ember-rust reads `user[role]` (accounts/users.rs): exactly
- * "administrator" makes someone an administrator, and anything else a member, blank included. Null
- * without a role at all, which ember-rust answers 400, as it does a request without `user`.
+ * Parses an untrusted role change: exactly "administrator" makes someone an administrator, and anything
+ * else a member, blank included. Null without a role at all, as it does a request without `user`.
  */
 export function parseRoleChange(data: unknown): RoleChange | null {
   if (typeof data !== "object" || data === null || Array.isArray(data) || !("role" in data)) return null;
   return { role: data.role === "administrator" ? "administrator" : "member" };
 }
 
-/** Whether `value` is exactly one of the notification levels, as ember-rust's `Involvement::from_name` reads one. */
+/** Whether `value` is exactly one of the notification levels. */
 export const isInvolvement = (value: unknown): value is Involvement => (INVOLVEMENTS as readonly unknown[]).includes(value);
 
 /**
- * Parses an untrusted change to someone's notification level in a room: the level, or null for
- * anything else. ember-rust stores a blank level as none at all, which leaves the room out of the
- * sidebar but shows no level, and fails on anything else (rooms/involvements.rs).
+ * Parses an untrusted change to someone's notification level in a room: the level, or null for anything
+ * else.
  */
 export function parseInvolvementChange(data: unknown): Involvement | null {
   if (typeof data !== "object" || data === null) return null;
@@ -2077,10 +2063,9 @@ const PROFILE_FIELDS = {
 } as const satisfies Record<keyof ProfileChanges, string>;
 
 /**
- * Parses an untrusted change to your profile. Returns why it's refused instead. As in ember-rust
- * (profiles.rs), each field is saved as typed, even a blank name. The server keeps the form's limits
- * too: a new password from the 8 characters first run takes, which ember-rust doesn't ask for here,
- * to the 72 sign-in can take, and a 200-character bio.
+ * Parses an untrusted change to your profile. Returns why it's refused instead. Each field is saved as
+ * typed, even a blank name. The server keeps the form's limits too: a new password from the 8 characters
+ * first run takes, to the 72 sign-in can take, and a 200-character bio.
  */
 export function parseProfileChanges(data: unknown): ProfileChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
@@ -2112,7 +2097,7 @@ export function parseSignUp(data: unknown): SignUp | string {
   if (typeof data !== "object" || data === null) return "Expected a JSON object";
   const f = data as Record<string, unknown>;
   const name = typeof f.name === "string" ? f.name.trim() : "";
-  // Like ember-rust, take the address as typed: the browser checks its shape and trims it.
+  // Take the address as typed: the browser checks its shape and trims it.
   const emailAddress = typeof f.emailAddress === "string" ? f.emailAddress : "";
   if (!name || !emailAddress || typeof f.password !== "string") return "Name, email address and password are required";
   if (name.length > MAX_USER_NAME_LENGTH) return NAME_TOO_LONG;

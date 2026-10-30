@@ -1,7 +1,6 @@
 // Link previews: the attachment Campfire's composer adds below a link it unfurls
-// (reference/app/javascript/controllers/unfurl_controller.js), and how a message that is only that
-// link shows just its preview (reference/app/helpers/content_filters/remove_solo_unfurled_link_text.rb,
-// ember-rust's crates/richtext/src/filters.rs).
+// (app/javascript/controllers/unfurl_controller.js), and how a message that is only that link shows just
+// its preview (app/helpers/content_filters/remove_solo_unfurled_link_text.rb).
 
 import { isTwitterAvatar, OPENGRAPH_EMBED_CONTENT_TYPE, opengraphEmbedFromNode, type OpengraphEmbed } from "./attachments";
 import { attachmentNodes } from "./content";
@@ -58,11 +57,11 @@ export function removeSoloUnfurledLinkText(parse: HtmlParser, content: Fragment,
 const TWITTER_DOMAINS = ["x.com", "twitter.com"];
 
 /**
- * `normalize_tweet_url`: text with x.com or twitter.com in it that parses as an address, as Ruby's
- * URI writes it back on twitter.com for x.com and without its query, so that a tweet's addresses
- * compare equal; any other text as it is. Setting the host drops the userinfo, as it does in uri
- * 1.1, which Campfire runs (ember-rust's keeps it). Nothing where Ruby raises: for a malformed
- * mailto: address, and for an http one without a host, which Ruby won't set a host on.
+ * `normalize_tweet_url`: text with x.com or twitter.com in it that parses as an address, as Ruby's URI
+ * writes it back on twitter.com for x.com and without its query, so that a tweet's addresses compare
+ * equal; any other text as it is. Setting the host drops the userinfo, as it does in uri 1.1, which
+ * Campfire runs. Nothing where Ruby raises: for a malformed mailto: address, and for an http one without
+ * a host, which Ruby won't set a host on.
  */
 export function normalizeTweetUrl(url: string): string | undefined {
   if (isBlank(url) || !TWITTER_DOMAINS.some((domain) => url.includes(domain))) return url;

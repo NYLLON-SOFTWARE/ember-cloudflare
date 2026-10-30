@@ -5,9 +5,8 @@ import { useTitle } from "@/hooks/use-title";
 import { PageHeader } from "./page-header";
 
 /**
- * ember-rust's page for someone in no rooms yet (welcome/show.html): an empty top bar, and a faint chat
- * bubble, where ember-rust draws Campfire's empty conversation, in the middle of the page, as
- * `.message-area--empty` lays it out in Campfire's messages.css and zz-ember.css.
+ * The page for someone in no rooms yet: an empty top bar, and a faint chat bubble in the middle of the
+ * page, as `.message-area--empty` lays it out in Campfire's messages.css.
  */
 export function WelcomePage({ me }: { me: User }) {
   useTitle("No rooms yet");

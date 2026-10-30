@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Room } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -63,7 +62,7 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("rooms.create-open"), () => {
+describe("Create an open room", () => {
   it("reads New room, prefilled, with Go Back to community settings' rooms", async () => {
     serve();
     showPage();
@@ -176,10 +175,10 @@ describe(feature("rooms.create-open"), () => {
   });
 });
 
-describe(feature("rooms.creation-permission"), () => {
+describe("Only administrators create rooms (setting)", () => {
   const ONLY_ADMINISTRATORS = "Only administrators can create rooms";
 
-  it("sends anyone but an administrator to Rooms and permissions, saying why, while only they can create rooms, where ember-rust answers an empty 403", async () => {
+  it("sends anyone but an administrator to Rooms and permissions, saying why, while only they can create rooms", async () => {
     serve({ formRefusal: { status: 403, error: ONLY_ADMINISTRATORS } });
     const { onFailed } = showPage("/rooms/closeds/new");
     expect(await screen.findByRole("alert")).toHaveTextContent(ONLY_ADMINISTRATORS);
@@ -208,7 +207,7 @@ describe(feature("rooms.creation-permission"), () => {
   });
 });
 
-describe(feature("rooms.create-closed"), () => {
+describe("Create a private room", () => {
   it("turns Everyone off for the private form in place, keeping the name", async () => {
     serve();
     const { user } = showPage();
@@ -256,7 +255,7 @@ describe(feature("rooms.create-closed"), () => {
   });
 });
 
-describe(feature("rooms.unsaved-changes"), () => {
+describe("Unsaved changes guard", () => {
   it("leaves a form as it opened without asking", async () => {
     serve();
     showPage();

@@ -4,8 +4,8 @@ import { Xmark } from "@/components/icons/iconoir";
 
 import { cn } from "@/lib/utils";
 
-// shadcn/ui's sheet as ember-rust's conversations drawer (zz-ember.css): it slides over 180ms, and only
-// when reduced motion isn't asked for, and what it lays over the page shows and goes at once.
+// shadcn/ui's sheet as the conversations drawer: it slides over 180ms, and only when reduced motion
+// isn't asked for, and what it lays over the page shows and goes at once.
 
 function Sheet({ ...props }: React.ComponentProps<typeof SheetPrimitive.Root>) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;

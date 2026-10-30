@@ -1,16 +1,15 @@
 import { useEffect } from "react";
 
-// ember-rust's select on entry (crates/assets/overrides/ember/shell.js): tabbing or clicking into a
-// one-line field selects what's in it, so typing replaces it, and a second click or a drag places the
-// cursor as usual.
+// Select on entry: tabbing or clicking into a one-line field selects what's in it, so typing replaces
+// it, and a second click or a drag places the cursor as usual.
 
 /** The fields that select on entry. Text areas, the message box among them, never do. */
 const REPLACEABLE_TYPES = new Set(["text", "search", "email", "url", "tel", "password"]);
-/** How far the pointer may move between pressing and clicking for the click to select, as in ember-rust. */
+/** How far the pointer may move between pressing and clicking for the click to select. */
 const CLICK_SLOP_PX = 6;
 /**
- * ember-rust's mark for a field that keeps the usual cursor, such as its icon search. Here a page can
- * carry it too, for every field on it, as first-run setup does.
+ * The mark for a field that keeps the usual cursor, such as the icon picker's search. A page can carry
+ * it too, for every field on it, as first-run setup does.
  */
 const PRESERVED = "[data-ember-preserve-selection]";
 
@@ -21,12 +20,12 @@ function isReplaceable(target: EventTarget | null): target is HTMLInputElement {
 /** Selects what's in a one-line field whenever one is entered, anywhere on the page. */
 export function useSelectOnEntry(): void {
   useEffect(() => {
-    // A press on a field that didn't have focus yet, and where. The click that ends it selects, not
-    // the focus it gives: pressing on selected text drags it, so where ember-rust selects on that
-    // focus, a drag across the field picks up all its text instead of selecting some.
+    // A press on a field that didn't have focus yet, and where. The click that ends it selects, not the
+    // focus it gives: pressing on selected text drags it, so selecting on that focus would have a drag
+    // across the field pick up all its text instead of selecting some.
     let press: { field: HTMLInputElement; x: number; y: number } | undefined;
     // What had focus when the window lost it. Coming back to the window focuses it again, which isn't
-    // entering it: ember-rust selects it again, so typing on replaces what was typed before.
+    // entering it, so it isn't selected again, which would have typing on replace what was typed before.
     let left: Element | null = null;
 
     const focusIn = (event: FocusEvent) => {

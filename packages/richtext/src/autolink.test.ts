@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { autoLink, TagIndex } from "./autolink";
 import { parseHtml } from "./parse";
@@ -6,7 +5,7 @@ import { parseHtml } from "./parse";
 const link = (html: string) => autoLink(parseHtml, html);
 const anchor = (href: string, text = href) => `<a target="_blank" href="${href}">${text}</a>`;
 
-describe(feature("messages.autolink"), () => {
+describe("Links in message text", () => {
   it("links addresses with a known scheme, and www. addresses with http://", () => {
     expect(link("<p>https://example.com and www.example.com</p>")).toBe(
       `<p>${anchor("https://example.com")} and ${anchor("http://www.example.com", "www.example.com")}</p>`,

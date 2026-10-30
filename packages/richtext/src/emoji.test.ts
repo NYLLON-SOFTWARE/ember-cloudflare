@@ -1,8 +1,7 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { isAllEmoji } from "./emoji";
 
-describe(feature("messages.emoji-only"), () => {
+describe("Emoji-only messages", () => {
   it("is only emoji, as Ruby's regexp reads it", () => {
     for (const text of ["😄🤘", "👍", "❤️", "👍🏽", "🇨🇦", "©", "™"]) expect(isAllEmoji(text), text).toBe(true);
     for (const text of ["Haha! 😄🤘", "🔥 💯", "", "👨‍👩‍👧", "1️⃣", "😄\n"]) expect(isAllEmoji(text), text).toBe(false);
@@ -10,7 +9,7 @@ describe(feature("messages.emoji-only"), () => {
 
   it("reads a run of emoji before other text in a moment", () => {
     const started = Date.now();
-    // Each is both properties ember-rust's pattern alternates between, and V8 trying each for every one of these
+    // Each is both properties Campfire's pattern alternates between, and V8 trying each for every one of these
     // took half a minute, twice that with one more.
     expect(isAllEmoji(`${"🎉".repeat(28)} Shipped!`)).toBe(false);
     expect(isAllEmoji("🎉".repeat(5_000))).toBe(true);

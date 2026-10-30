@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -217,7 +216,7 @@ async function signInAsAda(password = "correct horse") {
   await user.type(screen.getByLabelText("Password"), `${password}{Enter}`);
 }
 
-/** Opens your profile, where ember-rust signs out, from the rail's avatar, once it has loaded. */
+/** Opens your profile, where you sign out, from the rail's avatar, once it has loaded. */
 async function openYourProfile() {
   await userEvent.setup().click(screen.getAllByRole("link", { name: "Your profile" })[0]!);
   await waitFor(() => expect(screen.getByLabelText("Name")).toBeEnabled());
@@ -238,7 +237,7 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("auth.first-run"), () => {
+describe("Set up the workspace", () => {
   it("sends every page to Set up Ember until Ember is set up", async () => {
     history.replaceState(null, "", "/rooms/general");
     serve({ signedIn: false, setup: "pending" });
@@ -304,7 +303,7 @@ describe(feature("auth.first-run"), () => {
   });
 });
 
-describe(feature("auth.sessions"), () => {
+describe("Stay signed in, per device", () => {
   it("opens straight into the workspace for someone already signed in", async () => {
     serve({ signedIn: true });
     render(<App />);
@@ -394,7 +393,7 @@ describe(feature("auth.sessions"), () => {
   });
 });
 
-describe(feature("rooms.show"), () => {
+describe("Open a room", () => {
   const morning: Message = {
     id: "m1",
     clientMessageId: "m1",
@@ -434,7 +433,7 @@ describe(feature("rooms.show"), () => {
   });
 });
 
-describe(feature("accounts.name"), () => {
+describe("Rename the workspace", () => {
   it("takes a name saved in another tab at once, as the workspace socket says, on every page", async () => {
     WorkspaceSocket.all = [];
     vi.stubGlobal("WebSocket", WorkspaceSocket);
@@ -505,7 +504,7 @@ describe(feature("accounts.name"), () => {
   });
 });
 
-describe(feature("accounts.tagline"), () => {
+describe("Workspace tagline", () => {
   const TAGLINE = "Engines for every occasion";
   /** The sidebar's heading, with the tagline under the name, if there is one. */
   const sidebarHeading = () => screen.getByRole("heading", { level: 2, name: "Ember" }).closest("hgroup");
@@ -540,7 +539,7 @@ describe(feature("accounts.tagline"), () => {
   });
 });
 
-describe(feature("accounts.custom-domain"), () => {
+describe("Custom domain", () => {
   const DOMAIN = "chat.example.com";
   const MOVED: Account = { ...EMBER, customDomain: DOMAIN };
   /** The notice in a tab left open at another address. */
@@ -627,7 +626,7 @@ describe(feature("accounts.custom-domain"), () => {
   });
 });
 
-describe(feature("accounts.custom-css"), () => {
+describe("Custom CSS", () => {
   const RED = "body { color: red; }";
   const BLUE = "body { color: blue; }";
   /** The workspace's CSS, which comes after the app's own. */
@@ -640,7 +639,7 @@ describe(feature("accounts.custom-css"), () => {
     expect(customStyles()).toBe(RED);
   });
 
-  it("applies CSS saved in another tab at once, as the workspace socket says, where ember-rust's tabs take it on their next load", async () => {
+  it("applies CSS saved in another tab at once, as the workspace socket says", async () => {
     WorkspaceSocket.all = [];
     vi.stubGlobal("WebSocket", WorkspaceSocket);
     serve({ signedIn: true, account: { ...EMBER, customStyles: RED } });
@@ -672,7 +671,7 @@ describe(feature("accounts.custom-css"), () => {
   });
 });
 
-describe(feature("accounts.logo"), () => {
+describe("Workspace logo", () => {
   const LOGO = "/account/logo?v=20261017120000";
   const brand = () => screen.getByRole("link", { name: "Ember home" }).querySelector("img");
 
@@ -684,7 +683,7 @@ describe(feature("accounts.logo"), () => {
     expect(document.body).toHaveClass("account-has-logo");
   });
 
-  it("shows a logo saved in another tab at once, as the workspace socket says, where ember-rust's tabs show it on their next load", async () => {
+  it("shows a logo saved in another tab at once, as the workspace socket says", async () => {
     WorkspaceSocket.all = [];
     vi.stubGlobal("WebSocket", WorkspaceSocket);
     serve({ signedIn: true });
@@ -702,7 +701,7 @@ describe(feature("accounts.logo"), () => {
   });
 });
 
-describe(feature("accounts.translation-buttons"), () => {
+describe("Translation buttons", () => {
   it("shows translation buttons on sign-in once an administrator shows them", async () => {
     serve({ signedIn: false, account: { ...EMBER, hideTranslationButtons: false } });
     render(<App />);
@@ -712,7 +711,7 @@ describe(feature("accounts.translation-buttons"), () => {
   });
 });
 
-describe(feature("accounts.roles"), () => {
+describe("Make or revoke administrators", () => {
   it("follows the person signed in being made a member, and an administrator again, as their rail says", async () => {
     WorkspaceSocket.all = [];
     vi.stubGlobal("WebSocket", WorkspaceSocket);
@@ -733,7 +732,7 @@ describe(feature("accounts.roles"), () => {
   });
 });
 
-describe(feature("auth.sign-in"), () => {
+describe("Sign in with email and password", () => {
   it("signs in with an email address and password, and comes back to the page asked for", async () => {
     history.replaceState(null, "", "/rooms/general");
     serve({ signedIn: false });
@@ -754,7 +753,7 @@ describe(feature("auth.sign-in"), () => {
     expect(location.pathname).toBe("/rooms/general");
   });
 
-  it("shows the sign-in page to someone already signed in, as ember-rust does", async () => {
+  it("shows the sign-in page to someone already signed in", async () => {
     history.replaceState(null, "", "/session/new");
     serve({ signedIn: true });
     render(<App />);
@@ -773,7 +772,7 @@ describe(feature("auth.sign-in"), () => {
   });
 });
 
-describe(feature("auth.memberful-sign-in"), () => {
+describe("Sign in with Memberful", () => {
   it("forgets the page to come back to once it opens signed in, as signing in with Memberful opens that page itself", async () => {
     sessionStorage.setItem("ember:return-to", "/rooms/general");
     history.replaceState(null, "", "/rooms/general");
@@ -793,7 +792,7 @@ describe(feature("auth.memberful-sign-in"), () => {
   });
 });
 
-describe(feature("auth.sign-up"), () => {
+describe("Sign up with the join link", () => {
   const joinPage = () => screen.findByRole("heading", { name: "Join Ember" });
 
   async function join(emailAddress: string) {
@@ -825,7 +824,7 @@ describe(feature("auth.sign-up"), () => {
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith(ADA_SIGNS_IN));
   });
 
-  it("sends someone who's signed in home from a join link, as ember-rust does", async () => {
+  it("sends someone who's signed in home from a join link", async () => {
     history.replaceState(null, "", `/join/${JOIN_CODE}`);
     serve({ signedIn: true });
     render(<App />);
@@ -835,7 +834,7 @@ describe(feature("auth.sign-up"), () => {
   });
 });
 
-describe(feature("auth.open-sign-up"), () => {
+describe("Sign up without a link", () => {
   it("opens open sign-up's page, and goes home signed in once the account is made", async () => {
     history.replaceState(null, "", "/join");
     const fetch = serve({ signedIn: false, account: { ...EMBER, openSignUp: true } });
@@ -862,7 +861,7 @@ describe(feature("auth.open-sign-up"), () => {
   });
 });
 
-describe(feature("auth.invitation-sign-up"), () => {
+describe("Join with an invitation", () => {
   it("opens an invitation's page, with its secret out of the address, and goes home signed in once the account is made", async () => {
     history.replaceState(null, "", `/join/invitation#token=${INVITATION_TOKEN}`);
     serve({ signedIn: false, account: { ...EMBER, joinLink: false } });
@@ -889,7 +888,7 @@ describe(feature("auth.invitation-sign-up"), () => {
   });
 });
 
-describe(feature("auth.email-domain-sign-up"), () => {
+describe("Join with an email domain", () => {
   const atDomains: Account = { ...EMBER, joinLink: false, emailDomainSignUp: true, emailDomains: ["example.com"] };
 
   it("opens the page to ask for a link without signing in", async () => {
@@ -925,7 +924,7 @@ describe(feature("auth.email-domain-sign-up"), () => {
   });
 });
 
-describe(feature("auth.password-reset"), () => {
+describe("Reset a forgotten password with an emailed code", () => {
   const resetPage = () => screen.findByRole("heading", { level: 1, name: "Reset your password" });
 
   it("offers it from the sign-in page while Ember can send email", async () => {
@@ -956,7 +955,7 @@ describe(feature("auth.password-reset"), () => {
   });
 });
 
-describe(feature("auth.sign-in-link"), () => {
+describe("Private sign-in link", () => {
   it("signs in with a sign-in link rather than going to sign in, then loads home as whoever it's for", async () => {
     history.replaceState(null, "", `/session/transfers#token=${TRANSFER_ID}`);
     const fetch = serve({ signedIn: false });
@@ -967,7 +966,7 @@ describe(feature("auth.sign-in-link"), () => {
     expect(screen.queryByRole("heading", { name: "Sign in to Ember" })).not.toBeInTheDocument();
   });
 
-  it("signs in with it over the session this browser has, without opening the workspace, as ember-rust does", async () => {
+  it("signs in with it over the session this browser has, without opening the workspace", async () => {
     history.replaceState(null, "", `/session/transfers#token=${TRANSFER_ID}`);
     serve({ signedIn: true });
     render(<App />);
@@ -986,7 +985,7 @@ describe(feature("auth.sign-in-link"), () => {
   });
 });
 
-describe(feature("auth.guest-sign-in"), () => {
+describe("Sign in with a display name", () => {
   it("goes from the sign-in page to the workspace with just a name", async () => {
     serve({ signedIn: false });
     render(<App />);
@@ -1003,7 +1002,7 @@ describe(feature("auth.guest-sign-in"), () => {
   });
 });
 
-describe(feature("auth.sign-out"), () => {
+describe("Sign out", () => {
   it("ends the session and loads the sign-in page, from where signing in goes home", async () => {
     const fetch = serve({ signedIn: true });
     render(<App />);
@@ -1077,7 +1076,7 @@ describe(feature("auth.sign-out"), () => {
   });
 });
 
-describe(feature("ui.appearance"), () => {
+describe("Light, dark or system appearance", () => {
   it("keeps pages without the rail, such as sign-in, in step with other tabs and the device", async () => {
     serve({ signedIn: false });
     render(<App />);
@@ -1097,7 +1096,7 @@ describe(feature("ui.appearance"), () => {
   });
 });
 
-describe(feature("ui.flash"), () => {
+describe("Saved notices", () => {
   const BESIDE_THE_RAIL = "md:left-[calc((100%+env(safe-area-inset-left)+var(--spacing-rail)+var(--spacing-sidebar))/2)]";
   /** Where the flash showing is placed. */
   const placement = async () => (await screen.findByRole("alert")).parentElement!;
@@ -1141,7 +1140,7 @@ describe(feature("ui.flash"), () => {
   });
 });
 
-describe(feature("ui.select-on-entry"), () => {
+describe("Select a field's text on entry", () => {
   it("selects what's in a field entered again on the sign-in page, signed out", async () => {
     serve({ signedIn: false });
     render(<App />);

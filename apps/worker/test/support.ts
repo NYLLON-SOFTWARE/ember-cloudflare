@@ -54,7 +54,7 @@ export const api = (path: string, init: RequestInit = {}) => exports.default.fet
 export const apiWith = (changes: Partial<Env>, path: string, init: RequestInit<IncomingRequestCfProperties> = {}) =>
   worker.fetch(new Request(new URL(path, origin), fromOwnPages(path, init)), { ...(env as unknown as Env), ...changes });
 
-/** One of the images ember-rust recorded (fixtures/README.md), by its name in fixtures/storage/. */
+/** One of the recorded images (fixtures/README.md), by its name in fixtures/storage/. */
 export function recordedImage(name: string): Uint8Array {
   const { TEST_RECORDED_IMAGES } = env as unknown as { TEST_RECORDED_IMAGES: Record<string, string> };
   return Uint8Array.from(atob(TEST_RECORDED_IMAGES[name]!), (c) => c.charCodeAt(0));

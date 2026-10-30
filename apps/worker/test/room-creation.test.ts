@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Account, Bootstrap, NewWorkspace, Sidebar, UserId, WorkspaceServerFrame } from "@ember/protocol";
 import { evictDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -40,7 +39,7 @@ const FORBIDDEN = { error: "Only administrators can create rooms" };
 
 beforeEach(freshDeploy);
 
-describe(feature("rooms.creation-permission"), () => {
+describe("Only administrators create rooms (setting)", () => {
   it("lets anyone create rooms until an administrator turns it on, before first run too", async () => {
     expect((await bootstrap()).account.restrictRoomCreation).toBe(false);
     await setUp();
@@ -88,7 +87,7 @@ describe(feature("rooms.creation-permission"), () => {
     expect(await roomNames(grace)).toEqual(["general", "random", "a DM"]);
   });
 
-  it("tells members so before looking at what they sent, as ember-rust does", async () => {
+  it("tells members so before looking at what they sent", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace");
     await restrict(administrator, true);
@@ -147,7 +146,7 @@ describe(feature("rooms.creation-permission"), () => {
     ["an empty list", '{"restrict_room_creation_to_administrators":[]}', false],
     ["settings that aren't an object", "[]", false],
     ["settings that don't parse", "not JSON", false],
-  ])("reads %s as ember-rust does", async (_, stored, restricted) => {
+  ])("reads %s", async (_, stored, restricted) => {
     await setUp();
     const grace = await signIn("Grace");
     await workspaceSql("UPDATE accounts SET settings = ?", stored);

@@ -8,8 +8,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Ember's palette, from ember-rust's crates/assets/overrides/zz-ember.css (`--mb-*`) and
- * basecoat/src/theme.css, expressed as shadcn/ui tokens so the stock components match.
+ * Ember's palette, expressed as shadcn/ui tokens so the stock components match.
  *   canvas  -> --background    surface -> --surface    hover -> --accent / --hover
  *   border  -> --border        muted   -> --muted-foreground    ink -> --foreground
  */
@@ -35,7 +34,7 @@
   --border: #e5e5e5;
   --input: #e5e5e5;
   --ring: #737373;
-  /* Campfire's --color-selected-dark, as ember-rust sets it: the ring round a field with a button or icon in it, while it has focus. */
+  /* The ring round a field with a button or icon in it, while it has focus, after Campfire's --color-selected-dark. */
   --selected-dark: #a3a3a3;
   --message-ink: #1d1c1d;
   --message-muted: #616061;
@@ -43,27 +42,27 @@
   --message-divider: #dddddd;
   --message-hover: #f8f8f8;
   --mention: oklch(70% 0.2 44);
-  /* Campfire's --color-positive and --color-negative, a notice's green and an alert's red, as ember-rust sets --lch-green and --lch-red. */
+  /* A notice's green and an alert's red, after Campfire's --color-positive and --color-negative. */
   --positive: oklch(65.59% 0.234 142.49);
   --negative: oklch(51% 0.2 31);
-  /* ember-rust's `.btn--negative` (zz-ember.css), such as Delete on a room's settings: the same red in dark mode. */
+  /* A `.btn--negative`, such as Delete on a room's settings: the same red in dark mode. */
   --negative-button: #b91c1c;
   /*
-   * Its `.mb-auth-error` (its pull request #24), why a sign-in was refused: dark red on the negative red at 8%
-   * over the canvas, bordered by it at 25% over the border, mixed in whichever mode is on.
+   * Why a sign-in was refused: dark red on the negative red at 8% over the canvas, bordered by it at 25%
+   * over the border, mixed in whichever mode is on.
    */
   --auth-error: #b91c1c;
   --auth-error-background: color-mix(in srgb, var(--negative) 8%, var(--background));
   --auth-error-border: color-mix(in srgb, var(--negative) 25%, var(--border));
-  /* A bot card's `warning` bar: Slack's own amber, since ember-rust's only orange, Campfire's --lch-orange, is too near the negative red to tell apart. */
+  /* A bot card's `warning` bar: Slack's own amber, since Campfire's --lch-orange is too near the negative red to tell apart. */
   --warning: #daa038;
   /* Campfire's lightbox.css: the image viewer lays --lch-white at 66% over the blurred page. */
   --lightbox: oklch(100% 0 0 / 0.66);
-  /* Links in a message: Campfire's --color-link, from the --lch-blue ember-rust sets (zz-ember.css). */
+  /* Links in a message: Campfire's --color-link. */
   --link: oklch(54% 0.23 255);
-  /* A rule in a message is the browser's own gray, which ember-rust keeps, in both modes. */
+  /* A rule in a message is the browser's own gray, in both modes. */
   --message-rule: #808080;
-  /* Campfire's code.css: GitHub's highlight.js theme, which ember-rust follows the appearance with (zz-ember.css). */
+  /* Campfire's code.css: GitHub's highlight.js theme, following the appearance. */
   --code-keyword: oklch(58.79% 0.193 20.47);
   --code-entity: oklch(50.15% 0.188 294.99);
   --code-constant: oklch(49.49% 0.18 257.6);
@@ -75,19 +74,19 @@
   --code-list: oklch(48.46% 0.093 90.48);
   --code-inserted: oklch(54.64% 0.144 147.32);
   --code-deleted: oklch(49.59% 0.183 24.19);
-  /* What ember-rust's dialogs lay over the page, and their shadows (zz-ember.css), in both modes. */
+  /* What dialogs lay over the page, and their shadows, in both modes. */
   --dialog-backdrop: #0005;
   --dialog-shadow: #0003;
   --dialog-shadow-faint: #0001;
-  /* And what it lays over the page behind the conversations drawer, `.mb-sidebar-backdrop`. */
+  /* And what's laid over the page behind the conversations drawer. */
   --drawer-backdrop: #0006;
-  /* Its `.shadow` (zz-ember.css), which the translation buttons' menus cast, in both modes. */
+  /* The shadow the translation buttons' menus cast, in both modes. */
   --menu-shadow: #00000012;
-  /* The shadow under a starred room's row while it's dragged, `.mb-channel-dragging`, in both modes. */
+  /* The shadow under a starred room's row while it's dragged, in both modes. */
   --drag-shadow: #0002;
-  /* The shadow under the bell's confirmation in a room's header, `.mb-notification-tooltip` (pull request #24), in both modes. */
+  /* The shadow under the bell's confirmation in a room's header, in both modes. */
   --tooltip-shadow: #0002;
-  /* Campfire's `.dialog::backdrop` (base.css), a sunset at 75%, which ember-rust keeps behind its Notification setup dialog, in both modes. */
+  /* Campfire's `.dialog::backdrop` (base.css), a sunset at 75%, behind the Notification setup dialog, in both modes. */
   --setup-backdrop: linear-gradient(45deg, #fff500, #ff9f00, #f00, #ec0061);
   /* Campfire's scrollbar thumb (base.css), the gray a Mac's are, in both modes. */
   --scrollbar: #c1c1c1;
@@ -142,13 +141,13 @@
 }
 
 /*
- * ember-rust switches to its drawer layout at 900px wide and below (`max-width: 900px` in shell.js and
- * zz-ember.css), so `md` starts at 901px here, and `max-md` means 900px and below.
+ * The drawer layout is at 900px wide and below, so `md` starts at 901px here, and `max-md` means 900px
+ * and below.
  */
 @theme {
   --breakpoint-md: 56.3125rem;
 
-  /* Campfire's animation.css, which ember-rust keeps: a refused form shakes, a message that can't be shown wiggles, and a flash fades away. */
+  /* Campfire's animation.css: a refused form shakes, a message that can't be shown wiggles, and a flash fades away. */
   --animate-shake: shake 400ms both;
   --animate-wiggle: wiggle 400ms both;
   --animate-flash: appear-then-fade 3s 300ms both;
@@ -204,7 +203,7 @@
     }
   }
 
-  /* Campfire's --color-border-darker, which ember-rust makes its muted ink. */
+  /* Campfire's --color-border-darker, which is the muted ink here. */
   @keyframes success {
     0% {
       background-color: var(--muted-foreground);
@@ -297,9 +296,9 @@
 }
 
 /*
- * ember-rust's narrow-screen rules, `@media (max-width: …)` in zz-ember.css, which apply at the width they
- * name, where Tailwind's `max-[…]` stops short of it: a 7-inch tablet 600px wide gets the 600px rules.
- * They come before `touch:` and `short:`, which win over them where both set something.
+ * Narrow-screen rules, `@media (max-width: …)`, which apply at the width they name, where Tailwind's
+ * `max-[…]` stops short of it: a 7-inch tablet 600px wide gets the 600px rules. They come before
+ * `touch:` and `short:`, which win over them where both set something.
  */
 @custom-variant upto-600px (@media (width <= 37.5rem));
 @custom-variant upto-500px (@media (width <= 31.25rem));
@@ -307,9 +306,9 @@
 @custom-variant upto-380px (@media (width <= 23.75rem));
 
 /*
- * `touch:` sizes controls for fingers: 44px targets and 16px text fields, so iOS doesn't zoom in
- * on focus. ember-rust does this at 900px and below; any coarse pointer gets it too, so a tablet or a
- * phone in landscape (wider than 900px) isn't left with mouse-sized controls.
+ * `touch:` sizes controls for fingers: 44px targets and 16px text fields, so iOS doesn't zoom in on
+ * focus, at 900px and below and for any coarse pointer, so a tablet or a phone in landscape (wider than
+ * 900px) isn't left with mouse-sized controls.
  */
 @custom-variant touch {
   @media (width < 56.3125rem) {
@@ -320,7 +319,7 @@
   }
 }
 
-/* `narrow:` is ember-rust's band from 901 to 1100px wide, where the sidebar narrows to 230px and the page's sides tighten. */
+/* `narrow:` is the band from 901 to 1100px wide, where the sidebar narrows to 230px and the page's sides tighten. */
 @custom-variant narrow (@media (56.3125rem <= width <= 68.75rem));
 
 /* `short:` tightens dialogs on screens under 500px tall, such as a phone in landscape. */
@@ -393,7 +392,7 @@
   --color-menu-shadow: var(--menu-shadow);
   --color-drag-shadow: var(--drag-shadow);
   --color-tooltip-shadow: var(--tooltip-shadow);
-  /* Workspace geometry from ember-rust: 80px rail, 280px sidebar (230px `narrow:`), 60px header. */
+  /* Workspace geometry: 80px rail, 280px sidebar (230px `narrow:`), 60px header. */
   --spacing-rail: 80px;
   --spacing-sidebar: var(--sidebar-width);
   --spacing-header: 60px;
@@ -417,12 +416,12 @@
   :where(h1, h2, h3) {
     letter-spacing: -0.025em;
   }
-  /* ember-rust focuses every control with a 2px ink outline. */
+  /* Every control focuses with a 2px ink outline. */
   :where(a, button, summary, input, textarea, select, [tabindex]):focus-visible {
     outline: 2px solid var(--foreground);
     outline-offset: 3px;
   }
-  /* Campfire's thinner scrollbars, which it gives Chrome (base.css), so the timeline is as wide as ember-rust's. */
+  /* Campfire's thinner scrollbars, which it gives Chrome (base.css). */
   @media screen and (-webkit-min-device-pixel-ratio: 0) and (min-resolution: 0.001dpcm) {
     * {
       scrollbar-color: var(--scrollbar) transparent;
@@ -433,8 +432,8 @@
 
 /*
  * A message's text (MessageBody): Lexxy's lexxy-content.css, under Campfire's actiontext.css, base.css
- * and code.css and ember-rust's zz-ember.css, as a browser computes that cascade. Tailwind's preflight
- * resets the browser's own styles for headings, lists, rules and the like, so those are here too.
+ * and code.css, as a browser computes that cascade. Tailwind's preflight resets the browser's own styles
+ * for headings, lists, rules and the like, so those are here too.
  */
 @layer components {
   .message-content {
@@ -595,7 +594,7 @@
         white-space: pre-wrap;
       }
     }
-    /* Lexxy's header cells, in a gray that turns dark in dark mode, where ember-rust's stays light. */
+    /* Lexxy's header cells, in a gray that turns dark in dark mode. */
     th {
       background-color: var(--muted);
       font-weight: bold;

@@ -15,12 +15,10 @@ import { isHidden } from "./involvement";
 // Someone's rooms keep the order `GET /api/sidebar` gives them, the order they were made, which `/` and
 // `/rooms` go by. The sidebar lists their DMs apart from the other rooms, and lists the rooms they've
 // starred first, in the order they starred them, then the rooms the workspace's shared order ranks, in
-// its order, then the rest by name, as ember-rust's channel_order_controller.js sorts its rows: each
-// name lowercased and compared as `localeCompare` compares it, in the browser's language, then by id.
-// Their DMs go by when each was last active, latest first, as ember-rust's sorted_list_controller.js
-// sorts them. The rooms someone has hidden are listed too, for them to open, but their sidebar leaves
-// them out, as ember-rust's leaves out every room whose level is "invisible" (`visible_with_ordered_room`,
-// membership.rs).
+// its order, then the rest by name: each name lowercased and compared as `localeCompare` compares it, in
+// the browser's language, then by id. Their DMs go by when each was last active, latest first, as
+// Campfire's sorted_list_controller.js sorts them. The rooms someone has hidden, whose level is
+// "invisible", are listed too, for them to open, but their sidebar leaves them out.
 
 /** A row in the sidebar's Rooms: a room shared by name, open or private. */
 export type SharedSidebarRoom = Extract<SidebarRoom, SharedRoom>;
@@ -63,7 +61,7 @@ export function inSidebarOrder<T extends SharedRoom>(rooms: T[], favorites: Room
 }
 
 /**
- * `directs`, in the order the sidebar lists them: the one active latest first, as ember-rust's
+ * `directs`, in the order the sidebar lists them: the one active latest first, as Campfire's
  * sorted_list_controller.js sorts its rows, and of two active at once, the one made later.
  */
 export function inDirectOrder<T extends DirectSidebarRoom>(directs: T[]): T[] {
@@ -81,8 +79,8 @@ export function suggestedPeople(suggestions: User[], rooms: SidebarRoom[]): User
 }
 
 /**
- * `order` with `roomId` moved to just before `beforeId`, or last when that's null, as
- * channel_order_controller.js moves a starred room's row.
+ * `order` with `roomId` moved to just before `beforeId`, or last when that's null, as a starred room's
+ * row moves.
  */
 export function movedBefore(order: RoomId[], roomId: RoomId, beforeId: RoomId | null): RoomId[] {
   const others = order.filter((id) => id !== roomId);

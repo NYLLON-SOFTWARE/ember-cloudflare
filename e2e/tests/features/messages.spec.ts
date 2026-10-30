@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { ServerFrame } from "@ember/protocol";
 import type { Locator, Page } from "@playwright/test";
 import { administratorOn, editorField, ROOM_SOCKET } from "../../fixtures";
@@ -27,7 +26,7 @@ const writtenAt = (times: Map<string, string>) => (page: Page) =>
 /** The day separator just above the message that says `text`, if it has one. */
 const separatorAbove = (member: Member, text: string) => member.message(text).locator("xpath=preceding-sibling::h2");
 
-test.describe(feature("messages.create"), () => {
+test.describe("Send a message", () => {
   test("delivers a message to everyone in the room as it's sent", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -48,7 +47,7 @@ test.describe(feature("messages.create"), () => {
   });
 });
 
-test.describe(feature("messages.optimistic"), () => {
+test.describe("See your message before it's saved", () => {
   test("shows your message straight away and settles it when the room confirms", async ({ members }) => {
     let release = () => {};
     const held = new Promise<void>((resolve) => (release = resolve));
@@ -90,7 +89,7 @@ test.describe(feature("messages.optimistic"), () => {
   });
 });
 
-test.describe(feature("messages.layout"), () => {
+test.describe("Message rows", () => {
   test("lines every message up the same way, your own included", async ({ members, participant }) => {
     await (await participant("Grace")).say("From Grace");
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
@@ -113,7 +112,7 @@ test.describe(feature("messages.layout"), () => {
       expect((await box(name)).x - (avatar.x + avatar.width)).toBe(8);
       await expect(name).toHaveCSS("font-size", "15px");
       await expect(name).toHaveCSS("font-weight", "700");
-      // An h3, whose letters are spaced as ember-rust's headings are.
+      // An h3, its letters spaced as Ember's other headings are.
       await expect(row.getByRole("heading", { level: 3 })).toHaveCSS("letter-spacing", "-0.375px");
       await expect(row.locator("time")).toHaveCSS("font-size", "12px");
       const body = row.getByText(text, { exact: true });
@@ -156,7 +155,7 @@ test.describe(feature("messages.layout"), () => {
   });
 });
 
-test.describe(feature("messages.rich-text"), () => {
+test.describe("Rich text, safely", () => {
   test("shows each line of a message on a line of its own", async ({ members, participant }) => {
     await (await participant("Grace")).say("First line\nSecond line");
     const ada = await members.signIn("Ada");
@@ -167,7 +166,7 @@ test.describe(feature("messages.rich-text"), () => {
   });
 });
 
-test.describe(feature("messages.autolink"), () => {
+test.describe("Links in message text", () => {
   test("links addresses, opening other sites in a new tab and this site's pages in place", async ({ members, rooms, baseURL }) => {
     const ada = await members.signIn("Ada");
     const random = `${baseURL}/rooms/${rooms.random.id}`;
@@ -187,7 +186,7 @@ test.describe(feature("messages.autolink"), () => {
   });
 });
 
-test.describe(feature("messages.emoji-only"), () => {
+test.describe("Emoji-only messages", () => {
   test("shows a message of nothing but emoji large", async ({ members, participant }) => {
     const grace = await participant("Grace");
     await grace.say("😄🤘");
@@ -199,7 +198,7 @@ test.describe(feature("messages.emoji-only"), () => {
   });
 });
 
-test.describe(feature("messages.follow-up-times"), () => {
+test.describe("Times on follow-up messages", () => {
   test("shows a follow-up's time only on hover or focus, and always shows the first message's", async ({ members, participant }) => {
     const grace = await participant("Grace");
     await grace.say("First");
@@ -243,7 +242,7 @@ test.describe(feature("messages.follow-up-times"), () => {
   });
 });
 
-test.describe(feature("messages.day-separators"), () => {
+test.describe("Day separators", () => {
   test("dates each day's first message in the reader's time zone, with its date and time on hover", async ({ members, participant }) => {
     const grace = await participant("Grace");
     const times = new Map<string, string>();
@@ -260,7 +259,7 @@ test.describe(feature("messages.day-separators"), () => {
     const separator = separatorAbove(ada, "Early on the 15th");
     await expect(separator).toHaveText("October 15, 2026");
     await expect(separator.locator("time")).toHaveAttribute("title", "10/15/26, 1:30 AM");
-    // ember-rust's: 14px bold, as written rather than in capitals, in a pill between two rules.
+    // 14px bold, as written rather than in capitals, in a pill between two rules.
     await expect(separator).toHaveCSS("font-size", "14px");
     await expect(separator).toHaveCSS("font-weight", "700");
     await expect(separator).toHaveCSS("text-transform", "none");
@@ -268,11 +267,9 @@ test.describe(feature("messages.day-separators"), () => {
   });
 });
 
-test.describe(feature("messages.actions"), () => {
+test.describe("Message action bar", () => {
   const bar = (message: Locator) => message.getByRole("group", { name: "Message actions" });
 
-  // After ember-rust's "compact message actions appear on hover, stay reachable, and dismiss without
-  // shifting messages" (parity/kro/workspace.test.mjs).
   test("opens over the top edge of the message the pointer crosses, without moving anything, one at a time", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1311, height: 900 } } });
     await ada.send("Hover over this message.");
@@ -337,7 +334,7 @@ test.describe(feature("messages.actions"), () => {
     await ada.composer().focus();
     await ada.page.keyboard.press("Shift+Tab");
     await expect(options).toBeFocused();
-    // Focus shows Message options, not the bar, as in ember-rust.
+    // Focus shows Message options, not the bar.
     await expect(options).toHaveCSS("opacity", "1");
     await expect(bar(message)).toBeHidden();
     await ada.page.keyboard.press("Enter");
@@ -355,12 +352,11 @@ test.describe(feature("messages.actions"), () => {
     await expect(bar(message).getByRole("button", { name: "Thumbs up" })).toBeFocused();
     await ada.page.keyboard.press("Enter");
     await expect(message.getByRole("list", { name: "Reactions" })).toContainText("👍");
-    // As in ember-rust, sending a reaction closes the bar and hands focus back to Message options.
+    // Sending a reaction closes the bar and hands focus back to Message options.
     await expect(bar(message)).toBeHidden();
     await expect(options).toBeFocused();
   });
 
-  // After ember-rust's "compact message actions preserve reactions, reply, copying, and keyboard focus".
   test("keeps the bar on its row as the tray of more reactions opens, and Escape closes the tray, then the bar", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1311, height: 900 } } });
     await ada.send("A compact set of message actions.");
@@ -444,7 +440,6 @@ test.describe(feature("messages.actions"), () => {
     expect(tray.y).toBeGreaterThanOrEqual((await box(ada.timeline())).y);
   });
 
-  // After ember-rust's "compact message actions fit mobile edges, attachments, and dark mode".
   test("opens the bar beside a 44px Message options button on touch screens, inside the timeline at 390 and 320 wide", async ({ members, participant }) => {
     const grace = await participant("Grace");
     for (let i = 1; i <= 12; i++) await grace.say(`Earlier message ${i}`);
@@ -527,7 +522,7 @@ test.describe(feature("messages.actions"), () => {
   });
 });
 
-test.describe(feature("messages.more-actions"), () => {
+test.describe("More actions on a message", () => {
   const moreActions = (message: Locator) => message.getByRole("group", { name: "More actions" });
 
   /** Hovers the message that says `text`, then clicks Message options, the bar's last button, and returns More actions. */
@@ -615,7 +610,7 @@ test.describe(feature("messages.more-actions"), () => {
   });
 });
 
-test.describe(feature("messages.reply"), () => {
+test.describe("Reply with a quote", () => {
   test("quotes the message in the composer in place of what's written there, citing its author with a link to it", async ({ members, participant, rooms }) => {
     await (await participant("Grace")).say("Third time's a charm.");
     const ada = await members.signIn("Ada");
@@ -645,7 +640,7 @@ test.describe(feature("messages.reply"), () => {
   });
 });
 
-test.describe(feature("messages.copy-link"), () => {
+test.describe("Copy a link to a message", () => {
   test("copies the message's address, keeping the bar open and turning Copy link green", async ({ members, participant, rooms, baseURL }) => {
     await (await participant("Grace")).say("Link to me");
     const ada = await members.signIn("Ada");
@@ -661,7 +656,7 @@ test.describe(feature("messages.copy-link"), () => {
   });
 });
 
-test.describe(feature("messages.permalink"), () => {
+test.describe("Link to a message", () => {
   test("opens a message's room at its permalink", async ({ members, participant, rooms }) => {
     await (await participant("Grace")).say("Find me later");
     const ada = await members.signIn("Ada");
@@ -675,7 +670,7 @@ test.describe(feature("messages.permalink"), () => {
     expect(new URL(grace.page.url()).pathname).toBe(path);
   });
 
-  test("goes from a message's own address, as ember-rust's bot API gives it, to its permalink", async ({ members, participant, rooms }) => {
+  test("goes from a message's own address to its permalink", async ({ members, participant, rooms }) => {
     await (await participant("Grace")).say("Find me again");
     const ada = await members.signIn("Ada");
     await ada.page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
@@ -689,7 +684,7 @@ test.describe(feature("messages.permalink"), () => {
   });
 });
 
-test.describe(feature("messages.edit"), () => {
+test.describe("Edit a message", () => {
   test("lets the author edit a message, for everyone, saving on Ctrl or Cmd+Enter", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -704,7 +699,7 @@ test.describe(feature("messages.edit"), () => {
     await expect(grace.message("Hello")).toContainText("(edited)");
     await expect(grace.message("Helo")).toHaveCount(0);
     await expect(ada.message("Hello")).toContainText("(edited)");
-    // Where ember-rust loses focus, it goes back to the composer.
+    // Focus goes back to the composer.
     await expect(ada.composer()).toBeFocused();
   });
 
@@ -869,7 +864,7 @@ test.describe(feature("messages.edit"), () => {
   });
 });
 
-test.describe(feature("messages.delete"), () => {
+test.describe("Delete a message", () => {
   test("deletes a message for everyone from its editor, after asking", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -916,7 +911,7 @@ test.describe(feature("messages.delete"), () => {
   });
 });
 
-test.describe(feature("messages.grouping"), () => {
+test.describe("Group messages by author", () => {
   test("shows quick follow-ups from the same person without repeating their name", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -953,7 +948,7 @@ test.describe(feature("messages.grouping"), () => {
   });
 });
 
-test.describe(feature("users.avatars"), () => {
+test.describe("Initials avatars", () => {
   test("shows each person's avatar from the address the directory gives, the same everywhere", async ({ members }) => {
     const ada = await members.signIn("Ada Lovelace");
     const grace = await members.signIn("Grace");

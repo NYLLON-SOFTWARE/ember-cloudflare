@@ -75,13 +75,13 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   const sessionChanged = useEffectEvent(onSessionChanged);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
 
-  // ember-rust posts each message over HTTP, and shows it as failed only when that request fails
-  // (composer_controller.js). A socket can lose the answer instead: it can close after the room stored a
-  // message but before the confirmation came back, and a reconnect's welcome only holds the newest page,
-  // which a later `resumed` doesn't go back past. So ask the room about the sent messages a reconnect
-  // doesn't confirm, which the reducer keeps as sending until it answers. Those written while it was away
-  // never went, so they aren't asked about, and nor are files on their way, whose uploads answer for them.
-  // A failed upload is, since its answer can be lost after the room posted it.
+  // A message sent over the socket can lose its answer, where one posted over HTTP fails only when the
+  // request does: the socket can close after the room stored a message but before the confirmation came
+  // back, and a reconnect's welcome only holds the newest page, which a later `resumed` doesn't go back
+  // past. So ask the room about the sent messages a reconnect doesn't confirm, which the reducer keeps
+  // as sending until it answers. Those written while it was away never went, so they aren't asked about,
+  // and nor are files on their way, whose uploads answer for them. A failed upload is, since its answer
+  // can be lost after the room posted it.
   const checkUnconfirmed = useEffectEvent((room: ReconnectingSocket, snapshot: Message[]) => {
     const clientMessageIds = unconfirmed(state.messages, snapshot).flatMap((m) => (m.failed || m.queued || (m.upload && !m.upload.error) ? [] : [m.clientMessageId]));
     for (let i = 0; i < clientMessageIds.length; i += MAX_CHECKED_MESSAGES) {
@@ -220,7 +220,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   }, [state.hasNewer, state.loadingPage]);
 
   // A message sent goes at the end of the newest page, which a timeline reading older history asks for
-  // first, as ember-rust's insertPendingMessage does.
+  // first, as Campfire's insertPendingMessage does.
   const toNewest = useCallback(() => {
     if (awayFromNewest.current && send({ type: "history.around" })) dispatch({ type: "loading-page" });
   }, [send]);
@@ -244,10 +244,10 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     [me, roomId, send, warn, toNewest],
   );
 
-  // ember-rust's composer_controller.js#submitFiles: each file goes as a message of its own, one at a time,
-  // its card showing how its upload goes until the room posts it. Leaving the room drops those whose upload
-  // hasn't started. The room is asked about one that fails, as it may have posted the file before the answer
-  // was lost, where ember-rust's card asks for the file again; a reconnect asks, if the socket's down.
+  // As Campfire's composer_controller.js#submitFiles sends them, each file goes as a message of its own,
+  // one at a time, its card showing how its upload goes until the room posts it. Leaving the room drops
+  // those whose upload hasn't started. The room is asked about one that fails, as it may have posted the
+  // file before the answer was lost; a reconnect asks, if the socket's down.
   const postFiles = useCallback(
     async (files: File[]) => {
       const room = socket.current;
@@ -270,9 +270,9 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     [me, roomId, toNewest],
   );
 
-  // Starting is throttled, and stopping isn't, as in ember-rust: a start within a second of the last
-  // one goes nowhere, even after a stop. A sent message needs no stop, since everyone else stops
-  // showing its author as typing when it arrives.
+  // Starting is throttled, and stopping isn't, as in Campfire: a start within a second of the last one
+  // goes nowhere, even after a stop. A sent message needs no stop, since everyone else stops showing its
+  // author as typing when it arrives.
   const typing = useCallback(
     (active: boolean) => {
       if (!active) return void send({ type: "typing.stop" });

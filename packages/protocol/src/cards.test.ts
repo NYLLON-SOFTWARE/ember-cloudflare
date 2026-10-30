@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { MAX_CARDS, parseCards, type CardAddress } from "./cards";
 import { MAX_MESSAGE_HTML_LENGTH } from "./index";
@@ -8,7 +7,7 @@ const address: CardAddress = (url) => (url.startsWith("https://example.com/") ? 
 
 const card = (parts: unknown[], rest: Record<string, unknown> = {}) => ({ source: "attachment", parts, ...rest });
 
-describe(feature("bots.cards"), () => {
+describe("Bot cards", () => {
   it("keeps a card with every part an attachment shows", () => {
     const whole = card(
       [

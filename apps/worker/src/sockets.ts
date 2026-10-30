@@ -25,9 +25,8 @@ export function closedAtOnce(code: CloseCode): Response {
 export const RESERVED_CLOSE_CODES = new Set([1004, 1005, 1006, 1015]);
 
 /**
- * The most bytes a frame from a client can take on a room's socket, as ember-rust's cable takes a message
- * of up to 1 MiB (`MAX_MESSAGE`, crates/cable/src/socket.rs). The largest the app sends, a message of
- * `MAX_MESSAGE_HTML_LENGTH` characters, is under 601 KB however JSON escapes them.
+ * The most bytes a frame from a client can take on a room's socket. The largest the app sends, a message
+ * of `MAX_MESSAGE_HTML_LENGTH` characters, is under 601 KB however JSON escapes them.
  */
 export const MAX_ROOM_FRAME_SIZE = 1 << 20;
 
@@ -44,9 +43,8 @@ export function isTooLarge(raw: string | ArrayBuffer, limit: number): boolean {
 }
 
 /**
- * Closes `ws`, which sent a frame too large to read, with the code for one (RFC 6455, section 7.4.1), as
- * ember-rust's cable closes a connection (crates/cable/src/connection.rs). Reading it would hold up
- * every other socket the Durable Object serves.
+ * Closes `ws`, which sent a frame too large to read, with the code for one (RFC 6455, section 7.4.1).
+ * Reading it would hold up every other socket the Durable Object serves.
  */
 export function closeTooLarge(ws: WebSocket): void {
   if (ws.readyState === WebSocket.OPEN) ws.close(1009, "Message too big");

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   CURRENT_PASSWORD_WRONG,
   MEMBERFUL_CALLBACK_PATH,
@@ -285,7 +284,7 @@ const MEMBERS_ONLY = { memberfulJoin: true, memberfulSignIn: true };
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("auth.memberful-sign-in"), () => {
+describe("Sign in with Memberful", () => {
   describe("the settings", () => {
     it("let an administrator turn Memberful on once the deployment has the keys, then make it members only, telling every tab", async () => {
       const administrator = await setUp();
@@ -324,7 +323,7 @@ describe(feature("auth.memberful-sign-in"), () => {
       ["Members only off", '{"memberful_sign_in":false}', {}],
       ["Members only without Memberful", '{"memberful_join":false,"memberful_sign_in":true}', {}],
       ["Memberful without Members only", '{"memberful_join":true}', { memberfulJoin: true }],
-    ])("read %s as ember-rust reads a setting", async (_, stored, memberful) => {
+    ])("read %s", async (_, stored, memberful) => {
       await setUp();
       await workspaceSql("UPDATE accounts SET settings = ?", stored);
       // Started afresh, the Workspace has to read the account again.
@@ -920,7 +919,7 @@ const idle = () => vi.waitFor(async () => expect(await workspaceAlarm()).toBeGre
 /** Whether `session` still signs someone in. */
 const signsIn = async (session: Session) => (await api("/api/me", { headers: as(session) })).status === 200;
 
-describe(feature("auth.memberful-memberships"), () => {
+describe("Memberful memberships", () => {
   describe("webhooks", () => {
     it("are heard once the deployment has the API key and the webhook's secret, which administrators' settings say", async () => {
       const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1501,7 +1500,7 @@ async function setUpWithGrace(): Promise<{ administrator: Session; member: Sessi
   return { administrator, member };
 }
 
-describe(feature("auth.memberful-connect"), () => {
+describe("Connect Memberful", () => {
   describe("from your profile", () => {
     it("says whether you've connected a Memberful account, while Memberful is members only", async () => {
       const administrator = await setUp();

@@ -1,9 +1,8 @@
-import { feature } from "@ember/parity";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { UploadCard, uploadSize } from "./upload-card";
 
-describe(feature("attachments.progress"), () => {
+describe("Upload progress", () => {
   it("gives a file's size in whole KB, rounded up and at least 1, under a megabyte, and in MB to one place from there", () => {
     expect([0, 1, 999, 1_000, 1_001, 999_999, 1_000_000, 12_345_678, 250_000_000].map(uploadSize)).toEqual([
       "1 KB",

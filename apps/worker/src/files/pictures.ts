@@ -5,11 +5,11 @@ import { imageSize } from "./images";
 import { byMagic, identify } from "./marcel";
 
 // Pictures people upload: avatars, from the profile, setup and sign-up forms, and the workspace's logo,
-// from workspace settings. As ember-rust attaches one with Active Storage, R2 keeps the file as it came,
-// whatever it is, under a key of its own, and beside it the variants ember-rust serves, which the
-// uploader's browser makes where ember-rust makes them with libvips: an avatar's within 512×512 and a
-// logo's within 512×512 and 192×192, keeping its proportions, as `resize_to_limit` scales it. A file
-// ember-rust can't resize keeps no variants, and its owner's initials or Ember's stock icon are served.
+// from workspace settings. R2 keeps the file as it came, whatever it is, under a key of its own, and
+// beside it the variants that are served, which the uploader's browser makes: an avatar's within 512×512
+// and a logo's within 512×512 and 192×192, keeping its proportions, as `resize_to_limit` scales it. A
+// file Campfire doesn't resize keeps no variants, and its owner's initials or Ember's stock icon are
+// served.
 
 /**
  * The types an avatar's variant can be, by its bytes: WebP, or where the browser can't encode WebP, as
@@ -17,7 +17,7 @@ import { byMagic, identify } from "./marcel";
  */
 const AVATAR_VARIANT_TYPES = new Set(["image/webp", "image/png", "image/jpeg"]);
 
-/** The type a logo's variants are, as ember-rust makes them PNGs (logos.rs). */
+/** The type a logo's variants are. */
 const LOGO_VARIANT_TYPES = new Set(["image/png"]);
 
 /** How many bytes a request with a picture may bring: the largest picture, its variants and the rest of its form. */
@@ -76,10 +76,10 @@ export const variantKey = (key: string, box: number = AVATAR_BOX) => `${key}/${b
 export const pictureObjects = (key: string) => [key, variantKey(key, LOGO_BOXES.large), variantKey(key, LOGO_BOXES.small)];
 
 /**
- * The avatar a form brings as its `avatar` and `variant` parts, or why it's refused: any file up to
- * 16 MB, as ember-rust takes a file of any type, and a WebP, PNG or JPEG within 512×512 as its variant.
- * The variant is kept only for a file ember-rust can resize, by what its bytes say it is, so a picture
- * of a type ember-rust can't resize, such as an SVG or a BMP, is served as its owner's initials.
+ * The avatar a form brings as its `avatar` and `variant` parts, or why it's refused: any file up to 16
+ * MB, and a WebP, PNG or JPEG within 512×512 as its variant. The variant is kept only for a file
+ * Campfire resizes, by what its bytes say it is, so a picture of a type Campfire doesn't resize, such as
+ * an SVG or a BMP, is served as its owner's initials.
  */
 export async function avatarOf(form: FormData): Promise<PictureUpload | PictureRefusal> {
   const file = form.get("avatar");
@@ -93,9 +93,9 @@ export async function avatarOf(form: FormData): Promise<PictureUpload | PictureR
 
 /**
  * The logo a form brings as its `logo`, `large` and `small` parts, or why it's refused: any file up to
- * 16 MB, as ember-rust takes a file of any type, and PNGs within 512×512 and 192×192 as its variants.
- * They're kept only for a file ember-rust can resize, as an avatar's variant is, and only both of them,
- * so a logo of a type ember-rust can't resize, such as an SVG or an ICO, is served as Ember's stock icon.
+ * 16 MB, and PNGs within 512×512 and 192×192 as its variants. They're kept only for a file Campfire
+ * resizes, as an avatar's variant is, and only both of them, so a logo of a type Campfire doesn't
+ * resize, such as an SVG or an ICO, is served as Ember's stock icon.
  */
 export async function logoOf(form: FormData): Promise<PictureUpload | PictureRefusal> {
   const file = form.get("logo");

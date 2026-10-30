@@ -9,16 +9,15 @@ import { cn } from "@/lib/utils";
 import { ListRow } from "./list-row";
 import { AvatarLink } from "./user-avatar";
 
-// ember-rust's people on workspace settings (accounts/users/_user.html), as its pull request #24's Membership
-// section groups them (accounts/_membership_settings.html): everyone but bots by name, administrators under
-// Admins and members under Members, each group left out while nobody's in it, each avatar linking to the
-// person's page, and your own row to your profile. Administrators also see who's banned, dimmed under
-// a cancel mark (Campfire's avatars.css), and on each active person's row a crown that makes them an
-// administrator or a member again, and, but on their own, Delete, which removes them. They see members
-// suspended for their Memberful membership's lapsing too (`auth.memberful-memberships`), which ember-rust
-// has no need of, dimmed and said to be so, with Delete.
+// The people on workspace settings, as the Membership section groups them: everyone but bots by name,
+// administrators under Admins and members under Members, each group left out while nobody's in it, each
+// avatar linking to the person's page, and your own row to your profile. Administrators also see who's
+// banned, dimmed under a cancel mark (Campfire's avatars.css), and on each active person's row a crown
+// that makes them an administrator or a member again, and, but on their own, Delete, which removes them.
+// They see members suspended for their Memberful membership's lapsing too, dimmed and said to be so,
+// with Delete.
 
-/** What ember-rust's Delete asks before removing someone (accounts/users/_user.html). */
+/** What Delete asks before removing someone. */
 export const CONFIRM_REMOVE = "Are you sure you want to permanently remove this person from the account? This can’t be undone.";
 
 interface Props {
@@ -32,8 +31,8 @@ interface Props {
 }
 
 /**
- * Who's listed, administrators then members, as an administrator or a member sees them
- * (presenters/accounts.rs): everyone active, and for administrators, everyone banned or suspended too.
+ * Who's listed, administrators then members, as an administrator or a member sees them: everyone active,
+ * and for administrators, everyone banned or suspended too.
  */
 function groupsOf(people: People, administrator: boolean): [DirectoryUser[], DirectoryUser[]] {
   const listed = byName([...people.values()].filter((person) => person.status === "active" || (administrator && person.status !== "deactivated")));
@@ -109,7 +108,7 @@ export function PeopleList({ people, myId, onChangeRole, onRemove }: Props) {
   return groups.map(
     ({ id, title, people }) =>
       people.length > 0 && (
-        // `.mb-member-group`, 24px below the one before it, its `.mb-section-title` over its people.
+        // A group, 24px below the one before it, its title over its people.
         <section key={title} aria-labelledby={id} className="[&+&]:mt-6">
           <h2 id={id} className="mb-3 text-base font-semibold">
             {title}
@@ -123,8 +122,8 @@ export function PeopleList({ people, myId, onChangeRole, onRemove }: Props) {
 }
 
 /**
- * Someone's avatar, linking to their page, as ember-rust's lists draw it at 3.75ch, dimmed when they
- * can't sign in, and under a cancel mark when they're banned, which taps go through.
+ * Someone's avatar, linking to their page, at 3.75ch, dimmed when they can't sign in, and under a cancel
+ * mark when they're banned, which taps go through.
  */
 function Avatar({ person, banned, dimmed }: { person: DirectoryUser; banned: boolean; dimmed: boolean }) {
   const avatar = <AvatarLink user={person} className={cn("size-[3.75ch]", dimmed && "[&>img]:opacity-50")} lazy />;
@@ -137,7 +136,7 @@ function Avatar({ person, banned, dimmed }: { person: DirectoryUser; banned: boo
   );
 }
 
-/** ember-rust's My settings, a round `.btn.txt-small` with a pencil, on your own row, which opens your profile. */
+/** My settings, a round `.btn.txt-small` with a pencil, on your own row, which opens your profile. */
 function MySettings() {
   return (
     <PageLink href={PROFILE_PATH} className="grid size-9 shrink-0 place-items-center rounded-full border bg-background text-[0.8rem] touch:size-11">
@@ -148,8 +147,8 @@ function MySettings() {
 }
 
 /**
- * ember-rust's Delete, a round `.btn.txt-small.btn--negative` with a minus, white on red, which
- * darkens under a mouse (buttons.css, zz-ember.css), and waits while a removal is on its way.
+ * Delete, a round `.btn.txt-small.btn--negative` with a minus, white on red, which darkens under a mouse
+ * (buttons.css), and waits while a removal is on its way.
  */
 function RemoveButton({ name, removing, onClick }: { name: string; removing: boolean; onClick: () => void }) {
   return (
@@ -175,9 +174,9 @@ interface RoleCrownProps {
 }
 
 /**
- * ember-rust's crown, a round `.btn.txt-small` around a checkbox, reversed while it's checked, for an
- * administrator (buttons.css). Its checkbox is hidden from keyboards and screen readers there, and only
- * visually hidden here, so it can be reached and pressed without a mouse.
+ * The crown, a round `.btn.txt-small` around a checkbox, reversed while it's checked, for an
+ * administrator (buttons.css). Its checkbox is only visually hidden, so it can be reached and pressed
+ * without a mouse.
  */
 function RoleCrown({ personId, focused, administrator, mine, onChange }: RoleCrownProps) {
   const checkbox = useRef<HTMLInputElement>(null);

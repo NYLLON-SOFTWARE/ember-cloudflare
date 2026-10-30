@@ -15,10 +15,10 @@ import { useAdministratorsOnly } from "./bots-page";
 import { DeleteButton, isMissing, NEGATIVE_BUTTON } from "./room-settings-page";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 
-// ember-rust's pages for adding a bot and changing one (accounts/bots/new.html and edit.html), which
-// share its bot form (accounts/bots/_form.html) and go back to the bots page once they've saved.
+// The pages for adding a bot and changing one, which share the bot form and go back to the bots page
+// once they've saved.
 
-/** What Delete bot asks first, as ember-rust's does, in the browser's own dialog as Turbo asks it. */
+/** What Delete bot asks first, in the browser's own dialog. */
 export const CONFIRM_DELETE_BOT = "Are you sure you want to permanently remove this bot from the account? This can’t be undone.";
 
 /** What Generate a new key asks first. */
@@ -35,8 +35,8 @@ const NO_FIELDS: Fields = { name: "", webhookUrl: "" };
 const fieldsOf = (bot: BotSettings): Fields => ({ name: bot.name, webhookUrl: bot.webhookUrl ?? "" });
 
 /**
- * The fields typed differently from `bot` as it loaded. Only they're sent, where ember-rust's form sends
- * both, so a save doesn't put back what another administrator has saved since.
+ * The fields typed differently from `bot` as it loaded. Only they're sent, so a save doesn't put back
+ * what another administrator has saved since.
  */
 function changesOf(bot: BotSettings, typed: Fields): BotChanges {
   const loaded = fieldsOf(bot);
@@ -47,9 +47,8 @@ function changesOf(bot: BotSettings, typed: Fields): BotChanges {
 }
 
 /**
- * Goes back to the bots page once `request` succeeds, as ember-rust redirects there. A request that
- * fails says why, where it was made from, unless the page has been left, which only a session that's
- * ended is reported from.
+ * Goes back to the bots page once `request` succeeds. A request that fails says why, where it was made
+ * from, unless the page has been left, which only a session that's ended is reported from.
  */
 function useSending(failed: (error: unknown) => void): [boolean, (request: () => Promise<void>) => void] {
   const [sending, setSending] = useState(false);
@@ -76,7 +75,7 @@ export function NewBotPage({ me, onFailed }: { me: Me; onFailed: (error: unknown
   const [saving, send] = useSending(failed);
   useTitle("New chat bot");
 
-  // Before the form paints, as ember-rust answers anyone else 403 instead of showing it.
+  // Before the form paints, so anyone else never sees it.
   useLayoutEffect(() => {
     if (!me.administrator) sendAway(BOTS_FORBIDDEN);
   }, [me.administrator, sendAway]);
@@ -99,7 +98,7 @@ export function NewBotPage({ me, onFailed }: { me: Me; onFailed: (error: unknown
 
 interface SettingsProps {
   botId: UserId;
-  /** For an id that isn't an active bot's, which ember-rust answers with its 404 page. */
+  /** For an id that isn't an active bot's, which gets the 404 page. */
   onMissing: () => void;
   /** Says why something else failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
@@ -108,7 +107,7 @@ interface SettingsProps {
 /**
  * A bot's settings, which only administrators may open: the bot form, then Delete bot, which takes the
  * bot out of every room but its DMs, and Generate a new key, which stops its old key working. Each asks
- * first, as ember-rust's do.
+ * first.
  */
 export function BotSettingsPage({ botId, onMissing, onFailed }: SettingsProps) {
   const [bot, setBot] = useState<BotSettings | null>(null);
@@ -184,8 +183,8 @@ interface FormProps {
 }
 
 /**
- * ember-rust's bot form: Chat bot setup, the bot's avatar, its name and its webhook URL, each with a
- * translation button, and Save changes, which saves a picture chosen for its avatar too.
+ * The bot form: Chat bot setup, the bot's avatar, its name and its webhook URL, each with a translation
+ * button, and Save changes, which saves a picture chosen for its avatar too.
  */
 function BotForm({ avatar, photo, fields, onChange, saving, onSave }: FormProps) {
   const save = (event: FormEvent) => {
@@ -228,12 +227,12 @@ function BotForm({ avatar, photo, fields, onChange, saving, onSave }: FormProps)
 }
 
 /**
- * ember-rust's `.avatar__form` (accounts/bots/_form.html, Campfire's avatars.css and inputs.css): Upload
- * bot avatar, a circle `.btn` the file field fills, unseen, beside the bot's avatar, which shows a picture
- * as it's chosen, as Campfire's upload_preview_controller.js shows it. They're the middle columns of three,
- * the last empty and as wide as the first, so the avatar is centered over the form, and both are 36px, or
- * 44px for fingers. Pressing any of it picks a picture, as it's all one label, but not while the form is
- * sent with it. Ember says why a picture over 16 MB isn't kept, where ember-rust takes any.
+ * The bot's avatar field, styled by Campfire's avatars.css and inputs.css: Upload bot avatar, a circle
+ * `.btn` the file field fills, unseen, beside the bot's avatar, which shows a picture as it's chosen, as
+ * Campfire's upload_preview_controller.js shows it. They're the middle columns of three, the last empty and
+ * as wide as the first, so the avatar is centered over the form, and both are 36px, or 44px for fingers.
+ * Pressing any of it picks a picture, as it's all one label, but not while the form is sent with it. Ember
+ * says why a picture over 16 MB isn't kept.
  */
 function AvatarField({ src, photo, disabled }: { src: string; photo: PhotoChoice; disabled: boolean }) {
   return (

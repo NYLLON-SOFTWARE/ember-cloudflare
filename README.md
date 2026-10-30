@@ -3,9 +3,8 @@
 A Slack-like real-time chat app that runs entirely on Cloudflare: a React app served by a Worker,
 with one Durable Object per room holding its WebSockets, presence, typing state and messages.
 
-The design and UX are ported from [ember-rust](https://github.com/NYLLON-SOFTWARE/ember-rust),
-NYLLON's Rust fork of Campfire. That repository is the reference for how things should look and
-behave; this one rebuilds it on Workers and Durable Objects.
+Ember grew out of [Campfire](https://github.com/basecamp/once-campfire), 37signals' group chat, and
+rebuilds it on Workers and Durable Objects with a design of its own.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/NYLLON-SOFTWARE/ember-cloudflare)
 
@@ -17,9 +16,9 @@ Cloudflare account, as [Deploying](#deploying) describes.
 | Path | Package | What |
 |---|---|---|
 | `apps/web` | `@ember/web` | React + Vite + Tailwind CSS v4 + shadcn/ui. The workspace UI. |
-| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, `/up`, the app's pages with ember-rust's headers and Campfire's error pages, the web app manifest, static assets) and the `ChatRoom`, `Workspace`, `SearchIndex`, `PasswordHasher` and `Unfurler` Durable Objects. |
+| `apps/worker` | `@ember/worker` | The Worker (`/api/*`, `/up`, the app's pages with Campfire's headers and error pages, the web app manifest, static assets) and the `ChatRoom`, `Workspace`, `SearchIndex`, `PasswordHasher` and `Unfurler` Durable Objects. |
 | `packages/protocol` | `@ember/protocol` | WebSocket frame types and validation shared by both, and the addresses of the app's pages. |
-| `packages/richtext` | `@ember/richtext` | Message bodies as Campfire's Action Text reads them: sanitizing, plain text, mentions and emoji-only bodies, golden-tested against ember-rust's corpus of Rails outputs. |
+| `packages/richtext` | `@ember/richtext` | Message bodies as Campfire's Action Text reads them: sanitizing, plain text, mentions and emoji-only bodies, golden-tested against a corpus of Campfire's Rails outputs. |
 
 ```
 browser ──HTTP──▶ Worker ──▶ static assets (apps/web/dist)
@@ -54,7 +53,7 @@ prints ([Deploying](#deploying)).
 
 ```sh
 pnpm typecheck
-pnpm test           # unit tests and the parity check; worker tests run in workerd, once per storage backend
+pnpm test           # unit tests; worker tests run in workerd, once per storage backend
 pnpm build
 ```
 
@@ -77,8 +76,8 @@ Before the other suites start, the `first-run` project sets up the test server t
 Ember page, as its first visitor would. The `workspace-settings` suites, which change the whole
 workspace, get a second server, over HTTPS, which the same first run sets up.
 
-The features suite (`e2e/tests/features/`) has a spec per area of [PARITY.md](PARITY.md). Each test gets
-rooms of its own, and `members.signIn` opens a browser per person, so tests can chat, react and watch
+The features suite (`e2e/tests/features/`) has a spec per area of the app. Each test gets rooms of
+its own, and `members.signIn` opens a browser per person, so tests can chat, react and watch
 each other type without seeing another test's messages.
 
 The mobile suite (`e2e/tests/mobile/`) emulates seven phones, from a 320px iPhone SE to an iPhone
@@ -90,22 +89,6 @@ already installed, point Playwright at it with `PLAYWRIGHT_CHROMIUM_EXECUTABLE=/
 The screenshots suite (`e2e/tests/screenshots/`) makes the screenshots the web app manifest lists,
 which an install prompt shows: a few people chatting, on a phone. `pnpm screenshots` saves them over
 `apps/web/public/screenshots/`, and every other run with the test's results, so they keep working.
-
-## Parity with ember-rust
-
-[PARITY.md](PARITY.md) lists every feature of ember-rust, whether this port has it, and the tests
-that check it. It's generated from `packages/parity/src/features.ts`, where each feature has the
-behaviors a port has to match, the ember-rust and Campfire files they come from, and a note on
-anything this port does differently. Tests name the feature they cover:
-
-```ts
-describe(feature("messages.edit"), () => { ... });       // Vitest
-test.describe(feature("messages.edit"), () => { ... });  // Playwright
-```
-
-`pnpm test` fails when a ported or partial feature has no test, when a test names a feature that
-isn't listed, or when PARITY.md is out of date. After changing a feature or its tests, run
-`pnpm parity` to regenerate it.
 
 ## Performance
 
@@ -129,7 +112,7 @@ Both use the same schema (`apps/worker/migrations/`) and the same queries
 (`apps/worker/src/store.ts`); only the driver (`apps/worker/src/db.ts`) differs. The Workspace
 object's tables follow the same setting. The search index's don't: it keeps every room's messages in
 one FTS5 table in the `SearchIndex` object's own storage, since D1 can't export a database that holds
-one. [`docs/database.md`](docs/database.md) compares them with ember-rust's database.
+one. [`docs/database.md`](docs/database.md) compares them with Campfire's.
 
 ## Deploying
 
@@ -151,11 +134,11 @@ with the code and never appear in the deploy's output.
 The first deploy also makes the Worker's setup token, `EMBER_SETUP_TOKEN`, and ends by printing the
 setup link that carries it, `https://<your Worker>/first_run#token=<the token>`: in your terminal,
 or in the build's log in the Cloudflare dashboard after Deploy to Cloudflare. Open it to set up
-Ember. Only that link opens the form, so nobody who merely finds the address can make themselves
-the administrator, as ember-rust's installer-printed setup link makes sure, and once Ember is set up
-the link is spent: setup closes for good, as in Campfire. The token rides in the link's fragment,
-which no request or log sees. `/first_run` opened without it says all this, and if the link is lost,
-make a new token, give it to the Worker, and open the link with that one:
+Ember. Only that link opens the form, so nobody who merely finds the address can make themselves the
+administrator, and once Ember is set up the link is spent: setup closes for good, as in Campfire.
+The token rides in the link's fragment, which no request or log sees. `/first_run` opened without it
+says all this, and if the link is lost, make a new token, give it to the Worker, and open the link
+with that one:
 
 ```sh
 openssl rand -hex 32                              # the new token: keep it
@@ -165,16 +148,16 @@ pnpm exec wrangler secret put EMBER_SETUP_TOKEN   # asks for it; add --name <wor
 On localhost, where `wrangler dev` serves, setup is open to whoever's there unless `.dev.vars`
 sets a token.
 
-The setup form suggests Kevin Rose and kevin@kevinrose.com for the administrator, where ember-rust's
-suggests Jane Cooper. To suggest your own, set the Worker's `EMBER_SETUP_NAME_PLACEHOLDER` and
-`EMBER_SETUP_EMAIL_PLACEHOLDER` variables, in `vars` in `wrangler.jsonc` for instance.
+The setup form suggests Kevin Rose and kevin@kevinrose.com for the administrator. To suggest your
+own, set the Worker's `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL_PLACEHOLDER` variables,
+in `vars` in `wrangler.jsonc` for instance.
 
 The administrator then signs in at `/session/new` with the email address and password they set up
 with, and invites people with the join link on general's welcome card.
 
-Ember insists on HTTPS, as ember-rust does: plain HTTP is redirected to the same address over HTTPS,
+Ember insists on HTTPS, as Campfire does: plain HTTP is redirected to the same address over HTTPS,
 and every answer from the Worker carries HSTS, except on `localhost` and loopback addresses, where
-`wrangler dev` serves. Unlike ember-rust's, it holds only the address it's given at to HTTPS, not the
+`wrangler dev` serves. Unlike Campfire's, it holds only the address it's given at to HTTPS, not the
 names under it, which would be every name on a domain whose apex is Ember's custom domain. To serve
 plain HTTP anywhere else, such as `wrangler dev --ip 0.0.0.0` for a phone on your network, set the
 `DISABLE_SSL` variable to any value. `/up` answers 200 for uptime checks, as Rails' does, without
@@ -440,7 +423,7 @@ pnpm exec wrangler secret put VAPID_PRIVATE_KEY
 
 Without them push is off, and `/api/health` tells an administrator why. Keep the pair once people
 use it: browsers subscribe with its public key, so a new pair leaves everyone to turn notifications
-on again. A pair from ember-rust's `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` works as it is.
+on again. A pair from Campfire's `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` works as it is.
 
 A new message is pushed from its room's Durable Object as the room tells the Workspace of it, to the
 subscriptions of the members who aren't viewing the room and want to hear of it: each person keeps
@@ -507,11 +490,10 @@ account. Ember emails an address at most 3 times an hour, counting Email domain'
 Ember has Turnstile's keys, each network can ask for 10 codes an hour. Each try of a code counts
 against sign-in's limit, 10 tries from a network in 3 minutes.
 
-Otherwise, someone who can't sign in gets a new password from `apps/worker/scripts/reset-password.ts`,
-as ember-rust's `emberctl reset-password` gives one on its server. The Worker takes recovery requests
-only while its `EMBER_RECOVERY_TOKEN` secret is set, and the script sends the same token from your
-shell's environment, so set one up just for the reset (add `--name ember-production` to each
-`wrangler` command for the preview):
+Otherwise, someone who can't sign in gets a new password from `apps/worker/scripts/reset-password.ts`.
+The Worker takes recovery requests only while its `EMBER_RECOVERY_TOKEN` secret is set, and the
+script sends the same token from your shell's environment, so set one up just for the reset (add
+`--name ember-production` to each `wrangler` command for the preview):
 
 ```sh
 export EMBER_RECOVERY_TOKEN=$(openssl rand -hex 32)
@@ -629,7 +611,7 @@ sign-out, which closes that browser's sockets, open and private rooms that only 
 open (made through the API until the New room page lands), live messages with optimistic sends, edit
 and delete your own messages, Ember's quick and tray reactions, presence, typing indicators, history
 paging, reconnects, a sidebar that loads again whenever a tab reconnects, the Light / Dark / System appearance picker, the web app manifest that lets
-browsers install Ember as an app, ember-rust's security headers and HTTPS, and its page for browsers
+browsers install Ember as an app, Campfire's security headers and HTTPS, and its page for browsers
 too old to run Ember. The rail's DMs, Activity, Search and Workspace entries are shown but disabled.
 
 Next, roughly in order: a workspace directory for creating rooms and private rooms, direct messages,

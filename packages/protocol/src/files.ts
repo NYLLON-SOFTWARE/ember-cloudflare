@@ -1,15 +1,15 @@
 import type { RoomId } from "./index.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
 
-// Files attached to messages, which Ember keeps in R2. ember-rust takes a file with the message that
-// carries it, in one request, as Campfire's composer posts it (crates/assets/overrides/models/file_uploader.js),
-// but a Worker takes at most 100 MB a request, so the app uploads a file in parts that R2 puts back
-// together, and the room posts its message once it has all of them.
+// Files attached to messages, which Ember keeps in R2. Campfire takes a file with the message that
+// carries it, in one request, as its composer posts it, but a Worker takes at most 100 MB a request, so
+// the app uploads a file in parts that R2 puts back together, and the room posts its message once it has
+// all of them.
 
-/** The largest file Ember takes, in decimal bytes: ember-rust's `MAX_UPLOAD_BYTES` (crates/kit/src/body.rs). */
+/** The largest file Ember takes, in decimal bytes. */
 export const MAX_FILE_SIZE = 250_000_000;
 
-/** What ember-rust's uploader says of a larger file, and the Worker's 413 says too. */
+/** What the app's uploader says of a larger file, and the Worker's 413 says too. */
 export const FILE_TOO_LARGE = "Files must be 250 MB or smaller.";
 
 /** The longest file name Ember keeps, in UTF-16 code units: as long as common file systems let a name be. */
@@ -28,28 +28,28 @@ export const uploadPartPath = (roomId: RoomId, uploadId: string, n: number) => `
 export const uploadPreviewPath = (roomId: RoomId, uploadId: string) => `${uploadsPath(roomId)}/${uploadId}/preview`;
 
 /**
- * The box a file's preview fits within, as ember-rust's thumbnails and video posters do: its
- * `Message::THUMBNAIL_MAX_WIDTH` and `THUMBNAIL_MAX_HEIGHT` (crates/views/src/messages/presentation.rs).
+ * The box a file's preview fits within: Campfire's `Message::Attachment::THUMBNAIL_MAX_WIDTH` and
+ * `THUMBNAIL_MAX_HEIGHT`.
  */
 export const PREVIEW_MAX_WIDTH = 1200;
 export const PREVIEW_MAX_HEIGHT = 800;
 
 /**
  * The most bytes a message shows of a file in its place: its preview, or a picture's own bytes where it
- * has none, as ember-rust shows an SVG of up to 5 MiB in its place (crates/ember/src/controllers/presenters.rs).
+ * has none.
  */
 export const MAX_PREVIEW_SIZE = 5 * 1024 * 1024;
 
 /**
- * The pictures ember-rust resizes, for a thumbnail or an avatar: Active Storage's `variable_content_types`,
- * less the BMP, ICO and PSD that Campfire's config/initializers/vips.rb takes out (crates/storage/src/content_types.rs).
+ * The pictures Campfire resizes, for a thumbnail or an avatar: Active Storage's `variable_content_types`,
+ * less the BMP, ICO and PSD that its config/initializers/vips.rb takes out.
  */
 const VARIABLE_TYPES = new Set(["image/png", "image/gif", "image/jpeg", "image/tiff", "image/webp", "image/avif", "image/heic", "image/heif"]);
 
 /** Active Storage's `web_image_content_types`: the pictures every browser shows. */
 const WEB_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
-/** Whether ember-rust resizes a picture of `contentType`: `ActiveStorage::Blob#variable?`. */
+/** Whether Campfire resizes a picture of `contentType`: `ActiveStorage::Blob#variable?`. */
 export const isVariable = (contentType: string) => VARIABLE_TYPES.has(contentType);
 
 /** Whether a message shows a file of `contentType` by its preview: a picture's thumbnail or a video's poster. */
@@ -59,14 +59,15 @@ export const isPreviewed = (contentType: string) => isVariable(contentType) || c
 export const isWebImage = (contentType: string) => WEB_IMAGE_TYPES.has(contentType);
 
 /**
- * The most pixels a picture or video has for Ember to preview it or show it in its place, as a small file
- * can hold a picture far too large to decode: ember-rust's limit since its pull request #24 (d49621e).
+ * The most pixels a picture or video has for Ember to preview it or show it in its place, as a small
+ * file can hold a picture far too large to decode: Campfire's
+ * `Message::Attachment::THUMBNAIL_MAX_PIXELS`.
  */
 export const MAX_PREVIEW_PIXELS = 250_000_000;
 
 /**
  * Whether a picture or video of `width` by `height` pixels may be previewed: both known and above 0, and
- * at most 250 megapixels between them, as ember-rust's `Blob::preview_dimensions_allowed` (crates/storage/src/blob.rs) checks.
+ * at most 250 megapixels between them.
  */
 export const isPreviewableSize = ({ width, height }: { width?: number; height?: number }) =>
   width !== undefined && height !== undefined && width > 0 && height > 0 && width * height <= MAX_PREVIEW_PIXELS;
@@ -95,9 +96,9 @@ export interface Upload {
 
 /**
  * A file message's file, as Active Storage's blob describes it: its name as Active Storage keeps it
- * (`ActiveStorage::Filename#sanitized`), the type its bytes say it has, its size in bytes, and an image's
- * width and height, where they can be read, with the addresses that show it and download it. Neither
- * address expires, as ember-rust's signed blob links don't.
+ * (`ActiveStorage::Filename#sanitized`), the type its bytes say it has, its size in bytes, and an
+ * image's width and height, where they can be read, with the addresses that show it and download it.
+ * Neither address expires.
  */
 export interface StoredFile {
   id: string;
@@ -110,8 +111,8 @@ export interface StoredFile {
   url: string;
   downloadUrl: string;
   /**
-   * The address of its preview, where its uploader's browser made one: a picture's thumbnail or a video's
-   * poster within 1200×800, which its message shows, as ember-rust's `:thumb` variant and video preview.
+   * The address of its preview, where its uploader's browser made one: a picture's thumbnail or a
+   * video's poster within 1200×800, which its message shows.
    */
   previewUrl?: string;
 }

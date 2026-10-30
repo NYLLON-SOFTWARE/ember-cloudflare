@@ -9,7 +9,6 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@ember/parity": "workspace:*",
     "vitest": "^4.1.0"
   }
 }

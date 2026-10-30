@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { MAX_ATTRIBUTES, MAX_REOPENED_ELEMENTS, ParseLimitError } from "./markup";
 import { parseHtml } from "./parse";
@@ -19,8 +18,8 @@ const failure = (markup: string) => {
 const numberedAttributes = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, i) => `a${from + i}=${from + i}`).join(" ");
 
-// ember-rust's crates/richtext/src/dom.rs tests, whose answers come from Nokogiri 1.19.4.
-describe(feature("messages.rich-text"), () => {
+// The answers come from Nokogiri 1.19.4.
+describe("Rich text, safely", () => {
   it("parses and serializes like Nokogiri", () => {
     expect(roundTrip("<td>x</td>")).toBe("x");
     expect(roundTrip("<p><table><tr><td>a</td></tr></table>")).toBe("<p></p><table><tbody><tr><td>a</td></tr></tbody></table>");

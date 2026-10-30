@@ -20,21 +20,18 @@ import { ApiError, setUpWorkspace } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { loadPage } from "@/lib/page";
 
-// ember-rust's Set up Ember page (crates/views/templates/first_runs/show.html and the macros in
-// components/ui.html), styled as its basecoat card (crates/assets/overrides/basecoat/src/theme.css).
-// Entering its fields doesn't select what's in them, since it isn't one of ember-rust's app pages, which
-// do (`useSelectOnEntry`). Its name and email address placeholders come from /api/bootstrap: Kevin
-// Rose's, where ember-rust's are Jane Cooper's, unless the deployment suggests its own.
+// The Set up Ember page. Entering its fields doesn't select what's in them, since it isn't one of the
+// app's pages, which do (`useSelectOnEntry`). Its name and email address placeholders come from
+// /api/bootstrap: Kevin Rose's, unless the deployment suggests its own.
 //
-// A deployed Worker takes the setup link its deploy printed, `/first_run#token=<its setup token>`,
-// where ember-rust takes `/first_run/access#token=` and a cookie: the token rides in the fragment,
-// which no request or log sees, and goes with the form as a bearer token. Opened without it, or where
-// the Worker has no token to match (`setupAccess` from /api/bootstrap), the page says what to do in
-// the form's place, in ember-rust's "Setup is locked" card's spirit, rather than showing a form that
+// A deployed Worker takes the setup link its deploy printed, `/first_run#token=<its setup token>`: the
+// token rides in the fragment, which no request or log sees, and goes with the form as a bearer token.
+// Opened without it, or where the Worker has no token to match (`setupAccess` from /api/bootstrap), the
+// page says what to do in the form's place, on a "Setup is locked" card, rather than showing a form that
 // would be refused.
 
 const TITLE = "Set up Ember";
-/** What's in a setup link's fragment, read as ember-rust's setup_access.js reads its link's token. */
+/** The token in a setup link's fragment. */
 const setupTokenOf = (hash: string) => new URLSearchParams(hash.slice(1)).get("token") || null;
 /** Makes a new setup token where the person sees it; `wrangler secret put` then asks for it, where a pipe would hide it. */
 const NEW_TOKEN = "openssl rand -hex 32";
@@ -70,8 +67,7 @@ function Setup({ placeholders, access, onSetUp }: { placeholders: SetupPlacehold
     document.title = TITLE;
     return () => void (document.title = title);
   }, []);
-  // The token leaves the address bar and this tab's history as the page opens, as ember-rust's
-  // setup_access.js takes it out of its link.
+  // The token leaves the address bar and this tab's history as the page opens.
   useEffect(() => {
     if (location.hash) history.replaceState(history.state, "", location.pathname + location.search);
   }, []);
@@ -101,8 +97,7 @@ function SetupForm({ placeholders, setupToken, onSetUp }: { placeholders: SetupP
     } catch (error) {
       setBusy(false);
       if (!(error instanceof ApiError)) return setProblem("Couldn't reach Ember. Check your connection and try again.");
-      // As ember-rust re-renders the form: the name and email stay, and the password starts over. The
-      // photo stays too, where ember-rust's form comes back without it.
+      // The name, email address and photo stay, and the password starts over.
       if (error.field === "password") {
         if (passwordInput.current) passwordInput.current.value = "";
         setPasswordTooShort(true);
@@ -201,7 +196,7 @@ function SetupClosed() {
   );
 }
 
-/** ember-rust's first-run card, with the page's skip link and the alert above it, around the form or what stands in for it. */
+/** The first-run card, with the page's skip link and the alert above it, around the form or what stands in for it. */
 function SetupCard({ subtitle, problem = null, children }: { subtitle: string; problem?: string | null; children: ReactNode }) {
   return (
     <>
@@ -239,9 +234,8 @@ function Code({ children }: { children: string }) {
 }
 
 /**
- * ember-rust's `ui::avatar`: the photo to start with, which shows as it's chosen, in a 96px circle with
- * a camera on its corner, and says why one is refused in place of its description. It can't change while
- * the form is sent with it.
+ * The photo to start with, which shows as it's chosen, in a 96px circle with a camera on its corner, and
+ * says why one is refused in place of its description. It can't change while the form is sent with it.
  */
 function AvatarField({ photo, disabled }: { photo: PhotoChoice; disabled: boolean }) {
   return (
@@ -294,7 +288,7 @@ function Field({ id, label, icon: Icon, children }: { id: string; label: string;
   );
 }
 
-/** ember-rust's `ui::password`, with its show and hide toggle (basecoat/src/password.js). */
+/** The password field, with its show and hide toggle. */
 function PasswordField({ ref, tooShort }: { ref: Ref<HTMLInputElement>; tooShort: boolean }) {
   const [visible, setVisible] = useState(false);
   return (

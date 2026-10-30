@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SESSION_IDLE_MS, SESSION_REFRESH_MS } from "../src/workspace";
@@ -18,7 +17,7 @@ interface SessionRow {
 const sessionsOf = (userId: string) =>
   workspaceSql("SELECT last_active_at, ip_address, user_agent FROM sessions WHERE user_id = ?", userId) as Promise<SessionRow[]>;
 
-describe(feature("auth.sessions"), () => {
+describe("Stay signed in, per device", () => {
   afterEach(() => vi.useRealTimers());
 
   it("keeps the session in an HttpOnly cookie for 400 days, which only this origin can set over HTTPS", async () => {
@@ -90,7 +89,7 @@ describe(feature("auth.sessions"), () => {
     }
   });
 
-  it("ends a session unused for as long as its cookie lasts, where ember-rust's last forever, so a token kept from a browser long gone stops working too", async () => {
+  it("ends a session unused for as long as its cookie lasts, so a token kept from a browser long gone stops working too", async () => {
     const { user, cookie } = await signIn("Ada");
     const [signedIn] = await sessionsOf(user.id);
     const signedInAt = Date.parse(signedIn!.last_active_at);
@@ -113,7 +112,7 @@ describe(feature("auth.sessions"), () => {
   });
 });
 
-describe(feature("auth.sign-out"), () => {
+describe("Sign out", () => {
   it("ends this browser's session and makes it forget the cookie", async () => {
     const ada = await signIn("Ada");
     const grace = await signIn("Grace");
@@ -135,7 +134,7 @@ describe(feature("auth.sign-out"), () => {
   });
 });
 
-describe(feature("auth.csrf"), () => {
+describe("Forgery protection without tokens", () => {
   /** A sign-in sent with exactly `headers`, without the `Sec-Fetch-Site` that `api` adds. */
   const signInWith = (headers: Record<string, string>, url = `${origin}/api/session`) =>
     exports.default.fetch(url, { method: "POST", headers, body: JSON.stringify({ name: "Ada" }) });
@@ -169,7 +168,7 @@ describe(feature("auth.csrf"), () => {
     expect((await api("/api/me", withCookie(cookie))).status).toBe(200);
   });
 
-  it("leaves reads alone, as ember-rust does", async () => {
+  it("leaves reads alone", async () => {
     const { cookie } = await signIn("Ada");
     expect((await api("/api/me", { headers: { Cookie: cookie, "Sec-Fetch-Site": "cross-site" } })).status).toBe(200);
   });

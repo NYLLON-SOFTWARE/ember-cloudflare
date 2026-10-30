@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
 import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
@@ -10,7 +9,7 @@ const CSS = ":root { --e2e-custom-styles: applied; }";
 /** What the CSS has set on `page`, if anything. */
 const styled = (page: Page) => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--e2e-custom-styles").trim());
 
-test.describe(feature("accounts.custom-css"), () => {
+test.describe("Custom CSS", () => {
   test("the administrator saves custom CSS, which every page applies at once, open ones and sign-in included", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit");

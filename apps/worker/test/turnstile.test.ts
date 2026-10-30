@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   MAX_TURNSTILE_TOKEN_LENGTH,
   TURNSTILE_CHECK_EXPIRED,
@@ -98,7 +97,7 @@ function fakeSiteverify(answer: () => Response | Promise<Response> = () => Respo
 beforeEach(freshDeploy);
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("auth.turnstile"), () => {
+describe("Check that people are people with Cloudflare Turnstile", () => {
   describe("Set up Turnstile", () => {
     it("keeps a widget's keys once siteverify passes the check drawn with them, its secret key sealed", async () => {
       const administrator = await setUp();

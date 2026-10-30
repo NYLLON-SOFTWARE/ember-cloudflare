@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_CUSTOM_STYLES_LENGTH, type Account, type Bootstrap, type CustomStyles, type NewWorkspace, type WorkspaceSettings } from "@ember/protocol";
 import { runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,12 +32,12 @@ const stored = async () => ((await workspaceSql("SELECT custom_styles, updated_a
 /** The workspace as pages show it with `customStyles`. */
 const styled = (customStyles: string): Account => ({ name: "Ember", tagline: "", hideTranslationButtons: true, customStyles, restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} });
 
-/** CSS as an administrator might type it, with what would end ember-rust's unescaped `<style>`. */
+/** CSS as an administrator might type it, with what would end an unescaped `<style>`. */
 const CSS = ".mb-app { --mb-ink: rebeccapurple; }\n</style><script>alert(1)</script>\n";
 
 beforeEach(freshDeploy);
 
-describe(feature("accounts.custom-css"), () => {
+describe("Custom CSS", () => {
   it("gives administrators the workspace's CSS, which is empty until it's saved", async () => {
     const administrator = await setUp();
     const response = await customStyles(administrator);
@@ -89,7 +88,7 @@ describe(feature("accounts.custom-css"), () => {
     expect(await socket.next()).toEqual({ type: "account.updated", account: styled(most) });
   });
 
-  it("tells everyone's workspace sockets once it changes, where ember-rust's pages change as they next load", async () => {
+  it("tells everyone's workspace sockets once it changes", async () => {
     const administrator = await setUp();
     const grace = await signIn("Grace");
     const sockets = [await openWorkspaceSocket(administrator), await openWorkspaceSocket(grace)];

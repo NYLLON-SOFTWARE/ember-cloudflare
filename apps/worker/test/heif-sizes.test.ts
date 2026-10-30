@@ -1,7 +1,6 @@
-// The sizes recorded for AVIF and HEIC files are the ones ember-rust's libvips 8.16.1 reads with libheif
-// 1.19.8, as Debian 13 packages them (its Dockerfile). Later versions of libheif read a few of these files
-// differently, as the tests say where.
-import { feature } from "@ember/parity";
+// The sizes recorded for AVIF and HEIC files are the ones libvips 8.16.1 reads with libheif 1.19.8, as
+// Debian 13 packages them. Later versions of libheif read a few of these files differently, as the tests
+// say where.
 import { describe, expect, it } from "vitest";
 import { metadataOf } from "../src/files/uploads";
 import {
@@ -61,7 +60,7 @@ const size = { width: 1200, height: 800 };
 /** `count` ids, from `first` on. */
 const ids = (first: number, count: number) => Array.from({ length: count }, (_, n) => first + n);
 
-describe(feature("attachments.types"), () => {
+describe("How files are recognized", () => {
   it("records an AVIF's or a HEIC's size from its image's extents, without reading its picture", () => {
     expect(metadataOf(heifFile(avif(1200, 800)), "image/avif")).toBe('{"identified":true,"width":1200,"height":800,"analyzed":true}');
     const heic = heifFile({ brand: "heic", compatible: ["mif1", "heic"], items: [{ id: 1, type: "hvc1", properties: [hvcC, ispe(4032, 3024)] }] });

@@ -7,10 +7,10 @@ import { cn } from "@/lib/utils";
 import { MessageBody, MessageLink, RemoteImage } from "./message-body";
 
 // A bot's cards (packages/protocol/src/cards.ts), which a Slack-compatible webhook's legacy attachments and
-// Block Kit blocks show under its message. ember-rust has no cards, so they're Ember's own: framed as a link
-// preview is (message-body.tsx) and laid out as Slack lays out an attachment and its blocks. The room kept only
-// addresses on named hosts, and each is checked again here against the page's own host, which a card can't aim
-// at, as a link preview can't, since every reader's browser would fetch it signed in.
+// Block Kit blocks show under its message, framed as a link preview is (message-body.tsx) and laid out as Slack
+// lays out an attachment and its blocks. The room kept only addresses on named hosts, and each is checked again
+// here against the page's own host, which a card can't aim at, as a link preview can't, since every reader's
+// browser would fetch it signed in.
 
 /** The bars of Slack's named colors, in Ember's: a notice's green, the warning amber and an alert's red. */
 const BARS = new Map([

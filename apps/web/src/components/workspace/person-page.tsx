@@ -14,7 +14,7 @@ import { Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
 import { UserAvatar } from "./user-avatar";
 
-/** What ember-rust's Ban and Remove ban ask first (users/_ban_button.html). */
+/** What Ban and Remove ban ask first. */
 export const CONFIRM_BAN = "Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses.";
 export const CONFIRM_UNBAN = "Are you sure you want to remove the ban on this user?";
 
@@ -34,24 +34,22 @@ interface Props {
 }
 
 /**
- * Campfire's `.btn` as ember-rust draws it in a panel (zz-ember.css), the full width of the panel: 9px
- * corners at medium weight, 36px tall, or 44px for fingers, with its icon at 1.3em.
+ * Campfire's `.btn` in a panel, the full width of the panel: 9px corners at medium weight, 36px tall, or
+ * 44px for fingers, with its icon at 1.3em.
  */
 const DIRECT_BUTTON =
   "inline-flex w-full min-h-9 cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border px-[1.1em] py-[0.5em] font-medium transition-[filter] aria-disabled:cursor-default touch:min-h-11";
 
 /**
- * ember-rust's page for someone (users/show.html), at `/users/<id>`, whatever their status, titled with
- * their name: Go Back to the page it was opened from, a pencil to Edit my profile on your own, and
- * their avatar. Active and banned people show their name and bio, with their email address for
- * administrators, and active people a button that starts a DM with them, or opens the one you have.
- * Removed people show their name and that they're no longer on this account, and bots only their
- * avatar, then the DM button while they're active. Administrators get a new sign-in link for anyone
- * active who isn't a bot, themselves included, and Ban for anyone else active or Remove ban for anyone
- * banned. The people directory keeps what it lists of them current. Members suspended for their
- * Memberful membership's lapsing (`auth.memberful-memberships`), which ember-rust has no need of, show
- * as removed people do, but to administrators, who see them as banned people, with why they can't
- * sign in, and Ban.
+ * The page for someone, at `/users/<id>`, whatever their status, titled with their name: Go Back to the
+ * page it was opened from, a pencil to Edit my profile on your own, and their avatar. Active and banned
+ * people show their name and bio, with their email address for administrators, and active people a
+ * button that starts a DM with them, or opens the one you have. Removed people show their name and that
+ * they're no longer on this account, and bots only their avatar, then the DM button while they're
+ * active. Administrators get a new sign-in link for anyone active who isn't a bot, themselves included,
+ * and Ban for anyone else active or Remove ban for anyone banned. The people directory keeps what it
+ * lists of them current. Members suspended for their Memberful membership's lapsing show as removed
+ * people do, but to administrators, who see them as banned people, with why they can't sign in, and Ban.
  */
 export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadPeople, onMissing, onFailed }: Props) {
   const [fetched, setFetched] = useState<PersonAnswer | null>(null);
@@ -65,7 +63,7 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
   const person = fetched && { ...fetched.person, ...listed };
   const [starting, setStarting] = useState(false);
   const [banning, setBanning] = useState(false);
-  // How many times a ban or its lifting has loaded the page again, as ember-rust's redirect does.
+  // How many times a ban or its lifting has loaded the page again.
   const [reloads, setReloads] = useState(0);
   const back = useBackPath();
   const mounted = useMounted();
@@ -99,10 +97,10 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
     });
   };
 
-  // As ember-rust's Ban and Remove ban do: asked first, then the page again with no notice. Once the
-  // workspace socket or a load has said they changed while the answer was on its way, the answer may be
-  // older than that, so it's left out, and the directory loads again unless it has what it says. A page
-  // that has gone stopped hearing what the directory has, so then the directory loads again.
+  // Ban and Remove ban ask first, then load the page again with no notice. Once the workspace socket or
+  // a load has said they changed while the answer was on its way, the answer may be older than that, so
+  // it's left out, and the directory loads again unless it has what it says. A page that has gone
+  // stopped hearing what the directory has, so then the directory loads again.
   const toggleBan = () => {
     if (!person || banning) return;
     const banned = person.status === "banned";
@@ -141,7 +139,7 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
             <Avatar person={person} />
             {person.role === "bot" ? (
               person.status === "active" ? (
-                // ember-rust's `button_to_direct_room_with`, whose `txt--large` Campfire doesn't define, so it's at the page's size.
+                // At the page's text size.
                 <button type="button" aria-disabled={starting || undefined} onClick={startDirect} className={cn(DIRECT_BUTTON, "bg-background")}>
                   <ChatLines className="size-[1.3em]" />
                   <span className="sr-only">Ping {person.name}</span>
@@ -159,7 +157,7 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
                 {/* Campfire's `.gap` with a third of its block space between rows. */}
                 <div className="flex flex-col gap-x-[1ch] gap-y-[calc(1rem/3)]">
                   <h1 className="text-[23px] leading-[1.2] font-bold">{person.name}</h1>
-                  {/* Campfire's link, which ember-rust leaves empty for someone with no address, where this has none. */}
+                  {/* Campfire's link, left out for someone with no address. */}
                   {person.emailAddress !== undefined && (
                     <div>
                       {person.emailAddress && (
@@ -174,7 +172,7 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
                 {person.status === "active" && (
                   <>
                     <div className="mx-[1ch] mt-4 px-[2ch] max-md:px-3">
-                      {/* ember-rust labels the icon, which hides it, so the button says nothing; this one is named for it. */}
+                      {/* Named for what it does, since its icon is hidden. */}
                       <button
                         type="button"
                         aria-disabled={starting || undefined}
@@ -187,7 +185,7 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
                     </div>
                     {transferId && (
                       <>
-                        {/* Campfire's borderless `hr`, which ember-rust spaces the sign-in link from the button with. */}
+                        {/* Campfire's borderless `hr`, spacing the sign-in link from the button. */}
                         <hr className="mt-4 mb-2 border-0" />
                         <SignInLink transferId={transferId} mine={mine} />
                       </>
@@ -212,8 +210,8 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
 }
 
 /**
- * ember-rust's ban button (users/_ban_button.html), the full width of the panel: Ban with a cancel mark
- * for someone active, or a red Remove ban, Campfire's `.btn--negative`, for someone banned.
+ * The ban button, the full width of the panel: Ban with a cancel mark for someone active, or a red
+ * Remove ban, Campfire's `.btn--negative`, for someone banned.
  */
 function BanButton({ person, busy, onClick }: { person: Person; busy: boolean; onClick: () => void }) {
   const banned = person.status === "banned";

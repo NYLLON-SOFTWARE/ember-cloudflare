@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_CUSTOM_STYLES_LENGTH, type BotAnswer, type NewWorkspace, type RoomId, type UserId } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import { BODY_TOO_LARGE, MAX_JSON_BODY_BYTES } from "../src/bodies";
@@ -6,7 +5,7 @@ import { RECOVERY_PATH } from "../src/recovery";
 import { api, apiWith, cookieOf, createRoom, freshDeploy, shown, workspaceSql, type Session } from "./support";
 
 // Every route that reads JSON reads no more than 1 MiB of it, however large a body Cloudflare lets
-// through, as ember-rust reads no more than 16 MiB of any body but a file's (crates/kit/src/body.rs).
+// through.
 
 const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 const RECOVERY_TOKEN = "0123456789abcdef".repeat(4);
@@ -136,7 +135,7 @@ const stillSignedIn = async (session: Session) => (await api("/api/me", { header
 
 beforeEach(freshDeploy);
 
-describe(feature("platform.limits"), () => {
+describe("Request and connection limits", () => {
   it("refuses a body whose Content-Length is over 1 MiB on every route that reads JSON, before reading any of it", async () => {
     const tooLong = " ".repeat(MAX_JSON_BODY_BYTES + 1);
     expect(await sendArriving(FIRST_RUN, tooLong, tooLong.length)).toEqual({ ...TOO_LARGE, read: 0 });

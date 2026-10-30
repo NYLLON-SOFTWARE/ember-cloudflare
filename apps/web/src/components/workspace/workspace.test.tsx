@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -177,14 +176,14 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("rooms.show"), () => {
+describe("Open a room", () => {
   it("opens the room in the address, named in the tab", async () => {
     showWorkspace("/rooms/random");
     expect(await roomHeading()).toHaveTextContent("random");
     await waitFor(() => expect(document.title).toBe("random"));
   });
 
-  it("goes home with ember-rust's alert from a room you can't see, once the list, asked again, hasn't got it either", async () => {
+  it("goes home with an alert from a room you can't see, once the list, asked again, hasn't got it either", async () => {
     showWorkspace("/rooms/secret");
     expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
     expect(await roomHeading()).toHaveTextContent("general");
@@ -256,7 +255,7 @@ describe(feature("rooms.show"), () => {
   });
 });
 
-describe(feature("rooms.last-visited"), () => {
+describe("Go back to the last room", () => {
   it("goes from / to the room visited last", async () => {
     showWorkspace("/rooms/random");
     await roomHeading();
@@ -290,7 +289,7 @@ describe(feature("rooms.last-visited"), () => {
     await roomHeading();
     act(() => navigate("/rooms/opens/general/edit"));
     await screen.findByRole("textbox", { name: "Room name" });
-    // To Rooms and permissions, as ember-rust's pull request #24 has it.
+    // To Rooms and permissions.
     await user.click(screen.getByRole("link", { name: "Go Back" }));
     expect(await screen.findByRole("heading", { level: 2, name: "Room order and permissions" })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Go Back" }));
@@ -305,7 +304,7 @@ describe(feature("rooms.last-visited"), () => {
   });
 });
 
-describe(feature("rooms.index"), () => {
+describe("Room addresses", () => {
   it("goes from /rooms to the room made most recently", async () => {
     showWorkspace("/rooms");
     expect(await roomHeading()).toHaveTextContent("random");
@@ -339,14 +338,14 @@ describe(feature("rooms.index"), () => {
     expect(location.pathname).toBe("/rooms/random");
   });
 
-  it("reads /rooms/opens as a room's id, as ember-rust does", async () => {
+  it("reads /rooms/opens as a room's id", async () => {
     showWorkspace("/rooms/opens");
     expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
     await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
   });
 });
 
-describe(feature("rooms.create-open"), () => {
+describe("Create an open room", () => {
   it("makes a room from workspace settings, lists it in its place by name, and opens it", async () => {
     const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
     serve({
@@ -386,7 +385,7 @@ describe(feature("rooms.create-open"), () => {
   });
 });
 
-describe(feature("rooms.settings-page"), () => {
+describe("Room settings page", () => {
   it("opens a room's settings from its header, and shows the room again under the name saved", async () => {
     serve({
       "GET /api/rooms/general/settings": () => Response.json(generalSettings),
@@ -427,7 +426,7 @@ describe(feature("rooms.settings-page"), () => {
     expect(await roomHeading()).toHaveTextContent("random");
   });
 
-  it("goes back to Rooms and permissions, wherever it was opened from, as ember-rust's pull request #24 does", async () => {
+  it("goes back to Rooms and permissions, wherever it was opened from", async () => {
     serve({ "GET /api/rooms/random/settings": () => Response.json({ ...generalSettings, room: rooms[1] }) });
     const { user } = showWorkspace("/rooms/random");
     await user.click(await screen.findByRole("link", { name: "Settings for this room" }));
@@ -438,7 +437,7 @@ describe(feature("rooms.settings-page"), () => {
   });
 });
 
-describe(feature("rooms.edit-permissions"), () => {
+describe("Who can change a room", () => {
   it("goes home with an alert from the settings of a room that isn't there, or isn't yours", async () => {
     serve({ "GET /api/rooms/secret/settings": () => Response.json({ error: "Room not found or inaccessible" }, { status: 404 }) });
     showWorkspace("/rooms/opens/secret/edit");
@@ -448,8 +447,8 @@ describe(feature("rooms.edit-permissions"), () => {
   });
 });
 
-describe(feature("rooms.members"), () => {
-  it("goes home with ember-rust's alert when you save a room without yourself, and it leaves the sidebar", async () => {
+describe("Add and remove private room members", () => {
+  it("goes home with an alert when you save a room without yourself, and it leaves the sidebar", async () => {
     const leadsRoom: Room = { id: "leads", name: "Leads", kind: "closed", icon: null };
     serve({
       "GET /api/sidebar": () => Response.json(roomList([...rooms, leadsRoom])),
@@ -466,7 +465,7 @@ describe(feature("rooms.members"), () => {
   });
 });
 
-describe(feature("rooms.member-only-access"), () => {
+describe("Only members see a room", () => {
   it("keeps a room that's gone on screen, saying it was deleted, and takes it out of the sidebar", async () => {
     vi.stubGlobal("WebSocket", goneRoom("random"));
     serve({ "GET /api/me": () => Response.json({ user: ada }) });
@@ -505,7 +504,7 @@ describe(feature("rooms.member-only-access"), () => {
   });
 });
 
-describe(feature("messages.permalink"), () => {
+describe("Link to a message", () => {
   /** A room's socket, which keeps what it's sent, and which the test lets in. */
   class RoomSocket {
     static readonly OPEN = 1;
@@ -561,7 +560,7 @@ describe(feature("messages.permalink"), () => {
   });
 });
 
-describe(feature("dms.naming"), () => {
+describe("Group DMs and DM names", () => {
   it("names a DM for the others in it, in its header, the tab, its messages and the composer", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     serve({ "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])) });
@@ -573,7 +572,7 @@ describe(feature("dms.naming"), () => {
   });
 });
 
-describe(feature("dms.delete"), () => {
+describe("Delete a direct message", () => {
   it("deletes a DM from the settings its header opens, going home without an alert", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     serve({
@@ -644,7 +643,7 @@ describe(feature("dms.delete"), () => {
   });
 });
 
-describe(feature("dms.picker"), () => {
+describe("New direct message dialog", () => {
   const people: DirectoryUser[] = [ada, withGrace.members[1]!].map(({ id, name }) => ({ id, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${id}/avatar` }));
   const newDirect = () => screen.queryByRole("dialog", { name: "New direct message" });
   const dms = () => within(screen.getByRole("navigation", { name: "Workspace", hidden: true })).getByRole("link", { name: "DMs", hidden: true });
@@ -751,7 +750,7 @@ describe(feature("dms.picker"), () => {
   });
 });
 
-describe(feature("dms.suggestions"), () => {
+describe("Suggested people", () => {
   const grace = withGrace.members[1]!;
   const suggestion = () => within(screen.getByRole("region", { name: "DMs" })).queryByRole("button", { name: "Start a direct message with Grace" });
 
@@ -805,7 +804,7 @@ describe(feature("dms.suggestions"), () => {
   });
 });
 
-describe(feature("accounts.remove-person"), () => {
+describe("Remove someone from the workspace", () => {
   const grace: DirectoryUser = { ...withGrace.members[1]!, bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
   const suggestion = () => within(screen.getByRole("region", { name: "DMs" })).queryByRole("button", { name: "Start a direct message with Grace" });
 
@@ -823,7 +822,7 @@ describe(feature("accounts.remove-person"), () => {
   });
 });
 
-describe(feature("accounts.name"), () => {
+describe("Rename the workspace", () => {
   it("passes on the workspace's name as its settings load it, which another administrator may have changed", async () => {
     serve({ "GET /api/account": () => Response.json({ ...workspaceSettings, account: { name: "Difference Engines" } }) });
     const { onAccountChanged } = showWorkspace("/account/edit");
@@ -831,7 +830,7 @@ describe(feature("accounts.name"), () => {
   });
 });
 
-describe(feature("ui.flash"), () => {
+describe("Saved notices", () => {
   it("alerts with what the server said when something fails", async () => {
     serve({
       "GET /api/rooms/new": () => Response.json({ people: [ada] }),
@@ -863,7 +862,7 @@ describe(feature("ui.flash"), () => {
   });
 });
 
-describe(feature("ui.rail"), () => {
+describe("Rail", () => {
   it("titles the logo with the workspace's name", async () => {
     showWorkspace("/rooms/general");
     await roomHeading();
@@ -884,7 +883,7 @@ describe(feature("ui.rail"), () => {
   });
 });
 
-describe(feature("search.page"), () => {
+describe("Search page", () => {
   it("opens from the rail, marking Search, and from a room's header, with Exit back to the room visited last", async () => {
     serve({ "GET /api/searches": () => Response.json({ query: null, messages: [], rooms: [], recent: [] }) });
     const { user } = showWorkspace("/rooms/random");
@@ -903,7 +902,7 @@ describe(feature("search.page"), () => {
   });
 });
 
-describe(feature("users.profile"), () => {
+describe("Edit your profile", () => {
   it("shows your profile from the rail's avatar, marking it, with Go Back to the page it was opened from", async () => {
     serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null } }) });
     const { user } = showWorkspace("/rooms/random");
@@ -918,7 +917,7 @@ describe(feature("users.profile"), () => {
     expect(await roomHeading()).toHaveTextContent("random");
   });
 
-  it("logs out from your profile, as ember-rust does", async () => {
+  it("logs out from your profile", async () => {
     serve({ "GET /api/users/me/profile": () => Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null } }) });
     const { onSignOut, user } = showWorkspace("/users/me/profile");
     await user.click(screen.getByRole("button", { name: "Log out" }));
@@ -926,7 +925,7 @@ describe(feature("users.profile"), () => {
   });
 });
 
-describe(feature("auth.memberful-connect"), () => {
+describe("Connect Memberful", () => {
   const address = () => `${location.pathname}${location.search}${location.hash}`;
 
   it("flashes that your Memberful account is connected, once, taking it out of the address", async () => {
@@ -949,7 +948,7 @@ describe(feature("auth.memberful-connect"), () => {
   });
 });
 
-describe(feature("users.show"), () => {
+describe("Someone's profile page", () => {
   const grace: DirectoryUser = { ...withGrace.members[1]!, bio: "Wrote the first compiler", role: "member", status: "active", avatarUrl: "/users/t2/avatar?v=1" };
 
   it("shows someone's page at their address, marking nothing on the rail, and starts a DM with them from it", async () => {
@@ -976,7 +975,7 @@ describe(feature("users.show"), () => {
   });
 });
 
-describe(feature("sidebar.activity-filter"), () => {
+describe("Activity filter", () => {
   const marked: SidebarRoom[] = [
     { ...rooms[0]!, unread: true, involvement: "mentions" },
     { ...rooms[1]!, unread: true, involvement: "mentions" },
@@ -1129,7 +1128,7 @@ describe(feature("sidebar.activity-filter"), () => {
   });
 });
 
-describe(feature("sidebar.rooms"), () => {
+describe("Conversations sidebar", () => {
   it("switches rooms from the sidebar and puts the room in the address", async () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
@@ -1147,7 +1146,7 @@ describe(feature("sidebar.rooms"), () => {
   });
 });
 
-describe(feature("sidebar.live-updates"), () => {
+describe("Live sidebar updates", () => {
   beforeEach(() => {
     WorkspaceSocket.last = null;
     vi.stubGlobal("WebSocket", WorkspaceSocket);
@@ -1228,7 +1227,7 @@ describe(feature("sidebar.live-updates"), () => {
   });
 });
 
-describe(feature("sidebar.favorites"), () => {
+describe("Star rooms", () => {
   const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
   const star = () => screen.getByRole("button", { name: "Favorite room" });
 
@@ -1261,7 +1260,7 @@ describe(feature("sidebar.favorites"), () => {
   });
 });
 
-describe(feature("rooms.invitation-dismissal"), () => {
+describe("Welcome card for administrators, until they dismiss it", () => {
   const invited = { ...roomList(rooms), invitation: { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" } };
   const card = () => screen.queryByRole("heading", { name: "Welcome to Ember" });
   /** Shows general with the welcome card, its dismissal answered by `answer`. */
@@ -1296,7 +1295,7 @@ describe(feature("rooms.invitation-dismissal"), () => {
   });
 });
 
-describe(feature("sidebar.shared-order"), () => {
+describe("Shared room order", () => {
   /** The rooms `order` lists, top to bottom, by the names of their links to their settings. */
   const roomsIn = (order: HTMLElement) => within(order).getAllByRole("link").map((link) => link.getAttribute("aria-label")!.replace("Settings for ", ""));
 
@@ -1355,7 +1354,7 @@ describe(feature("sidebar.shared-order"), () => {
   });
 });
 
-describe(feature("auth.sessions"), () => {
+describe("Stay signed in, per device", () => {
   it("goes back to sign-in when the server no longer accepts the session", async () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ error: "Not signed in" }, { status: 401 }));
     const { onSignOut, onSessionChanged } = showWorkspace();
@@ -1415,7 +1414,7 @@ describe(feature("auth.sessions"), () => {
   });
 });
 
-describe(feature("ui.mobile-drawer"), () => {
+describe("Conversations drawer on phones", () => {
   it("opens the rail and rooms in a drawer, and closes it after you pick a room", async () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
@@ -1441,7 +1440,7 @@ describe(feature("ui.mobile-drawer"), () => {
     await waitFor(() => expect(open).toHaveAttribute("aria-hidden", "true"));
     const close = within(drawer).getByRole("button", { name: "Close conversations" });
     expect(close).toHaveFocus();
-    // Iconoir's menu and xmark, where ember-rust's pull request #24 draws Lucide's menu and x.
+    // Iconoir's menu and xmark.
     expect(open.querySelector("svg")).toHaveClass("iconoir-menu", "size-[22px]");
     expect(close.querySelector("svg")).toHaveClass("iconoir-xmark", "size-5");
   });
@@ -1525,7 +1524,7 @@ describe(feature("ui.mobile-drawer"), () => {
   });
 });
 
-describe(feature("ui.accessibility"), () => {
+describe("Landmarks and names", () => {
   it("skips to the main content from the first thing Tab reaches, leaving the address as it is", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     const { user } = showWorkspace("/rooms/general");
@@ -1572,7 +1571,7 @@ describe(feature("ui.accessibility"), () => {
   });
 });
 
-describe(feature("notifications.levels"), () => {
+describe("Notification levels", () => {
   it("keeps a level another tab saves while the bell's answer is on its way", async () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
     let answer = (_: Response) => {};
@@ -1590,7 +1589,7 @@ describe(feature("notifications.levels"), () => {
   });
 });
 
-describe(feature("notifications.hide-room"), () => {
+describe("Hide a room", () => {
   const activity = () => screen.getByRole("button", { name: "Activity" });
 
   it("takes the room shown out of the sidebar once its bell hides it, keeping it open, and puts it back once it's shown again", async () => {
@@ -1629,7 +1628,7 @@ describe(feature("notifications.hide-room"), () => {
   });
 });
 
-describe(feature("notifications.test-page"), () => {
+describe("Push subscriptions page", () => {
   it("shows your push subscriptions at their address, or at anyone's id in place of me, marking nothing on the rail, with Go Back to the last room visited", async () => {
     serve({ "GET /api/push-subscriptions": () => Response.json({ subscriptions: [{ id: 1, endpoint: "https://web.push.apple.com/abc", browser: "Safari", version: "18.0", platform: "iPhone" }] }) });
     const { user } = showWorkspace("/rooms/random");
@@ -1647,7 +1646,7 @@ describe(feature("notifications.test-page"), () => {
   });
 });
 
-describe(feature("bots.list"), () => {
+describe("Chat bots page", () => {
   const bot: Bot = { id: "b1", name: "Build Bot", bio: null, role: "bot", status: "active", avatarUrl: "/users/b0t/avatar?v=1", key: "b1-Ab3dEf5hiJ7k", rooms: [] };
 
   it("shows the bot pages at their addresses, marking Workspace on the rail, with Go Back to the bots page, and from there to workspace settings", async () => {
@@ -1685,7 +1684,7 @@ describe(feature("bots.list"), () => {
   });
 });
 
-describe(feature("notifications.app-badge"), () => {
+describe("App icon badge", () => {
   it("badges the app with Activity's count, the conversations marked unread but the one shown, as it changes, and clears the badge at none", async () => {
     const badges = badgeTheApp();
     vi.stubGlobal("WebSocket", WorkspaceSocket);
@@ -1720,7 +1719,7 @@ describe(feature("notifications.app-badge"), () => {
   });
 });
 
-describe(feature("accounts.settings-page"), () => {
+describe("Community settings page", () => {
   const settingsNavigation = () => screen.getByRole("navigation", { name: "Community settings" });
   const sectionMarked = () => within(settingsNavigation()).getByRole("link", { current: "page" });
   const settingsRequests = () => vi.mocked(fetch).mock.calls.filter(([input]) => String(input) === "/api/account").length;
@@ -1734,7 +1733,7 @@ describe(feature("accounts.settings-page"), () => {
     expect(sectionMarked()).toHaveTextContent("General");
     // Ada isn't an administrator.
     expect(within(settingsNavigation()).getAllByRole("link").map((link) => link.textContent)).toEqual(["General", "Rooms and permissions", "Membership"]);
-    // The header, the links, then the page, as they show, where ember-rust's markup puts the links last.
+    // The header, the links, then the page, as they show.
     const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
     expect(following(header, settingsNavigation())).toBe(true);
     expect(following(settingsNavigation(), screen.getByRole("main"))).toBe(true);
@@ -1771,7 +1770,7 @@ describe(feature("accounts.settings-page"), () => {
   });
 });
 
-describe(feature("sidebar.activity-filter"), () => {
+describe("Activity filter", () => {
   it("goes home from community settings' pages with Activity, which turns on there, as they've no conversations to show", async () => {
     const { user } = showWorkspace("/account/edit");
     await communitySettings();
@@ -1782,7 +1781,7 @@ describe(feature("sidebar.activity-filter"), () => {
   });
 });
 
-describe(feature("ui.mobile-drawer"), () => {
+describe("Conversations drawer on phones", () => {
   it("holds the rail alone on community settings' pages, named for navigation, focusing its first link as it opens", async () => {
     const { user } = showWorkspace("/account/edit");
     await communitySettings();

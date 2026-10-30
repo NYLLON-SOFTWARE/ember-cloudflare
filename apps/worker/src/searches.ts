@@ -9,7 +9,7 @@ import { searchIndex, type SearchHit } from "./search-index";
 import { indexedMessages, messagesAnywhereWithIds } from "./store";
 import { workspace, type Searcher } from "./workspace";
 
-// Searching messages, and recent searches, as ember-rust's searches do (crates/ember/src/controllers/searches.rs).
+// Searching messages, and recent searches.
 
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
 
@@ -18,7 +18,7 @@ const NOT_SIGNED_IN = "Not signed in";
 /**
  * `GET /api/searches?q=`: the newest `SEARCH_LIMIT` messages with every word of `q`, oldest first, in the
  * rooms you're in, the ones you've hidden and DMs too, with those rooms, and your recent searches, as
- * ember-rust's search page lists them (`searches#index`). Only a search with a word left once it's
+ * Campfire's search page lists them (`searches#index`). Only a search with a word left once it's
  * sanitized is run, and none is recorded.
  */
 export async function searchMessages(request: Request, env: Env): Promise<Response> {
@@ -32,9 +32,8 @@ export async function searchMessages(request: Request, env: Env): Promise<Respon
 
 /**
  * `POST /api/searches`, `{ q }`: records `q`, sanitized, as your newest recent search, as the search
- * page's form does in ember-rust (`searches#create`), and answers as `GET` does for it. A search with no
- * word left once it's sanitized isn't recorded, where ember-rust records it, spaces and all, and lists it
- * as `“   ”`.
+ * page's form does in Campfire (`searches#create`), and answers as `GET` does for it. A search with no
+ * word left once it's sanitized isn't recorded, spaces and all, and lists it as `“ ”`.
  */
 export async function recordSearch(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -47,7 +46,7 @@ export async function recordSearch(request: Request, env: Env): Promise<Response
   return answer(env, query, searcher);
 }
 
-/** `DELETE /api/searches`: forgets your recent searches, as ember-rust's `searches#clear` does. */
+/** `DELETE /api/searches`: forgets your recent searches. */
 export async function clearSearches(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials || !(await workspace(env).clearSearches(credentials))) return problem(401, NOT_SIGNED_IN);

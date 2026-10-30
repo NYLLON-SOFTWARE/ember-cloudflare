@@ -2,12 +2,11 @@ import { MAX_EMAIL_ADDRESS_LENGTH, MAX_USER_NAME_LENGTH } from "@ember/protocol"
 import type { Env } from "./env";
 import { isLoopback } from "./loopback";
 
-// What Ember asks the Memberful site whose members sign in (`auth.memberful-sign-in`), and the keys it
-// asks with: its member API, with the access token a sign-in's code is exchanged for, says who signed
-// in, and its admin API, with the custom app's API key, says whose memberships are active, which the
-// Workspace checks when a webhook says one changed, and once a day (`auth.memberful-memberships`).
-// Neither follows a redirect, which would take a secret elsewhere, and Memberful's answers are logged by
-// their status alone.
+// What Ember asks the Memberful site whose members sign in, and the keys it asks with: its member API,
+// with the access token a sign-in's code is exchanged for, says who signed in, and its admin API, with
+// the custom app's API key, says whose memberships are active, which the Workspace checks when a webhook
+// says one changed, and once a day. Neither follows a redirect, which would take a secret elsewhere, and
+// Memberful's answers are logged by their status alone.
 
 /** The deployment's Memberful site, and the keys of its custom app. */
 export interface MemberfulKeys {

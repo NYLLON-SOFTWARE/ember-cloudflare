@@ -1,8 +1,7 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { emojiNamed, mrkdwnHtml, plainTextHtml } from "../src/bots/mrkdwn";
 
-describe(feature("bots.slack-webhook"), () => {
+describe("Slack-compatible webhooks", () => {
   describe("mrkdwn", () => {
     it("formats *bold*, _italics_, ~strike-through~ and `code`, nested or not", () => {
       expect(mrkdwnHtml("*bold* _italic_ ~struck~ `code`")).toBe("<p><strong>bold</strong> <em>italic</em> <s>struck</s> <code>code</code></p>");

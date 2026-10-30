@@ -1,12 +1,10 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { parseHtml } from "./parse";
 import { allowedUri, cgiUnescapeHtml, CONTENT_FILTER, sanitize, sanitizeTags, type SafeList } from "./sanitize";
 import { toHtml } from "./serialize";
 
-// Ported from ember-rust's crates/richtext/src/sanitizer.rs, whose expected outputs are
-// rails-html-sanitizer's
-describe(feature("messages.rich-text"), () => {
+// The expected outputs are rails-html-sanitizer's.
+describe("Rich text, safely", () => {
   it("scrubs like Rails", () => {
     const scrubbed = (html: string) => sanitize(parseHtml, html, CONTENT_FILTER);
     expect(scrubbed('<div><a href="javascript:alert(1)">x</a></div>')).toBe("<div><a>x</a></div>");

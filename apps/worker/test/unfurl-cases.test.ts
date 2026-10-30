@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { LinkPreview } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { unfurl } from "../src/unfurl";
@@ -6,11 +5,11 @@ import type { Network } from "../src/unfurl/fetch";
 import recorded from "./fixtures/opengraph_cases.json";
 import answers from "./fixtures/opengraph_expected.json";
 
-// Replays the link previews ember-rust recorded from the Rails app it ports (fixtures/README.md) on a
-// fake Internet: each host's DNS answers, and a server at the public ones that answers the recorded
-// routes and 404s anything else. Each preview, and the requests the server saw, must match the
-// recording, except where this port differs on purpose (`DIFFERENCES`). DNS lookups aren't compared:
-// this looks each host up once per preview, where the reference looks it up for every request.
+// Replays the link previews recorded from Campfire (fixtures/README.md) on a fake Internet: each host's
+// DNS answers, and a server at the public ones that answers the recorded routes and 404s anything else.
+// Each preview, and the requests the server saw, must match the recording, except where Ember differs on
+// purpose (`DIFFERENCES`). DNS lookups aren't compared: this looks each host up once per preview, where
+// Campfire looks it up for every request.
 
 interface Route {
   method: string;
@@ -37,7 +36,7 @@ interface Answer {
 const routes = recorded.routes as Route[];
 const hosts = recorded.hosts as Record<string, string[][]>;
 
-/** The X post's tags, which the reference reads without a meta charset and so drops their non-ASCII characters from. */
+/** The X post's tags, which Campfire reads without a meta charset and so drops their non-ASCII characters from. */
 const POST = { title: "DHH 😀 “quoted”", description: "tweet é" };
 
 const DIFFERENCES: Record<string, { why: string; preview: Partial<LinkPreview> | null; requests?: [] }> = {
@@ -57,7 +56,7 @@ const DIFFERENCES: Record<string, { why: string; preview: Partial<LinkPreview> |
     preview: null,
     requests: [],
   },
-  "mailto raises": { why: "Where the reference fails with 500, there's no preview.", preview: null },
+  "mailto raises": { why: "Where Campfire fails with 500, there's no preview.", preview: null },
   "fxtwitter failure raises": { why: "As above.", preview: null },
 };
 // "dns rebinding is pinned" and "dns rebinding after redirect is pinned" pass because the second,
@@ -110,14 +109,14 @@ function bodyOf(route: Route): Uint8Array {
 
 const gzip = async (body: Uint8Array) => new Uint8Array(await new Response(new Blob([body]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
 
-/** The preview the reference answered: a 200's JSON without Rails' validation fields, else none. */
+/** The preview Campfire answered: a 200's JSON without Rails' validation fields, else none. */
 function recordedPreview(answer: Answer): LinkPreview | null {
   if (answer.response.status !== 200) return null;
   const { title, url, image, description } = JSON.parse(answer.response.body!) as LinkPreview;
   return { title, url, image, description };
 }
 
-describe(feature("unfurl.endpoint"), () => {
+describe("Link preview lookup", () => {
   it("replays every recorded case", () => {
     expect(recorded.cases.map((c) => c.name)).toEqual((answers as Answer[]).map((a) => a.name));
     expect(recorded.cases).toHaveLength(90);

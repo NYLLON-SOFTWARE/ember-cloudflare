@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toBase64url, urlsafeDecode64 } from "../src/encoding";
@@ -11,8 +10,8 @@ import type { MessagePush } from "../src/workspace-store";
 import recorded from "./fixtures/web_push_expected.json";
 import { gemMessage, pushBrowser } from "./support";
 
-// A push as the web-push gem writes, encrypts, signs and sends it, checked as ember-rust's
-// integrations/web_push/tests.rs checks its port, against what the gem recorded (fixtures/README.md).
+// A push as the web-push gem writes, encrypts, signs and sends it, checked against what the gem recorded
+// (fixtures/README.md).
 
 const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
 const encoder = new TextEncoder();
@@ -48,7 +47,7 @@ const recordedBrowser = async () =>
 /** The bytes `text` takes in a JSON string, between its quotes. */
 const jsonBytes = (text: string) => encoder.encode(JSON.stringify(text)).length - 2;
 
-/** The keys this suite's Worker signs pushes with: ember-rust's reference test keys. */
+/** The keys this suite's Worker signs pushes with: the test keys the push was recorded with. */
 async function keys(): Promise<VapidKeys> {
   const push = await webPush(env as unknown as Env);
   if (!push.on) throw new Error(`Web Push is off: ${push.reason}`);
@@ -66,7 +65,7 @@ async function claimsOf(authorization: string) {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("notifications.payload"), () => {
+describe("What a push says", () => {
   it("writes a push's JSON as Rails does, which the service worker shows as it is", () => {
     const payload = { title: 'Designers <&> "quotes" é 😀', body: "Kevin: line\nbreak\ttab \u2028 \u001f / \\ ", path: "/rooms/1" };
     expect(encodedPush(payload, 3)).toBe(recorded.message);
@@ -121,7 +120,7 @@ describe(feature("notifications.payload"), () => {
     await expect(encryptPush(push, "not base64!", auth)).rejects.toThrow(new PushArgumentError("invalid base64"));
     await expect(encryptPush(new Uint8Array(4096 - 18 + 1), p256dh, auth)).rejects.toThrow(new PushArgumentError("encrypted payload is too big"));
     await expect(encryptPush(new Uint8Array(4096 - 18), p256dh, auth)).resolves.toHaveLength(4096 + 86);
-    // A key that isn't a point on the curve, as in ember-rust's fixtures, can never be pushed to.
+    // A key that isn't a point on the curve, can never be pushed to.
     await expect(encryptPush(push, "dGVzdF9rZXk", auth)).rejects.toBeInstanceOf(InvalidPushKeyError);
   });
 
@@ -133,7 +132,7 @@ describe(feature("notifications.payload"), () => {
 
   it("cuts a long title at 256 bytes and text at 3,072, as escaped JSON, between characters, with an ellipsis that fits", () => {
     const room = (name: string) => messagePayload("designers", { kind: "open", name }, "David", "");
-    // ember-rust's push_test.rs: two-byte characters, a quote that escapes to two, then one-byte ones.
+    // Two-byte characters, a quote that escapes to two, then one-byte ones.
     const { body } = messagePayload("designers", { kind: "open", name: "Designers" }, "David", `${"é".repeat(1000)}"${"x".repeat(2000)}`);
     expect(body).toBe(`David: ${"é".repeat(1000)}"${"x".repeat(MAX_BODY_BYTES - 7 - 2000 - 2 - 3)}…`);
     expect(jsonBytes(body)).toBe(MAX_BODY_BYTES);
@@ -150,7 +149,7 @@ describe(feature("notifications.payload"), () => {
   });
 });
 
-describe(feature("notifications.web-push-keys"), () => {
+describe("Web Push configuration", () => {
   it("signs a push for its push service as the gem does, with the deployment's key, for 12 hours", async () => {
     const authorization = await vapidAuthorization("https://fcm.googleapis.com", recorded.now, await keys(), recorded.vapid_subject);
     const { header, payload, k, signed, claims } = await claimsOf(authorization);
@@ -181,7 +180,7 @@ const pushEnv = (changes: Partial<Env> = {}) => ({ ...(env as unknown as Env), .
 /** Says every subscription may still have pushes. */
 const anyone = async () => true;
 
-describe(feature("notifications.push"), () => {
+describe("Who gets a push", () => {
   it("sends each push to its subscription's push service as the gem does: encrypted for its browser, signed, urgent, kept for four weeks", async () => {
     const receiver = await pushBrowser();
     const { send, sent } = pushService();
@@ -231,7 +230,7 @@ describe(feature("notifications.push"), () => {
     expect(log).not.toHaveBeenCalled();
   });
 
-  it("keeps a subscription whose push failed otherwise, logging what ember-rust logs, and tries nothing again", async () => {
+  it("keeps a subscription whose push failed otherwise, logging what Campfire logs, and tries nothing again", async () => {
     const receiver = await pushBrowser();
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const answers: Array<[number, string, string]> = [

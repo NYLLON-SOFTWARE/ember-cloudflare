@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { INVITATION_GONE, type WorkspaceSettings } from "@ember/protocol";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
@@ -91,7 +90,7 @@ async function joinWith(browser: Browser, baseURL: string, link: string, emailAd
   await newcomer.context().close();
 }
 
-test.describe(feature("accounts.invitations"), () => {
+test.describe("Invite people by email", () => {
   test("the administrator invites people, whom Ember emails a link each, then sends one again and revokes another", async ({ page, request, baseURL }) => {
     await giveFrom(request, FROM);
     const card = await openInvitations(page);
@@ -156,7 +155,7 @@ test.describe(feature("accounts.invitations"), () => {
   });
 });
 
-test.describe(feature("auth.invitation-sign-up"), () => {
+test.describe("Join with an invitation", () => {
   test("someone invited opens the link in their email, joins with the address it's for, and lands signed in, once", async ({ request, browser, baseURL }) => {
     await giveFrom(request, FROM);
     const hal = newAddress("hal");

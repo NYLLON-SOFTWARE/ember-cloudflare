@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { qrCodeSvg } from "@ember/protocol/qr-code";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -24,7 +23,7 @@ afterEach(() => {
 /** The Iconoir icons in `element`, by the class Iconoir names each with. */
 const iconsOf = (element: Element) => [...element.querySelectorAll("svg")].map((icon) => [...icon.classList].find((name) => name.startsWith("iconoir-")));
 
-describe(feature("auth.sign-in-link"), () => {
+describe("Private sign-in link", () => {
   it("shows your own link, read-only, named for screen readers only, under a laptop, an arrow and a phone", () => {
     render(<SignInLink transferId={TRANSFER_ID} mine />);
     const link = screen.getByRole("textbox", { name: YOURS });
@@ -43,7 +42,7 @@ describe(feature("auth.sign-in-link"), () => {
     expect(iconsOf(label.parentElement!)).toEqual(["iconoir-crown"]);
   });
 
-  it("has the join link's buttons, named for the sign-in link, and shares it with ember-rust's warning", async () => {
+  it("has the join link's buttons, named for the sign-in link, and shares it with a warning", async () => {
     const share = vi.fn().mockResolvedValue(undefined);
     stubNavigator("canShare", () => true);
     stubNavigator("share", share);
@@ -70,7 +69,7 @@ describe(feature("auth.sign-in-link"), () => {
   });
 });
 
-describe(feature("accounts.qr-codes"), () => {
+describe("QR codes for links", () => {
   it("draws the link's QR code in the page, as the Worker draws one, so the link never reaches the Worker", async () => {
     const fetch = vi.spyOn(globalThis, "fetch");
     const drawn: Blob[] = [];

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   MAX_PUSH_ENDPOINT_LENGTH,
   MAX_PUSH_KEY_LENGTH,
@@ -82,7 +81,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("notifications.subscriptions"), () => {
+describe("Save push subscriptions", () => {
   it("saves a browser's subscription for you, with its user agent, and lists only yours", async () => {
     const ada = await signIn("Ada");
     const grace = await signIn("Grace");
@@ -96,7 +95,7 @@ describe(feature("notifications.subscriptions"), () => {
     expect(await endpointsOf(grace)).toEqual([]);
   });
 
-  it("saving the same subscription again keeps one, saved again, and saving its endpoint with other keys replaces them, where ember-rust adds another", async () => {
+  it("saving the same subscription again keeps one, saved again, and saving its endpoint with other keys replaces them", async () => {
     const ada = await signIn("Ada");
     await saved(ada);
     await workspaceSql("UPDATE push_subscriptions SET updated_at = '2026-01-01T00:00:00.000Z'");
@@ -174,7 +173,7 @@ describe(feature("notifications.subscriptions"), () => {
     ["https://evilfcm.googleapis.com/fcm/send/abc", "Endpoint is not a permitted push service"],
     ["https://fcm.googleapis.com.example.com/fcm/send/abc", "Endpoint is not a permitted push service"],
     ["https://127.0.0.1/fcm/send/abc", "Endpoint is not a permitted push service"],
-  ])("refuses the endpoint %j as ember-rust does, saving nothing", async (endpoint, error) => {
+  ])("refuses the endpoint %j, saving nothing", async (endpoint, error) => {
     const ada = await signIn("Ada");
     const response = await save(ada, subscription(endpoint));
     expect(response.status).toBe(422);
@@ -186,7 +185,7 @@ describe(feature("notifications.subscriptions"), () => {
     // `fetch` reads the "\" as the end of the host, so this goes to attacker.example.
     ["https://attacker.example\\@fcm.googleapis.com/fcm/send/abc", "Endpoint is not a permitted push service"],
     ["https://fcm.googleapis.com:+443/fcm/send/abc", "Endpoint is not a valid URL"],
-  ])("refuses the endpoint %j, which ember-rust takes but `fetch` reads otherwise", async (endpoint, error) => {
+  ])("refuses the endpoint %j, which `fetch` reads otherwise", async (endpoint, error) => {
     const ada = await signIn("Ada");
     const response = await save(ada, subscription(endpoint));
     expect(response.status).toBe(422);
@@ -297,7 +296,7 @@ describe(feature("notifications.subscriptions"), () => {
       expect(await idsOf(ada.user.id)).toHaveLength(1);
     });
 
-    it("keeps someone's subscriptions when they're banned, as ember-rust does for when the ban is lifted", async () => {
+    it("keeps someone's subscriptions when they're banned", async () => {
       const { ada, grace } = await setUp();
       expect((await api(`/api/users/${grace.user.id}/ban`, { method: "POST", headers: { Cookie: ada.cookie } })).status).toBe(200);
       expect(await idsOf(grace.user.id)).toHaveLength(2);
@@ -305,7 +304,7 @@ describe(feature("notifications.subscriptions"), () => {
   });
 });
 
-describe(feature("notifications.test-page"), () => {
+describe("Push subscriptions page", () => {
   it("pushes \"Ember Test\" to one of your subscriptions at once, with a new UUID, opening this page, badged with your conversations marked unread", async () => {
     const ada = await signIn("Ada");
     const browser = await pushBrowser();
@@ -359,7 +358,7 @@ describe(feature("notifications.test-page"), () => {
     expect(pushed).toEqual([]);
   });
 
-  it("fails when the push service says the subscription is gone, keeping it, as ember-rust's page does", async () => {
+  it("fails when the push service says the subscription is gone, keeping it", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const ada = await signIn("Ada");
     await saved(ada);

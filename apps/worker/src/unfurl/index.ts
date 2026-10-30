@@ -10,7 +10,7 @@ import { resolveOverHttps } from "./guard";
 import { isBlank, linkPreview } from "./metadata";
 import { parseHttpUri } from "./uri";
 
-/** ember-rust's `UNFURL_DEADLINE`: the most one unfurl may take, redirects and the image check included. */
+/** The most one unfurl may take, redirects and the image check included. */
 export const UNFURL_DEADLINE_MS = 10_000;
 
 /** The Internet as a Worker reaches it, with names resolved by Cloudflare's DNS over HTTPS. */
@@ -23,9 +23,8 @@ const problem = (status: number, message: string) => Response.json({ error: mess
 const noContent = () => new Response(null, { status: 204 });
 
 /**
- * `POST /api/unfurl` with JSON `{url}`: the preview the composer shows for a pasted link, as ember-rust's
- * `POST /unfurl_link` (crates/ember/src/controllers/unfurl_links.rs) answers it, with a limit on how
- * many each person asks for. 204 when the link has no preview.
+ * `POST /api/unfurl` with JSON `{url}`: the preview the composer shows for a pasted link, with a limit
+ * on how many each person asks for. 204 when the link has no preview.
  */
 export async function unfurlLink(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);

@@ -2,9 +2,8 @@ import { INVITATION_DAYS, PASSWORD_RESET_CODE_MINUTES } from "@ember/protocol";
 import { escapeHtml } from "./encoding";
 import type { Email } from "./mail";
 
-// The emails Ember sends (`platform.email`), each as plain text and as simple HTML, with nothing that
-// tracks whether it was opened. All an administrator wrote in them is the workspace's name, and in an
-// invitation their own.
+// The emails Ember sends, each as plain text and as simple HTML, with nothing that tracks whether it was
+// opened. All an administrator wrote in them is the workspace's name, and in an invitation their own.
 
 /** `text` on one line, as a subject must be: line breaks and other control characters become spaces. */
 const oneLine = (text: string) => text.replace(/[\u0000-\u001f\u007f]+/g, " ").trim();
@@ -58,9 +57,9 @@ export function emailDomainLinkEmail(to: string, workspace: string, link: string
 
 /**
  * The email with `code`, which someone who forgot their password at the workspace named `workspace` asked
- * for with `to`, their email address there (`auth.password-reset`): it chooses a new password, with that
- * address, for `PASSWORD_RESET_CODE_MINUTES` minutes. The code is in the body alone, not the subject,
- * which a locked phone shows anyone.
+ * for with `to`, their email address there: it chooses a new password, with that address, for
+ * `PASSWORD_RESET_CODE_MINUTES` minutes. The code is in the body alone, not the subject, which a locked
+ * phone shows anyone.
  */
 export function passwordResetCodeEmail(to: string, workspace: string, code: string): Email {
   const name = oneLine(workspace) || "Ember";

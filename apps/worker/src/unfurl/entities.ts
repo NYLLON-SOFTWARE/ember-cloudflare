@@ -1,6 +1,5 @@
-// libxml2's `html40EntitiesTable`, from ember-rust's crates/ember/src/integrations/opengraph/entities.rs:
-// the HTML 4.01 named character references plus `apos`, which its HTML parser decodes in attribute
-// values. Names are case-sensitive.
+// libxml2's `html40EntitiesTable`: the HTML 4.01 named character references plus `apos`, which its HTML
+// parser decodes in attribute values. Names are case-sensitive.
 
 export const ENTITIES: ReadonlyMap<string, number> = new Map(
   Object.entries({

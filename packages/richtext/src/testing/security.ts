@@ -1,5 +1,5 @@
-// What no rendered body may hold, checked as a browser would read it: ember-rust's security
-// assertions (crates/richtext/tests/corpus.rs), which hold whatever the Rails oracle says.
+// What no rendered body may hold, checked as a browser would read it: the security assertions, which
+// hold whatever the Rails oracle says.
 
 import { ParseLimitError } from "../markup";
 import { parseHtml } from "../parse";

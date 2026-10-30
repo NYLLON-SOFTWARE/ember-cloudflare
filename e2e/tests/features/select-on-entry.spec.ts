@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Locator } from "@playwright/test";
 import { signInAs } from "../../fixtures";
 import { expect, test } from "./fixtures";
@@ -6,8 +5,7 @@ import { expect, test } from "./fixtures";
 /** Whether `field` shows a cursor rather than a selection. */
 const hasCursor = (field: Locator) => field.evaluate((input: HTMLInputElement | HTMLTextAreaElement) => input.selectionStart === input.selectionEnd);
 
-test.describe(feature("ui.select-on-entry"), () => {
-  // ember-rust's parity/kro/workspace.test.mjs checks New room's name this way.
+test.describe("Select a field's text on entry", () => {
   test("selects what's in a field when it's entered, so typing replaces it, and a second click places the cursor", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace" }).click();

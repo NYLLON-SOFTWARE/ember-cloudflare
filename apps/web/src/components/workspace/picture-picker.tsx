@@ -1,7 +1,7 @@
 import type { ChangeEvent } from "react";
 import { Camera } from "@/components/icons/iconoir";
 
-/** `.btn.txt-small.mb-logo-remove`: Campfire's `.btn` in small, muted text, 44px tall for fingers. */
+/** Remove: Campfire's `.btn.txt-small`, in muted text, 44px tall for fingers. */
 const REMOVE_BUTTON =
   "inline-flex cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-3 py-[0.5em] text-[0.8rem] font-medium text-muted-foreground disabled:cursor-default disabled:opacity-50 touch:min-h-11";
 
@@ -25,11 +25,10 @@ interface Props {
 }
 
 /**
- * ember-rust's `.mb-logo-upload` (zz-ember.css), which changes your avatar on your profile
- * (users/profiles/show.html), and the workspace's logo in its settings (accounts/edit.html): the picture
- * in a 96px circle with a camera on its corner, which picks a picture to save at once, a line saying
- * what to choose, and a button that removes the picture, where there's one to remove. The camera is
- * white in dark mode, as the logo's is, where ember-rust's profile leaves it black on the dark circle.
+ * The picture picker, which changes your avatar on your profile, and the workspace's logo in its
+ * settings: the picture in a 96px circle with a camera on its corner, which picks a picture to save at
+ * once, a line saying what to choose, and a button that removes the picture, where there's one to
+ * remove. The camera is white in dark mode, as the logo's is.
  */
 export function PicturePicker({ id, src, alt, label, description, onChoose, disabled, remove }: Props) {
   const choose = (event: ChangeEvent<HTMLInputElement>) => {

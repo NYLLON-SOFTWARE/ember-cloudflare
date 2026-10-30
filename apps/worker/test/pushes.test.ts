@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_PUSH_SUBSCRIPTIONS, type Involvement, type NewWorkspace, type RoomId } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
@@ -30,9 +29,7 @@ import {
   type Session,
 } from "./support";
 
-// Who a new message is pushed to, and what it says, as ember-rust's `MessagePusher` decides
-// (crates/db/src/models/push_subscription.rs) and its tests check (crates/db/src/tests/push_test.rs,
-// from Campfire's test/models/room/push_test.rb). web-push.test.ts checks how each push is sent.
+// Who a new message is pushed to, and what it says. web-push.test.ts checks how each push is sent.
 
 /** Saves a subscription for `session` at Chrome's push service, at `/fcm/send/<label>`, for `browser`'s keys. */
 async function subscribe(session: Session, label: string, browser?: PushBrowser): Promise<string> {
@@ -114,7 +111,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("notifications.push"), () => {
+describe("Who gets a push", () => {
   it("pushes a new message to every subscription of its room's members who aren't viewing it: at all messages, then at @mentions if it mentions them", async () => {
     const room = await freshRoom("Designers");
     const [ada, grace, lin, hopper, joan, kay, max] = await people("Ada", "Grace", "Lin", "Hopper", "Joan", "Kay", "Max");
@@ -195,7 +192,7 @@ describe(feature("notifications.push"), () => {
     expect(await pushesFor(room, events.slice(1))).toEqual([]);
   });
 
-  it("pushes a message once to a browser that saved its subscription again with other keys, for those keys, where ember-rust pushes to each", async () => {
+  it("pushes a message once to a browser that saved its subscription again with other keys, for those keys", async () => {
     const room = await freshRoom("Designers");
     const [ada, grace] = await people("Ada", "Grace");
     await involve(grace, room, "everything");
@@ -207,7 +204,7 @@ describe(feature("notifications.push"), () => {
     expect(push!.deliveries).toEqual([expect.objectContaining({ endpoint: laptop, p256dhKey: browser.p256dh, authKey: browser.auth })]);
   });
 
-  it(`pushes a message to the ${MAX_PUSH_SUBSCRIPTIONS} browsers each person saved most recently, and no more, where ember-rust pushes to every one`, async () => {
+  it(`pushes a message to the ${MAX_PUSH_SUBSCRIPTIONS} browsers each person saved most recently, and no more, where Campfire pushes to every one`, async () => {
     const room = await freshRoom("Designers");
     const [ada, grace] = await people("Ada", "Grace");
     await involve(grace, room, "everything");
@@ -275,7 +272,7 @@ describe(feature("notifications.push"), () => {
   });
 });
 
-describe(feature("notifications.payload"), () => {
+describe("What a push says", () => {
   it("titles a room's push with its name and a DM's with its sender's, reading the message's plain text, and opens the room", async () => {
     const [ada, grace] = await people("Ada", "Grace");
     const { id: room } = await createRoom("Designers", { as: ada });
@@ -306,7 +303,7 @@ describe(feature("notifications.payload"), () => {
   });
 });
 
-describe(feature("notifications.push"), () => {
+describe("Who gets a push", () => {
   describe("through the room", () => {
     /** Waits until room `room` has nothing left in its log, which it forgets once the Workspace has applied it. */
     const delivered = (room: RoomId) =>
@@ -388,7 +385,7 @@ describe(feature("notifications.push"), () => {
       await subscribe(kevin, "kevin", browser);
       await involve(kevin, room, "everything");
       const adaThere = await connect(room, ada, { visible: true });
-      // The Workspace answers whether Kevin's push may go once the test lets it, as ember-rust's test holds its check.
+      // The Workspace answers whether Kevin's push may go once the test lets it.
       let asked = false;
       const answers: boolean[] = [];
       let release!: () => void;

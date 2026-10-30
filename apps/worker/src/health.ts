@@ -5,8 +5,7 @@ import { carriesRecoveryToken } from "./recovery";
 import { urlOf } from "./request-url";
 import { workspace } from "./workspace";
 
-// ember-rust's /up (Rails::HealthController, `health::show` in crates/ember/src/controllers.rs),
-// which says the Worker is answering, and this port's /api/health, which checks its storage too.
+// Campfire's /up, which says the Worker is answering, and /api/health, which checks its storage too.
 
 /** `/up(.:format)`. */
 const UP_PATH = /^\/up(?:\.([^/.]+))?$/;
@@ -64,13 +63,12 @@ export function up(request: Request): Response {
 }
 
 /**
- * Answers 200 once the Worker can sign people in and the Workspace and a room's object both read
- * their storage, so a deploy can be checked without signing in. To an administrator, or a request
- * carrying EMBER_RECOVERY_TOKEN as the deploy check can, it says which storage that is, whether push
- * notifications are on, and why not, which ember-rust only logs, and whether there's a bucket for
- * files, though neither decides whether it's healthy, and why it isn't when it isn't. Anyone else
- * hears only whether it's up, so a deployment doesn't describe itself to strangers; what's wrong is
- * logged for whoever runs it.
+ * Answers 200 once the Worker can sign people in and the Workspace and a room's object both read their
+ * storage, so a deploy can be checked without signing in. To an administrator, or a request carrying
+ * EMBER_RECOVERY_TOKEN as the deploy check can, it says which storage that is, whether push
+ * notifications are on, and why not, and whether there's a bucket for files, though neither decides
+ * whether it's healthy, and why it isn't when it isn't. Anyone else hears only whether it's up, so a
+ * deployment doesn't describe itself to strangers; what's wrong is logged for whoever runs it.
  */
 export async function health(request: Request, env: Env): Promise<Response> {
   // Who's asking is read from the storage being checked, so while that's down the check says so below.

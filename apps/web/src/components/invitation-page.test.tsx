@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { INVITATION_GONE, PASSWORD_TOO_LONG, type Bootstrap, type Me } from "@ember/protocol";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -60,7 +59,7 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("auth.invitation-sign-up"), () => {
+describe("Join with an invitation", () => {
   it("takes the link's secret out of the address, then shows the join form with the address it's for, which can't be changed", async () => {
     const fetch = serve(forHal);
     open(`/join/invitation?from=email#token=${TOKEN}`);

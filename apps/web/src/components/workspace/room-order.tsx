@@ -9,8 +9,8 @@ import { cn } from "@/lib/utils";
 import { UnsavedChanges } from "./unsaved-changes";
 
 /**
- * `.mb-admin-room-order-actions .btn`: Campfire's `.btn`, 40px tall, 44px for fingers. Disabled, it's
- * dimmed as Campfire dims a disabled submit button, where ember-rust's look the same either way.
+ * Save order and Cancel: Campfire's `.btn`, 40px tall, 44px for fingers. Disabled, each is dimmed as
+ * Campfire dims a disabled submit button.
  */
 const ACTION =
   "inline-flex min-h-10 cursor-pointer items-center justify-center rounded-[9px] border px-3.5 py-2 font-medium touch:min-h-11 disabled:cursor-not-allowed disabled:opacity-50 disabled:grayscale disabled:contrast-50";
@@ -33,12 +33,11 @@ interface Props {
 }
 
 /**
- * The order rooms come in for everyone, in workspace settings' Rooms and permissions, as ember-rust's
- * pull request #24 stages it (accounts/_room_settings.html, `.mb-admin-room-order` in zz-ember.css): a row
- * per room, dragged by its grip or moved with Alt and an arrow (`useSharedOrder`), then Save order or
- * Cancel. The rest of each row links to the room's settings, saying who it's open to. What the list last
- * said about a move shows under it. Leaving the page with an order staged asks to save or discard it, as
- * leaving a room's form does, where ember-rust drops it without asking, by the project owner's choice.
+ * The order rooms come in for everyone, in workspace settings' Rooms and permissions: a row per room,
+ * dragged by its grip or moved with Alt and an arrow (`useSharedOrder`), then Save order or Cancel. The
+ * rest of each row links to the room's settings, saying who it's open to. What the list last said about
+ * a move shows under it. Leaving the page with an order staged asks to save or discard it, as leaving a
+ * room's form does.
  */
 export function RoomOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Props) {
   const { order, moving, status, changed, saving, listRef, listProps, save, reset } = useSharedOrder({ rooms, sharedOrder, onSaved, onSessionChanged });
@@ -78,8 +77,7 @@ export function RoomOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Pro
                 id === moving && "bg-hover shadow-[inset_3px_0_var(--color-foreground)]",
               )}
             >
-              {/* `.mb-room-order-handle`, 44px wide for fingers, where ember-rust's is 36px, which a fingertip on it
-                  can miss for the row around it. */}
+              {/* The grip, 44px wide, so a fingertip on it doesn't land on the row around it instead. */}
               <button
                 type="button"
                 data-room-order-handle
@@ -89,7 +87,7 @@ export function RoomOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Pro
               >
                 <DotsGrid3x3 className="size-[18px]" />
               </button>
-              {/* `.mb-admin-room-settings`, filling the row beside the grip, with `.mb-room-access-pill` at its end. */}
+              {/* The room's settings, filling the row beside the grip, with who it's open to at its end. */}
               <PageLink
                 href={roomSettingsPath(room.kind, room.id)}
                 aria-label={`Settings for ${room.name}`}
@@ -107,8 +105,7 @@ export function RoomOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Pro
       </div>
       {order.length === 0 && <p className="my-[1em] text-[0.8em] text-muted-foreground">No rooms to arrange yet.</p>}
       <div className="mt-3.5 flex flex-wrap items-center justify-end gap-2">
-        {/* Always there for screen readers to hear, it takes no room until it says something, as ember-rust's
-            `.mb-channel-order-status` is hidden until then. */}
+        {/* Always there for screen readers to hear, it takes no room until it says something. */}
         <p role="status" aria-live="polite" className={cn("basis-full", status?.error ? "text-negative" : "text-muted-foreground", !status && "sr-only")}>
           {status?.message}
         </p>

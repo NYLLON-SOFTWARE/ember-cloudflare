@@ -1,8 +1,7 @@
-// Sharing a file through the system's share sheet, as ember-rust's web_share_controller.js does
-// (crates/assets/overrides/controllers/web_share_controller.js), from the image viewer, a file's card and
-// a file message's action bar.
+// Sharing a file through the system's share sheet, as Campfire's web_share_controller.js does, from the
+// image viewer, a file's card and a file message's action bar.
 
-/** Whether this browser can share, as ember-rust decides before it's ever asked to: it has `navigator.canShare`. */
+/** Whether this browser can share, as Campfire decides before it's ever asked to: it has `navigator.canShare`. */
 export const canShare = () => "canShare" in navigator;
 
 /**
@@ -19,11 +18,10 @@ let ready: { url: string; file: File } | null = null;
 
 /**
  * Offers the file at `url` to the system's share sheet, titled `title`, with an empty text, and named
- * `Ember_<random>` with its type's extension. Closing the sheet rejects, which needs no answer. A browser
- * opens the sheet only for a few seconds after a click, which downloading a large file can outlast, so a
- * file that comes too late is kept for the next Share of it, where ember-rust's tries again from the start
- * each time. An error page isn't shared as the file, as ember-rust's would, and a file the browser won't
- * share, as Chrome won't share a program, fails.
+ * `Ember_<random>` with its type's extension. Closing the sheet rejects, which needs no answer. A
+ * browser opens the sheet only for a few seconds after a click, which downloading a large file can
+ * outlast, so a file that comes too late is kept for the next Share of it. An error page isn't shared as
+ * the file, and a file the browser won't share, as Chrome won't share a program, fails.
  */
 export async function shareFile(url: string, title = ""): Promise<Shared> {
   const kept = ready?.url === url ? ready.file : null;
@@ -65,7 +63,7 @@ async function download(url: string): Promise<File | null> {
 }
 
 /**
- * The extension for a file of `type`: "svg" for a QR code's `image/svg+xml; charset=utf-8`. ember-rust
- * keeps all of the type after its "/", so its QR codes end ".svg+xml; charset=utf-8".
+ * The extension for a file of `type`, without any suffix or parameters: "svg" for a QR code's
+ * `image/svg+xml; charset=utf-8`.
  */
 const extensionOf = (type: string) => type.replace(/^[^/]*\/|[+;].*$/g, "");

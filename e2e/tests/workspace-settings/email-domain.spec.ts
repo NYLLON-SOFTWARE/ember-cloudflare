@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { EMAIL_LINK_GONE, JOINING_PROBLEMS, onlyAddressesAt, type AccountChanges } from "@ember/protocol";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
@@ -50,7 +49,7 @@ async function askForLink(page: Page, emailAddress: string): Promise<SentEmail> 
 /** The link in an email Ember sent to join or sign in with. */
 const linkIn = (email: SentEmail) => /(?:Join|Sign in) here: (\S+)/.exec(email.text)![1]!;
 
-test.describe(feature("auth.email-domain-sign-up"), () => {
+test.describe("Join with an email domain", () => {
   test("the administrator lets in an email domain, and someone there asks for a link from sign in, then joins with it, once", async ({ page, request, browser, baseURL }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit#membership-settings");

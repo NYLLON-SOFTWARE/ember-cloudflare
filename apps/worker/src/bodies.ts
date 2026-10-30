@@ -1,11 +1,10 @@
 // Request bodies, read no further than a limit. Cloudflare takes a body of up to 100 MB, 200 MB on its
-// Business plan, and `request.json()` holds all of it and parses it before a route checks a single field,
-// so JSON bodies are read through `jsonBodyOf` instead, as ember-rust refuses any body over 16 MiB
-// (crates/kit/src/body.rs).
+// Business plan, and `request.json()` holds all of it and parses it before a route checks a single
+// field, so JSON bodies are read through `jsonBodyOf` instead.
 
 /**
- * The most a JSON body may hold, well under ember-rust's 16 MiB but more than any the app sends: the
- * largest is custom CSS, whose 100,000 characters JSON writes in about 600 KB at most.
+ * The most a JSON body may hold, more than any the app sends: the largest is custom CSS, whose 100,000
+ * characters JSON writes in about 600 KB at most.
  */
 export const MAX_JSON_BODY_BYTES = 1024 * 1024;
 

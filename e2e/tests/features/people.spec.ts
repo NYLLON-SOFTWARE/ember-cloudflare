@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Bootstrap, ProfileChanges } from "@ember/protocol";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { ADMINISTRATOR, cookieHeader, createSession, signInAsAdministrator, useOwnAddress, type Session } from "../../fixtures";
@@ -13,7 +12,7 @@ async function changeProfile(request: APIRequestContext, session: Session, chang
 /** The page's heading, someone's name. */
 const heading = (page: Page) => page.getByRole("main").getByRole("heading", { level: 1 });
 
-test.describe(feature("users.show"), () => {
+test.describe("Someone's profile page", () => {
   test("shows someone's page at its address, titled with their name, and starts a DM with them there, whose composer takes focus", async ({ members, request }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"));
@@ -66,7 +65,7 @@ test.describe(feature("users.show"), () => {
   });
 });
 
-test.describe(feature("users.avatar-links"), () => {
+test.describe("Avatars open people's pages", () => {
   test("a message's avatar, its reactions' and its mentions' open each person's page, titled with their name and bio", async ({ members, participant, request }) => {
     const tag = crypto.randomUUID().slice(0, 8);
     const grace = await participant(`Grace ${tag}`);

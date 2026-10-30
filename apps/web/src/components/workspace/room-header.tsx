@@ -36,9 +36,9 @@ interface Props {
 }
 
 /**
- * ember-rust's room header (rooms/show/_nav.html): the room's name, its star, who's here, Search, the
- * bell, which turns notifications on until they're on and is then your notification level's, and its
- * settings. A DM's has a chat bubble in place of the room's icon, and no star.
+ * The room header: the room's name, its star, who's here, Search, the bell, which turns notifications on
+ * until they're on and is then your notification level's, and its settings. A DM's has a chat bubble in
+ * place of the room's icon, and no star.
  */
 export function RoomHeader({ room, name, present, status, offline, favorite, onStarred, involvement, askForRoom, onSessionChanged, onFailed }: Props) {
   const nameOf = useNameOf();
@@ -61,7 +61,7 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
           )}
         </h1>
         {!direct && <FavoriteButton roomId={room.id} favorite={favorite} onSaved={onStarred} onSessionChanged={onSessionChanged} />}
-        {/* ember-rust only disables the composer once it's offline; this says why. */}
+        {/* The composer's disabled while it's offline; this says why. */}
         {offline && (
           <span role="status" className="shrink-0 rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
             {status === "connecting" ? "Connecting…" : "Reconnecting…"}
@@ -69,8 +69,8 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
         )}
       </div>
 
-      {/* ember-rust's header has no faces. Up to 500px wide they'd squeeze out the room's name, so there only
-          screen readers hear who's here. */}
+      {/* Up to 500px wide the faces would squeeze out the room's name, so there only screen readers hear
+          who's here. */}
       <div className="ml-auto flex shrink-0 items-center gap-1.5 upto-500px:sr-only" title={present.map(nameOf).join(", ")}>
         <span className="sr-only">{present.length} here now</span>
         <div className="flex -space-x-1.5" aria-hidden="true">
@@ -81,7 +81,7 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
         {present.length > MAX_FACES && <span className="text-xs text-muted-foreground">+{present.length - MAX_FACES}</span>}
       </div>
 
-      {/* ember-rust's `.mb-room-actions` (zz-ember.css), 6px apart, and touching at 900px and below. */}
+      {/* The room's actions, 6px apart, and touching at 900px and below. */}
       <div className="flex shrink-0 items-center gap-1.5 max-md:gap-0">
         <PageLink href={SEARCHES_PATH} title="Search messages" className={HEADER_BUTTON}>
           <Search className="size-5" />

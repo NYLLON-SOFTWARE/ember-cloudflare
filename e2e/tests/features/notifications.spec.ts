@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_PUSH_SUBSCRIPTIONS, type PushSubscriptions } from "@ember/protocol";
 import type { Page } from "@playwright/test";
 import { administratorOn, allowNotifications, logOut, PUSH_KEYS, uniqueEndpoint, VAPID_PUBLIC_KEY } from "../../fixtures";
@@ -31,7 +30,7 @@ async function openYourProfile(page: Page) {
   return page.getByRole("list", { name: "Conversation notifications" });
 }
 
-test.describe(feature("notifications.levels"), () => {
+test.describe("Notification levels", () => {
   test("goes round a room's levels from its header, which every tab of yours shows, and the server keeps", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada", notificationsOn);
     const grace = await members.signIn("Grace", notificationsOn);
@@ -102,7 +101,7 @@ test.describe(feature("notifications.levels"), () => {
   });
 });
 
-test.describe(feature("notifications.hide-room"), () => {
+test.describe("Hide a room", () => {
   test("hides the room shown from every tab's sidebar, keeping it open at its address, until it's shown again", async ({ members, rooms }) => {
     const grace = await members.signIn("Grace", notificationsOn);
     const secondTab = await grace.page.context().newPage();
@@ -133,7 +132,7 @@ test.describe(feature("notifications.hide-room"), () => {
   });
 });
 
-test.describe(feature("notifications.enable"), () => {
+test.describe("Turn on notifications", () => {
   const enableButton = (page: Page) => page.getByRole("button", { name: "Enable notifications", exact: true });
   const setup = (page: Page) => page.getByRole("dialog", { name: "Notification setup" });
 
@@ -187,7 +186,7 @@ test.describe(feature("notifications.enable"), () => {
   });
 });
 
-test.describe(feature("notifications.profile-list"), () => {
+test.describe("Levels on your profile", () => {
   test("lists your rooms by name, then your DMs, each with its bell, and dims a room you hide there, leaving it out of Activity", async ({ members, request, rooms }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"), { path: `/rooms/${rooms.random.id}` });
@@ -222,7 +221,7 @@ test.describe(feature("notifications.profile-list"), () => {
   });
 });
 
-test.describe(feature("notifications.subscriptions"), () => {
+test.describe("Save push subscriptions", () => {
   test("Log out ends this browser's push subscription, and the server forgets it, but not another browser's", async ({ browser, baseURL, rooms }) => {
     const laptop = await administratorOn(browser, baseURL!, rooms.general);
     const phone = await administratorOn(browser, baseURL!, rooms.general);
@@ -282,7 +281,7 @@ test.describe(feature("notifications.subscriptions"), () => {
   });
 });
 
-test.describe(feature("notifications.test-page"), () => {
+test.describe("Push subscriptions page", () => {
   test("lists the browser that turned them on at /users/me/push_subscriptions, where a test push fails while the server has no Web Push keys, and deletes it", async ({ members }) => {
     const endpoint = uniqueEndpoint();
     const grace = await members.signIn(unique("Grace"), { beforeOpen: (page) => allowNotifications(page.context(), { endpoint, on: false }) });
@@ -347,7 +346,7 @@ const keepBadges = async (page: Page) => {
 /** The badges `page` has set on the app's icon, in order. */
 const badges = (page: Page) => page.evaluate(() => (window as unknown as { badges: Badge[] }).badges);
 
-test.describe(feature("notifications.app-badge"), () => {
+test.describe("App icon badge", () => {
   test("badges the app with the conversations marked unread, as Activity counts them, and clears the badge once they're read", async ({ members, rooms }) => {
     const ada = await members.signIn(unique("Ada"));
     const grace = await members.signIn(unique("Grace"), { path: `/rooms/${rooms.random.id}`, beforeOpen: keepBadges });
@@ -363,7 +362,7 @@ test.describe(feature("notifications.app-badge"), () => {
   });
 });
 
-test.describe(feature("notifications.service-worker"), () => {
+test.describe("Service worker", () => {
   test("is public at /service-worker.js, as JavaScript a page can register", async ({ page, request }) => {
     const response = await request.get("/service-worker.js");
     expect(response.status()).toBe(200);

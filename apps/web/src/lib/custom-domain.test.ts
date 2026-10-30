@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { keepReplacingPush, moveTo, movesTo } from "./custom-domain";
 import { loadPage } from "./page";
@@ -23,7 +22,7 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("accounts.custom-domain"), () => {
+describe("Custom domain", () => {
   it("moves a page to the same page at Ember's custom domain, naming this browser's push subscription there", async () => {
     vi.mocked(pushKey).mockResolvedValue(KEY);
     history.replaceState(null, "", "/rooms/general#top");

@@ -1,5 +1,4 @@
-// The byte ranges a request asks for, as Rack 3.2 reads its Range header, Ruby's string quirks and all
-// (ember-rust's crates/ruby/src/rack.rs).
+// The byte ranges a request asks for, as Rack 3.2 reads its Range header, Ruby's string quirks and all.
 
 /** An inclusive range of a file's bytes. */
 export type ByteRange = readonly [start: number, end: number];

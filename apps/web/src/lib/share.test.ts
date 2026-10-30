@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { shareFile } from "./share";
 
@@ -25,7 +24,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe(feature("attachments.download-share"), () => {
+describe("Download and share files", () => {
   it("keeps a file that came too late for the click that asked for it, sharing it at once the next time", async () => {
     const share = vi.fn().mockRejectedValueOnce(tooLate()).mockResolvedValue(undefined);
     const fetch = vi.fn().mockResolvedValue(moon());

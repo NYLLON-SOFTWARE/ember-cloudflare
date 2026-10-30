@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { CloseCode, type RoomId } from "@ember/protocol";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -52,7 +51,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("realtime.connection"), () => {
+describe("Connection sign-in and revocation", () => {
   it("turns away a socket let through at or before a revocation of its session or person, telling it to reconnect", async () => {
     const room = await freshRoom("lobby");
     const ada = await signIn("Ada");
@@ -415,7 +414,7 @@ describe(feature("realtime.connection"), () => {
   });
 });
 
-describe(feature("rooms.delete"), () => {
+describe("Delete a room", () => {
   it("never gives up deleting a room it can't reach, trying again at the longest wait until it can", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: LATER });
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});

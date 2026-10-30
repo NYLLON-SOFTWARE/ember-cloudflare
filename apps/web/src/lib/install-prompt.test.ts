@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { CHROME_MAC, OPERA_ANDROID } from "@/test-platforms";
 import { canInstall, listenForInstallPrompt, replaceInstallPromptsFor } from "./install-prompt";
@@ -22,7 +21,7 @@ function browserOffers() {
   return !offerToInstall().defaultPrevented && !canInstall();
 }
 
-describe(feature("notifications.install-instructions"), () => {
+describe("Install as an app", () => {
   it("leaves the browser its own offer on a page without service workers, as Campfire does", () => {
     listenForInstallPrompt();
     expect(browserOffers()).toBe(true);
@@ -51,7 +50,7 @@ describe(feature("notifications.install-instructions"), () => {
       expect(canInstall()).toBe(true);
     });
 
-    it("leaves Chrome its own offer, as ember-rust gives it no install steps", () => {
+    it("leaves Chrome its own offer, as it gets no install steps", () => {
       replaceInstallPromptsFor(CHROME_MAC);
       expect(offerToInstall().defaultPrevented).toBe(false);
     });

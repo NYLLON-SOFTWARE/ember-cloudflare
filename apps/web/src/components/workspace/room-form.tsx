@@ -9,11 +9,10 @@ import { IconPicker } from "./icon-picker";
 import { ListRow, ListSeparator } from "./list-row";
 import { AvatarLink } from "./user-avatar";
 
-// ember-rust's room forms, which New room and a room's settings share (rooms/layouts/_form.html, with
-// rooms/opens/_form.html or rooms/closeds/_form.html in its `.room-access` box): the room's name and
-// icon, who it's for, and Save.
+// The room forms, which New room and a room's settings share: the room's name and icon, who it's for,
+// and Save.
 
-/** How many people a form lists before it gets a filter, as ember-rust's do. */
+/** How many people a form lists before it gets a filter. */
 const FILTER_ABOVE = 20;
 /** How long the filter waits for typing to stop, as Campfire's filter_controller.js does. */
 const FILTER_DELAY_MS = 300;
@@ -75,7 +74,7 @@ export function RoomForm<Person extends User>({ canAdminister, name, onNameChang
   );
 }
 
-/** ember-rust's `user_filter_menu_tag`: the Everyone row, then a filter for a long list, then the people. */
+/** The Everyone row, then a filter for a long list, then the people. */
 function People<Person extends User>({ everyone, groups, mark }: Pick<Props<Person>, "everyone" | "groups" | "mark">) {
   const [filter, setFilter] = useState("");
   const listed = groups.filter((group) => group.length > 0);
@@ -116,8 +115,8 @@ function People<Person extends User>({ everyone, groups, mark }: Pick<Props<Pers
 }
 
 /**
- * ember-rust's `user_filter_search_tag`: narrows the list to the names holding what's typed, once
- * typing stops. Enter here doesn't save the form, as it would in ember-rust's.
+ * Narrows the list to the names holding what's typed, once typing stops. Enter here doesn't save the
+ * form.
  */
 function Filter({ onFilter }: { onFilter: (filter: string) => void }) {
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -143,7 +142,7 @@ function Filter({ onFilter }: { onFilter: (filter: string) => void }) {
   );
 }
 
-/** A check, for someone a room takes in who has no switch, where ember-rust draws a check mark. */
+/** A check, for someone a room takes in who has no switch. */
 export function CheckMark() {
   return <CheckCircle className="size-5 shrink-0" />;
 }

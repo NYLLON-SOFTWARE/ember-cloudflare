@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { SIGN_IN_REJECTED } from "@ember/protocol";
 import { invitation, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { RECOVERY_TOKEN } from "../../projects/features";
@@ -7,7 +6,7 @@ import { expect, test } from "./fixtures";
 // Renaming the workspace or regenerating its join link changes every other test's pages, so the
 // workspace-settings project does those on a server of its own. These save the name as it is.
 
-test.describe(feature("accounts.settings-page"), () => {
+test.describe("Community settings page", () => {
   test("a member sees the community's name in Community settings, with nothing to change", async ({ members }) => {
     const grace = await members.signIn("Grace Hopper");
     await grace.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Workspace" }).click();
@@ -18,7 +17,7 @@ test.describe(feature("accounts.settings-page"), () => {
   });
 });
 
-test.describe(feature("accounts.name"), () => {
+test.describe("Rename the workspace", () => {
   test("the administrator saves the workspace's name from the Admin page, which says Changes saved.", async ({ page }) => {
     await useOwnAddress(page);
     await page.goto("/session/new");
@@ -37,7 +36,7 @@ test.describe(feature("accounts.name"), () => {
   });
 });
 
-test.describe(feature("accounts.join-link"), () => {
+test.describe("Join link", () => {
   test("a member's Membership settings have the welcome card's join link, which only administrators regenerate", async ({ members, request, baseURL }) => {
     const grace = await members.signIn("Grace Hopper");
     const { joinCode } = await invitation(request, grace.session);
@@ -50,7 +49,7 @@ test.describe(feature("accounts.join-link"), () => {
   });
 });
 
-test.describe(feature("accounts.reset-password"), () => {
+test.describe("Reset a password from the server", () => {
   test("someone's open tab goes to sign in once their password is reset, where only the new one signs them in", async ({ page, request, session }) => {
     await useOwnAddress(page);
     await page.goto(`/join/${(await invitation(request, session)).joinCode}`);

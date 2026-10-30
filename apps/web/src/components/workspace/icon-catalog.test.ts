@@ -1,10 +1,8 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import picker from "@/components/icons/picker/catalog.json";
 import { displayLabel, prepareCatalog, searchIcons, type Catalog, type CatalogIcon } from "./icon-catalog";
 
-// ember-rust's crates/assets/overrides/basecoat/test/icon-search.test.mjs and the searches of its
-// icon-ranking.test.mjs (pull request #24, d49621e).
+// The icon pickers' search, and how the catalog's orders rank what it finds.
 
 const icon = (name: string, label: string, tags: string[], more: Partial<CatalogIcon> = {}) => ({ name, label, collection: "Lucide", tags, svg: "<svg></svg>", ...more }) as CatalogIcon;
 
@@ -21,7 +19,7 @@ const source = {
 
 const names = (icons: CatalogIcon[]) => icons.map((icon) => icon.name);
 
-describe(feature("rooms.icon-picker"), () => {
+describe("Room icon picker", () => {
   it("lists every icon in its context's order with nothing searched for", () => {
     const catalog = prepareCatalog(source);
     expect(names(searchIcons(catalog, "room", ""))).toEqual(source.roomOrder);

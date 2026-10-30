@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { toBase64 } from "../src/encoding";
@@ -10,7 +9,7 @@ const fromHex = (hex: string) => Uint8Array.from(hex.match(/../g)!, (pair) => pa
 const utf8 = (text: string) => new TextEncoder().encode(text);
 const hasher = () => passwordHasher(env as unknown as Env);
 
-describe(feature("auth.first-run"), () => {
+describe("Set up the workspace", () => {
   it("keeps a password as a salted scrypt digest that names its scheme and cost", async () => {
     const digest = await hashPassword("correct horse");
     // OWASP's cost, 16 bytes of salt and 32 of hash, in unpadded base64.
@@ -91,7 +90,7 @@ describe(feature("auth.first-run"), () => {
   });
 });
 
-describe(feature("auth.sign-in"), () => {
+describe("Sign in with email and password", () => {
   it("checks an unknown address's password against a digest that costs as much as a real one and matches nothing", async () => {
     // The same scheme and cost as a new digest's, so the check takes as long, and leaves nothing to replace.
     expect(isCurrentDigest(DUMMY_DIGEST)).toBe(true);

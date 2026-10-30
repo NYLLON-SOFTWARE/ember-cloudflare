@@ -2,8 +2,7 @@ import type { RoomIconName } from "@ember/protocol";
 import { cn } from "@/lib/utils";
 
 // A room's icon, from the picker's catalog of Lucide and Iconoir icons in picker/. vite.config.ts serves
-// each one as an SVG of its own, so a page fetches only the icons its rooms have, where ember-rust draws
-// them into its pages on the server.
+// each one as an SVG of its own, so a page fetches only the icons its rooms have.
 
 /** Where icon `name` is served: a Lucide icon at /lucide/icons/<name>.svg, Iconoir's at /iconoir/icons/<variant>/<name>.svg. */
 export const roomIconUrl = (name: RoomIconName) =>
@@ -17,8 +16,8 @@ interface Props {
 }
 
 /**
- * ember-rust's `channel_icon` (helpers/icons.rs): the room's icon in the color of the text around it,
- * which an SVG drawn as a mask over that color takes, or `#` for a room without one.
+ * The room's icon in the color of the text around it, which an SVG drawn as a mask over that color
+ * takes, or `#` for a room without one.
  */
 export function RoomIcon({ icon, size, className }: Props) {
   return (

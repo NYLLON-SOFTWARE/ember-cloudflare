@@ -19,13 +19,12 @@ import { extname, sanitizedFilename } from "./filename";
 import { imageSize } from "./images";
 import { byMagic, identify } from "./marcel";
 
-// Uploading files to a room into R2, in parts, since a Worker takes at most 100 MB a request where
-// ember-rust takes a file of up to 250 MB in one. The room keeps each upload (blobs.ts), and the first
-// part says what the file is, as Active Storage identifies a blob, then analyzes it, once it has it all.
-// Once R2 has all of it, the room posts it as its uploader's message. R2 keeps the file with its type
-// and name, so serving it (serving.ts) needs nothing else. Before the last part, the uploader's browser
-// may send the file's preview, an image's thumbnail or a video's poster, which ember-rust makes on the
-// server, and the message shows it.
+// Uploading files to a room into R2, in parts, since a Worker takes at most 100 MB a request. The room
+// keeps each upload (blobs.ts), and the first part says what the file is, as Active Storage identifies a
+// blob, then analyzes it, once it has it all. Once R2 has all of it, the room posts it as its uploader's
+// message. R2 keeps the file with its type and name, so serving it (serving.ts) needs nothing else.
+// Before the last part, the uploader's browser may send the file's preview, an image's thumbnail or a
+// video's poster, and the message shows it.
 
 /** How much of a file each part but the last carries: more than R2's least, 5 MiB, and few enough parts for the largest file. */
 export const UPLOAD_PART_SIZE = 10 * 1024 * 1024;

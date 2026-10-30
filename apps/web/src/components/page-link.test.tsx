@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +5,7 @@ import { PageLink } from "./page-link";
 
 afterEach(() => history.replaceState(null, "", "/"));
 
-describe(feature("rooms.settings-page"), () => {
+describe("Room settings page", () => {
   it("shows the page it links to in place, as a new entry in the history", async () => {
     const onClick = vi.fn();
     render(

@@ -12,9 +12,8 @@ import rust from "highlight.js/lib/languages/rust";
 import sql from "highlight.js/lib/languages/sql";
 import xml from "highlight.js/lib/languages/xml";
 
-// Campfire's code highlighting (reference/app/javascript/initializers/highlight.js): highlight.js
-// 11.9.0, which it vendors, with the same 12 languages. Messages load this when they first show a
-// code block.
+// Campfire's code highlighting (app/javascript/initializers/highlight.js): highlight.js 11.9.0, which it
+// vendors, with the same 12 languages. Messages load this when they first show a code block.
 
 hljs.registerLanguage("bash", bash);
 hljs.registerLanguage("css", css);

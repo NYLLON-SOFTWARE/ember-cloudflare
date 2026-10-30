@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
@@ -116,7 +115,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("accounts.custom-css"), () => {
+describe("Custom CSS", () => {
   it("reads Custom CSS, titled Custom styles, with Go Back to workspace settings", () => {
     showPage();
     expect(document.title).toBe("Custom styles");
@@ -136,7 +135,7 @@ describe(feature("accounts.custom-css"), () => {
     expect(saveButton()).toBeEnabled();
   });
 
-  it("takes CSS as ember-rust's field does: as typed, with nothing correcting it", () => {
+  it("takes CSS as typed, with nothing correcting it", () => {
     showPage();
     expect(field()).toHaveAttribute("placeholder", "Add CSS styles…");
     expect(field()).toHaveAttribute("rows", "16");
@@ -200,7 +199,7 @@ describe(feature("accounts.custom-css"), () => {
     expect(answered).not.toHaveBeenCalled();
   });
 
-  it("sends anyone but an administrator to workspace settings, saying why, where ember-rust answers an empty 403", async () => {
+  it("sends anyone but an administrator to workspace settings, saying why", async () => {
     serve({ loaded: () => Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }) });
     const { onFailed } = showPage();
     expect(await screen.findByRole("alert")).toHaveTextContent("Only administrators can change the workspace");
@@ -216,7 +215,7 @@ describe(feature("accounts.custom-css"), () => {
   });
 });
 
-describe(feature("accounts.navigation-icons"), () => {
+describe("Navigation icons", () => {
   const pickers = () => within(iconsSection()).getAllByRole("button", { name: /^Choose / });
   const picker = (slot: string) => screen.findByRole("button", { name: `Choose ${slot} icon` });
   const dialog = () => screen.getByRole("dialog", { name: "Choose a navigation icon" });
@@ -383,7 +382,7 @@ describe(feature("accounts.navigation-icons"), () => {
   });
 });
 
-describe(feature("accounts.translation-buttons"), () => {
+describe("Translation buttons", () => {
   it("has a translation button for the CSS once an administrator shows them", () => {
     showPage({ ...styled, hideTranslationButtons: false });
     expect(screen.getByText("Translate")).toBeInTheDocument();

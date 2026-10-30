@@ -1,11 +1,10 @@
-import { feature } from "@ember/parity";
 import type { Bootstrap } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { browserNamesOf, isAppleMessages, isUnsupportedBrowser, platformOf } from "../src/user-agent";
 import { api } from "./support";
-// Campfire's answers from ember-rust's vectors/campfire_user_agents.json (cfeb4c2): `blocked?`, `apple_messages?`,
+// Campfire's answers for the user agents in fixtures/user-agents.json: `blocked?`, `apple_messages?`,
 // the platform its views see, which is false or "" where Ruby raises, and the gem's browser, version and
-// platform, "" where it reads none or raises, as ember-rust's push subscriptions page shows them.
+// platform, "" where it reads none or raises.
 import vectors from "./fixtures/user-agents.json";
 
 /** Expects Campfire to answer each user agent with "Upgrade to a supported web browser". */
@@ -18,7 +17,7 @@ function expectLetThrough(...userAgents: (string | null)[]) {
   for (const userAgent of userAgents) expect(isUnsupportedBrowser(userAgent), String(userAgent)).toBe(false);
 }
 
-describe(feature("platform.browser-support"), () => {
+describe("Supported browsers", () => {
   it("turns away exactly the vectors' user agents that Campfire does", () => {
     expect(vectors).toHaveLength(385);
     // Rails raises on two of them, which Campfire answers with an error page rather than the upgrade page.
@@ -145,12 +144,11 @@ describe(feature("platform.browser-support"), () => {
   });
 
   it("turns away a browser that calls itself IE, which Rails looks Internet Explorer up as", () => {
-    // ember-rust lets this through: it only takes "Internet Explorer" for IE.
     expectTurnedAway("IE/6.0");
   });
 
   it("folds case as Ruby does, so a MicroMeßenger is WeChat", () => {
-    // Rails then fails to read its version, where ember-rust reads this as Chrome 119 and turns it away.
+    // Rails then fails to read its version.
     expectLetThrough(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 MicroMeßenger/8.0",
     );
@@ -174,8 +172,8 @@ describe(feature("platform.browser-support"), () => {
   });
 });
 
-describe(feature("notifications.setup-help"), () => {
-  it("reads exactly the platforms the vectors' user agents have in ember-rust's views", () => {
+describe("Notification setup help", () => {
+  it("reads exactly the platforms the vectors' user agents have in Campfire's views", () => {
     expect(vectors.map(({ ua }) => ({ ua, platform: platformOf(ua) }))).toEqual(vectors.map(({ ua, platform }) => ({ ua, platform })));
   });
 
@@ -270,8 +268,8 @@ describe(feature("notifications.setup-help"), () => {
   });
 });
 
-describe(feature("notifications.test-page"), () => {
-  it("names exactly the vectors' browsers, versions and platforms that ember-rust's push subscriptions page shows", () => {
+describe("Push subscriptions page", () => {
+  it("names exactly the vectors' browsers, versions and platforms the push subscriptions page shows", () => {
     expect(vectors.map(({ ua }) => ({ ua, names: browserNamesOf(ua) }))).toEqual(vectors.map(({ ua, names }) => ({ ua, names })));
   });
 

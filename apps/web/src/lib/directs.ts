@@ -1,8 +1,7 @@
 import type { DirectoryUser, DirectRoom, Room, User, UserId } from "@ember/protocol";
 
 /**
- * Names in a sentence, as Rails' `to_sentence` joins them for a DM's name (ember-rust's
- * `h::to_sentence`, crates/views/src/helpers/application.rs): "Ada", "Ada and Grace", or
+ * Names in a sentence, as Rails' `to_sentence` joins them for a DM's name: "Ada", "Ada and Grace", or
  * "Ada, Grace, and Alan".
  */
 export function toSentence(names: string[]): string {
@@ -10,9 +9,8 @@ export function toSentence(names: string[]): string {
 }
 
 /**
- * Who a DM shows the person `meId` signs in: the others in it, or just them in their DM with
- * themselves, as ember-rust's sidebar row and settings page list them (`sidebar_direct`,
- * presenters/accounts.rs, and `directs#edit`, rooms/directs.rs).
+ * Who a DM shows the person `meId` signs in: the others in it, or just them in their DM with themselves,
+ * as the sidebar's row and the DM's settings list them.
  */
 export function membersShown(room: DirectRoom, meId: UserId): User[] {
   const others = room.members.filter((member) => member.id !== meId);
@@ -20,18 +18,18 @@ export function membersShown(room: DirectRoom, meId: UserId): User[] {
 }
 
 /**
- * A room's name as the person `meId` reads it, as ember-rust's `room_display_name` gives it
- * (crates/views/src/rooms.rs): a shared room's own, and a DM's others' names in a sentence, or their
- * own in their DM with themselves. `nameOf` gives each person's name as it is now.
+ * A room's name as the person `meId` reads it, as Campfire's `room_display_name` gives it: a shared
+ * room's own, and a DM's others' names in a sentence, or their own in their DM with themselves. `nameOf`
+ * gives each person's name as it is now.
  */
 export function roomName(room: Room, meId: UserId, nameOf: (user: User) => string): string {
   return room.kind === "direct" ? toSentence(membersShown(room, meId).map(nameOf)) : room.name;
 }
 
-/** How many people New direct message lists at a time, as ember-rust's people search pages them (controllers/autocompletable.rs). */
+/** How many people New direct message lists at a time. */
 export const PEOPLE_PAGE = 20;
 
-/** What New direct message looks for in what's typed: the name without any @s before it, as direct_message_controller.js reads it. */
+/** What New direct message looks for in what's typed: the name without any @s before it. */
 export function soughtName(typed: string): string {
   return typed.trim().replace(/^@+/, "").trim();
 }
@@ -40,11 +38,9 @@ export function soughtName(typed: string): string {
 const foldedCase = (text: string) => text.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 
 /**
- * The people New direct message lists for `name`, as ember-rust's people search finds them
- * (`autocompletable_users`, controllers/autocompletable.rs): everyone active, bots included, whose name
- * has `name` in it, ignoring the case of A to Z, by name in lower case. It leaves out `meId`, as
- * direct_message_controller.js does, and orders people with the same name by id, where SQLite leaves
- * them in no particular order.
+ * The people New direct message lists for `name`: everyone active, bots included, whose name has `name`
+ * in it, ignoring the case of A to Z, by name in lower case. It leaves out `meId`, and orders people
+ * with the same name by id, where SQLite leaves them in no particular order.
  */
 export function peopleMatching(people: Iterable<DirectoryUser>, meId: UserId, name: string): DirectoryUser[] {
   const sought = foldedCase(name);

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -23,7 +22,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("ui.select-on-entry"), () => {
+describe("Select a field's text on entry", () => {
   it("selects what's in a field Tab reaches, so typing replaces it", async () => {
     render(
       <Page>

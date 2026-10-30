@@ -10,7 +10,7 @@ import { workspaceSectionPath } from "./settings-navigation";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { UnsavedChanges } from "./unsaved-changes";
 
-/** What New room's name starts as, as in ember-rust (rooms/opens.rs). */
+/** What New room's name starts as. */
 const DEFAULT_ROOM_NAME = "New room";
 
 /** The Everyone switch moves between New room's two forms, keeping the draft. */
@@ -27,10 +27,9 @@ interface Props {
 }
 
 /**
- * ember-rust's New room pages (rooms/opens/new.html and rooms/closeds/new.html). The Everyone switch
- * swaps one for the other in place, keeping what's been filled in, as ember-rust's settings.js does, and
- * leaving with anything filled in asks first. While only administrators can create rooms, anyone else
- * is sent to workspace settings with an alert, where ember-rust answers an empty 403 page.
+ * The New room pages, for an open room and a private one. The Everyone switch swaps one for the other in
+ * place, keeping what's been filled in, and leaving with anything filled in asks first. While only
+ * administrators can create rooms, anyone else is sent to workspace settings with an alert.
  */
 export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   useTitle("New chat room");
@@ -96,7 +95,7 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   const changed =
     people !== null && !saving && !created && (name !== DEFAULT_ROOM_NAME || icon !== null || access !== opened || (access === "closed" && chosen.size > 0));
   return (
-    // Go Back returns to Rooms and permissions, as ember-rust's pull request #24 links it.
+    // Go Back returns to Rooms and permissions.
     <SettingsPage back={workspaceSectionPath("channel-settings")}>
       <Panel aria-busy={people === null}>
         <PageHeading title="New room">Create a place for a team, topic, or project.</PageHeading>

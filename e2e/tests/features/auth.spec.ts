@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { PASSWORD_TOO_SHORT, SIGN_IN_REJECTED } from "@ember/protocol";
 import type { Page } from "@playwright/test";
 import { ADMINISTRATOR, administratorOn, drawnPicture, editorField, invitation, logOut, shownPicture, signInAsAdministrator, useOwnAddress } from "../../fixtures";
@@ -6,7 +5,7 @@ import { expect, test, unique } from "./fixtures";
 
 const signInHeading = (page: Page) => page.getByRole("heading", { level: 1, name: "Sign in to Ember" });
 
-test.describe(feature("auth.sign-in"), () => {
+test.describe("Sign in with email and password", () => {
   test.beforeEach(({ page }) => useOwnAddress(page));
 
   test("signs in with an email address and password, and opens the page asked for", async ({ page, rooms }) => {
@@ -26,7 +25,7 @@ test.describe(feature("auth.sign-in"), () => {
   test("says at the top of the form that the email or password is wrong, keeping the email address", async ({ page }) => {
     await page.goto("/session/new");
     await signInAsAdministrator(page, "incorrect horse battery");
-    // In the form, where ember-rust's pull request #24 says it in place of the flash.
+    // In the form.
     const alert = page.locator("form").getByRole("alert");
     await expect(alert).toHaveText(SIGN_IN_REJECTED);
     await expect(page.getByLabel("Email address")).toHaveValue(ADMINISTRATOR.emailAddress);
@@ -41,7 +40,7 @@ test.describe(feature("auth.sign-in"), () => {
   });
 });
 
-test.describe(feature("auth.sign-up"), () => {
+test.describe("Sign up with the join link", () => {
   test.beforeEach(({ page }) => useOwnAddress(page));
 
   /** Fills in the join form and sends it. */
@@ -120,7 +119,7 @@ test.describe(feature("auth.sign-up"), () => {
   });
 
   test("answers any other code with an empty 404", async ({ page }) => {
-    // Asked as the signed-out page, since a browser shows its own error page for it, as for ember-rust's.
+    // Asked as the signed-out page, since a browser shows its own error page for it.
     const response = await page.request.get("/join/AAAA-BBBB-CCCC");
     expect(response.status()).toBe(404);
     expect(await response.text()).toBe("");
@@ -135,8 +134,8 @@ test.describe(feature("auth.sign-up"), () => {
   });
 });
 
-test.describe(feature("platform.version"), () => {
-  test("shows the version under the sign-in and join cards, and nobody's email address, as ember-rust's pull request #24 does", async ({ page, request, session }) => {
+test.describe("Version", () => {
+  test("shows the version under the sign-in and join cards, and nobody's email address", async ({ page, request, session }) => {
     for (const path of ["/session/new", `/join/${(await invitation(request, session)).joinCode}`]) {
       await page.goto(path);
       await expect(page.getByText(/^Ember version/)).toHaveText(/^Ember version \d+\.\d+/);
@@ -145,7 +144,7 @@ test.describe(feature("platform.version"), () => {
   });
 });
 
-test.describe(feature("auth.guest-sign-in"), () => {
+test.describe("Sign in with a display name", () => {
   test("signs in with a display name and opens the first room", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("button", { name: "Join with just a name" }).click();
@@ -162,7 +161,7 @@ test.describe(feature("auth.guest-sign-in"), () => {
   });
 });
 
-test.describe(feature("auth.sessions"), () => {
+test.describe("Stay signed in, per device", () => {
   test("stays signed in across reloads", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.page.reload();
@@ -188,7 +187,7 @@ test.describe(feature("auth.sessions"), () => {
   });
 });
 
-test.describe(feature("auth.sign-in-link"), () => {
+test.describe("Private sign-in link", () => {
   const YOURS = "Use this link to login automatically on another device";
   const THEIRS = "Share to get them back into their account";
 
@@ -253,7 +252,7 @@ test.describe(feature("auth.sign-in-link"), () => {
   });
 });
 
-test.describe(feature("accounts.qr-codes"), () => {
+test.describe("QR codes for links", () => {
   test("draws a sign-in link's QR code in the page, so the link never reaches the Worker", async ({ members }) => {
     const grace = await members.signIn(unique("Grace"));
     await grace.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Your profile" }).click();
@@ -270,7 +269,7 @@ test.describe(feature("accounts.qr-codes"), () => {
   });
 });
 
-test.describe(feature("auth.sign-out"), () => {
+test.describe("Sign out", () => {
   test("logs out from your profile, which the rail's avatar opens, and stays signed out", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.page.getByRole("link", { name: "Your profile" }).click();
@@ -308,7 +307,7 @@ test.describe(feature("auth.sign-out"), () => {
   });
 });
 
-test.describe(feature("platform.live-socket"), () => {
+test.describe("One live connection per tab outside the open room", () => {
   test("sends another tab to sign in from a page with no room open, through its workspace connection", async ({ browser, baseURL, rooms }) => {
     const laptop = await administratorOn(browser, baseURL!, rooms.general);
     try {

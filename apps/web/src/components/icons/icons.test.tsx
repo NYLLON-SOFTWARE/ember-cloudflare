@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { feature } from "@ember/parity";
 import { render } from "@testing-library/react";
 import type { ComponentType } from "react";
 import { describe, expect, it } from "vitest";
@@ -54,7 +53,7 @@ const ERROR_PAGES = {
 /** Iconoir's files served as they are: the upgrade page's globe and the installed app's shortcuts. */
 const PUBLIC_COPIES = { "globe.svg": "globe", "shortcuts/plus.svg": "plus", "shortcuts/user.svg": "user" };
 
-describe(feature("ui.icons"), () => {
+describe("Ember's icons", () => {
   describe("Iconoir icons", () => {
     it.each(Object.keys(iconoir))("draws %s exactly as Iconoir's file does, named for it", (name) => {
       const file = fileOf.get(name);

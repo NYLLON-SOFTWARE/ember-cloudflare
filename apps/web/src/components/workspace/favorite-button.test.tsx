@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Favorites } from "@ember/protocol";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -22,7 +21,7 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("sidebar.favorites"), () => {
+describe("Star rooms", () => {
   it("stars the room, handing on the stars the server answers", async () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ favorites: starred }));
     const { star, onSaved } = renderStar();
@@ -41,7 +40,7 @@ describe(feature("sidebar.favorites"), () => {
     expect(star).toHaveAttribute("aria-pressed", "true");
     expect(star).toHaveAttribute("title", "Remove from favorites");
     expect(star.querySelector("svg")).toHaveClass("size-[18px]", "iconoir-star-solid");
-    // In the muted color at 65%, as ember-rust's pull request #24 fades it.
+    // In the muted color at 65%.
     expect(star).toHaveClass("text-muted-foreground/65");
 
     await userEvent.click(star);

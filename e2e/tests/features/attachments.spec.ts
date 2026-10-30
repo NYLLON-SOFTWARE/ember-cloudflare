@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { feature } from "@ember/parity";
 import { uploadPartPath, uploadsPath, type Message, type Upload } from "@ember/protocol";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { cookieHeader, drawnPicture } from "../../fixtures";
@@ -81,7 +80,7 @@ async function downloaded(member: Member, name: string): Promise<string> {
   return readFile(await download.path(), "utf8");
 }
 
-test.describe(feature("attachments.upload"), () => {
+test.describe("Attach files", () => {
   test("shows a file uploaded to a room as its uploader's message, to everyone in it at once and after a reload", async ({ members, request, rooms }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -137,7 +136,7 @@ test.describe(feature("attachments.upload"), () => {
   });
 });
 
-test.describe(feature("attachments.previews"), () => {
+test.describe("Image, video and file previews", () => {
   test("shows a picture by the thumbnail its uploader's browser makes, to everyone, in a box half its size up to 480px wide", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -195,7 +194,7 @@ test.describe(feature("attachments.previews"), () => {
   });
 });
 
-test.describe(feature("attachments.svg-preview"), () => {
+test.describe("Safe SVG previews", () => {
   test("shows an SVG above its card from a data URL, where its scripts don't run and what it links to doesn't load, and downloads it", async ({ members, request }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -226,7 +225,7 @@ test.describe(feature("attachments.svg-preview"), () => {
   });
 });
 
-test.describe(feature("attachments.progress"), () => {
+test.describe("Upload progress", () => {
   test("shows each upload's card until the room posts its file, and why one failed", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -260,7 +259,7 @@ test.describe(feature("attachments.progress"), () => {
   });
 });
 
-test.describe(feature("attachments.download-share"), () => {
+test.describe("Download and share files", () => {
   test("downloads a file message's file from its card, and offers Download on its action bar in place of Reply", async ({ members, request, rooms }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -301,7 +300,7 @@ test.describe(feature("attachments.download-share"), () => {
   });
 });
 
-test.describe(feature("attachments.lightbox"), () => {
+test.describe("Image viewer", () => {
   test("opens a picture's original in the image viewer, which downloads it, and closes it with Escape", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -327,7 +326,7 @@ test.describe(feature("attachments.lightbox"), () => {
   });
 });
 
-test.describe(feature("messages.delete"), () => {
+test.describe("Delete a message", () => {
   test("deletes a file message from its editor, which shows its file where a message's text would be", async ({ members, request, rooms }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");

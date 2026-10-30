@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -39,7 +38,7 @@ afterEach(() => {
   vi.mocked(openPage).mockClear();
 });
 
-describe(feature("auth.memberful-connect"), () => {
+describe("Connect Memberful", () => {
   it("asks a member to connect their Memberful account with their password, to keep signing in as themselves", () => {
     showSection();
     expect(section()).toHaveTextContent("Members sign in with Memberful. Connect your Memberful account to keep signing in as yourself.");

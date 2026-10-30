@@ -3,10 +3,9 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { Translate } from "@/components/icons/iconoir";
 import { useAccount } from "@/hooks/use-account";
 
-// ember-rust's translation button (crates/views/src/helpers/translations.rs, drawn by Campfire's
-// buttons.css and base.css at zz-ember.css's sizes): a button beside a field that opens what the field
-// asks for in seven languages, with Iconoir's translate where ember-rust's has Campfire's globe. Like
-// ember-rust's, it's a <details>, which opens and closes by itself, and its button can't be reached with Tab.
+// The translation button, drawn by Campfire's buttons.css and base.css: a button beside a field that
+// opens what the field asks for in seven languages, with Iconoir's translate. It's a <details>, which
+// opens and closes by itself, and its button can't be reached with Tab.
 
 /** `translations` under a translate button, unless the workspace hides translation buttons, as it does until an administrator shows them. */
 export function TranslationButton({ translations }: { translations: TranslationKey }) {

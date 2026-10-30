@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { searchPath, type Me, type Message, type Room, type SearchResults, type User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
@@ -80,7 +79,7 @@ afterEach(() => {
   document.title = "";
 });
 
-describe(feature("search.page"), () => {
+describe("Search page", () => {
   it("says what it's for before anything's searched for, titled Search, with the field focused", async () => {
     serve(() => Response.json(results(null)));
     showPage("/searches");
@@ -207,7 +206,7 @@ describe(feature("search.page"), () => {
   });
 });
 
-describe(feature("search.messages"), () => {
+describe("Search messages", () => {
   it("shows the messages a search found, oldest first, each naming its room and linking to the message, which can't be changed", async () => {
     const hello = [message("m1", general, "Hello there"), message("m2", direct, "hello again", ada)];
     serve(() => Response.json(results("hello", hello)));
@@ -245,7 +244,7 @@ describe(feature("search.messages"), () => {
   });
 });
 
-describe(feature("mentions.highlight"), () => {
+describe("Highlight mentions of you", () => {
   it("highlights the results that mention you, as the room does", async () => {
     const mentioning = { ...message("m1", general, "Thanks @Ada Lovelace"), mentions: [{ id: ada.id, name: ada.name }] };
     serve(() => Response.json(results("thanks", [mentioning, message("m2", general, "Thanks all")])));
@@ -256,7 +255,7 @@ describe(feature("mentions.highlight"), () => {
   });
 });
 
-describe(feature("search.recent"), () => {
+describe("Recent searches", () => {
   it("lists your recent searches, newest first, each going to its search", async () => {
     serve((_, url) => Response.json(url === "/api/searches" ? results(null, [], ["hello  world", "café", "eel"]) : results("café", [], ["café"])));
     const { user } = showPage("/searches");
@@ -285,7 +284,7 @@ describe(feature("search.recent"), () => {
     await screen.findByRole("heading", { name: "Find a conversation" });
     await user.type(field(), "Hello, world{Enter}");
     expect(within(await found()).getByText("Hello, world")).toBeVisible();
-    // As ember-rust's `search_path`, with its punctuation turned to spaces.
+    // The address holds the search, its punctuation turned to spaces.
     expect(here()).toBe("/searches?q=Hello++world");
     expect(field()).toHaveValue("Hello  world");
     expect(within(recents()!).getByRole("link")).toHaveAttribute("href", "/searches?q=Hello++world");
@@ -294,7 +293,7 @@ describe(feature("search.recent"), () => {
       ["POST", "/api/searches", { q: "Hello, world" }],
     ]);
 
-    // Back and Forward ask afresh, as ember-rust's pages are drawn.
+    // Back and Forward ask afresh.
     act(() => history.back());
     expect(await screen.findByRole("heading", { name: "Find a conversation" })).toBeVisible();
     act(() => history.forward());

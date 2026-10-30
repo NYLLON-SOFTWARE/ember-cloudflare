@@ -6,12 +6,10 @@ import { useAccount } from "@/hooks/use-account";
 import { JOIN_LINK, joinUrl } from "./join-link";
 import { LinkButtons } from "./link-buttons";
 
-// ember-rust's welcome card (crates/views/templates/rooms/show/_invitation.html, styled by
-// `.mb-welcome-card` and the `.mb-invite-*` rules in zz-ember.css), which only administrators are shown
-// here, with an × that dismisses it, as the project's owner chose: ember-rust shows it to everyone in
-// the room, for as long as the room is new.
+// The welcome card, which only administrators are shown, with an × that dismisses it, as the project's
+// owner chose.
 
-/** A `.btn` in `.mb-invite-actions`: a 38px square, 44px for fingers. */
+/** A `.btn` among an invitation's actions: a 38px square, 44px for fingers. */
 const BUTTON = "grid size-[38px] flex-none cursor-pointer place-items-center rounded-[9px] border bg-background text-sm touch:size-11";
 
 interface Props {
@@ -47,7 +45,7 @@ export function InvitationCard({ joinCode, onDismiss }: Props) {
             Share to invite more people
           </span>
           <Link className="size-5 flex-none text-muted-foreground" />
-          {/* 16px for fingers, where ember-rust keeps 13px, so iOS doesn't zoom in when it's tapped. */}
+          {/* 16px for fingers, so iOS doesn't zoom in when it's tapped. */}
           <input
             type="text"
             id="invite_url"
@@ -66,10 +64,10 @@ export function InvitationCard({ joinCode, onDismiss }: Props) {
 }
 
 /**
- * The card's ×, at the end of its heading, drawn as ember-rust's icon picker draws its own
- * (`.mb-icon-dialog-close`): 36px, or 44px for fingers, with a 20px ×, in the muted ink of the star in a
- * room's header. While the dismissal saves, it's dimmed and ignores presses, through `aria-disabled`,
- * as the star is, so it keeps the keyboard's focus.
+ * The card's ×, at the end of its heading, drawn as the icon dialog draws its own: 36px, or 44px for
+ * fingers, with a 20px ×, in the muted ink of the star in a room's header. While the dismissal saves,
+ * it's dimmed and ignores presses, through `aria-disabled`, as the star is, so it keeps the keyboard's
+ * focus.
  */
 function DismissButton({ onDismiss }: Pick<Props, "onDismiss">) {
   const [dismissing, setDismissing] = useState(false);

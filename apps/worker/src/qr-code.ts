@@ -6,22 +6,20 @@ import { notFound } from "./error-pages";
 import { signInFirst } from "./pages";
 import { urlOf } from "./request-url";
 
-// ember-rust's QR codes (crates/ember/src/controllers/qr_code.rs), drawn as rqrcode draws them
-// (packages/protocol/src/qr-code.ts).
+// Campfire's QR codes, drawn as rqrcode draws them (packages/protocol/src/qr-code.ts).
 
-/** ember-rust's `expires_in 1.year`, for the browser alone, since only someone signed in gets one. */
+/** Campfire's `expires_in 1.year`, for the browser alone, since only someone signed in gets one. */
 const CACHE_CONTROL = "private, max-age=31556952";
 
 /** Rails' `/qr_code/:id(.:format)`, whose id can't hold "/", "." or "?". */
 const ROUTE = /^\/qr_code\/([^/.?]+)(?:\.[^/.?]+)?$/;
 
 /**
- * `GET /qr_code/<id>`: the QR code of whatever text the id holds as URL-safe base64, for anyone
- * signed in. ember-rust draws one for anyone at all, but a deployment shouldn't draw a stranger's
- * text, a phishing link say, under its own address, and the app shows QR codes only on signed-in
- * pages; someone signed out is sent to sign in, as they are for an avatar. Malformed base64 answers
- * 400 where ember-rust answers 500, since the mistake is the client's, and text that doesn't fit the
- * largest QR code answers 422, as there.
+ * `GET /qr_code/<id>`: the QR code of whatever text the id holds as URL-safe base64, for anyone signed
+ * in. Campfire draws one for anyone at all, but a deployment shouldn't draw a stranger's text, a
+ * phishing link say, under its own address, and the app shows QR codes only on signed-in pages; someone
+ * signed out is sent to sign in, as they are for an avatar. Malformed base64 answers 400, since the
+ * mistake is the client's, and text that doesn't fit the largest QR code answers 422, as there.
  */
 export async function showQrCode(request: Request, env: Env): Promise<Response> {
   const id = urlOf(request).pathname.match(ROUTE)?.[1];

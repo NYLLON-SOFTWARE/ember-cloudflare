@@ -27,12 +27,11 @@ function stillStaged(staged: RoomId[], rooms: RoomId[]): RoomId[] {
 }
 
 /**
- * The order an administrator puts their rooms in for everyone, staged on workspace settings as ember-rust's
- * channel_order_controller.js stages it there (`staged`): a row is dragged at once by its handle, or moved
- * with Alt and an arrow (`useRoomDrag`), and each move is only staged until Save order saves the whole
- * list as the shared order, or Cancel puts it back as saved. The rooms the shared order doesn't rank
- * come after the rest, by name, as they do in the sidebar. A room that comes or goes meanwhile joins or
- * leaves what's staged, at its end.
+ * The order an administrator puts their rooms in for everyone, staged on workspace settings (`staged`):
+ * a row is dragged at once by its handle, or moved with Alt and an arrow (`useRoomDrag`), and each move
+ * is only staged until Save order saves the whole list as the shared order, or Cancel puts it back as
+ * saved. The rooms the shared order doesn't rank come after the rest, by name, as they do in the
+ * sidebar. A room that comes or goes meanwhile joins or leaves what's staged, at its end.
  */
 export function useSharedOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Options) {
   const [staged, setStaged] = useState<RoomId[] | null>(null);

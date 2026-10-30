@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { AVATAR_TOO_LARGE, MAX_AVATAR_SIZE, PASSWORD_TOO_SHORT } from "@ember/protocol";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -43,7 +42,7 @@ const moon = () => new File(["moon"], "moon.jpg", { type: "image/jpeg" });
 /** What the form sent, as a form when it brought a photo. */
 const sent = () => vi.mocked(fetch).mock.calls.at(-1)![1]!.body;
 
-describe(feature("auth.first-run"), () => {
+describe("Set up the workspace", () => {
   it("asks for the administrator's name, email address and password", () => {
     render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     expect(document.title).toBe("Set up Ember");
@@ -136,7 +135,7 @@ describe(feature("auth.first-run"), () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it("offers a photo, optional, which shows as it's chosen, as ember-rust's `ui::avatar` does", async () => {
+  it("offers a photo, optional, which shows as it's chosen", async () => {
     render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     expect(preview()).toHaveAttribute("src", avatarPlaceholder);
     expect(photoField()).toMatchObject({ type: "file", accept: "image/*" });
@@ -214,7 +213,7 @@ describe(feature("auth.first-run"), () => {
   });
 });
 
-describe(feature("auth.protected-setup"), () => {
+describe("Installer-protected setup link", () => {
   const token = "e2e1".repeat(16);
   const link = `/first_run#token=${token}`;
   /** The link the Worker printed, as the page tells it: this deployment's address with the token's place. */
@@ -295,8 +294,8 @@ describe(feature("auth.protected-setup"), () => {
   });
 });
 
-describe(feature("ui.accessibility"), () => {
-  it("starts with Skip to main content, which focuses the main content, as ember-rust's first run does", async () => {
+describe("Landmarks and names", () => {
+  it("starts with Skip to main content, which focuses the main content", async () => {
     render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     const skip = screen.getByRole("link", { name: "Skip to main content" });
     expect(document.body.querySelector("a[href], button, input")).toBe(skip);
@@ -305,7 +304,7 @@ describe(feature("ui.accessibility"), () => {
   });
 });
 
-describe(feature("accounts.custom-css"), () => {
+describe("Custom CSS", () => {
   it("keeps the password typed out of its field's value attribute, shown or hidden, where custom CSS could read it", async () => {
     render(<SetupPage placeholders={DEFAULTS} access="open" onSetUp={() => {}} />);
     const password = screen.getByLabelText("Password");

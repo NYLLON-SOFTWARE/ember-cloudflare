@@ -1,9 +1,8 @@
 /*
- * The editor's styles: Lexxy's own stylesheets, as ember-rust serves them, then Campfire's
- * actiontext.css with Campfire's colors as Ember's tokens. Lexxy's rules have no specificity, so
- * Campfire's override them, and none of this is in a layer, so it wins over Tailwind's reset of
- * headings, lists and the like inside the editor. So rules for the editor's own elements are here
- * too, rather than in utility classes, which these would beat.
+ * The editor's styles: Lexxy's own stylesheets, then Campfire's actiontext.css with Campfire's colors as
+ * Ember's tokens. Lexxy's rules have no specificity, so Campfire's override them, and none of this is in
+ * a layer, so it wins over Tailwind's reset of headings, lists and the like inside the editor. So rules
+ * for the editor's own elements are here too, rather than in utility classes, which these would beat.
  */
 @import "@37signals/lexxy/stylesheets/lexxy.css";
 
@@ -55,7 +54,7 @@ lexxy-editor {
 
 /*
  * On touch screens, and at 900px and below, each person the @ prompt lists is a fingertip's 44px tall, as
- * zz-ember.css makes ember-rust's other controls there. ember-rust's list keeps Lexxy's 33px.
+ * other controls are there, rather than Lexxy's 33px.
  */
 @media (width < 56.3125rem), (pointer: coarse) {
   .lexxy-prompt-menu__item {
@@ -465,14 +464,13 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
 }
 
 /*
- * ember-rust's composer (zz-ember.css): 14px text, between 40px and min(32dvh, 300px) tall, then
- * scrolling. At 900px wide and below it's at least 30px, and there and on touch screens its text is
- * 16px, as `touch:` sizes fields, so iOS doesn't zoom in. Formatting options shows the toolbar under
- * the text, wrapping, with its menus opening upward.
+ * The composer: 14px text, between 40px and min(32dvh, 300px) tall, then scrolling. At 900px wide and
+ * below it's at least 30px, and there and on touch screens its text is 16px, as `touch:` sizes fields,
+ * so iOS doesn't zoom in. Formatting options shows the toolbar under the text, wrapping, with its menus
+ * opening upward.
  *
- * Unlike ember-rust's, the text takes the card's padding around it and all the room above the
- * buttons, so a tap anywhere there lands in it: 44px tall on phones, where ember-rust's is 30px.
- * Its sizes grow by that padding, so the text inside is as tall as ember-rust's.
+ * The text takes the card's padding around it and all the room above the buttons, so a tap anywhere
+ * there lands in it, 44px tall on phones. The sizes above are the text's, inside that padding.
  */
 .composer {
   lexxy-editor {
@@ -513,7 +511,7 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
 
       display: flex;
       flex-wrap: wrap;
-      /* ember-rust's 8px from the text, less the 4px the text keeps under it, and 4px to the buttons */
+      /* 8px from the text, less the 4px the text keeps under it, and 4px to the buttons */
       margin-block: 4px;
     }
 
@@ -552,8 +550,8 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
 }
 
 /*
- * A message's editor (message-editor.tsx), as ember-rust's edit form has it (Campfire's composer.css): on
- * wide screens with a mouse, the formatting toolbar over the text, ruled off from it across the field.
+ * A message's editor (message-editor.tsx), after Campfire's composer.css: on wide screens with a mouse,
+ * the formatting toolbar over the text, ruled off from it across the field.
  */
 .message-edit {
   @media (min-width: 100ch) and (any-hover: hover) and (pointer: fine) {
@@ -572,8 +570,7 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
 
   /*
    * Where the toolbar doesn't show, the text takes the field's padding, as the composer's takes its
-   * card's, so a tap anywhere in the field lands in it, and it's at least 44px tall, where ember-rust's
-   * field is 40px inside.
+   * card's, so a tap anywhere in the field lands in it, and it's at least 44px tall.
    */
   @media not ((min-width: 100ch) and (any-hover: hover) and (pointer: fine)) {
     .lexxy-editor__content {
@@ -589,9 +586,7 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
   }
 
   /*
-   * The field rings as it takes focus, so its text isn't outlined too. ember-rust means it not to be, as
-   * for every field in such a box (zz-ember.css, `.input--actor .input:focus-visible`), but that rule
-   * misses Lexxy's text, which ember-rust outlines inside the ring.
+   * The field rings as it takes focus, so its text isn't outlined too, as no field inside such a ring is.
    */
   .lexxy-editor__content:focus {
     outline: none;

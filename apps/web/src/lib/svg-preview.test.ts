@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_PREVIEW_SIZE } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { svgDataUrl } from "./svg-preview";
@@ -49,7 +48,7 @@ function mebibytes(count: number) {
   return { body, stream };
 }
 
-describe(feature("attachments.svg-preview"), () => {
+describe("Safe SVG previews", () => {
   it("fetches an SVG from this site and answers it as a data URL once it decodes as a picture", async () => {
     const fetch = answers(new Response(SVG, { headers: { "Content-Type": "application/octet-stream" } }));
     const { signal } = new AbortController();

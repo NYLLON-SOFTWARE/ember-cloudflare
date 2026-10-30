@@ -22,16 +22,16 @@ import { cn } from "@/lib/utils";
 import { CopyButton, ROUND_BUTTON } from "./link-buttons";
 import { workspaceSectionPath } from "./settings-navigation";
 
-// This port's own Custom domain section of workspace settings (`accounts.custom-domain`), where ember-rust's
-// address is its installer's `--domain`. Ember holds no Cloudflare token, so the administrator adds the
-// domain in Cloudflare's dashboard, which the section opens with what to paste there copied: to the Worker,
-// where the domain's DNS is on Cloudflare or moves there from the provider public DNS says has it, or, to
-// keep the DNS at that provider, as a custom hostname of another domain already on Cloudflare (Cloudflare
-// for SaaS), with the one record to add at the provider. Use then makes the domain Ember's address, once
-// a check finds it reaches Ember, and goes there. A domain that already reaches Ember, as one added to the
-// Worker before does, gets no steps, only Save. Going back makes the Worker's workers.dev address
-// Ember's again. A domain Ember moves away from keeps reaching it, sending people on, until it's removed
-// in Cloudflare, so the section names it until a check finds it gone. Styled as the Rooms section is.
+// The Custom domain section of workspace settings. Ember holds no Cloudflare token, so the administrator
+// adds the domain in Cloudflare's dashboard, which the section opens with what to paste there copied: to
+// the Worker, where the domain's DNS is on Cloudflare or moves there from the provider public DNS says
+// has it, or, to keep the DNS at that provider, as a custom hostname of another domain already on
+// Cloudflare (Cloudflare for SaaS), with the one record to add at the provider. Use then makes the
+// domain Ember's address, once a check finds it reaches Ember, and goes there. A domain that already
+// reaches Ember, as one added to the Worker before does, gets no steps, only Save. Going back makes the
+// Worker's workers.dev address Ember's again. A domain Ember moves away from keeps reaching it, sending
+// people on, until it's removed in Cloudflare, so the section names it until a check finds it gone.
+// Styled as the Rooms section is.
 
 /** Where the Cloudflare dashboard lists an account's Workers, whichever account the person picks. */
 export const WORKERS_DASHBOARD = "https://dash.cloudflare.com/?to=/:account/workers-and-pages";

@@ -21,11 +21,11 @@ import { MemberfulSettings } from "./memberful-settings";
 import { workspaceSectionPath } from "./settings-navigation";
 import { SetUpTurnstile } from "./turnstile-settings";
 
-// This port's own ways for new people to join (`accounts.ways-to-join`), at the top of Membership: for
-// administrators, a card for each, Open, Join link, Email domain and Memberful, whose switch saves as
-// it's flipped, as the Memberful card's did, and which shows the way's settings while it's on. Open lets
-// anyone in, and Memberful's Members only only its members, so while either is on the ways it overrides
-// are greyed out, keeping their settings for when it's off. Members see the links that let people in.
+// The ways for new people to join, at the top of Membership: for administrators, a card for each, Open,
+// Join link, Email domain and Memberful, whose switch saves as it's flipped, as the Memberful card's
+// did, and which shows the way's settings while it's on. Open lets anyone in, and Memberful's Members
+// only only its members, so while either is on the ways it overrides are greyed out, keeping their
+// settings for when it's off. Members see the links that let people in.
 
 /** What turning on Open asks first, since it lets anyone in. */
 export const CONFIRM_OPEN = "Are you sure you want to let anyone create an account? Ember doesn't check that the email addresses people sign up with are theirs.";
@@ -204,8 +204,7 @@ function Way({ id, title, description, checked, onCheckedChange, setAside, child
 /**
  * How new people join, for members: open sign-up's link while it's on, or else Email domain's while it
  * lets people in, and the join link while it does, or else a line saying how they join with Memberful,
- * if they do, at `memberfulSite`, or that only the people administrators invite can
- * (`accounts.invitations`).
+ * if they do, at `memberfulSite`, or that only the people administrators invite can.
  */
 export function HowPeopleJoin({ joinLink, memberfulSite }: { joinLink: ReactNode; memberfulSite: string | null }) {
   const account = useAccount();

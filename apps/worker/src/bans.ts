@@ -1,7 +1,7 @@
-// Which IP addresses a ban can block, ported from ember-rust's `Ban::validate` (crates/db/src/models/ban.rs),
-// Campfire's `ip_address_is_public` (reference/app/models/ban.rb): an address Rust's `IpAddr` parses,
-// as Ruby's `IPAddr.new` takes it, optionally with a `/prefix` that masks it, or an IPv6 address in
-// brackets, and that isn't loopback, private or link-local as Ruby's `IPAddr` decides.
+// Which IP addresses a ban can block, as Campfire's `ip_address_is_public` decides (app/models/ban.rb):
+// an address Rust's `IpAddr` parses, as Ruby's `IPAddr.new` takes it, optionally with a `/prefix` that
+// masks it, or an IPv6 address in brackets, and that isn't loopback, private or link-local as Ruby's
+// `IPAddr` decides.
 
 /** An address as a number: 32 bits for IPv4, 128 for IPv6. */
 interface IpAddress {
@@ -10,9 +10,8 @@ interface IpAddress {
 }
 
 /**
- * Why a ban can't block an IP address: it isn't one ("invalid", which ember-rust says "is not a valid IP
- * address"), or it's loopback, private or link-local ("internal", which "cannot be a private or internal
- * IP address").
+ * Why a ban can't block an IP address: it isn't one, or it's loopback, private or link-local
+ * ("internal", which "cannot be a private or internal IP address").
  */
 export type BanProblem = "invalid" | "internal";
 
@@ -23,7 +22,7 @@ export function banProblem(ipAddress: string): BanProblem | null {
   return isLoopback(ip) || isPrivate(ip) || isLinkLocal(ip) ? "internal" : null;
 }
 
-/** ember-rust's `parse_ipaddr`: an address, optionally with a `/prefix` that masks it, or an IPv6 address in brackets. */
+/** An address as Ruby's `IPAddr.new` reads one: optionally with a `/prefix` that masks it, or an IPv6 address in brackets. */
 function parseIpAddress(text: string): IpAddress | null {
   const slash = text.indexOf("/");
   const address = slash < 0 ? text : text.slice(0, slash);
@@ -38,7 +37,7 @@ function parseIpAddress(text: string): IpAddress | null {
   return { v6: ip.v6, bits: ip.bits & (((1n << width) - 1n) ^ ((1n << host) - 1n)) };
 }
 
-/** Rust's `IpAddr` parse (std's net/parser.rs): IPv4 if the text starts as one, else IPv6, and nothing after. */
+/** Rust's `IpAddr` parse: IPv4 if the text starts as one, else IPv6, and nothing after. */
 function parseIp(text: string): IpAddress | null {
   const v4 = readIpv4(text, 0);
   if (v4) return v4[1] === text.length ? { v6: false, bits: BigInt(v4[0]) } : null;

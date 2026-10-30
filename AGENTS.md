@@ -2,18 +2,14 @@
 
 Slack-like chat on Cloudflare Workers and Durable Objects. See `README.md` for the layout.
 
-- The design and UX come from `NYLLON-SOFTWARE/ember-rust`. When in doubt about how something
-  should look or behave, read it there: `crates/assets/overrides/zz-ember.css` (workspace styles),
-  `crates/assets/overrides/basecoat/src/theme.css` (tokens), and `crates/views/templates/`
-  (markup). Cite the file when you port something, and say why when deliberately diverging.
 - Ember's palette lives in `apps/web/src/index.css` as shadcn/ui tokens. Use the tokens
   (`bg-surface`, `bg-hover`, `text-muted-foreground`, `text-message-ink`, ...) rather than raw colors.
 - Add shadcn/ui components with `pnpm dlx shadcn@latest add <name>` from `apps/web`.
 - Icons are Iconoir's (7.12.1), as the project's owner chose, picking each one, except those people
-  choose for rooms and the rail, from ember-rust's catalog, and Campfire's picture of Chrome's button in
-  the setup help. Import them from `apps/web/src/components/icons/`, never from `lucide-react`; its
-  README says how to add one, which is the owner's to pick. shadcn/ui components arrive with
-  `lucide-react` icons, so swap those.
+  choose for rooms and the rail, from the icon pickers' catalog, and Campfire's picture of Chrome's
+  button in the setup help. Import them from `apps/web/src/components/icons/`, never from
+  `lucide-react`; its README says how to add one, which is the owner's to pick. shadcn/ui components
+  arrive with `lucide-react` icons, so swap those.
 - Every WebSocket frame is typed in `packages/protocol`. Change the types there first, validate
   anything from a client in `parseClientFrame`, and keep the worker and web app in step.
 - Data is stored through `apps/worker/src/db.ts`, whose SQL must work on both Durable Object SQLite
@@ -26,13 +22,10 @@ Slack-like chat on Cloudflare Workers and Durable Objects. See `README.md` for t
   run against both backends, so keep them green on both.
 - Both backends bind at most 100 values a statement, so never bind a list whose length depends on
   the data. Write one statement per query shape, too: SQLite can't use an index through
-  `? IS NULL OR id < ?`. `docs/database.md` compares our schema with ember-rust's and lists which of
-  its choices to adopt as features land.
+  `? IS NULL OR id < ?`. `docs/database.md` compares our schema with Campfire's and lists what's
+  left to do.
 - Tests live beside the code (`*.test.ts`), except the worker's, which run inside workerd from
   `apps/worker/test/`. Run `pnpm typecheck && pnpm test && pnpm build` before committing.
-- Every feature of ember-rust is in `packages/parity/src/features.ts`, and `PARITY.md` is generated
-  from it. Tag tests with the feature they cover (`describe(feature("messages.edit"), ...)`). When
-  you port or change a feature, update its status and notes, then run `pnpm parity`.
 - `pnpm perf` load-tests the Worker and the web app (`perf/README.md`). When a change touches
   broadcasts, presence, storage queries or the message timeline, run `pnpm perf --quick` before and
   after it and check the two with `pnpm perf compare`.

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Involvement, Room } from "@ember/protocol";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -30,7 +29,7 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("notifications.levels"), () => {
+describe("Notification levels", () => {
   it.each([
     ["mentions", "Notifying about @ mentions", "iconoir-at-sign"],
     ["everything", "Notifying about all messages", "iconoir-bell-notification-solid"],

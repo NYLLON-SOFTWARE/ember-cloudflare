@@ -1,10 +1,9 @@
 // rails_autolink 1.1.8's `auto_link(html, html: { target: "_blank" })`, the last step of
-// `MessagesHelper#message_presentation`, as ember-rust's crates/richtext/src/autolink.rs
-// reproduces it. It works on serialized HTML with regular expressions, so it needs the form
-// `presentMessage` and `canonicalize` serialize: with `<` and `>` escaped in attribute values,
-// every `<` and `>` left is a tag's, and a link is only ever inserted between tags. (Nokogiri
-// leaves them raw, so in Rails a URL after a `>` in a `title` was linked inside the attribute,
-// and the rest of the value became markup.)
+// `MessagesHelper#message_presentation`. It works on serialized HTML with regular expressions, so it
+// needs the form `presentMessage` and `canonicalize` serialize: with `<` and `>` escaped in attribute
+// values, every `<` and `>` left is a tag's, and a link is only ever inserted between tags. (Nokogiri
+// leaves them raw, so in Rails a URL after a `>` in a `title` was linked inside the attribute, and the
+// rest of the value became markup.)
 
 import type { HtmlParser } from "./markup";
 import { htmlEscape, isBlank, urlEncode } from "./ruby";

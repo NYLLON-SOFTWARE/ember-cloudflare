@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
 import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
@@ -11,7 +10,7 @@ import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
 const stopUsingDomain = (page: Page) =>
   page.evaluate(() => fetch("/api/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customDomain: null }) }));
 
-test.describe(feature("accounts.custom-domain"), () => {
+test.describe("Custom domain", () => {
   test("the administrator gives Ember a custom domain, which pages then move to, and goes back from the old address, which pages then move back to", async ({ page, baseURL }) => {
     const { port } = new URL(baseURL!);
     const deployed = `127.0.0.1:${port}`;

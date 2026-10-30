@@ -1,11 +1,10 @@
-import { feature } from "@ember/parity";
 import { expect, test } from "../../fixtures";
 import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
 
-/** Chrome 119, a version short of what ember-rust allows. */
+/** Chrome 119, a version short of what Campfire allows. */
 const OLD_CHROME = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.6045.199 Safari/537.36";
 
-test.describe(feature("accounts.translation-buttons"), () => {
+test.describe("Translation buttons", () => {
   test("the administrator shows translation buttons, which every page then has, and hides them again", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit");
@@ -21,8 +20,7 @@ test.describe(feature("accounts.translation-buttons"), () => {
     await expect(otherTab.getByRole("textbox", { name: "Community name" })).toBeVisible();
     const save = page.getByRole("button", { name: "Save changes" });
 
-    // With the name, by Save changes, as ember-rust's pull request #24 saves it, and then in the other tab
-    // too, where ember-rust's waits for its next page.
+    // With the name, by Save changes, and then in the other tab too.
     await hide.click();
     await expect(hide).not.toBeChecked();
     await expect(page.getByText("Translate", { exact: true })).toHaveCount(0);

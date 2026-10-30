@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { looksLikeFileOrMedia, MAX_BODY_SIZE } from "../src/unfurl/fetch";
 import { decodeUtf8OrLatin1, metaElements } from "../src/unfurl/html";
@@ -9,15 +8,15 @@ const encode = (text: string) => new TextEncoder().encode(text);
 /** A string's characters as bytes, so `"\xff"` is the byte 0xFF. */
 const bytes = (text: string) => Uint8Array.from(text, (c) => c.charCodeAt(0));
 
-/** The last og:title's content, when it has one, as html.rs's tests read it. */
+/** The last og:title's content, when it has one. */
 function title(html: string): string | null {
   const metas = [...metaElements(encode(`<meta charset=utf-8>${html}`))];
   return metas.findLast((meta) => meta.get("property") === "og:title")?.get("content") || null;
 }
 const titleOf = (content: string) => title(`<meta property="og:title" content="a${content}b">`);
 
-describe(feature("unfurl.endpoint"), () => {
-  // html.rs's tests, probed against the Rails app's Nokogiri 1.19.4.
+describe("Link preview lookup", () => {
+  // Each probed against Campfire's Nokogiri, 1.19.4.
   it.each([
     ["&apos;", "a'b"],
     ["&eacute", "a&eacuteb"],
@@ -75,7 +74,7 @@ describe(feature("unfurl.endpoint"), () => {
     ['< meta property="og:title" content="space">', null],
     ['<meta property="og:title" content="tab\there">', "tab\there"],
     ['<meta property="og:title" content="\0nul">', null],
-    // Not in html.rs: comments that close with "--!>", and raw text that ends at its end tag in any case.
+    // And comments that close with "--!>", and raw text that ends at its end tag in any case.
     ['<!-- x --!><meta property="og:title" content="after bang comment">', "after bang comment"],
     ['<SCRIPT>x</ScRiPt ><meta property="og:title" content="after script">', "after script"],
     ['<script/><meta property="og:title" content="after empty script">', "after empty script"],
@@ -101,18 +100,17 @@ describe(feature("unfurl.endpoint"), () => {
     expect(meta(`${others(256)} content=dropped`)?.has("content")).toBe(false);
   });
 
-  // document.rs's extracts_opengraph_tags, from test/models/opengraph/document_test.rb.
+  // Campfire's test/models/opengraph/document_test.rb.
   it("reads a page's OpenGraph tags", () => {
     const page = '<html><head><meta property="og:url" content="https://example.com"><meta property="og:title" content="Hey!"><meta property="og:description" content="desc.."><meta property="og:image" content="https://example.com/image.png"></head></html>';
     const expected = { title: "Hey!", url: "https://example.com", image: "https://example.com/image.png", description: "desc.." };
     expect(opengraphAttributes(encode(page))).toEqual(expected);
     expect(opengraphAttributes(encode(page.replaceAll("property=", "name=")))).toEqual(expected);
-    // ember-rust drops every non-ASCII character from a page without a meta charset, leaving "Hello World".
+    // Campfire drops every non-ASCII character from a page without a meta charset, leaving "Hello World".
     const mojibake = '<meta name="og:description" content="Hello â\u0080\u0099World">';
     expect(opengraphAttributes(encode(mojibake)).description).toBe("Hello â\u0080\u0099World");
   });
 
-  // document.rs's parses_pathological_pages_quickly, and other pages built to be slow.
   it("reads pages built to be slow in time proportional to their size", { timeout: 60_000 }, () => {
     const fill = (open: string, item: (i: number) => string, close: string) => {
       const parts = [open];
@@ -138,7 +136,7 @@ describe(feature("unfurl.endpoint"), () => {
     }
   });
 
-  // metadata.rs's strips_tags_like_rails, as plain text: ember-rust answers it HTML-escaped.
+  // Rails' `strip_tags` and `sanitize`, answered as plain text rather than HTML-escaped.
   it.each([
     ["Tom & Jerry", "Tom & Jerry"],
     ["a < b", "a < b"],
@@ -176,8 +174,8 @@ describe(feature("unfurl.endpoint"), () => {
   });
 });
 
-describe(feature("unfurl.guard"), () => {
-  // uri.rs's parses_like_ruby and downcases_the_scheme_like_ruby, for the http(s) URLs a preview can use.
+describe("Link preview safety limits", () => {
+  // For the http(s) URLs a preview can use.
   it("reads URLs as Ruby's URI.parse does", () => {
     expect(parseHttpUri("https://x.com/dhh/status/1?s=20")).toEqual({
       scheme: "https",

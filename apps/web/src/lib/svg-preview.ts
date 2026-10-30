@@ -1,10 +1,9 @@
 import { MAX_PREVIEW_SIZE } from "@ember/protocol";
 
-// SVGs shown in messages, as ember-rust's svg_preview_controller.js shows them
-// (crates/assets/overrides/controllers/svg_preview_controller.js). An SVG is markup that can run script
-// and load from anywhere, but not as an image, so a message shows one from a data URL in an <img>,
-// whose origin is opaque if it's opened by itself. Uploaded SVGs never go into the page as markup, an
-// <object>, an <iframe> or a blob URL, which is this site's own origin.
+// SVGs shown in messages. An SVG is markup that can run script and load from anywhere, but not as an
+// image, so a message shows one from a data URL in an <img>, whose origin is opaque if it's opened by
+// itself. Uploaded SVGs never go into the page as markup, an <object>, an <iframe> or a blob URL, which
+// is this site's own origin.
 
 /**
  * The data URL of the SVG at `url`, of up to 5 MiB, once it has decoded as a picture, or null for an

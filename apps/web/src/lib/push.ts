@@ -1,6 +1,6 @@
-// This browser's push subscription, which the app reaches through its service worker's registration,
-// as ember-rust's pages do (crates/assets/overrides/controllers/notifications_controller.js, and
-// reference/app/javascript/controllers/sessions_controller.js).
+// This browser's push subscription, which the app reaches through its service worker's registration, as
+// Campfire's pages do (app/javascript/controllers/notifications_controller.js and
+// sessions_controller.js).
 
 import type { PushSubscriptionKeys } from "@ember/protocol";
 import { savePushSubscription } from "./api";
@@ -14,7 +14,7 @@ export interface PushNotice {
 
 const ALLOW_IN_SETTINGS = "Allow notifications for this site in your browser settings, then try again.";
 
-/** ember-rust's notices, in its words. */
+/** What the bell says when notifications don't turn on. */
 const NOTICES = {
   unavailable: {
     title: "Notifications aren’t available here",
@@ -40,7 +40,7 @@ const NOTICES = {
 const pushAllowed = () => window.isSecureContext && "serviceWorker" in navigator && "Notification" in window && "PushManager" in window;
 
 /**
- * Whether this browser has notifications on, as ember-rust's bell decides each time it loads: they're
+ * Whether this browser has notifications on, as Campfire's bell decides each time it loads: they're
  * allowed and Web Push is on (`vapidPublicKey`), and the browser has a push subscription. The server
  * isn't asked whether it still has it. False when the browser can't say.
  */
@@ -54,9 +54,9 @@ let savingAgain: Promise<void> = Promise.resolve();
 
 /**
  * Saves this browser's push subscription for you again, if it has one, as the workspace opens with
- * notifications on, where ember-rust's bell doesn't. The server keeps the `MAX_PUSH_SUBSCRIPTIONS` you
- * saved most recently, so this keeps the browsers you open among them, and brings this one's back once
- * newer ones have pushed it out, which the bell can't, showing your level. Settles whether or not it could.
+ * notifications on. The server keeps the `MAX_PUSH_SUBSCRIPTIONS` you saved most recently, so this keeps
+ * the browsers you open among them, and brings this one's back once newer ones have pushed it out, which
+ * the bell can't, showing your level. Settles whether or not it could.
  */
 export function savePushAgain(): Promise<void> {
   return (savingAgain = saveAgain());
@@ -78,10 +78,10 @@ async function saveAgain(): Promise<void> {
 export const savedAgain = (): Promise<void> => savingAgain;
 
 /**
- * Turns notifications on as ember-rust's bell does, settling with why they aren't on, or null once
- * they are: it asks for permission, registers the service worker unless it's registered already, waits
- * for it to be active, subscribes, or keeps the subscription the browser already has, and saves that.
- * Call it from the click that asks, as Safari only prompts for permission then.
+ * Turns notifications on, settling with why they aren't on, or null once they are: it asks for
+ * permission, registers the service worker unless it's registered already, waits for it to be active,
+ * subscribes, or keeps the subscription the browser already has, and saves that. Call it from the click
+ * that asks, as Safari only prompts for permission then.
  */
 export async function turnOnPush(vapidPublicKey: string | null): Promise<PushNotice | null> {
   if (!pushAllowed()) return NOTICES.unavailable;
@@ -151,7 +151,7 @@ async function save(subscription: PushSubscription): Promise<void> {
   }
 }
 
-/** What the server saves of `subscription`, from `toJSON()`, as ember-rust's bell sends it. */
+/** What the server saves of `subscription`, from `toJSON()`. */
 function keysOf(subscription: PushSubscription): PushSubscriptionKeys {
   const { endpoint, keys } = subscription.toJSON();
   if (!endpoint || !keys?.p256dh || !keys.auth) throw new Error("The browser's push subscription has no endpoint or keys");
@@ -178,23 +178,23 @@ export function subscribeToPushEnding(listener: () => void): () => void {
 const sayEnded = () => endingListeners.forEach((listener) => listener());
 
 /**
- * Ends this browser's push subscription, as ember-rust's Log out does before it signs out, answering its
+ * Ends this browser's push subscription, as Campfire's Log out does before it signs out, answering its
  * endpoint so that signing out forgets it on the server too. Null when there's none, or the browser has
  * no push at all.
  */
 export async function unsubscribeFromPush(): Promise<string | null> {
   const subscription = await pushSubscription().catch(() => null);
   if (!subscription) return null;
-  // The server forgets it even if the browser can't end it, where ember-rust doesn't sign out at all.
+  // The server forgets it even if the browser can't end it.
   if (await subscription.unsubscribe().catch(() => false)) sayEnded();
   return subscription.endpoint;
 }
 
 /**
  * Ends this browser's push subscription if it's the one at `endpoint`, which the server has just
- * deleted, so the bell offers to turn notifications on again, where ember-rust's keeps passing for on
- * with nothing to push to. It does even if the browser can't end it, since turning them on then saves
- * the subscription the browser kept.
+ * deleted, so the bell offers to turn notifications on again, rather than passing for on with nothing to
+ * push to. It does even if the browser can't end it, since turning them on then saves the subscription
+ * the browser kept.
  */
 export async function endPushSubscriptionAt(endpoint: string): Promise<void> {
   const subscription = await pushSubscription().catch(() => null);

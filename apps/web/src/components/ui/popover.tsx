@@ -3,8 +3,7 @@ import { Popover as PopoverPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 
-// shadcn/ui's popover without its fade, zoom and slide, since ember-rust's popovers open and close at
-// once.
+// shadcn/ui's popover without its fade, zoom and slide, so it opens and closes at once.
 
 function Popover({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
   return <PopoverPrimitive.Root data-slot="popover" {...props} />;

@@ -22,12 +22,11 @@ import { passwordHasher } from "./passwords";
 import { passedTurnstile, turnstileKeysFor } from "./turnstile";
 import { workspace, type NewResetCode } from "./workspace";
 
-// Resetting a forgotten password with a code Ember emails (`auth.password-reset`), this port's own, since
-// ember-rust sends no email and resets a password only from its server, as recovery.ts does here: someone
-// asks for a code with their email address, which Ember emails them if they have an account and a
-// password, and gives the code back with a new password, which signs them in. Asking checks Turnstile
-// while Ember has a widget's keys (`auth.turnstile`), and neither answer, nor how soon it comes, says
-// who has an account. Like the sign-in page, the page and its forms are for anyone, signed in or not.
+// Resetting a forgotten password with a code Ember emails: someone asks for a code with their email
+// address, which Ember emails them if they have an account and a password, and gives the code back with
+// a new password, which signs them in. Asking checks Turnstile while Ember has a widget's keys, and
+// neither answer, nor how soon it comes, says who has an account. Like the sign-in page, the page and
+// its forms are for anyone, signed in or not.
 
 /**
  * `GET /passwords/new`: the app's page for resetting a password, which no cache keeps, since its policy
@@ -80,8 +79,8 @@ const codeWrong = () => formAnswer({ error: PASSWORD_RESET_CODE_WRONG, field: "c
  * `PUT /api/password_resets`, `{ emailAddress, code, password }`: gives whoever has the address the new
  * password, with the code Ember emailed them, spending it, ending all their sessions, and signs this
  * browser in as them (201), unless they sign in themselves (200). The code is checked, counting against
- * sign-in's limit (`auth.rate-limit`), before the password is hashed, and one that doesn't work answers
- * 422 on its field, the same whether or not anyone has the address.
+ * sign-in's limit, before the password is hashed, and one that doesn't work answers 422 on its field,
+ * the same whether or not anyone has the address.
  */
 export async function resetPasswordWithCode(request: Request, env: Env): Promise<Response> {
   const reset = parsePasswordResetWithCode(await jsonBodyOf(request));

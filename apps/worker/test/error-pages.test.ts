@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import notFoundPage from "../../web/public/404.html";
 import failedPage from "../../web/public/500.html";
@@ -28,7 +27,7 @@ async function expectPage(response: Response, status: number, html: string) {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("platform.error-pages"), () => {
+describe("Error pages", () => {
   it("serves the app's page at every address the app shows one", async () => {
     const paths = ["/", "/rooms", "/rooms/general", "/rooms/general/@m-1", "/rooms/general/messages/m-1", "/rooms/opens/general", "/rooms/opens/new", "/rooms/closeds/general/edit", "/account/edit", "/session/new"];
     for (const path of [...paths, "/users/me/profile"]) {
@@ -58,7 +57,7 @@ describe(feature("platform.error-pages"), () => {
     }
   });
 
-  it("answers a write to a page with Campfire's 404 page, as ember-rust's router does", async () => {
+  it("answers a write to a page with Campfire's 404 page", async () => {
     for (const method of WRITES) {
       for (const path of ["/", "/rooms/general", "/nope", "/up", "/webmanifest.json", "/qr_code/aGk"]) {
         await expectPage(await page(path, { method }), 404, notFoundPage);

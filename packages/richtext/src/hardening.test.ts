@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { autoLink } from "./autolink";
 import { plainText, prepareBody } from "./body";
@@ -10,9 +9,9 @@ import { cgiUnescapeHtml } from "./sanitize";
 import { testUserId, testUsers } from "./testing/users";
 import { descendants, getAttr, isElement } from "./tree";
 
-// Ported from ember-rust's crates/richtext/tests/hardening.rs: where the port deliberately
-// diverges from Rails to close a hole or bound the work a message body can cause. Bodies come
-// from clients, and the Durable Object that prepares them has little CPU time to spare.
+// Where Ember deliberately diverges from Rails to close a hole or bound the work a message body can
+// cause. Bodies come from clients, and the Durable Object that prepares them has little CPU time to
+// spare.
 
 const { resolve } = testUsers("David");
 const none = () => undefined;
@@ -24,8 +23,8 @@ const galleryAttachment =
   '<action-text-attachment presentation="gallery" content-type="text/html" content="&lt;p&gt;x&lt;/p&gt;"></action-text-attachment>';
 
 /**
- * ember-rust's bound for a debug build. Each of these bodies of hundreds of KB takes a second at
- * most; the slow paths they found took several.
+ * A generous bound: each of these bodies of hundreds of KB takes a second at most, where the slow paths
+ * they found took several.
  */
 const QUICK_MS = 5_000;
 const SLOW_TEST_MS = 30_000;
@@ -65,7 +64,7 @@ function expectRefusedQuickly(what: string, body: string): void {
   });
 }
 
-describe(feature("messages.rich-text"), () => {
+describe("Rich text, safely", () => {
   it("drops name attributes, which could clobber the page's globals", () => {
     const html = presentation('<p><a name="body" href="/x">x</a><span name="cookie">y</span></p>');
     expect(parsedMarkup(html)).toEqual(["p", "a", "a[href]", "span"]);
@@ -192,7 +191,7 @@ describe(feature("messages.rich-text"), () => {
   });
 });
 
-describe(feature("messages.autolink"), () => {
+describe("Links in message text", () => {
   const shown = (body: string) => autoLink(parseHtml, presentation(body));
 
   it("can't break out of an attribute through an address after a greater-than sign", () => {

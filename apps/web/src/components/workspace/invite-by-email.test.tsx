@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { INVITATIONS_AT_ONCE, NO_EMAIL_ADDRESSES, type EmailInvitation, type InvitationOutcome, type ResentInvitation } from "@ember/protocol";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -84,7 +83,7 @@ const rowFor = (emailAddress: string) => rows().find((row) => within(row).queryB
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("accounts.invitations"), () => {
+describe("Invite people by email", () => {
   it("emails each address typed, apart by commas, spaces or lines, or with names, saying what came of them", async () => {
     serve();
     const { user } = showCard();

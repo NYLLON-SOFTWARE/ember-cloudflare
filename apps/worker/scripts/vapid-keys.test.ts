@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -18,7 +17,7 @@ async function isPair(publicKey: string, privateKey: string): Promise<boolean> {
   return crypto.subtle.verify(ECDSA, verifier, await crypto.subtle.sign(ECDSA, signer, data), data);
 }
 
-describe(feature("notifications.web-push-keys"), () => {
+describe("Web Push configuration", () => {
   it("makes a new key pair each time: the uncompressed point and the 32-byte scalar, in URL-safe Base64", async () => {
     const [first, second] = [await vapidKeys(), await vapidKeys()];
     expect(first.publicKey).toMatch(/^B[\w-]{86}$/);

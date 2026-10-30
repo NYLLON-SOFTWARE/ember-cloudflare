@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { CloseCode, type NewWorkspace, type Sidebar, type User } from "@ember/protocol";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -29,7 +28,7 @@ const signOut = (session: Session) => api("/api/session", { method: "DELETE", he
 
 beforeEach(freshDeploy);
 
-describe(feature("platform.live-socket"), () => {
+describe("One live connection per tab outside the open room", () => {
   it("lets in a signed-in tab's socket from the app's own pages, saying who it signs in", async () => {
     const grace = await signIn("Grace");
     expect((await openWorkspaceSocket(grace)).welcome).toEqual({
@@ -138,7 +137,7 @@ describe(feature("platform.live-socket"), () => {
   });
 });
 
-describe(feature("sidebar.live-updates"), () => {
+describe("Live sidebar updates", () => {
   const sidebarOf = (session: Session, etag?: string) => api("/api/sidebar", { headers: { Cookie: session.cookie, ...(etag ? { "If-None-Match": etag } : {}) } });
 
   it("comes with an ETag, and answers 304 while the copy the app has is current", async () => {

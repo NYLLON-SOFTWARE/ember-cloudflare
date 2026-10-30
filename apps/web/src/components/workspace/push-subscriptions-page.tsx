@@ -9,16 +9,16 @@ import { cn } from "@/lib/utils";
 import { Panel, SettingsPage } from "./settings-page";
 
 interface Props {
-  /** Where Go Back goes: the last room visited, as ember-rust's `link_back_to_last_room_visited` has it. */
+  /** Where Go Back goes: the last room visited. */
   back: string;
   /** Says why loading the list, a test notification or a deletion failed, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
 
 /**
- * ember-rust's push subscriptions page (users/push_subscriptions/index.html), which nothing links to:
- * each browser that turned notifications on for you, oldest first, with Send test notification, which
- * pushes "Ember Test" to it at once, and Delete subscription.
+ * The push subscriptions page, which nothing links to: each browser that turned notifications on for
+ * you, oldest first, with Send test notification, which pushes "Ember Test" to it at once, and Delete
+ * subscription.
  */
 export function PushSubscriptionsPage({ back, onFailed }: Props) {
   const [subscriptions, setSubscriptions] = useState<SavedPushSubscription[] | null>(null);
@@ -64,10 +64,10 @@ interface RowProps {
 }
 
 /**
- * A subscription (users/push_subscriptions/_push_subscription.html): the browser in bold, cut short with
- * an ellipsis, then its endpoint in small text beside its buttons. The endpoint breaks anywhere, where
- * ember-rust's runs out of the panel on a phone. Deleting this browser's own subscription ends it here
- * too, so the bell can turn notifications on again.
+ * A subscription: the browser in bold, cut short with an ellipsis, then its endpoint in small text
+ * beside its buttons. The endpoint breaks anywhere, so it doesn't run out of the panel on a phone.
+ * Deleting this browser's own subscription ends it here too, so the bell can turn notifications on
+ * again.
  */
 function SubscriptionRow({ subscription: { id, browser, version, platform, endpoint }, onDeleted, onFailed }: RowProps) {
   const [testing, setTesting] = useState(false);
@@ -118,8 +118,8 @@ function SubscriptionRow({ subscription: { id, browser, version, platform, endpo
 }
 
 /**
- * Campfire's round `.btn` around an icon, as ember-rust sizes it in a panel (zz-ember.css): 36px, or 44px
- * for fingers. `.btn--reversed` and `.btn--negative` darken under a mouse (buttons.css).
+ * Campfire's round `.btn` around an icon, in a panel: 36px, or 44px for fingers. `.btn--reversed` and
+ * `.btn--negative` darken under a mouse (buttons.css).
  */
 function RoundButton({ label, disabled, onClick, className, children }: { label: string; disabled: boolean; onClick: () => void; className: string; children: ReactNode }) {
   return (

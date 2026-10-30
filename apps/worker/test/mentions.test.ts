@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Directory } from "@ember/protocol";
 import { mentionPromptItem } from "@ember/richtext";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -17,7 +16,7 @@ async function offered(viewer: Session, query = ""): Promise<string[]> {
   return [...(await response.text()).matchAll(/<lexxy-prompt-item search="([^"]*)"/g)].map((match) => match[1]!);
 }
 
-describe(feature("mentions.autocomplete"), () => {
+describe("@-mention people", () => {
   it("offers the room's active members whose names contain what's typed, by name, bots and you included", async () => {
     const ada = await signIn("Ada Lovelace");
     const grace = await signIn("grace Hopper");

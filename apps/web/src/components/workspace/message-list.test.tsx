@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Invitation, Me, Message } from "@ember/protocol";
 import type { ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
@@ -148,7 +147,7 @@ const drawnSince = (observer: MutationObserver) => drawnBy(observer.takeRecords(
 
 const ids = (from: number, to: number) => messages(from, to).map((m) => m.id);
 
-describe(feature("rooms.show"), () => {
+describe("Open a room", () => {
   /** The timeline of a room that's opening, watched for the messages its first page puts in it. */
   function opening() {
     const view = render(list({ status: "connecting", messages: [] }));
@@ -223,7 +222,7 @@ describe(feature("rooms.show"), () => {
   });
 });
 
-describe(feature("ui.empty-room"), () => {
+describe("Empty room", () => {
   it("welcomes people to a room with no messages yet", () => {
     render(list({ messages: [] }));
     expect(screen.getByRole("heading", { name: "Welcome to #general" })).toBeInTheDocument();
@@ -243,7 +242,7 @@ describe(feature("ui.empty-room"), () => {
   });
 });
 
-describe(feature("attachments.upload"), () => {
+describe("Attach files", () => {
   it("hands the files dropped anywhere on the room's messages to the composer, as a copy", () => {
     const onDropFiles = vi.fn();
     const { container } = render(list({ messages: messages(1, 3) }, vi.fn(), null, { onDropFiles }));
@@ -259,7 +258,7 @@ describe(feature("attachments.upload"), () => {
   });
 });
 
-describe(feature("dms.naming"), () => {
+describe("Group DMs and DM names", () => {
   it("names a DM's messages and its beginning for the others in it", () => {
     render(
       <MessageList roomName="Grace and Linus" direct invitation={null} onDismissInvitation={vi.fn()} state={{ ...initialRoomState, status: "open", messages: [] }} me={ada} actions={actions} editing={new Set()} editors={editors} onLoadOlder={vi.fn()} onLoadNewer={vi.fn()} onJumpToNewest={vi.fn()} />,
@@ -271,7 +270,7 @@ describe(feature("dms.naming"), () => {
   });
 });
 
-describe(feature("realtime.reconnect"), () => {
+describe("Catch up after a reconnect", () => {
   it("marks the timeline busy until the room lets the socket in, which brings its messages afresh", () => {
     const { rerender } = render(list({ status: "connecting", messages: [] }));
     expect(screen.getByRole("log")).toHaveAttribute("aria-busy", "true");
@@ -284,7 +283,7 @@ describe(feature("realtime.reconnect"), () => {
   });
 });
 
-describe(feature("boosts.remove"), () => {
+describe("Take back a reaction", () => {
   it("brings back a reaction shown as going once the room refuses to delete one, or lets the page in again", async () => {
     const boosted: Message = { ...message("m1"), boosts: [{ id: "b1", messageId: "m1", booster: ada, content: "👍", createdAt: "" }] };
     const pill = () => within(screen.getByRole("list", { name: "Reactions" })).getByRole("listitem");
@@ -306,7 +305,7 @@ describe(feature("boosts.remove"), () => {
   });
 });
 
-describe(feature("rooms.invitation-card"), () => {
+describe("Welcome and invite card", () => {
   const invitation = { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" };
   const card = () => screen.queryByRole("heading", { name: "Welcome to Ember" });
 
@@ -337,7 +336,7 @@ describe(feature("rooms.invitation-card"), () => {
   });
 });
 
-describe(feature("auth.memberful-sign-in"), () => {
+describe("Sign in with Memberful", () => {
   it("shows no welcome card while Memberful is members only, since its join link is off", () => {
     const account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: true, memberfulSignIn: true, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} };
     render(<AccountContext value={account}>{list({ messages: [], paged: false }, vi.fn(), { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" })}</AccountContext>);
@@ -346,7 +345,7 @@ describe(feature("auth.memberful-sign-in"), () => {
   });
 });
 
-describe(feature("accounts.ways-to-join"), () => {
+describe("Ways to join", () => {
   it("shows no welcome card while the join link is off, but shows it again once it's on", () => {
     const account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: false, openSignUp: true, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} };
     const welcome = (joinLink: boolean) => <AccountContext value={{ ...account, joinLink }}>{list({ messages: [], paged: false }, vi.fn(), { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" })}</AccountContext>;
@@ -357,7 +356,7 @@ describe(feature("accounts.ways-to-join"), () => {
   });
 });
 
-describe(feature("messages.day-separators"), () => {
+describe("Day separators", () => {
   it("heads each day with its date, and the date and time of its first message on hover", () => {
     render(list({ messages: [message("Saturday", "2026-10-10T09:00:00"), message("Sunday", "2026-10-11T09:00:00"), message("Later", "2026-10-11T15:04:00")] }));
     const days = screen.getAllByRole("heading", { level: 2 });
@@ -366,7 +365,7 @@ describe(feature("messages.day-separators"), () => {
   });
 });
 
-describe(feature("messages.history"), () => {
+describe("Scroll back through history", () => {
   it("loads earlier messages when the top of the timeline comes into view", () => {
     const onLoadOlder = vi.fn();
     render(list({ messages: [message("m2")], hasMore: true }, onLoadOlder));
@@ -465,7 +464,7 @@ describe(feature("messages.history"), () => {
   });
 });
 
-describe(feature("ui.scroll"), () => {
+describe("Stay at the newest message", () => {
   const jump = () => screen.queryByRole("button", { name: "Jump to newest message" });
 
   it("stays at the newest message as new ones come while you're near it", () => {
@@ -476,7 +475,7 @@ describe(feature("ui.scroll"), () => {
 
     rerender(list({ messages: messages(1, 7), arrivals: 1 }));
     expect(log.scrollTop).toBe(300);
-    // Within 100px of the end is at it, as in ember-rust.
+    // Within 100px of the end is at it.
     scrollTo(log, 220);
     rerender(list({ messages: messages(1, 8), arrivals: 2 }));
     expect(log.scrollTop).toBe(400);
@@ -562,8 +561,7 @@ describe(feature("ui.scroll"), () => {
     heights.m8 = 300;
     resize();
     expect(log.scrollTop).toBe(250);
-    // Nor as a message changes in the room, as ember-rust's maintain_scroll_controller.js keeps the
-    // bottom for an edit above the fold.
+    // Nor as a message changes in the room, keeping the bottom for an edit above the fold.
     heights.m2 = 200;
     rerender(list({ messages: messages(1, 8) }));
     expect(log.scrollTop).toBe(350);
@@ -628,7 +626,7 @@ describe(feature("ui.scroll"), () => {
   });
 });
 
-describe(feature("messages.permalink"), () => {
+describe("Link to a message", () => {
   it("centres the message a permalink goes to and outlines it, each time it's gone to", () => {
     // jsdom can't animate.
     const animate = vi.fn();
@@ -659,7 +657,7 @@ describe(feature("messages.permalink"), () => {
   });
 });
 
-describe(feature("messages.edit"), () => {
+describe("Edit a message", () => {
   it("leaves the reader where they are as an editor opens at the end, which following the end would push up and stop scrolling to the middle", () => {
     const shown = messages(1, 8);
     const { rerender } = render(list({ messages: shown }));
@@ -760,7 +758,7 @@ describe(feature("messages.edit"), () => {
     expect(scrolled).not.toHaveBeenCalled();
   });
 
-  it("still brings a reader near the end to new messages while an editor is open, as ember-rust's does", () => {
+  it("still brings a reader near the end to new messages while an editor is open", () => {
     const shown = messages(1, 8);
     const { rerender } = render(list({ messages: shown }));
     const log = screen.getByRole("log");

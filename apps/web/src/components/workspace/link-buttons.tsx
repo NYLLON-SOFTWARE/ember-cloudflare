@@ -2,9 +2,7 @@ import type { MouseEvent } from "react";
 import { Copy, QrCode, ShareAndroid } from "@/components/icons/iconoir";
 import { QrCodeLink } from "@/components/qr-code-link";
 
-// The buttons ember-rust puts beside a link to hand on, the join link and the sign-in link: its QR code,
-// and its copy and share controllers (`link_to_zoom_qr_code`, `button_to_copy_to_clipboard` and
-// `web_share_session_button`, crates/views/src/helpers/application.rs).
+// The buttons beside a link to hand on, the join link and the sign-in link: its QR code, Copy and Share.
 
 /** What a link's buttons are called, and what sharing it sends with it. */
 export interface LinkSharing {
@@ -16,7 +14,7 @@ export interface LinkSharing {
   text: string;
 }
 
-/** Campfire's round `.btn` showing only an icon, as zz-ember.css sizes it in a panel: 36px, and 44px for fingers. */
+/** Campfire's round `.btn` showing only an icon, in a panel: 36px, and 44px for fingers. */
 export const ROUND_BUTTON =
   "grid size-9 flex-none cursor-pointer place-items-center rounded-full border bg-background touch:size-11 disabled:pointer-events-none disabled:opacity-50";
 
@@ -33,7 +31,7 @@ interface LinkButtonsProps {
 
 /** `url`'s QR code, copy and share buttons, each styled with `className`. */
 export function LinkButtons({ url, sharing, qrCodeDrawn = false, className }: LinkButtonsProps) {
-  // As ember-rust's web_share_controller.js decides, before it's ever asked to share.
+  // Whether the browser can share at all, decided before it's ever asked to.
   const canShare = "canShare" in navigator;
 
   return (
@@ -53,7 +51,7 @@ export function LinkButtons({ url, sharing, qrCodeDrawn = false, className }: Li
   );
 }
 
-/** ember-rust's `button_to_copy_to_clipboard`, called `label` by screen readers, which copies `text`. */
+/** A copy button, called `label` by screen readers, which copies `text`. */
 export function CopyButton({ text, label, className }: { text: string; label: string; className: string }) {
   return (
     <button type="button" onClick={(event) => void copy(event, text)} className={className}>
@@ -64,9 +62,8 @@ export function CopyButton({ text, label, className }: { text: string; label: st
 }
 
 /**
- * Copies `text`, then plays the button's success animation from the start, as ember-rust's
- * copy_to_clipboard_controller.js does. A clipboard that refuses, as on a page that isn't served
- * securely, leaves the button as it was.
+ * Copies `text`, then plays the button's success animation from the start. A clipboard that refuses, as
+ * on a page that isn't served securely, leaves the button as it was.
  */
 async function copy({ currentTarget: button }: MouseEvent<HTMLButtonElement>, text: string) {
   button.classList.remove(...COPIED);

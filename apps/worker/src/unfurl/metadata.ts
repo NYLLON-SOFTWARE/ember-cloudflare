@@ -4,10 +4,9 @@ import { fetchContentType, isValidLocation, readHtml, type Outbound } from "./fe
 import { metaElements, type Attributes } from "./html";
 import { parseHttpUri, uriToString } from "./uri";
 
-// A link's preview, from its page's OpenGraph tags: ember-rust's `Metadata` and `Document`
-// (crates/ember/src/integrations/opengraph/metadata.rs and document.rs). Where ember-rust answers 500
-// (for a URL Ruby can't parse, an X post fxtwitter can't read, or markup Gumbo refuses), there's no
-// preview.
+// A link's preview, from its page's OpenGraph tags: Campfire's `Opengraph::Metadata` and
+// `Opengraph::Document`. For a URL Ruby can't parse, an X post fxtwitter can't read, or markup Gumbo
+// refuses, there's no preview.
 
 /** `Opengraph::Metadata::ATTRIBUTES` */
 const ATTRIBUTES = ["title", "url", "image", "description"] as const;
@@ -21,8 +20,8 @@ const IMAGE_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "im
 const MAX_TREE_DEPTH = 400;
 const MAX_ATTRIBUTES = 400;
 /**
- * How much of a title or description has its tags stripped. ember-rust strips all of it, but the HTML
- * parser does quadratic work on some markup, and the app shows at most 280 and 560 characters.
+ * How much of a title or description has its tags stripped, since the HTML parser does quadratic work on
+ * some markup, and the app shows at most 280 and 560 characters.
  */
 export const MAX_CLEANED_LENGTH = 4096;
 
@@ -34,7 +33,7 @@ export async function linkPreview(outbound: Outbound, url: string): Promise<Link
   const page = await readHtml(outbound, pageUrl(url));
   const found = page === null ? {} : opengraphAttributes(page);
   const canonicalUrl = found.url !== undefined && (await isValidLocation(outbound, found.url)) ? found.url : url;
-  // As in ember-rust, the image is checked before the title and description are.
+  // The image is checked before the title and description are.
   const image = await validImage(outbound, found.image);
   const title = found.title === undefined ? "" : cleanText(found.title);
   const description = found.description === undefined ? "" : cleanText(found.description);
@@ -45,7 +44,7 @@ export async function linkPreview(outbound: Outbound, url: string): Promise<Link
 
 /**
  * `fetch_document`'s URL: X and Twitter posts are read from fxtwitter.com, which serves their tags.
- * Their host matches in any case, where ember-rust only matches one written in lowercase.
+ * Their host matches in any case.
  */
 function pageUrl(url: string): string {
   const uri = parseHttpUri(url);
@@ -56,8 +55,8 @@ function pageUrl(url: string): string {
 /**
  * `opengraph_attributes`: from each `<meta>` whose `property` or `name` starts with "og:", the key is
  * that attribute (`property` when it has one) with every "og:" removed, and the value its non-blank
- * `content`. Later tags win. ember-rust also drops every non-ASCII character from a page without a
- * meta charset, which this keeps.
+ * `content`. Later tags win. Campfire also drops every non-ASCII character from a page without a meta
+ * charset, which this keeps.
  */
 export function opengraphAttributes(page: Uint8Array): Partial<Record<Attribute, string>> {
   const found: Partial<Record<Attribute, string>> = {};
@@ -84,10 +83,9 @@ async function validImage(outbound: Outbound, image: string | undefined): Promis
 class TooComplex extends Error {}
 
 /**
- * Rails' `strip_tags`, then `sanitize`: the text of `value` parsed as an HTML5 fragment in a body,
- * with scripting off, script text included and comments left out. ember-rust answers that text
- * escaped, and the composer escapes it again; this answers it as plain text, so "Tom & Jerry" shows
- * as written. Null for markup Gumbo refuses.
+ * Rails' `strip_tags`, then `sanitize`: the text of `value` parsed as an HTML5 fragment in a body, with
+ * scripting off, script text included and comments left out, answered as plain text rather than escaped,
+ * so "Tom & Jerry" shows as written. Null for markup Gumbo refuses.
  */
 export function cleanText(value: string): string | null {
   let depth = 0;

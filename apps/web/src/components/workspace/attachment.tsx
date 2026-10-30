@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { FileCard } from "./file-card";
 
 /**
- * A file message's file, as ember-rust's `attachment_presentation` shows it (crates/views/src/messages/presentation.rs):
+ * A file message's file:
  * an SVG of up to 5 MiB shows above its card, a video plays in place, a picture shows its thumbnail, or
  * without one, as a bot's has none, itself if it's a picture every browser shows of up to 5 MiB and 250
  * megapixels, and every other file shows its card.
@@ -22,11 +22,11 @@ export function Attachment({ file }: { file: StoredFile }) {
 /**
  * Whether a message may show `file` itself rather than only its thumbnail: a picture every browser shows,
  * whose size is known and at most 250 megapixels, as a small file can hold a picture far too large to
- * decode. ember-rust previews only a picture of such a size since its pull request #24.
+ * decode.
  */
 const showsItself = (file: StoredFile) => isWebImage(file.contentType) && isPreviewableSize(file);
 
-/** The size a message shows a file at, as ember-rust's `preview_dimensions` works it out: its own, scaled down to fit 1200×800. */
+/** The size a message shows a file at: its own, scaled down to fit 1200×800. */
 function shownSize({ width, height }: StoredFile): Size | null {
   if (!width || !height) return null;
   const scale = Math.min(1, PREVIEW_MAX_WIDTH / width, PREVIEW_MAX_HEIGHT / height);
@@ -34,16 +34,13 @@ function shownSize({ width, height }: StoredFile): Size | null {
 }
 
 /**
- * A picture, lazily loaded, which links to its file and opens it in the image viewer, as ember-rust's
- * `lightboxed_image_preview` does, with Download and Share taking the file's download address. A picture
- * not every browser shows, such as a HEIC or TIFF, opens as its thumbnail, where ember-rust's viewer shows
- * the original, which Chrome can't, and so does one over 250 megapixels, which only a message posted
- * before Ember kept to that limit has a thumbnail of. ember-rust's box is half the
- * picture's size, as its `inline_media_dimension_constraints` sets it, but the picture is at most 480px
- * wide and 640px or 70% of the screen tall (zz-ember.css), so a picture shown more than 480px wide leaves
- * the rest of its box blank below it. Ember's box keeps to those limits instead, so it's always the
- * picture's shape. The picture's alt text is the file's name, where ember-rust's has none. The viewer is
- * only there while it's open, so a timeline of pictures holds no viewer for each.
+ * A picture, lazily loaded, which links to its file and opens it in the image viewer, with Download and
+ * Share taking the file's download address. A picture not every browser shows, such as a HEIC or TIFF,
+ * opens as its thumbnail, since Chrome can't show the original, and so does one over 250 megapixels,
+ * which only a message posted before Ember kept to that limit has a thumbnail of. The picture is at most
+ * 480px wide and 640px or 70% of the screen tall, in a box that keeps to those limits, so the box is
+ * always the picture's shape. The picture's alt text is the file's name. The viewer is only there while
+ * it's open, so a timeline of pictures holds no viewer for each.
  */
 function PicturePreview({ file, src }: { file: StoredFile; src: string }) {
   const [viewing, setViewing] = useState(false);
@@ -56,7 +53,7 @@ function PicturePreview({ file, src }: { file: StoredFile; src: string }) {
       <a
         href={file.url}
         onClick={(event) => {
-          // A click with a modifier key or another button is the browser's, opening the file elsewhere, where ember-rust's opens the viewer.
+          // A click with a modifier key or another button is the browser's, opening the file elsewhere.
           if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
           event.preventDefault();
           setViewing(true);
@@ -79,10 +76,9 @@ function PicturePreview({ file, src }: { file: StoredFile; src: string }) {
 }
 
 /**
- * A video, which plays in place in a box half its size, as ember-rust's does. Behind its poster it loads
- * nothing until it's played; without one, as when its uploader's browser couldn't play it, which ember-rust's
- * server makes regardless, it loads enough to draw its first frame. It's named for its file, where
- * ember-rust's has no name.
+ * A video, which plays in place in a box half its size. Behind its poster it loads nothing until it's
+ * played; without one, as when its uploader's browser couldn't play it, it loads enough to draw its first
+ * frame. It's named for its file.
  */
 function VideoPreview({ file }: { file: StoredFile }) {
   const size = shownSize(file);
@@ -101,10 +97,9 @@ function VideoPreview({ file }: { file: StoredFile }) {
 }
 
 /**
- * An SVG, which shows above its card once it's within 200px of the timeline's view, as ember-rust's
- * `svg_preview` shows one: from a data URL (lib/svg-preview.ts), and only once it's decoded, so one that's
- * too big, broken or not an SVG leaves the card alone. ember-rust's watches the screen, which its scrolling
- * timeline clips, so it waits until it's in view. Its alt text is the file's name, as ember-rust's is.
+ * An SVG, which shows above its card once it's within 200px of the timeline's view: from a data URL
+ * (lib/svg-preview.ts), and only once it's decoded, so one that's too big, broken or not an SVG leaves the
+ * card alone. Its alt text is the file's name.
  */
 function SvgPreview({ file }: { file: StoredFile }) {
   const element = useRef<HTMLDivElement>(null);

@@ -8,17 +8,16 @@ import { hmacKey } from "./hmac";
 import { appPage, empty, formAnswer } from "./pages";
 import { workspace } from "./workspace";
 
-// Sign-in links, ported from ember-rust's session transfers (crates/ember/src/controllers/sessions/transfers.rs):
-// opening one signs that browser in as the person its id was made for, until it expires. ember-rust's
-// link is `/session/transfers/<id>`; this one keeps the id in its fragment (`transferLink`), and its
-// page sends it in a request's body, so no address the Worker is asked for, nor Cloudflare's log of
-// one, holds it. ember-rust's id is a Rails signed id of the person (presenters/accounts.rs); this one
-// is their id, the session that showed it and when it expires, signed with SESSION_SECRET as avatar
-// tokens are, so changing the secret ends every link, as changing ember-rust's SECRET_KEY_BASE does.
-// Unlike ember-rust's, a link works only while that session is still signed in as someone who may
-// show it: the person it's for, or an active administrator. So whatever ends a session, signing out,
-// a password reset, a removal or a ban, ends the links it showed, and losing administrator rights ends
-// the links an administrator showed of others, where ember-rust's keep working for their 4 hours.
+// Sign-in links, as Campfire's session transfers are: opening one signs that browser in as the person
+// its id was made for, until it expires. Campfire's link is `/session/transfers/<id>`; this one keeps
+// the id in its fragment (`transferLink`), and its page sends it in a request's body, so no address the
+// Worker is asked for, nor Cloudflare's log of one, holds it. The id is a Rails signed id of the person;
+// this one is their id, the session that showed it and when it expires, signed with SESSION_SECRET as
+// avatar tokens are, so changing the secret ends every link, as changing Campfire's SECRET_KEY_BASE
+// does. Unlike Campfire's, a link works only while that session is still signed in as someone who may
+// show it: the person it's for, or an active administrator. So whatever ends a session, signing out, a
+// password reset, a removal or a ban, ends the links it showed, and losing administrator rights ends the
+// links an administrator showed of others.
 
 /** `User::Transferable::TRANSFER_LINK_EXPIRY_DURATION`. */
 export const TRANSFER_LINK_EXPIRY_MS = 4 * 60 * 60 * 1000;
@@ -66,7 +65,7 @@ export async function transferOf(transferId: string, secret: string, now: number
 
 /**
  * `GET /session/transfers`, for anyone, signed in or not: the app's page, which signs in with the id in
- * its fragment straight away, as ember-rust's submits itself.
+ * its fragment straight away.
  */
 export async function transferPage(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return notFound(request);
@@ -74,10 +73,9 @@ export async function transferPage(request: Request, env: Env): Promise<Response
 }
 
 /**
- * `POST /api/session/transfers`, with the link's id (`LinkSignIn`), where ember-rust's form updates
- * `/session/transfers/<id>`: signs this browser in as the person the id names, with a session of its
- * own that replaces any it had without ending it, as ember-rust's `update` does, and answers who that
- * is. An id that's expired, tampered with or made up, or one for someone who's no longer active,
+ * `POST /api/session/transfers`, with the link's id (`LinkSignIn`): signs this browser in as the person
+ * the id names, with a session of its own that replaces any it had without ending it, and answers who
+ * that is. An id that's expired, tampered with or made up, or one for someone who's no longer active,
  * answers 400 with nothing else, as there, and so does a guest's while guests can't sign in, one whose
  * session can no longer show it, or a body without an id.
  */

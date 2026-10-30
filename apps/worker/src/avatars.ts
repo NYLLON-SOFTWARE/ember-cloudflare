@@ -12,9 +12,9 @@ import { NO_STORAGE } from "./files/uploads";
 import { empty, signInFirst } from "./pages";
 import { workspace } from "./workspace";
 
-// People's avatars, ported from ember-rust's crates/ember/src/controllers/users/avatars.rs: an image
-// at the address avatar-tokens.ts makes, for people signed in: the variant of the picture they
-// uploaded, or their initials, or the bot picture for a bot.
+// People's avatars, as Campfire's Users::AvatarsController serves them: an image at the address
+// avatar-tokens.ts makes, for people signed in: the variant of the picture they uploaded, or their
+// initials, or the bot picture for a bot.
 
 /** `expires_in 30.minutes, public: true, stale_while_revalidate: 1.week` */
 const CACHE_CONTROL = "max-age=1800, public, stale-while-revalidate=604800";
@@ -54,8 +54,8 @@ export async function showAvatar(request: Request, env: Env, token: string): Pro
 }
 
 /**
- * The variant of the picture someone uploaded, as ember-rust sends it inline, or null if R2 hasn't
- * got it, when their initials stand in. A picture's variant never changes, so its ETag is its key's.
+ * The variant of the picture someone uploaded, or null if R2 hasn't got it, when their initials stand
+ * in. A picture's variant never changes, so its ETag is its key's.
  */
 async function variant(request: Request, env: Env, { key, variant }: StoredPicture): Promise<Response | null> {
   const files = env.FILES;
@@ -71,9 +71,9 @@ async function variant(request: Request, env: Env, { key, variant }: StoredPictu
 }
 
 /**
- * An avatar's answer, as ember-rust sends it: `send_file` for the bot picture, `render` for initials.
- * A 304 says how long to keep the copy too, where ember-rust's says nothing of it, and a browser that
- * takes a 304's Cache-Control for its copy would then check it every time.
+ * An avatar's answer: `send_file` for the bot picture, `render` for initials. A 304 says how long to
+ * keep the copy too, and a browser that takes a 304's Cache-Control for its copy would then check it
+ * every time.
  */
 async function image(request: Request, svg: string, bot: boolean): Promise<Response> {
   const etag = await etagOf(svg);
@@ -105,8 +105,7 @@ export interface UserForm {
 
 /**
  * What a request with someone's fields sends, as the setup, join and bot forms send it: JSON, or with a
- * photo, a form whose `user` part is that JSON and whose `avatar` and `variant` parts are the photo, as
- * ember-rust's forms send `user[avatar]` with the rest of `user`.
+ * photo, a form whose `user` part is that JSON and whose `avatar` and `variant` parts are the photo.
  */
 export async function userFormOf(request: Request): Promise<UserForm | PictureRefusal> {
   if (!request.headers.get("Content-Type")?.startsWith("multipart/form-data")) {

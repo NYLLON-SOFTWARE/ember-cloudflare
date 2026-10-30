@@ -1,5 +1,5 @@
 // Resolving `<action-text-attachment>` elements to what they attach, as Action Text, Lexxy and
-// Ember's extensions do (ember-rust's crates/richtext/src/attachables.rs).
+// Campfire's extensions do.
 
 import { BODY, type HtmlParser } from "./markup";
 import { htmlEscape, isBlank, presence, strip, truncate } from "./ruby";
@@ -52,10 +52,10 @@ const IMAGE_CONTENT_TYPE = /^image(\/.+|$)/m;
 const VIDEO_CONTENT_TYPE = /^video(\/.+|$)/m;
 
 /**
- * Ember's `ActionText::Attachment.from_node` (reference/lib/rails_ext/action_text_attachables.rb):
- * a link preview, else a mentioned user, else Action Text's own attachables as Lexxy extends them.
- * `host` is the one the page is served from, which a preview's addresses mustn't name; plain text
- * doesn't depend on it. Throws `RenderError` where Ruby raises reading a preview's address.
+ * Campfire's `ActionText::Attachment.from_node` (lib/rails_ext/action_text_attachables.rb): a link
+ * preview, else a mentioned user, else Action Text's own attachables as Lexxy extends them. `host` is
+ * the one the page is served from, which a preview's addresses mustn't name; plain text doesn't depend
+ * on it. Throws `RenderError` where Ruby raises reading a preview's address.
  */
 export function attachmentFromNode(parse: HtmlParser, element: Element, resolve: ResolveMention, host = ""): Attachment {
   return { attachable: attachableFromNode(parse, element, resolve, host), caption: presence(getAttr(element, "caption")) };
@@ -200,8 +200,8 @@ const TWITTER_AVATAR_URL_PREFIX = "https://pbs.twimg.com/profile_images";
 export const isTwitterAvatar = (url: string | undefined) => url?.startsWith(TWITTER_AVATAR_URL_PREFIX) ?? false;
 
 /**
- * reference/app/views/action_text/attachables/_opengraph_embed.html.erb: the title, linked when
- * there's an address, and named by it when there's no title, then the description and the image.
+ * Campfire's app/views/action_text/attachables/_opengraph_embed.html.erb: the title, linked when there's
+ * an address, and named by it when there's no title, then the description and the image.
  */
 export function opengraphEmbedPartial(embed: OpengraphEmbed): string {
   const filename = embed.filename === undefined ? undefined : htmlEscape(truncate(embed.filename, 280));

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { APIRequestContext, Page } from "@playwright/test";
 import { cookieHeader, createRoom, createSession, ICON_CATALOG_LOADED, signInAs, type Session, type TestRoom } from "../../fixtures";
 import { expect, Member, test, unique } from "./fixtures";
@@ -21,7 +20,7 @@ async function canSee(request: APIRequestContext, session: Session, roomId: stri
   return response.status() === 200;
 }
 
-test.describe(feature("rooms.create-open"), () => {
+test.describe("Create an open room", () => {
   test("makes an open room from Rooms and permissions, opens it, and lets everyone in", async ({ members, request }) => {
     const ada = await members.signIn("Ada");
     const rail = ada.page.getByRole("navigation", { name: "Workspace" });
@@ -50,7 +49,7 @@ test.describe(feature("rooms.create-open"), () => {
   });
 });
 
-test.describe(feature("rooms.create-closed"), () => {
+test.describe("Create a private room", () => {
   test("makes a private room for you and the people chosen", async ({ members, request }) => {
     const [grace, linus] = [await createSession(request, unique("Grace")), await createSession(request, unique("Linus"))];
     const ada = await members.signIn("Ada");
@@ -76,7 +75,7 @@ test.describe(feature("rooms.create-closed"), () => {
   });
 });
 
-test.describe(feature("rooms.settings-page"), () => {
+test.describe("Room settings page", () => {
   test("renames a room from the settings in its header", async ({ page, rooms, session }) => {
     // As the person who made this test's rooms, who can change them.
     await signInAs(page, session);
@@ -89,7 +88,7 @@ test.describe(feature("rooms.settings-page"), () => {
     await expect(page).toHaveURL(new RegExp(`/rooms/opens/${rooms.general.id}/edit$`));
     await expect(page).toHaveTitle("Edit settings for general");
     await expect(page.getByRole("heading", { level: 1, name: "Room settings" })).toBeVisible();
-    // A room's settings are part of community settings, as ember-rust's pull request #24 lays them out.
+    // A room's settings are part of community settings.
     await expect(page.getByRole("navigation", { name: "Workspace" }).locator("[aria-current=page]")).toHaveAccessibleName("Workspace");
     await expect(page.getByRole("navigation", { name: "Community settings" }).locator("[aria-current=page]")).toHaveText("Rooms and permissions");
 
@@ -106,7 +105,7 @@ test.describe(feature("rooms.settings-page"), () => {
   });
 });
 
-test.describe(feature("rooms.edit-permissions"), () => {
+test.describe("Who can change a room", () => {
   test("shows other members a room's settings with nothing to change them with", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.page.getByRole("link", { name: "Settings for this room" }).click();
@@ -115,7 +114,7 @@ test.describe(feature("rooms.edit-permissions"), () => {
     await expect(ada.page.getByRole("textbox", { name: "Room name" })).toHaveCount(0);
     await expect(ada.page.getByRole("button", { name: "Save" })).toHaveCount(0);
 
-    // Back to Rooms and permissions, as ember-rust's pull request #24 links it.
+    // Back to Rooms and permissions.
     await ada.page.getByRole("link", { name: "Go Back" }).click();
     await expect(ada.page).toHaveURL(/\/account\/edit#channel-settings$/);
     await expect(ada.page.getByText("Community admins manage room order and permissions.")).toBeVisible();
@@ -133,7 +132,7 @@ test.describe(feature("rooms.edit-permissions"), () => {
   });
 });
 
-test.describe(feature("rooms.members"), () => {
+test.describe("Add and remove private room members", () => {
   test("adds and removes a private room's people, and someone removed who has it open finds it gone", async ({ members, request }) => {
     const ada = await members.signIn(unique("Ada"), { serverRooms: true });
     const linus = await members.signIn(unique("Linus"), { serverRooms: true });
@@ -172,7 +171,7 @@ test.describe(feature("rooms.members"), () => {
   });
 });
 
-test.describe(feature("rooms.convert-access"), () => {
+test.describe("Switch a room between open and private", () => {
   test("opens a private room to everyone with the Everyone switch", async ({ members, request }) => {
     const linus = await members.signIn(unique("Linus"), { serverRooms: true });
     const grace = await createSession(request, unique("Grace"));
@@ -191,7 +190,7 @@ test.describe(feature("rooms.convert-access"), () => {
   });
 });
 
-test.describe(feature("rooms.delete"), () => {
+test.describe("Delete a room", () => {
   test("deletes a room from its settings once you confirm, and someone with it open finds it deleted", async ({ members, request, rooms }) => {
     const ada = await members.signIn(unique("Ada"), { serverRooms: true });
     const grace = await members.signIn(unique("Grace"), { serverRooms: true });
@@ -227,7 +226,7 @@ test.describe(feature("rooms.delete"), () => {
   });
 });
 
-test.describe(feature("rooms.icon-picker"), () => {
+test.describe("Room icon picker", () => {
   test("picks a room's icon in its settings, which its sidebar row and header then show", async ({ members, request }) => {
     const ada = await members.signIn(unique("Ada"), { serverRooms: true });
     const design = await createRoom(request, ada.session, unique("Design"));
@@ -262,7 +261,7 @@ test.describe(feature("rooms.icon-picker"), () => {
   });
 });
 
-test.describe(feature("rooms.unsaved-changes"), () => {
+test.describe("Unsaved changes guard", () => {
   /** The dialog that asks before leaving a room's form with changes. */
   const unsaved = (page: Page) => page.getByRole("dialog", { name: "Unsaved Changes" });
   /** The rail's link to workspace settings: somewhere to go from a room's form. */

@@ -1,9 +1,8 @@
-import { feature } from "@ember/parity";
 import { expect, test } from "../../fixtures";
 import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { join } from "./fixtures";
 
-test.describe(feature("rooms.creation-permission"), () => {
+test.describe("Only administrators create rooms (setting)", () => {
   test("the administrator lets only administrators create rooms, which takes New room from members at once, and gives it back", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit#membership-settings");
@@ -24,7 +23,7 @@ test.describe(feature("rooms.creation-permission"), () => {
     try {
       await restrict.click();
       await expect(restrict).toBeChecked();
-      // The member's page follows without being loaded again, where ember-rust's waits for the next.
+      // The member's page follows without being loaded again.
       await expect(newRoom).toHaveCount(0);
       await expect(page.getByRole("link", { name: "New room" })).toBeVisible();
 

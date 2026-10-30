@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Room, RoomId } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ROOM_MEMBERS } from "../src/workspace-store";
@@ -14,7 +13,7 @@ const remove = (roomId: RoomId, session: Session) => api(`/api/rooms/${roomId}`,
 /** Expects the Workspace to have sent `tab` nothing but the answer to a ping sent now. */
 const heardNothing = async (tab: WorkspaceSocket) => expect(await tab.answers()).toBe(true);
 
-describe(feature("sidebar.live-updates"), () => {
+describe("Live sidebar updates", () => {
   it("shows a new open room in every tab of everyone's at once", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const tabs = [await openWorkspaceSocket(ada), await openWorkspaceSocket(ada), await openWorkspaceSocket(grace)];
@@ -68,7 +67,7 @@ describe(feature("sidebar.live-updates"), () => {
     expect(await adasTab.next()).toEqual({ type: "room.saved", room });
   });
 
-  it("takes a deleted room out of the sidebars of the people who were in it, telling nobody else, where ember-rust tells everyone", async () => {
+  it("takes a deleted room out of the sidebars of the people who were in it, telling nobody else", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const room = await createRoom("Plans", { closedTo: [ada.user.id], as: ada });
     const [adasTab, gracesTab] = [await openWorkspaceSocket(ada), await openWorkspaceSocket(grace)];

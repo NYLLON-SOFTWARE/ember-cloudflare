@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { AVATAR_PATH, AVATAR_TOO_LARGE, avatarSvg, MAX_AVATAR_SIZE, type Directory, type DirectoryUser, type NewWorkspace, type Profile, type ProfileAnswer, type UserId } from "@ember/protocol";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -8,8 +7,7 @@ import { MAX_PICTURE_REQUEST } from "../src/files/pictures";
 import type { Workspace } from "../src/workspace";
 import { api, apiWith, cookieOf, freshDeploy, openWorkspaceSocket, origin, recordedImage, shown, signIn, workspaceSql, workspaceStub, type Session } from "./support";
 
-// Avatars people upload, as ember-rust's profile, setup and sign-up forms take them
-// (crates/ember/src/controllers/users/avatars.rs, profiles.rs, first_runs.rs and users.rs).
+// Avatars people upload, setup and sign-up forms take them.
 
 const bindings = env as unknown as Env;
 const files = bindings.FILES!;
@@ -22,10 +20,10 @@ afterEach(() => vi.restoreAllMocks());
 
 const as = (session: Session | null): Record<string, string> => (session ? { Cookie: session.cookie } : {});
 
-/** moon.jpg, a JPEG of 640×640, as ember-rust's tests upload it. */
+/** moon.jpg, a JPEG of 640×640. */
 const moon = (name = "moon.jpg", type = "image/jpeg") => new File([recordedImage("moon-thumb.jpg")], name, { type });
 
-/** ember-rust's variant of moon.jpg, a WebP of 512×512, standing in for the one the browser makes. */
+/** The variant of moon.jpg, a WebP of 512×512, standing in for the one the browser makes. */
 const moonVariant = () => new File([recordedImage("moon-avatar.webp")], "blob", { type: "image/webp" });
 
 /** A form with `avatar` and the `variant` made of it, as the app sends one, with `fields` before them. */
@@ -100,7 +98,7 @@ async function breakDeletes(): Promise<() => Promise<void>> {
   return () => runInDurableObject(workspaceStub(), (instance: Workspace) => void ((instance as unknown as { env: Env }).env = original!));
 }
 
-describe(feature("users.avatar-upload"), () => {
+describe("Upload an avatar", () => {
   it("gives you the picture you choose, served as the variant your browser made of it, keeping the picture as it came", async () => {
     const ada = await signIn("Ada Lovelace");
     await workspaceSql("UPDATE users SET updated_at = ? WHERE id = ?", LONG_AGO, ada.user.id);
@@ -156,7 +154,7 @@ describe(feature("users.avatar-upload"), () => {
     expect(new Uint8Array(await (await avatar(now.avatarUrl, grace)).arrayBuffer())).toEqual(recordedImage("moon-avatar.webp"));
   });
 
-  it("keeps any file, serving the initials for one ember-rust can't resize, whatever it's named", async () => {
+  it("keeps any file, serving the initials for one Campfire doesn't resize, whatever it's named", async () => {
     const ada = await signIn("Ada Lovelace");
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>';
     // An SVG named and typed as a JPEG, with a variant the browser drew of it.
@@ -305,7 +303,7 @@ describe(feature("users.avatar-upload"), () => {
   });
 });
 
-describe(feature("auth.first-run"), () => {
+describe("Set up the workspace", () => {
   const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
 
   /** Posts the Set up Ember form with `form`'s photo, answering the response. */
@@ -345,7 +343,7 @@ describe(feature("auth.first-run"), () => {
   });
 });
 
-describe(feature("auth.sign-up"), () => {
+describe("Sign up with the join link", () => {
   const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "first compiler" };
 
   const joinCode = async () => ((await workspaceSql("SELECT join_code FROM accounts")) as Array<{ join_code: string }>)[0]!.join_code;

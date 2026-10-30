@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Sidebar, SidebarRoom } from "@ember/protocol";
 import { allowNotifications, isolateRoom, openRoom, signInAs } from "../../fixtures";
 import { expect, test } from "./fixtures";
@@ -9,7 +8,7 @@ test.beforeEach(async ({ page, session }) => {
   await signInAs(page, session);
 });
 
-test.describe(feature("notifications.levels"), () => {
+test.describe("Notification levels", () => {
   test("the header's bell fits the phone beside a long room name, and a tap moves it on, confirming the level under it", async ({ page, room, screenIsFine }) => {
     await allowNotifications(page.context());
     const named = { ...room, name: LONG_NAME };
@@ -29,7 +28,7 @@ test.describe(feature("notifications.levels"), () => {
   });
 });
 
-test.describe(feature("notifications.enable"), () => {
+test.describe("Turn on notifications", () => {
   test("Enable notifications fits the phone beside a long room name, and so does its setup dialog, with its help's one section open", async ({ page, room, screenIsFine }) => {
     // As in Safari on an iPhone, which only has push once Ember is on the Home Screen.
     await page.addInitScript(() => Reflect.deleteProperty(window, "PushManager"));
@@ -46,7 +45,7 @@ test.describe(feature("notifications.enable"), () => {
   });
 });
 
-test.describe(feature("notifications.profile-list"), () => {
+test.describe("Levels on your profile", () => {
   test("your conversation notifications fit the phone, with long names and a room you've hidden", async ({ page, room, session, screenIsFine }) => {
     const rooms: SidebarRoom[] = [
       { ...room, kind: "open", icon: null, unread: false, involvement: "mentions" },

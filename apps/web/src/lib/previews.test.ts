@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { avatarVariantOf, fitted, previewOf } from "./previews";
 
@@ -82,8 +81,8 @@ async function plays(video: HTMLVideoElement, size?: VideoSize): Promise<number>
 
 const file = (name: string, type: string) => new File(["bytes"], name, { type });
 
-describe(feature("attachments.previews"), () => {
-  it("scales a preview down, never up, to fit 1200×800, as ember-rust's `resize_to_limit` does", () => {
+describe("Image, video and file previews", () => {
+  it("scales a preview down, never up, to fit 1200×800, as `resize_to_limit` does", () => {
     const sizes = [
       [4000, 2667],
       [1920, 1080],
@@ -196,7 +195,7 @@ describe(feature("attachments.previews"), () => {
     expect(await encoding).toBeNull();
   });
 
-  it("makes none of a picture or video over 250 megapixels, decoding no picture and seeking no frame of it, as ember-rust makes none", async () => {
+  it("makes none of a picture or video over 250 megapixels, decoding no picture and seeking no frame of it", async () => {
     decodes(25_001, 10_000);
     expect(await previewOf(file("panorama.png", "image/png"))).toBeNull();
     expect(await avatarVariantOf(file("panorama.jpg", "image/jpeg"))).toBeNull();
@@ -218,8 +217,8 @@ describe(feature("attachments.previews"), () => {
   });
 });
 
-describe(feature("users.avatar-upload"), () => {
-  it("makes an avatar's variant within 512×512, as ember-rust's `:square` variant, and lets go of the file", async () => {
+describe("Upload an avatar", () => {
+  it("makes an avatar's variant within 512×512, and lets go of the file", async () => {
     expect(fitted({ width: 4000, height: 3000 }, { width: 512, height: 512 })).toEqual({ width: 512, height: 384 });
     decodes(3000, 4000);
     const variant = await avatarVariantOf(file("ada.jpg", "image/jpeg"));
@@ -240,7 +239,7 @@ describe(feature("users.avatar-upload"), () => {
     expect((await avatarVariantOf(file("ada.png", "image/png")))?.type).toBe("image/png");
   });
 
-  it("makes none of a file ember-rust doesn't resize, or that the browser can't decode", async () => {
+  it("makes none of a file that can't be resized, or that the browser can't decode", async () => {
     for (const [name, type] of [
       ["logo.svg", "image/svg+xml"],
       ["ada.bmp", "image/bmp"],

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +19,7 @@ afterEach(() => {
   for (const name of stubbed.splice(0)) delete (navigator as unknown as Record<string, unknown>)[name];
 });
 
-describe(feature("accounts.join-link"), () => {
+describe("Join link", () => {
   it("shows the absolute join link, read-only, under a label everyone sees", () => {
     render(<InviteLink joinCode={JOIN_CODE} />);
     const link = screen.getByRole("textbox", { name: "Share to invite more people" });
@@ -49,7 +48,7 @@ describe(feature("accounts.join-link"), () => {
   });
 });
 
-describe(feature("accounts.regenerate-join-link"), () => {
+describe("Regenerate the join link", () => {
   it("ends with Regenerate join link for whoever can regenerate it", async () => {
     const onRegenerate = vi.fn();
     render(<InviteLink joinCode={JOIN_CODE} onRegenerate={onRegenerate} />);
@@ -70,7 +69,7 @@ describe(feature("accounts.regenerate-join-link"), () => {
   });
 });
 
-describe(feature("accounts.qr-codes"), () => {
+describe("QR codes for links", () => {
   it("opens the join link's QR code in the image viewer", async () => {
     render(<InviteLink joinCode={JOIN_CODE} />);
     await userEvent.click(screen.getByRole("link", { name: "Show join link QR code" }));

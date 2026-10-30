@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
@@ -9,7 +8,7 @@ import { connect, freshRoom, post, roomSql, roomStub, settle, signIn } from "./s
 
 const names = (users: { name: string }[]) => users.map((u) => u.name).sort();
 
-describe(feature("realtime.presence"), () => {
+describe("Presence", () => {
   it("tells newcomers who is here and tells everyone else they arrived", async () => {
     const room = await freshRoom("presence");
     const ada = await connect(room, "Ada");
@@ -66,7 +65,7 @@ describe(feature("realtime.presence"), () => {
   });
 });
 
-describe(feature("realtime.typing"), () => {
+describe("Typing indicator", () => {
   it("tells everyone else when someone starts and stops typing", async () => {
     const room = await freshRoom("typing");
     const ada = await connect(room, "Ada");
@@ -126,7 +125,7 @@ describe(feature("realtime.typing"), () => {
   });
 });
 
-describe(feature("realtime.reconnect"), () => {
+describe("Catch up after a reconnect", () => {
   it("answers heartbeats, so clients can tell a dead connection from a quiet room", async () => {
     const ada = await connect(await freshRoom("heartbeat"), "Ada");
     ada.sendRaw('{"type":"ping"}');
@@ -186,7 +185,7 @@ describe(feature("realtime.reconnect"), () => {
   });
 });
 
-describe(feature("platform.hibernation"), () => {
+describe("Hibernating rooms", () => {
   it("keeps sockets, presence and who-said-what when the room hibernates", async () => {
     const room = await freshRoom("hibernate");
     const ada = await connect(room, "Ada");

@@ -5,17 +5,16 @@ import { MainContent, SkipLink } from "@/components/main-content";
 import { Version } from "@/components/version";
 import { cn } from "@/lib/utils";
 
-// What ember-rust's sign-in and join pages share (sessions/new.html and users/new.html, styled by the
-// .mb-auth-* rules in zz-ember.css): a card on the surface, holding a heading and a form, with Ember's
-// version under it, where the help contact was until its pull request #24 took that away.
+// What the sign-in and join pages share: a card on the surface, holding a heading and a form, with
+// Ember's version under it.
 
 /** What the app knows about the workspace before anyone signs in. */
 export type SignedOutWorkspace = Omit<Bootstrap, "user">;
 
-/** ember-rust's `.mb-auth-form`. */
+/** How a sign-in card lays out its form. */
 export const AUTH_FORM = "flex flex-col gap-5";
 
-/** ember-rust's `.mb-auth-page`: what `children` holds, the card and anything above it, then the version. */
+/** The page around a sign-in card: what `children` holds, the card and anything above it, then the version. */
 export function AuthPage({ workspace, children }: { workspace: SignedOutWorkspace; children: ReactNode }) {
   return (
     <>
@@ -37,7 +36,7 @@ export function Problem({ children }: { children: ReactNode }) {
   );
 }
 
-/** ember-rust's `.panel.mb-auth-card`. */
+/** The card a sign-in page holds. */
 export function AuthCard({ className, ...props }: ComponentProps<"section">) {
   return (
     <section
@@ -50,7 +49,7 @@ export function AuthCard({ className, ...props }: ComponentProps<"section">) {
   );
 }
 
-/** ember-rust's `.mb-auth-heading`: the workspace's logo, at `logo` if it has one, over the title and a line under it. */
+/** A sign-in card's heading: the workspace's logo, at `logo` if it has one, over the title and a line under it. */
 export function AuthHeading({ title, logo, children }: { title: string; logo: string | null; children: ReactNode }) {
   return (
     <header className="mb-7 text-center">
@@ -61,7 +60,7 @@ export function AuthHeading({ title, logo, children }: { title: string; logo: st
   );
 }
 
-/** The workspace's logo at `logo`, 48px wide, as ember-rust's `.mb-auth-logo`, or Ember's flame while it has none. */
+/** The workspace's logo at `logo`, 48px wide, or Ember's flame while it has none. */
 export function AuthLogo({ logo }: { logo: string | null }) {
   if (logo) return <AccountLogo src={logo} className="mx-auto mb-5 size-12" />;
   return <img src="/ember-icon.png" alt="Ember" width={48} height={48} className="mx-auto mb-5 block size-12 object-contain" />;

@@ -78,12 +78,11 @@ function whenIdle(run: () => void): () => void {
 }
 
 /**
- * What the rail marks on each page, as ember-rust's shell.js does: the logo and Home at home, Home on
- * a room's page and the pages that go on to one, Search on search, Admin or Workspace on every page of
- * community settings (a room's forms, the bot pages and the Custom CSS page among them, as pull request
- * #24 has it), your avatar on your profile, and nothing on a DM's settings or your push subscriptions,
- * whose addresses none of its links have, nor on New direct message's, which goes on to the last room
- * visited at once.
+ * What the rail marks on each page: the logo and Home at home, Home on a room's page and the pages that
+ * go on to one, Search on search, Admin or Workspace on every page of community settings (a room's
+ * forms, the bot pages and the Custom CSS page among them), your avatar on your profile, and nothing on
+ * a DM's settings or your push subscriptions, whose addresses none of its links have, nor on New direct
+ * message's, which goes on to the last room visited at once.
  */
 const RAIL_PAGES = {
   home: "home",
@@ -161,7 +160,7 @@ function RarePage({ show, loading, onFailed }: RarePageProps) {
   return pages ? show(pages) : loading;
 }
 
-/** As ember-rust sends someone home from a room they can't see (controllers/rooms.rs, `set_room`). */
+/** Where someone goes from a room they can't see. */
 const ROOM_NOT_FOUND: Redirect = { path: "/", alert: "Room not found or inaccessible" };
 
 /** What an alert says about a request that failed: the server's reason, or that Ember couldn't be reached. */
@@ -183,13 +182,10 @@ function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
 }
 
 /**
- * Where an address goes on to once someone's rooms are known, as ember-rust redirects it, or null when
- * it shows a page of its own: home to the last room visited (controllers/welcome.rs), `/rooms` to the
- * newest room (rooms.rs, `index`), a room's address for its kind to the room's own (rooms/opens.rs,
- * closeds.rs and directs.rs), and a DM's settings home, as `set_room` sends someone, unless it's theirs.
- * New direct message's goes home too, under the dialog it opens, where ember-rust's is a page, and a
- * message's own address goes on to its permalink, where ember-rust's shows the message alone
- * (messages.rs, `show`).
+ * Where an address goes on to once someone's rooms are known, or null when it shows a page of its own:
+ * home to the last room visited, `/rooms` to the newest room, a room's address for its kind to the
+ * room's own, and a DM's settings home, unless it's theirs. New direct message's goes home too, under
+ * the dialog it opens, and a message's own address goes on to its permalink.
  */
 function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
   switch (route.page) {
@@ -198,7 +194,7 @@ function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
       return room && { path: roomPath(room.id) };
     }
     case "newest-room":
-      // ember-rust fails with no room to go to (`room_url(nil)`), where home says there are none.
+      // With no room to go to, home says there are none.
       return { path: rooms.length > 0 ? roomPath(rooms.at(-1)!.id) : "/" };
     case "room-of-kind": {
       // A direct message's goes on without looking, and the room's own address checks it.
@@ -221,13 +217,12 @@ function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
 }
 
 /**
- * ember-rust's drawer layout (`(max-width: 900px)` in shell.js): `max-md`, 900px wide and below, where
- * the rail and sidebar move into a drawer opened from the header, or on a page of community settings,
- * the rail alone.
+ * The drawer layout: `max-md`, 900px wide and below, where the rail and sidebar move into a drawer
+ * opened from the header, or on a page of community settings, the rail alone.
  */
 const DRAWER_LAYOUT = "(width < 56.3125rem)";
 
-/** ember-rust's authenticated layout: rail | sidebar | header over main, or the drawer layout. */
+/** The signed-in layout: rail | sidebar | header over main, or the drawer layout. */
 interface Props {
   me: Me;
   /** The workspace's name, which titles the rail's logo and heads the sidebar. */
@@ -271,8 +266,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
   const [newDirect, setNewDirect] = useState<{ opener: HTMLElement | null } | null>(null);
-  // Activity's filter, which lives as long as the page, as ember-rust's shell.js keeps it: other pages
-  // keep it on, and loading the page again starts with it off.
+  // Activity's filter, which lives as long as the page: other pages keep it on, and loading the page
+  // again starts with it off.
   const [unreadOnly, setUnreadOnly] = useState(false);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
   const drawerRail = useRef<HTMLDivElement>(null);
@@ -289,15 +284,14 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const favorites = list?.favorites ?? NO_FAVORITES;
   const sharedOrder = list?.sharedOrder ?? NO_ORDER;
   const starred = useMemo(() => new Set(favorites.rooms), [favorites]);
-  // Not anyone the directory has heard is removed or banned since the list loaded, whom ember-rust's
-  // next page, such as the one removing someone loads, no longer suggests.
+  // Not anyone the directory has heard is removed or banned since the list loaded.
   const listedSuggestions = list?.suggestions ?? NO_PEOPLE;
   const suggestions = useMemo(
     () => listedSuggestions.filter((person) => (directory.people.get(person.id)?.status ?? "active") === "active"),
     [listedSuggestions, directory.people],
   );
 
-  // Crossing 900px, as a big phone does on its side, closes the drawer, as in ember-rust's shell.js.
+  // Crossing 900px, as a big phone does on its side, closes the drawer.
   // The wider layout has no drawer, and one left open would be hidden but still dim the page.
   useEffect(() => {
     const drawerLayout = matchMedia(DRAWER_LAYOUT);
@@ -306,8 +300,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     return () => drawerLayout.removeEventListener("change", close);
   }, []);
 
-  // Another page starts with the drawer closed, as each of ember-rust's does, but the one Activity goes to
-  // from the drawer on a page of community settings, which keeps it open on the conversations it filters.
+  // Another page starts with the drawer closed, but the one Activity goes to from the drawer on a page
+  // of community settings, which keeps it open on the conversations it filters.
   const keepDrawer = useRef(false);
   useEffect(() => {
     if (!keepDrawer.current) setDrawerOpen(false);
@@ -318,7 +312,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const listed = rooms !== null;
   useEffect(() => (listed ? whenIdle(() => void loadRarePages().catch(() => {})) : undefined), [listed]);
 
-  // On a phone, the drawer closes as New direct message opens, as direct_message_controller.js has it.
+  // On a phone, the drawer closes as New direct message opens.
   const openNewDirect = (opener: HTMLElement | null) => {
     setDrawerOpen(false);
     setNewDirect({ opener });
@@ -397,12 +391,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     setReturns((returns) => returns + 1);
   }, [listedAgain]);
 
-  // A room the list doesn't have may be one made, or opened to this person, since it came, which
-  // ember-rust's server would know: the list is asked for again, once each time an address naming it is
-  // visited, before a room's address counts as naming a room they can't see, and so its settings, once
-  // saved, leave it where it was made rather than last, as a room just made goes. The sidebar has one
-  // list on its way at a time, so an older one can't take the place of a newer one, which has changes
-  // made here since, and this waits for one asked for after the address was visited.
+  // A room the list doesn't have may be one made, or opened to this person, since it came: the list is
+  // asked for again, once each time an address naming it is visited, before a room's address counts as
+  // naming a room they can't see, and so its settings, once saved, leave it where it was made rather
+  // than last, as a room just made goes. The sidebar has one list on its way at a time, so an older one
+  // can't take the place of a newer one, which has changes made here since, and this waits for one asked
+  // for after the address was visited.
   const [askedAgain, setAskedAgain] = useState<{ route: Route; answered: boolean } | null>(null);
   // A room's address the list couldn't be asked for again for, which stays rather than going home as if
   // the room weren't theirs, and says why in the page, until it's left or Try again asks again.
@@ -452,20 +446,19 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     const shown = room ?? direct;
     if (shown?.id === roomId) setGone({ room: shown, route });
   }
-  // Go Back on the settings pages returns to the last room visited, as ember-rust's
-  // `link_back_to_last_room_visited` does, or home when there's none.
+  // Go Back on the settings pages returns to the last room visited, or home when there's none.
   const lastRoom = rooms && lastRoomVisited(rooms);
   const back = lastRoom ? roomPath(lastRoom.id) : "/";
   const select = (roomId: string) => navigate(roomPath(roomId));
   // A suggestion, or the button on someone's page, starts the DM with its person, or opens the one they
-  // have, and goes there, as ember-rust's posts its form, listing it as the server answers.
+  // have, and goes there, listing it as the server answers.
   const startDirectWith = async (person: User) => {
     const answered = askForRoom();
     const mark = pageMark();
     try {
       const room = await startDirect([person.id]);
       answered({ type: "saved", room });
-      // A page the person has gone to meanwhile stays, as a visit stops ember-rust's form going on to the DM.
+      // A page the person has gone to meanwhile stays.
       if (!mounted.current || pageMark() !== mark) return false;
       navigate(roomPath(room.id));
       return true;
@@ -474,19 +467,18 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       return false;
     }
   };
-  // Following a link in the drawer closes it, as ember-rust's shell.js does: one to another page once
-  // that page shows, which unsaved changes hold off while they're asked about, and one to the page
-  // shown at once. One the browser opens somewhere else, such as in a new tab, leaves this page as it
-  // was, so the drawer stays open, where ember-rust's closes it anyway.
+  // Following a link in the drawer closes it: one to another page once that page shows, which unsaved
+  // changes hold off while they're asked about, and one to the page shown at once. One the browser opens
+  // somewhere else, such as in a new tab, leaves this page as it was, so the drawer stays open.
   const closeForLinkHere = (event: MouseEvent) => {
     // A link followed in place has kept the browser from following it.
     if (!event.defaultPrevented) return;
     const link = (event.target as Element).closest("a[href]");
     if (link instanceof HTMLAnchorElement && link.pathname === location.pathname) setDrawerOpen(false);
   };
-  // Following a link in the rail or the sidebar turns Activity off, as shell.js does, once the app goes
-  // there, so keeping unsaved changes, which holds it here, keeps Activity on, where shell.js turns it
-  // off anyway. One the browser opens somewhere else leaves this page as it was, as it leaves the drawer.
+  // Following a link in the rail or the sidebar turns Activity off once the app goes there, so keeping
+  // unsaved changes, which holds it here, keeps Activity on. One the browser opens somewhere else leaves
+  // this page as it was, as it leaves the drawer.
   const showAllForLink = (event: MouseEvent) => {
     if (event.defaultPrevented && (event.target as Element).closest("a[href]")) afterNavigating(() => setUnreadOnly(false));
   };
@@ -495,9 +487,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     on: unreadOnly,
     unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length,
     onToggle: () => {
-      // A page of community settings has no conversations to show, so Activity goes home to them, as
-      // shell.js visits it there, once unsaved changes let it. Pressed in the drawer, it keeps the drawer
-      // open, as it is when Activity's pressed on any other page, where shell.js's visit closes it.
+      // A page of community settings has no conversations to show, so Activity goes home to them, once
+      // unsaved changes let it. Pressed in the drawer, it keeps the drawer open, as it is when
+      // Activity's pressed on any other page.
       if (!settings) return setUnreadOnly((on) => !on);
       const inDrawer = drawerOpen;
       navigate("/");
@@ -627,8 +619,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           );
         if (route.page === "home" && rooms && !goingOn) return <WelcomePage me={me} />;
         // Why the room can't show, kept where it would show rather than in an alert that fades, as a
-        // browser's own page says when ember-rust's server can't be reached. The header keeps the way to
-        // the other rooms on a phone.
+        // browser's own page says when a server can't be reached. The header keeps the way to the other
+        // rooms on a phone.
         if (unansweredHere)
           return (
             <>
@@ -650,15 +642,15 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     }
   };
 
-  // The Sheet wraps the whole layout so the header's menu button can be its trigger, which gives
-  // it aria-expanded and gets focus back to it when the drawer closes. The skip link comes first,
-  // and the rail and conversations are ember-rust's landmarks in either layout. On a page of community
-  // settings, the header spans the column beside the rail, 244px wide there, and the links to their
-  // sections, which it brings, fill that column under it, or at 900px and below, a row of their own.
-  // The layout contains and clips whatever is placed absolutely inside it, such as text for screen
-  // readers only, and can't scroll itself. Otherwise that text, far down a long page, would reach past
-  // it and make the document scrollable, so that a mouse wheel over the header, or a change of the
-  // address's fragment, would scroll the whole layout up.
+  // The Sheet wraps the whole layout so the header's menu button can be its trigger, which gives it
+  // aria-expanded and gets focus back to it when the drawer closes. The skip link comes first, and the
+  // rail and conversations are landmarks in either layout. On a page of community settings, the header
+  // spans the column beside the rail, 244px wide there, and the links to their sections, which it
+  // brings, fill that column under it, or at 900px and below, a row of their own. The layout contains
+  // and clips whatever is placed absolutely inside it, such as text for screen readers only, and can't
+  // scroll itself. Otherwise that text, far down a long page, would reach past it and make the document
+  // scrollable, so that a mouse wheel over the header, or a change of the address's fragment, would
+  // scroll the whole layout up.
   const layout = (
     <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
       <DrawerOpen value={drawerOpen}>
@@ -681,14 +673,13 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           <SheetContent
             side="left"
             showCloseButton={false}
-            // As ember-rust's shell.js does, opening it focuses its close button, or with the rail alone, its first link.
+            // Opening it focuses its close button, or with the rail alone, its first link.
             onOpenAutoFocus={(event) => {
               event.preventDefault();
               (settings ? drawerRail.current?.querySelector<HTMLElement>("a[href]") : closeDrawerButton.current)?.focus();
             }}
             // Closing gives focus back to the menu button once the drawer has slid away, but only if focus went
-            // with it: by then New direct message's search, or whatever was tapped as it slid, can have it, and
-            // ember-rust's shell.js closes the drawer for New direct message without giving focus back.
+            // with it: by then New direct message's search, or whatever was tapped as it slid, can have it.
             onCloseAutoFocus={(event) => {
               const focused = document.activeElement;
               if (focused && focused !== document.body) event.preventDefault();
@@ -704,11 +695,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             <div ref={drawerRail} className="pt-[env(safe-area-inset-top)]">
               {rail}
             </div>
-            {/* As in ember-rust, the drawer leaves at least 16px of the room showing. */}
+            {/* The drawer leaves at least 16px of the room showing. */}
             {!settings && (
               <aside aria-label="Conversations" className="relative w-sidebar min-w-0 overflow-hidden border-r pt-[env(safe-area-inset-top)]">
-                {/* ember-rust's .mb-sidebar-close: a 44px button clear of the status bar, first in the sidebar's tab order,
-                    with Iconoir's xmark, where its pull request #24 draws Lucide's x. */}
+                {/* A 44px button clear of the status bar, first in the sidebar's tab order, with Iconoir's xmark. */}
                 <SheetClose
                   ref={closeDrawerButton}
                   aria-label="Close conversations"

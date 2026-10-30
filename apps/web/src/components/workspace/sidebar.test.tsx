@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Account, DirectoryUser, Favorites, SidebarRoom, User } from "@ember/protocol";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -68,7 +67,7 @@ const row = (name: string) => rows().find((link) => link.textContent === `#${nam
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("accounts.tagline"), () => {
+describe("Workspace tagline", () => {
   it("heads the list with the workspace's tagline in small type under its name, and nothing while it has none", () => {
     const tagline = "Engines for every occasion";
     const { rerender } = renderSidebar({ workspaceName: "Analytical Engines" }, { ...EMBER, tagline });
@@ -87,7 +86,7 @@ describe(feature("accounts.tagline"), () => {
   });
 });
 
-describe(feature("sidebar.rooms"), () => {
+describe("Conversations sidebar", () => {
   it("lists the rooms under the workspace name and marks the one you're in", () => {
     renderSidebar({ workspaceName: "Analytical Engines", currentRoomId: "random" });
     expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
@@ -111,7 +110,7 @@ describe(feature("sidebar.rooms"), () => {
   });
 });
 
-describe(feature("rooms.icons"), () => {
+describe("Room icons", () => {
   it("shows each room's icon before its name, or `#`", () => {
     renderSidebar({ rooms: [{ ...rooms[0]!, icon: "coffee" }, rooms[1]!], currentRoomId: "general" });
     const [coffee, random] = rows();
@@ -121,7 +120,7 @@ describe(feature("rooms.icons"), () => {
   });
 });
 
-describe(feature("sidebar.unread"), () => {
+describe("Unread rooms", () => {
   it("makes an unread room's row bold, with a dot, and says so to screen readers", () => {
     renderSidebar({ rooms: [{ ...rooms[0]!, unread: true }, rooms[1]!] });
     const [general, random] = rows();
@@ -145,7 +144,7 @@ describe(feature("sidebar.unread"), () => {
   });
 });
 
-describe(feature("sidebar.activity-filter"), () => {
+describe("Activity filter", () => {
   const marked = [{ ...rooms[0]!, unread: true }, rooms[1]!, { id: "design", name: "design", kind: "open" as const, icon: null, unread: true, involvement: "mentions" as const }];
 
   it("shows only the rows marked unread, without the people suggested for DMs", () => {
@@ -172,7 +171,7 @@ describe(feature("sidebar.activity-filter"), () => {
   });
 });
 
-describe(feature("sidebar.room-order"), () => {
+describe("Room order", () => {
   it("lists your starred rooms first, in the order you starred them, then the rest by name", () => {
     const more = [...rooms, { id: "design", name: "Design", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const }, { id: "ops", name: "ops", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const }];
     renderSidebar({ rooms: more, favorites: { rooms: ["random", "ops"], version: 2 } });
@@ -180,7 +179,7 @@ describe(feature("sidebar.room-order"), () => {
   });
 });
 
-describe(feature("sidebar.shared-order"), () => {
+describe("Shared room order", () => {
   it("lists the rooms the shared order ranks after your stars, in its order, then the rest by name", () => {
     const more = [...rooms, { id: "design", name: "Design", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const }, { id: "ops", name: "ops", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const }];
     renderSidebar({ rooms: more, favorites: { rooms: ["ops"], version: 1 }, sharedOrder: ["random", "ops", "gone", "general"] });
@@ -197,16 +196,16 @@ describe(feature("sidebar.shared-order"), () => {
   });
 });
 
-describe(feature("sidebar.favorites"), () => {
+describe("Star rooms", () => {
   it("ends a starred room's row with a star, after its unread dot, which screen readers hear as Favorite", () => {
     renderSidebar({ rooms: [rooms[0]!, { ...rooms[1]!, unread: true }], favorites: { rooms: ["general", "random"], version: 2 } });
     const [general, random] = rows();
     const star = within(general!).getByRole("img", { name: "Favorite" });
     expect(star).toHaveClass("iconoir-star-solid");
-    // Faded, as ember-rust's pull request #24 fades it.
+    // Faded.
     expect(star).toHaveClass("ml-auto", "size-3.5", "text-muted-foreground/65");
     expect(general!.lastElementChild).toBe(star);
-    // Without the grip ember-rust shows before it.
+    // With no grip before it.
     expect(star.previousElementSibling).toHaveTextContent(/^general$/);
     expect([...general!.querySelectorAll("svg")]).toEqual([star]);
 
@@ -226,7 +225,7 @@ describe(feature("sidebar.favorites"), () => {
   });
 });
 
-describe(feature("sidebar.favorite-order"), () => {
+describe("Reorder starred rooms", () => {
   const team = [...rooms, { id: "design", name: "design", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const }, { id: "ops", name: "ops", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const }];
   const stars: Favorites = { rooms: ["general", "random", "design"], version: 3 };
   const status = () => screen.getByRole("status");
@@ -443,7 +442,7 @@ describe(feature("sidebar.favorite-order"), () => {
   });
 });
 
-describe(feature("sidebar.refresh-preserves-state"), () => {
+describe("Background sidebar reloads keep your place", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.spyOn(globalThis, "fetch");
@@ -468,7 +467,7 @@ describe(feature("sidebar.refresh-preserves-state"), () => {
   });
 });
 
-describe(feature("dms.naming"), () => {
+describe("Group DMs and DM names", () => {
   it("names the others in each DM, or you in your DM with yourself, saying whom it's with to screen readers", () => {
     renderSidebar({ rooms: [...rooms, direct("d1", [ada!, grace!], false, at(3)), direct("d2", [ada!, grace!, linus!], false, at(2)), direct("d3", [ada!], false, at(1))] });
     expect(directRows().map((row) => [row.textContent, row.getAttribute("href")])).toEqual([
@@ -506,7 +505,7 @@ describe(feature("dms.naming"), () => {
   });
 });
 
-describe(feature("sidebar.rooms"), () => {
+describe("Conversations sidebar", () => {
   it("lists DMs under DMs, marks the one you're in, and opens one in place", async () => {
     const { onSelect } = renderSidebar({ rooms: [direct("d1", [ada!, grace!], false, at(2)), ...rooms, direct("d2", [ada!, linus!], false, at(1))], currentRoomId: "d2" });
     expect(directRows().map((row) => row.getAttribute("aria-current"))).toEqual([null, "page"]);
@@ -517,7 +516,7 @@ describe(feature("sidebar.rooms"), () => {
   });
 });
 
-describe(feature("sidebar.rooms"), () => {
+describe("Conversations sidebar", () => {
   it("says it found no conversations once the list has come with nothing in it, nor anyone to suggest", () => {
     const { rerender } = renderSidebar({ rooms: [], loaded: false });
     expect(screen.queryByText("No conversations found.")).not.toBeInTheDocument();
@@ -528,7 +527,7 @@ describe(feature("sidebar.rooms"), () => {
   });
 });
 
-describe(feature("sidebar.dm-order"), () => {
+describe("DM order", () => {
   it("lists DMs by their latest message, or when they started until one comes, latest first", () => {
     const listing = (d1: string) => [direct("d1", [ada!, grace!], false, d1), direct("d2", [ada!, linus!], false, at(3)), ...rooms, direct("d3", [ada!, alan!], false, at(2))];
     const { rerender } = renderSidebar({ rooms: listing(at(1)) });
@@ -538,7 +537,7 @@ describe(feature("sidebar.dm-order"), () => {
   });
 });
 
-describe(feature("dms.suggestions"), () => {
+describe("Suggested people", () => {
   it("suggests people for DMs after the DMs, by avatar and name, saying to screen readers that it starts one", () => {
     renderSidebar({ rooms: [...rooms, direct("d1", [ada!, grace!])], suggestions: [linus!, alan!] });
     expect(suggestionRows().map((row) => row.textContent)).toEqual(["Start a direct message with Linus", "Start a direct message with Alan"]);
@@ -593,7 +592,7 @@ describe(feature("dms.suggestions"), () => {
   });
 });
 
-describe(feature("dms.picker"), () => {
+describe("New direct message dialog", () => {
   it("opens New direct message in place from the DMs heading's link, which a click with a modifier key leaves to the browser", async () => {
     const { onNewDirect } = renderSidebar();
     const link = within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "New direct message" });
@@ -606,7 +605,7 @@ describe(feature("dms.picker"), () => {
   });
 });
 
-describe(feature("sidebar.unread"), () => {
+describe("Unread rooms", () => {
   it("makes an unread DM's row bold, with a dot, and says so to screen readers, unless the tab shows it", () => {
     const { rerender } = renderSidebar({ rooms: [direct("d1", [ada!, grace!], true, at(2)), direct("d2", [ada!, linus!], false, at(1))] });
     const [unread, read] = directRows();
@@ -622,7 +621,7 @@ describe(feature("sidebar.unread"), () => {
   });
 });
 
-describe(feature("sidebar.activity-filter"), () => {
+describe("Activity filter", () => {
   it("shows only the DMs marked unread, and says everything's read only once no room or DM is", () => {
     const { rerender } = renderSidebar({ rooms: [...rooms, direct("d1", [ada!, grace!], true), direct("d2", [ada!, linus!])], unreadOnly: true });
     expect(listed()).toEqual([]);
@@ -635,7 +634,7 @@ describe(feature("sidebar.activity-filter"), () => {
   });
 });
 
-describe(feature("notifications.hide-room"), () => {
+describe("Hide a room", () => {
   it("leaves out the rooms and DMs you've hidden, even the one open", () => {
     const hidden = { id: "design", name: "design", kind: "open" as const, icon: null, unread: true, involvement: "invisible" as const };
     const hiddenDirect: SidebarRoom = { ...direct("d2", [ada!, linus!], true), involvement: "invisible" };

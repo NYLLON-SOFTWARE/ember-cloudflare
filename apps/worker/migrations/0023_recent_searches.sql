@@ -1,8 +1,8 @@
 -- Each person's recent searches, kept by the Workspace (scope "workspace" in src/migrations.ts), as
--- ember-rust's `searches` keeps them (crates/db/src/schema.sql): what they searched for with the search
--- page's form, sanitized, up to RECENT_SEARCHES (@ember/protocol) of the newest. ember-rust looks a
--- search up before touching it or adding it, and orders them by when they were last searched for;
--- here each person has a search once, so recording one is an upsert, and its position orders them.
+-- Campfire's `searches` keeps them (db/schema.rb): what they searched for with the search page's form,
+-- sanitized, up to RECENT_SEARCHES (@ember/protocol) of the newest. Campfire looks a search up before
+-- touching it or adding it, and orders them by when they were last searched for; here each person has a
+-- search once, so recording one is an upsert, and its position orders them.
 CREATE TABLE IF NOT EXISTS searches (
   user_id TEXT NOT NULL REFERENCES users (id),
   query TEXT NOT NULL,

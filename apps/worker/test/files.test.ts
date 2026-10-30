@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { basename, contentDisposition, escapePath, extname, sanitizedFilename } from "../src/files/filename";
 import { identify } from "../src/files/marcel";
@@ -9,7 +8,7 @@ import recorded from "./fixtures/storage.json";
 import { recordedImage } from "./support";
 
 // What Active Storage makes of a file and its name, and the byte ranges Rack serves of it, against what
-// ember-rust recorded from the Rails app it ports (fixtures/README.md).
+// was recorded from Campfire (fixtures/README.md).
 
 /** The bytes `hex` spells. */
 const bytesOf = (hex: string) => Uint8Array.from(hex.match(/../g) ?? [], (pair) => parseInt(pair, 16));
@@ -17,7 +16,7 @@ const bytesOf = (hex: string) => Uint8Array.from(hex.match(/../g) ?? [], (pair) 
 /** The text whose UTF-8 bytes `hex` spells. */
 const textOf = (hex: string) => new TextDecoder().decode(bytesOf(hex));
 
-/** A blob as ember-rust recorded it, and the file it recorded with it, if it kept one. */
+/** A blob, and the file it recorded with it, if it kept one. */
 interface RecordedBlob {
   file?: string;
   blob: { filename: string; content_type: string; metadata: string; byte_size: number };
@@ -34,9 +33,9 @@ function recordedBlobs(value: unknown, found: RecordedBlob[] = []): RecordedBlob
 }
 
 /**
- * The files Marcel's cases name, which ember-rust reads from the Rails app's fixtures. Marcel reads only
- * a file's first bytes, so each stands in with a file of the same kind: a thumbnail of the photo, and
- * the first bytes a 1×1 BMP and a QuickTime movie start with.
+ * The files Marcel's cases name. Marcel reads only a file's first bytes, so each stands in with a file
+ * of the same kind: a thumbnail of the photo, and the first bytes a 1×1 BMP and a QuickTime movie start
+ * with.
  */
 function fixture(name: string): Uint8Array {
   if (name === ".keep") return new Uint8Array();
@@ -60,7 +59,7 @@ function fixture(name: string): Uint8Array {
   return recordedImage({ "moon.jpg": "moon-thumb.jpg", "black_hole.jpg": "black_hole-thumb.jpg", "earth.png": "earth-thumb.png" }[name]!);
 }
 
-describe(feature("attachments.types"), () => {
+describe("How files are recognized", () => {
   it("identifies each recorded file as Marcel did, from its bytes, the type the browser declared and its name", () => {
     expect(recorded.marcel).toHaveLength(51);
     for (const { name, data_hex, fixture: file, declared_type, content_type } of recorded.marcel) {
@@ -100,7 +99,7 @@ describe(feature("attachments.types"), () => {
   });
 });
 
-describe(feature("attachments.serving"), () => {
+describe("File links", () => {
   it("names each recorded file as Active Storage keeps it, sends it and puts it in an address", () => {
     expect(recorded.filenames).toHaveLength(16);
     for (const vector of recorded.filenames) {

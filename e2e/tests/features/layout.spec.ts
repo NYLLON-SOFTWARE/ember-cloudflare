@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Locator, Page } from "@playwright/test";
 import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { expect, test } from "./fixtures";
@@ -18,7 +17,7 @@ const overflow = (page: Page) => page.evaluate(() => document.documentElement.sc
 /** Waits for the drawer to finish sliding in, before pressing outside it or measuring it. */
 const slidIn = (drawer: Locator) => drawer.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
 
-test.describe(feature("ui.layout"), () => {
+test.describe("Workspace layout", () => {
   test("puts the rail, the conversations and the room side by side on a desktop", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1280, height: 800 } } });
     const rail = ada.page.getByRole("navigation", { name: "Workspace" });
@@ -104,7 +103,7 @@ test.describe(feature("ui.layout"), () => {
     expect(await box(header)).toMatchObject({ y: 0 });
   });
 
-  test("uses ember-rust's palette and 14px text, light and dark", async ({ members }) => {
+  test("uses Ember's palette and 14px text, light and dark", async ({ members }) => {
     const palettes = {
       light: { canvas: "rgb(255, 255, 255)", surface: "rgb(250, 250, 250)", hover: "rgb(242, 242, 242)", border: "rgb(229, 229, 229)", muted: "rgb(115, 115, 115)", ink: "rgb(23, 23, 23)" },
       dark: { canvas: "rgb(23, 23, 23)", surface: "rgb(28, 28, 28)", hover: "rgb(40, 40, 40)", border: "rgb(52, 52, 52)", muted: "rgb(163, 163, 163)", ink: "rgb(245, 245, 245)" },
@@ -124,7 +123,7 @@ test.describe(feature("ui.layout"), () => {
   });
 });
 
-test.describe(feature("ui.mobile-drawer"), () => {
+test.describe("Conversations drawer on phones", () => {
   const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
 
   test("moves the conversations into a drawer at 900px wide and below, opened from a 56px header", async ({ members }) => {
@@ -153,7 +152,7 @@ test.describe(feature("ui.mobile-drawer"), () => {
     // menu button too, which is named for closing it.
     await expect(drawer.getByRole("button", { name: "Close conversations" })).toBeFocused();
     await expect(ada.page.getByRole("button", { name: "Close conversations", expanded: true, includeHidden: true })).toBeAttached();
-    // ember-rust's backdrop dims the page behind it.
+    // The backdrop dims the page behind it.
     await expect(ada.page.locator("[data-slot=sheet-overlay]")).toHaveCSS("background-color", "rgba(0, 0, 0, 0.4)");
 
     await drawer.getByRole("region", { name: "Rooms" }).getByRole("link", { name: /random/ }).click();
@@ -246,7 +245,6 @@ test.describe(feature("ui.mobile-drawer"), () => {
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
   });
 
-  // ember-rust's parity/kro/workspace.test.mjs, "mobile and tablet navigation keep the conversation and settings usable".
   test("keeps the room, the drawer and the settings pages on screen at 320, 390 and 768px wide", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada", { context: phone });
     const drawer = ada.page.getByRole("dialog", { name: "Conversations" });
@@ -289,7 +287,7 @@ test.describe(feature("ui.mobile-drawer"), () => {
   });
 });
 
-test.describe(feature("ui.accessibility"), () => {
+test.describe("Landmarks and names", () => {
   test("starts Tab at Skip to main content, shown under the header's start, which focuses the main content", async ({ members, rooms }) => {
     // The composer takes focus as its editor's code arrives, unless you've moved it, so Tab would start there
     // when the code came first. Holding the code until Tab has moved focus keeps that from racing the test.
@@ -322,8 +320,8 @@ test.describe(feature("ui.accessibility"), () => {
   });
 });
 
-test.describe(feature("accounts.settings-page"), () => {
-  test("puts community settings' links in a 244px column beside the page, in a strip under the header at 900px and below, and each icon over its label at 500px and below, as ember-rust's pull request #24 does", async ({ page }) => {
+test.describe("Community settings page", () => {
+  test("puts community settings' links in a 244px column beside the page, in a strip under the header at 900px and below, and each icon over its label at 500px and below", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await useOwnAddress(page);
     await page.goto("/account/edit");
@@ -349,7 +347,7 @@ test.describe(feature("accounts.settings-page"), () => {
   });
 });
 
-test.describe(feature("ui.empty-room"), () => {
+test.describe("Empty room", () => {
   test("welcomes people to a room nobody has written in", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await expect(ada.page.getByRole("heading", { name: "Welcome to #general" })).toBeVisible();

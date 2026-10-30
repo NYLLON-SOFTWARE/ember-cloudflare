@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import {
   CANT_EMAIL_CODES,
   MAX_PASSWORD_LENGTH,
@@ -92,7 +91,7 @@ afterEach(() => {
   sessionStorage.clear();
 });
 
-describe(feature("auth.password-reset"), () => {
+describe("Reset a forgotten password with an emailed code", () => {
   it("asks for an email address, then for the code Ember emailed it with a new password", async () => {
     const fetch = serve(asked);
     open();

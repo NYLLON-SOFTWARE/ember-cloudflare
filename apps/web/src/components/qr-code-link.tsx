@@ -14,8 +14,7 @@ interface QrCodeLinkProps {
 }
 
 /**
- * A link to `url`'s QR code that opens it in the image viewer, as ember-rust's `link_to_zoom_qr_code`
- * does (crates/views/src/helpers/application.rs).
+ * A link to `url`'s QR code that opens it in the image viewer.
  */
 export function QrCodeLink({ url, drawn = false, className, children }: QrCodeLinkProps) {
   const [shown, setShown] = useState<string | null>(null);

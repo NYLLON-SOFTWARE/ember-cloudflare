@@ -1,8 +1,8 @@
 import type { RoomId, RoomKind, UserId } from "./index.ts";
 
-// The app's pages, at ember-rust's addresses (crates/ember/src/controllers.rs). The app's router reads
-// a path with `workspacePageOf`, and the Worker serves the app only where `isAppPage` says it shows a
-// page, so any other path answers 404 with Campfire's page, as ember-rust's router does.
+// The app's pages, at Campfire's addresses where it has the page. The app's router reads a path with
+// `workspacePageOf`, and the Worker serves the app only where `isAppPage` says it shows a page, so any
+// other path answers 404 with Campfire's page.
 
 /** The most characters an id can have, as a frame or an address names it. */
 export const MAX_ID_LENGTH = 64;
@@ -22,8 +22,7 @@ export type WorkspacePage =
    */
   | { page: "room"; roomId: RoomId; messageId?: string }
   /**
-   * A message at its own address, `/rooms/<id>/messages/<message id>`, where ember-rust shows the message
-   * alone, which goes on to its permalink.
+   * A message at its own address, `/rooms/<id>/messages/<message id>`, which goes on to its permalink.
    */
   | { page: "message"; roomId: RoomId; messageId?: string }
   /** A room at the address for a kind of room, such as `/rooms/opens/<id>`, which goes on to the room's own. */
@@ -43,7 +42,7 @@ export type WorkspacePage =
   | { page: "new-bot" }
   /** A bot's settings, at `/account/bots/<id>/edit`. */
   | { page: "bot-settings"; userId: UserId }
-  /** Your profile, at `/users/me/profile`, or at any other person's id in its place, as ember-rust ignores it. */
+  /** Your profile, at `/users/me/profile`, or at any other person's id in its place. */
   | { page: "profile" }
   /**
    * Your browsers' push subscriptions, at `/users/me/push_subscriptions`, or at any other person's id in
@@ -55,7 +54,7 @@ export type WorkspacePage =
   /** Search, at `/searches`, whose query string holds what's searched for. */
   | { page: "search" };
 
-/** Rails' names for each kind of room's controller, which ember-rust's addresses keep. */
+/** Rails' names for each kind of room's controller. */
 export const KIND_SEGMENTS = { open: "opens", closed: "closeds", direct: "directs" } as const satisfies Record<RoomKind, string>;
 
 const SIGN_IN_PATH = "/session/new";
@@ -110,8 +109,7 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   const ofKind = pathname.match(/^\/rooms\/(opens|closeds|directs)\/([^/]+)$/);
   const ofKindRoomId = ofKind && decoded(ofKind[2]!);
   if (ofKindRoomId) return { page: "room-of-kind", kind: kindOf(ofKind[1]!), roomId: ofKindRoomId };
-  // ember-rust matches /rooms/new, one of Rails' unused resource actions, before /rooms/<id>, and
-  // answers 404 for it.
+  // /rooms/new, one of Rails' unused resource actions, answers 404 rather than naming a room.
   const room = pathname.match(/^\/rooms\/([^/]+)(?:\/@([^/]+)|\/messages\/([^/]+))?$/);
   const roomId = room && room[1] !== "new" ? decoded(room[1]!) : null;
   if (!room || !roomId) return null;
@@ -141,7 +139,7 @@ export const TRANSFER_PATH = "/session/transfers";
 /** Where anyone may create an account while an administrator lets them (`Account.openSignUp`), which the Worker answers itself. */
 export const SIGN_UP_PATH = "/join";
 
-/** The page an invitation's link opens, to join with the address it was sent to (`auth.invitation-sign-up`), which the Worker answers itself. */
+/** The page an invitation's link opens, to join with the address it was sent to, which the Worker answers itself. */
 export const INVITATION_PATH = "/join/invitation";
 
 /**
@@ -152,7 +150,7 @@ export const invitationLink = (token: string) => `${INVITATION_PATH}#token=${tok
 
 /**
  * The page where someone with an email address at the workspace's email domains asks for a link to join
- * with it, which the link opens too (`auth.email-domain-sign-up`), and which the Worker answers itself.
+ * with it, which the link opens too, and which the Worker answers itself.
  */
 export const EMAIL_SIGN_UP_PATH = "/join/email";
 
@@ -161,15 +159,15 @@ export const emailSignUpLink = (token: string) => `${EMAIL_SIGN_UP_PATH}#token=$
 
 /**
  * The page where someone who forgot their password asks Ember to email them a code, then gives the code
- * with a new password (`auth.password-reset`), at the address Rails' authentication generator gives its
- * own, and which the Worker answers itself.
+ * with a new password, at the address Rails' authentication generator gives its own, and which the
+ * Worker answers itself.
  */
 export const PASSWORD_RESET_PATH = "/passwords/new";
 
 /**
- * The page Set up Turnstile draws a widget's check in, in a frame of its own (`auth.turnstile`): the
- * Worker answers it itself, with a policy that lets Turnstile's script load there, where the app's pages
- * let it load only where people sign up or ask Ember to email them. The fragment names the site key.
+ * The page Set up Turnstile draws a widget's check in, in a frame of its own: the Worker answers it
+ * itself, with a policy that lets Turnstile's script load there, where the app's pages let it load only
+ * where people sign up or ask Ember to email them. The fragment names the site key.
  */
 export const TURNSTILE_CHECK_PATH = "/account/turnstile_check";
 
@@ -180,9 +178,8 @@ export const TURNSTILE_CHECK_PATH = "/account/turnstile_check";
 export const withEmailAddress = (path: string, emailAddress: string) => (emailAddress ? `${path}?email_address=${encodeURIComponent(emailAddress)}` : path);
 
 /**
- * A sign-in link's address: its page, with the link's id as the fragment's `token`, where ember-rust's
- * `session_transfer` route puts the id in the path. Browsers never send a fragment, so no request holds
- * the id, nor any log of one, as ember-rust's setup link keeps its token (setup_access.js). Ids are
+ * A sign-in link's address: its page, with the link's id as the fragment's `token`. Browsers never send
+ * a fragment, so no request holds the id, nor any log of one, as the setup link keeps its token. Ids are
  * letters, digits, dots, dashes and underscores, which nothing escapes.
  */
 export const transferLink = (transferId: string) => `${TRANSFER_PATH}#token=${transferId}`;

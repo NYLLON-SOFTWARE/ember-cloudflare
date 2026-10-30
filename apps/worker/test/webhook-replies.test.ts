@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_MESSAGE_HTML_LENGTH } from "@ember/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { contentTypeOf, replyFileOf } from "../src/bots/mime";
@@ -7,14 +6,14 @@ import recorded from "./fixtures/webhook_cases.json";
 import answers from "./fixtures/webhook_expected.json";
 
 // What a delivery makes of a bot's answer, as Campfire's `Webhook#deliver` reads it
-// (reference/app/models/webhook.rb) and ember-rust's integrations/webhook.rs follows it: the text or file
-// the bot says back, or that it failed to respond. webhooks.test.ts checks what the room does with it.
+// (app/models/webhook.rb): the text or file the bot says back, or that it failed to respond.
+// webhooks.test.ts checks what the room does with it.
 //
-// It replays the answers ember-rust recorded from the Rails app it ports (fixtures/README.md). Each is
-// given as a Worker's `fetch` would give it, a gzipped body decompressed, and the delivery must come to
-// what Campfire's did: the webhook's status and the bot's reply, or a failure. The request must be the
-// one Net::HTTP sent, but for the headers a Worker's `fetch` decides itself. A file is kept as it
-// arrives, where Campfire reads all of it first, and must come to the bytes Campfire kept.
+// It replays answers recorded from Campfire (fixtures/README.md). Each is given as a Worker's `fetch`
+// would give it, a gzipped body decompressed, and the delivery must come to what Campfire's did: the
+// webhook's status and the bot's reply, or a failure. The request must be the one Net::HTTP sent, but
+// for the headers a Worker's `fetch` decides itself. A file is kept as it arrives, where Campfire reads
+// all of it first, and must come to the bytes Campfire kept.
 
 interface Case {
   name: string;
@@ -43,7 +42,7 @@ const PAYLOAD = '{"message":"hi"}';
 /** The headers Net::HTTP sends that a Worker's `fetch` decides itself. */
 const FETCH_HEADERS = ["Accept-Encoding", "Host", "Connection", "Content-Length"];
 
-/** What the reference raised, as this port fails with it. A Worker's `fetch` doesn't say why it couldn't connect, as Ruby's `Errno` does. */
+/** What Campfire raised, as Ember fails with it. A Worker's `fetch` doesn't say why it couldn't connect, as Ruby's `Errno` does. */
 const FAILURES: Record<string, (recorded: Case) => WebhookError> = {
   "Mime::Type::InvalidMimeType": ({ headers }) => new WebhookError(`${JSON.stringify(headers[0]![1])} is not a valid MIME type`),
   "Errno::ECONNREFUSED": () => new WebhookError("TypeError: Network connection lost."),
@@ -86,7 +85,7 @@ const bytesOf = (base64: string) => Uint8Array.from(atob(base64), (c) => c.charC
 /** The recorded body, as bytes, since a `Response` made with a string says it's `text/plain` when the webhook said nothing. */
 const bodyOf = (recorded: Case) => (recorded.body_b64 === undefined ? new TextEncoder().encode(recorded.body ?? "") : bytesOf(recorded.body_b64));
 
-/** The request the reference sent, but for the headers `fetch` decides. */
+/** The request Campfire sent, but for the headers `fetch` decides. */
 const sentBy = ({ request_line, headers, body }: Answer["requests"][number]): Sent => ({
   line: request_line.replace(/ HTTP\/1\.1$/, ""),
   headers: headers.filter(([name]) => !FETCH_HEADERS.includes(name)).map(([name, value]) => [name.toLowerCase(), value]).sort(),
@@ -94,9 +93,9 @@ const sentBy = ({ request_line, headers, body }: Answer["requests"][number]): Se
 });
 
 /**
- * What the reference made of the answer, as a delivery here comes to it, with a file as the bytes kept.
+ * What Campfire made of the answer, as a delivery here comes to it, with a file as the bytes kept.
  * Ruby keeps the invalid UTF-8 of a text reply as it came, which no JavaScript string can hold, so it's
- * compared as a message here keeps it, and ember-rust's does, with each invalid sequence replaced.
+ * compared as a message here keeps it, with each invalid sequence replaced.
  */
 function deliveredBy({ status, reply }: Answer): Delivered<Uint8Array> {
   if (reply === null) return { status: status ?? null, reply };
@@ -144,7 +143,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe(feature("bots.webhook-reply"), () => {
+describe("Webhook replies", () => {
   it("replays every recorded case", () => {
     expect(cases.map(({ name }) => name)).toEqual((answers as Answer[]).map(({ name }) => name));
     expect(cases).toHaveLength(19);
@@ -160,8 +159,8 @@ describe(feature("bots.webhook-reply"), () => {
       await expect(delivered).rejects.toThrow(FAILURES[answer.error]!(recorded));
     } else {
       if (recorded.delay) await vi.advanceTimersByTimeAsync(recorded.delay * 1000);
-      // But for an answer other than a 200, which says nothing back since Campfire 1.5.2, as ember-rust's
-      // pull request #24 replays it, where the recorded Campfire kept its error page or text as a file.
+      // But for an answer other than a 200, which says nothing back since Campfire 1.5.2, where the
+      // recorded Campfire kept its error page or text as a file.
       expect(await delivered).toEqual(answer.status && answer.status !== 200 ? { status: answer.status, reply: null } : deliveredBy(answer));
     }
     expect(webhook.requests).toEqual(answer.requests.map(sentBy));
@@ -209,7 +208,7 @@ describe(feature("bots.webhook-reply"), () => {
     await vi.advanceTimersByTimeAsync(7_000);
     expect(await stalled).toEqual({ status: null, reply: { text: "Failed to respond within 7 seconds" } });
 
-    // ember-rust's deadline: one that keeps sending would otherwise hold its place in the queue for ever.
+    // The deadline: one that keeps sending would otherwise hold its place in the queue for ever.
     const endless = deliveredTo(trickling(6_000));
     await vi.advanceTimersByTimeAsync(60_000);
     expect(await endless).toEqual({ status: null, reply: { text: "Failed to respond within 60 seconds" } });

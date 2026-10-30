@@ -45,8 +45,8 @@ test("the page keeps zoom and lets the keyboard resize it", async ({ page }) => 
 
   expect(settings).toMatchObject({ width: "device-width", "viewport-fit": "cover" });
   expect(Number(settings["initial-scale"])).toBe(1);
-  // Android Chrome then shrinks the page above the keyboard instead of covering the composer,
-  // as ember-rust's layouts/application.html asks.
+  // Android Chrome then shrinks the page above the keyboard instead of covering the composer, as
+  // Campfire's layouts/application.html.erb asks.
   expect(settings["interactive-widget"]).toBe("resizes-content");
   // Pinch zoom must keep working (WCAG 1.4.4).
   expect(settings).not.toHaveProperty("maximum-scale");

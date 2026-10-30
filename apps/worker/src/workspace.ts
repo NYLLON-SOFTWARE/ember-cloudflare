@@ -109,16 +109,16 @@ import {
   type StoredSession,
 } from "./workspace-store";
 
-/** How often a session's last activity, browser and IP are written, at most, as in ember-rust. */
+/** How often a session's last activity, browser and IP are written, at most. */
 export const SESSION_REFRESH_MS = 60 * 60 * 1000;
 /**
- * How long a session lasts unused: as long as its cookie does (auth.ts), where ember-rust's sessions
- * last forever, so a token kept from a browser that's long gone stops working too.
+ * How long a session lasts unused: as long as its cookie does (auth.ts), so a token kept from a browser
+ * that's long gone stops working too.
  */
 export const SESSION_IDLE_MS = 400 * 24 * 60 * 60 * 1000;
 /** How many sessions the Workspace keeps in memory: a few devices each for a large team. */
 const CACHED_SESSIONS = 10_000;
-/** ember-rust's sign-in limit: 10 attempts from an IP address in a fixed 3-minute window (sessions.rs). */
+/** Campfire's sign-in limit: 10 attempts from an IP address in a fixed 3-minute window (sessions_controller.rb). */
 const SIGN_IN_ATTEMPTS = 10;
 const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
 /**
@@ -138,8 +138,8 @@ const EMAIL_DOMAIN_LINK_MS = 60 * 60 * 1000;
 /** How long a code someone asks for to reset their password works, as its email and page say. */
 const PASSWORD_RESET_CODE_MS = PASSWORD_RESET_CODE_MINUTES * 60 * 1000;
 /**
- * Link previews someone may ask for in a minute. ember-rust only runs 16 at once, queueing the rest,
- * but a preview fetches any page someone names, which would make the Worker anyone's fetcher.
+ * Link previews someone may ask for in a minute, since a preview fetches any page someone names, which
+ * would otherwise make the Worker anyone's fetcher.
  */
 const UNFURLS = 30;
 const UNFURL_WINDOW_MS = 60 * 1000;
@@ -175,8 +175,8 @@ const MEMBERSHIP_CATCH_UP_MS = 24 * 60 * 60 * 1000;
 export const MEMBERFUL_ROUND_TRIP_MS = 10 * 60 * 1000;
 
 /**
- * ember-rust's `fresh_account_logo_path`, which account-logo.ts serves: versioned by when the account
- * last changed, so a new logo, or any other change to the account, gets past the copies browsers keep.
+ * Campfire's `fresh_account_logo_path`, which account-logo.ts serves: versioned by when the account last
+ * changed, so a new logo, or any other change to the account, gets past the copies browsers keep.
  */
 const accountLogoPath = (updatedAt: string) => `/account/logo?v=${versionOf(updatedAt)}`;
 
@@ -256,12 +256,11 @@ export interface Credentials {
   guests: boolean;
 }
 
-/** What first run names the workspace, as ember-rust's does (crates/db/src/models/first_run.rs). */
+/** What first run names the workspace. */
 export const ACCOUNT_NAME = "Ember";
 /**
- * The open rooms first run makes, everyone's to begin with, as a Slack workspace's are, where
- * ember-rust's first run makes just All Talk. The first, general, is the workspace's first room, which
- * first run opens and the welcome card shows in.
+ * The open rooms first run makes, everyone's to begin with, as a Slack workspace's are. The first,
+ * general, is the workspace's first room, which first run opens and the welcome card shows in.
  */
 const FIRST_ROOM_NAMES = ["general", "random"];
 
@@ -281,16 +280,15 @@ export interface YourProfile {
 export interface ShownPerson {
   person: DirectoryEntry | ProfileEntry;
   /**
-   * The sign-in link the page gives for them, by the session asking, as ember-rust's gives one to
-   * administrators when they're active and aren't a bot (users/show.html), or null.
+   * The sign-in link the page gives for them, by the session asking, as Campfire's gives one to
+   * administrators when they're active and aren't a bot (users/show.html.erb), or null.
    */
   transfer: Transfer | null;
 }
 
 /**
  * What a search needs from the Workspace: the rooms whose messages the searcher can search, the ones
- * they've hidden and DMs too, as ember-rust's `reachable_messages` reach them (message.rs), and their
- * recent searches, newest first.
+ * they've hidden and DMs too, and their recent searches, newest first.
  */
 export interface Searcher {
   rooms: Room[];
@@ -396,10 +394,10 @@ const NO_EMAIL_FROM = "Give Ember a From address first.";
 /** Why there's no test email to an administrator without an email address. */
 const NO_EMAIL_ADDRESS = "Your profile has no email address to send it to.";
 
-/** The workspace as pages show it before first run: named "Ember" and looking as a new one does, as in ember-rust. */
+/** The workspace as pages show it before first run: named "Ember" and looking as a new one does. */
 export const ACCOUNT_BEFORE_SETUP: Account = { name: ACCOUNT_NAME, ...NEW_ACCOUNT_LOOKS, logo: null };
 
-/** A join link's code, as ember-rust makes them (account.rs): 12 random letters and digits in fours, like aB3d-Ef5h-iJ7k. */
+/** A join link's code: 12 random letters and digits in fours, like aB3d-Ef5h-iJ7k. */
 const newJoinCode = () => alphanumeric(12).match(/.{4}/g)!.join("-");
 
 const encoder = new TextEncoder();
@@ -628,9 +626,9 @@ export class Workspace extends DurableObject<Env> {
    * What the app asks first: the account, if it's set up, who `credentials` signs in, if anyone, whether
    * the sign-in page offers Sign in with Memberful at `memberfulSite`, the deployment's Memberful site, or
    * null without its keys (`offersMemberfulSignIn`), and whether it offers to email a code to reset a
-   * password (`auth.password-reset`), which it does while Ember can send email, and the site key of the
-   * Turnstile widget an administrator gave Ember, while it has one (`savedTurnstileKeys`). A page opened at
-   * `deployedAddress`, where a deploy puts Ember, which it's null anywhere else, tells Ember where that is.
+   * password, which it does while Ember can send email, and the site key of the Turnstile widget an
+   * administrator gave Ember, while it has one (`savedTurnstileKeys`). A page opened at `deployedAddress`,
+   * where a deploy puts Ember, which it's null anywhere else, tells Ember where that is.
    */
   async bootstrap(
     credentials: Credentials | null,
@@ -697,11 +695,10 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Workspace settings as the person `credentials` signs in sees them, which ember-rust shows anyone
-   * signed in (accounts.rs, `edit`): "not set up" before first run, or null without a valid session. The
-   * Worker adds what it knows of the Memberful site from its keys, and has the deployment's Turnstile
-   * keys take the place of any an administrator gave, and the Workspace says how it sends email, since
-   * it's what sends it.
+   * Workspace settings as the person `credentials` signs in sees them: "not set up" before first run, or
+   * null without a valid session. The Worker adds what it knows of the Memberful site from its keys, and
+   * has the deployment's Turnstile keys take the place of any an administrator gave, and the Workspace
+   * says how it sends email, since it's what sends it.
    */
   async workspaceSettings(credentials: Credentials): Promise<Omit<WorkspaceSettings, "memberfulSite" | "memberfulWebhooks"> | "not set up" | null> {
     const user = await this.authenticate(credentials);
@@ -723,12 +720,12 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Makes `changes` to the workspace as the person `credentials` signs in, answering the account as it
-   * is then: "forbidden" unless they're an administrator, as ember-rust's `update` insists
-   * (accounts.rs), why it changes nothing, as `AccountRefusal` has it, or null without a valid session.
-   * Members only turns Memberful on with it, and turning Memberful off turns Members only off.
-   * Everyone's workspace sockets hear of a change, a new custom domain included, which tabs open at
-   * another address then point to. Moving to one, Ember remembers the custom domain it moves away from,
-   * and `host`, the address the change was asked at, as they reach it too (`othersAfterMove`).
+   * is then: "forbidden" unless they're an administrator, why it changes nothing, as `AccountRefusal`
+   * has it, or null without a valid session. Members only turns Memberful on with it, and turning
+   * Memberful off turns Members only off. Everyone's workspace sockets hear of a change, a new custom
+   * domain included, which tabs open at another address then point to. Moving to one, Ember remembers
+   * the custom domain it moves away from, and `host`, the address the change was asked at, as they reach
+   * it too (`othersAfterMove`).
    */
   async changeAccount(
     credentials: Credentials,
@@ -736,7 +733,7 @@ export class Workspace extends DurableObject<Env> {
     host: string,
   ): Promise<Account | AccountRefusal | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
-      // As ember-rust's `Account::update` writes only what differs (account.rs).
+      // Only what differs is written.
       const { hideTranslationButtons, restrictRoomCreation, joinLink, openSignUp, emailDomainSignUp } = settings ?? {};
       const memberful = memberfulChange(account, settings ?? {});
       const icons = changedNavigationIcons(account.navigationIcons, navigationIcons ?? {});
@@ -780,8 +777,7 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * The workspace's custom CSS, for the Custom CSS page: "forbidden" unless the person `credentials`
-   * signs in is an administrator, as ember-rust's `edit` insists (custom_styles.rs), or null without a
-   * valid session.
+   * signs in is an administrator, or null without a valid session.
    */
   async customStyles(credentials: Credentials): Promise<CustomStyles | "forbidden" | null> {
     const user = await this.authenticate(credentials);
@@ -792,9 +788,9 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Saves `customStyles` as the workspace's custom CSS as the person `credentials` signs in, answering
-   * the account as it is then: "forbidden" unless they're an administrator, as ember-rust's `update`
-   * insists (custom_styles.rs), or null without a valid session. Undefined changes nothing, once that's
-   * checked. Everyone's workspace sockets hear of a change.
+   * the account as it is then: "forbidden" unless they're an administrator, or null without a valid
+   * session. Undefined changes nothing, once that's checked. Everyone's workspace sockets hear of a
+   * change.
    */
   async changeCustomStyles(credentials: Credentials, customStyles: string | undefined): Promise<Account | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
@@ -804,8 +800,8 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Gives the join link a new code as the person `credentials` signs in, answering it, as ember-rust's
-   * `join_codes#create` does: "forbidden" unless they're an administrator, or null without a valid session.
+   * Gives the join link a new code as the person `credentials` signs in, answering it: "forbidden"
+   * unless they're an administrator, or null without a valid session.
    */
   async regenerateJoinCode(credentials: Credentials): Promise<NewJoinCode | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
@@ -863,10 +859,10 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Gives Ember `keys`, the keys of a Turnstile widget whose check the Worker has seen pass with them, to
-   * check people with (`auth.turnstile`), its secret key sealed under SESSION_SECRET (`seal`), or takes
-   * the ones it has away with null, as the person `credentials` signs in, answering whether Ember keeps a
-   * widget's keys then: "forbidden" unless they're an administrator, or null without a valid session.
-   * Only signed-out pages show the site key, so no socket hears of it.
+   * check people with, its secret key sealed under SESSION_SECRET (`seal`), or takes the ones it has away
+   * with null, as the person `credentials` signs in, answering whether Ember keeps a widget's keys then:
+   * "forbidden" unless they're an administrator, or null without a valid session. Only signed-out pages
+   * show the site key, so no socket hears of it.
    */
   async changeTurnstileKeys(credentials: Credentials, keys: TurnstileKeys | null): Promise<{ saved: boolean } | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
@@ -919,11 +915,11 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Invites each address in `invitations`, with the link its secret makes, as the person `credentials`
-   * signs in (`accounts.invitations`), answering what came of each, in order: "forbidden" unless they're
-   * an administrator, or null without a valid session. An address someone has an account with already,
-   * whatever its case, isn't invited, and one invited already gets a new link in place of its old one.
-   * The links are emailed from the From address while Ember can send email, and the answer holds each one
-   * that wasn't, for the administrator to send themselves. `origin` is Ember's address, where links go.
+   * signs in, answering what came of each, in order: "forbidden" unless they're an administrator, or null
+   * without a valid session. An address someone has an account with already, whatever its case, isn't
+   * invited, and one invited already gets a new link in place of its old one. The links are emailed from
+   * the From address while Ember can send email, and the answer holds each one that wasn't, for the
+   * administrator to send themselves. `origin` is Ember's address, where links go.
    */
   async invite(credentials: Credentials, invitations: Array<{ emailAddress: string; link: NewEmailLink }>, origin: string): Promise<Invited | "forbidden" | null> {
     const user = await this.authenticate(credentials);
@@ -1002,9 +998,8 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * What the link whose secret has the digest `linkDigest` is, and whom it's for, while it works, which
-   * looking spends nothing of, or else null: an invitation's (`auth.invitation-sign-up`) until it
-   * expires, or one someone asked for with an address at the email domains (`auth.email-domain-sign-up`)
-   * while Email domain still lets its domain in, too.
+   * looking spends nothing of, or else null: an invitation's until it expires, or one someone asked for
+   * with an address at the email domains while Email domain still lets its domain in, too.
    */
   async emailLinkFor(linkDigest: string): Promise<EmailLinkFor | null> {
     const link = await this.workingEmailLink(linkDigest);
@@ -1021,14 +1016,13 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Gives the workspace `logo`, which R2 has stored under a key `reservePicture` reserved, or takes its
-   * logo away with null, as the person `credentials` signs in, as ember-rust's account form and
-   * `logos#destroy` do (accounts.rs, logos.rs), answering the account as it is then: "forbidden" unless
-   * they're an administrator, or null without a valid session. R2 deletes the logo it had, and everyone's
-   * workspace sockets hear of the change, which gives the logo a new address.
+   * logo away with null, as the person `credentials` signs in, answering the account as it is then:
+   * "forbidden" unless they're an administrator, or null without a valid session. R2 deletes the logo it
+   * had, and everyone's workspace sockets hear of the change, which gives the logo a new address.
    */
   async changeLogo(credentials: Credentials, logo: StoredPicture | null): Promise<Account | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
-      // As removing a logo that isn't there changes nothing in ember-rust.
+      // Removing a logo that isn't there changes nothing.
       if (logo === null && account.storedLogo === null) return accountOf(account);
       const previous = account.storedLogo?.key ?? null;
       const shown = await this.publishAccount({ ...account, storedLogo: logo }, (now) => this.store.changeLogo(logo, previous, now, Date.parse(now)));
@@ -1058,8 +1052,7 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Saves a change to what every page shows of the account, as `saveAccount` does, then tells every
-   * workspace socket, so pages show it at once, where ember-rust's show it as they next load. Answers
-   * the account as it is now.
+   * workspace socket, so pages show it at once. Answers the account as it is now.
    */
   private async publishAccount(account: JoinableAccount, save: (now: string) => Promise<void>): Promise<Account> {
     const shown = accountOf(await this.saveAccount(account, save));
@@ -1090,9 +1083,9 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Creates the workspace, its first administrator, the open rooms general and random, and the session
-   * their cookie's token opens, as ember-rust's first run does with All Talk, answering general, which
-   * opens. A room of either name that the workspace has open already, such as one `LEGACY_ROOMS`
-   * registered, stands in for it. Answers null if the workspace exists.
+   * their cookie's token opens, answering general, which opens. A room of either name that the workspace
+   * has open already, such as one `LEGACY_ROOMS` registered, stands in for it. Answers null if the
+   * workspace exists.
    */
   async createWorkspace(administrator: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<NewWorkspace | null> {
     if (await this.account()) return null;
@@ -1133,10 +1126,9 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Adds someone who joined with the join link for `code` as a member, in every open room, and the
-   * session their cookie's token opens, as ember-rust's `users#create` does. Everyone's workspace
-   * sockets hear of them, so pages already open know them. Answers "not found" if `code` isn't the join
-   * code, "memberful" while Memberful is members only, "off" while the link is off, and null if
-   * someone already has their email address.
+   * session their cookie's token opens. Everyone's workspace sockets hear of them, so pages already open
+   * know them. Answers "not found" if `code` isn't the join code, "memberful" while Memberful is members
+   * only, "off" while the link is off, and null if someone already has their email address.
    */
   async join(code: string, person: Omit<NewPerson, "id">, tokenDigest: string, client: Client): Promise<Me | Exclude<JoinLink, "joins"> | null> {
     // The Worker checked the link before the form arrived, but it may have been regenerated or turned off since.
@@ -1149,11 +1141,10 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Adds someone who joined with the link of `kind` whose secret has the digest `linkDigest`, with the
    * email address it's for, as `join` adds someone with the join link, spending the link: an invitation's
-   * whichever ways to join are on (`auth.invitation-sign-up`), recording who sent it, or one they asked
-   * for at the email domains while Email domain lets its domain in (`auth.email-domain-sign-up`).
-   * Answers "gone" once the link doesn't work, having expired, been used or replaced, an invitation's
-   * having been revoked, and null if someone has its email address already, whatever its case, which
-   * leaves it be.
+   * whichever ways to join are on, recording who sent it, or one they asked for at the email domains
+   * while Email domain lets its domain in. Answers "gone" once the link doesn't work, having expired,
+   * been used or replaced, an invitation's having been revoked, and null if someone has its email address
+   * already, whatever its case, which leaves it be.
    */
   async joinWithEmailLink(
     kind: EmailLinkKind,
@@ -1173,14 +1164,13 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Emails `emailAddress` a link to join with it, the one `link`'s secret makes, at `origin`, while Email
-   * domain lets in `domain`, its domain (`auth.email-domain-sign-up`), which takes the place of any it was
-   * sent before once the provider has the email, unless they've joined since, or, if someone has an
-   * account with it already, whatever its case, an email saying so, with a link to sign in. Asks from
-   * `ip` count against its limit while they're `limited`, as they are while Ember lacks Turnstile's
-   * keys. Once the address has been emailed as often as it is in an hour, an ask sends nothing, though it
-   * answers "asked", as it does for an address with an account, so that the answer never says who has
-   * one, and the link sent last still works. An email the provider refuses reaches nobody, so it isn't
-   * counted, and changes no link.
+   * domain lets in `domain`, its domain, which takes the place of any it was sent before once the
+   * provider has the email, unless they've joined since, or, if someone has an account with it already,
+   * whatever its case, an email saying so, with a link to sign in. Asks from `ip` count against its limit
+   * while they're `limited`, as they are while Ember lacks Turnstile's keys. Once the address has been
+   * emailed as often as it is in an hour, an ask sends nothing, though it answers "asked", as it does for
+   * an address with an account, so that the answer never says who has one, and the link sent last still
+   * works. An email the provider refuses reaches nobody, so it isn't counted, and changes no link.
    */
   async askForEmailLink(ip: string, emailAddress: string, domain: string, link: NewEmailLink, origin: string, limited: boolean): Promise<EmailLinkAsk> {
     const account = await this.joinableAccount();
@@ -1221,10 +1211,10 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Counts an open sign-up from `ip` against its limit, while sign-ups are `limited`, as they are while
-   * Ember lacks Turnstile's keys, then checks it can go on, all before the Worker hashes its password
-   * (`auth.open-sign-up`): "closed" unless anyone may sign up, "limited" past the address's limit, "full"
-   * once the workspace has let in as many new people as it does in an hour, "taken" if someone has the
-   * email address already, and else "begun".
+   * Ember lacks Turnstile's keys, then checks it can go on, all before the Worker hashes its password:
+   * "closed" unless anyone may sign up, "limited" past the address's limit, "full" once the workspace
+   * has let in as many new people as it does in an hour, "taken" if someone has the email address
+   * already, and else "begun".
    */
   async beginSignUp(ip: string, emailAddress: string, limited: boolean): Promise<SignUpRefusal | "limited" | "taken" | "begun"> {
     const account = await this.joinableAccount();
@@ -1274,9 +1264,9 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Counts a password sign-in from `ip` against ember-rust's limit before anything is checked, then
-   * finds whose password to check: "limited" past the limit, or else the active person `emailAddress`
-   * names, if it names someone with a password.
+   * Counts a password sign-in from `ip` against the limit before anything is checked, then finds whose
+   * password to check: "limited" past the limit, or else the active person `emailAddress` names, if it
+   * names someone with a password.
    */
   async beginSignIn(ip: string, emailAddress: string | null): Promise<"limited" | { userId: UserId; passwordDigest: string } | null> {
     if (!this.signInAttempts.attempt(ip)) return "limited";
@@ -1284,13 +1274,12 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Counts a sign-in with Memberful from `ip` against the same limit, before Memberful is asked anything,
-   * having taken the connection whose state's digest is `connection`, for one that connects an account
-   * (`auth.memberful-connect`), so that each is good for one try, whatever comes of it: "limited" past the
-   * limit, "expired" for a connection taken already, forgotten, or started more than ten minutes ago, or
-   * else when it began by the Workspace's clock, which what Memberful then says of the membership of
-   * whoever signed in is no older than, and whose account it connects, if anyone's, with the password
-   * that started it.
+   * Counts a sign-in with Memberful from `ip` against the same limit, before Memberful is asked
+   * anything, having taken the connection whose state's digest is `connection`, for one that connects an
+   * account, so that each is good for one try, whatever comes of it: "limited" past the limit, "expired"
+   * for a connection taken already, forgotten, or started more than ten minutes ago, or else when it
+   * began by the Workspace's clock, which what Memberful then says of the membership of whoever signed
+   * in is no older than, and whose account it connects, if anyone's, with the password that started it.
    */
   async beginMemberfulSignIn(ip: string, connection: string | null): Promise<"limited" | "expired" | { begunAt: number; connecting: Connecting | null }> {
     const taken = connection === null ? null : await this.store.takeConnection(connection);
@@ -1335,10 +1324,10 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Signs in the person a sign-in link names, with a session of its own, as ember-rust's session
-   * transfers do, unless they're no longer active, or are a guest while `guests` says guests can't
-   * stay signed in, or the session that showed the link has ended, is a guest's while that's so, or is
-   * neither theirs nor an active administrator's.
+   * Signs in the person a sign-in link names, with a session of its own, unless they're no longer
+   * active, or are a guest while `guests` says guests can't stay signed in, or the session that showed
+   * the link has ended, is a guest's while that's so, or is neither theirs nor an active
+   * administrator's.
    */
   async transferSession({ userId, sessionId: shownBy }: Transfer, tokenDigest: string, client: Client, guests: boolean): Promise<Me | null> {
     // On D1 a role change can overlap it, so it's remembered only if none did.
@@ -1413,11 +1402,11 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * What connecting the account of the person `credentials` signs in to one at the Memberful site
-   * `issuer` from their profile checks first (`auth.memberful-connect`): whose account it is, and the
-   * digest of their password, or "" without one, which the Worker checks the password they give against,
-   * counting it against sign-in's limit for `ip`, as changing their email address or password does:
-   * "limited" past it. "unneeded" unless Memberful is members only, "forbidden" for a guest, "connected"
-   * when they're connected to an account at the site already, and null without a valid session.
+   * `issuer` from their profile checks first: whose account it is, and the digest of their password, or
+   * "" without one, which the Worker checks the password they give against, counting it against
+   * sign-in's limit for `ip`, as changing their email address or password does: "limited" past it.
+   * "unneeded" unless Memberful is members only, "forbidden" for a guest, "connected" when they're
+   * connected to an account at the site already, and null without a valid session.
    */
   async memberfulConnectionCheck(
     credentials: Credentials,
@@ -1438,10 +1427,10 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Starts connecting the account of `userId`, whose password's digest was `passwordDigest` as the Worker
-   * checked it, or "" without one, to one at the Memberful site `issuer` (`auth.memberful-connect`): keeps
-   * `stateDigest`, the digest of the state their browser goes there with, for the callback to take within
-   * ten minutes. Whether it's kept: not unless Memberful is members only, and they're active, neither a
-   * guest nor a bot, have that password still, and aren't connected to an account at the site already.
+   * checked it, or "" without one, to one at the Memberful site `issuer`: keeps `stateDigest`, the digest
+   * of the state their browser goes there with, for the callback to take within ten minutes. Whether it's
+   * kept: not unless Memberful is members only, and they're active, neither a guest nor a bot, have that
+   * password still, and aren't connected to an account at the site already.
    */
   async startMemberfulConnection(userId: UserId, passwordDigest: string, stateDigest: string, issuer: string): Promise<boolean> {
     if (!(await this.joinableAccount())?.memberfulSignIn) return false;
@@ -1451,18 +1440,18 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Connects the account of `member`, who signed in to the Memberful site `issuer`, to the account here of
-   * the person `connecting` is for, who started connecting one (`auth.memberful-connect`), and signs them
-   * in with the session their cookie's token opens, `tokenDigest`, unless it's null, as it is when the
-   * browser is signed in as them already, which answers "connected". Only its owner here connects an
-   * account there, which is never matched by email address, and only while the password that started it
-   * is theirs still, so that a new one, as a reset gives someone whose account was taken over, ends a
-   * connection on its way as it ends their sessions. A member needs an active membership to connect one,
-   * as to sign in with it, which an administrator, or someone they invited, doesn't, and an account
-   * connected to them already signs them in as signing in with it does, going by what Memberful said of
-   * its membership as of `readAt` (`settleMembership`). Answers "unneeded" unless Memberful is members
-   * only, "claimed" for an account connected to someone else, "another" when they're connected to another
-   * account at the site, "membership" for a member without an active membership, and "refused" when
-   * they've been removed or banned, or their password has changed.
+   * the person `connecting` is for, who started connecting one, and signs them in with the session their
+   * cookie's token opens, `tokenDigest`, unless it's null, as it is when the browser is signed in as them
+   * already, which answers "connected". Only its owner here connects an account there, which is never
+   * matched by email address, and only while the password that started it is theirs still, so that a new
+   * one, as a reset gives someone whose account was taken over, ends a connection on its way as it ends
+   * their sessions. A member needs an active membership to connect one, as to sign in with it, which an
+   * administrator, or someone they invited, doesn't, and an account connected to them already signs them
+   * in as signing in with it does, going by what Memberful said of its membership as of `readAt`
+   * (`settleMembership`). Answers "unneeded" unless Memberful is members only, "claimed" for an account
+   * connected to someone else, "another" when they're connected to another account at the site,
+   * "membership" for a member without an active membership, and "refused" when they've been removed or
+   * banned, or their password has changed.
    */
   async connectMemberful(
     issuer: string,
@@ -1499,9 +1488,9 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Queues checking the membership of the account with `subject` at the Memberful site `issuer` with its
-   * admin API, as the site's webhook says it changed, if it's linked to a member whose membership counts
-   * (`auth.memberful-memberships`), whether Memberful is on or not, since the members who joined with it
-   * keep signing in with it. The alarm checks it.
+   * admin API, as the site's webhook says it changed, if it's linked to a member whose membership
+   * counts, whether Memberful is on or not, since the members who joined with it keep signing in with
+   * it. The alarm checks it.
    */
   async queueMembershipCheck(issuer: string, subject: string): Promise<void> {
     const now = Date.now();
@@ -1546,10 +1535,9 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Suspends the active member `userId`, whose membership has lapsed, as their account with `subject` at
-   * the Memberful site `issuer` was read at `readAt` (`auth.memberful-memberships`): all their sessions
-   * end, and their sockets close for good, here at once and in every room they're in through the outbox,
-   * as removing them closes them, but they stay in their rooms, for when it's renewed. Everyone's
-   * workspace sockets hear of it.
+   * the Memberful site `issuer` was read at `readAt`: all their sessions end, and their sockets close
+   * for good, here at once and in every room they're in through the outbox, as removing them closes
+   * them, but they stay in their rooms, for when it's renewed. Everyone's workspace sockets hear of it.
    */
   private async suspendLapsed(userId: UserId, issuer: string, subject: string, readAt: number): Promise<void> {
     const now = Date.now();
@@ -1611,11 +1599,10 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Ends the session `tokenDigest` names, and closes the sockets it opened, telling them to reconnect,
-   * as ember-rust's sign-out does (concerns.rs): its workspace sockets here at once, and the rest by
-   * having every room its person is in close the session's sockets there, before it answers. It forgets
-   * its person's push subscriptions with the endpoint `pushEndpoint`, the browser's signing out, as
-   * ember-rust does (sessions.rs).
+   * Ends the session `tokenDigest` names, and closes the sockets it opened, telling them to reconnect:
+   * its workspace sockets here at once, and the rest by having every room its person is in close the
+   * session's sockets there, before it answers. It forgets its person's push subscriptions with the
+   * endpoint `pushEndpoint`, the browser's signing out.
    */
   async signOut(tokenDigest: string, pushEndpoint: string | null = null): Promise<void> {
     await this.afterQueuing(async () => {
@@ -1637,12 +1624,11 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Gives whoever has exactly the email address `emailAddress` the password `passwordDigest` is the
-   * digest of, as ember-rust's `reset-password` does (admin.rs): "not found" if nobody has it, whatever
-   * their status, and "bot" for a bot, who never signs in with a password. Their role and status stay,
-   * a ban included. All their sessions end, and their sockets close and are told to reconnect: here at
-   * once, and in every room they're in through the outbox, where ember-rust's wait for a restart. Their
-   * push subscriptions are forgotten too, where ember-rust keeps them, so that a browser no longer
-   * signed in as them gets none of their pushes.
+   * digest of: "not found" if nobody has it, whatever their status, and "bot" for a bot, who never signs
+   * in with a password. Their role and status stay, a ban included. All their sessions end, and their
+   * sockets close and are told to reconnect: here at once, and in every room they're in through the
+   * outbox. Their push subscriptions are forgotten too, so that a browser no longer signed in as them
+   * gets none of their pushes.
    */
   async resetPassword(emailAddress: string, passwordDigest: string): Promise<"reset" | "not found" | "bot"> {
     return this.closingSockets(async () => {
@@ -1676,12 +1662,11 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Emails a code to reset their password, the one `code` holds, to whoever has exactly the email address
-   * `emailAddress`, as sign-in matches it, while they're active and have a password (`auth.password-reset`),
-   * from the workspace's From address. Asks from `ip` count against the network's limit while they're
-   * `limited`, as they are while Ember lacks Turnstile's keys. It answers "asked" before anything is
-   * emailed, and whether or not anyone has the address, so that neither the answer nor how soon it comes
-   * says who has an account: the code is emailed afterwards, one at a time with the others asked for
-   * (`emailResetCode`).
+   * `emailAddress`, as sign-in matches it, while they're active and have a password, from the workspace's
+   * From address. Asks from `ip` count against the network's limit while they're `limited`, as they are
+   * while Ember lacks Turnstile's keys. It answers "asked" before anything is emailed, and whether or not
+   * anyone has the address, so that neither the answer nor how soon it comes says who has an account: the
+   * code is emailed afterwards, one at a time with the others asked for (`emailResetCode`).
    */
   async askForPasswordReset(ip: string, emailAddress: string, code: NewResetCode, limited: boolean): Promise<PasswordResetAsk> {
     const account = await this.joinableAccount();
@@ -1726,11 +1711,11 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Counts a try of a code to reset a password from `ip` against sign-in's limit (`auth.rate-limit`), then
-   * against the code that works for exactly `emailAddress`, if one does, all before the Worker hashes the
-   * new password (`auth.password-reset`): "limited" past sign-in's limit, "right" if `codeDigest` is the
-   * code's digest, and else "wrong", the same whether nobody has the address, no code works for them, or
-   * it's been tried as often as it can be.
+   * Counts a try of a code to reset a password from `ip` against sign-in's limit, then against the code
+   * that works for exactly `emailAddress`, if one does, all before the Worker hashes the new password:
+   * "limited" past sign-in's limit, "right" if `codeDigest` is the code's digest, and else "wrong", the
+   * same whether nobody has the address, no code works for them, or it's been tried as often as it can
+   * be.
    */
   async beginPasswordReset(ip: string, emailAddress: string, codeDigest: string): Promise<"limited" | "right" | "wrong"> {
     if (!this.signInAttempts.attempt(ip)) return "limited";
@@ -1741,10 +1726,10 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Gives the person whose email address is exactly `emailAddress` the password `passwordDigest` is the
    * digest of, with the code whose digest is `codeDigest`, spending it, as `beginPasswordReset` found it,
-   * and ends all their sessions, as `resetPassword` does (`auth.password-reset`). Then it signs this
-   * browser in as them, with the session `tokenDigest` names, answering who they are, or null when they
-   * sign in themselves, as someone does who signs in with Memberful while it's members only. Answers
-   * "wrong" if the code stopped working once it was checked.
+   * and ends all their sessions, as `resetPassword` does. Then it signs this browser in as them, with the
+   * session `tokenDigest` names, answering who they are, or null when they sign in themselves, as someone
+   * does who signs in with Memberful while it's members only. Answers "wrong" if the code stopped working
+   * once it was checked.
    */
   async resetPasswordWithCode(emailAddress: string, codeDigest: string, passwordDigest: string, tokenDigest: string, client: Client): Promise<Me | "wrong" | null> {
     const userId = await this.closingSockets(async () => {
@@ -1776,10 +1761,10 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Dismisses the welcome card for the person `credentials` signs in, for good, which ember-rust's card
-   * can't be: their sidebar, on any device, has no invitation from then on, and every tab of theirs
-   * hears so. Only administrators are shown the card, but anyone may dismiss it, since that changes
-   * nothing but what they're shown. Answers whether it did, which it can't without a valid session.
+   * Dismisses the welcome card for the person `credentials` signs in, for good: their sidebar, on any
+   * device, has no invitation from then on, and every tab of theirs hears so. Only administrators are
+   * shown the card, but anyone may dismiss it, since that changes nothing but what they're shown.
+   * Answers whether it did, which it can't without a valid session.
    */
   async dismissInvitation(credentials: Credentials): Promise<boolean> {
     const user = await this.authenticate(credentials);
@@ -1791,10 +1776,9 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Puts the rooms in the sidebar of the administrator `credentials` signs in, DMs aside, in the shared
-   * order in the order `roomIds` lists them, as ember-rust's `sidebars#update_default_order` does
-   * (users/sidebars.rs), answering the rooms they're in that it ranks, in its order: "forbidden" unless
-   * they're an administrator and every room is one they could order, or null without a valid session.
-   * Every sidebar loads again, its own included.
+   * order in the order `roomIds` lists them, answering the rooms they're in that it ranks, in its order:
+   * "forbidden" unless they're an administrator and every room is one they could order, or null without
+   * a valid session. Every sidebar loads again, its own included.
    */
   async setSharedOrder(credentials: Credentials, roomIds: RoomId[]): Promise<RoomId[] | "forbidden" | null> {
     const user = await this.authenticate(credentials);
@@ -1809,8 +1793,8 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Stars room `roomId` for the person `credentials` signs in, or unstars it, answering their stars as
-   * they are then, as ember-rust's `favorites#update` does (rooms/favorites.rs): "forbidden" when they
-   * can't star it, or null without a valid session. Every tab of theirs hears the new list.
+   * they are then: "forbidden" when they can't star it, or null without a valid session. Every tab of
+   * theirs hears the new list.
    */
   async setFavorite(credentials: Credentials, roomId: RoomId, favorite: boolean): Promise<Favorites | "forbidden" | null> {
     const user = await this.authenticate(credentials);
@@ -1823,9 +1807,8 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Puts the stars of the person `credentials` signs in in the order `roomIds` lists them, answering
-   * their stars as they are then, as ember-rust's `sidebars#update_order` does (users/sidebars.rs):
-   * "forbidden" when `roomIds` isn't exactly the rooms they've starred, or null without a valid session.
-   * Every tab of theirs hears the new order.
+   * their stars as they are then: "forbidden" when `roomIds` isn't exactly the rooms they've starred, or
+   * null without a valid session. Every tab of theirs hears the new order.
    */
   async setFavoriteOrder(credentials: Credentials, roomIds: RoomId[]): Promise<Favorites | "forbidden" | null> {
     const user = await this.authenticate(credentials);
@@ -1837,11 +1820,11 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Gives the person `credentials` signs in level `involvement` in room `roomId`, answering it, as
-   * ember-rust's `involvements#update` does (rooms/involvements.rs): "not found" when they aren't in
-   * it, "invalid" for no level, having changed nothing, or null without a valid session. Every tab of
-   * theirs hears it, which hides the room from their sidebars at "invisible", and hears their stars
-   * again when hiding a starred room, or showing it again, changes them.
+   * Gives the person `credentials` signs in level `involvement` in room `roomId`, answering it: "not
+   * found" when they aren't in it, "invalid" for no level, having changed nothing, or null without a
+   * valid session. Every tab of theirs hears it, which hides the room from their sidebars at
+   * "invisible", and hears their stars again when hiding a starred room, or showing it again, changes
+   * them.
    */
   async setInvolvement(credentials: Credentials, roomId: RoomId, involvement: Involvement | null): Promise<Involvement | "not found" | "invalid" | null> {
     const user = await this.authenticate(credentials);
@@ -1879,9 +1862,8 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Whether the person `credentials` signs in may create rooms, as ember-rust's
-   * `ensure_permission_to_create_rooms` decides (rooms.rs): anyone, unless an administrator has turned
-   * on "Must be admin to create new rooms". Null without a valid session.
+   * Whether the person `credentials` signs in may create rooms: anyone, unless an administrator has
+   * turned on "Must be admin to create new rooms". Null without a valid session.
    */
   async mayCreateRooms(credentials: Credentials): Promise<boolean | null> {
     const user = await this.authenticate(credentials);
@@ -1909,11 +1891,11 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Starts a DM as the person `credentials` signs in, as ember-rust's `directs#create` does
-   * (rooms/directs.rs): the DM between them and the people `userIds` names who exist, whatever their
-   * status, or their DM with themselves when it names nobody else. A group of people has one DM, so
-   * the one they have opens again. Answers it, and whether it's new, or null without a valid session.
-   * Everyone in a new DM sees it in their sidebars at once, and nobody else hears of it.
+   * Starts a DM as the person `credentials` signs in: the DM between them and the people `userIds` names
+   * who exist, whatever their status, or their DM with themselves when it names nobody else. A group of
+   * people has one DM, so the one they have opens again. Answers it, and whether it's new, or null
+   * without a valid session. Everyone in a new DM sees it in their sidebars at once, and nobody else
+   * hears of it.
    */
   async startDirect(credentials: Credentials, userIds: UserId[]): Promise<{ room: DirectRoom; started: boolean } | null> {
     const user = await this.authenticate(credentials);
@@ -1954,9 +1936,9 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Someone as their page shows them to the person `credentials` signs in, whatever their status, as
-   * ember-rust's `users#show` finds them (users.rs), and with their email address and sign-in link to
-   * administrators: "not found" if nobody has id `userId`, or null without a valid session.
+   * Someone as their page shows them to the person `credentials` signs in, whatever their status, and
+   * with their email address and sign-in link to administrators: "not found" if nobody has id `userId`,
+   * or null without a valid session.
    */
   async person(credentials: Credentials, userId: UserId): Promise<ShownPerson | "not found" | null> {
     const session = await this.session(credentials);
@@ -1982,11 +1964,10 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Makes the active person `userId` an administrator or a member as the person `credentials` signs
-   * in, as ember-rust's `accounts/users#update` does, answering them as the people directory then lists
-   * them: "forbidden" unless that's an administrator, "not found" unless `userId` is someone active, or
-   * null without a valid session. A null `role` changes nothing, once that's checked. Unlike
-   * ember-rust, which leaves it to the page, nobody can change their own role ("own role"), so there's
+   * Makes the active person `userId` an administrator or a member as the person `credentials` signs in,
+   * answering them as the people directory then lists them: "forbidden" unless that's an administrator,
+   * "not found" unless `userId` is someone active, or null without a valid session. A null `role`
+   * changes nothing, once that's checked. Nobody can change their own role ("own role"), so there's
    * always an administrator, or a bot's ("bot"). Everyone's workspace sockets hear of a change.
    */
   async changeRole(
@@ -2003,7 +1984,7 @@ export class Workspace extends DurableObject<Env> {
       if (role === null) return this.directoryUser(person);
       if (userId === user.id) return "own role";
       if (person.role === "bot") return "bot";
-      // As ember-rust's `User#update` writes only what differs (user.rs).
+      // Only what differs is written.
       if (role === person.role) return this.directoryUser(person);
 
       const now = new Date().toISOString();
@@ -2019,14 +2000,12 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Removes the active person `userId` from the workspace as the person `credentials` signs in, as
-   * ember-rust's `accounts/users#destroy` does (`User#deactivate`, user.rs), or someone suspended for
-   * their membership's lapsing, answering them as the people directory then lists them: "forbidden"
-   * unless that's an administrator, "not found" unless `userId` is someone active or suspended, or null
-   * without a valid session. Unlike ember-rust, which leaves it to the page, nobody can remove
-   * themselves ("yourself"), so there's always an administrator. All their sessions end, and their
-   * sockets close for good: here at once, and in every room they're in through the outbox. Everyone's
-   * workspace sockets hear of it.
+   * Removes the active person `userId` from the workspace as the person `credentials` signs in, or
+   * someone suspended for their membership's lapsing, answering them as the people directory then lists
+   * them: "forbidden" unless that's an administrator, "not found" unless `userId` is someone active or
+   * suspended, or null without a valid session. Nobody can remove themselves ("yourself"), so there's
+   * always an administrator. All their sessions end, and their sockets close for good: here at once, and
+   * in every room they're in through the outbox. Everyone's workspace sockets hear of it.
    */
   async removePerson(credentials: Credentials, userId: UserId): Promise<DirectoryUser | "forbidden" | "not found" | "yourself" | null> {
     const user = await this.authenticate(credentials);
@@ -2041,10 +2020,9 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Deactivates someone active or suspended, as ember-rust's `User#deactivate` does (user.rs), answering
-   * them as the people directory then lists them. All their sessions end, and their sockets close for
-   * good: here at once, and in every room they're in through the outbox. Everyone's workspace sockets
-   * hear of it.
+   * Deactivates someone active or suspended, answering them as the people directory then lists them. All
+   * their sessions end, and their sockets close for good: here at once, and in every room they're in
+   * through the outbox. Everyone's workspace sockets hear of it.
    */
   private async deactivate({ id, name, bio, role }: DirectoryEntry): Promise<DirectoryUser> {
     const now = Date.now();
@@ -2067,9 +2045,8 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * The active bots, by name, each with its key and the rooms it's in but its DMs, as ember-rust's bots
-   * page lists them (`accounts/bots#index`, accounts/bots.rs), for the person `credentials` signs in:
-   * "forbidden" unless that's an administrator, or null without a valid session.
+   * The active bots, by name, each with its key and the rooms it's in but its DMs, for the person
+   * `credentials` signs in: "forbidden" unless that's an administrator, or null without a valid session.
    */
   async bots(credentials: Credentials): Promise<Bot[] | "forbidden" | null> {
     const user = await this.authenticate(credentials);
@@ -2079,9 +2056,9 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * The active bot `botId` as its edit page shows it to the person `credentials` signs in, as
-   * ember-rust's `accounts/bots#edit` finds it: "forbidden" unless that's an administrator, "not found"
-   * unless `botId` is an active bot, or null without a valid session.
+   * The active bot `botId` as its edit page shows it to the person `credentials` signs in: "forbidden"
+   * unless that's an administrator, "not found" unless `botId` is an active bot, or null without a valid
+   * session.
    */
   async bot(credentials: Credentials, botId: UserId): Promise<BotSettings | "forbidden" | "not found" | null> {
     const user = await this.authenticate(credentials);
@@ -2091,11 +2068,11 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Adds a bot as the person `credentials` signs in, as ember-rust's `accounts/bots#create` does
-   * (`User.create_bot!`, user.rs): with a new token, a webhook if `bot` gives it somewhere to deliver,
-   * `avatar`, which R2 has stored under a key `reservePicture` reserved, if it's given one, and in every
-   * open room, as someone who joins is, and everyone's workspace sockets hear of it. Answers it as its
-   * edit page shows it, "forbidden" unless that's an administrator, or null without a valid session.
+   * Adds a bot as the person `credentials` signs in: with a new token, a webhook if `bot` gives it
+   * somewhere to deliver, `avatar`, which R2 has stored under a key `reservePicture` reserved, if it's
+   * given one, and in every open room, as someone who joins is, and everyone's workspace sockets hear of
+   * it. Answers it as its edit page shows it, "forbidden" unless that's an administrator, or null
+   * without a valid session.
    */
   async createBot(credentials: Credentials, { name, webhookUrl }: NewBot, avatar: StoredPicture | null): Promise<BotSettings | "forbidden" | null> {
     const user = await this.authenticate(credentials);
@@ -2110,12 +2087,11 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Changes the active bot `botId` as the person `credentials` signs in, as ember-rust's
-   * `accounts/bots#update` does (`update_bot!`, user.rs), giving it `avatar`, which R2 has stored under a
-   * key `reservePicture` reserved, in place of the one it had, if it's given one, as `changeAvatar` gives
-   * someone theirs. Answers it as its edit page then shows it: "forbidden" unless that's an administrator,
-   * "not found" unless `botId` is an active bot, or null without a valid session. Everyone's workspace
-   * sockets hear of a new name or avatar.
+   * Changes the active bot `botId` as the person `credentials` signs in, giving it `avatar`, which R2
+   * has stored under a key `reservePicture` reserved, in place of the one it had, if it's given one, as
+   * `changeAvatar` gives someone theirs. Answers it as its edit page then shows it: "forbidden" unless
+   * that's an administrator, "not found" unless `botId` is an active bot, or null without a valid
+   * session. Everyone's workspace sockets hear of a new name or avatar.
    */
   async changeBot(credentials: Credentials, botId: UserId, changes: BotChanges, avatar: StoredPicture | null): Promise<BotSettings | "forbidden" | "not found" | null> {
     const user = await this.authenticate(credentials);
@@ -2138,11 +2114,10 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Deletes the active bot `botId` as the person `credentials` signs in, as ember-rust's
-   * `accounts/bots#destroy` does, deactivating it as removing someone does: it leaves every room but its
-   * DMs, and its key stops working, while its messages, token and webhook stay. Answers "forbidden"
-   * unless that's an administrator, "not found" unless `botId` is an active bot, or null without a valid
-   * session. Everyone's workspace sockets hear of it.
+   * Deletes the active bot `botId` as the person `credentials` signs in, deactivating it as removing
+   * someone does: it leaves every room but its DMs, and its key stops working, while its messages, token
+   * and webhook stay. Answers "forbidden" unless that's an administrator, "not found" unless `botId` is
+   * an active bot, or null without a valid session. Everyone's workspace sockets hear of it.
    */
   async deleteBot(credentials: Credentials, botId: UserId): Promise<"deleted" | "forbidden" | "not found" | null> {
     const user = await this.authenticate(credentials);
@@ -2157,10 +2132,9 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Gives the active bot `botId` a new token as the person `credentials` signs in, as ember-rust's
-   * `accounts/bots/keys#update` does (`reset_bot_key`, user.rs), so its old key stops working at once.
-   * Answers it as its edit page then shows it, "forbidden" unless that's an administrator, "not found"
-   * unless `botId` is an active bot, or null without a valid session.
+   * Gives the active bot `botId` a new token as the person `credentials` signs in, so its old key stops
+   * working at once. Answers it as its edit page then shows it, "forbidden" unless that's an
+   * administrator, "not found" unless `botId` is an active bot, or null without a valid session.
    */
   async resetBotKey(credentials: Credentials, botId: UserId): Promise<BotSettings | "forbidden" | "not found" | null> {
     const user = await this.authenticate(credentials);
@@ -2191,15 +2165,14 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Bans `userId`, whatever their status, as the person `credentials` signs in, as ember-rust's
-   * `users/bans#create` does (`User#ban`, user.rs), answering them as the people directory then lists
-   * them: "forbidden" unless that's an administrator, "not found" if nobody has the id, or null without
-   * a valid session. Unlike ember-rust, which leaves it to the page, nobody can ban themselves
-   * ("yourself"), so there's always an administrator. If any IP address recorded on their sessions is
-   * one a ban can't block, it answers what's wrong with it and changes nothing. Otherwise it blocks
-   * them all, all their sessions end, their sockets close for good, here at once and in every room
-   * they're in through the outbox, and the outbox has every room they can have written in delete their
-   * messages. Everyone's workspace sockets hear of it.
+   * Bans `userId`, whatever their status, as the person `credentials` signs in, answering them as the
+   * people directory then lists them: "forbidden" unless that's an administrator, "not found" if nobody
+   * has the id, or null without a valid session. Nobody can ban themselves ("yourself"), so there's
+   * always an administrator. If any IP address recorded on their sessions is one a ban can't block, it
+   * answers what's wrong with it and changes nothing. Otherwise it blocks them all, all their sessions
+   * end, their sockets close for good, here at once and in every room they're in through the outbox, and
+   * the outbox has every room they can have written in delete their messages. Everyone's workspace
+   * sockets hear of it.
    */
   async banPerson(
     credentials: Credentials,
@@ -2215,13 +2188,13 @@ export class Workspace extends DurableObject<Env> {
       const ipAddresses = await this.store.sessionIpAddresses(userId);
       const problem = ipAddresses.map(banProblem).find((problem) => problem !== null);
       if (problem) return problem;
-      // Unlike ember-rust, a ban can't block the address the administrator is using, which would stop
-      // them changing anything, lifting the ban included.
+      // A ban can't block the address the administrator is using, which would stop them changing
+      // anything, lifting the ban included.
       if (credentials.client.ip !== null && ipAddresses.includes(credentials.client.ip)) return "your address";
 
       const now = Date.now();
       const bannedAt = new Date(now).toISOString();
-      // As ember-rust's `User#update` writes only what differs (user.rs), someone banned stays as they are.
+      // Only what differs is written, so someone banned stays as they are.
       const banned = person.status === "banned" ? null : { ...person, status: "banned" as const, updatedAt: bannedAt };
       // As when removing someone, until the database says it queued nothing.
       let queued = true;
@@ -2244,11 +2217,11 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Lifts the ban on `userId` as the person `credentials` signs in, as ember-rust's `users/bans#destroy`
-   * does (`User#unban`, user.rs), unblocking their IP addresses and making them active, whatever their
-   * status was, removed included, without bringing back their messages, though rooms yet to delete
-   * theirs keep what they write from then on. Answers them as the people directory then lists them, or
-   * why not, as `banPerson` does. Everyone's workspace sockets hear of it.
+   * Lifts the ban on `userId` as the person `credentials` signs in, unblocking their IP addresses and
+   * making them active, whatever their status was, removed included, without bringing back their
+   * messages, though rooms yet to delete theirs keep what they write from then on. Answers them as the
+   * people directory then lists them, or why not, as `banPerson` does. Everyone's workspace sockets hear
+   * of it.
    */
   async unbanPerson(credentials: Credentials, userId: UserId): Promise<DirectoryUser | "forbidden" | "not found" | null> {
     const user = await this.authenticate(credentials);
@@ -2331,16 +2304,14 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Saves `changes` to the profile of the person `credentials` signs in, with `passwordDigest` as their
-   * password if it isn't null, as ember-rust's `profiles#update` does (profiles.rs), answering the
-   * profile as it is then: "email address taken" when someone else has the email address, where
-   * ember-rust fails, "password needed" when the change is to their email address or password and they
-   * have a password whose digest isn't `checked`, the one the Worker checked their current password
-   * against (`profileCheck`), which ember-rust never asks for, or null without a valid session. A blank
-   * email address or bio is saved as none, so any number of people can be without one. As ember-rust's
-   * `User#update` does, it writes only what differs. A new password ends their other sessions, where
-   * ember-rust's leaves every session signed in: their sockets close and are told to reconnect, here at
-   * once and in every room they're in through the outbox, and their push subscriptions are forgotten but
-   * this browser's, at `pushEndpoint`. Everyone's workspace sockets hear of a new name or bio, which the
+   * password if it isn't null, answering the profile as it is then: "email address taken" when someone
+   * else has the email address, "password needed" when the change is to their email address or password
+   * and they have a password whose digest isn't `checked`, the one the Worker checked their current
+   * password against (`profileCheck`), or null without a valid session. A blank email address or bio is
+   * saved as none, so any number of people can be without one. It writes only what differs. A new
+   * password ends their other sessions: their sockets close and are told to reconnect, here at once and
+   * in every room they're in through the outbox, and their push subscriptions are forgotten but this
+   * browser's, at `pushEndpoint`. Everyone's workspace sockets hear of a new name or bio, which the
    * people directory lists.
    */
   async changeProfile(
@@ -2408,9 +2379,9 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Gives the person `credentials` signs in `avatar`, which R2 has stored under a key `reservePicture`
-   * reserved, or takes theirs away with null, as ember-rust's profile form and `avatars#destroy` do,
-   * answering their profile then, or null without a valid session. R2 deletes the avatar they had, and
-   * everyone's workspace sockets hear of the change, which gives their avatar a new address.
+   * reserved, or takes theirs away with null, answering their profile then, or null without a valid
+   * session. R2 deletes the avatar they had, and everyone's workspace sockets hear of the change, which
+   * gives their avatar a new address.
    */
   async changeAvatar(credentials: Credentials, avatar: StoredPicture | null): Promise<YourProfile | null> {
     return this.oneAtATime(async () => {
@@ -2419,7 +2390,7 @@ export class Workspace extends DurableObject<Env> {
       const { user } = session;
       const person = await this.store.ownProfile(user.id);
       if (!person) return null;
-      // As removing an avatar that isn't there changes nothing in ember-rust.
+      // Removing an avatar that isn't there changes nothing.
       if (avatar === null && person.avatar === null) return this.yourProfile(person, session);
       const now = Date.now();
       const updatedAt = new Date(now).toISOString();
@@ -2433,9 +2404,8 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Room `roomId`'s settings, as the person `credentials` signs in sees them: "not found" unless
-   * they're in it and it isn't a DM, as ember-rust's `set_room` finds rooms (rooms.rs), or null
-   * without a valid session.
+   * Room `roomId`'s settings, as the person `credentials` signs in sees them: "not found" unless they're
+   * in it and it isn't a DM, or null without a valid session.
    */
   async roomSettings(credentials: Credentials, roomId: RoomId): Promise<RoomSettings | "not found" | null> {
     const user = await this.authenticate(credentials);
@@ -2476,8 +2446,8 @@ export class Workspace extends DurableObject<Env> {
       }
       this.tell(saved.removedIds, { type: "room.gone", roomId });
       this.tell(saved.roomChanged ? saved.memberIds : saved.addedIds, { type: "room.saved", room: changed });
-      // The shared order their sidebars have leaves out the rooms they weren't in, so they load it again,
-      // where ember-rust's list the room by name until their next page.
+      // The shared order their sidebars have leaves out the rooms they weren't in, so they load it
+      // again.
       if (saved.ranked) this.tell(saved.addedIds, { type: "rooms.reordered" });
       return changed;
     });
@@ -2497,12 +2467,10 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Deletes room `roomId` as the person `credentials` signs in, as ember-rust's `destroy` does
-   * (rooms.rs): "not found" unless they're in it, "forbidden" unless they can change it, or null
-   * without a valid session. Anyone in a DM can delete it, as at ember-rust's DM address
-   * (rooms/directs.rs). Everyone with it open is told it's gone, and its messages go with it. It leaves
-   * the sidebars of the people who were in it, and nobody else hears of it, where ember-rust tells
-   * everyone (broadcasts.rs).
+   * Deletes room `roomId` as the person `credentials` signs in: "not found" unless they're in it,
+   * "forbidden" unless they can change it, or null without a valid session. Anyone in a DM can delete
+   * it. Everyone with it open is told it's gone, and its messages go with it. It leaves the sidebars of
+   * the people who were in it, and nobody else hears of it.
    */
   async deleteRoom(credentials: Credentials, roomId: RoomId): Promise<"deleted" | "not found" | "forbidden" | null> {
     const user = await this.authenticate(credentials);
@@ -2525,14 +2493,14 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Applies the events room `roomId` sends from its log, in order, with `viewerIds`, who is viewing
-   * the room as it sends them: a new message marks the room unread for its members who aren't, and
-   * someone opening it clears their mark. Each event is applied once, however often it's sent. Whoever's
-   * mark changes hears of it on their workspace sockets, and nobody else does. A new message in a DM
-   * moves it to the top of everyone's DMs there, its author's too, as in ember-rust every member's
-   * sidebar hears of it (`unread_room`, broadcasts.rs), and one call's messages move it once. It answers
-   * the bots' webhooks each new message is delivered to and, while Web Push is on, its pushes, for the
-   * room to send, none of them to a guest while `EMBER_GUEST_SIGN_IN` doesn't let guests stay signed in.
+   * Applies the events room `roomId` sends from its log, in order, with `viewerIds`, who is viewing the
+   * room as it sends them: a new message marks the room unread for its members who aren't, and someone
+   * opening it clears their mark. Each event is applied once, however often it's sent. Whoever's mark
+   * changes hears of it on their workspace sockets, and nobody else does. A new message in a DM moves it
+   * to the top of everyone's DMs there, its author's too, and one call's messages move it once. It
+   * answers the bots' webhooks each new message is delivered to and, while Web Push is on, its pushes,
+   * for the room to send, none of them to a guest while `EMBER_GUEST_SIGN_IN` doesn't let guests stay
+   * signed in.
    */
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<RoomEventDeliveries> {
     if (events.length === 0) return { pushes: [], webhooks: [] };
@@ -2553,7 +2521,7 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Forgets the push subscriptions with `ids`, which a push service has said are gone, or whose keys no
-   * push can be encrypted for, as ember-rust's push pool destroys them, logging each as it does.
+   * push can be encrypted for, logging each as it does.
    */
   async forgetPushSubscriptions(ids: number[]): Promise<void> {
     for (const id of ids) console.log(`Destroying push subscription: ${id}`);
@@ -2562,8 +2530,7 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * What a search by the person `credentials` signs in needs, having first recorded `recording` as their
-   * newest search, when it's given, as ember-rust's search page's form records one (searches.rs), or null
-   * without a valid session.
+   * newest search, when it's given, or null without a valid session.
    */
   async searcher(credentials: Credentials, recording: string | null): Promise<Searcher | null> {
     const user = await this.authenticate(credentials);
@@ -2599,8 +2566,8 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Where a test push to push subscription `id` goes, if it's the person's `credentials` signs in, with
-   * their unread count as its badge, as ember-rust's `test_notifications#create` finds it: "missing" if
-   * it's someone else's, or there's no such subscription or no id, and null without a valid session.
+   * their unread count as its badge: "missing" if it's someone else's, or there's no such subscription
+   * or no id, and null without a valid session.
    */
   async testPushDelivery(credentials: Credentials, id: number | null): Promise<PushDelivery | "missing" | null> {
     const user = await this.authenticate(credentials);
@@ -2610,7 +2577,7 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Deletes push subscription `id` if it's the person's `credentials` signs in, and does nothing if it's
-   * someone else's or there's no id, as ember-rust does, answering false without a valid session.
+   * someone else's or there's no id, answering false without a valid session.
    */
   async deletePushSubscription(credentials: Credentials, id: number | null): Promise<boolean> {
     const user = await this.authenticate(credentials);
@@ -2620,7 +2587,7 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * The people of `ids` who exist, whatever their status, for a room naming the people a message
-   * mentions, as ember-rust finds a mention's user (`User::find_by_id`).
+   * mentions.
    */
   async mentionedPeople(ids: UserId[]): Promise<User[]> {
     return this.store.peopleWithIds(ids);
@@ -2635,9 +2602,8 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * The active bot a bot API key names by `botId` and `token`, as ember-rust's `allow_bot_access` finds
-   * it (`User.authenticate_bot`, user.rs), if it's in room `roomId`, with when this checked and Ember's
-   * custom domain: "not found" when it isn't, as `set_room` answers then (messages/by_bots.rs), or null
+   * The active bot a bot API key names by `botId` and `token`, if it's in room `roomId`, with when this
+   * checked and Ember's custom domain: "not found" when it isn't, as `set_room` answers then, or null
    * unless `token` is the bot's token now.
    */
   async botInRoom(botId: UserId, token: string, roomId: RoomId): Promise<BotKeyAccess | "not found" | null> {
@@ -2685,9 +2651,9 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Whether a ban blocks the IP address `ipAddress`, as ember-rust's `Ban.banned?` decides (ban.rs): that
-   * exact address, however else it could be written. The Worker asks before every request that changes
-   * something, so the addresses are read once and kept until a ban changes.
+   * Whether a ban blocks the IP address `ipAddress`: that exact address, however else it could be
+   * written. The Worker asks before every request that changes something, so the addresses are read once
+   * and kept until a ban changes.
    */
   async isBanned(ipAddress: string): Promise<boolean> {
     return (await this.bannedAddresses()).has(ipAddress);
@@ -2716,13 +2682,13 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Checks the memberships due with the Memberful site's admin API (`auth.memberful-memberships`), having
-   * queued everyone's if the daily catch-up is due, as many as one request asks after, and goes by what it
-   * says, as a sign-in goes by what it reads (`settleMembership`). A check Memberful failed to answer
-   * before is asked alone, so that a member it can't answer for holds up nobody else, and one it fails to
-   * answer now is put off, as a revocation is. Memberships are checked whether Memberful is on or not,
-   * since the members who joined with it keep signing in with it, but while the deployment can't ask its
-   * admin API, nothing is checked, and whatever was queued is forgotten.
+   * Checks the memberships due with the Memberful site's admin API, having queued everyone's if the daily
+   * catch-up is due, as many as one request asks after, and goes by what it says, as a sign-in goes by
+   * what it reads (`settleMembership`). A check Memberful failed to answer before is asked alone, so that
+   * a member it can't answer for holds up nobody else, and one it fails to answer now is put off, as a
+   * revocation is. Memberships are checked whether Memberful is on or not, since the members who joined
+   * with it keep signing in with it, but while the deployment can't ask its admin API, nothing is checked,
+   * and whatever was queued is forgotten.
    */
   private async checkMemberships(): Promise<void> {
     const api = memberfulApiOf(this.env);
@@ -2867,8 +2833,8 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Sets the alarm for the outbox's next delivery due, as the Workspace starts, having made the daily
    * check of memberships due at once if the deployment can ask Memberful's admin API, anyone here is
-   * linked to an account at its site, and none is due, as when it has only just been given the API's key
-   * (`auth.memberful-memberships`).
+   * linked to an account at its site, and none is due, as when it has only just been given the API's
+   * key.
    */
   private async resumeDeliveries(): Promise<void> {
     const api = memberfulApiOf(this.env);

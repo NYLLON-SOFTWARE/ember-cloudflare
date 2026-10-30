@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { APIRequestContext, Page } from "@playwright/test";
 import { administratorSession, cookieHeader, expect, fakeTurnstile, SAME_ORIGIN, signInAsAdministrator, test, TURNSTILE_WIDGET, turnstileTokenFor, useOwnAddress } from "../../fixtures";
 import { startFakeSiteverify, type FakeSiteverify } from "./fake-siteverify";
@@ -36,7 +35,7 @@ async function openTurnstile(page: Page, request: APIRequestContext) {
   return page.getByRole("region", { name: "Turnstile", exact: true });
 }
 
-test.describe(feature("auth.turnstile"), () => {
+test.describe("Check that people are people with Cloudflare Turnstile", () => {
   test("the administrator gives Ember a widget's keys, which its check proves, and anyone signing up passes it", async ({ page, request, browser, baseURL }) => {
     const turnstile = await openTurnstile(page, request);
     await expect(turnstile).toContainText("Until it does, limits on each network stand in for its check.");

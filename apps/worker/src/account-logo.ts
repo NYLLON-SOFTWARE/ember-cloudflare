@@ -7,21 +7,20 @@ import { hasBody } from "./files/serving";
 import { urlOf } from "./request-url";
 import { workspace } from "./workspace";
 
-// The workspace's logo, ported from ember-rust's crates/ember/src/controllers/accounts/logos.rs: a PNG
-// anyone may fetch, so it can be a push's icon and the installed app's: a variant of the logo an
-// administrator uploaded, or Ember's stock app icon, from the built app's files.
+// The workspace's logo, as Campfire's Accounts::LogosController serves it: a PNG anyone may fetch, so it
+// can be a push's icon and the installed app's: a variant of the logo an administrator uploaded, or
+// Ember's stock app icon, from the built app's files.
 
 /** `expires_in 5.minutes, public: true, stale_while_revalidate: 1.week` */
 const CACHE_CONTROL = "max-age=300, public, stale-while-revalidate=604800";
 
-/** Whether `pathname` is the logo's, which ember-rust's router takes with any format. */
+/** Whether `pathname` is the logo's. */
 export const isAccountLogoPath = (pathname: string) => /^\/account\/logo(?:\.[^/.]+)?$/.test(pathname);
 
 /**
  * `GET /account/logo`: the variant within 512×512 of the logo an administrator uploaded, or the one
- * within 192×192 with `?size=small`, as ember-rust serves them, or the stock app icon or its 192-pixel
- * one when there's no logo, or none ember-rust could resize. A 304 says how long to keep the copy too,
- * as avatars' do.
+ * within 192×192 with `?size=small`, or the stock app icon or its 192-pixel one when there's no logo, or
+ * none Campfire could resize. A 304 says how long to keep the copy too, as avatars' do.
  */
 export async function showAccountLogo(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return notFound(request);
@@ -49,7 +48,7 @@ async function variant(request: Request, env: Env, { key, variant }: StoredPictu
   return new Response(hasBody(object) ? object.body : null, { headers });
 }
 
-/** The stock app icon, or its 192-pixel one when `small`, as ember-rust's `send_stock_icon` sends them. */
+/** The stock app icon, or its 192-pixel one when `small`. */
 async function stockIcon(request: Request, env: Env, small: boolean): Promise<Response> {
   const file = small ? "app-icon-192.png" : "app-icon.png";
   const icon = await env.ASSETS.fetch(new URL(`/logos/${file}`, request.url));

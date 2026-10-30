@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { AVATAR_PATH, type NewRoom, type ProfileAnswer, type Sidebar } from "@ember/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -23,7 +22,7 @@ import {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("auth.sessions"), () => {
+describe("Stay signed in, per device", () => {
   it("reports refusals with the server's reason", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ error: "Not signed in" }, { status: 401 }));
     const failure = await fetchMe().catch((error: unknown) => error);
@@ -46,7 +45,7 @@ describe(feature("auth.sessions"), () => {
   });
 });
 
-describe(feature("auth.sign-up"), () => {
+describe("Sign up with the join link", () => {
   const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "compiler" };
 
   it("joins with the join link's code", async () => {
@@ -77,7 +76,7 @@ describe(feature("auth.sign-up"), () => {
   });
 });
 
-describe(feature("auth.first-run"), () => {
+describe("Set up the workspace", () => {
   it("sends the administrator as JSON without a photo, and as a form with one, leaving out a variant that couldn't be made", async () => {
     const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "correct horse" };
     const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({}, { status: 201 }));
@@ -90,7 +89,7 @@ describe(feature("auth.first-run"), () => {
   });
 });
 
-describe(feature("auth.protected-setup"), () => {
+describe("Installer-protected setup link", () => {
   it("sends the setup link's token as a bearer token, with a photo or without, and none without a link", async () => {
     const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "correct horse" };
     const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({}, { status: 201 }));
@@ -108,7 +107,7 @@ describe(feature("auth.protected-setup"), () => {
   });
 });
 
-describe(feature("users.avatar-upload"), () => {
+describe("Upload an avatar", () => {
   it("changes your avatar with a form of the photo and its variant, and removes it", async () => {
     const answer = { profile: { name: "Ada", emailAddress: null, bio: null, avatarUrl: "/users/t/avatar", avatar: true, password: false, membershipNeeded: true, memberful: null }, transferId: "u1.t" } satisfies ProfileAnswer;
     const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(answer));
@@ -124,7 +123,7 @@ describe(feature("users.avatar-upload"), () => {
   });
 });
 
-describe(feature("auth.sign-out"), () => {
+describe("Sign out", () => {
   it("ends the session on the server", async () => {
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
     await signOut();
@@ -138,7 +137,7 @@ describe(feature("auth.sign-out"), () => {
   });
 });
 
-describe(feature("realtime.connection"), () => {
+describe("Connection sign-in and revocation", () => {
   it("opens room sockets at the room's own address, over wss on https pages", () => {
     expect(roomSocketUrl("general", { visible: true })).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3");
     vi.stubGlobal("location", new URL("https://ember.example/rooms/general"));
@@ -147,7 +146,7 @@ describe(feature("realtime.connection"), () => {
   });
 });
 
-describe(feature("platform.live-socket"), () => {
+describe("One live connection per tab outside the open room", () => {
   it("opens the workspace socket on the page's own host, over wss on https pages", () => {
     expect(workspaceSocketUrl()).toBe("ws://localhost:3000/api/socket");
     vi.stubGlobal("location", new URL("https://ember.example/rooms/general"));
@@ -156,7 +155,7 @@ describe(feature("platform.live-socket"), () => {
   });
 });
 
-describe(feature("sidebar.live-updates"), () => {
+describe("Live sidebar updates", () => {
   const sidebar: Sidebar = { rooms: [{ id: "r1", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" }], favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, suggestions: [] };
 
   it("keeps the sidebar's ETag, and names it to keep the copy while it's current", async () => {
@@ -180,7 +179,7 @@ describe(feature("sidebar.live-updates"), () => {
   });
 });
 
-describe(feature("sidebar.favorites"), () => {
+describe("Star rooms", () => {
   it("stars a room, or unstars it, answering the person's stars", async () => {
     const favorites = { rooms: ["r 1"], version: 3 };
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ favorites }));
@@ -191,7 +190,7 @@ describe(feature("sidebar.favorites"), () => {
   });
 });
 
-describe(feature("sidebar.favorite-order"), () => {
+describe("Reorder starred rooms", () => {
   it("sends the order of someone's stars, answering their stars", async () => {
     const favorites = { rooms: ["r2", "r1"], version: 3 };
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ favorites }));
@@ -200,7 +199,7 @@ describe(feature("sidebar.favorite-order"), () => {
   });
 });
 
-describe(feature("rooms.create-closed"), () => {
+describe("Create a private room", () => {
   it("asks for New room's people, and creates a room with the people chosen", async () => {
     const leads = { id: "leads", name: "Leads", kind: "closed", icon: null };
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ people: [] }));
@@ -214,7 +213,7 @@ describe(feature("rooms.create-closed"), () => {
   });
 });
 
-describe(feature("rooms.settings-page"), () => {
+describe("Room settings page", () => {
   it("reads and changes a room by its id, escaped", async () => {
     const café = { id: "café", name: "Café", kind: "open", icon: null };
     const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ room: café, canAdminister: true, people: [] }));

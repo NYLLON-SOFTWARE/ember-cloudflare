@@ -1,8 +1,7 @@
 /**
  * Counts attempts by key in fixed windows that start with each key's first attempt, as Rails'
- * `rate_limit` does on a cache that sets an entry's expiry only when it's created. ember-rust's
- * sign-in limit is one (crates/ember/src/controllers/sessions.rs). Counts live in memory, so they
- * start over when the object holding them does, as ember-rust's do when it restarts.
+ * `rate_limit` does on a cache that sets an entry's expiry only when it's created. The sign-in limit is
+ * one. Counts live in memory, so they start over when the object holding them does.
  */
 export class FixedWindowLimit {
   private readonly windows = new Map<string, { count: number; expiresAt: number }>();

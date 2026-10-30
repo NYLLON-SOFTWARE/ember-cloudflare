@@ -20,15 +20,14 @@ import { cn } from "@/lib/utils";
 import { sendsEmail, TestEmail } from "./email-settings";
 import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";
 
-// This port's own Set up email (`platform.email`), for administrators: the steps to have Ember send
-// email, one at a time, in a dialog that Membership's Email card opens, as Invite by email does, and as
-// turning on Email domain does before Ember can send email, as the project's owner asked (2026-10-26).
-// First, what sends it: Resend, with an API key Ember checks with Resend and keeps, or Cloudflare
-// Email Service, which delivers beyond the account's own addresses only on Workers Paid. Then the From
-// address, whose domain it checks for the records Cloudflare's Onboard Domain adds, and then a test
-// email, which it sends as it gets there, so that setting up checks itself. While the deployment has the
-// secret RESEND_API_KEY, Resend sends with it, so it starts at the From address. Each step saves as it
-// goes on. Styled as Unsaved Changes is.
+// Set up email, for administrators: the steps to have Ember send email, one at a time, in a dialog that
+// Membership's Email card opens, as Invite by email does, and as turning on Email domain does before
+// Ember can send email, as the project's owner asked (2026-10-26). First, what sends it: Resend, with an
+// API key Ember checks with Resend and keeps, or Cloudflare Email Service, which delivers beyond the
+// account's own addresses only on Workers Paid. Then the From address, whose domain it checks for the
+// records Cloudflare's Onboard Domain adds, and then a test email, which it sends as it gets there, so
+// that setting up checks itself. While the deployment has the secret RESEND_API_KEY, Resend sends with
+// it, so it starts at the From address. Each step saves as it goes on. Styled as Unsaved Changes is.
 
 /** Where Resend verifies the domains it sends from. */
 const RESEND_DOMAINS = "https://resend.com/domains";

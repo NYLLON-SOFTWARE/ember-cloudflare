@@ -1,10 +1,9 @@
-import { feature } from "@ember/parity";
 import type { Sidebar, WorkspaceServerFrame } from "@ember/protocol";
 import type { APIRequestContext, Page, WebSocketRoute } from "@playwright/test";
 import { administratorSession, connectWorkspace, cookieHeader, createRoom, invitation, keepOtherRoomsOut, listing, makeAdministrator, rowsWithStars, signInAs, WORKSPACE_SOCKET } from "../../fixtures";
 import { expect, test, unique, type Member } from "./fixtures";
 
-test.describe(feature("sidebar.rooms"), () => {
+test.describe("Conversations sidebar", () => {
   test("lists the rooms the server says you're in", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada", { serverRooms: true });
     const sidebar = ada.page.getByRole("region", { name: "Rooms" });
@@ -30,7 +29,7 @@ test.describe(feature("sidebar.rooms"), () => {
   });
 });
 
-test.describe(feature("sidebar.live-updates"), () => {
+test.describe("Live sidebar updates", () => {
   test("shows rooms as they're made, renamed and deleted, in everyone's sidebar at once", async ({ members, request }) => {
     const ada = await members.signIn(unique("Ada"), { serverRooms: true });
     const grace = await members.signIn(unique("Grace"), { serverRooms: true });
@@ -91,7 +90,7 @@ test.describe(feature("sidebar.live-updates"), () => {
   });
 });
 
-test.describe(feature("sidebar.unread"), () => {
+test.describe("Unread rooms", () => {
   test("marks a room bold with a dot for members not in it, through a reload, until they open it in any tab", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
@@ -114,7 +113,7 @@ test.describe(feature("sidebar.unread"), () => {
   });
 });
 
-test.describe(feature("sidebar.activity-filter"), () => {
+test.describe("Activity filter", () => {
   test("counts the rooms marked unread, shows only them while it's on, and a room's link turns it off", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
@@ -146,7 +145,7 @@ test.describe(feature("sidebar.activity-filter"), () => {
   });
 });
 
-test.describe(feature("sidebar.favorites"), () => {
+test.describe("Star rooms", () => {
   test("stars a room from its header, which every tab of yours lists first with a star, until it's unstarred", async ({ members, rooms }) => {
     const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
     const secondTab = await grace.page.context().newPage();
@@ -186,14 +185,14 @@ test.describe(feature("sidebar.favorites"), () => {
     const note = grace.page.getByRole("status").filter({ hasText: "Couldn’t save your favorite. Please try again." });
     await expect(note).toBeVisible();
     await expect(note).toHaveCSS("width", "200px");
-    // From the star's left edge, as ember-rust's, where there's room for it.
+    // From the star's left edge, where there's room for it.
     expect((await note.boundingBox())!.x).toBeCloseTo((await star.boundingBox())!.x, 0);
     await expect(star).toHaveAttribute("aria-pressed", "false");
     await expect.poll(() => rowsWithStars(grace.page.getByRole("region", { name: "Rooms" }).getByRole("link"))).toEqual(["#general", "#random"]);
   });
 });
 
-test.describe(feature("sidebar.favorite-order"), () => {
+test.describe("Reorder starred rooms", () => {
   const rows = (page: Page) => page.getByRole("region", { name: "Rooms" }).getByRole("link");
   const status = (page: Page, text: string) => page.getByRole("status").filter({ hasText: text });
 
@@ -262,7 +261,7 @@ test.describe(feature("sidebar.favorite-order"), () => {
   });
 });
 
-test.describe(feature("rooms.show"), () => {
+test.describe("Open a room", () => {
   test("opens the room named in the address", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada", { path: `/rooms/${rooms.random.id}` });
     await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("random");
@@ -278,7 +277,7 @@ test.describe(feature("rooms.show"), () => {
   });
 });
 
-test.describe(feature("rooms.last-visited"), () => {
+test.describe("Go back to the last room", () => {
   test("goes home to the room you were in last, as Go Back from settings does", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada", { path: `/rooms/${rooms.random.id}` });
     await ada.page.goto("/");
@@ -305,7 +304,7 @@ test.describe(feature("rooms.last-visited"), () => {
   });
 });
 
-test.describe(feature("rooms.index"), () => {
+test.describe("Room addresses", () => {
   test("opens your newest room at /rooms", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada", { path: "/rooms" });
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.random.id}$`));
@@ -330,7 +329,7 @@ test.describe(feature("rooms.index"), () => {
   });
 });
 
-test.describe(feature("rooms.open"), () => {
+test.describe("Open rooms everyone is in", () => {
   test("lets everyone into every room, and keeps each room's messages to itself", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada", { path: `/rooms/${rooms.random.id}` });
     const grace = await members.signIn("Grace");
@@ -343,7 +342,7 @@ test.describe(feature("rooms.open"), () => {
   });
 });
 
-test.describe(feature("rooms.invitation-card"), () => {
+test.describe("Welcome and invite card", () => {
   test("welcomes administrators to the first room with the workspace's join link", async ({ baseURL, members, request, session }) => {
     const { roomId, joinCode } = await invitation(request, session);
     const ada = await members.signIn("Ada", { path: `/rooms/${roomId}`, serverRooms: true, administrator: true });
@@ -362,7 +361,7 @@ test.describe(feature("rooms.invitation-card"), () => {
   });
 });
 
-test.describe(feature("rooms.invitation-dismissal"), () => {
+test.describe("Welcome card for administrators, until they dismiss it", () => {
   test("shows the welcome card to administrators alone, and to a member made one at once", async ({ members, request, session }) => {
     const { roomId } = await invitation(request, session);
     const grace = await members.signIn("Grace", { path: `/rooms/${roomId}`, serverRooms: true });
@@ -395,7 +394,7 @@ test.describe(feature("rooms.invitation-dismissal"), () => {
   });
 });
 
-test.describe(feature("accounts.join-link"), () => {
+test.describe("Join link", () => {
   test("copies the join link", async ({ baseURL, members, request, session }) => {
     const { roomId, joinCode } = await invitation(request, session);
     const context = { permissions: ["clipboard-read", "clipboard-write"] };
@@ -449,7 +448,7 @@ test.describe(feature("accounts.join-link"), () => {
   });
 });
 
-test.describe(feature("accounts.qr-codes"), () => {
+test.describe("QR codes for links", () => {
   test("opens the join link's QR code in the image viewer", async ({ baseURL, members, request, session }) => {
     const { roomId, joinCode } = await invitation(request, session);
     const ada = await members.signIn("Ada", { path: `/rooms/${roomId}`, serverRooms: true, administrator: true });
@@ -468,7 +467,7 @@ test.describe(feature("accounts.qr-codes"), () => {
     await expect(viewer.getByRole("link", { name: "Download file" })).toHaveAttribute("href", qrCode);
     await expect(viewer.getByRole("button", { name: "Close image viewer" })).toBeFocused();
 
-    // It saves the code and stays open, where ember-rust's link leaves the app to show it.
+    // It saves the code and stays open.
     const download = ada.page.waitForEvent("download");
     await viewer.getByRole("link", { name: "Download file" }).click();
     expect((await download).suggestedFilename()).toBe("QR code.svg");

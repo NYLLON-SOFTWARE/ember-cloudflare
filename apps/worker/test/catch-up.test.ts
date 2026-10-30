@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Message } from "@ember/protocol";
 import { evictDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
@@ -29,7 +28,7 @@ async function deleted(client: Socket, messageId: string): Promise<number> {
 const planOf = async (room: string, query: string, ...params: Array<string | number>) =>
   (await roomSql(room, `EXPLAIN QUERY PLAN ${query}`, ...params)).map((row) => (row as { detail: string }).detail).join("; ");
 
-describe(feature("realtime.reconnect"), () => {
+describe("Catch up after a reconnect", () => {
   it("numbers each change to the room's messages in the frame that announces it, and opens sockets with the latest", async () => {
     const room = await freshRoom("numbered");
     const ada = await connect(room, "Ada");

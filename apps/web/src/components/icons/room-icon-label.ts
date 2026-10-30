@@ -1,8 +1,7 @@
 import type { RoomIconName } from "@ember/protocol";
 import { ROOM_LABELS } from "./room-labels";
 
-// What the icon pickers call an icon, as ember-rust's helpers/icons.rs does (pull request #24, d49621e),
-// without the picker's catalog, which only the open picker loads.
+// What the icon pickers call an icon, without the picker's catalog, which only the open picker loads.
 
 /** What the picker offers an icon for: a room's purpose, or one of the rail's buttons. */
 export type IconContext = "room" | "navigation";

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type BotAnswer, type BotSettings, type NewWorkspace, type RoomId, type SearchResults } from "@ember/protocol";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -65,7 +64,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe(feature("bots.slack-webhook"), () => {
+describe("Slack-compatible webhooks", () => {
   it("posts a payload's text as the bot's message, read as mrkdwn, and answers ok, as Slack's webhooks do", async () => {
     const { administrator, bot, general } = await withBot();
     const inRoom = await connect(general, administrator);
@@ -444,7 +443,7 @@ describe(feature("bots.slack-webhook"), () => {
   });
 });
 
-describe(feature("bots.cards"), () => {
+describe("Bot cards", () => {
   /** Posts `payload` to general's webhook as its bot, answering the message it made, as the room sent it to `session`. */
   async function postedCards(payload: unknown) {
     const { administrator, bot, general } = await withBot();

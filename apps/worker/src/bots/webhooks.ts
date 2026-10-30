@@ -8,10 +8,9 @@ import { contentTypeOf, replyFileOf, type ReplyFile } from "./mime";
 import { railsJson } from "./rails-json";
 
 // Delivering new messages to bots' webhooks, as Campfire's `Webhook#deliver` does
-// (reference/app/models/webhook.rb) and ember-rust's integrations/webhook.rs follows it: the message,
-// as JSON, POSTed to the URL an administrator gave the bot, whose answer is what the bot says back.
-// Nothing guards where that is, since only administrators set it. Redirects aren't followed, and
-// nothing is retried.
+// (app/models/webhook.rb): the message, as JSON, POSTed to the URL an administrator gave the bot, whose
+// answer is what the bot says back. Nothing guards where that is, since only administrators set it.
+// Redirects aren't followed, and nothing is retried.
 
 /**
  * How long a webhook has to answer, connecting included, and then to send each part of its answer:
@@ -20,24 +19,24 @@ import { railsJson } from "./rails-json";
 export const ENDPOINT_TIMEOUT_MS = 7_000;
 
 /**
- * The most a delivery may take in all, ember-rust's `DELIVERY_DEADLINE`, so that a webhook that keeps
- * sending a little at a time can't hold its place in the room's queue for ever.
+ * The most a delivery may take in all, so that a webhook that keeps sending a little at a time can't
+ * hold its place in the room's queue for ever.
  */
 export const DELIVERY_DEADLINE_MS = 60_000;
 
 /**
  * The most bytes of an answer read as text: no more than a message's markup can take, as the bot API
- * reads a post (api.ts), where ember-rust reads 100 MB of any answer.
+ * reads a post (api.ts).
  */
 const MAX_TEXT_REPLY_BYTES = 3 * MAX_MESSAGE_HTML_LENGTH;
 
-/** The most bytes of a file a bot replies with: ember-rust's `MAX_REPLY_SIZE`, where Rails reads any. */
+/** The most bytes of a file a bot replies with, where Rails reads any. */
 export const MAX_FILE_REPLY_BYTES = 100 * 1024 * 1024;
 
 /**
- * The headers Net::HTTP sends with Campfire's request, as ember-rust records them, but for those a
- * Worker's `fetch` decides itself: Host, Content-Length, Connection and Accept-Encoding. Cloudflare adds
- * `CF-Worker`, naming the Worker's host.
+ * The headers Net::HTTP sends with Campfire's request, but for those a Worker's `fetch` decides itself:
+ * Host, Content-Length, Connection and Accept-Encoding. Cloudflare adds `CF-Worker`, naming the Worker's
+ * host.
  */
 const HEADERS = { "Content-Type": "application/json", Accept: "*/*", "User-Agent": "Ruby" };
 
@@ -69,7 +68,7 @@ export function webhookPayload(
  */
 const nameIn = (message: Pick<Message, "mentions">, bot: User) => message.mentions.find(({ id }) => id === bot.id)?.name || bot.name;
 
-/** Rust's `char::is_whitespace`: Unicode's White_Space, which ember-rust's `without_recipient_mentions` trims. */
+/** Rust's `char::is_whitespace`: Unicode's White_Space. */
 const WHITE_SPACE = /\p{White_Space}/u;
 
 /** `without_recipient_mentions`: `text` without its @mentions of `name`, matched case for case, nor whitespace at either end. */
@@ -151,7 +150,7 @@ export async function postWebhook<K>(
  * a 200's `text/html` or `text/plain` is text, and a 200 of any other type is a file, of a name and type
  * by that type, which `keep` keeps. A 200 without a type says nothing, and one whose type isn't a media
  * type fails. Any other answer says nothing, unread, since an error page or a redirect is no reply, as
- * Campfire 1.5.2 and ember-rust's pull request #24 have it.
+ * Campfire 1.5.2 has it.
  */
 async function replyIn<K>(response: Response, clock: DeliveryClock, keep: Keep<K>): Promise<Reply<K> | null> {
   if (response.status !== 200) {
@@ -191,9 +190,8 @@ async function keptFile<K>(body: ReadableStream<Uint8Array> | null, clock: Deliv
 }
 
 /**
- * `body` as UTF-8, with invalid bytes replaced, as `force_encoding` keeps them and ember-rust replaces
- * them, read a part at a time against `clock`. Throws a `WebhookError` once it's longer than a message
- * can be.
+ * `body` as UTF-8, with invalid bytes replaced, where Campfire's `force_encoding` keeps them, read a
+ * part at a time against `clock`. Throws a `WebhookError` once it's longer than a message can be.
  */
 async function textOf(body: ReadableStream<Uint8Array> | null, clock: DeliveryClock): Promise<string> {
   if (!body) return "";
@@ -218,7 +216,7 @@ async function textOf(body: ReadableStream<Uint8Array> | null, clock: DeliveryCl
 const REPLY_TOO_LONG = "the reply is longer than a message can be";
 
 /**
- * Times a delivery as Net::HTTP's timeouts and ember-rust's deadline do: it aborts the request once the
+ * Times a delivery as Net::HTTP's timeouts do, and against a deadline: it aborts the request once the
  * webhook has gone `endpointMs` without answering or sending the next part it's asked for, or
  * `deadlineMs` have passed since it began, and says which.
  */

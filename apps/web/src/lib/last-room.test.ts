@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Room } from "@ember/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { lastRoomVisited, rememberLastRoom } from "./last-room";
@@ -6,7 +5,7 @@ import { lastRoomVisited, rememberLastRoom } from "./last-room";
 const room = (id: string): Room => ({ id, kind: "open", name: id, icon: null });
 const rooms = [room("r1"), room("r2")];
 
-describe(feature("rooms.last-visited"), () => {
+describe("Go back to the last room", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("is the room shown last, while it's one of your rooms", () => {
@@ -25,7 +24,7 @@ describe(feature("rooms.last-visited"), () => {
     expect(lastRoomVisited([])).toBeNull();
   });
 
-  it("is written only when it changes, as ember-rust sets its cookie", () => {
+  it("is written only when it changes", () => {
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     rememberLastRoom("r1");
     rememberLastRoom("r1");

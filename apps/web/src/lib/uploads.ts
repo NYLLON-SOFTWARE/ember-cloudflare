@@ -1,28 +1,28 @@
 import { FILE_TOO_LARGE, MAX_FILE_SIZE, uploadPartPath, uploadPreviewPath, uploadsPath, type Message, type RoomId, type Upload } from "@ember/protocol";
 import { previewOf } from "./previews";
 
-// Uploading a file as a message of its own, as ember-rust's FileUploader does
-// (crates/assets/overrides/models/file_uploader.js), but in parts that R2 puts back together, since a
-// Worker takes at most 100 MB a request: the app starts the upload, sends its parts one after another,
-// and the room posts the file as a message once it has the last. A picture's thumbnail or a video's
-// poster, which the browser makes meanwhile (previews.ts), goes just before the last part.
+// Uploading a file as a message of its own, as Campfire's FileUploader does, but in parts that R2 puts
+// back together, since a Worker takes at most 100 MB a request: the app starts the upload, sends its
+// parts one after another, and the room posts the file as a message once it has the last. A picture's
+// thumbnail or a video's poster, which the browser makes meanwhile (previews.ts), goes just before the
+// last part.
 
-/** What a failed upload says, as ember-rust's uploader rejects with, unless the file is too large. */
+/** What a failed upload says, unless the file is too large. */
 export const UPLOAD_FAILED = "Upload failed. Please attach the file and try again.";
 
 /** What an upload says when the connection drops. */
 export const CONNECTION_LOST = "Connection lost. Please attach the file and try again.";
 
-/** Why the composer leaves out a file picked to send, as ember-rust's does, before any of it goes. */
+/** Why the composer leaves out a file picked to send, before any of it goes. */
 export const tooLargeToAttach = (name: string) => `${name} is too large. Choose a file that’s 250 MB or smaller.`;
 
 /** Why an upload failed, as its card says it. */
 export class UploadError extends Error {}
 
-/** Why an answer with `status` failed an upload: as ember-rust's uploader reads a 413, and any other. */
+/** Why an answer with `status` failed an upload: a 413, or any other. */
 const refused = (status: number) => new UploadError(status === 413 ? FILE_TOO_LARGE : UPLOAD_FAILED);
 
-/** How much of `total` bytes `sent` is, as a percentage rounded down, as ember-rust's uploader counts. */
+/** How much of `total` bytes `sent` is, as a percentage rounded down. */
 const percentOf = (sent: number, total: number) => (total === 0 ? 100 : Math.min(100, Math.floor((sent / total) * 100)));
 
 /** The message the part that finished an upload answers with, or an UploadError for anything else, such as a sign-in page. */

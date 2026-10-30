@@ -35,7 +35,7 @@ interface Props {
   user: User & Partial<Pick<DirectoryUser, "avatarUrl">>;
   className?: string;
   square?: boolean;
-  /** Whether the image waits until it's scrolled near, as ember-rust's people lists' do. */
+  /** Whether the image waits until it's scrolled near, as the people lists' do. */
   lazy?: boolean;
   /** What screen readers call the image, where it says something, as a boost's does. */
   label?: string;
@@ -43,11 +43,10 @@ interface Props {
 
 /**
  * Someone's avatar, the image the people directory gives the address of, or `user` does until the
- * directory lists them, as a bot just added, hidden from screen readers as ember-rust's are
- * (helpers/users.rs, `avatar_tag`) unless it has a label. Until it loads, or if it can't, or neither
- * gives one, their initials show as the Worker would draw them. A photo that isn't square covers it, as
- * Campfire's `.avatar img` does. Messages use squares with ember-rust's 6px corners (zz-ember.css, `.message__avatar`); the rail and
- * presence use circles.
+ * directory lists them, as a bot just added, hidden from screen readers unless it has a label. Until it
+ * loads, or if it can't, or neither gives one, their initials show as the Worker would draw them. A photo
+ * that isn't square covers it, as Campfire's `.avatar img` does. Messages use squares with 6px corners;
+ * the rail and presence use circles.
  */
 export function UserAvatar({ user, className, square = false, lazy = false, label }: Props) {
   const listed = useContext(PeopleContext).get(user.id);
@@ -68,7 +67,7 @@ export function UserAvatar({ user, className, square = false, lazy = false, labe
   );
 }
 
-/** `User#title` (user.rs): someone's name, then their bio after a dash where they've written one. */
+/** Someone's name, then their bio after a dash where they've written one. */
 export const userTitle = ({ name, bio }: { name: string; bio?: string | null }) => (bio?.trim() ? `${name} – ${bio}` : name);
 
 /**
@@ -90,10 +89,9 @@ interface LinkProps extends Props {
 }
 
 /**
- * ember-rust's `avatar_tag` (helpers/users.rs): someone's avatar as a link to their page, titled with
- * their name and bio as the people directory lists them now. It's Campfire's `.btn.avatar` (buttons.css):
- * no border or padding, the avatar's corners, white behind the image, which fills it, and darker under a
- * mouse.
+ * Someone's avatar as a link to their page, titled with their name and bio as the people directory lists
+ * them now. It's Campfire's `.btn.avatar` (buttons.css): no border or padding, the avatar's corners,
+ * white behind the image, which fills it, and darker under a mouse.
  */
 export function AvatarLink({ user, className, square = false, lazy, label, reach = "finger" }: LinkProps) {
   const listed = useContext(PeopleContext).get(user.id);

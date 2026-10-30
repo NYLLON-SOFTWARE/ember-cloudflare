@@ -27,12 +27,11 @@ import { botKeyParts } from "./keys";
 import { railsJson } from "./rails-json";
 import { payloadOf, slackMessage, slackPayloadOf, type SlackError, type SlackPayload } from "./slack";
 
-// The bot API, as ember-rust's `Messages::ByBotsController` and `Messages::Boosts::ByBotsController`
-// answer it (crates/ember/src/controllers/messages/by_bots.rs and boosts/by_bots.rs): a bot posts text or
-// a file to a room it's in, and reads it, at /rooms/<room id>/<bot key>/messages, and edits, deletes and
-// boosts its messages under that. The key is all a bot has, so these routes never read a session cookie,
-// which leaves another site's page nothing to forge. At /rooms/<room id>/<bot key>/slack, a bot posts what a
-// Slack incoming webhook is sent instead (slack.ts), so tools that post to Slack can post to a room.
+// The bot API: a bot posts text or a file to a room it's in, and reads it, at /rooms/<room id>/<bot
+// key>/messages, and edits, deletes and boosts its messages under that. The key is all a bot has, so
+// these routes never read a session cookie, which leaves another site's page nothing to forge. At
+// /rooms/<room id>/<bot key>/slack, a bot posts what a Slack incoming webhook is sent instead
+// (slack.ts), so tools that post to Slack can post to a room.
 
 /** A room's address for bots, `room_bot_messages`, and those of its messages, their boosts and a boost, each with or without `.json`. */
 const BOT_MESSAGES = /^\/rooms\/([^/.]+)\/([^/.]+)\/messages(?:\.json)?$/;
@@ -52,13 +51,13 @@ const BOT_KEY_IN_PATH = /(\/rooms\/[^/\s]+\/)[^/\s]+(?=\/(?:messages|slack)\b)/g
 const MAX_BODY_BYTES = 3 * MAX_MESSAGE_HTML_LENGTH;
 
 const UNKNOWN_BOT_KEY = "Unknown bot key";
-/** Why a form's `attachment` that's text posts nothing, where ember-rust fails to assign it (messages.rs `invalid_attachment`). */
+/** Why a form's `attachment` that's text posts nothing. */
 const NOT_A_FILE = "An attachment has to be a file";
 
 /** The field of a form that brings a bot's file, as `curl -F "attachment=@<path>"` sends it. */
 const ATTACHMENT = "attachment";
 
-/** `Rack::Utils::HTTP_STATUS_CODES`, for the exceptions ember-rust answers here. */
+/** `Rack::Utils::HTTP_STATUS_CODES`, for the exceptions Campfire answers here. */
 const REASONS = { 400: "Bad Request", 404: "Not Found", 413: "Content Too Large", 500: "Internal Server Error" } as const;
 
 const JSON_TYPE = "application/json; charset=utf-8";
@@ -89,14 +88,14 @@ export const isBotPath = (pathname: string) => [BOT_MESSAGES, BOT_MESSAGE, BOT_B
 /** `text` with every bot key in an address `[FILTERED]`, as Campfire's log lines have them. */
 export const withoutBotKeys = (text: string) => text.replace(BOT_KEY_IN_PATH, "$1[FILTERED]");
 
-/** An exception, as ember-rust answers one for JSON (crates/kit/src/exceptions.rs). */
+/** An exception. */
 export const exception = (status: keyof typeof REASONS) =>
   new Response(JSON.stringify({ status, error: REASONS[status] }), { status, headers: { "Content-Type": "application/json; charset=UTF-8" } });
 
-/** `head status`, an empty answer, as ember-rust's `concerns::head` gives one. */
+/** `head status`, an empty answer. */
 const head = (status: number) => new Response(null, { status, headers: { "Content-Type": "text/html" } });
 
-/** What a key that names no active bot answers, where ember-rust sends the request to sign in. */
+/** What a key that names no active bot answers. */
 const unknownKey = () => Response.json({ error: UNKNOWN_BOT_KEY }, { status: 401 });
 
 /** What a request the room can't take answers: 422 with why. */
@@ -106,9 +105,9 @@ const unprocessable = (reason: string) => Response.json({ error: reason }, { sta
 const noStorage = () => Response.json({ error: NO_STORAGE }, { status: 503 });
 
 /**
- * The bot the key segment `key` names, as ember-rust's `allow_bot_access` finds it, if it's in room
- * `roomId`, as `set_room` finds the room, with when the Workspace checked, or what the request answers
- * otherwise: 401 unless the key is an active bot's own, and an empty 404 when the bot isn't in the room.
+ * The bot the key segment `key` names, if it's in room `roomId`, as `set_room` finds the room, with when
+ * the Workspace checked, or what the request answers otherwise: 401 unless the key is an active bot's
+ * own, and an empty 404 when the bot isn't in the room.
  */
 async function botIn(env: Env, roomId: RoomId, key: string): Promise<BotKeyAccess | Response> {
   const access = await botAccessIn(env, roomId, key);
@@ -143,8 +142,8 @@ async function createMessage(request: Request, env: Env, roomId: RoomId, key: st
   if (formAnswer) return formAnswer;
   const markup = await bodyText(request);
   if (markup === null) return exception(413);
-  // ember-rust checks the key once it has the whole body, which here arrives as slowly as its sender
-  // likes: long enough for the bot to be deleted, given a new key or taken out of the room since the check
+  // The key is checked again once the whole body is here, which arrives as slowly as its sender likes:
+  // long enough for the bot to be deleted, given a new key or taken out of the room since the check
   // above, which only spares reading the body of a request that can't post.
   const arrived = await botIn(env, roomId, key);
   if (arrived instanceof Response) return arrived;
@@ -222,9 +221,8 @@ const createdAt = (request: Request, { customDomain }: BotKeyAccess, message: Me
   new Response(null, { status: 201, headers: { Location: permalink(originFor(request, customDomain), message), "Content-Type": JSON_TYPE } });
 
 /**
- * Posts the file `form` sends as `attachment` as the bot's message, as ember-rust's `create` does when it's
- * given one, answering as a post of text does. A form with no file posts nothing, an empty 422, as
- * ember-rust's `ensure_body_or_attachment_present` answers a request with nothing to post.
+ * Posts the file `form` sends as `attachment` as the bot's message, answering as a post of text does. A
+ * form with no file posts nothing, an empty 422.
  */
 async function createFileMessage(request: Request, env: Env, roomId: RoomId, key: string, access: BotKeyAccess, form: FormReader): Promise<Response> {
   const attachment = await attachmentIn(form);
@@ -258,8 +256,8 @@ async function updateMessage(request: Request, env: Env, roomId: RoomId, key: st
 
 /**
  * Gives the bot's message `messageId` the file `form` sends as `attachment`, in place of the one it had,
- * or takes its file away when `attachment` is text with nothing in it, as ember-rust's `update` does,
- * answering as an edit of its text does. A form with no `attachment` changes nothing, an empty 422.
+ * or takes its file away when `attachment` is text with nothing in it, answering as an edit of its text
+ * does. A form with no `attachment` changes nothing, an empty 422.
  */
 async function updateFileMessage(request: Request, env: Env, roomId: RoomId, key: string, access: BotKeyAccess, form: FormReader, messageId: string): Promise<Response> {
   const attachment = await attachmentIn(form);
@@ -288,8 +286,8 @@ async function deleteMessage(env: Env, roomId: RoomId, key: string, messageId: s
 }
 
 /**
- * `POST /rooms/<room id>/<bot key>/messages/<id>/boosts`: boosts a message in the room with the request's
- * body, as `create` does there (messages/boosts/by_bots.rs), answering 201 with the boost.
+ * `POST /rooms/<room id>/<bot key>/messages/<id>/boosts`: boosts a message in the room with the
+ * request's body, as `create` does there, answering 201 with the boost.
  */
 async function createBoost(request: Request, env: Env, roomId: RoomId, key: string, messageId: string): Promise<Response> {
   let access = await botIn(env, roomId, key);
@@ -336,9 +334,9 @@ async function attachmentIn(form: FormReader): Promise<Attachment | null> {
 
 /**
  * What `answer` makes of the form the request sends, which it reads as it arrives, or null when it sends
- * none. A form that can't be read is 400, as Rack answers a malformed form, and so is one whose type names
- * no boundary to read it by, as when its sender set the type itself, which ember-rust posts as text, its
- * parts' headers and bytes and all. What isn't read of a form is never read.
+ * none. A form that can't be read is 400, as Rack answers a malformed form, and so is one whose type
+ * names no boundary to read it by, as when its sender set the type itself, its parts' headers and bytes
+ * and all. What isn't read of a form is never read.
  */
 async function withForm(request: Request, answer: (form: FormReader) => Promise<Response>): Promise<Response | null> {
   const type = request.headers.get("Content-Type");
@@ -462,8 +460,8 @@ async function messagesJson(env: Env, origin: string, messages: Message[]) {
   return messages.map((message) => ({
     id: message.id,
     created_at: message.createdAt,
-    // `message.body.to_s`, in Ember's layout for rich text, with mentions and link previews as they're stored, or
-    // nothing for a file message, which has no rich text, as ember-rust's `body_html` gives none (presenters.rs).
+    // `message.body.to_s`, in Ember's layout for rich text, with mentions and link previews as they're
+    // stored, or nothing for a file message, which has no rich text.
     body: { plain_text: message.plainText, html: message.body === "" ? "" : `<div class="lexxy-content">\n  ${message.body}\n</div>\n` },
     // Nobody is ever deleted, so everyone who wrote a message is there.
     creator: writers.get(message.creator.id)!,

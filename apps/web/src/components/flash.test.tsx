@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -33,7 +32,7 @@ async function flashFirst(messages: FlashMessage[], { workspace = false } = {}) 
 
 afterEach(() => sessionStorage.clear());
 
-describe(feature("ui.flash"), () => {
+describe("Saved notices", () => {
   it("alerts in white on red with a warning sign, fading in and out", async () => {
     await flashFirst([REFUSED]);
     const alert = screen.getByRole("alert");

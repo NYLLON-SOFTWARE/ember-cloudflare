@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Favorites, Room, Sidebar, SidebarRoom, User } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import {
@@ -29,7 +28,7 @@ const unstarred: Favorites = { rooms: [], version: 0 };
 /** The sidebar's list of `rooms`, starred as `favorites` says. */
 const sidebar = (rooms: SidebarRoom[], favorites = unstarred): Sidebar => ({ rooms, favorites, sharedOrder: [], invitation: null, suggestions: [] });
 
-describe(feature("rooms.create-open"), () => {
+describe("Create an open room", () => {
   it("puts a new room last, as the room made most recently, and the sidebar in its place by name", () => {
     const rooms = apart(withRoom([room("r1", "Design"), room("r2", "general"), room("r3", "Zebra")], room("r4", "Finance"))).shared;
     expect(rooms.map((r) => r.name)).toEqual(["Design", "general", "Zebra", "Finance"]);
@@ -44,7 +43,7 @@ describe(feature("rooms.create-open"), () => {
   });
 });
 
-describe(feature("rooms.settings-page"), () => {
+describe("Room settings page", () => {
   it("keeps a renamed room in its place, and the sidebar moves it to its new name's", () => {
     const rooms = apart(withRoom([room("r1", "Design"), room("r2", "general")], room("r1", "Product design"))).shared;
     expect(rooms).toEqual([room("r1", "Product design"), room("r2", "general")]);
@@ -66,7 +65,7 @@ describe(feature("rooms.settings-page"), () => {
   });
 });
 
-describe(feature("rooms.show"), () => {
+describe("Open a room", () => {
   const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar([room("r1", "Design")]) });
 
   it("keeps the list while it's asked for again, and the changes made meanwhile once the new one arrives", () => {
@@ -88,7 +87,7 @@ describe(feature("rooms.show"), () => {
   });
 });
 
-describe(feature("rooms.members"), () => {
+describe("Add and remove private room members", () => {
   it("takes a room that's gone for this person out of the list, even one the list hadn't arrived with yet", () => {
     const list = sidebar([room("r1", "Design"), room("r2", "general")]);
     const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list });
@@ -98,7 +97,7 @@ describe(feature("rooms.members"), () => {
   });
 });
 
-describe(feature("sidebar.unread"), () => {
+describe("Unread rooms", () => {
   const list = sidebar([room("r1", "Design"), room("r2", "general", true)]);
   const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list });
 
@@ -127,7 +126,7 @@ describe(feature("sidebar.unread"), () => {
   });
 });
 
-describe(feature("accounts.regenerate-join-link"), () => {
+describe("Regenerate the join link", () => {
   const invited: Sidebar = { ...sidebar([room("r1", "general")]), invitation: { roomId: "r1", joinCode: "aB3d-Ef5h-iJ7k" } };
 
   it("gives the welcome card the join link's new code, even over a list asked for before it was made", () => {
@@ -143,7 +142,7 @@ describe(feature("accounts.regenerate-join-link"), () => {
   });
 });
 
-describe(feature("rooms.invitation-dismissal"), () => {
+describe("Welcome card for administrators, until they dismiss it", () => {
   it("takes the welcome card away, even from a list asked for before it was dismissed", () => {
     const invited: Sidebar = { ...sidebar([room("r1", "general")]), invitation: { roomId: "r1", joinCode: "aB3d-Ef5h-iJ7k" } };
     const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: invited });
@@ -157,7 +156,7 @@ describe(feature("rooms.invitation-dismissal"), () => {
 /** Four rooms, in the order they were made. */
 const four = [room("r1", "Design"), room("r2", "general"), room("r3", "Ops"), room("r4", "Zebra")];
 
-describe(feature("sidebar.room-order"), () => {
+describe("Room order", () => {
   it("lists the starred rooms first, in the order they were starred, then the rest by name", () => {
     expect(inSidebarOrder(four, ["r4", "r2"]).map((r) => r.name)).toEqual(["Zebra", "general", "Design", "Ops"]);
   });
@@ -172,7 +171,7 @@ describe(feature("sidebar.room-order"), () => {
   });
 });
 
-describe(feature("sidebar.shared-order"), () => {
+describe("Shared room order", () => {
   it("lists the rooms the shared order ranks after the stars, in its order, then the rest by name", () => {
     expect(inSidebarOrder(four, ["r4"], ["r3", "r4", "r2"]).map((r) => r.name)).toEqual(["Zebra", "Ops", "general", "Design"]);
   });
@@ -193,7 +192,7 @@ describe(feature("sidebar.shared-order"), () => {
   });
 });
 
-describe(feature("sidebar.favorites"), () => {
+describe("Star rooms", () => {
   it("keeps the newest stars, from a star's answer, the socket or the list, whichever arrives last", () => {
     const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar(four, { rooms: ["r1"], version: 2 }) });
     const starred = roomListReducer(loaded, { type: "starred", favorites: { rooms: ["r1", "r2"], version: 3 } });
@@ -218,7 +217,7 @@ describe(feature("sidebar.favorites"), () => {
   });
 });
 
-describe(feature("sidebar.favorite-order"), () => {
+describe("Reorder starred rooms", () => {
   it("drops the star of a room that's gone, as the server's stars do, so an order saved next is one it knows", () => {
     const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list: sidebar(four, { rooms: ["r1", "r3"], version: 2 }) });
     expect(roomListReducer(loaded, { type: "gone", roomId: "r1" }).list!.favorites).toEqual({ rooms: ["r3"], version: 2 });
@@ -226,14 +225,14 @@ describe(feature("sidebar.favorite-order"), () => {
   });
 });
 
-describe(feature("sidebar.rooms"), () => {
+describe("Conversations sidebar", () => {
   it("lists DMs apart from the rooms, each in the order given", () => {
     const rooms = [direct("d1", "Ada", "Grace"), room("r1", "Design"), direct("d2", "Ada"), room("r2", "general")];
     expect(apart(rooms)).toEqual({ shared: [room("r1", "Design"), room("r2", "general")], directs: [direct("d1", "Ada", "Grace"), direct("d2", "Ada")] });
   });
 });
 
-describe(feature("dms.create"), () => {
+describe("Start or reopen a direct message", () => {
   it("lists a new DM last, as the room made most recently, and keeps a DM's mark as it's saved again", () => {
     const rooms = withRoom([room("r1", "Design")], { id: "d1", kind: "direct", members: [{ id: "ada", name: "Ada" }], activeAt: NOON });
     expect(rooms).toEqual([room("r1", "Design"), direct("d1", "Ada")]);
@@ -242,7 +241,7 @@ describe(feature("dms.create"), () => {
   });
 });
 
-describe(feature("sidebar.dm-order"), () => {
+describe("DM order", () => {
   /** `minutes` past noon. */
   const at = (minutes: number) => new Date(Date.UTC(2026, 9, 15, 12, minutes)).toISOString();
   /** `dm`, last active `minutes` past noon. */
@@ -280,7 +279,7 @@ describe(feature("sidebar.dm-order"), () => {
   });
 });
 
-describe(feature("dms.suggestions"), () => {
+describe("Suggested people", () => {
   const people: User[] = ["Grace", "Linus", "Alan"].map((name) => ({ id: name.toLowerCase(), name }));
   const many: User[] = Array.from({ length: 20 }, (_, i) => ({ id: `p${i}`, name: `Person ${i}` }));
 
@@ -296,7 +295,7 @@ describe(feature("dms.suggestions"), () => {
   });
 });
 
-describe(feature("notifications.levels"), () => {
+describe("Notification levels", () => {
   const list = sidebar([room("r1", "Design"), direct("d1", "Ada")]);
   const loaded = roomListReducer(NO_ROOM_LIST, { type: "loaded", list });
 
@@ -318,7 +317,7 @@ describe(feature("notifications.levels"), () => {
   });
 });
 
-describe(feature("notifications.hide-room"), () => {
+describe("Hide a room", () => {
   const hidden = <T extends SidebarRoom>(listed: T): T => ({ ...listed, involvement: "invisible" });
 
   it("leaves the rooms and DMs you've hidden out of the sidebar, which lists them for you to open", () => {

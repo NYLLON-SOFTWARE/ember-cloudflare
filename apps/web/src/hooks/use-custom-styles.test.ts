@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { useCustomStyles } from "./use-custom-styles";
@@ -6,7 +5,7 @@ import { useCustomStyles } from "./use-custom-styles";
 /** The text of each `<style>` in the page's head, in order. */
 const styleSheets = () => [...document.head.querySelectorAll("style")].map((style) => style.textContent);
 
-describe(feature("accounts.custom-css"), () => {
+describe("Custom CSS", () => {
   it("adds the workspace's CSS after the app's own, as text, so `</style>` in it adds nothing else", () => {
     const own = document.head.appendChild(document.createElement("style"));
     own.textContent = ".app {}";
@@ -31,7 +30,7 @@ describe(feature("accounts.custom-css"), () => {
     unmount();
   });
 
-  it("marks the page's body admin while an administrator is signed in, as ember-rust's body classes do", () => {
+  it("marks the page's body admin while an administrator is signed in", () => {
     const { rerender, unmount } = renderHook(({ administrator }) => useCustomStyles("", administrator), { initialProps: { administrator: true } });
     expect(document.body).toHaveClass("admin");
     rerender({ administrator: false });

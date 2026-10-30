@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { bodyFromPlainText, prepareBody } from "@ember/richtext";
 import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
@@ -56,7 +55,7 @@ const MIGRATED_TABLES = `SELECT name FROM sqlite_master WHERE type = 'table'
 const roomMigrations = MIGRATIONS.filter((migration) => migration.scope === "room");
 
 // The whole worker suite runs twice, once per STORAGE_BACKEND (see vitest.config.ts).
-describe(feature("platform.storage"), () => {
+describe("Durable Object SQLite or D1", () => {
   it("keeps messages in the backend STORAGE_BACKEND names", async () => {
     // /api/health tells whoever sends the recovery token which storage that is.
     const token = "ab".repeat(32);

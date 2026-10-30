@@ -1,10 +1,9 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { byName } from "./people";
 
 const person = (id: string, name: string) => ({ id, name });
 
-describe(feature("accounts.people"), () => {
+describe("People list", () => {
   it("orders names as SQLite's LOWER does, folding only ASCII letters, then by id", () => {
     expect(byName([person("u2", "alpha"), person("u3", "Éclair"), person("u1", "ALPHA")]).map((p) => p.id)).toEqual(["u1", "u2", "u3"]);
     // LOWER leaves "É" as it is, which sorts after every ASCII letter.

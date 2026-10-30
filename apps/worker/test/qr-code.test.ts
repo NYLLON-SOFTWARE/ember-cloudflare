@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { urlsafeDecode64 } from "../src/encoding";
 import { qrCode, qrCodeSvg } from "@ember/protocol/qr-code";
@@ -6,9 +5,8 @@ import rqrcode from "./fixtures/rqrcode.json";
 import { api, signIn } from "./support";
 
 /**
- * ember-rust's golden vectors (crates/ember/src/controllers/qr_code/testdata/rqrcode.json), which
- * rqrcode 3.2.0 made itself (reference-tools/campfire/rqrcode.rb): each input's version and modules,
- * and the whole SVG for five of them.
+ * The golden vectors, which rqrcode 3.2.0 made itself: each input's version and modules, and the whole
+ * SVG for five of them.
  */
 const vectors: Array<{ input_base64: string; version: number; modules: string; svg?: string }> = rqrcode;
 
@@ -19,7 +17,7 @@ const decoded = (id: string) => {
   return bytes && Array.from(bytes);
 };
 
-describe(feature("accounts.qr-codes"), () => {
+describe("QR codes for links", () => {
   it("draws every golden vector as rqrcode does, version, modules and SVG", () => {
     expect(vectors).toHaveLength(39);
     for (const vector of vectors) {
@@ -44,7 +42,7 @@ describe(feature("accounts.qr-codes"), () => {
     expect(svg).toBe(qrCodeSvg(utf8("http://campfire.test")));
   });
 
-  it("sends someone signed out to sign in, as an avatar does, where ember-rust draws for anyone", async () => {
+  it("sends someone signed out to sign in, as an avatar does", async () => {
     for (const headers of [{}, { Cookie: `__Host-session_token=${"A".repeat(43)}` }] as HeadersInit[]) {
       const response = await api("/qr_code/aHR0cDovL2NhbXBmaXJlLnRlc3Q", { headers, redirect: "manual" });
       expect(response.status).toBe(302);
@@ -82,7 +80,7 @@ describe(feature("accounts.qr-codes"), () => {
     for (const id of ["a", "QQ=", "ab=", "ab=c", "QR", "aB==", "a*bc", "QQ== "]) expect(decoded(id), id).toBeNull();
   });
 
-  it("answers 400 for an id that isn't base64, where ember-rust answers 500", async () => {
+  it("answers 400 for an id that isn't base64", async () => {
     const ada = await session();
     for (const id of ["a", "aB==", "a*bc", "QQ%3", "%E2%82"]) expect((await api(`/qr_code/${id}`, ada)).status, id).toBe(400);
     // Percent-encoding is undone first, as Rails does.

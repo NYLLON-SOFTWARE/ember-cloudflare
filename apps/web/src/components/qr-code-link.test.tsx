@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { drawnQrCode } from "@/lib/qr-code";
@@ -39,7 +38,7 @@ function trackAddresses() {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe(feature("accounts.qr-codes"), () => {
+describe("QR codes for links", () => {
   it("gives no address to a drawing finished after the button has gone", async () => {
     const finishDrawings = holdDrawings();
     const { given } = trackAddresses();

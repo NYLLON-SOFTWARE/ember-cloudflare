@@ -2,9 +2,9 @@ import { mailboxText, type Mailbox } from "@ember/protocol";
 import type { Env } from "./env";
 import { isLoopback } from "./loopback";
 
-// How Ember sends email (`platform.email`): with Resend's API while it has an API key, the deployment's
-// secret `RESEND_API_KEY` or the one an administrator gave it in Set up email, or else with Cloudflare
-// Email Service's `send_email` binding, `EMAIL`
+// How Ember sends email: with Resend's API while it has an API key, the deployment's secret
+// `RESEND_API_KEY` or the one an administrator gave it in Set up email, or else with Cloudflare Email
+// Service's `send_email` binding, `EMAIL`
 // (https://developers.cloudflare.com/email-service/api/send-emails/workers-api/). Each email goes to one
 // address, as plain text with a simple HTML version and no tracking, from the address an administrator
 // gave in Membership. What a provider refuses is said in words an administrator can act on, and logged

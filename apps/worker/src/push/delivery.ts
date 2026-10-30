@@ -6,10 +6,9 @@ import { webPush, type VapidKeys } from "./keys";
 import { encodedPush, type PushPayload } from "./payload";
 import { encryptPush, InvalidPushKeyError, PushArgumentError, vapidAuthorization } from "./web-push";
 
-// Sending pushes as ember-rust's push pool delivers them (crates/ember/src/integrations/web_push.rs and
-// web_push/pool.rs): each to its subscription's push service, encrypted for its browser and signed with
-// the deployment's key, a few at a time, once it's checked again that it may still go. Nothing is retried.
-// A subscription whose push service says it's gone, or whose keys no push can be encrypted for, is
+// Sending pushes: each to its subscription's push service, encrypted for its browser and signed with the
+// deployment's key, a few at a time, once it's checked again that it may still go. Nothing is retried. A
+// subscription whose push service says it's gone, or whose keys no push can be encrypted for, is
 // forgotten, and any other failure is logged.
 
 /** Whom push services may contact about this deployment's pushes when VAPID_SUBJECT doesn't say: the project. */
@@ -18,7 +17,7 @@ export const DEFAULT_VAPID_SUBJECT = "https://github.com/NYLLON-SOFTWARE/ember-c
 /** How long a push service keeps a push for a browser that's away: four weeks, as the gem's `ttl` has it. */
 const TTL_SECONDS = 4 * 7 * 24 * 60 * 60;
 
-/** How long a push may take in all, however slowly its push service answers, as ember-rust's `DELIVERY_DEADLINE`. */
+/** How long a push may take in all, however slowly its push service answers. */
 const DEADLINE_MS = 30_000;
 
 const encoder = new TextEncoder();
@@ -49,9 +48,9 @@ export async function sendPushes(env: Env, pushes: MessagePush[], pushable: Push
 }
 
 /**
- * Sends a test push to a subscription at once, as ember-rust's `deliver_test_notification` does, and
- * throws if Web Push is off or the push fails, leaving a subscription whose push service says it's gone.
- * An endpoint that's no longer at a permitted push service is skipped, as if it were sent.
+ * Sends a test push to a subscription at once, and throws if Web Push is off or the push fails, leaving
+ * a subscription whose push service says it's gone. An endpoint that's no longer at a permitted push
+ * service is skipped, as if it were sent.
  */
 export async function sendTestPush(env: Env, payload: PushPayload, delivery: PushDelivery, send: typeof fetch = fetch): Promise<void> {
   const push = await webPush(env);
@@ -65,8 +64,8 @@ const subjectOf = (env: Env) => env.VAPID_SUBJECT?.trim() || DEFAULT_VAPID_SUBJE
 export type Pushable = (subscriptionId: number) => Promise<boolean>;
 
 /**
- * Whether `pushable` says subscription `id` may still have pushes, as ember-rust's `delivery_allowed`
- * (pull request #24) asks, which fails closed: no when it can't say, logging why.
+ * Whether `pushable` says subscription `id` may still have pushes, which fails closed: no when it can't
+ * say, logging why.
  */
 async function mayPush(pushable: Pushable, id: number): Promise<boolean> {
   try {
@@ -133,7 +132,7 @@ function failureOf({ status, statusText }: Response): { kind: string; gone: bool
   return { kind: "WebPush::ResponseError", gone: false };
 }
 
-/** The Ruby error class ember-rust logs for a push that couldn't be sent. */
+/** The Ruby error class Campfire logs for a push that couldn't be sent. */
 function classOf(error: unknown): string {
   if (error instanceof PushArgumentError) return "ArgumentError";
   if (error instanceof Error && error.name === "TimeoutError") return "Net::ReadTimeout";

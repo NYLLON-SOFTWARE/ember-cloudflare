@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Platform } from "@ember/protocol";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -7,13 +6,13 @@ import { CHROME_LINUX, CHROME_MAC, SAFARI_IPHONE, SAFARI_MAC } from "@/test-plat
 import facts from "./golden/platforms.json";
 import { InstallInstructions, NotificationHelp } from "./notification-help";
 
-// ember-rust's goldens of the help, by path, such as ./golden/browser_settings_chrome_mac.html (golden/README.md).
+// The goldens of the help, by path, such as ./golden/browser_settings_chrome_mac.html (golden/README.md).
 const goldens = import.meta.glob<string>("./golden/*.html", { query: "?raw", import: "default", eager: true });
 
 /** The user agents the goldens were rendered for, such as `chrome_mac`. */
 const LABELS = Object.keys(facts.user_agents) as Array<keyof typeof facts.platforms>;
 
-/** ember-rust's partials of help, in the order its setup dialog gives them. */
+/** The partials of help, in the order the setup dialog gives them. */
 const PARTIALS = ["browser_settings", "system_settings", "install_instructions"];
 
 /** The platform Rails read from the user agent `label`, as the Worker gives it. */
@@ -76,9 +75,9 @@ const titleOf = (details: HTMLDetailsElement) => details.querySelector("summary"
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe(feature("notifications.setup-help"), () => {
+describe("Notification setup help", () => {
   // These tests' matchMedia matches nothing, as in a window that's neither a browser tab nor the
-  // installed app, where every section ember-rust renders shows.
+  // installed app, where every section shows.
   it.each(LABELS)("gives %s exactly the help Campfire gives it, in its words", (label) => {
     const { container } = render(<NotificationHelp platform={platformOf(label)} />);
     expect(sectionsIn(container)).toEqual(PARTIALS.map((partial) => golden(partial, label)).filter((lines) => lines !== null));
@@ -106,7 +105,7 @@ describe(feature("notifications.setup-help"), () => {
     expect([...container.querySelectorAll("details")].map((details) => details.open)).toEqual([false, false]);
   });
 
-  it("gives a system it has no steps for, such as Linux, ember-rust's sentence for one, where ember-rust gives macOS's steps", () => {
+  it("gives a system it has no steps for, such as Linux, the sentence for one", () => {
     shownIn("standalone");
     render(<NotificationHelp platform={CHROME_LINUX} />);
     expect(screen.getByText("Check your Linux settings")).toBeInTheDocument();
@@ -116,14 +115,14 @@ describe(feature("notifications.setup-help"), () => {
     expect(screen.queryByText("System Settings…")).not.toBeInTheDocument();
   });
 
-  it("names the Apple menu's logo as a picture, which ember-rust leaves unread", () => {
+  it("names the Apple menu's logo as a picture", () => {
     shownIn("browser");
     render(<NotificationHelp platform={CHROME_MAC} />);
     expect(screen.getByRole("img", { name: "the Apple menu" })).toHaveTextContent("");
   });
 });
 
-describe(feature("notifications.install-instructions"), () => {
+describe("Install as an app", () => {
   it.each(LABELS)("gives %s exactly the install steps Campfire's profile gives it", (label) => {
     const { container } = render(<InstallInstructions platform={platformOf(label)} />);
     expect(sectionsIn(container)).toEqual([golden("install_instructions", label)].filter((lines) => lines !== null));

@@ -134,14 +134,14 @@ const SELECT_MESSAGES = `SELECT messages.*, (
     FROM boosts WHERE boosts.message_id = messages.id
   ) AS boosts FROM messages`;
 
-// The newest page and the pages before and after a message are separate statements, as ember-rust's
-// `last_page`, `page_before` and `page_after` are: SQLite can't seek an index through
-// `? IS NULL OR id < ?`, so a single statement walked the room from its newest message down to the cursor.
+// The newest page and the pages before and after a message are separate statements: SQLite can't seek an
+// index through `? IS NULL OR id < ?`, so a single statement walked the room from its newest message
+// down to the cursor.
 export const NEWEST_MESSAGES = `${SELECT_MESSAGES} WHERE room_id = ? ORDER BY id DESC LIMIT ?`;
 export const MESSAGES_BEFORE = `${SELECT_MESSAGES} WHERE room_id = ? AND id < ? ORDER BY id DESC LIMIT ?`;
 export const MESSAGES_AFTER = `${SELECT_MESSAGES} WHERE room_id = ? AND id > ? ORDER BY id LIMIT ?`;
 
-/** How many messages a room has, as ember-rust's `count_in_room` counts them (message.rs), which reads every one. */
+/** How many messages a room has, which reads every one. */
 export const COUNT_MESSAGES = `SELECT COUNT(*) AS count FROM messages WHERE room_id = ?`;
 
 /**
@@ -243,8 +243,8 @@ export class MessageStore {
 
   /**
    * The page before the message `before` names, or else after the one `after` names, or else the newest,
-   * as ember-rust's `find_paged_messages` picks (messages.rs), with whether the room has messages older
-   * than its first and newer than its last, or null when the room doesn't have the message named.
+   * with whether the room has messages older than its first and newer than its last, or null when the
+   * room doesn't have the message named.
    */
   async pageAt({ before, after }: PageCursor, limit: number): Promise<Omit<TimelinePage, "around"> | null> {
     if (before !== undefined) {
@@ -265,8 +265,8 @@ export class MessageStore {
   }
 
   /**
-   * The page around the message `id`, as ember-rust's `page_around` reads it: up to `limit` messages before
-   * it, it, and up to `limit` after, or null when the room doesn't have it.
+   * The page around the message `id`: up to `limit` messages before it, it, and up to `limit` after, or
+   * null when the room doesn't have it.
    */
   async around(id: string, limit: number): Promise<TimelinePage | null> {
     const [message, before, after] = await Promise.all([this.find(id), this.page(limit, id), this.after(limit, id)]);
@@ -275,8 +275,8 @@ export class MessageStore {
   }
 
   /**
-   * A page to show in place of a timeline: the one around the message `around` names, if the room has it,
-   * or else the newest `limit` messages, as ember-rust's rooms#show picks.
+   * A page to show in place of a timeline: the one around the message `around` names, if the room has
+   * it, or else the newest `limit` messages.
    */
   async timeline(limit: number, around?: string): Promise<TimelinePage> {
     const page = around === undefined ? null : await this.around(around, limit);
@@ -429,9 +429,9 @@ export class MessageStore {
 
   /**
    * Gives `message` the file `posted` brings, in place of any it had, or takes its file away with null,
-   * as a bot's edit does (ember-rust's `replace_attachment`), marking it edited, as a change to its text
-   * does, and the file it had deleted, for the room to purge. Its text and cards stay, and so does its plain
-   * text, unless it has neither, when that's its file's name, as a file message's is.
+   * as a bot's edit does, marking it edited, as a change to its text does, and the file it had deleted,
+   * for the room to purge. Its text and cards stay, and so does its plain text, unless it has neither,
+   * when that's its file's name, as a file message's is.
    */
   async updateAttachment(message: Message, posted: PostedFile | null, now: string): Promise<{ message: Message; seq: number }> {
     const plainText = message.body === "" && !message.cards ? (posted?.file.name ?? "") : message.plainText;

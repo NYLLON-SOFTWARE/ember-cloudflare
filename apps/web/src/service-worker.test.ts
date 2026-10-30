@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it, vi } from "vitest";
 import source from "../public/service-worker.js?raw";
 
@@ -30,12 +29,12 @@ function serviceWorker({ focused = false, badges = true } = {}) {
   return { self, window, listeners, dispatch };
 }
 
-/** A push as ember-rust sends one, with its message's room and the person's unread count. */
+/** A push as the Worker sends one, with its message's room and the person's unread count. */
 const push = (data: object) => ({ data: { json: () => ({ title: "general", options: { body: "Ada: Lunch?", icon: "/logo.png", data } }) } });
 
 const click = (path: string) => ({ notification: { data: { path }, close: vi.fn() } });
 
-describe(feature("notifications.service-worker"), () => {
+describe("Service worker", () => {
   it("listens only for pushes and clicks, so it caches nothing", () => {
     expect([...serviceWorker().listeners.keys()]).toEqual(["push", "notificationclick"]);
   });

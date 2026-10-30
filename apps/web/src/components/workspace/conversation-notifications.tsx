@@ -12,8 +12,7 @@ import { ROUND_BUTTON } from "./link-buttons";
 import { ListSeparator } from "./list-row";
 
 /**
- * Campfire's `.fill-shade` pill around a room's name, whose taps reach past it to 44px on touch screens,
- * where ember-rust's take its 29px.
+ * Campfire's `.fill-shade` pill around a room's name, whose taps reach past it to 44px on touch screens.
  */
 const PILL =
   "relative flex min-w-0 rounded-full border bg-surface px-[9px] py-[3px] leading-[1.4] text-foreground no-underline touch:after:absolute touch:after:inset-x-0 touch:after:-inset-y-2.5";
@@ -29,7 +28,7 @@ interface Props {
 }
 
 /**
- * ember-rust's Conversation notifications on your profile (users/profiles/show.html and _membership.html):
+ * Conversation notifications on your profile:
  * your rooms, then your DMs, with a rule between them, each a link to it in a pill, then a dashed line and
  * its bell, which goes round your levels there. A room you've hidden is listed too, dimmed, as Campfire's
  * `.membership-item:has(.btn.invisible)` is (base.css), for you to show it again.
@@ -50,7 +49,7 @@ export function ConversationNotifications({ me, rooms, askForRoom, onFailed }: P
     </li>
   );
 
-  // `.mb-section-title` over Campfire's `menu.flex.flex-column.gap.pad`, in a `.fill-shade` box.
+  // A section title over Campfire's `menu.flex.flex-column.gap.pad`, in a `.fill-shade` box.
   return (
     <div className="my-4 rounded-[10px] border bg-surface px-[1ch] py-4">
       <h2 id="notifications-heading" className="mb-3 text-base font-semibold">

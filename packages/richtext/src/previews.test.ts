@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, RenderError, webUrl } from "./attachments";
 import { prepareBody, writtenBody, type PreparedBody } from "./body";
@@ -42,9 +41,9 @@ const previewsIn = (nodes: DisplayNode[]): DisplayPreview[] =>
 /** What shows but previews, as markup. */
 const textShown = (nodes: DisplayNode[]) => displayMarkup(nodes, () => "@");
 
-describe(feature("unfurl.render"), () => {
+describe("Link previews in messages", () => {
   describe("reads addresses as Ruby's URI does", () => {
-    // ember-rust's crates/richtext/src/uri.rs, checked against uri 1.1.1 by differential fuzzing
+    // Cases checked against uri 1.1.1 by differential fuzzing
     it("parses them into their parts", () => {
       const uri = parseUri("https://x.com/dhh/status/1?s=20")!;
       expect([uri.host, uri.query]).toEqual(["x.com", "s=20"]);
@@ -76,7 +75,7 @@ describe(feature("unfurl.render"), () => {
     });
   });
 
-  // reference/test/lib/rails_ext/actiontext_opengraph_embeds_test.rb, by way of ember-rust's reference_tests.rs
+  // Campfire's test/lib/rails_ext/actiontext_opengraph_embeds_test.rb
   describe("keeps a preview's link and image only at web addresses elsewhere", () => {
     it("keeps absolute http and https links and images", () => {
       expect(webUrl("http://example.com/page", "")).toBe("http://example.com/page");
@@ -136,7 +135,7 @@ describe(feature("unfurl.render"), () => {
 
   describe("compares a message with its preview's link as Campfire does", () => {
     it("reads x.com as twitter.com, without the query, in addresses with x.com or twitter.com in them", () => {
-      // RemoveSoloUnfurledLinkText#normalize_tweet_url, by way of ember-rust's filters.rs
+      // RemoveSoloUnfurledLinkText#normalize_tweet_url
       for (const [url, normalized] of [
         ["HTTPS://x.com/dhh/status/1?s=20", "https://twitter.com/dhh/status/1"],
         ["https://x.com/dhh/status/1?s=20", "https://twitter.com/dhh/status/1"],
@@ -161,7 +160,7 @@ describe(feature("unfurl.render"), () => {
     });
   });
 
-  // reference/test/helpers/content_filters_test.rb
+  // Campfire's test/helpers/content_filters_test.rb
   describe("shows a message that's only a link as its preview", () => {
     const basecamp = { href: "https://basecamp.com/", filename: "Basecamp", description: "Calm" };
 

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { TRANSLATIONS, type Account } from "@ember/protocol";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -28,7 +27,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe(feature("accounts.translation-buttons"), () => {
+describe("Translation buttons", () => {
   it("is left out while the workspace hides translation buttons, as it does until an administrator shows them", () => {
     showButton({ ...shown, hideTranslationButtons: true });
     expect(screen.queryByText("Translate")).not.toBeInTheDocument();
@@ -45,7 +44,7 @@ describe(feature("accounts.translation-buttons"), () => {
     expect(list).toHaveTextContent("Name this account");
   });
 
-  it("can't be reached with Tab, as ember-rust's can't", async () => {
+  it("can't be reached with Tab", async () => {
     const user = showButton();
     await user.tab();
     expect(screen.getByRole("textbox", { name: "Workspace name" })).toHaveFocus();

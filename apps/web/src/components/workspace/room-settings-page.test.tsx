@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Room, RoomSettings } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -86,7 +85,7 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("rooms.settings-page"), () => {
+describe("Room settings page", () => {
   it("reads Room settings, titled for the room, with Go Back to community settings' rooms", async () => {
     serve(openSettings());
     showPage(design);
@@ -175,7 +174,7 @@ describe(feature("rooms.settings-page"), () => {
   });
 });
 
-describe(feature("rooms.icon-picker"), () => {
+describe("Room icon picker", () => {
   /** The icon picker's catalog, of one icon. */
   const LOCK_CATALOG = { icons: [{ name: "lock", label: "Lock", collection: "Lucide", tags: ["security"], svg: "<svg></svg>" }], roomOrder: ["lock"], navigationOrder: ["lock"] };
 
@@ -216,7 +215,7 @@ describe(feature("rooms.icon-picker"), () => {
   });
 });
 
-describe(feature("rooms.convert-access"), () => {
+describe("Switch a room between open and private", () => {
   it("makes an open room private in place, keeping the name, with everyone in it switched on", async () => {
     serve(openSettings(), { saved: { ...design, name: "Leads", kind: "closed" } });
     const { onSaved, user } = showPage(design);
@@ -274,7 +273,7 @@ describe(feature("rooms.convert-access"), () => {
   });
 });
 
-describe(feature("rooms.members"), () => {
+describe("Add and remove private room members", () => {
   it("saves a private room with the people whose switches are on", async () => {
     serve(closedSettings, { saved: leads });
     const { onSaved, user } = showPage(leads);
@@ -323,7 +322,7 @@ describe(feature("rooms.members"), () => {
   });
 });
 
-describe(feature("rooms.edit-permissions"), () => {
+describe("Who can change a room", () => {
   it("shows people who can't change the room its name and people, and nothing to change them with", async () => {
     serve(openSettings(false));
     showPage(design);
@@ -381,7 +380,7 @@ describe(feature("rooms.edit-permissions"), () => {
   });
 });
 
-describe(feature("rooms.delete"), () => {
+describe("Delete a room", () => {
   const deleteButton = () => screen.findByRole("button", { name: "Delete Design" });
   const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
   const deleted = () => new Response(null, { status: 204 });
@@ -464,7 +463,7 @@ describe(feature("rooms.delete"), () => {
   });
 });
 
-describe(feature("rooms.unsaved-changes"), () => {
+describe("Unsaved changes guard", () => {
   it("asks before leaving a change, and not once it's undone", async () => {
     serve(openSettings());
     const { user } = showPage(design);
@@ -502,7 +501,7 @@ describe(feature("rooms.unsaved-changes"), () => {
     expect(location.pathname).toBe("/rooms/general");
   });
 
-  it("takes the form the address names as the form opened, as ember-rust does", async () => {
+  it("takes the form the address names as the form opened", async () => {
     serve(openSettings());
     showPage(design, "/rooms/closeds/design/edit");
     await roomName();

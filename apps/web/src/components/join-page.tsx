@@ -13,19 +13,18 @@ import type { EmailLink } from "@/hooks/use-email-link";
 import { ApiError, joinWithEmailLink, joinWorkspace, signUp, type ChosenPhoto } from "@/lib/api";
 import { loadPage } from "@/lib/page";
 
-// ember-rust's join page (crates/views/templates/users/new.html), which the workspace's join link
-// opens for someone signed out. Without a code it's open sign-up's page, this port's own
-// (`auth.open-sign-up`), which shows Turnstile's check while Ember has a widget's keys, and with a
-// link Ember emailed, an invitation's (`auth.invitation-sign-up`) or one asked for at the workspace's
-// email domains (`auth.email-domain-sign-up`), it's the link's, which joins with its email address.
+// The join page, which the workspace's join link opens for someone signed out. Without a code it's open
+// sign-up's page, which shows Turnstile's check while Ember has a widget's keys, and with a link Ember
+// emailed, an invitation's or one asked for at the workspace's email domains, it's the link's, which
+// joins with its email address.
 
 /** What the page says when Turnstile's script doesn't load, so there's no check to pass. */
 export const TURNSTILE_UNAVAILABLE =
   "Ember couldn't load Cloudflare's check that you're a person. Check your connection, and anything that blocks challenges.cloudflare.com, then reload the page.";
 
 /**
- * `.mb-auth-avatar .input--file`: Campfire's `.btn` as ember-rust's zz-ember.css sets it, holding the
- * file field over itself, outlined while the field has focus, and 44px tall for fingers.
+ * Upload photo: Campfire's `.btn`, holding the file field over itself, outlined while the field has
+ * focus, and 44px tall for fingers.
  */
 const UPLOAD_BUTTON =
   "relative inline-flex cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-[1.1em] py-[0.5em] font-medium text-foreground focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-solid focus-within:outline-foreground touch:min-h-11";
@@ -85,7 +84,7 @@ export function JoinPage({ workspace, joinCode, emailLink, onGone, onJoined }: P
       }
       if (!(error instanceof ApiError)) return setProblem("Couldn't reach Ember. Check your connection and try again.");
       // An email address with an account goes to sign in with it filled in, and someone who signed in
-      // elsewhere meanwhile goes home, as ember-rust redirects both.
+      // elsewhere meanwhile goes home.
       if (error.redirect) return loadPage(error.redirect);
       // The link stopped working while the page was open: its page says so, as loading the join link's
       // page again does.
@@ -167,8 +166,8 @@ export function JoinPage({ workspace, joinCode, emailLink, onGone, onJoined }: P
 }
 
 /**
- * ember-rust's `.mb-auth-avatar`: the photo to join with, which shows as it's chosen, over Upload photo,
- * and says why one is refused in place of "Optional". It can't change while the form is sent with it.
+ * The photo to join with, which shows as it's chosen, over Upload photo, and says why one is refused in
+ * place of "Optional". It can't change while the form is sent with it.
  */
 function PhotoField({ photo, disabled }: { photo: PhotoChoice; disabled: boolean }) {
   return (

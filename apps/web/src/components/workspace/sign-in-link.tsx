@@ -2,11 +2,11 @@ import { transferLink } from "@ember/protocol";
 import { ArrowRight, Crown, Laptop, SmartphoneDevice } from "@/components/icons/iconoir";
 import { LinkButtons, ROUND_BUTTON, type LinkSharing } from "./link-buttons";
 
-// ember-rust's sign-in link block (crates/views/templates/users/profiles/_transfer.html), at the foot of
-// your profile and, for administrators, of the page of anyone active: Campfire's fieldset (base.css),
-// with a laptop, an arrow and a phone on its top border, over the link and its buttons.
+// The sign-in link block, at the foot of your profile and, for administrators, of the page of anyone
+// active: Campfire's fieldset (base.css), with a laptop, an arrow and a phone on its top border, over
+// the link and its buttons.
 
-/** What the sign-in link's buttons are called, and what sharing it sends, as ember-rust words them. */
+/** What the sign-in link's buttons are called, and what sharing it sends. */
 const SIGN_IN_LINK: LinkSharing = {
   qrCodeLabel: "Show auto-login QR code",
   copyLabel: "Copy auto-login link",
@@ -15,7 +15,7 @@ const SIGN_IN_LINK: LinkSharing = {
   text: "This is your own private sign-in URL, DO NOT SHARE IT. Use it to sign-in on another device or if you get locked out.",
 };
 
-/** Campfire's `.input` as ember-rust draws it in a panel (zz-ember.css): 42px tall, or 44px for fingers. */
+/** Campfire's `.input` in a panel: 42px tall, or 44px for fingers. */
 const INPUT = "min-h-[42px] w-full min-w-0 rounded-[9px] border bg-transparent px-[0.8em] py-[0.5em] text-base focus:border-muted-foreground touch:min-h-11";
 
 /**

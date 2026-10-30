@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { MAX_PREVIEW_SIZE, type StoredFile } from "@ember/protocol";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -18,7 +17,7 @@ const stored = (name: string, contentType: string, overrides: Partial<StoredFile
 /** Whether the file's card shows, by its Download link. */
 const card = (name: string) => screen.queryByRole("link", { name: `Download ${name}` });
 
-describe(feature("attachments.previews"), () => {
+describe("Image, video and file previews", () => {
   it("shows a picture by its thumbnail, lazily, linking to the file, in a box half its size scaled into 1200×800 and no more than 480px wide or 70% of the screen tall", () => {
     render(<Attachment file={stored("moon.jpg", "image/jpeg", { width: 2400, height: 1600, previewUrl: "/previews/k1/s1/moon.jpg" })} />);
     const picture = screen.getByRole("img", { name: "moon.jpg" });
@@ -98,7 +97,7 @@ describe(feature("attachments.previews"), () => {
   });
 });
 
-describe(feature("attachments.lightbox"), () => {
+describe("Image viewer", () => {
   /** The image viewer, which is only in the page while it's open. */
   const viewer = () => screen.queryByRole("dialog", { name: "Image Viewer (Press escape to close)" });
 
@@ -185,7 +184,7 @@ class FakeIntersectionObserver {
   }
 }
 
-describe(feature("attachments.svg-preview"), () => {
+describe("Safe SVG previews", () => {
   const DATA_URL = "data:image/svg+xml;base64,PHN2Zy8+";
 
   beforeEach(() => {

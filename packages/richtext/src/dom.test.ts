@@ -1,6 +1,5 @@
 /** @vitest-environment jsdom */
 
-import { feature } from "@ember/parity";
 import { describe, expect, it } from "vitest";
 import { autoLink } from "./autolink";
 import { prepareBody } from "./body";
@@ -55,7 +54,7 @@ const BEYOND_THE_TREE = new Set([
   "limits attributes on an unfinished tag",
 ]);
 
-describe(feature("messages.rich-text"), () => {
+describe("Rich text, safely", () => {
   it("reads every corpus body in a browser as the Worker does", { timeout: 60_000 }, () => {
     const differences: string[] = [];
     const nowAgreeing: string[] = [];

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { avatarSvg, type Account } from "@ember/protocol";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -16,7 +15,7 @@ const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect
 
 afterEach(() => history.replaceState(null, "", "/"));
 
-describe(feature("ui.rail"), () => {
+describe("Rail", () => {
   it("puts Home, DMs, Activity, Search, Workspace, appearance and your profile on the rail", () => {
     render(railAt("home"));
     const rail = screen.getByRole("navigation", { name: "Workspace" });
@@ -38,7 +37,7 @@ describe(feature("ui.rail"), () => {
     expect(within(rail).getByRole("link", { name: "Your profile" })).toHaveAttribute("href", "/users/me/profile");
   });
 
-  it("links your avatar to your profile, titled with your name, as ember-rust's `.mb-rail__profile` is", async () => {
+  it("links your avatar to your profile, titled with your name", async () => {
     render(railAt("home"));
     const profile = screen.getByRole("link", { name: "Your profile" });
     expect(profile).toHaveAttribute("title", "Ada Lovelace");
@@ -89,7 +88,7 @@ describe(feature("ui.rail"), () => {
     expect(screen.queryAllByRole("link", { current: "page" })).toEqual([]);
   });
 
-  it("draws Iconoir's icons, which the project's owner chose over ember-rust's", () => {
+  it("draws Iconoir's icons, which the project's owner chose", () => {
     render(railAt("home"));
     const rail = screen.getByRole("navigation", { name: "Workspace" });
     const icons = Object.fromEntries(
@@ -108,7 +107,7 @@ describe(feature("ui.rail"), () => {
   });
 });
 
-describe(feature("search.page"), () => {
+describe("Search page", () => {
   it("links Search to the search page, marked while it shows, whatever's searched for", async () => {
     const { rerender } = render(railAt("home"));
     const search = screen.getByRole("link", { name: "Search" });
@@ -121,7 +120,7 @@ describe(feature("search.page"), () => {
   });
 });
 
-describe(feature("dms.picker"), () => {
+describe("New direct message dialog", () => {
   it("opens New direct message in place from DMs, which a click with a modifier key leaves to the browser", async () => {
     const onNewDirect = vi.fn();
     render(railAt("room", activityOff, ada, onNewDirect));
@@ -143,8 +142,8 @@ describe(feature("dms.picker"), () => {
   });
 });
 
-describe(feature("sidebar.activity-filter"), () => {
-  it("toggles Activity, titled as ember-rust titles it, and shows it pressed while it's on", async () => {
+describe("Activity filter", () => {
+  it("toggles Activity and shows it pressed while it's on", async () => {
     const onToggle = vi.fn();
     const { rerender } = render(railAt("home", { ...activityOff, onToggle }));
     const activity = screen.getByRole("button", { name: "Activity" });
@@ -172,7 +171,7 @@ describe(feature("sidebar.activity-filter"), () => {
   });
 });
 
-describe(feature("users.avatars"), () => {
+describe("Initials avatars", () => {
   it("shows your avatar as your profile picture", () => {
     render(railAt("home"));
     const picture = screen.getByRole("link", { name: "Your profile" }).querySelector("img")!;
@@ -180,8 +179,8 @@ describe(feature("users.avatars"), () => {
   });
 });
 
-describe(feature("accounts.logo"), () => {
-  it("shows Ember's flame, or the workspace's logo, filling a 56px square with rounded corners, as ember-rust's `.mb-rail__brand`", () => {
+describe("Workspace logo", () => {
+  it("shows Ember's flame, or the workspace's logo, filling a 56px square with rounded corners", () => {
     const account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} };
     const { rerender } = render(<AccountContext value={account}>{railAt("home")}</AccountContext>);
     const brand = screen.getByRole("link", { name: "Ember home" });
@@ -193,12 +192,12 @@ describe(feature("accounts.logo"), () => {
     expect(brand.querySelector("img")).toHaveAttribute("src", "/account/logo?v=20261017120000");
     expect(brand.querySelector("img")).toHaveAttribute("alt", "");
     expect(brand.querySelector("img")).toHaveClass("size-14", "rounded-[inherit]", "object-cover");
-    // ember-rust's pull request #24 takes away the page's background it sat on.
+    // On no background of its own.
     expect(brand).not.toHaveClass("bg-background");
   });
 });
 
-describe(feature("accounts.navigation-icons"), () => {
+describe("Navigation icons", () => {
   it("draws the icons an administrator chose for its buttons, and Iconoir's for the rest", () => {
     const account: Account = {
       name: "Analytical Engines",

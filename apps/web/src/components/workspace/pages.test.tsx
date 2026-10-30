@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startingInvolvement, type Me, type SharedRoom } from "@ember/protocol";
@@ -69,7 +68,7 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe(feature("ui.layout"), () => {
+describe("Workspace layout", () => {
   it("says Loading… until the pages few visits need have loaded, and then shows each at once", async () => {
     const { show, navigate } = await freshWorkspace();
     show("/searches");

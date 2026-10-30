@@ -1,6 +1,6 @@
-// How a message body renders: `MessagesHelper#message_presentation` up to its auto_link
-// (ember-rust's crates/richtext/src/lib.rs, content.rs and filters.rs), and the canonical form
-// Ember stores, which is that rendering with its mentions and link previews left to render live.
+// How a message body renders: `MessagesHelper#message_presentation` up to its auto_link, and the
+// canonical form Ember stores, which is that rendering with its mentions and link previews left to
+// render live.
 
 import {
   attachmentFromNode,
@@ -56,10 +56,10 @@ interface Partials {
 }
 
 /**
- * `message_presentation`'s rendering, sanitized as its auto_link sanitizes it but not linked, as
- * ember-rust serializes it: `<` and `>` escaped in attribute values. `host` is the one the page is
- * served from, which previews mustn't name. Throws `ParseLimitError` and `RenderError` where Rails
- * raises, which `message_presentation` rescues to show nothing.
+ * `message_presentation`'s rendering, sanitized as its auto_link sanitizes it but not linked: `<` and
+ * `>` escaped in attribute values. `host` is the one the page is served from, which previews mustn't
+ * name. Throws `ParseLimitError` and `RenderError` where Rails raises, which `message_presentation`
+ * rescues to show nothing.
  */
 export function presentMessage(parse: HtmlParser, body: string, resolve: ResolveMention, mention: Partials["mention"], host = ""): string {
   const partials = { mention, preview: opengraphEmbedPartial };
@@ -217,8 +217,8 @@ class Renderer {
         return chomp(this.partials.mention(attachable.user));
       case "opengraph-embed":
         return chomp(this.partials.preview(attachable.embed));
-      // Rails asks a missing record's model for its partial, which User doesn't have, so a mention
-      // of someone deleted raised and blanked the message: ember-rust shows ☒ for every one
+      // Rails asks a missing record's model for its partial, which User doesn't have, so a mention of
+      // someone deleted raised and blanked the message: Ember shows ☒ for every one
       case "missing":
         return MISSING_ATTACHABLE;
       case "content":

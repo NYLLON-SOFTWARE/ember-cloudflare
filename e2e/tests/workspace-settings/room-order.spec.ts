@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
 import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
@@ -20,7 +19,7 @@ const sidebarRooms = (tab: Page) => tab.getByRole("complementary", { name: "Conv
 /** Each tab waits up to 5 seconds at random before loading its sidebar again for a new order. */
 const REORDERED = { timeout: 15_000 };
 
-test.describe(feature("sidebar.shared-order"), () => {
+test.describe("Shared room order", () => {
   test("the administrator puts rooms in order for everyone, which members' sidebars follow without being loaded again", async ({ page, browser, baseURL }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit#membership-settings");

@@ -1,7 +1,6 @@
-// ember-rust's generated avatars (crates/views/src/helpers/users.rs, from Campfire's
-// Users::AvatarsHelper): someone's initials in white on one of 18 colors, picked by the CRC32 of their
-// id, drawn by users/avatars/show.svg. The Worker serves it as their avatar, and the app shows it while
-// a served one loads.
+// Campfire's generated avatars (Users::AvatarsHelper): someone's initials in white on one of 18 colors,
+// picked by the CRC32 of their id, drawn by users/avatars/show.svg. The Worker serves it as their
+// avatar, and the app shows it while a served one loads.
 
 const AVATAR_COLORS = [
   "#AF2E1B", "#CC6324", "#3B4B59", "#BFA07A", "#ED8008", "#ED3F1C", "#BF1B1B", "#736B1E", "#D07B53",
@@ -27,7 +26,7 @@ function* utf8(text: string): Generator<number> {
   }
 }
 
-/** zlib's CRC32 of `text` as UTF-8, which Ruby's `Zlib.crc32` and ember-rust's crc32fast give too. */
+/** zlib's CRC32 of `text` as UTF-8, which Ruby's `Zlib.crc32` gives too. */
 export function crc32(text: string): number {
   let crc = 0xffffffff;
   for (const byte of utf8(text)) crc = CRC_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
@@ -59,7 +58,7 @@ export function initials(name: string): string {
 }
 
 /**
- * Someone's initials avatar, byte for byte as ember-rust renders users/avatars/show.svg: three or more
+ * Someone's initials avatar, byte for byte as Campfire renders users/avatars/show.svg: three or more
  * initials are squeezed to fit, and a name with none gets a plain tile. Initials are ASCII letters,
  * digits and underscores, so nothing in it needs escaping.
  */
@@ -92,35 +91,35 @@ export function avatarSvg(userId: string, name: string): string {
   ].join("\n");
 }
 
-// Avatars people upload, as ember-rust's profile, setup and sign-up forms take them, which the Worker
-// keeps in R2 with the variant ember-rust serves of them. The uploader's browser makes the variant,
-// where ember-rust makes it with libvips.
+// Avatars, which people upload on their profile and the setup and sign-up forms, and the Worker keeps in
+// R2 with the one variant Campfire serves of them, `:square`. The uploader's browser makes the variant.
 
 /** Where your avatar goes: `PUT` uploads one, as a form's `avatar` and `variant`, and `DELETE` removes it. */
 export const AVATAR_PATH = "/api/users/me/avatar";
 
-/** The box an avatar's variant fits within, as ember-rust's `resize_to_limit: [512, 512]` scales it. */
+/** The box an avatar's variant fits within, as Campfire's `:square` scales it. */
 export const AVATAR_BOX = 512;
 
 /**
- * The largest avatar Ember takes, in decimal bytes, where ember-rust takes one as large as any file: the
- * Worker reads an avatar into memory to keep it, and a Worker has 128 MB for every request at once.
+ * The largest avatar Ember takes, in decimal bytes: the Worker reads an avatar into memory to keep it,
+ * and a Worker has 128 MB for every request at once.
  */
 export const MAX_AVATAR_SIZE = 16_000_000;
 
 /** What the Worker's 413 and the app say of a larger one. */
 export const AVATAR_TOO_LARGE = "Photos must be 16 MB or smaller.";
 
-// The workspace's logo, which administrators upload as people upload avatars, and the Worker keeps in
-// R2 with the two variants ember-rust serves of it, which the uploader's browser makes too.
+// The workspace's logo, which administrators upload as people upload avatars, and the Worker keeps in R2
+// with the two variants Campfire serves of it, `:large` and `:small`, which the uploader's browser makes
+// too.
 
 /** Where the workspace's logo goes: `PUT` uploads one, as a form's `logo`, `large` and `small`, and `DELETE` removes it. */
 export const LOGO_PATH = "/api/account/logo";
 
-/** The boxes a logo's variants fit within, as ember-rust's `:large` and `:small` sizes scale it (logos.rs). */
+/** The boxes a logo's variants fit within, as Campfire's `:large` and `:small` scale it. */
 export const LOGO_BOXES = { large: 512, small: 192 } as const;
 
-/** The largest logo Ember takes, as for an avatar, where ember-rust takes a file of any size. */
+/** The largest logo Ember takes, as for an avatar. */
 export const MAX_LOGO_SIZE = MAX_AVATAR_SIZE;
 
 /** What the Worker's 413 and the app say of a larger one. */

@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
 import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
@@ -17,7 +16,7 @@ const linesOf = (text: Locator) =>
     return new Set([...range.getClientRects()].map((line) => Math.round(line.top))).size;
   });
 
-test.describe(feature("accounts.tagline"), () => {
+test.describe("Workspace tagline", () => {
   test("the administrator gives the workspace a tagline, which every tab shows under its name, then takes it away", async ({ page }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit");

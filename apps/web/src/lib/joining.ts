@@ -1,8 +1,7 @@
 import { JOINING_PARAM, JOINING_PROBLEMS, joiningProblemOf } from "@ember/protocol";
 
 // Why a way to join sent the browser to sign in, as the Worker names it in the address (`?joining=`):
-// the join link while it's off, and open sign-up while it's closed (`accounts.ways-to-join`). The
-// sign-in page says so.
+// the join link while it's off, and open sign-up while it's closed. The sign-in page says so.
 
 /** What the sign-in page says about why it was opened instead of a page to join, if its address says. */
 export function joiningProblemOnArrival(): string | null {

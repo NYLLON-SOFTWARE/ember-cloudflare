@@ -1,4 +1,3 @@
-import { feature } from "@ember/parity";
 import type { DirectoryUser, Me, Person, PersonAnswer, User } from "@ember/protocol";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -82,7 +81,7 @@ afterEach(() => {
   document.title = "";
 });
 
-describe(feature("users.show"), () => {
+describe("Someone's profile page", () => {
   it("shows someone's avatar, name and bio, titled with their name, with Go Back to where it was opened from", async () => {
     serve(found(grace));
     showPage(grace, { people: new Map([[grace.id, grace]]) });
@@ -155,7 +154,7 @@ describe(feature("users.show"), () => {
     showPage(ada.id);
     expect(await heading()).toHaveTextContent("Ada Lovelace");
     expect(screen.getByRole("link", { name: "Edit my profile" })).toHaveAttribute("href", "/users/me/profile");
-    // You can start a DM with yourself, as ember-rust's page offers.
+    // You can start a DM with yourself.
     expect(directButton("Ada Lovelace")).toBeVisible();
   });
 
@@ -246,7 +245,7 @@ describe(feature("users.show"), () => {
   });
 });
 
-describe(feature("bots.profile"), () => {
+describe("A bot's profile", () => {
   const administrator: Me = { ...ada, administrator: true };
 
   it("shows an active bot's avatar and a button that starts a DM with it, without a name, bio, email, sign-in link or ban, even to administrators", async () => {
@@ -276,7 +275,7 @@ describe(feature("bots.profile"), () => {
   });
 });
 
-describe(feature("auth.sign-in-link"), () => {
+describe("Private sign-in link", () => {
   const administrator: Me = { ...ada, administrator: true };
   const TRANSFER_ID = "u2.mgk3x2a9.signature";
   const withLink = (person: Person) => () => Response.json({ person, transferId: TRANSFER_ID } satisfies PersonAnswer);
@@ -323,7 +322,7 @@ describe(feature("auth.sign-in-link"), () => {
   });
 });
 
-describe(feature("accounts.ban"), () => {
+describe("Ban and unban people", () => {
   const administrator: Me = { ...ada, administrator: true };
   const banned: DirectoryUser = { ...grace, status: "banned", avatarUrl: "/users/t2/avatar?v=2" };
   const active: DirectoryUser = { ...grace, avatarUrl: "/users/t2/avatar?v=3" };
@@ -486,7 +485,7 @@ describe(feature("accounts.ban"), () => {
   });
 });
 
-describe(feature("auth.memberful-memberships"), () => {
+describe("Memberful memberships", () => {
   const suspended: Person = { ...grace, status: "suspended" };
 
   it("shows members someone suspended for their membership's lapsing as no longer on this account", async () => {

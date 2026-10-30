@@ -31,11 +31,10 @@ interface Feedback {
 }
 
 /**
- * ember-rust's bell in a room's header (rooms/involvements/_bell.html): your level in the room once this
- * browser has notifications on, and until then Enable notifications, which turns them on, or says why it
- * can't in the Notification setup dialog. While it's turning them on it's dimmed, as Campfire dims what's
- * disabled (base.css), and ignores presses, keeping focus, where ember-rust's is disabled, and the
- * level's bell takes focus from it once they're on. Since ember-rust's pull request #24 it confirms each
+ * The bell in a room's header: your level in the room once this browser has notifications on, and until
+ * then Enable notifications, which turns them on, or says why it can't in the Notification setup dialog.
+ * While it's turning them on it's dimmed, as Campfire dims what's disabled (base.css), and ignores
+ * presses, keeping focus, and the level's bell takes focus from it once they're on. It confirms each
  * level a press saves, or says it couldn't, under itself for a few seconds (`useFeedback`).
  */
 export function NotificationBell({ className, onFailed, ...props }: ComponentProps<typeof InvolvementButton>) {
@@ -59,7 +58,6 @@ export function NotificationBell({ className, onFailed, ...props }: ComponentPro
   };
 
   return (
-    // `.mb-notification-control`.
     <span className="relative inline-flex">
       {on ? (
         <InvolvementButton {...props} onSaved={saved} onFailed={failed} autoFocus={handingOver} className={className} />
@@ -79,7 +77,7 @@ export function NotificationBell({ className, onFailed, ...props }: ComponentPro
           <NotificationSetup shown={shown} />
         </>
       )}
-      {/* `.mb-notification-tooltip`, for the eye only, as the status says the same. */}
+      {/* The tooltip, for the eye only, as the status says the same. */}
       <span
         data-notification-tooltip
         aria-hidden="true"
@@ -99,8 +97,8 @@ export function NotificationBell({ className, onFailed, ...props }: ComponentPro
 }
 
 /**
- * ember-rust's notification_feedback_controller.js (pull request #24): what the bell says it did, for
- * 3.2 seconds or until Escape, at once when a key pressed it, and sliding in otherwise.
+ * What the bell says it did, for 3.2 seconds or until Escape, at once when a key pressed it, and sliding
+ * in otherwise.
  */
 function useFeedback() {
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -134,9 +132,9 @@ function useFeedback() {
 }
 
 /**
- * ember-rust's Notification setup dialog, which says why notifications aren't on, with the help for this
- * browser when the notice calls for it. It's Campfire's `.dialog`, over its gradient, and the header's
- * buttons, as ember-rust has it in the header.
+ * The Notification setup dialog, which says why notifications aren't on, with the help for this browser
+ * when the notice calls for it. It's Campfire's `.dialog`, over its gradient, with buttons styled as the
+ * header's.
  */
 function NotificationSetup({ shown }: { shown: Shown | null }) {
   const { platform } = usePush();

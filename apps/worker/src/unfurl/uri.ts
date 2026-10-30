@@ -1,9 +1,9 @@
 import { parseIpv6 } from "./addresses";
 
-// The slice of Ruby's `URI.parse` (uri 1.1, RFC 3986 parser) that link previews rely on, ported from
-// ember-rust's crates/richtext/src/uri.rs: which strings parse as an absolute http(s) URL, and into
-// what. A preview can't use anything else `URI.parse` might answer (another scheme, a relative
-// reference, an http URL without a host, or an error), so all of that is null here.
+// The slice of Ruby's `URI.parse` (uri 1.1, RFC 3986 parser) that link previews rely on: which strings
+// parse as an absolute http(s) URL, and into what. A preview can't use anything else `URI.parse` might
+// answer (another scheme, a relative reference, an http URL without a host, or an error), so all of that
+// is null here.
 
 export interface HttpUri {
   /** Lowercased, as `URI::Generic#set_scheme` does. */
@@ -143,9 +143,9 @@ function ipLiteralEnd(value: string, start: number, limit: number): number | nul
 }
 
 /**
- * `URI::Generic#query=`: undefined for a "%" followed by two characters that aren't hex digits, else
- * the query without tabs and newlines, and with anything outside `[!$-&(-;=?-_a-~]` that isn't part
- * of an escape escaped. (ember-rust's port refuses only that one shape of bad escape.)
+ * `URI::Generic#query=`: undefined for a "%" followed by two characters that aren't hex digits, else the
+ * query without tabs and newlines, and with anything outside `[!$-&(-;=?-_a-~]` that isn't part of an
+ * escape escaped.
  */
 function escapeQuery(query: string): string | undefined {
   const cleaned = query.replace(/[\t\r\n]/g, "");

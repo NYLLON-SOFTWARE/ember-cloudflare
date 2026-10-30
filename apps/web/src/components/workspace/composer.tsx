@@ -12,11 +12,10 @@ import { cn } from "@/lib/utils";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
 
 /**
- * ember-rust's typing indicator (rooms/show/_composer.html, Campfire's typing_tracker.js and
- * composer.css): the names of whoever is typing, sorted and comma-separated after a three-dot spinner,
- * fading in above the composer. Like ember-rust's, it isn't a live region: announced on every change,
- * a bare list of names would mean nothing out of context. Names that don't fit end in an ellipsis,
- * where ember-rust's wrap down over the message box.
+ * The typing indicator (Campfire's typing_tracker.js and composer.css): the names of whoever is typing,
+ * sorted and comma-separated after a three-dot spinner, fading in above the composer. It isn't a live
+ * region: announced on every change, a bare list of names would mean nothing out of context. Names that
+ * don't fit end in an ellipsis, rather than wrapping down over the message box.
  */
 function TypingIndicator({ typists }: { typists: User[] }) {
   const nameOf = useNameOf();
@@ -40,15 +39,14 @@ function TypingIndicator({ typists }: { typists: User[] }) {
 const FOOTER = "bg-background px-[22px] pt-2.5 pb-[max(12px,env(safe-area-inset-bottom))] narrow:px-4 max-md:px-2.5 max-md:pt-2 max-md:pb-[max(10px,env(safe-area-inset-bottom))]";
 
 /**
- * The buttons under the text: ember-rust's `.mb-composer-toolbar .btn` (zz-ember.css), which darken
- * on hover as Campfire's do (composer.css, buttons.css). A disconnected room disables them, as its
- * fieldset does in ember-rust, though only Send looks it.
+ * The buttons under the text, which darken on hover as Campfire's do (composer.css, buttons.css). A
+ * disconnected room disables them, though only Send looks it.
  */
 const BUTTON = "flex size-8 shrink-0 cursor-pointer items-center justify-center touch:size-11";
 
 /**
- * Where what someone has written in a room and not yet sent is kept in this browser, as ember-rust
- * keeps it, though for each person apart, so whoever signs in here next doesn't see it.
+ * Where what someone has written in a room and not yet sent is kept in this browser, for each person
+ * apart, so whoever signs in here next doesn't see it.
  */
 const draftKey = (userId: string, roomId: string) => `composer-draft-${userId}-${roomId}`;
 
@@ -103,9 +101,9 @@ function useEditorShown(deferred: boolean): boolean {
 }
 
 /**
- * ember-rust's unfurl_controller.js: a link pasted in the composer gets the preview of the page it goes to
- * below its paragraph, when the page has one, unless another link is pasted first, or the composer goes.
- * Previews that can't be had are left out without a word.
+ * A link pasted in the composer gets the preview of the page it goes to below its paragraph, when the
+ * page has one, unless another link is pasted first, or the composer goes. Previews that can't be had
+ * are left out without a word.
  */
 function useLinkPreviews(): (link: PastedLink) => Promise<void> {
   const pending = useRef<AbortController>(null);
@@ -127,8 +125,8 @@ interface PickedFile {
 }
 
 /**
- * The files picked to send with the next message, as ember-rust's composer_controller.js keeps them: in
- * order of their names, leaving out any over 250 MB, which it says until more are picked.
+ * The files picked to send with the next message: in order of their names, leaving out any over 250 MB,
+ * which it says until more are picked.
  */
 function usePickedFiles() {
   const [files, setFiles] = useState<PickedFile[]>([]);
@@ -151,7 +149,7 @@ function usePickedFiles() {
 
 /**
  * A file's name as its chip shows it: what runs to an ellipsis, up to its last dot, and its extension,
- * which doesn't. A name with no dot shows whole, where ember-rust's begins with one.
+ * which doesn't. A name with no dot shows whole.
  */
 function splitName(name: string): [string, string] {
   const dot = name.lastIndexOf(".");
@@ -159,8 +157,7 @@ function splitName(name: string): [string, string] {
 }
 
 /**
- * The address of a picture's thumbnail, which is let go once its chip goes, where ember-rust's are kept
- * until the page is.
+ * The address of a picture's thumbnail, which is let go once its chip goes.
  */
 function useThumbnail(file: File): string | undefined {
   const [thumbnail, setThumbnail] = useState<string>();
@@ -176,10 +173,8 @@ function useThumbnail(file: File): string | undefined {
 const isImage = (file: File) => file.type.startsWith("image/");
 
 /**
- * A file picked to send, as ember-rust's composer lists it (composer_controller.js#updateFileList,
- * Campfire's composer.css, zz-ember.css): a picture's thumbnail, or a file icon, over its name and
- * a circled ×. Pressing it takes the file back out, which it says to screen readers too, where
- * ember-rust's gives only the name.
+ * A file picked to send, styled by Campfire's composer.css: a picture's thumbnail, or a file icon, over
+ * its name and a circled ×. Pressing it takes the file back out, which it says to screen readers too.
  */
 function FileChip({ file, onRemove }: { file: File; onRemove: () => void }) {
   const thumbnail = useThumbnail(file);
@@ -249,11 +244,10 @@ export interface ComposerHandle {
 }
 
 /**
- * ember-rust's composer (rooms/show/_composer.html, composer_controller.js and zz-ember.css): a card
- * with the editor on top, and below it Attach files, Formatting options, which shows Lexxy's toolbar
- * under the text, and a round Send button. @ offers the room's people to mention. Files picked, pasted
- * or dropped wait above the card to go with the next message. What's written is kept as a draft until
- * it's sent.
+ * The composer: a card with the editor on top, and below it Attach files, Formatting options, which
+ * shows Lexxy's toolbar under the text, and a round Send button. @ offers the room's people to mention.
+ * Files picked, pasted or dropped wait above the card to go with the next message. What's written is
+ * kept as a draft until it's sent.
  */
 export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, onSend, onSendFiles, onTyping, onEditLastMessage, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
@@ -275,7 +269,6 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   const wasBlank = useRef(!draft);
   // Whether Reply wrote what the editor opens with, before it showed, so it takes focus as Reply has it do.
   const replied = useRef(false);
-  // As ember-rust's _composer.html has it.
   const placeholder = `Message ${direct ? "" : "#"}${roomName}`;
 
   // What's written changed, to `body`, or to nothing: the room hears whether you're typing, and it's kept.
@@ -298,9 +291,8 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
     addFiles: picked.add,
   }));
 
-  // ember-rust's Up Arrow (rooms/show.html, messages_controller.js#editMyLastMessage): with nothing written,
-  // it edits your newest message. ember-rust takes it from anywhere on the page, other fields included,
-  // even the editor of another message; here it's taken only from the composer or the page itself.
+  // Up Arrow, with nothing written, edits your newest message. It's taken only from the composer or the
+  // page itself, not from other fields or the editor of another message.
   const editLastMessage = useEffectEvent((event: KeyboardEvent) => {
     if (!onEditLastMessage || event.defaultPrevented || !pressedAlone(event, "ArrowUp")) return;
     const fromText = form.current?.querySelector(".lexxy-editor__content")?.contains(event.target as Node) ?? false;
@@ -318,9 +310,9 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
 
   const changed = () => wrote(editor.current!.isBlank() ? null : editor.current!.value());
 
-  // As ember-rust's does, this sends nothing while the room is disconnected, and otherwise sends the
-  // files picked, then what's written unless it's blank, closes the toolbar and focuses the editor, on
-  // touch screens too. Before the editor shows, as its code loads, only the files go.
+  // This sends nothing while the room is disconnected, and otherwise sends the files picked, then what's
+  // written unless it's blank, closes the toolbar and focuses the editor, on touch screens too. Before
+  // the editor shows, as its code loads, only the files go.
   const submit = () => {
     if (disabled) return;
     if (picked.files.length > 0) {
@@ -344,8 +336,8 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
 
   const keyDown = (event: KeyboardEvent) => {
     if (opensLink(event) && !toolbarOpen) {
-      // Lexxy opens its Link field on this even while its toolbar is hidden, so in ember-rust nothing seems
-      // to happen, and the address you type next replaces what you'd selected. Here the toolbar shows
+      // Lexxy opens its Link field on this even while its toolbar is hidden, so nothing would seem to
+      // happen, and the address you typed next would replace what you'd selected. Here the toolbar shows
       // first, so the field can take focus, and shuts again when the field closes.
       flushSync(() => {
         setToolbarOpen(true);
@@ -378,7 +370,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   return (
     <footer className={FOOTER}>
       {/* Not validated, since Lexxy checks its Link field itself. An address left unfinished there, or the field
-          left open and empty, would otherwise stop Send without a word, as it does in ember-rust. */}
+          left open and empty, would otherwise stop Send without a word. */}
       <form
         ref={form}
         noValidate
@@ -389,7 +381,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
           submit();
         }}
         // Pasted files are picked rather than written, which Lexxy leaves them out of, and any paste clears
-        // what was said about files too large, as in ember-rust.
+        // what was said about files too large.
         onPaste={(event) => {
           if (event.clipboardData.files.length > 0) event.preventDefault();
           picked.add(event.clipboardData.files);
@@ -397,7 +389,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
         {...dropTarget(picked.add)}
       >
         <TypingIndicator typists={typing} />
-        {/* ember-rust's `.composer__filelist`: the files picked, and those too large to send. */}
+        {/* The files picked, and those too large to send. */}
         <div className={cn("flex flex-wrap items-center gap-x-[1ch] gap-y-2", (picked.files.length > 0 || picked.errors.length > 0) && "pb-2")}>
           {picked.files.map(({ key, file }) => (
             <FileChip key={key} file={file} onRemove={() => picked.remove(key)} />
@@ -497,9 +489,8 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
 }
 
 /**
- * ember-rust's messages/room_not_found.html, in the composer's place in a room that's gone: deleted, or
- * no longer this person's. Its span is inline, so its width, centering and shake don't take; this has
- * them, as its classes mean.
+ * What stands in the composer's place in a room that's gone: deleted, or no longer this person's. Its
+ * span is inline, so its width, centering and shake don't take; this has them, as its classes mean.
  */
 export function RoomDeleted() {
   return (
