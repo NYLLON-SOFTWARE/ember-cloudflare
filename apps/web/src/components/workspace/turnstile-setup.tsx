@@ -340,7 +340,8 @@ function CheckStep({
     // A check passed again while its last token is being asked about waits for that answer.
     if ("token" in said) return void (saving || save(said.token));
     if ("unavailable" in said) return setStuck({ problem: CHECK_UNAVAILABLE });
-    if (!("error" in said)) return;
+    // Turnstile checks again by itself once a token expires or a challenge times out, giving a new token.
+    if ("expired" in said) return;
     if (UNKNOWN_SITE_KEY_CODES.includes(said.error)) return onRefused("siteKey", SITE_KEY_UNKNOWN);
     if (said.error === UNLISTED_HOSTNAME_CODE)
       return setStuck({

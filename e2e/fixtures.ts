@@ -99,6 +99,12 @@ export async function logOut(page: Page): Promise<void> {
 /** The `Cookie` header that carries a session, for clients other than the test's browsers. */
 export const cookieHeader = ({ cookie }: Session) => `${cookie.name}=${cookie.value}`;
 
+/** What Ember's email comes from with `address` as its From address, which has no name: the address under the workspace's name, as it is now. */
+export async function sentFrom(request: APIRequestContext, address: string): Promise<string> {
+  const { account } = (await (await request.get("/api/bootstrap")).json()) as Bootstrap;
+  return `${account.name} <${address}>`;
+}
+
 /** Starts the app already signed in, by giving the browser the session's cookie. */
 export async function signInAs(page: Page, session: Session): Promise<void> {
   await page.context().addCookies([session.cookie]);

@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { INVITATION_GONE, type WorkspaceSettings } from "@ember/protocol";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
-import { ADMINISTRATOR, administratorSession, cookieHeader, SAME_ORIGIN, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { ADMINISTRATOR, administratorSession, cookieHeader, SAME_ORIGIN, sentFrom, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { forgetResendKey, giveResendKey, startFakeResend, type FakeResend, type SentEmail } from "./fake-resend";
 
 // Membership's Invite by email card, and the page an invitation's link opens, on the second test server,
@@ -106,9 +106,10 @@ test.describe(feature("accounts.invitations"), () => {
     await expect(card.getByRole("status")).toHaveText(`Sent 2 invitations. ${ADMINISTRATOR.emailAddress} has an account already.`);
     await expect(addresses).toHaveValue("");
     const invitedYou = expect.stringMatching(new RegExp(`^${ADMINISTRATOR.name} invited you to `)) as unknown;
+    const from = await sentFrom(request, FROM);
     expect(resend.sent.slice(sent)).toEqual([
-      expect.objectContaining({ from: FROM, to: [hal], subject: invitedYou }),
-      expect.objectContaining({ from: FROM, to: [ida], subject: invitedYou }),
+      expect.objectContaining({ from, to: [hal], subject: invitedYou }),
+      expect.objectContaining({ from, to: [ida], subject: invitedYou }),
     ]);
     const [halsLink, idasLink] = resend.sent.slice(sent).map(linkIn);
     expect(halsLink).toMatch(new RegExp(`^${baseURL}/join/invitation#token=[\\w-]{43}$`));
