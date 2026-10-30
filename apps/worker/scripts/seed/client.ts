@@ -249,11 +249,14 @@ export class RoomSocket {
 
   /**
    * Reads the room to its latest message, as coming back to a tab showing it does, once the room has
-   * logged it: the room hears the frames in order, so the pong comes after.
+   * logged it: the room hears the frames in order, so its pong comes after. The ping carries a field the
+   * room ignores, since the runtime answers the app's `{"type":"ping"}` itself, before the room hears
+   * what came first.
    */
   async read(): Promise<void> {
     this.#socket.send(JSON.stringify({ type: "presence.visible", visible: true } satisfies ClientFrame));
-    await this.#ask({ type: "ping" }, (frame) => (frame.type === "pong" ? frame : undefined));
+    const ping = { type: "ping", by: "seed" } as const;
+    await this.#ask(ping, (frame) => (frame.type === "pong" ? frame : undefined));
   }
 
   /** The first frame from now on that `pick` picks something of, which it answers, failing on an error from the room. */

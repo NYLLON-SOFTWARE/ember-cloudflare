@@ -52,12 +52,8 @@ function file(name: string): SeedFile {
 
 const pictureOf = (avatar: string | undefined) => (avatar === undefined ? undefined : file(avatar));
 
-/** Sets Ember up for Fernwood, everyone with `password`, then has them talk. */
+/** Sets an Ember nobody has set up for Fernwood, everyone with `password`, then has them talk. */
 async function seed(ember: Ember, password: string): Promise<void> {
-  if (await ember.isSetUp()) {
-    const startOver = ember.origin === DEV_URL ? " To start `pnpm dev`'s over, stop it and delete apps/worker/.wrangler/state." : "";
-    throw new UsageError(`${ember.origin} is set up already, and the seed fills only an Ember nobody has set up.${startOver}`);
-  }
   const formOf = ({ name, emailAddress }: Person) => ({ name, emailAddress, password });
 
   const maya = await ember.setUp(formOf(PEOPLE.maya), pictureOf(PEOPLE.maya.avatar));
@@ -100,10 +96,16 @@ async function main(args: string[], env: NodeJS.ProcessEnv): Promise<string> {
   if (!url) throw new UsageError(`${USAGE}. The address has to be HTTPS, or HTTP on this machine.`);
   const ember = new Ember(url.origin, env.EMBER_SETUP_TOKEN);
   const password = passwordOf(env.EMBER_SEED_PASSWORD);
+  if (await ember.isSetUp()) {
+    const startOver = ember.origin === DEV_URL ? " To start `pnpm dev`'s over, stop it and delete apps/worker/.wrangler/state." : "";
+    throw new UsageError(`${ember.origin} is set up already, and the seed fills only an Ember nobody has set up.${startOver}`);
+  }
+  // Said before anyone is made, since a seed that fails after that can't be run again to say it.
+  console.log(`Seeding ${ember.origin}, with the password ${password} for everyone.`);
   await seed(ember, password);
   const width = Math.max(...Object.values(PEOPLE).map(({ name }) => name.length));
   const accounts = Object.values(PEOPLE).map(({ name, emailAddress }, index) => `  ${name.padEnd(width)}  ${emailAddress}${index === 0 ? "  (administrator)" : ""}`);
-  return [`${WORKSPACE.name} is ready at ${ember.origin}. Sign in as anyone, with the password ${password}:`, ...accounts].join("\n");
+  return [`${WORKSPACE.name} is ready at ${ember.origin}. Sign in as anyone, with that password:`, ...accounts].join("\n");
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
