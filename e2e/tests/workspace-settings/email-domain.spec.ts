@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { EMAIL_LINK_GONE, JOINING_PROBLEMS, onlyAddressesAt, type AccountChanges } from "@ember/protocol";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
-import { administratorSession, cookieHeader, SAME_ORIGIN, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { administratorSession, cookieHeader, SAME_ORIGIN, sentFrom, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { RESEND_KEY } from "../../projects/workspace-settings";
 import { forgetResendKey, giveResendKey, startFakeResend, type FakeResend, type SentEmail } from "./fake-resend";
 
@@ -51,7 +51,7 @@ async function askForLink(page: Page, emailAddress: string): Promise<SentEmail> 
 const linkIn = (email: SentEmail) => /(?:Join|Sign in) here: (\S+)/.exec(email.text)![1]!;
 
 test.describe(feature("auth.email-domain-sign-up"), () => {
-  test("the administrator lets in an email domain, and someone there asks for a link from sign in, then joins with it, once", async ({ page, browser, baseURL }) => {
+  test("the administrator lets in an email domain, and someone there asks for a link from sign in, then joins with it, once", async ({ page, request, browser, baseURL }) => {
     await useOwnAddress(page);
     await page.goto("/account/edit#membership-settings");
     await signInAsAdministrator(page);
@@ -90,7 +90,7 @@ test.describe(feature("auth.email-domain-sign-up"), () => {
     await expect(newcomer).toHaveURL(`${baseURL}/join/email`);
     await expect(newcomer.getByRole("textbox", { name: "Email address" })).toHaveAccessibleDescription(`Addresses at ${DOMAIN} can join.`);
     const email = await askForLink(newcomer, hal);
-    expect(email).toEqual(expect.objectContaining({ from: FROM, to: [hal], subject: expect.stringMatching(/^Your link to join /) as unknown }));
+    expect(email).toEqual(expect.objectContaining({ from: await sentFrom(request, FROM), to: [hal], subject: expect.stringMatching(/^Your link to join /) as unknown }));
     const link = linkIn(email);
     expect(link).toMatch(new RegExp(`^${baseURL}/join/email#token=[\\w-]{43}$`));
 

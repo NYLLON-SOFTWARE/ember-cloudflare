@@ -84,6 +84,7 @@ export {
   SIGN_UP_PATH,
   TRANSFER_PATH,
   transferLink,
+  TURNSTILE_CHECK_PATH,
   withEmailAddress,
   WORKSPACE_PRELOADS,
   WORKSPACE_SETTINGS_PATH,
@@ -436,10 +437,13 @@ export interface WorkspaceSettings {
    */
   memberfulWebhooks: boolean;
   /**
-   * Whether the deployment has Cloudflare Turnstile's keys (`TURNSTILE_SITE_KEY` and
-   * `TURNSTILE_SECRET_KEY`), so that open sign-up's form checks that whoever fills it in is a person.
+   * Where the keys of the Cloudflare Turnstile widget come from that checks whoever signs up, or asks
+   * Ember to email them, is a person (`auth.turnstile`), as Membership's Turnstile card says: the
+   * deployment's secrets `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`, which take the place of any
+   * others, the ones an administrator gave Ember in Set up Turnstile, or null while it has neither, when
+   * limits on each network stand in for the check.
    */
-  turnstile: boolean;
+  turnstile: "secret" | "saved" | null;
   /** How Ember sends email, which Membership's Email card shows administrators. */
   email: EmailSettings;
   /** The invitations no one has accepted yet, newest first, for administrators, and none for anyone else. */
@@ -513,6 +517,62 @@ export interface EmailSettings {
   cloudflare: boolean;
   /** The address an administrator gave Ember's email to come from, as `mailboxText` writes it, or null while there's none. */
   from: string | null;
+}
+
+/** What `PUT` and `DELETE /api/account/turnstile_keys` answer: where Ember's Turnstile keys come from then, as `WorkspaceSettings.turnstile` says. */
+export interface TurnstileSettings {
+  turnstile: WorkspaceSettings["turnstile"];
+}
+
+/**
+ * What Set up Turnstile gives `PUT /api/account/turnstile_keys`: a widget's site key and secret key, and
+ * the token that widget's check gave the dialog, which the Worker asks Cloudflare about with the secret
+ * key, so that Ember keeps only keys that check people here.
+ */
+export interface TurnstileKeysChange {
+  siteKey: string;
+  secretKey: string;
+  turnstileToken: string;
+}
+
+/** The longest key of a Turnstile widget Ember takes, where Cloudflare's are a few dozen characters. */
+const MAX_TURNSTILE_KEY_LENGTH = 100;
+
+/** Why a site key, or a secret key, is refused before Cloudflare is asked about it. */
+export const TURNSTILE_SITE_KEY_REFUSED = "A site key starts with 0x. Copy it from your widget in Cloudflare Turnstile.";
+export const TURNSTILE_SECRET_KEY_REFUSED = "A secret key starts with 0x. Copy it from your widget in Cloudflare Turnstile.";
+
+/** Why Set up Turnstile's keys are refused once Cloudflare has answered the check's token with them, or hasn't. */
+export const TURNSTILE_SECRET_KEY_UNKNOWN = "Cloudflare doesn't know that secret key. Copy it again from your widget in Cloudflare Turnstile.";
+export const TURNSTILE_KEYS_UNMATCHED = "That secret key isn't the site key's. Copy both keys from the same widget.";
+export const TURNSTILE_CHECK_EXPIRED = "That check has expired. Pass it again.";
+export const TURNSTILE_KEYS_UNCHECKED = "Ember couldn't reach Cloudflare to check the keys. Try again.";
+
+/**
+ * The Turnstile key `text` gives, without the spaces around it, or null when it can't be one: a widget's
+ * keys start with a digit and an x, as `0x4AAAA…` and Cloudflare's test keys do, then letters, digits,
+ * dashes and underscores.
+ */
+export function turnstileKeyOf(text: string): string | null {
+  const key = text.trim();
+  return key.length <= MAX_TURNSTILE_KEY_LENGTH && /^[0-9]x[\w-]{16,}$/.test(key) ? key : null;
+}
+
+/**
+ * What `PUT /api/account/turnstile_keys` gives Ember, as Set up Turnstile sends it, or why it can't be one,
+ * on the field it's about: a site key and a secret key, which aren't the same, and the check's token.
+ */
+export function parseTurnstileKeysChange(data: unknown): TurnstileKeysChange | { error: string; field: "siteKey" | "secretKey" | "turnstile" } {
+  const given = isJsonObject(data) ? data : {};
+  const siteKey = typeof given.siteKey === "string" ? turnstileKeyOf(given.siteKey) : null;
+  if (siteKey === null) return { error: TURNSTILE_SITE_KEY_REFUSED, field: "siteKey" };
+  const secretKey = typeof given.secretKey === "string" ? turnstileKeyOf(given.secretKey) : null;
+  if (secretKey === null || secretKey === siteKey) return { error: TURNSTILE_SECRET_KEY_REFUSED, field: "secretKey" };
+  const { turnstileToken } = given;
+  if (typeof turnstileToken !== "string" || turnstileToken === "" || turnstileToken.length > MAX_TURNSTILE_TOKEN_LENGTH) {
+    return { error: TURNSTILE_FAILED, field: "turnstile" };
+  }
+  return { siteKey, secretKey, turnstileToken };
 }
 
 /** Why Ember can't send email while it has neither a Resend API key nor Cloudflare's binding. */
@@ -783,9 +843,10 @@ export interface Bootstrap {
    */
   signInWithMemberful: boolean;
   /**
-   * The site key of the Turnstile widget the open sign-up form shows, to check that whoever signs up is a
-   * person, while the deployment has Turnstile's keys (`TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY`),
-   * or null while it hasn't.
+   * The site key of the Turnstile widget whose check the open sign-up form shows, and the forms that ask
+   * Ember to email a link to join or a code to reset a password, to check that whoever fills them in is a
+   * person (`auth.turnstile`): the deployment's `TURNSTILE_SITE_KEY`, while it has both Turnstile's keys,
+   * or else the one an administrator gave in Set up Turnstile, or null while Ember has neither.
    */
   turnstileSiteKey: string | null;
   /**
@@ -845,7 +906,7 @@ export interface SignUp {
 
 /**
  * Someone signing up while anyone may, as the open sign-up form sends them to `POST /api/join`: as the
- * join form does, with the token Turnstile's check gave the page while the deployment has its keys.
+ * join form does, with the token Turnstile's check gave the page while Ember has a widget's keys.
  */
 export interface OpenSignUp extends SignUp {
   turnstileToken?: string;
@@ -887,7 +948,7 @@ export const EMAIL_LINK_GONE = "This link has expired, been used, or been replac
 /**
  * Someone asking for a link to join with their email address, at one of the workspace's email domains,
  * as `/join/email`'s form sends it to `POST /api/email_links`, with the token Turnstile's check gave the
- * page while the deployment has its keys.
+ * page while Ember has a widget's keys.
  */
 export interface EmailLinkRequest {
   emailAddress: string;
@@ -902,8 +963,8 @@ export interface EmailLinkRequest {
 export const EMAILS_PER_ADDRESS = 3;
 
 /**
- * How many links to join a network may ask for in an hour while the deployment lacks Turnstile's keys,
- * whose check stops the scripts that would ask for many addresses at once (`auth.email-domain-sign-up`).
+ * How many links to join a network may ask for in an hour while Ember lacks Turnstile's keys, whose
+ * check stops the scripts that would ask for many addresses at once (`auth.email-domain-sign-up`).
  */
 export const EMAIL_LINKS_PER_NETWORK = 10;
 
@@ -929,7 +990,7 @@ export interface PasswordReset {
 /**
  * Someone who forgot their password asking Ember to email them a code to choose a new one with
  * (`auth.password-reset`), as the Reset your password page sends it to `POST /api/password_resets`, with
- * the token Turnstile's check gave the page while the deployment has its keys. The address is taken as
+ * the token Turnstile's check gave the page while Ember has a widget's keys. The address is taken as
  * given, as sign-in takes it.
  */
 export interface PasswordResetRequest {
@@ -960,7 +1021,7 @@ export interface PasswordResetDone {
  * one has, how many minutes it works for, as its email and page say, and how many times it can be tried
  * before it stops working, so that guessing one takes far more tries than anyone gets. An address is
  * emailed as often as `EMAILS_PER_ADDRESS` says, and a network may ask for a code as often as
- * `PASSWORD_RESETS_PER_NETWORK` says while the deployment lacks Turnstile's keys.
+ * `PASSWORD_RESETS_PER_NETWORK` says while Ember lacks Turnstile's keys.
  */
 export const PASSWORD_RESET_CODE_DIGITS = 8;
 export const PASSWORD_RESET_CODE_MINUTES = 15;
@@ -1157,8 +1218,8 @@ export const joiningProblemOf = (value: string | null): JoiningProblem | null =>
 export const signInSaying = (problem: JoiningProblem) => `/session/new?${JOINING_PARAM}=${problem}`;
 
 /**
- * Open sign-up's limits, this port's own, which stand in for Turnstile's check while the deployment
- * lacks its keys: how many people may sign up from an IP address in an hour, and how many new people in
+ * Open sign-up's limits, this port's own, which stand in for Turnstile's check while Ember lacks its
+ * keys: how many people may sign up from an IP address in an hour, and how many new people in
  * the workspace in the last hour, however they joined, stop it, so that a flood can't use up the rows a
  * Workers Free account writes in a day.
  */
@@ -1834,6 +1895,20 @@ export function mailboxOf(text: string): Mailbox | null {
   if (!isEmailAddress(address)) return null;
   if (name.length > MAX_USER_NAME_LENGTH || NOT_IN_A_NAME.test(name)) return null;
   return { name: name || null, address };
+}
+
+/** What a From line's name can't hold, as `NOT_IN_A_NAME` has it, wherever it is. */
+const NOT_IN_A_NAME_ANYWHERE = new RegExp(NOT_IN_A_NAME.source, "g");
+
+/**
+ * `mailbox` under `name`, the workspace's, unless it has a name of its own, as Ember's email comes from
+ * the From address, so that a mail client shows the workspace's name rather than the start of the
+ * address: on one line, with a space for what a From line's name can't hold, or no name if that leaves none.
+ */
+export function mailboxUnder(mailbox: Mailbox, name: string): Mailbox {
+  if (mailbox.name !== null) return mailbox;
+  const kept = name.replace(NOT_IN_A_NAME_ANYWHERE, " ").replace(/\s+/g, " ").trim();
+  return { name: kept || null, address: mailbox.address };
 }
 
 /** `mailbox` as a From line writes it: its name, in quotes where the line's syntax needs them, then its address in angle brackets, or the address alone. */

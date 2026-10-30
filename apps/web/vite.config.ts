@@ -74,11 +74,12 @@ export default defineConfig({
     modulePreload: { polyfill: false },
   },
   server: {
-    // `wrangler dev` serves the API, room sockets, web app manifest, QR codes and avatars on 8787.
+    // `wrangler dev` serves the API, room sockets, web app manifest, QR codes, Turnstile's check page and avatars on 8787.
     proxy: {
       "/api": { target: "http://localhost:8787", ws: true },
       "/webmanifest": "http://localhost:8787",
       "/qr_code": "http://localhost:8787",
+      "/account/turnstile_check": "http://localhost:8787",
       // Only avatars, so people's pages under /users, once they're built, stay the app's.
       "^/users/[^/]+/avatar": "http://localhost:8787",
     },

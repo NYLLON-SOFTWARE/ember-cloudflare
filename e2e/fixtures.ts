@@ -99,9 +99,46 @@ export async function logOut(page: Page): Promise<void> {
 /** The `Cookie` header that carries a session, for clients other than the test's browsers. */
 export const cookieHeader = ({ cookie }: Session) => `${cookie.name}=${cookie.value}`;
 
+/** What Ember's email comes from with `address` as its From address, which has no name: the address under the workspace's name, as it is now. */
+export async function sentFrom(request: APIRequestContext, address: string): Promise<string> {
+  const { account } = (await (await request.get("/api/bootstrap")).json()) as Bootstrap;
+  return `${account.name} <${address}>`;
+}
+
 /** Starts the app already signed in, by giving the browser the session's cookie. */
 export async function signInAs(page: Page, session: Session): Promise<void> {
   await page.context().addCookies([session.cookie]);
+}
+
+/** A Turnstile widget's keys, which the fake Turnstile and the fake siteverify have. Neither is a secret. */
+export const TURNSTILE_WIDGET = { siteKey: "0x4AAAAAAA-e2e-only-site-key", secretKey: "0x4AAAAAAA-e2e-only-secret-key" };
+
+/** The token the fake Turnstile's check gives once it passes, for the widget whose site key is `siteKey`. */
+export const turnstileTokenFor = (siteKey: string) => `e2e-token-for-${siteKey}`;
+
+/** Turnstile's script, as pages load it from the one address Ember's policy lets it come from. */
+const TURNSTILE_SCRIPT = /^https:\/\/challenges\.cloudflare\.com\/turnstile\/v0\/api\.js\?render=explicit$/;
+
+/**
+ * Stands in for Turnstile's script wherever `target`'s pages load it, without reaching Cloudflare: its
+ * `render` draws a button saying "Verify you are human", whose theme and site key it keeps as data,
+ * which passes the check, giving the callback the token `turnstileTokenFor` says.
+ */
+export async function fakeTurnstile(target: Page | BrowserContext): Promise<void> {
+  const script = `window.turnstile = {
+    render(container, options) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Verify you are human";
+      button.dataset.siteKey = options.sitekey;
+      button.dataset.theme = options.theme;
+      button.addEventListener("click", () => options.callback(${JSON.stringify(turnstileTokenFor(""))} + options.sitekey));
+      (typeof container === "string" ? document.querySelector(container) : container).append(button);
+      return "e2e-widget";
+    },
+    remove() {},
+  };`;
+  await target.route(TURNSTILE_SCRIPT, (route) => route.fulfill({ contentType: "text/javascript", body: script }));
 }
 
 /**

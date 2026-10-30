@@ -2,7 +2,7 @@ import { feature } from "@ember/parity";
 import { PASSWORD_RESET_CODE_WRONG, type AccountChanges, type WorkspaceSettings } from "@ember/protocol";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
-import { administratorSession, cookieHeader, newAddress, SAME_ORIGIN, useOwnAddress } from "../../fixtures";
+import { administratorSession, cookieHeader, newAddress, SAME_ORIGIN, sentFrom, useOwnAddress } from "../../fixtures";
 import { forgetResendKey, giveResendKey, startFakeResend, type FakeResend } from "./fake-resend";
 
 // Resetting a forgotten password with a code Ember emails, on the second test server, which sends email
@@ -56,7 +56,7 @@ async function askForCode(page: Page, emailAddress: string): Promise<string> {
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Check your email");
   await expect.poll(() => resend.sent.length).toBe(sent + 1);
   const email = resend.sent.at(-1)!;
-  expect(email).toEqual(expect.objectContaining({ from: FROM, to: [emailAddress], subject: expect.stringMatching(/^Reset your password at /) as unknown }));
+  expect(email).toEqual(expect.objectContaining({ from: await sentFrom(page.request, FROM), to: [emailAddress], subject: expect.stringMatching(/^Reset your password at /) as unknown }));
   return /Your code: ([0-9]{8})/.exec(email.text)![1]!;
 }
 

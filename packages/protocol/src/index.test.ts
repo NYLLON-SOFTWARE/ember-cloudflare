@@ -29,6 +29,7 @@ import {
   joinsWithLink,
   mailboxOf,
   mailboxText,
+  mailboxUnder,
   MAX_ACCOUNT_NAME_LENGTH,
   MAX_BIO_LENGTH,
   MAX_BOOST_LENGTH,
@@ -78,6 +79,7 @@ import {
   parseServerFrame,
   parseSharedOrder,
   parseSignUp,
+  parseTurnstileKeysChange,
   parseWorkspaceClientFrame,
   PASSWORD_RESET_CODE_NEEDED,
   PASSWORD_RESET_PATH,
@@ -94,6 +96,10 @@ import {
   startingInvolvement,
   suggestedCount,
   TAGLINE_TOO_LONG,
+  TURNSTILE_FAILED,
+  TURNSTILE_SECRET_KEY_REFUSED,
+  TURNSTILE_SITE_KEY_REFUSED,
+  turnstileKeyOf,
   EMAIL_ADDRESS_TOO_LONG,
   withEmailAddress,
   withNavigationIcons,
@@ -581,6 +587,16 @@ describe(feature("platform.email"), () => {
     expect(mailboxText(mailboxOf('"Acme, Inc." <chat@acme.example>')!)).toBe('"Acme, Inc." <chat@acme.example>');
   });
 
+  it("sends from a From address without a name under the workspace's, which a From line can hold", () => {
+    const join = { name: null, address: "join@example.com" };
+    expect(mailboxUnder(join, "NYLLON")).toEqual({ name: "NYLLON", address: "join@example.com" });
+    expect(mailboxText(mailboxUnder(join, "Acme, Inc."))).toBe('"Acme, Inc." <join@example.com>');
+    expect(mailboxUnder(join, ' The "Best"\nClub <3 ')).toEqual({ name: "The Best Club 3", address: "join@example.com" });
+    expect(mailboxUnder(join, "Bcc: everyone@example.com\r\n")).toEqual({ name: "Bcc: everyone@example.com", address: "join@example.com" });
+    for (const name of ["", "  ", '"<>"']) expect(mailboxUnder(join, name)).toEqual(join);
+    expect(mailboxUnder({ name: "Ember", address: "ember@example.com" }, "NYLLON")).toEqual({ name: "Ember", address: "ember@example.com" });
+  });
+
   it("takes the From address as a workspace change, as it writes it, with null or blank for none", () => {
     expect(parseAccountChanges({ emailFrom: " Ember <ember@example.com>" })).toEqual({ emailFrom: "Ember <ember@example.com>" });
     expect(parseAccountChanges({ emailFrom: "Acme, Inc. <chat@acme.example>" })).toEqual({ emailFrom: '"Acme, Inc." <chat@acme.example>' });
@@ -1054,6 +1070,52 @@ describe(feature("auth.password-reset"), () => {
   it("links to its page, and back to sign in, with the email address typed", () => {
     expect(withEmailAddress(PASSWORD_RESET_PATH, "ada+ember@example.com")).toBe("/passwords/new?email_address=ada%2Bember%40example.com");
     expect(withEmailAddress("/session/new", "")).toBe("/session/new");
+  });
+});
+
+describe(feature("auth.turnstile"), () => {
+  const keys = { siteKey: "0x4AAAAAAA-a-widgets-site-key", secretKey: "0x4AAAAAAA-a-widgets-secret-key", turnstileToken: "XXXX.DUMMY.TOKEN.XXXX" };
+
+  it("takes a widget's keys as Cloudflare writes them, and its test keys, without the spaces pasted around them", () => {
+    expect(turnstileKeyOf("0x4AAAAAAA-a-widgets-site-key")).toBe("0x4AAAAAAA-a-widgets-site-key");
+    expect(turnstileKeyOf(" 0x4AAAAAAA_A-widgets_SECRET_key\n")).toBe("0x4AAAAAAA_A-widgets_SECRET_key");
+    expect(turnstileKeyOf("1x00000000000000000000AA")).toBe("1x00000000000000000000AA");
+    expect(turnstileKeyOf("1x0000000000000000000000000000000AA")).toBe("1x0000000000000000000000000000000AA");
+    expect(turnstileKeyOf(`0x${"A".repeat(98)}`)).toHaveLength(100);
+    expect(parseTurnstileKeysChange({ ...keys, siteKey: ` ${keys.siteKey} `, secretKey: `${keys.secretKey}\n` })).toEqual(keys);
+  });
+
+  it.each([
+    ["nothing", ""],
+    ["a key without a widget's start", "sk_live_0123456789abcdef"],
+    ["the start alone", "0x"],
+    ["one too short to be a widget's", "0x4AAAAAAAAAAAAAA"],
+    ["one with a space inside", "0x4AAAAAAA 4AAAAAAAAAAA"],
+    ["one with a character a widget's keys never have", "0x4AAAAAAA4AAAAAAAAAAA.A"],
+    ["one longer than any of Cloudflare's", `0x${"A".repeat(99)}`],
+  ])("refuses %s as a site key or a secret key", (_, text) => {
+    expect(turnstileKeyOf(text)).toBeNull();
+    expect(parseTurnstileKeysChange({ ...keys, siteKey: text })).toEqual({ error: TURNSTILE_SITE_KEY_REFUSED, field: "siteKey" });
+    expect(parseTurnstileKeysChange({ ...keys, secretKey: text })).toEqual({ error: TURNSTILE_SECRET_KEY_REFUSED, field: "secretKey" });
+  });
+
+  it("refuses the site key given again as the secret key", () => {
+    expect(parseTurnstileKeysChange({ ...keys, secretKey: ` ${keys.siteKey}` })).toEqual({ error: TURNSTILE_SECRET_KEY_REFUSED, field: "secretKey" });
+  });
+
+  it("refuses keys without the token of the check they passed, on Turnstile's check", () => {
+    for (const turnstileToken of [undefined, "", 42, [keys.turnstileToken], "x".repeat(MAX_TURNSTILE_TOKEN_LENGTH + 1)]) {
+      expect(parseTurnstileKeysChange({ ...keys, turnstileToken }), String(turnstileToken)).toEqual({ error: TURNSTILE_FAILED, field: "turnstile" });
+    }
+    const longest = "x".repeat(MAX_TURNSTILE_TOKEN_LENGTH);
+    expect(parseTurnstileKeysChange({ ...keys, turnstileToken: longest })).toEqual({ ...keys, turnstileToken: longest });
+  });
+
+  it("refuses keys that aren't text, on the first field they're about", () => {
+    for (const data of [null, keys.siteKey, [], {}, { ...keys, siteKey: 42 }]) {
+      expect(parseTurnstileKeysChange(data), JSON.stringify(data)).toEqual({ error: TURNSTILE_SITE_KEY_REFUSED, field: "siteKey" });
+    }
+    expect(parseTurnstileKeysChange({ ...keys, secretKey: [keys.secretKey] })).toEqual({ error: TURNSTILE_SECRET_KEY_REFUSED, field: "secretKey" });
   });
 });
 

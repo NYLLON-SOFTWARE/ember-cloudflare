@@ -277,10 +277,20 @@ while Memberful is members only, Open, Join link and Email domain are, so Open a
 both be on. With all four off, only the people administrators invite by email, below, can join.
 
 To have open sign-up, Email domain's page and the page for a forgotten password check that whoever
-uses them is a person, make a
-[Turnstile](https://developers.cloudflare.com/turnstile/) widget for Ember's hostname in Managed mode,
-under Turnstile in the Cloudflare dashboard or with wrangler, which prints its site key and secret key,
-and give the Worker both as secrets:
+uses them is a person, an administrator sets up [Turnstile](https://developers.cloudflare.com/turnstile/),
+which is free, with Set up Turnstile, on Membership's Turnstile card and under the limits Open and
+Email domain say. It links to Turnstile in the Cloudflare dashboard, where they add a widget for
+Ember's hostname in Managed mode, then takes the widget's site key and secret key and draws its check.
+Once the check passes, Ember asks Cloudflare whether the secret key is the same widget's, and keeps
+both, the secret key encrypted. Stop using Turnstile, on the card, takes them away.
+
+The sign-up page, Email domain's and the forgotten password page then show Turnstile's check, and the
+Worker asks Turnstile about each form before it makes the account or emails the link or code, in place
+of the limits on a network, which a room full of people on one network, or a launch, would soon reach.
+Signing in has no check, so that one that doesn't load never locks anyone out; it has its own limit.
+
+A deployment can give the Worker a widget's keys as secrets instead, which take the place of any given
+in Membership, whose card then names them:
 
 ```sh
 pnpm exec wrangler turnstile widget create Ember --domain chat.example.com --mode managed
@@ -288,12 +298,8 @@ pnpm exec wrangler secret put TURNSTILE_SITE_KEY     # add --name <worker> for a
 pnpm exec wrangler secret put TURNSTILE_SECRET_KEY
 ```
 
-The sign-up page, Email domain's and the forgotten password page then show Turnstile's check, and the
-Worker asks Turnstile about each form before it makes the account or emails the link or code, in place
-of the limits on a network, which a room full of people on one network, or a launch, would soon reach.
-Signing in has no check, so that one that doesn't load never locks anyone out; it has its own limit. `pnpm run deploy` uploads the
-two when its environment has them, as it does Memberful's keys, so the Preview workflow passes
-repository secrets of the same names through.
+`pnpm run deploy` uploads the two when its environment has them, as it does Memberful's keys, so the
+Preview workflow passes repository secrets of the same names through.
 
 ### Memberful sign-in
 
@@ -369,8 +375,8 @@ Memberful is on or not, since its members keep signing in with it once it's off.
 Ember sends email with [Resend](https://resend.com), with an API key an administrator gives it, or
 with [Cloudflare Email Service](https://developers.cloudflare.com/email-service/), which wrangler.jsonc
 binds as `EMAIL`. Under Email, in Workspace settings' Membership, Set up email walks an administrator
-through either, then the From address Ember's email comes from, and sends them a test email as it
-finishes, so that it checks itself. Turning
+through either, then the From address Ember's email comes from, under the community's name unless it
+names another, and sends them a test email as it finishes, so that it checks itself. Turning
 on Email domain, or Invite by email's Set up email, opens it too while Ember can't send email. Stop
 sending email, beside it, takes the From address away, after which Ember emails nothing until email is
 set up again.
@@ -566,7 +572,8 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
   limits, since its secrecy is the gate: regenerate it if it gets out.
 - A Resend API key pasted into Set up email is kept encrypted, and never shown again, even to
   administrators: Membership says only that Ember has one. Make it a key with Sending access, as Resend
-  suggests, so that one that got out could do no more than send email.
+  suggests, so that one that got out could do no more than send email. A Turnstile secret key given in
+  Set up Turnstile is kept the same way.
 - A code to reset a password goes to the account's email address, so whoever reads mail there can
   take the account over, as on most sites. Nobody checks an address is its owner's when someone
   joins, unless they join with an invitation or Email domain, so someone could join with another

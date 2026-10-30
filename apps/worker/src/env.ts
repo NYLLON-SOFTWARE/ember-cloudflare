@@ -66,13 +66,17 @@ export interface Env {
   /** The secret Memberful signs its webhooks to `/webhooks/memberful` with, which its Webhooks settings show. */
   MEMBERFUL_WEBHOOK_SECRET?: string;
   /**
-   * The site key of a Cloudflare Turnstile widget, which the open sign-up form shows, to check that
-   * whoever signs up is a person (turnstile.ts). Without it, or the secret key below, the form has no
-   * check, and only the sign-up limits hold bots back.
+   * The site key of a Cloudflare Turnstile widget, whose check the open sign-up form shows, and the forms
+   * that ask Ember to email a link to join or a code to reset a password, to check that whoever fills
+   * them in is a person (turnstile.ts). With the secret key below, it takes the place of the keys an
+   * administrator gives in Set up Turnstile. Without either, the forms have no check, and only their
+   * limits hold bots back.
    */
   TURNSTILE_SITE_KEY?: string;
   /** That widget's secret key, with which the Worker asks Cloudflare whether a check passed. */
   TURNSTILE_SECRET_KEY?: string;
+  /** Where the browser tests' stand-in for Turnstile's siteverify listens, which the Worker asks only at a loopback address. */
+  TURNSTILE_SITEVERIFY_URL?: string;
   /**
    * Cloudflare Email Service's binding, which Ember sends its email with, from the address an
    * administrator gives in Membership (mail.ts). wrangler.jsonc declares it, but it only delivers from a

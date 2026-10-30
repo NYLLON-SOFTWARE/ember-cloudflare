@@ -45,7 +45,7 @@ const asAdministrator: WorkspaceSettings = {
   canAdminister: true,
   memberfulSite: null,
   memberfulWebhooks: false,
-  turnstile: false,
+  turnstile: null,
   email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: null },
   invitations: [],
   emailDomains: [],
@@ -103,7 +103,7 @@ const LOGO = "/account/logo?v=20261017120000";
 
 /** Answers the page's requests as the server would for `settings`, or as `answers` says. */
 function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed, ordered, logoSaved }: Answers = {}) {
-  let { account, emailDomains: keptDomains, email } = settings;
+  let { account, emailDomains: keptDomains, email, turnstile } = settings;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
     const person = request.match(/^PATCH \/api\/account\/users\/(.+)$/);
@@ -115,7 +115,7 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
     if (removing) return removed ? removed() : Response.json({ user: { ...everyone.find((user) => user.id === removing[1]), status: "deactivated" } });
     switch (request) {
       case "GET /api/account":
-        return Response.json({ ...settings, account, emailDomains: keptDomains, email });
+        return Response.json({ ...settings, account, emailDomains: keptDomains, email, turnstile });
       case "PATCH /api/account": {
         if (saved) return saved();
         const {
@@ -162,6 +162,12 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         return Response.json(email);
       case "POST /api/account/test_email":
         return Response.json({ to: "ada@example.com" });
+      case "PUT /api/account/turnstile_keys":
+        turnstile = "saved";
+        return Response.json({ turnstile });
+      case "DELETE /api/account/turnstile_keys":
+        turnstile = null;
+        return Response.json({ turnstile });
       case "POST /api/invitations": {
         const { emailAddresses } = JSON.parse(String(init?.body)) as { emailAddresses: string[] };
         const outcomes = emailAddresses.map((emailAddress) => ({ emailAddress, invitation: invitationTo(emailAddress), link: `https://ember.test/join/invitation#token=${emailAddress}` }));
@@ -1102,24 +1108,24 @@ describe(feature("accounts.ways-to-join"), () => {
     expect(screen.queryByText(/Anyone who signs up can create rooms/)).not.toBeInTheDocument();
   });
 
-  it("says what limits signing up until the deployment has Turnstile's keys, and how to give it them", async () => {
+  it("says what limits signing up until Ember has Turnstile's keys, and opens Set up Turnstile to lift them", async () => {
     serve(withAccount(asAdministrator, { openSignUp: true }));
-    showPage();
+    const { user } = showPage();
     const open = await screen.findByRole("region", { name: "Open" });
     expect(open).toHaveTextContent(
-      "Until Cloudflare Turnstile checks that whoever signs up is a person, 5 people can sign up from a network in an hour, and signing up waits once 50 people have joined in an hour.",
+      "Until Cloudflare Turnstile checks that whoever signs up is a person, 5 people can sign up from a network in an hour, and signing up waits once 50 people have joined in an hour. Setting up Turnstile lifts these limits.",
     );
-    expect(open).toHaveTextContent("To lift these limits, add a Turnstile widget for Ember's address in the Cloudflare dashboard, then give this Worker its site key and secret key as the secrets TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY.");
-    expect(within(open).getByRole("link", { name: "Open Turnstile in the Cloudflare dashboard" })).toHaveAttribute("target", "_blank");
+    await user.click(within(open).getByRole("button", { name: "Set up Turnstile" }));
+    expect(await screen.findByRole("dialog", { name: "Set up Turnstile" })).toBeInTheDocument();
   });
 
-  it("says Turnstile checks whoever signs up once the deployment has its keys, with no limits", async () => {
-    serve({ ...withAccount(asAdministrator, { openSignUp: true }), turnstile: true });
+  it("says Turnstile checks whoever signs up once Ember has a widget's keys, with no limits", async () => {
+    serve({ ...withAccount(asAdministrator, { openSignUp: true }), turnstile: "saved" });
     showPage();
     const open = await screen.findByRole("region", { name: "Open" });
     expect(open).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up is a person.");
     expect(open).not.toHaveTextContent("in an hour");
-    expect(open).not.toHaveTextContent("TURNSTILE_SITE_KEY");
+    expect(within(open).queryByRole("button", { name: "Set up Turnstile" })).not.toBeInTheDocument();
   });
 
   it("turns the join link off at once without asking, taking the link away, and back on with the same link", async () => {
@@ -1398,23 +1404,25 @@ describe(feature("auth.email-domain-sign-up"), () => {
     expect(within(card()).queryByRole("textbox")).not.toBeInTheDocument();
   });
 
-  it("says how often Ember emails an address a link, and what limits asking until the deployment has Turnstile's keys", async () => {
+  it("says how often Ember emails an address a link, and what limits asking until Ember has Turnstile's keys, opening Set up Turnstile to lift it", async () => {
     serve(letsIn(["example.org"]));
-    showPage();
+    const { user } = showPage();
     await emailDomain();
     expect(card()).toHaveTextContent("Ember emails an address at most 3 links an hour, whoever asks, so nobody can use it to fill someone's inbox.");
     expect(card()).toHaveTextContent(
-      "Until Cloudflare Turnstile checks that whoever asks is a person, 10 links can be asked for from a network in an hour. To lift that limit, add a Turnstile widget for Ember's address in the Cloudflare dashboard, then give this Worker its site key and secret key as the secrets TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY.",
+      "Until Cloudflare Turnstile checks that whoever asks is a person, 10 links can be asked for from a network in an hour. Setting up Turnstile lifts that limit.",
     );
-    expect(within(card()).getByRole("link", { name: "Open Turnstile in the Cloudflare dashboard" })).toHaveAttribute("target", "_blank");
+    await user.click(within(card()).getByRole("button", { name: "Set up Turnstile" }));
+    expect(await screen.findByRole("dialog", { name: "Set up Turnstile" })).toBeInTheDocument();
   });
 
-  it("says Turnstile checks whoever asks once the deployment has its keys, with no limit on a network", async () => {
-    serve({ ...letsIn(["example.org"]), turnstile: true });
+  it("says Turnstile checks whoever asks once Ember has a widget's keys, with no limit on a network", async () => {
+    serve({ ...letsIn(["example.org"]), turnstile: "saved" });
     showPage();
     await emailDomain();
     expect(card()).toHaveTextContent("Cloudflare Turnstile checks that whoever asks for a link is a person.");
     expect(card()).not.toHaveTextContent("from a network");
+    expect(within(card()).queryByRole("button", { name: "Set up Turnstile" })).not.toBeInTheDocument();
   });
 
   it("follows the workspace socket, for domains saved in another tab", async () => {
@@ -1512,6 +1520,54 @@ describe(feature("platform.email"), () => {
     showPage(asLinus);
     expect(await joinLink()).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Email" })).not.toBeInTheDocument();
+  });
+});
+
+describe(feature("auth.turnstile"), () => {
+  showingSection("membership-settings");
+
+  const following = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  /** Workspace settings for administrators while Open lets anyone sign up, with Turnstile's keys from `turnstile`. */
+  const open = (turnstile: WorkspaceSettings["turnstile"]): WorkspaceSettings => ({ ...asAdministrator, account: { ...asAdministrator.account, openSignUp: true }, turnstile });
+
+  it("gives administrators the Turnstile card after Email, whose Set up Turnstile lifts the limits Who can join says", async () => {
+    serve(open(null));
+    const { user } = showPage();
+    const turnstile = await screen.findByRole("region", { name: "Turnstile" });
+    expect(following(screen.getByRole("region", { name: "Email" }), turnstile)).toBe(true);
+    const openCard = screen.getByRole("region", { name: "Open" });
+    expect(openCard).toHaveTextContent("Setting up Turnstile lifts these limits.");
+
+    await user.click(within(turnstile).getByRole("button", { name: "Set up Turnstile" }));
+    await user.type(await screen.findByRole("textbox", { name: "Site key" }), "0x4AAAAAAA-a-widgets-site-key");
+    await user.type(screen.getByRole("textbox", { name: "Secret key" }), "0x4AAAAAAA-a-widgets-secret-key");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    const check = await screen.findByTitle<HTMLIFrameElement>("Turnstile's check");
+    act(() => void window.dispatchEvent(new MessageEvent("message", { data: { turnstileCheck: { token: "XXXX.DUMMY.TOKEN.XXXX" } }, origin: location.origin, source: check.contentWindow })));
+    await user.click(await screen.findByRole("button", { name: "Done" }));
+    expect(turnstile).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password, is a person.");
+    expect(openCard).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up is a person.");
+    expect(openCard).not.toHaveTextContent("in an hour");
+
+    await user.click(within(turnstile).getByRole("button", { name: "Change" }));
+    expect(await screen.findByText("Ember has a widget's keys already. Give another widget's to check people with it instead.")).toBeInTheDocument();
+  });
+
+  it("stops using Turnstile once the administrator confirms, as Who can join then says", async () => {
+    serve(open("saved"));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { user } = showPage();
+    const turnstile = await screen.findByRole("region", { name: "Turnstile" });
+    await user.click(within(turnstile).getByRole("button", { name: "Stop using Turnstile" }));
+    expect(await within(turnstile).findByRole("button", { name: "Set up Turnstile" })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Open" })).getByRole("button", { name: "Set up Turnstile" })).toBeInTheDocument();
+  });
+
+  it("shows members no Turnstile card", async () => {
+    serve({ ...asMember, turnstile: "saved" });
+    showPage(asLinus);
+    expect(await joinLink()).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Turnstile" })).not.toBeInTheDocument();
   });
 });
 

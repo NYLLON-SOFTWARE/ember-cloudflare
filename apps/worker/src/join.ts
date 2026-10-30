@@ -34,7 +34,7 @@ import type { Env } from "./env";
 import { emailLinkDigest, newEmailLink } from "./invitations";
 import { appPage, empty, formAnswer, home, signInFirst, signUpRefusal } from "./pages";
 import { passwordHasher } from "./passwords";
-import { passedTurnstile, turnstileKeysOf } from "./turnstile";
+import { passedTurnstile, turnstileKeysFor } from "./turnstile";
 import { workspace } from "./workspace";
 import type { NewPerson } from "./workspace-store";
 
@@ -44,10 +44,10 @@ import type { NewPerson } from "./workspace-store";
 // can turn the link off, and while Memberful is members only (memberful.ts) it's off too: either
 // way it sends people to sign in. Signing up at /join, with no code, is this port's own: anyone may
 // while an administrator lets them (`auth.open-sign-up`), within its limits, and with Turnstile's check
-// while the deployment has its keys. So is joining with an invitation's link (`auth.invitation-sign-up`),
-// whichever ways to join are on, with the address it was sent to, and with a link someone asks Ember to
-// email an address at the workspace's email domains, while an administrator lets those domains in
-// (`auth.email-domain-sign-up`).
+// while Ember has a widget's keys (`auth.turnstile`). So is joining with an invitation's link
+// (`auth.invitation-sign-up`), whichever ways to join are on, with the address it was sent to, and with a
+// link someone asks Ember to email an address at the workspace's email domains, while an administrator
+// lets those domains in (`auth.email-domain-sign-up`).
 
 /** What the join form answers while Memberful is members only: why, and where to go instead. */
 const MEMBERFUL_INSTEAD = {
@@ -85,15 +85,15 @@ export async function joinPage(request: Request, env: Env, code: string): Promis
 
 /**
  * `GET /join`: the join page without a code, for someone signed out while anyone may sign up, or else
- * sign-in, which says signing up is closed. Its policy lets Turnstile's check load, while the
- * deployment has Turnstile's keys.
+ * sign-in, which says signing up is closed. Its policy lets Turnstile's check load, while Ember has a
+ * widget's keys.
  */
 export async function signUpPage(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return empty(404);
   const [session, account] = await Promise.all([authenticate(request, env), workspace(env).account()]);
   if (session) return home(request);
   if (account === null || !signsUpOpenly(account)) return signInSayingWhy(request, "closed");
-  return pageForJoining(request, env, turnstileKeysOf(env) !== null);
+  return pageForJoining(request, env, (await turnstileKeysFor(env)) !== null);
 }
 
 /**
@@ -111,11 +111,11 @@ export async function invitationPage(request: Request, env: Env): Promise<Respon
  * domains, and the page that link opens, which holds its secret in the fragment, as an invitation's
  * does, so the Worker can't tell the two apart. The app sends someone signed in home, and anyone else
  * to sign in while Email domain is off, once the secret is out of the address. Its policy lets
- * Turnstile's check load, while the deployment has Turnstile's keys.
+ * Turnstile's check load, while Ember has a widget's keys.
  */
 export async function emailSignUpPage(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return empty(404);
-  return pageForJoining(request, env, turnstileKeysOf(env) !== null);
+  return pageForJoining(request, env, (await turnstileKeysFor(env)) !== null);
 }
 
 /** The app's page for joining, which no cache keeps, since what it shows depends on the workspace's switches. */
@@ -159,7 +159,7 @@ export async function join(request: Request, env: Env, code: string): Promise<Re
 /**
  * `POST /api/join`: adds the person the open sign-up form describes, as `join` adds someone with the
  * join link, while anyone may sign up, and else answers 403 before the form is read, sending them to
- * sign in. Turnstile's check comes first, while the deployment has its keys, and else the limits that
+ * sign in. Turnstile's check comes first, while Ember has a widget's keys, and else the limits that
  * stand in for it, all before the photo is stored or the password hashed: past the limit from the
  * address, or once the workspace's new people for the hour have filled it, it answers 429.
  */
@@ -175,8 +175,8 @@ export async function signUp(request: Request, env: Env): Promise<Response> {
   const refusal = passwordRefusal(form.password);
   if (refusal) return refusal;
   const client = clientOf(request);
-  const turnstile = turnstileKeysOf(env);
-  if (turnstile && !(await passedTurnstile(turnstile.secretKey, form.turnstileToken, client.ip))) {
+  const turnstile = await turnstileKeysFor(env);
+  if (turnstile && !(await passedTurnstile(env, turnstile.secretKey, form.turnstileToken, client.ip))) {
     return formAnswer({ error: TURNSTILE_FAILED, field: "turnstile" }, 422);
   }
   // Turnstile's check stops the scripts the limits guard against, so they hold only without its keys.
@@ -233,8 +233,8 @@ export async function joinWithEmailLink(request: Request, env: Env, kind: EmailL
  * it, while Email domain lets in its domain (`auth.email-domain-sign-up`), answering 202 whether or not
  * it has an account already, which it's emailed about instead, so that the answer never says who has
  * one. While Email domain is off it answers 403 before the body is read, sending them to sign in, and
- * an address at another domain is refused on its field. Turnstile's check comes next, while the
- * deployment has its keys, and else the network's limit, which stands in for it. It answers 503 while
+ * an address at another domain is refused on its field. Turnstile's check comes next, while Ember has
+ * a widget's keys, and else the network's limit, which stands in for it. It answers 503 while
  * Ember can't send email, and 502 when the provider refuses the email.
  */
 export async function askForEmailLink(request: Request, env: Env): Promise<Response> {
@@ -245,8 +245,8 @@ export async function askForEmailLink(request: Request, env: Env): Promise<Respo
   if (typeof asked === "string") return formAnswer({ error: asked, field: "emailAddress" }, 422);
   if (!account.emailDomains.includes(asked.domain)) return formAnswer({ error: onlyAddressesAt(account.emailDomains), field: "emailAddress" }, 422);
   const client = clientOf(request);
-  const turnstile = turnstileKeysOf(env);
-  if (turnstile && !(await passedTurnstile(turnstile.secretKey, asked.turnstileToken, client.ip))) {
+  const turnstile = await turnstileKeysFor(env);
+  if (turnstile && !(await passedTurnstile(env, turnstile.secretKey, asked.turnstileToken, client.ip))) {
     return formAnswer({ error: TURNSTILE_FAILED, field: "turnstile" }, 422);
   }
   const link = await newEmailLink(env);

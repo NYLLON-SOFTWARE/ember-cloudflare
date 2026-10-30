@@ -108,10 +108,18 @@ export interface JoinableAccount extends Omit<Account, "logo"> {
   emailFrom: string | null;
   /** The Resend API key an administrator gave Ember to send email with, sealed (`seal`), or null while they haven't given one. */
   resendApiKey: string | null;
+  /** The keys of the Turnstile widget an administrator gave Ember to check people with, or null while they haven't given one's. */
+  turnstileKeys: SavedTurnstileKeys | null;
   /** Where a deploy puts Ember, as the latest page opened there told it, or null until one has (`EmberAddresses.deployed`). */
   deployedAddress: string | null;
   /** The custom domains Ember has moved away from, newest first, which may still reach it (`EmberAddresses.others`). */
   otherAddresses: string[];
+}
+
+/** A Turnstile widget's keys as the account keeps them: its site key, and its secret key sealed (`seal`). */
+export interface SavedTurnstileKeys {
+  siteKey: string;
+  sealedSecretKey: string;
 }
 
 /** The account first run creates. */
@@ -124,8 +132,8 @@ export interface NewAccount {
 /**
  * What `WorkspaceStore.changeAccount` changes: the name, the tagline, the settings workspace settings'
  * switches change, the custom domain and the ones it moved away from, the navigation icons whose slots
- * change, the From address, the sealed Resend API key, and the domains Email domain lets in. Memberful's
- * two settings change together, or not at all, as `memberful`.
+ * change, the From address, the sealed Resend API key, Turnstile's keys, and the domains Email domain
+ * lets in. Memberful's two settings change together, or not at all, as `memberful`.
  */
 export type AccountChange = Partial<
   Pick<
@@ -142,6 +150,7 @@ export type AccountChange = Partial<
     | "emailDomains"
     | "emailFrom"
     | "resendApiKey"
+    | "turnstileKeys"
   >
 > & {
   memberful?: Pick<Account, "memberfulJoin" | "memberfulSignIn">;
@@ -729,6 +738,18 @@ function emailFromIn(settings: Record<string, unknown> | null): string | null {
 const resendApiKeyIn = (settings: Record<string, unknown> | null) => (typeof settings?.resend_api_key === "string" ? settings.resend_api_key : null);
 
 /**
+ * The keys of the Turnstile widget an administrator gave Ember, which the account's settings keep as
+ * `turnstile_keys`, this port's own, both together, `{ site_key, secret_key }`, the secret key sealed, or
+ * null while it has none.
+ */
+function turnstileKeysIn(settings: Record<string, unknown> | null): SavedTurnstileKeys | null {
+  const kept = settings?.turnstile_keys;
+  if (typeof kept !== "object" || kept === null) return null;
+  const { site_key: siteKey, secret_key: sealedSecretKey } = kept as Record<string, unknown>;
+  return typeof siteKey === "string" && typeof sealedSecretKey === "string" ? { siteKey, sealedSecretKey } : null;
+}
+
+/**
  * Whether the join link lets people in, which the account's settings keep as `join_link`, this port's
  * own: until the setting is stored, as for an account from before it, then only while it's present, as
  * translation buttons are read. Settings that don't parse leave it on.
@@ -1218,6 +1239,7 @@ const SET_EMAIL_DOMAIN_SIGN_UP = setSetting("email_domain_sign_up");
 const SET_EMAIL_DOMAINS = setSetting("email_domains");
 const SET_EMAIL_FROM = setSetting("email_from");
 const SET_RESEND_API_KEY = setSetting("resend_api_key");
+const SET_TURNSTILE_KEYS = setSetting("turnstile_keys");
 
 /**
  * Sets the account's setting `key` to the JSON value ?1, as `setSetting` does, but without recording
@@ -1689,6 +1711,7 @@ export class WorkspaceStore {
       storedLogo: row.logo_key === null ? null : { key: row.logo_key, variant: row.logo_variant },
       emailFrom: emailFromIn(settings),
       resendApiKey: resendApiKeyIn(settings),
+      turnstileKeys: turnstileKeysIn(settings),
       deployedAddress: deployedAddressIn(settings),
       otherAddresses: otherAddressesIn(settings),
     };
@@ -1696,9 +1719,9 @@ export class WorkspaceStore {
 
   /**
    * Changes the workspace's name, tagline, settings, custom domain and the ones it moved away from,
-   * navigation icons, From address, Resend API key and email domains, as `change` has them, in one
-   * batch. Memberful's settings are stored both at once, so that an account from before `memberful_join`
-   * reads as they're saved.
+   * navigation icons, From address, Resend API key, Turnstile's keys and email domains, as `change` has
+   * them, in one batch. Memberful's settings are stored both at once, so that an account from before
+   * `memberful_join` reads as they're saved.
    */
   async changeAccount(
     {
@@ -1716,6 +1739,7 @@ export class WorkspaceStore {
       navigationIcons,
       emailFrom,
       resendApiKey,
+      turnstileKeys,
     }: AccountChange,
     now: string,
   ): Promise<void> {
@@ -1736,6 +1760,7 @@ export class WorkspaceStore {
       ...(navigationIcons === undefined ? [] : [statement(CHANGE_NAVIGATION_ICONS, JSON.stringify(navigationIconsPatch(navigationIcons)), now)]),
       ...(emailFrom === undefined ? [] : [statement(SET_EMAIL_FROM, JSON.stringify(emailFrom), now)]),
       ...(resendApiKey === undefined ? [] : [statement(SET_RESEND_API_KEY, JSON.stringify(resendApiKey), now)]),
+      ...(turnstileKeys === undefined ? [] : [statement(SET_TURNSTILE_KEYS, JSON.stringify(turnstileKeys && { site_key: turnstileKeys.siteKey, secret_key: turnstileKeys.sealedSecretKey }), now)]),
     ]);
   }
 

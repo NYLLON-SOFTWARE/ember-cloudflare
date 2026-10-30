@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { ShareableLink } from "./invite-link";
 import { EMAIL_SIGN_UP_LINK, emailSignUpUrl } from "./join-link";
-import { TurnstileSetup } from "./turnstile-setup";
+import { SetUpTurnstile } from "./turnstile-settings";
 
 // This port's own Email domain card in Membership's ways to join (`auth.email-domain-sign-up`): an
 // administrator lists the domains whose email addresses can join, and people with one ask for a link
@@ -35,7 +35,7 @@ interface Props {
   domains: string[];
   /** Whether Ember can send email, which it takes to email people their links. */
   emails: boolean;
-  /** Whether the deployment has Turnstile's keys, whose check stands in for the limit on a network. */
+  /** Whether Ember has Turnstile's keys, whose check stands in for the limit on a network. */
   turnstile: boolean;
   /** Where its switch is: where it was moved to while that's saved, or else where the workspace has it. */
   checked: boolean;
@@ -44,6 +44,8 @@ interface Props {
   saveDomains: (domains: string[], turnOn: boolean, settled: (saved: boolean) => void) => void;
   /** Opens Set up email, calling `then`, if given, once it closes with Ember able to send email. */
   onSetUpEmail: (then?: () => void) => void;
+  /** Opens Set up Turnstile, whose check lifts the limit on a network. */
+  onSetUpTurnstile: () => void;
   /** Why the switch can't be moved while another way to join overrides it, said in place of what it does, or null. */
   setAside: string | null;
 }
@@ -53,7 +55,7 @@ interface Props {
  * from, then save, the link to its page, and how often Ember emails a link. Until Ember can send email
  * it says so, and turning it on sets that up first.
  */
-export function EmailDomainSettings({ domains, emails, turnstile, checked, onCheckedChange, saveDomains, onSetUpEmail, setAside }: Props) {
+export function EmailDomainSettings({ domains, emails, turnstile, checked, onCheckedChange, saveDomains, onSetUpEmail, onSetUpTurnstile, setAside }: Props) {
   // Turned on before it had a domain, which saving the first turns it on with.
   const [adding, setAdding] = useState(false);
   // The domains as changed, or null while they're as kept.
@@ -199,12 +201,10 @@ export function EmailDomainSettings({ domains, emails, turnstile, checked, onChe
             {turnstile ? (
               "Cloudflare Turnstile checks that whoever asks for a link is a person."
             ) : (
-              <>
-                Until Cloudflare Turnstile checks that whoever asks is a person, {EMAIL_LINKS_PER_NETWORK} links can be asked for from a network in an hour.
-                To lift that limit, <TurnstileSetup />
-              </>
+              `Until Cloudflare Turnstile checks that whoever asks is a person, ${EMAIL_LINKS_PER_NETWORK} links can be asked for from a network in an hour. Setting up Turnstile lifts that limit.`
             )}
           </p>
+          {!turnstile && <SetUpTurnstile onSetUp={onSetUpTurnstile} />}
         </>
       )}
     </section>

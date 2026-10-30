@@ -19,7 +19,7 @@ import { ShareableLink } from "./invite-link";
 import { EMAIL_SIGN_UP_LINK, emailSignUpUrl, SIGN_UP_LINK, signUpUrl } from "./join-link";
 import { MemberfulSettings } from "./memberful-settings";
 import { workspaceSectionPath } from "./settings-navigation";
-import { TurnstileSetup } from "./turnstile-setup";
+import { SetUpTurnstile } from "./turnstile-settings";
 
 // This port's own ways for new people to join (`accounts.ways-to-join`), at the top of Membership: for
 // administrators, a card for each, Open, Join link, Email domain and Memberful, whose switch saves as
@@ -55,12 +55,14 @@ interface Props {
   saveEmailDomains: (domains: string[], turnOn: boolean, settled: (saved: boolean) => void) => void;
   /** Opens Set up email, calling `then`, if given, once it closes with Ember able to send email. */
   onSetUpEmail: (then?: () => void) => void;
+  /** Opens Set up Turnstile, whose check lifts the limits that stand in for it. */
+  onSetUpTurnstile: () => void;
   /** The join link, with its buttons, which its card shows while it's on. */
   joinLink: ReactNode;
 }
 
 /** Who can join, for administrators: a card for each way, with its switch, and its settings while it's on. */
-export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmail, joinLink }: Props) {
+export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmail, onSetUpTurnstile, joinLink }: Props) {
   const account = useAccount();
   // The domains Email domain keeps, which the workspace shows only while it's on: as it last showed them,
   // saved here or in another tab, or else as the page loaded them. Set as it renders, rather than after,
@@ -116,15 +118,11 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
           </p>
         )}
         <p className={NOTE}>
-          {settings.turnstile ? (
-            "Cloudflare Turnstile checks that whoever signs up is a person."
-          ) : (
-            <>
-              Until Cloudflare Turnstile checks that whoever signs up is a person, {SIGN_UPS_PER_ADDRESS} people can sign up from a network in an hour, and
-              signing up waits once {SIGN_UPS_PER_HOUR} people have joined in an hour. To lift these limits, <TurnstileSetup />
-            </>
-          )}
+          {settings.turnstile
+            ? "Cloudflare Turnstile checks that whoever signs up is a person."
+            : `Until Cloudflare Turnstile checks that whoever signs up is a person, ${SIGN_UPS_PER_ADDRESS} people can sign up from a network in an hour, and signing up waits once ${SIGN_UPS_PER_HOUR} people have joined in an hour. Setting up Turnstile lifts these limits.`}
         </p>
+        {!settings.turnstile && <SetUpTurnstile onSetUp={onSetUpTurnstile} />}
       </Way>
       <Way
         id="join-link"
@@ -139,11 +137,12 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
       <EmailDomainSettings
         domains={keptDomains}
         emails={sendsEmail(settings.email)}
-        turnstile={settings.turnstile}
+        turnstile={settings.turnstile !== null}
         checked={emailDomain}
         onCheckedChange={switchTo("emailDomainSignUp")}
         saveDomains={saveEmailDomains}
         onSetUpEmail={onSetUpEmail}
+        onSetUpTurnstile={onSetUpTurnstile}
         setAside={membersOnlyOverrides ? MEMBERS_ONLY_OVERRIDES : openOverrides ? OPEN_OVERRIDES : null}
       />
       <MemberfulSettings
