@@ -69,11 +69,12 @@ test.describe(feature("auth.turnstile"), () => {
     await setup.getByRole("button", { name: "Done" }).click();
     await expect(setup).toBeHidden();
     await expect(turnstile).toContainText("Cloudflare Turnstile checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password, is a person.");
+    await expect(turnstile.getByRole("switch", { name: "Turnstile" })).toBeChecked();
     await expect(open).toContainText("Cloudflare Turnstile checks that whoever signs up is a person.");
 
     // Ember keeps the keys, and checks whoever signs up with them.
     await page.reload();
-    await expect(page.getByRole("region", { name: "Turnstile", exact: true }).getByRole("button", { name: "Stop using Turnstile" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Turnstile", exact: true }).getByRole("switch", { name: "Turnstile" })).toBeChecked();
     const context = await browser.newContext({ baseURL, ignoreHTTPSErrors: true });
     const newcomer = await context.newPage();
     await useOwnAddress(newcomer);
@@ -90,14 +91,17 @@ test.describe(feature("auth.turnstile"), () => {
     await context.close();
   });
 
-  test("the administrator stops using Turnstile, once they're sure, which brings the limits back", async ({ page, request }) => {
+  test("the administrator turns Turnstile off, once they're sure, which brings the limits back", async ({ page, request }) => {
     const headers = await asAdministrator(request);
     const saved = await request.put("/api/account/turnstile_keys", { data: { ...TURNSTILE_WIDGET, turnstileToken: turnstileTokenFor(TURNSTILE_WIDGET.siteKey) }, headers });
     expect(saved.status(), await saved.text()).toBe(200);
     const turnstile = await openTurnstile(page, request);
     page.once("dialog", (dialog) => void dialog.accept());
-    await turnstile.getByRole("button", { name: "Stop using Turnstile" }).click();
-    await expect(turnstile.getByRole("button", { name: "Set up Turnstile" })).toBeVisible();
+    const turnstileSwitch = turnstile.getByRole("switch", { name: "Turnstile" });
+    await expect(turnstileSwitch).toBeChecked();
+    await turnstileSwitch.click();
+    await expect(turnstileSwitch).not.toBeChecked();
+    await expect(turnstileSwitch).toBeEnabled();
     await expect(page.getByRole("region", { name: "Open", exact: true })).toContainText("Setting up Turnstile lifts these limits.");
     expect(await (await request.get("/api/bootstrap")).json()).toMatchObject({ turnstileSiteKey: null });
   });

@@ -57,7 +57,7 @@ async function saveKeys(administrator: Session): Promise<void> {
   expect(response.status, await response.clone().text()).toBe(200);
 }
 
-/** Takes Ember's widget's keys away as `session`, as the Turnstile card's Stop using Turnstile does. */
+/** Takes Ember's widget's keys away as `session`, as turning off the Turnstile card's switch does. */
 const forgetKeys = (session: Session | null, changes: Partial<Env> = {}) =>
   apiWith(changes, "/api/account/turnstile_keys", { method: "DELETE", headers: as(session) });
 

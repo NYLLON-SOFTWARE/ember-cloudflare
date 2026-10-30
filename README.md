@@ -278,11 +278,11 @@ both be on. With all four off, only the people administrators invite by email, b
 
 To have open sign-up, Email domain's page and the page for a forgotten password check that whoever
 uses them is a person, an administrator sets up [Turnstile](https://developers.cloudflare.com/turnstile/),
-which is free, with Set up Turnstile, on Membership's Turnstile card and under the limits Open and
-Email domain say. It links to Turnstile in the Cloudflare dashboard, where they add a widget for
+which is free, by turning on the switch on Membership's Turnstile card, or with Set up Turnstile, under
+the limits Open and Email domain say. It links to Turnstile in the Cloudflare dashboard, where they add a widget for
 Ember's hostname in Managed mode, then takes the widget's site key and secret key and draws its check.
 Once the check passes, Ember asks Cloudflare whether the secret key is the same widget's, and keeps
-both, the secret key encrypted. Stop using Turnstile, on the card, takes them away.
+both, the secret key encrypted. Turning the card's switch off takes them away.
 
 The sign-up page, Email domain's and the forgotten password page then show Turnstile's check, and the
 Worker asks Turnstile about each form before it makes the account or emails the link or code, in place

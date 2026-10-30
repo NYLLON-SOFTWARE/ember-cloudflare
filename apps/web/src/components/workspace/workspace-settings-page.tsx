@@ -285,7 +285,7 @@ export function WorkspaceSettingsPage({
   /** Shows the addresses Ember knows reach it as the Custom domain section changes them, which only workspace settings shows. */
   const showAddresses = (change: (addresses: EmberAddresses) => EmberAddresses) => setSettings((settings) => settings && { ...settings, addresses: change(settings.addresses) });
   const setUpEmail = (then?: () => void) => setEmailSetup({ then });
-  /** Shows where Ember's Turnstile keys come from as Set up Turnstile, or Stop using Turnstile, changes it, which only workspace settings shows. */
+  /** Shows where Ember's Turnstile keys come from as Set up Turnstile, or turning Turnstile off, changes it, which only workspace settings shows. */
   const showTurnstile = (turnstile: WorkspaceSettings["turnstile"]) => setSettings((settings) => settings && { ...settings, turnstile });
 
   // As ember-rust's Regenerate join link does: no confirmation first, and no notice after.
