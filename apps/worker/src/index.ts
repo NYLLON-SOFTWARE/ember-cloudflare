@@ -288,7 +288,7 @@ async function saveTurnstileKeys(request: Request, env: Env): Promise<Response> 
   return turnstileAnswer(env, await workspace(env).changeTurnstileKeys(credentials, { siteKey: keys.siteKey, secretKey: keys.secretKey }));
 }
 
-/** Takes away the Turnstile widget's keys Ember was given, as the Turnstile card's Stop using Turnstile does, answering where Ember's keys come from then. */
+/** Takes away the Turnstile widget's keys Ember was given, as turning off the Turnstile card's switch does, answering where Ember's keys come from then. */
 async function forgetTurnstileKeys(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   return turnstileAnswer(env, credentials && (await workspace(env).changeTurnstileKeys(credentials, null)));

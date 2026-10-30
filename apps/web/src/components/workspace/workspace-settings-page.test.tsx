@@ -1530,7 +1530,7 @@ describe(feature("auth.turnstile"), () => {
   /** Workspace settings for administrators while Open lets anyone sign up, with Turnstile's keys from `turnstile`. */
   const open = (turnstile: WorkspaceSettings["turnstile"]): WorkspaceSettings => ({ ...asAdministrator, account: { ...asAdministrator.account, openSignUp: true }, turnstile });
 
-  it("gives administrators the Turnstile card after Email, whose Set up Turnstile lifts the limits Who can join says", async () => {
+  it("gives administrators the Turnstile card after Email, whose switch sets up Turnstile, lifting the limits Who can join says", async () => {
     serve(open(null));
     const { user } = showPage();
     const turnstile = await screen.findByRole("region", { name: "Turnstile" });
@@ -1538,7 +1538,9 @@ describe(feature("auth.turnstile"), () => {
     const openCard = screen.getByRole("region", { name: "Open" });
     expect(openCard).toHaveTextContent("Setting up Turnstile lifts these limits.");
 
-    await user.click(within(turnstile).getByRole("button", { name: "Set up Turnstile" }));
+    const turnstileSwitch = within(turnstile).getByRole("switch", { name: "Turnstile" });
+    expect(turnstileSwitch).not.toBeChecked();
+    await user.click(turnstileSwitch);
     await user.type(await screen.findByRole("textbox", { name: "Site key" }), "0x4AAAAAAA-a-widgets-site-key");
     await user.type(screen.getByRole("textbox", { name: "Secret key" }), "0x4AAAAAAA-a-widgets-secret-key");
     await user.click(screen.getByRole("button", { name: "Continue" }));
@@ -1546,20 +1548,23 @@ describe(feature("auth.turnstile"), () => {
     act(() => void window.dispatchEvent(new MessageEvent("message", { data: { turnstileCheck: { token: "XXXX.DUMMY.TOKEN.XXXX" } }, origin: location.origin, source: check.contentWindow })));
     await user.click(await screen.findByRole("button", { name: "Done" }));
     expect(turnstile).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up, or asks Ember to email them a link to join or a code to reset a password, is a person.");
+    expect(turnstileSwitch).toBeChecked();
     expect(openCard).toHaveTextContent("Cloudflare Turnstile checks that whoever signs up is a person.");
     expect(openCard).not.toHaveTextContent("in an hour");
 
-    await user.click(within(turnstile).getByRole("button", { name: "Change" }));
+    await user.click(within(turnstile).getByRole("button", { name: "Change keys" }));
     expect(await screen.findByText("Ember has a widget's keys already. Give another widget's to check people with it instead.")).toBeInTheDocument();
   });
 
-  it("stops using Turnstile once the administrator confirms, as Who can join then says", async () => {
+  it("turns Turnstile off once the administrator confirms, as Who can join then says", async () => {
     serve(open("saved"));
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = showPage();
     const turnstile = await screen.findByRole("region", { name: "Turnstile" });
-    await user.click(within(turnstile).getByRole("button", { name: "Stop using Turnstile" }));
-    expect(await within(turnstile).findByRole("button", { name: "Set up Turnstile" })).toBeInTheDocument();
+    await user.click(within(turnstile).getByRole("switch", { name: "Turnstile" }));
+    await waitFor(() => expect(within(turnstile).queryByRole("button", { name: "Change keys" })).not.toBeInTheDocument());
+    expect(within(turnstile).getByRole("switch", { name: "Turnstile" })).not.toBeChecked();
+    expect(within(turnstile).getByRole("switch", { name: "Turnstile" })).toBeEnabled();
     expect(within(screen.getByRole("region", { name: "Open" })).getByRole("button", { name: "Set up Turnstile" })).toBeInTheDocument();
   });
 

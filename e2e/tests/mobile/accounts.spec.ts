@@ -84,7 +84,7 @@ test("an administrator's Set up Turnstile, with the widget's check, fits the pho
   await signInAsAdministrator(page);
   const card = page.getByRole("region", { name: "Turnstile", exact: true });
   await card.scrollIntoViewIfNeeded();
-  await card.getByRole("button", { name: "Set up Turnstile" }).tap();
+  await card.getByRole("switch", { name: "Turnstile" }).tap();
   const setup = page.getByRole("dialog", { name: "Set up Turnstile" });
   await expect(setup.getByRole("list", { name: "Steps to make a Turnstile widget" })).toBeVisible();
   await screenIsFine({ denseTargets: [SWITCHES] });
