@@ -19,6 +19,8 @@ export const MEMBERFUL_KEYS = {
 export const RESEND_API_PORT = Number(process.env.E2E_RESEND_PORT ?? 8791);
 /** The Resend API key that API takes, which the email specs give Ember. It isn't a secret. */
 export const RESEND_KEY = "re_e2e-only-not-a-key";
+/** Where the siteverify the Turnstile spec fakes listens, which the second server's TURNSTILE_SITEVERIFY_URL names. */
+export const SITEVERIFY_PORT = Number(process.env.E2E_SITEVERIFY_PORT ?? 8792);
 /** The project that sets the second server up. */
 const SETTINGS_FIRST_RUN = "workspace-settings-first-run";
 

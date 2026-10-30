@@ -172,7 +172,7 @@ function serve({
         canAdminister: me.administrator,
         memberfulSite: null,
         memberfulWebhooks: false,
-        turnstile: false,
+        turnstile: null,
         email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: null },
         invitations: [],
         emailDomains: [],

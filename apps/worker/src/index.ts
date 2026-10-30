@@ -34,12 +34,14 @@ import {
   parseRoleChange,
   parseSendingDomainCheck,
   parseRoomChanges,
+  parseTurnstileKeysChange,
   PROFILE_PATH,
   SIGN_IN_LIMITED,
   SIGN_IN_REJECTED,
   signOutEndpointOf,
   SIGN_UP_PATH,
   TRANSFER_PATH,
+  TURNSTILE_CHECK_PATH,
   workspacePageOf,
   type Account,
   type Bootstrap,
@@ -62,6 +64,7 @@ import {
   type SentTestEmail,
   type Sidebar,
   type StartedDirect,
+  type TurnstileSettings,
   type UserId,
   type WorkspaceSettings,
 } from "@ember/protocol";
@@ -104,7 +107,7 @@ import { checkResendApiKey } from "./mail";
 import { manifest, manifestFormatOf } from "./manifest";
 import { finishMemberfulSignIn, memberfulConnectionFor, memberfulRefusal, memberfulWebhook, memberfulWebhooksOf, startMemberfulSignIn } from "./memberful";
 import { memberfulKeysOf } from "./memberful-api";
-import { anyOtherPage } from "./pages";
+import { anyOtherPage, formAnswer } from "./pages";
 import { askForPasswordReset, passwordResetPage, resetPasswordWithCode } from "./password-resets";
 import { DUMMY_DIGEST, passwordHasher } from "./passwords";
 import { webPush } from "./push/keys";
@@ -118,7 +121,7 @@ import { isOnboardedToEmailSending } from "./sending-domain";
 import { firstRun, isSetupPath, setupAccessOf, setupPage, setupPlaceholdersOf } from "./setup";
 import { closedAtOnce } from "./sockets";
 import { newTransferId, transferPage, transferSession } from "./transfers";
-import { turnstileKeysOf } from "./turnstile";
+import { refusalOfTurnstileKeys, turnstileCheckPage, turnstileKeysOf } from "./turnstile";
 import { unfurlLink } from "./unfurl";
 import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-browser";
 import { platformOf } from "./user-agent";
@@ -214,7 +217,7 @@ async function signInGuest(given: unknown, request: Request, env: Env): Promise<
  */
 async function bootstrap(request: Request, env: Env): Promise<Response> {
   const token = sessionToken(request);
-  const [{ account, user, signInWithMemberful, passwordResetCodes }, push] = await Promise.all([
+  const [{ account, user, signInWithMemberful, passwordResetCodes, turnstileSiteKey }, push] = await Promise.all([
     workspace(env).bootstrap(token ? await credentialsFor(token, request, env) : null, memberfulKeysOf(env)?.site ?? null, deployedAddressOf(request)),
     webPush(env),
   ]);
@@ -224,7 +227,8 @@ async function bootstrap(request: Request, env: Env): Promise<Response> {
     setupPlaceholders: setupPlaceholdersOf(env),
     guestSignIn: guestSignIn(env) && !account?.memberfulSignIn,
     signInWithMemberful,
-    turnstileSiteKey: turnstileKeysOf(env)?.siteKey ?? null,
+    // The deployment's keys take the place of any an administrator gave.
+    turnstileSiteKey: turnstileKeysOf(env)?.siteKey ?? turnstileSiteKey,
     passwordResetCodes,
     account: account ?? ACCOUNT_BEFORE_SETUP,
     version: versionOf(env),
@@ -249,16 +253,52 @@ async function me(request: Request, env: Env): Promise<Response> {
 /**
  * Workspace settings, which anyone signed in may see, read-only unless they're an administrator, with
  * the Memberful site whose members can sign in, once the deployment has its keys, whether it hears the
- * site's webhooks, and whether it has Turnstile's keys. They hold the join code, which no cache should
- * keep, as the sidebar's invitation does.
+ * site's webhooks, and where Turnstile's keys come from, the deployment's taking the place of any an
+ * administrator gave. They hold the join code, which no cache should keep, as the sidebar's invitation
+ * does.
  */
 async function workspaceSettings(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const settings = credentials && (await workspace(env).workspaceSettings(credentials));
   if (!settings) return problem(401, "Not signed in");
   if (settings === "not set up") return problem(404, "Ember isn't set up yet");
-  const deployment = { memberfulSite: memberfulKeysOf(env)?.site ?? null, memberfulWebhooks: memberfulWebhooksOf(env) !== null, turnstile: turnstileKeysOf(env) !== null };
+  const deployment = { memberfulSite: memberfulKeysOf(env)?.site ?? null, memberfulWebhooks: memberfulWebhooksOf(env) !== null, turnstile: turnstileOf(env, settings.turnstile) };
   return json({ ...settings, ...deployment } satisfies WorkspaceSettings, { headers: { "Cache-Control": "no-store" } });
+}
+
+/** Where Turnstile's keys come from: the deployment's secrets, which take the place of any others, or else `saved`, as the Workspace has those an administrator gave. */
+const turnstileOf = (env: Env, saved: TurnstileSettings["turnstile"]): TurnstileSettings["turnstile"] => (turnstileKeysOf(env) ? "secret" : saved);
+
+/**
+ * Gives Ember a Turnstile widget's keys to check people with, as Set up Turnstile does once the widget's
+ * check has passed in its dialog (`auth.turnstile`), after who's asking, as changing the workspace does,
+ * and once siteverify takes that check's token with the secret key, which says the keys are one widget's,
+ * and that it checks people here, answering where Ember's keys come from then. A key that can't be one,
+ * or that siteverify refuses, is refused on its field.
+ */
+async function saveTurnstileKeys(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const administrator = credentials && (await workspace(env).canAdminister(credentials));
+  if (!credentials || administrator === null) return problem(401, "Not signed in");
+  if (!administrator) return problem(403, "Only administrators can change the workspace");
+  const keys = parseTurnstileKeysChange(await jsonBodyOf(request));
+  if ("error" in keys) return formAnswer(keys, 422);
+  const refusal = await refusalOfTurnstileKeys(env, keys.secretKey, keys.turnstileToken, clientOf(request).ip);
+  if (refusal) return formAnswer({ error: refusal.error, ...(refusal.field && { field: refusal.field }) }, refusal.status);
+  return turnstileAnswer(env, await workspace(env).changeTurnstileKeys(credentials, { siteKey: keys.siteKey, secretKey: keys.secretKey }));
+}
+
+/** Takes away the Turnstile widget's keys Ember was given, as the Turnstile card's Stop using Turnstile does, answering where Ember's keys come from then. */
+async function forgetTurnstileKeys(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  return turnstileAnswer(env, credentials && (await workspace(env).changeTurnstileKeys(credentials, null)));
+}
+
+/** The answer to changing Turnstile's keys: where Ember's keys come from then, or who can't. */
+function turnstileAnswer(env: Env, changed: { saved: boolean } | "forbidden" | null): Response {
+  if (!changed) return problem(401, "Not signed in");
+  if (changed === "forbidden") return problem(403, "Only administrators can change the workspace");
+  return json({ turnstile: turnstileOf(env, changed.saved ? "saved" : null) } satisfies TurnstileSettings, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**
@@ -933,6 +973,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account/resend_api_key" && request.method === "PUT") return () => saveResendApiKey(request, env);
   if (pathname === "/api/account/resend_api_key" && request.method === "DELETE") return () => forgetResendApiKey(request, env);
   if (pathname === "/api/account/sending_domain_checks" && request.method === "POST") return () => checkSendingDomain(request, env);
+  if (pathname === "/api/account/turnstile_keys" && request.method === "PUT") return () => saveTurnstileKeys(request, env);
+  if (pathname === "/api/account/turnstile_keys" && request.method === "DELETE") return () => forgetTurnstileKeys(request, env);
   if (pathname === "/api/account/custom_domain_checks" && request.method === "POST") return () => checkCustomDomain(request, env);
   if (pathname === "/api/account/custom_domain_lookups" && request.method === "POST") return () => lookUpCustomDomain(request, env);
   if (pathname === LOGO_PATH && request.method === "PUT") return () => changeLogo(request, env);
@@ -1073,6 +1115,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (pathname === INVITATION_PATH) return invitationPage(request, env);
   if (pathname === EMAIL_SIGN_UP_PATH) return emailSignUpPage(request, env);
   if (pathname === PASSWORD_RESET_PATH) return passwordResetPage(request, env);
+  if (pathname === TURNSTILE_CHECK_PATH) return turnstileCheckPage(request);
   const joinCode = joinCodeOf(pathname);
   if (joinCode !== null) return joinPage(request, env, joinCode);
   if (pathname === TRANSFER_PATH) return transferPage(request, env);

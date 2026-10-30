@@ -19,23 +19,23 @@ import type { Env } from "./env";
 import { digits } from "./ids";
 import { appPage, empty, formAnswer } from "./pages";
 import { passwordHasher } from "./passwords";
-import { passedTurnstile, turnstileKeysOf } from "./turnstile";
+import { passedTurnstile, turnstileKeysFor } from "./turnstile";
 import { workspace, type NewResetCode } from "./workspace";
 
 // Resetting a forgotten password with a code Ember emails (`auth.password-reset`), this port's own, since
 // ember-rust sends no email and resets a password only from its server, as recovery.ts does here: someone
 // asks for a code with their email address, which Ember emails them if they have an account and a
 // password, and gives the code back with a new password, which signs them in. Asking checks Turnstile
-// while the deployment has its keys, and neither answer, nor how soon it comes, says who has an account.
-// Like the sign-in page, the page and its forms are for anyone, signed in or not.
+// while Ember has a widget's keys (`auth.turnstile`), and neither answer, nor how soon it comes, says
+// who has an account. Like the sign-in page, the page and its forms are for anyone, signed in or not.
 
 /**
  * `GET /passwords/new`: the app's page for resetting a password, which no cache keeps, since its policy
- * lets Turnstile's check load while the deployment has Turnstile's keys.
+ * lets Turnstile's check load while Ember has a widget's keys.
  */
 export async function passwordResetPage(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") return empty(404);
-  const page = await appPage(request, env, "/", { turnstile: turnstileKeysOf(env) !== null });
+  const page = await appPage(request, env, "/", { turnstile: (await turnstileKeysFor(env)) !== null });
   page.headers.set("Cache-Control", "no-store");
   return page;
 }
@@ -55,15 +55,15 @@ async function newResetCode(env: Env): Promise<NewResetCode> {
 /**
  * `POST /api/password_resets`, `{ emailAddress, turnstileToken? }`: emails a code to reset their password
  * to whoever has the address, if anyone, answering 202 before it's emailed, and whether or not anyone has
- * it. Turnstile's check comes first, while the deployment has its keys, and else the network's limit,
+ * it. Turnstile's check comes first, while Ember has a widget's keys, and else the network's limit,
  * which stands in for it. It answers 503 while Ember can't send email.
  */
 export async function askForPasswordReset(request: Request, env: Env): Promise<Response> {
   const asked = parsePasswordResetRequest(await jsonBodyOf(request));
   if (typeof asked === "string") return formAnswer({ error: asked, field: "emailAddress" }, 422);
   const client = clientOf(request);
-  const turnstile = turnstileKeysOf(env);
-  if (turnstile && !(await passedTurnstile(turnstile.secretKey, asked.turnstileToken, client.ip))) {
+  const turnstile = await turnstileKeysFor(env);
+  if (turnstile && !(await passedTurnstile(env, turnstile.secretKey, asked.turnstileToken, client.ip))) {
     return formAnswer({ error: TURNSTILE_FAILED, field: "turnstile" }, 422);
   }
   // Turnstile's check stops the scripts the network's limit guards against, so it holds only without its keys.

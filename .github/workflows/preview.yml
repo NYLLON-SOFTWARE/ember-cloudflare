@@ -12,9 +12,10 @@ name: Preview
 # app's keys, which go up with each deploy so its members can sign in once an administrator turns that on,
 # and MEMBERFUL_API_KEY and MEMBERFUL_WEBHOOK_SECRET the app's API key and its site's webhook secret,
 # with which Ember hears when a membership lapses. TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY
-# repository secrets, if set, are a Turnstile widget's keys, with which open sign-up checks that
-# whoever signs up is a person, and a RESEND_API_KEY repository secret, if set, has Ember send its
-# email with Resend rather than Cloudflare Email Service.
+# repository secrets, if set, are a Turnstile widget's keys, with which open sign-up and the forms that
+# email someone check that whoever uses them is a person, in place of any an administrator gave in Set
+# up Turnstile, and a RESEND_API_KEY repository secret, if set, has Ember send its email with Resend
+# rather than Cloudflare Email Service.
 on:
   push:
     branches: [main]
@@ -82,7 +83,7 @@ jobs:
           MEMBERFUL_CLIENT_SECRET: ${{ secrets.MEMBERFUL_CLIENT_SECRET }}
           MEMBERFUL_API_KEY: ${{ secrets.MEMBERFUL_API_KEY }}
           MEMBERFUL_WEBHOOK_SECRET: ${{ secrets.MEMBERFUL_WEBHOOK_SECRET }}
-          # Optional: a Turnstile widget's keys, for open sign-up to check that whoever signs up is a person.
+          # Optional: a Turnstile widget's keys, in place of any given in Set up Turnstile, for open sign-up to check that whoever signs up is a person.
           TURNSTILE_SITE_KEY: ${{ secrets.TURNSTILE_SITE_KEY }}
           TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
           # Optional: a Resend API key, for Ember to send its email with Resend.

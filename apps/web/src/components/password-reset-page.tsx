@@ -24,7 +24,7 @@ import { takeReturnPath } from "@/lib/return-path";
 // This port's own page for resetting a forgotten password (`auth.password-reset`), since ember-rust
 // resets one only from its server, as the recovery script does here: someone gives their email address,
 // Ember emails them a code if it has an account with a password, and they give the code back here with a
-// new password, which signs them in. Asking waits for Turnstile's check while the deployment has its
+// new password, which signs them in. Asking waits for Turnstile's check while Ember has a widget's
 // keys, as asking for a link to join does, and nothing the page says tells who has an account.
 
 const SIGN_IN_PATH = "/session/new";

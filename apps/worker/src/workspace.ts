@@ -83,6 +83,7 @@ import { isToken } from "./secrets";
 import { SessionCache } from "./session-cache";
 import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import type { Transfer } from "./transfers";
+import type { TurnstileKeys } from "./turnstile";
 import {
   NEW_ACCOUNT_LOOKS,
   WorkspaceStore,
@@ -620,21 +621,29 @@ export class Workspace extends DurableObject<Env> {
    * What the app asks first: the account, if it's set up, who `credentials` signs in, if anyone, whether
    * the sign-in page offers Sign in with Memberful at `memberfulSite`, the deployment's Memberful site, or
    * null without its keys (`offersMemberfulSignIn`), and whether it offers to email a code to reset a
-   * password (`auth.password-reset`), which it does while Ember can send email. A page opened at
+   * password (`auth.password-reset`), which it does while Ember can send email, and the site key of the
+   * Turnstile widget an administrator gave Ember, while it has one (`savedTurnstileKeys`). A page opened at
    * `deployedAddress`, where a deploy puts Ember, which it's null anywhere else, tells Ember where that is.
    */
   async bootstrap(
     credentials: Credentials | null,
     memberfulSite: string | null,
     deployedAddress: string | null,
-  ): Promise<{ account: Account | null; user: Me | null; signInWithMemberful: boolean; passwordResetCodes: boolean }> {
+  ): Promise<{ account: Account | null; user: Me | null; signInWithMemberful: boolean; passwordResetCodes: boolean; turnstileSiteKey: string | null }> {
     const [account, user, signInWithMemberful] = await Promise.all([
       this.joinableAccount(),
       credentials && this.me(credentials),
       this.offersMemberfulSignIn(memberfulSite),
       deployedAddress && this.rememberDeployedAddress(deployedAddress).catch((error) => console.error("Could not remember where a deploy puts Ember", error)),
     ]);
-    return { account: account && accountOf(account), user, signInWithMemberful, passwordResetCodes: account !== null && this.sendsEmail(account) };
+    const turnstile = account && (await this.openedTurnstileKeys(account));
+    return {
+      account: account && accountOf(account),
+      user,
+      signInWithMemberful,
+      passwordResetCodes: account !== null && this.sendsEmail(account),
+      turnstileSiteKey: turnstile?.siteKey ?? null,
+    };
   }
 
   /**
@@ -683,10 +692,11 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Workspace settings as the person `credentials` signs in sees them, which ember-rust shows anyone
    * signed in (accounts.rs, `edit`): "not set up" before first run, or null without a valid session. The
-   * Worker adds what it knows of the Memberful site and Turnstile from its keys, and the Workspace says
-   * how it sends email, since it's what sends it.
+   * Worker adds what it knows of the Memberful site from its keys, and has the deployment's Turnstile
+   * keys take the place of any an administrator gave, and the Workspace says how it sends email, since
+   * it's what sends it.
    */
-  async workspaceSettings(credentials: Credentials): Promise<Omit<WorkspaceSettings, "memberfulSite" | "memberfulWebhooks" | "turnstile"> | "not set up" | null> {
+  async workspaceSettings(credentials: Credentials): Promise<Omit<WorkspaceSettings, "memberfulSite" | "memberfulWebhooks"> | "not set up" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const [account, canAdminister] = await Promise.all([this.joinableAccount(), this.store.isAdministrator(user.id)]);
@@ -697,6 +707,7 @@ export class Workspace extends DurableObject<Env> {
       joinCode: account.joinCode,
       canAdminister,
       email: await this.emailSettings(account),
+      turnstile: (await this.openedTurnstileKeys(account)) ? "saved" : null,
       invitations,
       emailDomains: canAdminister ? account.emailDomains : [],
       addresses: canAdminister ? { deployed: account.deployedAddress, others: account.otherAddresses } : { deployed: null, others: [] },
@@ -841,6 +852,42 @@ export class Workspace extends DurableObject<Env> {
    */
   private sendsEmail(account: Pick<JoinableAccount, "emailFrom" | "resendApiKey">): boolean {
     return account.emailFrom !== null && (account.resendApiKey !== null || senderOf(this.env, null) !== null);
+  }
+
+  /**
+   * Gives Ember `keys`, the keys of a Turnstile widget whose check the Worker has seen pass with them, to
+   * check people with (`auth.turnstile`), its secret key sealed under SESSION_SECRET (`seal`), or takes
+   * the ones it has away with null, as the person `credentials` signs in, answering whether Ember keeps a
+   * widget's keys then: "forbidden" unless they're an administrator, or null without a valid session.
+   * Only signed-out pages show the site key, so no socket hears of it.
+   */
+  async changeTurnstileKeys(credentials: Credentials, keys: TurnstileKeys | null): Promise<{ saved: boolean } | "forbidden" | null> {
+    return this.administerAccount(credentials, async (account) => {
+      if (keys === null && account.turnstileKeys === null) return { saved: false };
+      const turnstileKeys = keys && { siteKey: keys.siteKey, sealedSecretKey: await seal(this.env.SESSION_SECRET, "turnstile-secret-key", keys.secretKey) };
+      await this.saveAccount({ ...account, turnstileKeys }, (now) => this.store.changeAccount({ turnstileKeys }, now));
+      return { saved: turnstileKeys !== null };
+    });
+  }
+
+  /**
+   * The keys of the Turnstile widget an administrator gave Ember, its secret key opened, which the Worker
+   * checks people with while the deployment has none of its own, or null while there are none, or while
+   * the secret key doesn't open under SESSION_SECRET, as once that's changed, when it's as if Ember had
+   * none until an administrator gives it a widget's keys again.
+   */
+  async savedTurnstileKeys(): Promise<TurnstileKeys | null> {
+    const account = await this.joinableAccount();
+    return account && this.openedTurnstileKeys(account);
+  }
+
+  /** The Turnstile widget's keys `account` keeps, as `savedTurnstileKeys` has them. */
+  private async openedTurnstileKeys(account: Pick<JoinableAccount, "turnstileKeys">): Promise<TurnstileKeys | null> {
+    const saved = account.turnstileKeys;
+    if (!saved) return null;
+    const secretKey = await unseal(this.env.SESSION_SECRET, "turnstile-secret-key", saved.sealedSecretKey);
+    if (secretKey === null) console.error("The Turnstile secret key Ember was given doesn't open under SESSION_SECRET, so it isn't used.");
+    return secretKey === null ? null : { siteKey: saved.siteKey, secretKey };
   }
 
   /**
@@ -1069,6 +1116,7 @@ export class Workspace extends DurableObject<Env> {
       storedLogo: null,
       emailFrom: null,
       resendApiKey: null,
+      turnstileKeys: null,
       deployedAddress: null,
       otherAddresses: [],
     };
@@ -1121,11 +1169,11 @@ export class Workspace extends DurableObject<Env> {
    * domain lets in `domain`, its domain (`auth.email-domain-sign-up`), which takes the place of any it was
    * sent before once the provider has the email, unless they've joined since, or, if someone has an
    * account with it already, whatever its case, an email saying so, with a link to sign in. Asks from
-   * `ip` count against its limit while they're `limited`, as they are while the deployment lacks
-   * Turnstile's keys. Once the address has been emailed as often as it is in an hour, an ask sends
-   * nothing, though it answers "asked", as it does for an address with an account, so that the answer
-   * never says who has one, and the link sent last still works. An email the provider refuses reaches
-   * nobody, so it isn't counted, and changes no link.
+   * `ip` count against its limit while they're `limited`, as they are while Ember lacks Turnstile's
+   * keys. Once the address has been emailed as often as it is in an hour, an ask sends nothing, though it
+   * answers "asked", as it does for an address with an account, so that the answer never says who has
+   * one, and the link sent last still works. An email the provider refuses reaches nobody, so it isn't
+   * counted, and changes no link.
    */
   async askForEmailLink(ip: string, emailAddress: string, domain: string, link: NewEmailLink, origin: string, limited: boolean): Promise<EmailLinkAsk> {
     const account = await this.joinableAccount();
@@ -1166,10 +1214,10 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Counts an open sign-up from `ip` against its limit, while sign-ups are `limited`, as they are while
-   * the deployment lacks Turnstile's keys, then checks it can go on, all before the Worker hashes its
-   * password (`auth.open-sign-up`): "closed" unless anyone may sign up, "limited" past the address's
-   * limit, "full" once the workspace has let in as many new people as it does in an hour, "taken" if
-   * someone has the email address already, and else "begun".
+   * Ember lacks Turnstile's keys, then checks it can go on, all before the Worker hashes its password
+   * (`auth.open-sign-up`): "closed" unless anyone may sign up, "limited" past the address's limit, "full"
+   * once the workspace has let in as many new people as it does in an hour, "taken" if someone has the
+   * email address already, and else "begun".
    */
   async beginSignUp(ip: string, emailAddress: string, limited: boolean): Promise<SignUpRefusal | "limited" | "taken" | "begun"> {
     const account = await this.joinableAccount();
@@ -1623,9 +1671,9 @@ export class Workspace extends DurableObject<Env> {
    * Emails a code to reset their password, the one `code` holds, to whoever has exactly the email address
    * `emailAddress`, as sign-in matches it, while they're active and have a password (`auth.password-reset`),
    * from the workspace's From address. Asks from `ip` count against the network's limit while they're
-   * `limited`, as they are while the deployment lacks Turnstile's keys. It answers "asked" before anything
-   * is emailed, and whether or not anyone has the address, so that neither the answer nor how soon it
-   * comes says who has an account: the code is emailed afterwards, one at a time with the others asked for
+   * `limited`, as they are while Ember lacks Turnstile's keys. It answers "asked" before anything is
+   * emailed, and whether or not anyone has the address, so that neither the answer nor how soon it comes
+   * says who has an account: the code is emailed afterwards, one at a time with the others asked for
    * (`emailResetCode`).
    */
   async askForPasswordReset(ip: string, emailAddress: string, code: NewResetCode, limited: boolean): Promise<PasswordResetAsk> {

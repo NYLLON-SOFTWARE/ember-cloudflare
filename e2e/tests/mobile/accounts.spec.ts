@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import type { Account, BotAnswer, Bots, BotSettings, WorkspaceServerFrame } from "@ember/protocol";
-import { isolateRoom, listing, openRoom, signInAs, signInAsAdministrator, useOwnAddress, WORKSPACE_SOCKET } from "../../fixtures";
+import { fakeTurnstile, isolateRoom, listing, openRoom, signInAs, signInAsAdministrator, TURNSTILE_WIDGET, useOwnAddress, WORKSPACE_SOCKET } from "../../fixtures";
 import { auditScreen, settle } from "./audits";
 import { expect, hasDrawerLayout, SWITCHES, test } from "./fixtures";
 
@@ -73,7 +73,27 @@ test("an administrator's ways to join, with Open's sign-up link, fit the phone",
   await expect(open.getByRole("textbox", { name: "Share so anyone can sign up" })).toBeInViewport();
   await screenIsFine({ denseTargets: [SWITCHES] });
 
-  await open.getByText("Open Turnstile in the Cloudflare dashboard").scrollIntoViewIfNeeded();
+  await open.getByRole("button", { name: "Set up Turnstile" }).scrollIntoViewIfNeeded();
+  await screenIsFine({ denseTargets: [SWITCHES] });
+});
+
+test("an administrator's Set up Turnstile, with the widget's check, fits the phone", async ({ page, screenIsFine }) => {
+  await useOwnAddress(page);
+  await fakeTurnstile(page);
+  await page.goto("/account/edit#membership-settings");
+  await signInAsAdministrator(page);
+  const card = page.getByRole("region", { name: "Turnstile", exact: true });
+  await card.scrollIntoViewIfNeeded();
+  await card.getByRole("button", { name: "Set up Turnstile" }).tap();
+  const setup = page.getByRole("dialog", { name: "Set up Turnstile" });
+  await expect(setup.getByRole("list", { name: "Steps to make a Turnstile widget" })).toBeVisible();
+  await screenIsFine({ denseTargets: [SWITCHES] });
+
+  await setup.getByRole("textbox", { name: "Site key" }).fill(TURNSTILE_WIDGET.siteKey);
+  await setup.getByRole("textbox", { name: "Secret key" }).fill(TURNSTILE_WIDGET.secretKey);
+  await setup.getByRole("button", { name: "Continue" }).tap();
+  const check = page.getByRole("dialog", { name: "Pass the widget's check" });
+  await expect(check.frameLocator("iframe[title=\"Turnstile's check\"]").getByRole("button", { name: "Verify you are human" })).toBeVisible();
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 

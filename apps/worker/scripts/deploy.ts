@@ -16,8 +16,9 @@
 // EMBER_SETUP_TOKEN in its environment brings one the deployer keeps as a secret of their own.
 // Workers Builds' log is the account's own, so Deploy to Cloudflare gets its link there. The keys of
 // a Memberful custom app, for its members to sign in (apps/worker/src/memberful.ts), and of a Turnstile
-// widget, for open sign-up's check (apps/worker/src/turnstile.ts), go up with every deploy whose
-// environment gives them, as the Preview workflow's does from the repository's secrets.
+// widget, for open sign-up's check, in place of any given in Set up Turnstile (apps/worker/src/turnstile.ts),
+// go up with every deploy whose environment gives them, as the Preview workflow's does from the
+// repository's secrets.
 
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";

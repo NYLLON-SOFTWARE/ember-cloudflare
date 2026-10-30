@@ -170,7 +170,7 @@ describe(feature("auth.password-reset"), () => {
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/session/new?email_address=ada%40example.com");
   });
 
-  it("waits for Turnstile's check while the deployment has its keys, sending its token, and draws it afresh to ask again", async () => {
+  it("waits for Turnstile's check while Ember has a widget's keys, sending its token, and draws it afresh to ask again", async () => {
     const fetch = serve(refused(TURNSTILE_FAILED, "turnstile"), asked);
     const { turnstile, pass } = fakeTurnstile();
     open("/passwords/new", checked);

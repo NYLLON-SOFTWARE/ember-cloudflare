@@ -2,9 +2,9 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 
 // Cloudflare Turnstile's check on the open sign-up page (`auth.open-sign-up`), where someone asks for a
 // link to join with their email address (`auth.email-domain-sign-up`), and where someone asks for a code
-// to reset their password (`auth.password-reset`), while the deployment has its keys: Turnstile's
-// script, which only those pages' policy lets load, draws the check in a frame of its own and gives the
-// page a token once it passes, which the form sends for the Worker to ask siteverify about
+// to reset their password (`auth.password-reset`), while Ember has a widget's keys (`auth.turnstile`):
+// Turnstile's script, which only those pages' policy lets load, draws the check in a frame of its own and
+// gives the page a token once it passes, which the form sends for the Worker to ask siteverify about
 // (https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/).
 // A token is good once, so the page draws the check afresh for each try.
 
@@ -12,7 +12,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 const SCRIPT = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 /** The narrowest the check draws at its flexible size, below which it's drawn compact. */
-const FLEXIBLE_MIN_WIDTH = 300;
+export const FLEXIBLE_MIN_WIDTH = 300;
 
 /** The part of Turnstile's API the page uses. */
 export interface Turnstile {

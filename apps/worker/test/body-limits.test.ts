@@ -68,6 +68,7 @@ function jsonRoutes({ ada, bot, room, joinCode }: Ember): Route[] {
     ["PATCH", "/api/account", signedIn],
     ["PATCH", "/api/account/custom_styles", signedIn],
     ["PUT", "/api/account/resend_api_key", signedIn],
+    ["PUT", "/api/account/turnstile_keys", signedIn],
     ["PUT", "/api/account/room_order", signedIn],
     ["PATCH", `/api/account/users/${ada.user.id}`, signedIn],
     ["POST", "/api/account/bots", signedIn],

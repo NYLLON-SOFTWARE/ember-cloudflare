@@ -15,7 +15,7 @@ import { loadPage } from "@/lib/page";
 
 // ember-rust's join page (crates/views/templates/users/new.html), which the workspace's join link
 // opens for someone signed out. Without a code it's open sign-up's page, this port's own
-// (`auth.open-sign-up`), which shows Turnstile's check while the deployment has its keys, and with a
+// (`auth.open-sign-up`), which shows Turnstile's check while Ember has a widget's keys, and with a
 // link Ember emailed, an invitation's (`auth.invitation-sign-up`) or one asked for at the workspace's
 // email domains (`auth.email-domain-sign-up`), it's the link's, which joins with its email address.
 
@@ -47,7 +47,7 @@ const ADDRESS_FIXED_BY = { invitation: "Your invitation is for this address.", e
 /**
  * Creates an account with the join link, or a link Ember emailed, with its email address, or without
  * either while anyone may sign up, with the photo chosen, as a member in every open room, and signs in as it.
- * Signing up without a link waits for Turnstile's check to pass while the deployment has its keys, and
+ * Signing up without a link waits for Turnstile's check to pass while Ember has a widget's keys, and
  * draws it afresh for each try.
  */
 export function JoinPage({ workspace, joinCode, emailLink, onGone, onJoined }: Props) {

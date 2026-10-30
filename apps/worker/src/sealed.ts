@@ -1,13 +1,14 @@
 import { toBase64url, urlsafeDecode64 } from "./encoding";
 
-// Secrets an administrator gives Ember to keep, such as a Resend API key, which the database holds
-// sealed under SESSION_SECRET, so that a copy of the database alone doesn't give them away: AES-GCM,
-// under a 256-bit key HKDF derives from SESSION_SECRET for what the secret is kept for, with a random
-// nonce each time. Sealed, a secret is `v1.`, then its nonce and ciphertext in URL-safe Base64, apart
-// by a dot. One sealed under another SESSION_SECRET, or for something else, doesn't open.
+// Secrets an administrator gives Ember to keep, a Resend API key and a Turnstile widget's secret key,
+// which the database holds sealed under SESSION_SECRET, so that a copy of the database alone doesn't
+// give them away: AES-GCM, under a 256-bit key HKDF derives from SESSION_SECRET for what the secret is
+// kept for, with a random nonce each time. Sealed, a secret is `v1.`, then its nonce and ciphertext in
+// URL-safe Base64, apart by a dot. One sealed under another SESSION_SECRET, or for something else,
+// doesn't open.
 
 /** What a secret is kept for, whose key is derived for it alone. */
-export type SealedSecret = "resend-api-key";
+export type SealedSecret = "resend-api-key" | "turnstile-secret-key";
 
 const VERSION = "v1";
 /** AES-GCM's nonce, 96 bits, as it's recommended. */
@@ -16,12 +17,13 @@ const NONCE_BYTES = 12;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** The key derived last, and what from, so that sending many emails derives it once. */
-let derived: { secret: string; purpose: SealedSecret; key: Promise<CryptoKey> } | undefined;
+/** The key derived last for each purpose, and what from, so that sending many emails derives it once. */
+const derived = new Map<SealedSecret, { secret: string; key: Promise<CryptoKey> }>();
 
 /** The AES-GCM key `secret` gives for keeping `purpose`'s secrets. A derivation that fails is tried again next time. */
 function keyFor(secret: string, purpose: SealedSecret): Promise<CryptoKey> {
-  if (derived?.secret !== secret || derived.purpose !== purpose) {
+  let known = derived.get(purpose);
+  if (known?.secret !== secret) {
     const key = crypto.subtle
       .importKey("raw", encoder.encode(secret), "HKDF", false, ["deriveKey"])
       .then((base) =>
@@ -34,11 +36,12 @@ function keyFor(secret: string, purpose: SealedSecret): Promise<CryptoKey> {
         ),
       );
     key.catch(() => {
-      if (derived?.key === key) derived = undefined;
+      if (derived.get(purpose)?.key === key) derived.delete(purpose);
     });
-    derived = { secret, purpose, key };
+    known = { secret, key };
+    derived.set(purpose, known);
   }
-  return derived.key;
+  return known.key;
 }
 
 /** `plaintext`, kept for `purpose`, sealed under `secret`. */

@@ -14,7 +14,7 @@ import { loadPage } from "@/lib/page";
 // This port's own page for joining with an email address at the workspace's email domains
 // (`auth.email-domain-sign-up`): someone asks there for a link, which Ember emails them, and the link
 // opens the page again, holding its secret in the fragment, to show the join form with the address
-// it's for. Asking waits for Turnstile's check while the deployment has its keys, as open sign-up does.
+// it's for. Asking waits for Turnstile's check while Ember has a widget's keys, as open sign-up does.
 
 interface Props {
   workspace: SignedOutWorkspace;

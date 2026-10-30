@@ -67,6 +67,8 @@ import {
   type SignOut,
   type SignUp,
   type StartedDirect,
+  type TurnstileKeysChange,
+  type TurnstileSettings,
   type UserId,
   type WorkspaceSettings,
 } from "@ember/protocol";
@@ -460,6 +462,21 @@ export async function saveResendApiKey(apiKey: string): Promise<EmailSettings> {
 /** Takes away the Resend API key Ember was given, answering how it sends email then. Fails with a 403 ApiError for anyone but an administrator. */
 export async function forgetResendApiKey(): Promise<EmailSettings> {
   return request<EmailSettings>("/api/account/resend_api_key", { method: "DELETE" });
+}
+
+/**
+ * Gives Ember a Turnstile widget's keys to check people with, with the token the widget's check gave Set
+ * up Turnstile, answering where Ember's keys come from then. Fails with a 422 ApiError on the field a key
+ * or the check is refused on, a 502 one when Ember couldn't ask Cloudflare, and a 403 one for anyone but
+ * an administrator.
+ */
+export async function saveTurnstileKeys(keys: TurnstileKeysChange): Promise<TurnstileSettings["turnstile"]> {
+  return (await request<TurnstileSettings>("/api/account/turnstile_keys", { method: "PUT", body: JSON.stringify(keys) })).turnstile;
+}
+
+/** Takes away the Turnstile widget's keys Ember was given, answering where its keys come from then. Fails with a 403 ApiError for anyone but an administrator. */
+export async function forgetTurnstileKeys(): Promise<TurnstileSettings["turnstile"]> {
+  return (await request<TurnstileSettings>("/api/account/turnstile_keys", { method: "DELETE" })).turnstile;
 }
 
 /**

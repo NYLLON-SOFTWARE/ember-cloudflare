@@ -42,6 +42,8 @@ import { PicturePicker } from "./picture-picker";
 import { RoomOrder } from "./room-order";
 import { workspaceSectionOf } from "./settings-navigation";
 import { CHANGES_SAVED, PageHeading, Panel, SECTION_HEADING, SettingsPage } from "./settings-page";
+import { TurnstileSettings } from "./turnstile-settings";
+import { TurnstileSetup } from "./turnstile-setup";
 import { HowPeopleJoin, WaysToJoin } from "./ways-to-join";
 
 interface Props {
@@ -86,9 +88,10 @@ interface Props {
  *   administrators can create rooms, then for administrators, the switch that says so and the rooms'
  *   order for everyone, each linking to its settings.
  * - Membership (accounts/_membership_settings.html): for administrators, who can join, this port's own,
- *   with switches for Open, the join link, which they can regenerate, and Memberful, and how Ember sends
- *   email, its own too, or for members, the links that let people in, then the administrators and
- *   members, whom administrators can make administrators or members and remove.
+ *   with switches for Open, the join link, which they can regenerate, and Memberful, how Ember sends
+ *   email, and whether Cloudflare Turnstile checks who joins, its own too, or for members, the links that
+ *   let people in, then the administrators and members, whom administrators can make administrators or
+ *   members and remove.
  * - Domain settings, this port's own: for administrators, the custom domain Ember answers at.
  */
 export function WorkspaceSettingsPage({
@@ -121,6 +124,7 @@ export function WorkspaceSettingsPage({
   const [restrictingCreation, setRestrictingCreation] = useState<boolean | null>(null);
   // Set up email, while it's open, with what to go on to once it closes with Ember able to send email.
   const [emailSetup, setEmailSetup] = useState<{ then?: () => void } | null>(null);
+  const [settingUpTurnstile, setSettingUpTurnstile] = useState(false);
   const account = useAccount();
   const name = typedName ?? account.name;
   const tagline = typedTagline ?? account.tagline;
@@ -281,6 +285,8 @@ export function WorkspaceSettingsPage({
   /** Shows the addresses Ember knows reach it as the Custom domain section changes them, which only workspace settings shows. */
   const showAddresses = (change: (addresses: EmberAddresses) => EmberAddresses) => setSettings((settings) => settings && { ...settings, addresses: change(settings.addresses) });
   const setUpEmail = (then?: () => void) => setEmailSetup({ then });
+  /** Shows where Ember's Turnstile keys come from as Set up Turnstile, or Stop using Turnstile, changes it, which only workspace settings shows. */
+  const showTurnstile = (turnstile: WorkspaceSettings["turnstile"]) => setSettings((settings) => settings && { ...settings, turnstile });
 
   // As ember-rust's Regenerate join link does: no confirmation first, and no notice after.
   const regenerate = () => {
@@ -473,6 +479,7 @@ export function WorkspaceSettingsPage({
                   saveSwitch={saveSwitch}
                   saveEmailDomains={saveEmailDomains}
                   onSetUpEmail={setUpEmail}
+                  onSetUpTurnstile={() => setSettingUpTurnstile(true)}
                   joinLink={<InviteLink joinCode={settings.joinCode} onRegenerate={regenerate} regenerating={regenerating} />}
                 />
                 <InviteByEmail
@@ -501,6 +508,15 @@ export function WorkspaceSettingsPage({
                     }}
                     onFailed={onFailed}
                   />
+                )}
+                <TurnstileSettings
+                  turnstile={settings.turnstile}
+                  onSetUp={() => setSettingUpTurnstile(true)}
+                  onStopped={showTurnstile}
+                  onFailed={onFailed}
+                />
+                {settingUpTurnstile && (
+                  <TurnstileSetup turnstile={settings.turnstile} onSaved={showTurnstile} onClose={() => setSettingUpTurnstile(false)} onFailed={onFailed} />
                 )}
               </div>
             ) : (

@@ -130,7 +130,7 @@ describe(feature("auth.email-domain-sign-up"), () => {
     expect(emailField()).toHaveValue("hal@example.org");
   });
 
-  it("waits for Turnstile's check while the deployment has its keys, sending its token, and draws it afresh to ask again", async () => {
+  it("waits for Turnstile's check while Ember has a widget's keys, sending its token, and draws it afresh to ask again", async () => {
     const fetch = serve(emailed);
     const { turnstile, pass } = fakeTurnstile();
     open("/join/email", checked);
