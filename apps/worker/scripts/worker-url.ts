@@ -1,5 +1,5 @@
 // Where reset-password.ts and check-deploy.ts may send the Worker's recovery token, which can take
-// over any account.
+// over any account, and seed.ts its setup token and everyone's password.
 
 /** The Worker's address, if it's HTTPS, or plain HTTP on this machine, where `wrangler dev` serves. */
 export function workerUrl(given: string): URL | null {

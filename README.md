@@ -52,6 +52,10 @@ and its rooms, general and random. Then open a second browser, pick a name, and 
 On localhost setup is open to whoever's there; a deployed Worker takes the setup link its deploy
 prints ([Deploying](#deploying)).
 
+Or, before setting it up, run `pnpm seed` to have a made-up team set it up and fill its rooms and DMs
+with conversations that use everything a message can: replies, mentions, reactions, pictures, files,
+link previews and bots. It prints how to sign in as each of them (`apps/worker/scripts/seed.ts` says more).
+
 ```sh
 pnpm typecheck
 pnpm test           # unit tests and the parity check; worker tests run in workerd, once per storage backend
