@@ -74,7 +74,8 @@ export default defineConfig({
     modulePreload: { polyfill: false },
   },
   server: {
-    // `wrangler dev` serves the API, room sockets, web app manifest, QR codes, Turnstile's check page and avatars on 8787.
+    // `wrangler dev` serves the API, room sockets, web app manifest, QR codes, Turnstile's check page, avatars,
+    // files, the logo and bots' webhooks on 8787.
     proxy: {
       "/api": { target: "http://localhost:8787", ws: true },
       "/webmanifest": "http://localhost:8787",
@@ -82,6 +83,11 @@ export default defineConfig({
       "/account/turnstile_check": "http://localhost:8787",
       // Only avatars, so people's pages under /users, once they're built, stay the app's.
       "^/users/[^/]+/avatar": "http://localhost:8787",
+      // Rooms' files and their previews, and the workspace's logo.
+      "^/(files|previews)/": "http://localhost:8787",
+      "^/account/logo(\\.[^/.?]+)?(\\?|$)": "http://localhost:8787",
+      // Bots' webhooks, at the addresses the Chat bots page shows here.
+      "^/rooms/[^/]+/[^/]+/(messages|slack)(\\?|$)": "http://localhost:8787",
     },
   },
   test: {
