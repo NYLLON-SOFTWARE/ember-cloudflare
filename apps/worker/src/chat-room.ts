@@ -12,6 +12,7 @@ import {
   type Boost,
   type Card,
   type ClientFrame,
+  type LinkPreview,
   type Message,
   type NewUpload,
   type RoomId,
@@ -21,6 +22,8 @@ import {
   type UserId,
 } from "@ember/protocol";
 import { prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
+import { AnswerError, answerOf, NOTES, previewAttachment, questionFor, ROOM_MESSAGES_READ, THREAD_REPLIES_READ, type Answer } from "./assistant/answers";
+import { ask } from "./assistant/gateway";
 import { JobQueue } from "./at-once";
 import { postWebhook, WebhookError, webhookPayload, type Reply } from "./bots/webhooks";
 import { keptCards } from "./cards";
@@ -39,9 +42,10 @@ import { RoomLog } from "./room-log";
 import { searchIndex } from "./search-index";
 import { CLOSE_REASONS, closedAtOnce, closeTooLarge, isTooLarge, MAX_ROOM_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import { MessageStore, type Deletion, type InThread, type PageCursor, type PostedFile, type StoredBody } from "./store";
+import { unfurler } from "./unfurl";
 import { viewersOf, type Viewing } from "./viewing";
-import { workspace, type BotAccess, type WebhookAccess } from "./workspace";
-import type { MessagePush, MessageWebhook } from "./workspace-store";
+import { workspace, type AssistantAccess, type BotAccess, type WebhookAccess } from "./workspace";
+import type { AssistantAsk, MessagePush, MessageWebhook } from "./workspace-store";
 
 /** What each socket remembers across hibernation. */
 interface Attachment extends Viewing {
@@ -138,6 +142,19 @@ const WEBHOOK_CHANGED = "the bot has been deleted, has left the room or its webh
 /** Why the room posts nothing of what a bot says back to a reply in a thread: the thread's message was deleted while the delivery ran. */
 const THREAD_GONE = "the thread's message has been deleted";
 
+/** How many of a room's questions for @ember it answers at once, and how many more can wait, as each waits on a model. */
+const ANSWERS_AT_ONCE = 4;
+const ANSWERS_WAITING = 100;
+
+/** How long @ember waits for its model to answer: a little less than Cloudflare waits for an answer from AI Gateway before giving up itself. */
+const ANSWER_TIMEOUT_MS = 120_000;
+
+/** How often @ember says again that it's typing while it answers, as apps forget typing they haven't heard of for 5 seconds. */
+const TYPING_AGAIN_MS = 3_000;
+
+/** Why the room posts nothing for a question for @ember: Ember AI was turned off, or @ember taken out of the room. */
+const ASSISTANT_GONE = "Ember AI has been turned off, or @ember is no longer in the room";
+
 /** How long an Active Storage key is: `MINIMUM_TOKEN_LENGTH`. */
 const KEY_LENGTH = 28;
 
@@ -179,6 +196,9 @@ export class ChatRoom extends DurableObject<Env> {
   /** Whether the alarm has erased the room, whose storage no longer says it was deleted. */
   private erased = false;
   private readonly webhooks = new JobQueue(WEBHOOKS_AT_ONCE, WEBHOOKS_WAITING);
+  private readonly answers = new JobQueue(ANSWERS_AT_ONCE, ANSWERS_WAITING);
+  /** How many jobs each bot is typing for, by its id and the thread it's typing in, if it's in one. */
+  private readonly typists = new Map<string, number>();
   /**
    * Who has read the room since its latest message, as far as this object has seen. Only a new message
    * in the room marks it unread, so until one comes another read of theirs would change nothing, and
@@ -1007,11 +1027,12 @@ export class ChatRoom extends DurableObject<Env> {
       return threads.get(parentId)!;
     };
     const events = logged.map((event) => (event.threadOnly && event.message?.parentId !== undefined ? { ...event, viewerIds: viewingThread(event.message.parentId) } : event));
-    const { pushes, webhooks } = await workspace(this.env).applyRoomEvents(roomId, events, viewersOf(this.ctx, now));
-    // The Workspace answers a message's pushes and webhooks once, so they're sent whatever happens next,
-    // and the log's next call doesn't wait on push services or bots.
+    const { pushes, webhooks, asks } = await workspace(this.env).applyRoomEvents(roomId, events, viewersOf(this.ctx, now));
+    // The Workspace answers a message's pushes, webhooks and question for @ember once, so they're sent
+    // whatever happens next, and the log's next call doesn't wait on push services, bots or models.
     if (pushes.length > 0) this.ctx.waitUntil(this.push(pushes));
     for (const webhook of webhooks) this.ctx.waitUntil(this.deliver(roomId, webhook));
+    for (const question of asks) this.ctx.waitUntil(this.answer(roomId, question));
     await log.delivered(events.at(-1)!.seq);
     return events.length;
   }
@@ -1121,6 +1142,119 @@ export class ChatRoom extends DurableObject<Env> {
     });
     if (refused) await this.env.FILES?.delete(objectKey(key));
     return refused;
+  }
+
+  /**
+   * Answers a question for @ember in its turn: the message as it is by then, while Ember AI is on and
+   * @ember is in the room, and nothing once either isn't, typing while it works, and posting what the
+   * model answers, or a note saying why it can't. Each is logged, without what was asked or answered, and
+   * one the queue has no room for is dropped.
+   */
+  private async answer(roomId: RoomId, question: AssistantAsk): Promise<void> {
+    const job = `Ember AI's answer to message ${question.messageId}`;
+    const ran = await this.answers.run(async () => {
+      try {
+        const message = (await this.isDeleted()) ? null : await this.findUndeleted(this.storeFor(roomId), question.messageId);
+        if (!message) throw new AnswerError("the message is gone");
+        const access = await workspace(this.env).assistantIn(roomId);
+        if (!access) throw new AnswerError(ASSISTANT_GONE);
+        const refused = await this.typingWhile(access.bot, message.parentId, async () => this.postAnswer(roomId, await this.answerTo(roomId, access, question, message), message));
+        if (refused) throw new AnswerError(`it wasn't posted: ${refused}`);
+        console.log(`${job} posted`);
+      } catch (error) {
+        console.error(`${job} failed:`, error instanceof AnswerError ? error.message : error);
+      }
+    });
+    if (!ran) console.error(`${job} dropped: the room's queue of questions for @ember is full`);
+  }
+
+  /**
+   * What @ember answers `message`, `question`'s message, with what it reads of the conversation, in
+   * Markdown, or the note it posts when its model doesn't answer, saying why, which the room logs.
+   */
+  private async answerTo(roomId: RoomId, { gateway, community }: AssistantAccess, { author, roomName }: AssistantAsk, message: Message): Promise<string> {
+    if (!gateway) return NOTES["unopened token"];
+    const conversation = await this.conversationOf(this.storeFor(roomId), message);
+    const where = { community, roomName, inThread: message.parentId !== undefined };
+    const answered = await ask(this.env, gateway, questionFor(conversation, author, where, new Date()), ANSWER_TIMEOUT_MS);
+    if (!("refusal" in answered)) return answered.text;
+    console.error(`Ember AI's model didn't answer message ${message.id}: ${answered.refusal}`);
+    return NOTES[answered.reason];
+  }
+
+  /**
+   * The conversation @ember reads to answer `message`, oldest first, ending with it: the thread it's in,
+   * its first message and latest replies, or else the room's latest messages.
+   */
+  private async conversationOf(store: MessageStore, message: Message): Promise<Message[]> {
+    if (message.parentId === undefined) return [...(await store.page(ROOM_MESSAGES_READ - 1, message.id)).messages, message];
+    const [parent, replies] = await Promise.all([store.find(message.parentId), store.repliesBefore(message.parentId, message.id, THREAD_REPLIES_READ - 1)]);
+    return [...(parent ? [parent] : []), ...replies.messages, message];
+  }
+
+  /**
+   * Posts `text`, @ember's answer to `message` in Markdown, as its reply: in `message`'s thread when it's
+   * in one, only there, with the pictures it shows in a card under it and a preview of its first web link
+   * below it, as the composer adds one. Like a bot's reply, it reaches the room as any message does, but
+   * goes to no bot, @ember among them. It's posted only while Ember AI is on and @ember in the room, and
+   * `message` still there, so that turning Ember AI off, taking @ember out of the room or deleting the
+   * question while the model answers posts nothing. Answers why the room keeps nothing of it, if it doesn't.
+   */
+  private async postAnswer(roomId: RoomId, text: string, message: Message): Promise<string | null> {
+    const answer = answerOf(text);
+    const preview = answer.firstLink === null ? null : await this.previewOf(answer.firstLink);
+    const access = await workspace(this.env).assistantIn(roomId);
+    return this.serially(async () => {
+      if (await this.isDeleted()) return "the room is gone";
+      if (!access || (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt))) return ASSISTANT_GONE;
+      const store = this.storeFor(roomId);
+      if (!(await this.findUndeleted(store, message.id))) return "the message is gone";
+      const inThread = message.parentId === undefined ? undefined : await this.inThread(store, message.parentId, false);
+      if (inThread === null) return THREAD_GONE;
+      const body = await this.answerBody(answer, preview);
+      if (typeof body === "string") return body;
+      await this.create(store, access.bot, crypto.randomUUID(), body, new Date().toISOString(), { kind: "reply", inThread });
+      return null;
+    });
+  }
+
+  /** What the room keeps of `answer`, with `preview` below it, unless the room can't keep the preview, or why it keeps nothing. */
+  private async answerBody({ markup, cards }: Answer, preview: LinkPreview | null): Promise<StoredBody | string> {
+    const previewed = preview && (await this.prepareWithCards(`${markup}${previewAttachment(preview)}`, cards));
+    return previewed && typeof previewed !== "string" ? previewed : this.prepareWithCards(markup, cards);
+  }
+
+  /** The preview of `url`, as the composer would show one, or null when it has none, or none can be had. */
+  private async previewOf(url: string): Promise<LinkPreview | null> {
+    return unfurler(this.env)
+      .unfurl(url)
+      .catch((error: unknown) => {
+        console.error("Could not unfurl the link in Ember AI's answer", error);
+        return null;
+      });
+  }
+
+  /**
+   * Runs `work`, the room hearing that `bot` is typing until it's done: in thread `threadId`, if there is
+   * one, else in the room, and again every few seconds, as apps forget typing they've stopped hearing of.
+   * While other work of the bot's goes on there, it's still typing once this is done, which the room says
+   * again, as apps stop showing someone typing once a message of theirs arrives.
+   */
+  private async typingWhile<T>(bot: User, threadId: string | undefined, work: () => Promise<T>): Promise<T> {
+    const typing = (typing: boolean) => this.broadcast({ type: "typing", user: bot, typing, ...(threadId !== undefined && { threadId }) });
+    const typist = `${bot.id} ${threadId ?? ""}`;
+    this.typists.set(typist, (this.typists.get(typist) ?? 0) + 1);
+    typing(true);
+    const again = setInterval(() => typing(true), TYPING_AGAIN_MS);
+    try {
+      return await work();
+    } finally {
+      clearInterval(again);
+      const jobs = this.typists.get(typist)! - 1;
+      if (jobs === 0) this.typists.delete(typist);
+      else this.typists.set(typist, jobs);
+      typing(jobs > 0);
+    }
   }
 
   /**

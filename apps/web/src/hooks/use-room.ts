@@ -26,7 +26,7 @@ import { settledVisibility } from "@/lib/visibility";
 import { useLatestReducer } from "./use-latest-reducer";
 
 /** How long someone shows as typing after the room last heard them start, as Campfire's typing_tracker.js keeps them. */
-const TYPING_TTL_MS = 5_000;
+export const TYPING_TTL_MS = 5_000;
 /** How often typing tells the room, as Campfire's typing_notifications_controller.js throttles it. */
 const TYPING_THROTTLE_MS = 1_000;
 

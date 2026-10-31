@@ -271,6 +271,11 @@ function withoutTyping(typing: RoomState["typing"], userId: string) {
   return rest;
 }
 
+/** Who is typing once the room has said that `frame`'s user started or stopped, heard at `now`. */
+export function typed(typing: RoomState["typing"], { user, typing: started }: Extract<ServerFrame, { type: "typing" }>, now: number): RoomState["typing"] {
+  return started ? { ...typing, [user.id]: { user, at: now } } : withoutTyping(typing, user.id);
+}
+
 /**
  * The timeline as the room lets a connection in with a welcome, `page` in its place, and `present` there.
  * Unconfirmed messages stay across a reconnect, and everything else comes fresh from the room: the old
@@ -418,10 +423,8 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     case "presence.left":
       return { ...state, present: state.present.filter((u) => u.id !== frame.userId), typing: withoutTyping(state.typing, frame.userId) };
     case "typing":
-      return {
-        ...state,
-        typing: frame.typing ? { ...state.typing, [frame.user.id]: { user: frame.user, at: now } } : withoutTyping(state.typing, frame.user.id),
-      };
+      // Typing in a thread, as @ember's while it answers there, shows in the thread (`threadReducer`).
+      return frame.threadId === undefined ? { ...state, typing: typed(state.typing, frame, now) } : state;
     case "message.checked": {
       const among = (ids: string[]) => (m: Message | PendingMessage): m is PendingMessage => isPending(m) && ids.includes(m.clientMessageId);
       const stored = among(frame.stored);

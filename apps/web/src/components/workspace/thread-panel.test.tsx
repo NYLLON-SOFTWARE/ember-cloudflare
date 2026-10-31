@@ -89,6 +89,21 @@ describe("Threads", () => {
     expect(await screen.findByRole("textbox", { name: "Write a reply" })).toBeInTheDocument();
   });
 
+  it("shows @ember typing as it answers in the thread, until its reply comes, but not who types in the room", async () => {
+    const { receive } = showThread();
+    receive({ type: "thread.opened", parentId: "m1", parent, messages: [reply("I do")], hasMore: false });
+    await screen.findByRole("textbox", { name: "Write a reply" });
+    const typists = () => document.querySelector(".spinner")!.textContent;
+    const ember = { id: "ember", name: "Ember" };
+
+    receive({ type: "typing", user: grace, typing: true });
+    expect(typists()).toBe("");
+    receive({ type: "typing", user: ember, typing: true, threadId: "m1" });
+    expect(typists()).toBe("Ember");
+    receive({ type: "message.created", message: message("In the cupboard.", { id: "r-ember", creator: ember, parentId: "m1", alsoSent: false }), seq: 3 });
+    expect(typists()).toBe("");
+  });
+
   it("pages back to the reply its permalink names, older than the newest, a page at a time", () => {
     const { send, receive } = showThread({ replyId: "r-a" });
     const pagesBack = () => send.mock.calls.flatMap(([frame]) => (frame.type === "thread.before" ? [frame.before] : []));

@@ -417,6 +417,11 @@ describe("Typing indicator", () => {
     state = frame(state, { type: "frame", frame: { type: "presence.left", userId: "u2" }, now: 0 });
     expect(state.typing).toEqual({});
   });
+
+  it("leaves typing in a thread, as @ember's while it answers there, to the thread", () => {
+    const typing = frame(initialRoomState, { type: "frame", frame: { type: "typing", user: grace, typing: true, threadId: "m1" }, now: 0 });
+    expect(typing).toBe(initialRoomState);
+  });
 });
 
 describe("Scroll back through history", () => {
