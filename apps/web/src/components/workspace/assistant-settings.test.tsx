@@ -146,6 +146,18 @@ describe("Limits", () => {
     expect(level("Off")).toBeEnabled();
   });
 
+  it("can't be turned off or changed while a change saves, so that its answer can't show Ember AI as it was", async () => {
+    const answer = held(() => Response.json({ assistant: on("@cf/zai-org/glm-4.7-flash", { thinking: "low", length: "long" }) }));
+    serve(undefined, answer.answered);
+    const { user } = showCard(on("@cf/zai-org/glm-4.7-flash"));
+    await user.click(level("Low"));
+    expect(assistantSwitch()).toBeDisabled();
+    expect(within(card()).getByRole("button", { name: "Change" })).toBeDisabled();
+    await answer.answer();
+    expect(assistantSwitch()).toBeEnabled();
+    expect(within(card()).getByRole("button", { name: "Change" })).toBeEnabled();
+  });
+
   it("shows the most as it was again when a change isn't saved, leaving why to the page's alerts", async () => {
     serve(undefined, () => Response.json({ error: ASSISTANT_OFF }, { status: 409 }));
     const shown = on("@cf/zai-org/glm-4.7-flash");

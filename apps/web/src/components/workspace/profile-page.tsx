@@ -142,6 +142,9 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
         saved.current = fieldsOf(answer.profile);
         setFields(saved.current);
         showAnswer(answer);
+        // Only from here and the dials' own saves, as a save of the profile or a photo can answer after a
+        // dial's, with your levels from before it.
+        setAssistant(answer.profile.assistant);
       },
       (error: unknown) => {
         // A page left before its profile loads only reports a session that's ended, which goes to sign in.
@@ -155,8 +158,8 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   useEffect(() => () => void (picked && URL.revokeObjectURL(picked)), [picked]);
 
   /**
-   * Shows your avatar, whether you have a password, whether you've connected Memberful and need it, your
-   * levels of @ember's dials, and a new sign-in link, as an answer has them. An answer can arrive after a later one, as a profile's save can after a
+   * Shows your avatar, whether you have a password, whether you've connected Memberful and need it, and a
+   * new sign-in link, as an answer has them. An answer can arrive after a later one, as a profile's save can after a
    * photo's, and the later avatar stays then.
    */
   function showAnswer({ profile, transferId }: ProfileAnswer) {
@@ -166,7 +169,6 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     setHasPassword((had) => had || profile.password);
     setMemberful(profile.memberful);
     setMembershipNeeded(profile.membershipNeeded);
-    setAssistant(profile.assistant);
     setTransferId(transferId);
   }
 

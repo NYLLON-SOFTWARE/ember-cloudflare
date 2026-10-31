@@ -505,6 +505,24 @@ describe("Ember AI on your profile", () => {
     expect(level("Thinking", "Off")).toBeEnabled();
   });
 
+  it("keeps the levels a dial saved when a save of the profile answers after it, with your levels from before", async () => {
+    let answer = (_: Response) => {};
+    serve({
+      loaded: () => Response.json({ profile: { ...profile, assistant: LEVELS }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+      saved: () => new Promise((resolve) => (answer = resolve)),
+    });
+    const { user } = showPage();
+    await loaded();
+    await user.type(field("Name"), " King");
+    await user.click(saveButton());
+    await user.click(level("Thinking", "Medium"));
+    await waitFor(() => expect(level("Thinking", "Off")).toBeEnabled());
+
+    await act(async () => answer(Response.json({ profile: { ...profile, name: "Ada Lovelace King", assistant: LEVELS }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(level("Thinking", "Medium")).toBeChecked();
+  });
+
   it("has none once Ember AI is turned off, as a save says", async () => {
     serve({
       loaded: () => Response.json({ profile: { ...profile, assistant: LEVELS }, transferId: LOADED_LINK } satisfies ProfileAnswer),
