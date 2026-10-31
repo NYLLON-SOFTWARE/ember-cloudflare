@@ -34,6 +34,9 @@ interface Props {
   offline: boolean;
   /** Whether the room has gone for this person, whose thread then stays as it is. */
   deleted: boolean;
+  /** What the room has to say while the thread covers it, as why it refused something done in the thread. */
+  roomNotice: string | null;
+  onDismissRoomNotice: () => void;
 }
 
 /**
@@ -42,7 +45,7 @@ interface Props {
  * the room's right, below that it covers the room, and on phones the whole page, with Back in its header
  * in Close thread's place.
  */
-export function ThreadPanel({ room, name, me, parentId, replyId, frames, status, offline, deleted }: Props) {
+export function ThreadPanel({ room, name, me, parentId, replyId, frames, status, offline, deleted, roomNotice, onDismissRoomNotice }: Props) {
   const thread = useThread(room.id, frames, status, offline, me, parentId, replyId);
   const { parent, replies } = thread.state;
   const direct = room.kind === "direct";
@@ -107,6 +110,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
         </PageLink>
       </header>
       <RoomNotice notice={replies.notice} onDismiss={thread.dismissNotice} />
+      <RoomNotice notice={roomNotice} onDismiss={onDismissRoomNotice} />
       <MessageList
         roomName={name}
         direct={direct}

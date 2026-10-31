@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef } from "react";
 import { HISTORY_PAGE_SIZE, MAX_CHECKED_MESSAGES, MESSAGE_TOO_LONG, type Message, type User } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
-import { isPending, isQueued, unconfirmed, type ConnectionStatus, type PendingMessage } from "@/lib/room-state";
+import { isQueued, unconfirmed, type ConnectionStatus, type PendingMessage } from "@/lib/room-state";
 import { initialThreadState, threadReducer } from "@/lib/thread-state";
 import { UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { isTooLong, messageActionsOf, pendingMessage, type RoomFrames } from "./use-room";
@@ -9,8 +9,9 @@ import { isTooLong, messageActionsOf, pendingMessage, type RoomFrames } from "./
 /**
  * A thread's live state, the message `parentId` names in `roomId` and its replies, over the room's socket,
  * `frames`, as `me`, whose connection to the room is `status`, and `offline` once it's been away a while.
- * `openedAt` is the reply whose permalink opened the thread, which it opens at if it's among the newest.
- * It asks the room for the thread as it opens, and again each time the room lets the page in again.
+ * `openedAt` is the reply whose permalink opened the thread, which it goes to as `jump` does. It asks the
+ * room for the thread as it opens, and again each time the room lets the page in again, and tells the
+ * room as it closes, so that its replies reach this person as pushes again.
  */
 export function useThread(roomId: string, frames: RoomFrames, status: ConnectionStatus, offline: boolean, me: User, parentId: string, openedAt?: string) {
   const [state, dispatch] = useReducer(threadReducer, { parentId, replyId: openedAt }, initialThreadState);
@@ -50,6 +51,7 @@ export function useThread(roomId: string, frames: RoomFrames, status: Connection
     return () => {
       closed.current = true;
       stop();
+      send({ type: "thread.close", parentId });
     };
   }, [frames, send, parentId]);
 
@@ -117,17 +119,19 @@ export function useThread(roomId: string, frames: RoomFrames, status: Connection
     if (send({ type: "thread.before", parentId, before, limit: HISTORY_PAGE_SIZE })) dispatch({ type: "loading-older" });
   }, [send, parentId, state.replies.oldestId, state.replies.loadingOlder]);
 
+  // While it goes to a reply older than those it has, the thread pages back to it, a page at a time.
+  const { openingAt, replies } = state;
+  const pagingBack = openingAt !== undefined && replies.status === "open" && replies.hasMore && !replies.loadingOlder;
+  const pageBack = useEffectEvent(loadOlder);
+  useEffect(() => {
+    if (pagingBack) pageBack();
+  }, [pagingBack]);
+
   /**
-   * Goes to a reply, as its permalink does, or to the thread's end when `replyId` is null. A thread holds its
-   * newest replies, and a reply it doesn't hold goes to its end too.
+   * Goes to a reply, as its permalink does, paging back to it when it's older than the replies the thread
+   * has, or to the thread's end when `replyId` is null, or the thread has no such reply.
    */
-  const jump = useCallback(
-    (replyId: string | null) => {
-      const holds = replyId !== null && state.replies.messages.some((m) => !isPending(m) && m.id === replyId);
-      dispatch({ type: "focus", messageId: holds ? replyId : null });
-    },
-    [state.replies.messages],
-  );
+  const jump = useCallback((replyId: string | null) => dispatch(replyId === null ? { type: "focus", messageId: null } : { type: "open-at", replyId }), []);
 
   const messageActions = useMemo(() => messageActionsOf(send, warn), [send, warn]);
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);

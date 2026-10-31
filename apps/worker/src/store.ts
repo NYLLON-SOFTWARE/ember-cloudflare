@@ -1,9 +1,9 @@
-import { THREAD_FACES, type Boost, type Card, type Message, type RoomId, type ThreadSummary, type TimelinePage, type User, type UserId } from "@ember/protocol";
+import { PARENT_TEXT_LENGTH, parentTextOf, THREAD_FACES, type Boost, type Card, type Message, type RoomId, type ThreadSummary, type TimelinePage, type User, type UserId } from "@ember/protocol";
 import type { PreparedBody } from "@ember/richtext";
 import { statement, type Db, type Statement } from "./db";
 import { fileSigner, type FileUrls } from "./files/addresses";
 import { deletingAllFiles, deletingFilesOf, type AttachedFile } from "./files/blobs";
-import { logEvent, logIndexing, logIndexingEach } from "./room-log";
+import { logEvent, logIndexing, logIndexingEach, logIndexingReplies } from "./room-log";
 import type { IndexedMessage } from "./search-index";
 
 // Messages for one room, kept in the room's Durable Object SQLite storage or in D1 (see db.ts), each
@@ -137,11 +137,11 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-/** How much of a reply's parent's plain text the room shows over a reply also sent there, which it cuts to one line. */
-const PARENT_TEXT_LENGTH = 150;
-
-/** The start of `plainText` a reply shows of its parent, cut as SQLite's `substr` cuts it, by characters. */
-export const parentTextOf = (plainText: string) => [...plainText].slice(0, PARENT_TEXT_LENGTH).join("");
+/** For an edit that makes `message`'s plain text `plainText`, logs its thread's replies for the search index, if what they show of it changes. */
+function logIndexingRepliesTo(roomId: RoomId, message: Message, plainText: string): Statement[] {
+  const retold = message.thread !== undefined && parentTextOf(message.plainText) !== parentTextOf(plainText);
+  return retold ? [logIndexingReplies(roomId, JSON.stringify([message.id]))] : [];
+}
 
 /** A message's thread, from its row, if it has replies. */
 function threadOf(row: MessageRow): ThreadSummary | undefined {
@@ -475,7 +475,8 @@ export class MessageStore {
    * by, as a reply to a webhook delivery when it's one, and for the search index, and answers it with the
    * change's number. A file message posts `posted`'s file, recording that its upload has finished in
    * the same transaction. A reply in a thread, `inThread`, changes its parent's thread too, as the change
-   * after it, and answers the parent as it is then.
+   * after it, logging the parent for the search index, whose results show its thread, and answers the
+   * parent as it is then.
    */
   async create(
     id: string,
@@ -512,7 +513,7 @@ export class MessageStore {
         logEvent(this.roomId, kind, creator.id, now, id, inRoom),
         logIndexing(this.roomId, id),
         ...(posted ? [posted.finished(id)] : []),
-        ...(inThread ? [this.numbered(inThread.parent.id, seq + 1)] : []),
+        ...(inThread ? [this.numbered(inThread.parent.id, seq + 1), logIndexing(this.roomId, inThread.parent.id)] : []),
       ],
       inThread ? 2 : 1,
     );
@@ -563,8 +564,9 @@ export class MessageStore {
 
   /**
    * Replaces a message's text, which marks it edited, and takes its cards away, since what's sent in its
-   * place is the whole message, logging it for the search index, and answers the message as it is now
-   * with the change's number, as the methods below that change a message answer theirs.
+   * place is the whole message, logging it for the search index, and its thread's replies if what they
+   * show of it changes, and answers the message as it is now with the change's number, as the methods
+   * below that change a message answer theirs.
    */
   async updateBody(message: Message, body: PreparedBody, now: string): Promise<{ message: Message; seq: number }> {
     const seq = await this.change((seq) => [
@@ -580,6 +582,7 @@ export class MessageStore {
         message.id,
       ),
       logIndexing(this.roomId, message.id),
+      ...logIndexingRepliesTo(this.roomId, message, body.plainText),
     ]);
     const { cards: _, ...rest } = message;
     return { message: { ...rest, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now }, seq };
@@ -589,7 +592,8 @@ export class MessageStore {
    * Gives `message` the file `posted` brings, in place of any it had, or takes its file away with null,
    * as a bot's edit does, marking it edited, as a change to its text does, and the file it had deleted,
    * for the room to purge. Its text and cards stay, and so does its plain text, unless it has neither,
-   * when that's its file's name, as a file message's is.
+   * when that's its file's name, as a file message's is, and then its thread's replies, which show it,
+   * are logged for the search index with it.
    */
   async updateAttachment(message: Message, posted: PostedFile | null, now: string): Promise<{ message: Message; seq: number }> {
     const plainText = message.body === "" && !message.cards ? (posted?.file.name ?? "") : message.plainText;
@@ -607,6 +611,7 @@ export class MessageStore {
         message.id,
       ),
       logIndexing(this.roomId, message.id),
+      ...logIndexingRepliesTo(this.roomId, message, plainText),
       ...(posted ? [posted.finished(message.id)] : []),
     ]);
     const { attachment: _, ...rest } = message;
@@ -630,8 +635,9 @@ export class MessageStore {
    * parents whose threads lose replies change too, each change numbered after the deletions. Boosts go
    * with their messages, through ON DELETE CASCADE, so a failure keeps both, and the messages' files are
    * marked deleted first, for the room to purge. The ids deleted stay with their deletions' numbers, and
-   * the deletions that fall out of the latest `CHANGES_KEPT` go, and the messages deleted or kept are
-   * logged for the search index. The ids go as JSON values, which a page of them can fill.
+   * the deletions that fall out of the latest `CHANGES_KEPT` go, and the messages deleted, kept or changed
+   * are logged for the search index, with the replies to those kept, whose results show none of their
+   * text now. The ids go as JSON values, which a page of them can fill.
    */
   async delete(ids: string[]): Promise<Deletion> {
     const listed = JSON.stringify(ids);
@@ -649,6 +655,7 @@ export class MessageStore {
     if (count === 0) return { deletedIds, changed: [], seq: (await this.latestChange()) + 1 };
     const [deletedList, keptList, changedList] = [deletedIds, kept, changedIds].map((list) => JSON.stringify(list)) as [string, string, string];
     const goneOrKept = JSON.stringify([...deletedIds, ...kept]);
+    const unindexed = JSON.stringify([...deletedIds, ...changedIds]);
     const now = new Date().toISOString();
     const seq = await this.change(
       (seq) => [
@@ -660,7 +667,8 @@ export class MessageStore {
         statement(KEEP_FOR_THREADS, this.roomId, keptList, now),
         statement(`DELETE FROM boosts WHERE room_id = ? AND message_id IN (SELECT value FROM json_each(?))`, this.roomId, keptList),
         statement(NUMBER_CHANGES, this.roomId, changedList, seq + deletedIds.length),
-        logIndexingEach(this.roomId, goneOrKept),
+        logIndexingEach(this.roomId, unindexed),
+        logIndexingReplies(this.roomId, keptList),
       ],
       count,
     );

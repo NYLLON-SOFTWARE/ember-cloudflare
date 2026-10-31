@@ -1,11 +1,13 @@
 import { HISTORY_PAGE_SIZE, threadPath, type BotAnswer, type BotSettings, type Message, type NewWorkspace, type RoomId, type ServerFrame, type Upload, type User } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MESSAGE_GONE } from "../src/chat-room";
 import {
   api,
   connect,
   cookieOf,
+  cutOff,
   freshDeploy,
   freshRoom,
   post,
@@ -269,6 +271,31 @@ describe("Deleting messages with threads", () => {
     expect(messages[0]).toMatchObject({ parentId: parent.id });
     expect(await searchSql("SELECT count(*) AS n FROM search_messages WHERE message_id = ?", parent.id)).toEqual([{ n: 0 }]);
   });
+
+  it("keeps what search results show of a thread as it is: its message's summary, and the start of the message over its replies, edited or deleted", async () => {
+    const room = await freshRoom("thread-results");
+    const ada = await connect(room, "Ada");
+    const parent = await post(ada, "<p>Zeppelin schedule</p>");
+    const answer = await reply(ada, parent, "<p>Zeppelin moved to noon</p>");
+    await caughtUp(ada);
+    const found = async () => {
+      await vi.waitFor(async () => expect(await roomSql(room, "SELECT seq FROM unindexed_messages WHERE room_id = ?", room)).toEqual([]), { timeout: 5_000 });
+      const response = await api(`/api/searches?q=zeppelin`, { headers: { Cookie: ada.session.cookie } });
+      return ((await response.json()) as { messages: Message[] }).messages;
+    };
+    expect(await found()).toMatchObject([
+      { id: parent.id, thread: { count: 1 } },
+      { id: answer.id, parentText: "Zeppelin schedule" },
+    ]);
+
+    ada.send({ type: "message.update", messageId: parent.id, body: "<p>Zeppelin timetable</p>" });
+    await updated(ada, parent.id);
+    expect((await found())[1]).toMatchObject({ id: answer.id, parentText: "Zeppelin timetable" });
+
+    ada.send({ type: "message.delete", messageId: parent.id });
+    await updated(ada, parent.id);
+    expect(await found()).toMatchObject([{ id: answer.id, parentText: "" }]);
+  });
 });
 
 describe("Whom a reply reaches", () => {
@@ -347,6 +374,51 @@ describe("Pushing replies", () => {
     // One also sent to the room is pushed to those at all messages too.
     await reply(lin, parent, "<p>Friday works</p>", true);
     await vi.waitFor(() => expect(pushed.map(({ label }) => label).sort()).toEqual(["ada", "grace", "max"]), { timeout: 5_000 });
+  });
+
+  it("pushes a reply sent only to its thread to followers viewing the room, who don't see it, but not to those viewing the thread", async () => {
+    const pushed = pushServices();
+    const room = await freshRoom("Launch");
+    const [ada, grace, lin] = [await connect(room, "Ada"), await connect(room, "Grace"), await connect(room, "Lin", { visible: false })];
+    for (const tab of [ada, grace]) await subscribe(tab.session, tab.me.name.toLowerCase(), await pushBrowser());
+    const labels = () => pushed.map(({ label }) => label).sort();
+    const parent = await post(ada, "<p>Launch day?</p>");
+    await reply(grace, parent, "<p>Friday</p>");
+    await vi.waitFor(() => expect(labels()).toEqual(["ada"]), { timeout: 5_000 });
+
+    await openThread(grace, parent.id);
+    await reply(lin, parent, "<p>Friday works</p>");
+    await vi.waitFor(() => expect(labels()).toEqual(["ada", "ada"]), { timeout: 5_000 });
+    grace.send({ type: "thread.close", parentId: parent.id });
+    await settle(grace);
+    await reply(lin, parent, "<p>See you there</p>");
+    await vi.waitFor(() => expect(labels()).toEqual(["ada", "ada", "ada", "grace"]), { timeout: 5_000 });
+  });
+
+  it("pushes nothing for a message deleted before the room tells the Workspace of it, though its thread keeps its place", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const pushed = pushServices();
+    const room = await freshRoom("Launch");
+    const [ada, grace] = [await connect(room, "Ada", { visible: false }), await connect(room, "Grace", { visible: false })];
+    const browser = await pushBrowser();
+    await subscribe(grace.session, "grace", browser);
+    const response = await api(`/api/rooms/${room}/involvement`, { method: "PUT", headers: { Cookie: grace.session.cookie }, body: JSON.stringify({ involvement: "everything" }) });
+    expect(response.status).toBe(200);
+    const bodies = () => Promise.all(pushed.map(async ({ body }) => (JSON.parse(await browser.open(body)) as { options: { body: string } }).options.body));
+
+    const reconnect = await cutOff(room);
+    const parent = await post(ada, "<p>Oops</p>");
+    await reply(ada, parent, "<p>Never mind</p>");
+    await caughtUp(ada);
+    ada.send({ type: "message.delete", messageId: parent.id });
+    expect((await updated(ada, parent.id)).message.deleted).toBe(true);
+    await vi.waitFor(async () => expect(await runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => state.storage.getAlarm())).not.toBeNull(), { timeout: 5_000 });
+    await reconnect();
+    await runDurableObjectAlarm(roomStub(room));
+    await delivered(room);
+
+    await post(ada, "<p>Last</p>");
+    await vi.waitFor(async () => expect(await bodies()).toEqual(["Ada: Last"]), { timeout: 5_000 });
   });
 });
 

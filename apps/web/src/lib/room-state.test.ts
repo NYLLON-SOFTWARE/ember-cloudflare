@@ -612,6 +612,21 @@ describe("Threads", () => {
     expect(thread({ type: "error", message: "That message no longer exists", clientMessageId: "c-reply", failed: "message.create" })).toBe(state);
   });
 
+  it("shows the start of a message over its replies also sent to the room as it is now, edited or deleted, live or on a reconnect", () => {
+    const parent = message({ id: "m001", clientMessageId: "c001", plainText: "Who has the keys?" });
+    const answer = message({ id: "m002", clientMessageId: "c002", creator: grace, parentId: "m001", alsoSent: true, parentText: "Who has the keys?" });
+    let state = opened([parent, answer, message({ id: "m003", clientMessageId: "c003" })]);
+    const untouched = state.messages[2];
+    const edited = { ...parent, plainText: "Who has the car keys? ".repeat(10) };
+    state = frame(state, { type: "frame", frame: { type: "message.updated", message: edited, seq: 2 }, now: 0 });
+    expect(state.messages[1]!.parentText).toBe(edited.plainText.slice(0, 150));
+    expect(state.messages[2]).toBe(untouched);
+
+    const tombstone = { ...parent, body: "", plainText: "", deleted: true };
+    state = frame(state, { type: "frame", frame: { type: "resumed", you: ada, messages: [tombstone], deletedIds: [], present: [ada], seq: 3 }, now: 0 });
+    expect(state.messages.map((m) => m.parentText)).toEqual([undefined, "", undefined]);
+  });
+
   it("says why something written didn't go, as the room says why it refused something", () => {
     expect(roomReducer(initialRoomState, { type: "warn", message: "Too long" }).notice).toBe("Too long");
   });

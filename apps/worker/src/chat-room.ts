@@ -748,8 +748,16 @@ export class ChatRoom extends DurableObject<Env> {
         const missing = frame.clientMessageIds.filter((id) => !stored.includes(id));
         return this.send(ws, { type: "message.checked", stored, missing });
       }
-      case "thread.open":
+      case "thread.open": {
+        const attachment = ws.deserializeAttachment() as Attachment;
+        ws.serializeAttachment({ ...attachment, thread: frame.parentId } satisfies Attachment);
         return this.send(ws, { type: "thread.opened", parentId: frame.parentId, ...(await store.thread(frame.parentId, HISTORY_PAGE_SIZE)) });
+      }
+      case "thread.close": {
+        const { thread, ...attachment } = ws.deserializeAttachment() as Attachment;
+        if (thread === frame.parentId) ws.serializeAttachment(attachment satisfies Attachment);
+        return;
+      }
       case "thread.before": {
         const { messages, hasMore } = await store.repliesBefore(frame.parentId, frame.before, frame.limit ?? HISTORY_PAGE_SIZE);
         return this.send(ws, { type: "thread.history", parentId: frame.parentId, before: frame.before, messages, hasMore });
@@ -985,13 +993,21 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Sends the Workspace the oldest events it hasn't taken, as many as one call takes, with who is viewing
    * the room now, for it to mark the room unread for the members who aren't and read for those who've
-   * opened it, and forgets them once it has. Answers how many it sent.
+   * opened it, and forgets them once it has. Answers how many it sent. A reply sent only to its thread
+   * goes with who is viewing the thread, who see it, where those viewing the room only see it counted.
    */
   private async sendEvents(roomId: RoomId): Promise<number> {
     const log = this.logFor(roomId);
-    const events = await log.undelivered(ENTRIES_PER_CALL);
-    if (events.length === 0) return 0;
-    const { pushes, webhooks } = await workspace(this.env).applyRoomEvents(roomId, events, viewersOf(this.ctx));
+    const logged = await log.undelivered(ENTRIES_PER_CALL);
+    if (logged.length === 0) return 0;
+    const now = Date.now();
+    const threads = new Map<string, UserId[]>();
+    const viewingThread = (parentId: string) => {
+      if (!threads.has(parentId)) threads.set(parentId, viewersOf(this.ctx, now, parentId));
+      return threads.get(parentId)!;
+    };
+    const events = logged.map((event) => (event.threadOnly && event.message?.parentId !== undefined ? { ...event, viewerIds: viewingThread(event.message.parentId) } : event));
+    const { pushes, webhooks } = await workspace(this.env).applyRoomEvents(roomId, events, viewersOf(this.ctx, now));
     // The Workspace answers a message's pushes and webhooks once, so they're sent whatever happens next,
     // and the log's next call doesn't wait on push services or bots.
     if (pushes.length > 0) this.ctx.waitUntil(this.push(pushes));

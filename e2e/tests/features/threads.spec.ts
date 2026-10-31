@@ -60,14 +60,14 @@ test.describe("Reply in a thread", () => {
     await expect(inThread(ada, "Thursday it is")).toBeVisible();
   });
 
-  test("opens a reply's link in its thread, at the reply", async ({ members, participant, rooms }) => {
+  test("opens a reply's link in its thread, at the reply, paging back to it when it's older than the newest", async ({ members, participant, rooms }) => {
     const grace = await participant("Grace");
     const parent = await grace.say("A long thread");
     const replies = [];
-    for (let i = 1; i <= 30; i++) replies.push(await grace.reply(parent.id, `Answer number ${i}.`));
+    for (let i = 1; i <= 45; i++) replies.push(await grace.reply(parent.id, `Answer number ${i}.`));
     const ada = await members.signIn("Ada", { path: `/rooms/${rooms.general.id}/threads/${parent.id}/@${replies[0]!.id}` });
     await expect(inThread(ada, "Answer number 1.")).toBeInViewport();
-    await expect(inThread(ada, "Answer number 30.")).not.toBeInViewport();
+    await expect(inThread(ada, "Answer number 45.")).not.toBeInViewport();
     await expect(inRoom(ada, "Answer number")).toHaveCount(0);
   });
 });

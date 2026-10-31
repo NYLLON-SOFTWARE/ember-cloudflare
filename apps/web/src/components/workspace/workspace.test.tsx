@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, startingInvolvement, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
+import { CloseCode, startingInvolvement, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import { FlashProvider } from "@/components/flash";
 import { PushContext } from "@/hooks/use-push";
 import { navigate } from "@/hooks/use-route";
@@ -520,11 +520,11 @@ describe("Link to a message", () => {
       this.sent.push(JSON.parse(data));
     }
     close() {}
-    letIn() {
+    letIn(page: Partial<TimelinePage> = {}) {
       act(() => {
         this.readyState = RoomSocket.OPEN;
         this.onopen?.();
-        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 }) });
+        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0, ...page }) });
       });
     }
   }
@@ -538,6 +538,34 @@ describe("Link to a message", () => {
     expect(room.sent).toEqual([]);
     room.letIn();
     expect(room.sent).toContainEqual({ type: "history.around", messageId: "m1" });
+  });
+
+  it("leaves the room at the message whose permalink it opened at as a thread opens there, rather than going to the newest", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    showWorkspace("/rooms/general/@m1");
+    await roomHeading();
+    const room = RoomSocket.last!;
+    const linked: Message = { id: "m1", clientMessageId: "c1", roomId: "general", creator: ada, body: "<p>Linked</p>", plainText: "Linked", mentions: [], createdAt: "2026-10-14T08:00:00.000Z", updatedAt: "2026-10-14T08:00:00.000Z", editedAt: null, boosts: [] };
+    room.letIn({ messages: [linked], hasNewer: true, around: "m1" });
+
+    act(() => navigate("/rooms/general/threads/m1"));
+    expect(await screen.findByRole("complementary", { name: "Thread" })).toBeInTheDocument();
+    expect(room.sent).toContainEqual({ type: "thread.open", parentId: "m1" });
+    expect(room.sent).not.toContainEqual({ type: "history.around" });
+  });
+
+  it("says what the room has to over a thread that covers it, as why it refused something done in the thread", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(width < 73.75rem)", media, addEventListener() {}, removeEventListener() {} }));
+    showWorkspace("/rooms/general/threads/m1");
+    await roomHeading();
+    const thread = screen.getByRole("complementary", { name: "Thread" });
+    const room = RoomSocket.last!;
+    room.letIn();
+    act(() => room.onmessage?.({ data: JSON.stringify({ type: "error", message: "You can only edit your own messages", failed: "message.update" }) }));
+    expect(within(thread).getByRole("alert")).toHaveTextContent("You can only edit your own messages");
+    await userEvent.click(within(thread).getByRole("button", { name: "Dismiss" }));
+    expect(within(thread).queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("goes from a message's own address to its permalink, which opens the room around it", async () => {

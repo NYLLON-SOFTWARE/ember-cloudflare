@@ -75,14 +75,15 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   // The room opens at the message its address names. Following its permalink, or one to another message
   // in it, or the room's own link, goes there, or to the newest, even when it's the page shown. One
   // followed while the room is away goes there once the room lets the page in again. Opening a thread,
-  // going to one of its replies, or closing it leaves the room's messages as they are.
+  // even at a permalink, whose address the thread's takes the place of, going to one of its replies, or
+  // closing it leaves the room's messages as they are.
   const visit = useVisit();
   const visited = useRef({ messageId, visit, threadId });
   const goTo = useEffectEvent((messageId: string | null) => jump(messageId));
   useEffect(() => {
     const last = visited.current;
     if (last.messageId === messageId && last.visit === visit) return;
-    const inThread = last.messageId === messageId && (threadId !== undefined || last.threadId !== undefined);
+    const inThread = threadId !== undefined || (last.threadId !== undefined && last.messageId === messageId);
     if (inThread || goTo(messageId ?? null)) visited.current = { messageId, visit, threadId };
   }, [messageId, visit, threadId, state.connections]);
   const typingUsers = Object.values(state.typing)
@@ -173,6 +174,8 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
           status={state.status}
           offline={state.offline}
           deleted={deleted}
+          roomNotice={covered ? state.notice : null}
+          onDismissRoomNotice={dismissNotice}
         />
       )}
     </>

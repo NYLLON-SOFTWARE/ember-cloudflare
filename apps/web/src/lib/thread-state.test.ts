@@ -40,11 +40,44 @@ describe("Open a thread", () => {
     expect(state.replies.focus).toEqual({ messageId: null });
   });
 
-  it("goes to the reply its permalink names when it's among them, and to the end when it isn't", () => {
+  it("goes to the reply its permalink names, paging back to an older one, and to the end when it has no such reply", () => {
     const atReply = opened(initialThreadState({ parentId: "m1", replyId: "r1" }), [reply("r1"), reply("r2")]);
     expect(atReply.replies.focus).toEqual({ messageId: "r1" });
-    const older = opened(initialThreadState({ parentId: "m1", replyId: "r0" }), [reply("r1"), reply("r2")], { hasMore: true });
-    expect(older.replies.focus).toEqual({ messageId: null });
+    expect(atReply.openingAt).toBeUndefined();
+
+    let older = opened(initialThreadState({ parentId: "m1", replyId: "r1" }), [reply("r3"), reply("r4")], { hasMore: true });
+    expect(older.openingAt).toBe("r1");
+    older = threadReducer(older, { type: "loading-older" });
+    older = frame(older, { type: "thread.history", parentId: "m1", before: "r3", messages: [reply("r1"), reply("r2")], hasMore: true });
+    expect(older.replies.focus).toEqual({ messageId: "r1" });
+    expect(older.openingAt).toBeUndefined();
+
+    // One that would be among those it has, or older than every reply, isn't there.
+    const deleted = opened(initialThreadState({ parentId: "m1", replyId: "r3a" }), [reply("r3"), reply("r4")], { hasMore: true });
+    expect(deleted.replies.focus).toEqual({ messageId: null });
+    let tooOld = opened(initialThreadState({ parentId: "m1", replyId: "r0" }), [reply("r3")], { hasMore: true });
+    tooOld = frame(threadReducer(tooOld, { type: "loading-older" }), { type: "thread.history", parentId: "m1", before: "r3", messages: [reply("r1")], hasMore: false });
+    expect(tooOld.replies.focus).toEqual({ messageId: null });
+    expect(tooOld.openingAt).toBeUndefined();
+  });
+
+  it("goes to a reply as its permalink is followed, even before it has opened, until the reader goes to the end, or a page back fails", () => {
+    const early = threadReducer(initialThreadState({ parentId: "m1" }), { type: "open-at", replyId: "r1" });
+    expect(opened(early, [reply("r1"), reply("r2")]).replies.focus).toEqual({ messageId: "r1" });
+
+    let state = opened(initialThreadState({ parentId: "m1" }), [reply("r3"), reply("r4")], { hasMore: true });
+    state = threadReducer(state, { type: "open-at", replyId: "r4" });
+    expect(state.replies.focus).toEqual({ messageId: "r4" });
+    state = threadReducer(state, { type: "open-at", replyId: "r1" });
+    expect(state.openingAt).toBe("r1");
+    state = threadReducer(state, { type: "focus", messageId: null });
+    expect(state.openingAt).toBeUndefined();
+    expect(state.replies.focus).toEqual({ messageId: null });
+
+    state = threadReducer(threadReducer(state, { type: "open-at", replyId: "r1" }), { type: "loading-older" });
+    state = frame(state, { type: "error", message: "Something went wrong", failed: "thread.before" });
+    expect(state.openingAt).toBeUndefined();
+    expect(state.replies.loadingOlder).toBe(false);
   });
 
   it("says the message is gone when the room has no such message", () => {
@@ -108,10 +141,38 @@ describe("Follow a thread as it changes", () => {
     expect(state.replies.messages[1]!.body).toBe("edited");
     expect(state.replies.focus).toEqual({ messageId: "r2" });
     expect(state.replies.status).toBe("open");
+  });
 
-    // Replies older than the newest page aren't in it, so they stay.
-    state = opened(state, [reply("r4"), reply("r5")], { hasMore: true });
-    expect(ids(state)).toEqual(["r1", "r3", "r4", "r5"]);
+  it("shows the newest page in place of its replies once they go back further, for paging back to bring the older ones as they are now", () => {
+    let state = opened(initialThreadState({ parentId: "m1" }), [reply("r1"), reply("r2")]);
+    state = threadReducer(state, { type: "pending", message: { ...reply("c3", { clientMessageId: "c3" }), pending: true } });
+    state = threadReducer(state, { type: "status", status: "reconnecting" });
+    state = opened(state, [reply("r5"), reply("r6")], { hasMore: true });
+    expect(ids(state)).toEqual(["r5", "r6", "c3"]);
+    expect(state.replies).toMatchObject({ hasMore: true, oldestId: "r5", status: "open" });
+
+    // Even when the page holds some of them.
+    state = frame(state, { type: "thread.history", parentId: "m1", before: "r5", messages: [reply("r3"), reply("r4")], hasMore: true });
+    state = opened(state, [reply("r4"), reply("r5", { body: "edited" }), reply("r7")], { hasMore: true });
+    expect(ids(state)).toEqual(["r4", "r5", "r7", "c3"]);
+    expect(state.replies.messages[1]!.body).toBe("edited");
+
+    // A thread that had none yet pages back from the page too.
+    state = opened(opened(initialThreadState({ parentId: "m1" }), []), [reply("r5"), reply("r6")], { hasMore: true });
+    expect(state.replies).toMatchObject({ hasMore: true, oldestId: "r5" });
+  });
+
+  it("keeps every reply it pages back to, its newest too, and the replies that come after", () => {
+    const replies = Array.from({ length: 400 }, (_, i) => reply(`r${String(i).padStart(3, "0")}`));
+    let state = opened(initialThreadState({ parentId: "m1" }), replies.slice(-40), { hasMore: true });
+    for (let end = 360; end > 0; end -= 40) {
+      state = frame(state, { type: "thread.history", parentId: "m1", before: replies[end]!.id, messages: replies.slice(end - 40, end), hasMore: end > 40 });
+    }
+    expect(ids(state)).toEqual(replies.map((r) => r.id));
+    expect(state.replies.hasNewer).toBe(false);
+    state = frame(state, { type: "message.created", message: reply("r400"), seq: 1 });
+    expect(ids(state)).toHaveLength(401);
+    expect(ids(state).at(-1)).toBe("r400");
   });
 });
 

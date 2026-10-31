@@ -157,12 +157,14 @@ describe("Threads", () => {
     for (const parentId of [null, "", 42, "x".repeat(65)]) expect(parse({ ...reply, parentId }), String(parentId)).toBeNull();
   });
 
-  it("opens a thread, and pages back through its replies as history does", () => {
+  it("opens a thread, pages back through its replies as history does, and closes it", () => {
     expect(parse({ type: "thread.open", parentId: "m1" })).toEqual({ type: "thread.open", parentId: "m1" });
+    expect(parse({ type: "thread.close", parentId: "m1" })).toEqual({ type: "thread.close", parentId: "m1" });
     expect(parse({ type: "thread.before", parentId: "m1", before: "r1", limit: 5000 })).toEqual({ type: "thread.before", parentId: "m1", before: "r1", limit: 100 });
     expect(parse({ type: "thread.before", parentId: "m1", before: "r1" })).toEqual({ type: "thread.before", parentId: "m1", before: "r1", limit: undefined });
     for (const bad of [undefined, "", 42, "x".repeat(65)]) {
       expect(parse({ type: "thread.open", parentId: bad }), String(bad)).toBeNull();
+      expect(parse({ type: "thread.close", parentId: bad }), String(bad)).toBeNull();
       expect(parse({ type: "thread.before", parentId: bad, before: "r1" }), String(bad)).toBeNull();
       expect(parse({ type: "thread.before", parentId: "m1", before: bad }), String(bad)).toBeNull();
     }

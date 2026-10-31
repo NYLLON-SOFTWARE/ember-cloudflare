@@ -21,9 +21,11 @@ export interface RoomEvent {
   at: string;
   /** Set for a reply sent only to its thread, which marks the room unread for nobody and isn't its activity. */
   threadOnly?: true;
+  /** For a reply sent only to its thread, who the room says is viewing the thread as it sends the event. */
+  viewerIds?: UserId[];
   /**
    * A new message as it is when the room sends the event, for its pushes, unless it has been deleted
-   * since, or was logged before events named it.
+   * since, even if its thread keeps its place, or was logged before events named it.
    */
   message?: PushedMessage;
 }
@@ -45,8 +47,8 @@ export interface PushedMessage {
 
 /**
  * The oldest events a room's log holds, up to a number of them, which are the ones the Workspace hasn't
- * applied, with each new message's text and mentions as they are now, by the message's key, and for a
- * reply in a thread, who wrote and who's mentioned in each message of the thread.
+ * applied, with each new message's text and mentions as they are now, by the message's key, unless it's
+ * been deleted, and for a reply in a thread, who wrote and who's mentioned in each message of the thread.
  */
 export const UNDELIVERED_EVENTS = `SELECT room_events.seq, room_events.kind, room_events.user_id AS userId, room_events.at, room_events.in_room AS inRoom,
     messages.id AS messageId, messages.plain_text AS plainText, messages.mentions, messages.parent_id AS parentId,
@@ -54,7 +56,7 @@ export const UNDELIVERED_EVENTS = `SELECT room_events.seq, room_events.kind, roo
       SELECT json_group_array(json_array(thread.creator_id, json(thread.mentions))) FROM messages AS thread
         WHERE thread.id = messages.parent_id OR thread.parent_id = messages.parent_id
     ) END AS thread
-  FROM room_events LEFT JOIN messages ON messages.id = room_events.message_id
+  FROM room_events LEFT JOIN messages ON messages.id = room_events.message_id AND messages.deleted = 0
   WHERE room_events.room_id = ? ORDER BY room_events.seq LIMIT ?`;
 
 /** A JSON array of the people a message mentions, each `{ "id", "name" }`, or an id alone in a row from before mentions kept names. */
@@ -108,6 +110,10 @@ export const logIndexing = (roomId: RoomId, messageId: string): Statement =>
 /** The same for each of the messages whose ids a JSON array lists. */
 export const logIndexingEach = (roomId: RoomId, listed: string): Statement =>
   statement(`INSERT INTO unindexed_messages (room_id, message_id) SELECT ?, value FROM json_each(?)`, roomId, listed);
+
+/** The same for the replies in the threads of the messages whose ids a JSON array lists, which search results show the start of over them. */
+export const logIndexingReplies = (roomId: RoomId, listed: string): Statement =>
+  statement(`INSERT INTO unindexed_messages (room_id, message_id) SELECT ?1, id FROM messages WHERE room_id = ?1 AND parent_id IN (SELECT value FROM json_each(?2))`, roomId, listed);
 
 export class RoomLog {
   constructor(

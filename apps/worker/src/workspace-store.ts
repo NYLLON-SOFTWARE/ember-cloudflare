@@ -1098,12 +1098,13 @@ const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
 
 /**
  * Where a new message, numbered ?5, by ?2 in room ?1 is pushed: to the subscriptions of the room's
- * active members other than its author and the people a JSON list ?3 names, who are viewing it, at all
- * messages, when it's in the room's timeline, as ?7 says, then of those at @mentions or all messages whom
- * it mentions, a JSON list ?4, or who follow the thread it's a reply in, a JSON list ?8, each in the order
- * they were saved. Guests are left out unless ?6 says they can stay signed in. Each comes with the room,
- * its author's name and the count its push sets the badge to: how many of its owner's conversations are
- * marked unread. Nothing once the Workspace has applied the message's event.
+ * active members other than its author and the people a JSON list ?3 names, who are viewing it, or its
+ * thread for a reply sent only there, at all messages, when it's in the room's timeline, as ?7 says, then
+ * of those at @mentions or all messages whom it mentions, a JSON list ?4, or who follow the thread it's a
+ * reply in, a JSON list ?8, each in the order they were saved. Guests are left out unless ?6 says they
+ * can stay signed in. Each comes with the room, its author's name and the count its push sets the badge
+ * to: how many of its owner's conversations are marked unread. Nothing once the Workspace has applied the
+ * message's event.
  */
 export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
@@ -2655,13 +2656,14 @@ export class WorkspaceStore {
    * Applies `events` from room `roomId`'s log, in order and in one transaction, with `viewerIds`, who
    * is viewing the room: a message marks it unread for the members who aren't, and a read clears the
    * reader's mark. The latest message also records when the room was last active. A reply sent only to
-   * its thread does neither. Those the Workspace has applied before change nothing. Answers whose marks
-   * changed, and whether each is now unread, and, when a message has come in a DM, when the latest did and
-   * everyone in the DM, to tell. With `pushing`, it answers each new message's pushes too, found just
-   * after its marks, so that a push's badge counts them and none of the events after it, and to guests
-   * only if `guests` says they can stay signed in. It answers the bots' webhooks each new message is
-   * delivered to, but for a bot's reply to one, which reaches the room as any message does but goes to no
-   * webhook.
+   * its thread does neither, and isn't pushed to those its event's `viewerIds` say are viewing the thread,
+   * in place of those viewing the room. Those the Workspace has applied before change nothing. Answers
+   * whose marks changed, and whether each is now unread, and, when a message has come in a DM, when the
+   * latest did and everyone in the DM, to tell. With `pushing`, it answers each new message's pushes too,
+   * found just after its marks, so that a push's badge counts them and none of the events after it, and
+   * to guests only if `guests` says they can stay signed in. It answers the bots' webhooks each new
+   * message is delivered to, but for a bot's reply to one, which reaches the room as any message does but
+   * goes to no webhook.
    */
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[], pushing = false, guests = false): Promise<AppliedEvents> {
     const viewers = JSON.stringify(viewerIds);
@@ -2677,7 +2679,8 @@ export class WorkspaceStore {
       const mentions = event.message ? JSON.stringify(event.message.mentionIds) : null;
       const followers = JSON.stringify(event.message?.followerIds ?? []);
       const inRoom = event.threadOnly ? 0 : 1;
-      const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, viewers, mentions, seq, guests ? 1 : 0, inRoom, followers)) - 1 : null;
+      const seeing = event.viewerIds === undefined ? viewers : JSON.stringify(event.viewerIds);
+      const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, seeing, mentions, seq, guests ? 1 : 0, inRoom, followers)) - 1 : null;
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it.
       const webhooks = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_WEBHOOKS, roomId, userId, mentions, seq)) - 1 : null;
       return { event, marks, pushes, webhooks };

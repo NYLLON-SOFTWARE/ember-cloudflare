@@ -1,4 +1,4 @@
-import { HISTORY_PAGE_SIZE, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
+import { HISTORY_PAGE_SIZE, parentTextOf, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
 
 /** `gone` is a room that isn't there for this person any more, deleted or no longer theirs, which nothing reconnects to. */
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "gone";
@@ -88,6 +88,12 @@ export interface RoomState {
    * address. It doesn't say which reaction, so a deletion sent before the latest may not happen.
    */
   refusedUnboosts: number;
+  /**
+   * Set for a timeline that keeps every message it's sent, as a thread's does: it has no way to page
+   * forward, so it can't cut its newest, and then it can't cut its oldest either, which may be the ones
+   * being read.
+   */
+  keepsAll?: true;
 }
 
 export type RoomAction =
@@ -172,7 +178,7 @@ function caughtUp({ messages, oldestId, newestId, hasNewer }: RoomState, { messa
   const added = changed.filter((m) => !loaded.has(m.id) && (oldestId === null || m.id > oldestId) && (end === null || m.id < end));
   const newest = stored.at(-1)?.id ?? newestId;
   const came = changed.some((m) => !loaded.has(m.id) && (newest === null || m.id > newest));
-  return { messages: [...[...kept, ...added].sort(byId), ...unconfirmed(messages, changed)], came };
+  return { messages: [...retold([...kept, ...added], changed).sort(byId), ...unconfirmed(messages, changed)], came };
 }
 
 /**
@@ -192,12 +198,12 @@ const showing = (state: RoomState, page: TimelinePage) => ({
  * The timeline cut back to `MAX_MESSAGES` once it holds more than `MAX_MESSAGES_LEEWAY` over: from its
  * start after it grows at the end, and from its end after it grows at the start, as Campfire's paginator
  * drops the end the reader is furthest from. What's cut is paged to again from the new `oldestId` or
- * `newestId`. Messages waiting for the room aren't cut.
+ * `newestId`. Messages waiting for the room aren't cut, nor is a timeline that `keepsAll`.
  */
 function cut(state: RoomState, from: "start" | "end"): RoomState {
   const stored = state.messages.filter((m) => !isPending(m));
   const over = stored.length - MAX_MESSAGES;
-  if (over <= MAX_MESSAGES_LEEWAY) return state;
+  if (over <= MAX_MESSAGES_LEEWAY || state.keepsAll) return state;
   const dropped = new Set((from === "start" ? stored.slice(0, over) : stored.slice(-over)).map((m) => m.id));
   const messages = state.messages.filter((m) => isPending(m) || !dropped.has(m.id));
   return from === "start"
@@ -207,6 +213,19 @@ function cut(state: RoomState, from: "start" | "end"): RoomState {
 
 const replace = (messages: RoomState["messages"], id: string, update: (m: Message) => Message) =>
   messages.map((m) => (m.id === id ? update(m) : m));
+
+/**
+ * The timeline with the replies to `changed` messages showing the start of their text as it is now, as a
+ * reply also sent to the room shows it: once a message is edited, or deleted with its thread left.
+ */
+function retold(messages: RoomState["messages"], changed: Message[]): RoomState["messages"] {
+  const texts = new Map(changed.map((m) => [m.id, parentTextOf(m.plainText)]));
+  const told = messages.map((m) => {
+    const text = m.parentId === undefined ? undefined : texts.get(m.parentId);
+    return text === undefined || text === m.parentText ? m : { ...m, parentText: text };
+  });
+  return told.every((m, i) => m === messages[i]) ? messages : told;
+}
 
 /** The timeline with the upload this page sent as `clientMessageId` changed by `update`, while it's still on its way. */
 const uploading = (messages: RoomState["messages"], clientMessageId: string, update: (upload: PendingUpload) => PendingUpload) =>
@@ -367,7 +386,7 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     case "message.created":
       return received(state, frame.message);
     case "message.updated":
-      return { ...state, messages: replace(state.messages, frame.message.id, () => frame.message) };
+      return { ...state, messages: retold(replace(state.messages, frame.message.id, () => frame.message), [frame.message]) };
     case "message.deleted":
       return { ...state, messages: state.messages.filter((m) => m.id !== frame.messageId) };
     case "boost.created":

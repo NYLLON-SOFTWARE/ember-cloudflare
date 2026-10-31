@@ -1321,6 +1321,12 @@ export interface Message {
   deleted?: boolean;
 }
 
+/** How much of a reply's parent's plain text the room shows over a reply also sent there, which it cuts to one line. */
+export const PARENT_TEXT_LENGTH = 150;
+
+/** The start of `plainText` a reply shows of its parent (`parentText`), cut as SQLite's `substr` cuts it, by characters. */
+export const parentTextOf = (plainText: string) => [...plainText].slice(0, PARENT_TEXT_LENGTH).join("");
+
 /** How many of the people who replied in a thread its summary shows. */
 export const THREAD_FACES = 4;
 
@@ -1365,8 +1371,14 @@ export type ClientFrame =
   | { type: "history.around"; messageId?: string }
   /** Asks which of these messages the room stored from the sender, after a closed socket lost their confirmations. */
   | { type: "message.check"; clientMessageIds: string[] }
-  /** A message's thread, as opening it shows it: the message and its newest page of replies. */
+  /**
+   * A message's thread, as opening it shows it: the message and its newest page of replies. Its person
+   * views the thread as they view the room, and isn't pushed the replies sent only to it, until the tab
+   * closes it or opens another.
+   */
   | { type: "thread.open"; parentId: string }
+  /** Says the tab has closed the thread it opened. */
+  | { type: "thread.close"; parentId: string }
   /** Up to `limit` of a thread's replies before one, oldest first, as its history pages back from the oldest it holds. */
   | { type: "thread.before"; parentId: string; before: string; limit?: number }
   /** Says the tab has been shown, or hidden, for a few seconds, since the socket's address or the last of these said otherwise. */
@@ -1672,6 +1684,7 @@ export function parseClientFrame(raw: string): ClientFrame | null {
         : null;
     }
     case "thread.open":
+    case "thread.close":
       return id(f.parentId) ? { type: f.type, parentId: f.parentId } : null;
     case "thread.before":
       return id(f.parentId) && id(f.before) ? { type: f.type, parentId: f.parentId, before: f.before, limit: pageLimit(f.limit) } : null;

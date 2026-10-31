@@ -41,10 +41,12 @@ function roomFrames() {
   return { frames, send, receive };
 }
 
-function showThread({ deleted = false } = {}) {
+function showThread({ deleted = false, replyId = undefined as string | undefined } = {}) {
   const room = roomFrames();
-  render(<ThreadPanel room={general} name="general" me={ada} parentId="m1" frames={room.frames} status="open" offline={false} deleted={deleted} />);
-  return { ...room, user: userEvent.setup() };
+  const { unmount } = render(
+    <ThreadPanel room={general} name="general" me={ada} parentId="m1" replyId={replyId} frames={room.frames} status="open" offline={false} deleted={deleted} roomNotice={null} onDismissRoomNotice={() => {}} />,
+  );
+  return { ...room, unmount, user: userEvent.setup() };
 }
 
 class NoObserver {
@@ -66,6 +68,13 @@ describe("Threads", () => {
     for (const name of ["general", "Close thread", "Back to general"]) expect(within(panel).getByRole("link", { name })).toHaveAttribute("href", "/rooms/general");
   });
 
+  it("tells the room as it closes, so its replies are pushed again", () => {
+    const { send, unmount } = showThread();
+    expect(send).not.toHaveBeenCalledWith({ type: "thread.close", parentId: "m1" });
+    unmount();
+    expect(send).toHaveBeenLastCalledWith({ type: "thread.close", parentId: "m1" });
+  });
+
   it("asks the room for the thread, then shows the message, how many replies it has, and the replies", async () => {
     const { send, receive } = showThread();
     expect(send).toHaveBeenCalledWith({ type: "thread.open", parentId: "m1" });
@@ -78,6 +87,18 @@ describe("Threads", () => {
     ]);
     expect(within(log).getByText("2 replies")).toBeInTheDocument();
     expect(await screen.findByRole("textbox", { name: "Write a reply" })).toBeInTheDocument();
+  });
+
+  it("pages back to the reply its permalink names, older than the newest, a page at a time", () => {
+    const { send, receive } = showThread({ replyId: "r-a" });
+    const pagesBack = () => send.mock.calls.flatMap(([frame]) => (frame.type === "thread.before" ? [frame.before] : []));
+    receive({ type: "thread.opened", parentId: "m1", parent, messages: [reply("e"), reply("f")], hasMore: true });
+    expect(pagesBack()).toEqual(["r-e"]);
+    receive({ type: "thread.history", parentId: "m1", before: "r-e", messages: [reply("c"), reply("d")], hasMore: true });
+    expect(pagesBack()).toEqual(["r-e", "r-c"]);
+    receive({ type: "thread.history", parentId: "m1", before: "r-c", messages: [reply("a"), reply("b")], hasMore: true });
+    expect(pagesBack()).toEqual(["r-e", "r-c"]);
+    expect(screen.getAllByRole("article").map((article) => article.querySelector(".message-content")!.textContent)).toEqual(["Who has the keys?", "a", "b", "c", "d", "e", "f"]);
   });
 
   it("says the message is gone, with nothing to reply in, when the room hasn't it", () => {
