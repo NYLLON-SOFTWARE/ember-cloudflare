@@ -1,4 +1,4 @@
-import { avatarSvg } from "@ember/protocol";
+import { ASSISTANT_ID, avatarSvg } from "@ember/protocol";
 import { credentialsOf } from "./auth";
 import { avatarTokenUser } from "./avatar-tokens";
 import { jsonBodyOf } from "./bodies";
@@ -14,10 +14,13 @@ import { workspace } from "./workspace";
 
 // People's avatars, as Campfire's Users::AvatarsController serves them: an image at the address
 // avatar-tokens.ts makes, for people signed in: the variant of the picture they uploaded, or their
-// initials, or the bot picture for a bot.
+// initials, or the bot picture for a bot, or Ember's flame for @ember.
 
 /** `expires_in 30.minutes, public: true, stale_while_revalidate: 1.week` */
 const CACHE_CONTROL = "max-age=1800, public, stale-while-revalidate=604800";
+
+/** Where the built app has Ember's flame, @ember's picture. */
+const FLAME = "/ember-icon.png";
 
 /** Rails' `/users/:user_id/avatar`, which takes the token as the id. */
 const ROUTE = /^\/users\/([^/]+)\/avatar$/;
@@ -50,7 +53,20 @@ export async function showAvatar(request: Request, env: Env, token: string): Pro
   if (owner === "not found") return empty(404);
   const uploaded = owner.avatar?.variant ? await variant(request, env, owner.avatar) : null;
   if (uploaded) return uploaded;
+  if (userId === ASSISTANT_ID) return flame(request, env);
   return owner.bot ? image(request, DEFAULT_BOT_AVATAR, true) : image(request, avatarSvg(userId, owner.name), false);
+}
+
+/** @ember's picture: Ember's flame, from the built app's files. */
+async function flame(request: Request, env: Env): Promise<Response> {
+  const icon = await env.ASSETS.fetch(new URL(FLAME, request.url));
+  if (!icon.ok) throw new Error(`Ember's flame answered ${icon.status}`);
+  const bytes = new Uint8Array(await icon.arrayBuffer());
+  const etag = await etagOf(bytes);
+  const headers = new Headers({ ETag: etag, "Cache-Control": CACHE_CONTROL });
+  if (isFresh(request, etag)) return new Response(null, { status: 304, headers });
+  headers.set("Content-Type", "image/png");
+  return new Response(request.method === "HEAD" ? null : bytes, { headers });
 }
 
 /**

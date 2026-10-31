@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  ASSISTANT_ID,
   CANT_SEND_EMAIL,
   CloseCode,
   domainOfEmailAddress,
@@ -8,6 +9,7 @@ import {
   emailSignUpLink,
   INVITATION_DAYS,
   invitationLink,
+  isReservedName,
   isRoomId,
   mailboxOf,
   mailboxUnder,
@@ -24,6 +26,7 @@ import {
   type Account,
   type AccountChanges,
   type AccountSettings,
+  type AssistantSettings,
   type Bot,
   type BotChanges,
   type BotSettings,
@@ -64,6 +67,7 @@ import {
   type WorkspaceServerFrame,
   type WorkspaceSettings,
 } from "@ember/protocol";
+import type { Gateway } from "./assistant/gateway";
 import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
 import { directoryOf, versionOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
@@ -244,6 +248,10 @@ const accountOf = ({
   navigationIcons,
 });
 
+/** Ember AI as the AI assistant tab shows `account`'s to administrators, or null while it's off. */
+const assistantSettingsOf = ({ assistant }: Pick<JoinableAccount, "assistant">): AssistantSettings | null =>
+  assistant && { accountId: assistant.accountId, model: assistant.model };
+
 /** The header in which the Worker passes a workspace socket's credentials on to the Workspace. */
 export const CREDENTIALS_HEADER = "X-Ember-Credentials";
 
@@ -419,6 +427,9 @@ function send(ws: WebSocket, frame: WorkspaceServerFrame): void {
 
 /** Who a session signs in, as the app keeps them. */
 const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, administrator });
+
+/** Whether someone or a bot named `name` takes @ember's name by being renamed `rename`, which they can't, unless it was theirs already (`isReservedName`). */
+const takesReservedName = (name: string, rename: string) => rename !== name && isReservedName(rename) && !isReservedName(name);
 
 /**
  * What reading that `person`'s membership is `subscribed`, or not, changes: "lapsed" for an active member
@@ -715,6 +726,7 @@ export class Workspace extends DurableObject<Env> {
       invitations,
       emailDomains: canAdminister ? account.emailDomains : [],
       addresses: canAdminister ? { deployed: account.deployedAddress, others: account.otherAddresses } : { deployed: null, others: [] },
+      assistant: canAdminister ? assistantSettingsOf(account) : null,
     };
   }
 
@@ -891,6 +903,50 @@ export class Workspace extends DurableObject<Env> {
     const secretKey = await unseal(this.env.SESSION_SECRET, "turnstile-secret-key", saved.sealedSecretKey);
     if (secretKey === null) console.error("The Turnstile secret key Ember was given doesn't open under SESSION_SECRET, so it isn't used.");
     return secretKey === null ? null : { siteKey: saved.siteKey, secretKey };
+  }
+
+  /**
+   * Turns Ember AI on as the person `credentials` signs in, asking AI Gateway as `gateway` says, which the
+   * Worker has had the model answer a test question with, its API token sealed under SESSION_SECRET
+   * (`seal`), or changes it while it's on, or turns it off with null, answering Ember AI as the AI
+   * assistant tab then shows it: "forbidden" unless they're an administrator, or null without a valid
+   * session. Turning it on adds @ember, or lets it back as it was, in every open room, and turning it
+   * off deactivates @ember, as deleting a bot does. Everyone's workspace sockets hear of @ember either way.
+   * A change that kept the API token Ember had, as `keptToken` says, changes nothing ("changed") once
+   * that's no longer Ember's token: Ember AI was turned off while the model answered, which forgot it, or
+   * set up again with another.
+   */
+  async changeAssistant(credentials: Credentials, gateway: Gateway | null, keptToken = false): Promise<{ assistant: AssistantSettings | null } | "forbidden" | "changed" | null> {
+    return this.administerAccount(credentials, async (account) => {
+      if (gateway === null && account.assistant === null) return { assistant: null };
+      if (gateway && keptToken && (await this.openedAssistant(account))?.apiToken !== gateway.apiToken) return "changed";
+      const assistant = gateway && {
+        accountId: gateway.accountId,
+        sealedApiToken: await seal(this.env.SESSION_SECRET, "ai-gateway-token", gateway.apiToken),
+        model: gateway.model,
+        format: gateway.format,
+      };
+      const changed = await this.saveAccount({ ...account, assistant }, (now) => (assistant ? this.store.turnOnAssistant(assistant, now) : this.store.turnOffAssistant(now)));
+      await this.publishPerson(ASSISTANT_ID);
+      return { assistant: assistantSettingsOf(changed) };
+    });
+  }
+
+  /**
+   * How Ember AI asks AI Gateway, its API token opened, while it's on, or else null, as when the token
+   * doesn't open under SESSION_SECRET, once that's changed, until an administrator sets it up again.
+   */
+  async assistantGateway(): Promise<Gateway | null> {
+    const account = await this.joinableAccount();
+    return account && this.openedAssistant(account);
+  }
+
+  /** How Ember AI asks AI Gateway as `account` keeps it, as `assistantGateway` answers it. */
+  private async openedAssistant({ assistant: saved }: Pick<JoinableAccount, "assistant">): Promise<Gateway | null> {
+    if (!saved) return null;
+    const apiToken = await unseal(this.env.SESSION_SECRET, "ai-gateway-token", saved.sealedApiToken);
+    if (apiToken === null) console.error("The API token Ember AI was given doesn't open under SESSION_SECRET, so it isn't used.");
+    return apiToken === null ? null : { accountId: saved.accountId, apiToken, model: saved.model, format: saved.format };
   }
 
   /**
@@ -1117,6 +1173,7 @@ export class Workspace extends DurableObject<Env> {
       emailFrom: null,
       resendApiKey: null,
       turnstileKeys: null,
+      assistant: null,
       deployedAddress: null,
       otherAddresses: [],
     };
@@ -2012,7 +2069,8 @@ export class Workspace extends DurableObject<Env> {
     if (!user) return null;
     return this.closingSockets(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
-      const person = await this.store.removablePerson(userId);
+      // @ember goes with Ember AI, on the AI assistant tab.
+      const person = userId === ASSISTANT_ID ? null : await this.store.removablePerson(userId);
       if (!person) return "not found";
       if (userId === user.id) return "yourself";
       return this.deactivate(person);
@@ -2090,16 +2148,23 @@ export class Workspace extends DurableObject<Env> {
    * Changes the active bot `botId` as the person `credentials` signs in, giving it `avatar`, which R2
    * has stored under a key `reservePicture` reserved, in place of the one it had, if it's given one, as
    * `changeAvatar` gives someone theirs. Answers it as its edit page then shows it: "forbidden" unless
-   * that's an administrator, "not found" unless `botId` is an active bot, or null without a valid
-   * session. Everyone's workspace sockets hear of a new name or avatar.
+   * that's an administrator, "not found" unless `botId` is an active bot, "name reserved" for a new name
+   * that's @ember's, unless it was the bot's before, or null without a valid session. Everyone's workspace
+   * sockets hear of a new name or avatar.
    */
-  async changeBot(credentials: Credentials, botId: UserId, changes: BotChanges, avatar: StoredPicture | null): Promise<BotSettings | "forbidden" | "not found" | null> {
+  async changeBot(
+    credentials: Credentials,
+    botId: UserId,
+    changes: BotChanges,
+    avatar: StoredPicture | null,
+  ): Promise<BotSettings | "forbidden" | "not found" | "name reserved" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.oneAtATime(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
       const bot = await this.store.activeBot(botId);
       if (!bot) return "not found";
+      if (changes.name !== undefined && takesReservedName(bot.name, changes.name)) return "name reserved";
       const now = Date.now();
       const previous = avatar && ((await this.store.avatarOwner(botId))?.avatar?.key ?? null);
       await this.store.changeBot(botId, changes, new Date(now).toISOString(), avatar && { avatar, previous, dueAt: now });
@@ -2182,7 +2247,8 @@ export class Workspace extends DurableObject<Env> {
     if (!user) return null;
     return this.closingSockets(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
-      const person = await this.store.person(userId);
+      // As above, @ember goes with Ember AI.
+      const person = userId === ASSISTANT_ID ? null : await this.store.person(userId);
       if (!person) return "not found";
       if (userId === user.id) return "yourself";
       const ipAddresses = await this.store.sessionIpAddresses(userId);
@@ -2228,7 +2294,8 @@ export class Workspace extends DurableObject<Env> {
     if (!user) return null;
     return this.closingSockets(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
-      const person = await this.store.person(userId);
+      // As when banning, @ember goes with Ember AI, which lifting a ban would otherwise bring back.
+      const person = userId === ASSISTANT_ID ? null : await this.store.person(userId);
       if (!person) return "not found";
 
       const now = Date.now();
@@ -2312,7 +2379,7 @@ export class Workspace extends DurableObject<Env> {
    * password ends their other sessions: their sockets close and are told to reconnect, here at once and
    * in every room they're in through the outbox, and their push subscriptions are forgotten but this
    * browser's, at `pushEndpoint`. Everyone's workspace sockets hear of a new name or bio, which the
-   * people directory lists.
+   * people directory lists. A new name can't be @ember's ("name reserved"), unless it was theirs before.
    */
   async changeProfile(
     credentials: Credentials,
@@ -2320,7 +2387,7 @@ export class Workspace extends DurableObject<Env> {
     passwordDigest: string | null,
     checked: string | null,
     pushEndpoint: string | null,
-  ): Promise<YourProfile | "email address taken" | "password needed" | null> {
+  ): Promise<YourProfile | "email address taken" | "password needed" | "name reserved" | null> {
     return this.closingSockets(async () => {
       // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
       // save whose session was still valid before then mustn't put back a password of its own.
@@ -2336,6 +2403,7 @@ export class Workspace extends DurableObject<Env> {
       };
       const listed = profile.name !== person.name || profile.bio !== person.bio;
       if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return this.yourProfile(person, session);
+      if (takesReservedName(person.name, profile.name)) return "name reserved";
       // Read again here, since a reset ahead of this in line, or another change, can have replaced the password checked.
       if (person.password && changesSignIn(person, changes.emailAddress, passwordDigest !== null) && (await this.store.signInOf(user.id))?.passwordDigest !== checked) {
         return "password needed";

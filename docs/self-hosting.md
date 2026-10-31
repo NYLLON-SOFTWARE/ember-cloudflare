@@ -17,6 +17,7 @@ account, as [Deploying](#deploying) describes.
   - [Inviting people by email](#inviting-people-by-email)
   - [Push notifications](#push-notifications)
   - [Files](#files)
+  - [Ember AI](#ember-ai)
   - [A preview from GitHub Actions](#a-preview-from-github-actions)
   - [A demo from GitHub Actions](#a-demo-from-github-actions)
   - [Resetting a password](#resetting-a-password)
@@ -356,6 +357,19 @@ another. `wrangler dev` keeps files on your machine. Without the binding Ember k
 A file goes up in parts of 10 MiB, since a Worker takes at most 100 MB a request, and R2 puts them
 back together. R2 deletes the parts of an upload nobody finishes after a week.
 
+### Ember AI
+
+An administrator adds @ember, an AI assistant, on the AI assistant tab of community settings. Turning
+on its Ember AI card opens Set up Ember AI, which takes a Cloudflare account's ID and an API token,
+both from Workers AI's Use REST API in the Cloudflare dashboard, then a model. Ember asks models
+through the account's default [AI Gateway](https://developers.cloudflare.com/ai-gateway/), whose
+logs, caching and spend limits apply. Workers AI's models come with Cloudflare's free daily
+allowance, and other companies', such as Anthropic's, OpenAI's and Google's, are paid for with AI
+Gateway's credits, as [What it costs](#what-it-costs) says. The Worker asks the model a test question
+before keeping the setup. @ember then joins every room open to everyone, and turning the card off
+takes it out again and forgets the token. Nobody else can take the name Ember, though anyone who had
+it keeps it.
+
 ### A preview from GitHub Actions
 
 The Preview workflow (`.github/workflows/preview.yml`) deploys `main` to a Worker named
@@ -475,7 +489,7 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
 - A Resend API key pasted into Set up email is kept encrypted, and never shown again, even to
   administrators: Membership says only that Ember has one. Make it a key with Sending access, as Resend
   suggests, so that one that got out could do no more than send email. A Turnstile secret key given in
-  Set up Turnstile is kept the same way.
+  Set up Turnstile, and an API token given in Set up Ember AI, are kept the same way.
 - A code to reset a password goes to the account's email address, so whoever reads mail there can
   take the account over, as on most sites. Nobody checks an address is its owner's when someone
   joins, unless they join with an invitation or Email domain, so someone could join with another
@@ -520,10 +534,15 @@ pages had them in October 2026:
 - **Email**, if Ember sends it: Resend's free plan sends 3,000 emails a month, at most 100 a day, and
   Cloudflare Email Service includes 3,000 a month on Workers Paid, as [Sending email](#sending-email)
   says.
+- **Ember AI**, if it's on: Workers AI's models are free up to 10,000 Neurons a day on either plan, and
+  Workers Paid bills past that at $0.011 per 1,000 Neurons. Other companies' models are paid for with
+  AI Gateway's credits, at each provider's own per-token prices, plus a 5% fee on the credits bought.
 
 Cloudflare's pages have the details: [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/),
-[Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) and
-[R2 pricing](https://developers.cloudflare.com/r2/pricing/).
+[Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/),
+[R2 pricing](https://developers.cloudflare.com/r2/pricing/),
+[Workers AI pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/) and
+[AI Gateway's Unified Billing](https://developers.cloudflare.com/ai-gateway/features/unified-billing/).
 
 ## Storage: Durable Object SQLite or D1
 

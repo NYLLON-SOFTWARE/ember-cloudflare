@@ -2,6 +2,7 @@
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
 
+import type { AssistantSettings } from "./assistant.ts";
 import type { Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
@@ -42,6 +43,8 @@ export {
 // and the web app's main chunk, which imports this, would otherwise cost the app one more script to load
 // (`oneAppScript` in apps/web/vite.config.ts says why).
 export type { Bot, BotAnswer, BotChanges, BotRoom, Bots, BotSettings, NewBot } from "./bots.ts";
+// So is the rest of assistant.ts, from "@ember/protocol/assistant", which only Set up Ember AI and the Worker's assistant use.
+export type { AssistantForgotten, AssistantSaved, AssistantSettings, AssistantSetup, ModelFormat } from "./assistant.ts";
 export {
   FILE_NAME_NOT_KEPT,
   FILE_TOO_LARGE,
@@ -450,6 +453,8 @@ export interface WorkspaceSettings {
   emailDomains: string[];
   /** The addresses Ember knows reach it besides its own, which the Custom domain card names, for administrators, and none for anyone else. */
   addresses: EmberAddresses;
+  /** Ember AI as the AI assistant tab shows it, for administrators while it's on, and null otherwise. */
+  assistant: AssistantSettings | null;
 }
 
 /**
@@ -1606,6 +1611,23 @@ export const MAX_USER_NAME_LENGTH = 100;
 /** No deliverable address is longer (RFC 5321's path limit). */
 export const MAX_EMAIL_ADDRESS_LENGTH = 254;
 export const NAME_TOO_LONG = `Name must be at most ${MAX_USER_NAME_LENGTH} characters`;
+
+/** The id of @ember, the account Ember AI answers as, which the Worker adds once an administrator sets Ember AI up. */
+export const ASSISTANT_ID: UserId = "ember";
+/** @ember's name, which nobody else can take (`isReservedName`). */
+export const ASSISTANT_NAME = "Ember";
+export const NAME_RESERVED = `${ASSISTANT_NAME} is the AI assistant's name. Choose another.`;
+
+/**
+ * Whether `name` is @ember's, which nobody can take, whether or not Ember AI is on, so that nobody passes
+ * for it: "Ember" in any capitals, in any of Unicode's compatible forms, such as fullwidth letters, with
+ * spaces around it, an @ before it, or characters that show nothing, such as a zero-width space, in it.
+ * Anyone who had the name before keeps it.
+ */
+export function isReservedName(name: string): boolean {
+  const shown = name.normalize("NFKC").replace(/\p{Cf}/gu, "").replace(/^[\s@]+|\s+$/g, "");
+  return shown.toLowerCase() === ASSISTANT_NAME.toLowerCase();
+}
 export const EMAIL_ADDRESS_TOO_LONG = `Email address must be at most ${MAX_EMAIL_ADDRESS_LENGTH} characters`;
 
 /** The reactions: the first three are quick reactions, the rest sit in the tray. */
@@ -2165,6 +2187,7 @@ export function parseSignUp(data: unknown): SignUp | string {
   const emailAddress = typeof f.emailAddress === "string" ? f.emailAddress : "";
   if (!name || !emailAddress || typeof f.password !== "string") return "Name, email address and password are required";
   if (name.length > MAX_USER_NAME_LENGTH) return NAME_TOO_LONG;
+  if (isReservedName(name)) return NAME_RESERVED;
   if (emailAddress.length > MAX_EMAIL_ADDRESS_LENGTH) return EMAIL_ADDRESS_TOO_LONG;
   return { name, emailAddress, password: f.password };
 }
@@ -2189,6 +2212,7 @@ export function parseEmailLinkSignUp(data: unknown): EmailLinkSignUp | string {
   const name = typeof data.name === "string" ? data.name.trim() : "";
   if (!name || typeof data.password !== "string" || typeof data.token !== "string") return "Name and password are required";
   if (name.length > MAX_USER_NAME_LENGTH) return NAME_TOO_LONG;
+  if (isReservedName(name)) return NAME_RESERVED;
   return { token: data.token, name, password: data.password };
 }
 

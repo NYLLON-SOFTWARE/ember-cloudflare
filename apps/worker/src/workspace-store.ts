@@ -1,4 +1,6 @@
 import {
+  ASSISTANT_ID,
+  ASSISTANT_NAME,
   MAX_FAVORITES,
   MAX_OTHER_ADDRESSES,
   MAX_PUSH_SUBSCRIPTIONS,
@@ -39,6 +41,7 @@ import {
   type UserId,
   type UserStatus,
 } from "@ember/protocol";
+import { MODEL_FORMATS, type ModelFormat } from "@ember/protocol/assistant";
 import { statement, type Db, type Statement } from "./db";
 import type { StoredPicture } from "./files/pictures";
 import { messagePayload, type PushPayload } from "./push/payload";
@@ -110,6 +113,8 @@ export interface JoinableAccount extends Omit<Account, "logo"> {
   resendApiKey: string | null;
   /** The keys of the Turnstile widget an administrator gave Ember to check people with, or null while they haven't given one's. */
   turnstileKeys: SavedTurnstileKeys | null;
+  /** How Ember AI asks AI Gateway, while an administrator has it on, or else null. */
+  assistant: SavedAssistant | null;
   /** Where a deploy puts Ember, as the latest page opened there told it, or null until one has (`EmberAddresses.deployed`). */
   deployedAddress: string | null;
   /** The custom domains Ember has moved away from, newest first, which may still reach it (`EmberAddresses.others`). */
@@ -120,6 +125,17 @@ export interface JoinableAccount extends Omit<Account, "logo"> {
 export interface SavedTurnstileKeys {
   siteKey: string;
   sealedSecretKey: string;
+}
+
+/**
+ * How Ember AI asks AI Gateway, as the account keeps it: the Cloudflare account, its API token sealed
+ * (`seal`), the model and the format the model took Set up Ember AI's test question in.
+ */
+export interface SavedAssistant {
+  accountId: string;
+  sealedApiToken: string;
+  model: string;
+  format: ModelFormat;
 }
 
 /** The account first run creates. */
@@ -749,6 +765,22 @@ function turnstileKeysIn(settings: Record<string, unknown> | null): SavedTurnsti
 }
 
 /**
+ * How Ember AI asks AI Gateway, which the account's settings keep as `assistant`,
+ * `{ account_id, api_token, model, format }`, the API token sealed, or null while it's off.
+ */
+function assistantIn(settings: Record<string, unknown> | null): SavedAssistant | null {
+  const kept = settings?.assistant;
+  if (typeof kept !== "object" || kept === null) return null;
+  const { account_id: accountId, api_token: sealedApiToken, model, format } = kept as Record<string, unknown>;
+  if (typeof accountId !== "string" || typeof sealedApiToken !== "string" || typeof model !== "string") return null;
+  return (MODEL_FORMATS as readonly unknown[]).includes(format) ? { accountId, sealedApiToken, model, format: format as ModelFormat } : null;
+}
+
+/** Ember AI as the account's settings keep it (`assistantIn`), or null for off. */
+const assistantSetting = (assistant: SavedAssistant | null) =>
+  JSON.stringify(assistant && { account_id: assistant.accountId, api_token: assistant.sealedApiToken, model: assistant.model, format: assistant.format });
+
+/**
  * Whether the join link lets people in, which the account's settings keep as `join_link`: until the
  * setting is stored, as for an account from before it, then only while it's present, as translation
  * buttons are read. Settings that don't parse leave it on.
@@ -1236,6 +1268,7 @@ const SET_EMAIL_DOMAINS = setSetting("email_domains");
 const SET_EMAIL_FROM = setSetting("email_from");
 const SET_RESEND_API_KEY = setSetting("resend_api_key");
 const SET_TURNSTILE_KEYS = setSetting("turnstile_keys");
+const SET_ASSISTANT = setSetting("assistant");
 
 /**
  * Sets the account's setting `key` to the JSON value ?1, as `setSetting` does, but without recording
@@ -1407,22 +1440,25 @@ const ACTIVE_PERSON = `SELECT id, name, bio, role, status, updated_at FROM users
 /** The same, or someone suspended for their membership's lapsing, as an administrator can remove them too. */
 const REMOVABLE_PERSON = `SELECT id, name, bio, role, status, updated_at FROM users WHERE id = ? AND status IN (${ACTIVE}, ${SUSPENDED})`;
 
-/** The active bots, by name, with their tokens. */
+/**
+ * The active bots, by name, with their tokens. @ember isn't one of them: the AI assistant tab looks after
+ * it, not Chat bots.
+ */
 const ACTIVE_BOTS = `SELECT id, name, bio, role, status, updated_at, bot_token FROM users
-  WHERE status = ${ACTIVE} AND role = ${BOT} ORDER BY lower(name), id`;
+  WHERE status = ${ACTIVE} AND role = ${BOT} AND id <> '${ASSISTANT_ID}' ORDER BY lower(name), id`;
 
 /**
  * The rooms the active bots are in but their DMs, by name, as the bots page lists each bot's.
  */
 const ACTIVE_BOTS_ROOMS = `SELECT memberships.user_id, rooms.id, rooms.name
   FROM users JOIN memberships ON memberships.user_id = users.id JOIN rooms ON rooms.id = memberships.room_id
-  WHERE users.status = ${ACTIVE} AND users.role = ${BOT} AND rooms.kind <> 'direct' ORDER BY lower(rooms.name), rooms.id`;
+  WHERE users.status = ${ACTIVE} AND users.role = ${BOT} AND users.id <> '${ASSISTANT_ID}' AND rooms.kind <> 'direct' ORDER BY lower(rooms.name), rooms.id`;
 
 /**
- * An active bot, with its token and where its webhook delivers.
+ * An active bot, with its token and where its webhook delivers. @ember isn't one, as above.
  */
 const ACTIVE_BOT = `SELECT users.id, users.name, users.bio, users.role, users.status, users.updated_at, users.bot_token, webhooks.url AS webhook_url
-  FROM users LEFT JOIN webhooks ON webhooks.user_id = users.id WHERE users.id = ? AND users.status = ${ACTIVE} AND users.role = ${BOT}`;
+  FROM users LEFT JOIN webhooks ON webhooks.user_id = users.id WHERE users.id = ? AND users.status = ${ACTIVE} AND users.role = ${BOT} AND users.id <> '${ASSISTANT_ID}'`;
 
 /**
  * An active bot's token, with whether it's in room ?1.
@@ -1433,6 +1469,13 @@ const ACTIVE_BOT_KEY = `SELECT id, name, bot_token, EXISTS (SELECT 1 FROM member
 /** The rooms a bot is in but its DMs, by name. */
 const BOT_ROOMS = `SELECT rooms.id, rooms.name FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? AND rooms.kind <> 'direct' ORDER BY lower(rooms.name), rooms.id`;
+
+/**
+ * Adds @ember, the bot Ember AI answers as, without a token, so its key opens nothing, or lets it back,
+ * as it was, once it was turned off, so that its answers stay its own.
+ */
+const ACTIVATE_ASSISTANT = `INSERT INTO users (id, name, role, created_at, updated_at) VALUES (?1, ?2, ${BOT}, ?3, ?3)
+  ON CONFLICT (id) DO UPDATE SET status = ${ACTIVE}, updated_at = excluded.updated_at WHERE status <> ${ACTIVE}`;
 
 /** Adds a bot, with its avatar. */
 const INSERT_BOT = `INSERT INTO users (id, name, role, bot_token, avatar_key, avatar_variant, created_at, updated_at) VALUES (?, ?, ${BOT}, ?, ?, ?, ?, ?)`;
@@ -1693,6 +1736,7 @@ export class WorkspaceStore {
       emailFrom: emailFromIn(settings),
       resendApiKey: resendApiKeyIn(settings),
       turnstileKeys: turnstileKeysIn(settings),
+      assistant: assistantIn(settings),
       deployedAddress: deployedAddressIn(settings),
       otherAddresses: otherAddressesIn(settings),
     };
@@ -2828,6 +2872,32 @@ export class WorkspaceStore {
   /** Gives a bot a new token, recording when, so its old key no longer works. */
   async changeBotToken(botId: UserId, token: string, now: string): Promise<void> {
     await this.db.run(CHANGE_BOT_TOKEN, token, now, botId);
+  }
+
+  /**
+   * Turns Ember AI on as `assistant` has it, or changes it while it's on, in one batch: saves it in the
+   * account's settings, recording when, adds @ember, or lets it back as it was, and puts it in every open
+   * room, as someone who joins is.
+   */
+  async turnOnAssistant(assistant: SavedAssistant, now: string): Promise<void> {
+    await this.db.batch([
+      statement(SET_ASSISTANT, assistantSetting(assistant), now),
+      statement(ACTIVATE_ASSISTANT, ASSISTANT_ID, ASSISTANT_NAME, now),
+      statement(GRANT_OPEN_ROOMS_TO_USER, ASSISTANT_ID, now, now),
+    ]);
+  }
+
+  /**
+   * Turns Ember AI off, in one batch: forgets how it asked AI Gateway, recording when, and deactivates
+   * @ember as removing someone does, taking it out of every room but its DMs. It has no sessions to end,
+   * nor an email address to free. Its messages stay.
+   */
+  async turnOffAssistant(now: string): Promise<void> {
+    await this.db.batch([
+      statement(SET_ASSISTANT, assistantSetting(null), now),
+      statement(LEAVE_SHARED_ROOMS, ASSISTANT_ID),
+      statement(`UPDATE users SET status = ${DEACTIVATED}, updated_at = ? WHERE id = ? AND status = ${ACTIVE}`, now, ASSISTANT_ID),
+    ]);
   }
 
   /** Someone with their email address, whatever their status, or null if nobody has id `userId`. */

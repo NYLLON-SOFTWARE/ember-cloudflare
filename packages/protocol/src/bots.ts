@@ -1,4 +1,4 @@
-import { MAX_USER_NAME_LENGTH, type DirectoryUser, type RoomId } from "./index.ts";
+import { isReservedName, MAX_USER_NAME_LENGTH, NAME_RESERVED, type DirectoryUser, type RoomId } from "./index.ts";
 
 // Chat bots, as administrators add, change and delete them through `/api/account/bots`, as Campfire's
 // `accounts/bots` and `accounts/bots/keys` controllers do.
@@ -92,9 +92,14 @@ export function parseBotChanges(data: unknown): BotChanges | string {
   return changes;
 }
 
-/** Parses an untrusted new bot, as `parseBotChanges` does a change, which also needs a name. */
+/**
+ * Parses an untrusted new bot, as `parseBotChanges` does a change, which also needs a name, and not
+ * @ember's (`isReservedName`). A bot that has that name already keeps it, so the Worker checks a new name
+ * for one.
+ */
 export function parseNewBot(data: unknown): NewBot | string {
   const changes = parseBotChanges(data);
   if (typeof changes === "string") return changes;
-  return changes.name === undefined ? "Name can't be blank" : { ...changes, name: changes.name };
+  if (changes.name === undefined) return "Name can't be blank";
+  return isReservedName(changes.name) ? NAME_RESERVED : { ...changes, name: changes.name };
 }

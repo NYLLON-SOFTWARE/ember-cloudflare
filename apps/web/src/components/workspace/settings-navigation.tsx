@@ -1,5 +1,5 @@
 import { createContext, useLayoutEffect, useRef, type ComponentType } from "react";
-import { BrainElectricity, Group, Hashtag, Internet, Palette, Settings } from "@/components/icons/iconoir";
+import { BrainElectricity, Group, Hashtag, Internet, Palette, Settings, Sparks } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { BOTS_PATH, CUSTOM_STYLES_PATH, WORKSPACE_SETTINGS_PATH, type Route } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
@@ -7,12 +7,19 @@ import { cn } from "@/lib/utils";
 // Community settings: the pages that set the workspace up share a layout whose column of links to them
 // takes the conversations' place, and workspace settings show one of their sections at a time, the one
 // the address's fragment names: General, Rooms and permissions, Membership, and Domain settings, where
-// administrators give Ember a custom domain.
+// administrators give Ember a custom domain, and AI assistant, where they set up Ember AI.
 
 /** The sections of community settings, by their ids. */
-export type SettingsSection = "community-settings" | "channel-settings" | "membership-settings" | "domain-settings" | "chat-bots" | "custom-styles";
+export type SettingsSection =
+  | "community-settings"
+  | "channel-settings"
+  | "membership-settings"
+  | "domain-settings"
+  | "chat-bots"
+  | "assistant-settings"
+  | "custom-styles";
 
-const WORKSPACE_SECTIONS = ["community-settings", "channel-settings", "membership-settings", "domain-settings"] as const;
+const WORKSPACE_SECTIONS = ["community-settings", "channel-settings", "membership-settings", "domain-settings", "assistant-settings"] as const;
 
 /** Workspace settings' own sections, which `/account/edit` shows one at a time. */
 export type WorkspaceSection = (typeof WORKSPACE_SECTIONS)[number];
@@ -70,6 +77,7 @@ const LINKS: SectionLink[] = [
 const ADMINISTRATOR_LINKS: SectionLink[] = [
   { section: "domain-settings", href: workspaceSectionPath("domain-settings"), icon: Internet, label: "Domain settings" },
   { section: "chat-bots", href: BOTS_PATH, icon: BrainElectricity, label: "Chat bots" },
+  { section: "assistant-settings", href: workspaceSectionPath("assistant-settings"), icon: Sparks, label: "AI assistant" },
   { section: "custom-styles", href: CUSTOM_STYLES_PATH, icon: Palette, label: "Custom styles" },
 ];
 
@@ -88,7 +96,8 @@ const LINK = cn(
 /**
  * The links to community settings' sections, the current one marked: a 244px column beside the page,
  * or at 900px and below, a strip under the header that scrolls sideways when they don't all fit, keeping
- * the current one in view. Domain settings, Chat bots and Custom styles are for administrators alone.
+ * the current one in view. Domain settings, Chat bots, AI assistant and Custom styles are for
+ * administrators alone.
  */
 export function SettingsNavigation({ section, administrator }: SettingsPlace) {
   const navigation = useRef<HTMLElement>(null);

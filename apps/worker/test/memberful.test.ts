@@ -740,7 +740,7 @@ describe("Sign in with Memberful", () => {
       expect(await workspaceSql("SELECT count(*) AS n FROM sessions WHERE user_id = ?", id)).toEqual([{ n: 0 }]);
     });
 
-    it("names someone new by their email address without a full name, and Member without either, cutting a long name", async () => {
+    it("names someone new by their email address without a full name, and Member without either, cutting a long name, and never Ember", async () => {
       await setUpWithMemberful();
       const site = fakeMemberful({ fullName: " " });
       expect((await signedInAs(await signInWithMemberful())).name).toBe("katherine");
@@ -750,6 +750,11 @@ describe("Sign in with Memberful", () => {
       expect(await workspaceSql("SELECT email_address FROM users WHERE id = ?", unnamed.id)).toEqual([{ email_address: null }]);
       site.member = { ...katherine, id: "4244", fullName: `${"K".repeat(99)}😀`, email: "long@example.com" };
       expect((await signedInAs(await signInWithMemberful())).name).toBe("K".repeat(99));
+      // The AI assistant's name, which is reserved, is passed over.
+      site.member = { ...katherine, id: "4245", fullName: "EMBER", email: "kj@example.com" };
+      expect((await signedInAs(await signInWithMemberful())).name).toBe("kj");
+      site.member = { ...katherine, id: "4246", fullName: "Ember", email: "ember@example.com" };
+      expect((await signedInAs(await signInWithMemberful())).name).toBe("Member");
     });
 
     it("signs nobody in with a state this browser didn't start with, or without a code, and asks Memberful nothing", async () => {

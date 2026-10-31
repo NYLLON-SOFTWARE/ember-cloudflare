@@ -92,6 +92,12 @@ export interface Env {
   /** Where Resend's API is, for the browser tests' stand-in, which only a loopback address can be. */
   RESEND_API_URL?: string;
   /**
+   * Where Cloudflare's API is, which Ember AI asks AI Gateway through, for the browser tests' stand-in,
+   * which only a loopback address can be: `http://127.0.0.1:8793` has Ember ask
+   * `http://127.0.0.1:8793/accounts/<id>/ai/v1/...` (assistant/gateway.ts).
+   */
+  AI_GATEWAY_URL?: string;
+  /**
    * The public half of the P-256 key pair that signs push notifications (VAPID): the point, compressed
    * or not, in URL-safe Base64. `pnpm vapid:keys` makes a pair. Without both halves, or with a pair that
    * doesn't match, push notifications are off. Browsers subscribe with it, so changing it orphans every

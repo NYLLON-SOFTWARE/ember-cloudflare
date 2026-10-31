@@ -69,6 +69,7 @@ describe("Community settings page", () => {
       ["/account/edit#channel-settings", "channel-settings"],
       ["/account/edit#membership-settings", "membership-settings"],
       ["/account/edit#domain-settings", "domain-settings"],
+      ["/account/edit#assistant-settings", "assistant-settings"],
       ["/account/edit#nowhere", "community-settings"],
       ["/rooms/opens/new", "channel-settings"],
       ["/rooms/closeds/new", "channel-settings"],
@@ -102,9 +103,22 @@ describe("Chat bots page", () => {
     const { rerender } = render(<SettingsNavigation section="chat-bots" administrator />);
     expect(screen.getByRole("link", { name: "Chat bots" })).toHaveAttribute("href", "/account/bots");
     expect(current()).toHaveTextContent("Chat bots");
-    expect(links().map((link) => link.textContent)).toEqual(["General", "Rooms and permissions", "Membership", "Domain settings", "Chat bots", "Custom styles"]);
+    expect(links().map((link) => link.textContent)).toEqual(["General", "Rooms and permissions", "Membership", "Domain settings", "Chat bots", "AI assistant", "Custom styles"]);
     rerender(<SettingsNavigation section="community-settings" administrator={false} />);
     expect(screen.queryByRole("link", { name: "Chat bots" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Ember AI", () => {
+  it("links administrators to AI assistant, after Chat bots, and members not at all", () => {
+    const { rerender } = render(<SettingsNavigation section="assistant-settings" administrator />);
+    const assistant = screen.getByRole("link", { name: "AI assistant" });
+    expect(assistant).toHaveAttribute("href", "/account/edit#assistant-settings");
+    expect(assistant.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(links()[links().indexOf(screen.getByRole("link", { name: "Chat bots" })) + 1]).toBe(assistant);
+    expect(current()).toBe(assistant);
+    rerender(<SettingsNavigation section="community-settings" administrator={false} />);
+    expect(screen.queryByRole("link", { name: "AI assistant" })).not.toBeInTheDocument();
   });
 });
 

@@ -1,4 +1,4 @@
-import { MAX_EMAIL_ADDRESS_LENGTH, MAX_USER_NAME_LENGTH } from "@ember/protocol";
+import { isReservedName, MAX_EMAIL_ADDRESS_LENGTH, MAX_USER_NAME_LENGTH } from "@ember/protocol";
 import type { Env } from "./env";
 import { isLoopback } from "./loopback";
 
@@ -171,13 +171,19 @@ function isSubscribed({ unrestrictedAccess, subscriptions }: Record<string, unkn
   return unrestrictedAccess === true || active;
 }
 
-/** What someone new is called here: `fullName`, else their email address's local part, else "Member", cut to the longest name. */
+/**
+ * What someone new is called here: `fullName`, else their email address's local part, else "Member", cut
+ * to the longest name, passing over either when it's @ember's (`isReservedName`).
+ */
 function nameOf(fullName: unknown, emailAddress: string | null): string {
-  const name = (typeof fullName === "string" ? fullName.trim() : "") || emailAddress?.split("@")[0]?.trim() || "Member";
-  // Without half of a character cut in two.
-  const cut = name
+  const names = [typeof fullName === "string" ? fullName : "", emailAddress?.split("@")[0] ?? ""].map(cutName);
+  return names.find((name) => name && !isReservedName(name)) ?? "Member";
+}
+
+/** `name` without the spaces around it, cut to the longest name, without half of a character cut in two. */
+const cutName = (name: string) =>
+  name
+    .trim()
     .slice(0, MAX_USER_NAME_LENGTH)
     .replace(/[\uD800-\uDBFF]$/, "")
     .trimEnd();
-  return cut || "Member";
-}

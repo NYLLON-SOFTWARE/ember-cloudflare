@@ -11,6 +11,7 @@ import {
   OPEN_WITH_MEMBERFUL,
   type Account,
   type AccountChanges,
+  type AssistantSetup,
   type DirectoryUser,
   type EmailInvitation,
   type Invited,
@@ -45,6 +46,7 @@ const asAdministrator: WorkspaceSettings = {
   memberfulSite: null,
   memberfulWebhooks: false,
   turnstile: null,
+  assistant: null,
   email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: null },
   invitations: [],
   emailDomains: [],
@@ -102,7 +104,7 @@ const LOGO = "/account/logo?v=20261017120000";
 
 /** Answers the page's requests as the server would for `settings`, or as `answers` says. */
 function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed, ordered, logoSaved }: Answers = {}) {
-  let { account, emailDomains: keptDomains, email, turnstile } = settings;
+  let { account, emailDomains: keptDomains, email, turnstile, assistant } = settings;
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
     const person = request.match(/^PATCH \/api\/account\/users\/(.+)$/);
@@ -114,7 +116,7 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
     if (removing) return removed ? removed() : Response.json({ user: { ...everyone.find((user) => user.id === removing[1]), status: "deactivated" } });
     switch (request) {
       case "GET /api/account":
-        return Response.json({ ...settings, account, emailDomains: keptDomains, email, turnstile });
+        return Response.json({ ...settings, account, emailDomains: keptDomains, email, turnstile, assistant });
       case "PATCH /api/account": {
         if (saved) return saved();
         const {
@@ -167,6 +169,14 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
       case "DELETE /api/account/turnstile_keys":
         turnstile = null;
         return Response.json({ turnstile });
+      case "PUT /api/account/assistant": {
+        const { accountId, model } = JSON.parse(String(init?.body)) as AssistantSetup;
+        assistant = { accountId, model };
+        return Response.json({ assistant, greeting: "Hello, team!" });
+      }
+      case "DELETE /api/account/assistant":
+        assistant = null;
+        return Response.json({ assistant });
       case "POST /api/invitations": {
         const { emailAddresses } = JSON.parse(String(init?.body)) as { emailAddresses: string[] };
         const outcomes = emailAddresses.map((emailAddress) => ({ emailAddress, invitation: invitationTo(emailAddress), link: `https://ember.test/join/invitation#token=${emailAddress}` }));
@@ -287,6 +297,7 @@ describe("Community settings page", () => {
   const rooms = () => screen.queryByRole("region", { name: "Room order and permissions" });
   const membership = () => screen.queryByRole("region", { name: "Membership" });
   const domain = () => screen.queryByRole("region", { name: "Domain settings" });
+  const assistant = () => screen.queryByRole("region", { name: "AI assistant" });
 
   it("reads Basic community settings, titled Community settings, with Go Back to the last room visited", () => {
     showPage();
@@ -321,9 +332,15 @@ describe("Community settings page", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Domain settings" })).toBeInTheDocument();
     expect(screen.getByText("Choose the address people open your community at.")).toBeInTheDocument();
 
+    act(() => navigate(workspaceSectionPath("assistant-settings")));
+    expect(domain()).not.toBeInTheDocument();
+    expect(assistant()).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "AI assistant" })).toBeInTheDocument();
+    expect(screen.getByText("Add an AI assistant people can ask in the chat.")).toBeInTheDocument();
+
     act(() => navigate("/account/edit#account_name"));
     expect(community()).toBeInTheDocument();
-    expect(domain()).not.toBeInTheDocument();
+    expect(assistant()).not.toBeInTheDocument();
   });
 
   it("keeps what's typed in one section while another shows", async () => {
@@ -1572,6 +1589,50 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
     showPage(asLinus);
     expect(await joinLink()).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Turnstile" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Ember AI", () => {
+  showingSection("assistant-settings");
+
+  it("gives administrators the Ember AI card, whose switch sets up Ember AI, naming the model it saved", async () => {
+    const { user } = showPage();
+    const card = await screen.findByRole("region", { name: "Ember AI" });
+    const assistantSwitch = within(card).getByRole("switch", { name: "Ember AI" });
+    expect(assistantSwitch).not.toBeChecked();
+    await user.click(assistantSwitch);
+    await user.type(await screen.findByRole("textbox", { name: "Account ID" }), "0123456789abcdef0123456789abcdef");
+    await user.type(screen.getByRole("textbox", { name: "API token" }), "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-Ab");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Model" }), "Claude Haiku 5.5");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Hello, team!")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(card).toHaveTextContent("@ember runs on Claude Haiku 5.5 through Cloudflare AI Gateway.");
+    expect(assistantSwitch).toBeChecked();
+
+    await user.click(within(card).getByRole("button", { name: "Change" }));
+    expect(await screen.findByRole("textbox", { name: "Account ID" })).toHaveValue("0123456789abcdef0123456789abcdef");
+  });
+
+  it("turns Ember AI off once the administrator confirms", async () => {
+    serve({ ...asAdministrator, assistant: { accountId: "0123456789abcdef0123456789abcdef", model: "@cf/zai-org/glm-4.7-flash" } });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { user } = showPage();
+    const card = await screen.findByRole("region", { name: "Ember AI" });
+    expect(card).toHaveTextContent("@ember runs on GLM-4.7 Flash through Cloudflare AI Gateway.");
+    await user.click(within(card).getByRole("switch", { name: "Ember AI" }));
+    await waitFor(() => expect(within(card).queryByRole("button", { name: "Change" })).not.toBeInTheDocument());
+    expect(within(card).getByRole("switch", { name: "Ember AI" })).not.toBeChecked();
+    expect(card).toHaveTextContent("Ember AI adds @ember");
+  });
+
+  it("tells members that administrators manage it, with no card", async () => {
+    serve(asMember);
+    showPage(asLinus);
+    expect(await screen.findByText("Community admins manage the AI assistant.")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Ember AI" })).not.toBeInTheDocument();
   });
 });
 
