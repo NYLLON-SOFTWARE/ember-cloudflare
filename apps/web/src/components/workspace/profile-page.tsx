@@ -28,6 +28,7 @@ import { avatarVariantOf } from "@/lib/previews";
 import { pushEndpoint } from "@/lib/push";
 import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
+import { AnswerLevels } from "./answer-levels";
 import { ConversationNotifications } from "./conversation-notifications";
 import { MemberfulConnection } from "./memberful-connection";
 import { InstallInstructions } from "./notification-help";
@@ -100,10 +101,11 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
  * everywhere.", and Remove avatar takes away, then your name, email address, a new password, your
  * current password while you have one, which changing your email address or password takes, and your
  * bio, which Save changes saves with the notice "✓", keeping the page, then, while members sign in with
- * Memberful, connecting your Memberful account, then your notification level in each of your rooms and
- * DMs, then a sign-in link for you, a new one each time the page loads or saves, and Log out in the top
- * bar. Go Back returns to the page it was opened from. Your avatar, name and bio reach everyone's open
- * pages at once, through the workspace socket, as they reach the rail.
+ * Memberful, connecting your Memberful account, then, while Ember AI is on, how much @ember thinks and
+ * how long it answers you, then your notification level in each of your rooms and DMs, then a sign-in
+ * link for you, a new one each time the page loads or saves, and Log out in the top bar. Go Back
+ * returns to the page it was opened from. Your avatar, name and bio reach everyone's open pages at
+ * once, through the workspace socket, as they reach the rail.
  */
 export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
@@ -120,6 +122,8 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const [memberful, setMemberful] = useState<boolean | null>(null);
   /** Whether you need Memberful to sign in while it's members only, unlike administrators and the people they invite. */
   const [membershipNeeded, setMembershipNeeded] = useState(true);
+  /** How much @ember thinks and how long it answers you, or null while Ember AI is off. */
+  const [assistant, setAssistant] = useState<Profile["assistant"]>(null);
   const [saving, setSaving] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
   const currentPasswordInput = useRef<HTMLInputElement>(null);
@@ -151,8 +155,8 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   useEffect(() => () => void (picked && URL.revokeObjectURL(picked)), [picked]);
 
   /**
-   * Shows your avatar, whether you have a password, whether you've connected Memberful and need it, and a
-   * new sign-in link, as an answer has them. An answer can arrive after a later one, as a profile's save can after a
+   * Shows your avatar, whether you have a password, whether you've connected Memberful and need it, your
+   * levels of @ember's dials, and a new sign-in link, as an answer has them. An answer can arrive after a later one, as a profile's save can after a
    * photo's, and the later avatar stays then.
    */
   function showAnswer({ profile, transferId }: ProfileAnswer) {
@@ -162,6 +166,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     setHasPassword((had) => had || profile.password);
     setMemberful(profile.memberful);
     setMembershipNeeded(profile.membershipNeeded);
+    setAssistant(profile.assistant);
     setTransferId(transferId);
   }
 
@@ -332,6 +337,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
           <SubmitButton disabled={!fields || saving}>Save changes</SubmitButton>
         </form>
         {memberful !== null && <MemberfulConnection connected={memberful} hasPassword={hasPassword} membershipNeeded={membershipNeeded} onFailed={onFailed} />}
+        {assistant && <AnswerLevels assistant={assistant} onChanged={setAssistant} onFailed={onFailed} />}
         {rooms && <ConversationNotifications me={me} rooms={rooms} askForRoom={askForRoom} onFailed={onFailed} />}
         {transferId && <SignInLink transferId={transferId} mine />}
       </Panel>

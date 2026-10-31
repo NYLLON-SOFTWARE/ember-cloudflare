@@ -21,6 +21,7 @@ import {
   type SidebarRoom,
   type WorkspaceSettings,
 } from "@ember/protocol";
+import { TOP_LEVELS, type AnswerLevelChanges } from "@ember/protocol/assistant";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
@@ -171,9 +172,12 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         return Response.json({ turnstile });
       case "PUT /api/account/assistant": {
         const { accountId, model } = JSON.parse(String(init?.body)) as AssistantSetup;
-        assistant = { accountId, model };
+        assistant = { accountId, model, most: assistant?.most ?? TOP_LEVELS };
         return Response.json({ assistant, greeting: "Hello, team!" });
       }
+      case "PATCH /api/account/assistant":
+        assistant = assistant && { ...assistant, most: { ...assistant.most, ...(JSON.parse(String(init?.body)) as AnswerLevelChanges) } };
+        return Response.json({ assistant });
       case "DELETE /api/account/assistant":
         assistant = null;
         return Response.json({ assistant });
@@ -1617,7 +1621,7 @@ describe("Ember AI", () => {
   });
 
   it("turns Ember AI off once the administrator confirms", async () => {
-    serve({ ...asAdministrator, assistant: { accountId: "0123456789abcdef0123456789abcdef", model: "@cf/zai-org/glm-4.7-flash" } });
+    serve({ ...asAdministrator, assistant: { accountId: "0123456789abcdef0123456789abcdef", model: "@cf/zai-org/glm-4.7-flash", most: TOP_LEVELS } });
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = showPage();
     const card = await screen.findByRole("region", { name: "Ember AI" });
@@ -1626,6 +1630,20 @@ describe("Ember AI", () => {
     await waitFor(() => expect(within(card).queryByRole("button", { name: "Change" })).not.toBeInTheDocument());
     expect(within(card).getByRole("switch", { name: "Ember AI" })).not.toBeChecked();
     expect(card).toHaveTextContent("Ember AI adds @ember");
+  });
+
+  it("changes the most @ember may think and write for anyone on the card, at once", async () => {
+    serve({ ...asAdministrator, assistant: { accountId: "0123456789abcdef0123456789abcdef", model: "@cf/zai-org/glm-4.7-flash", most: TOP_LEVELS } });
+    const { user } = showPage();
+    const card = await screen.findByRole("region", { name: "Ember AI" });
+    const thinking = within(card).getByRole("group", { name: "Thinking" });
+    expect(within(thinking).getByRole("radio", { name: "High" })).toBeChecked();
+    await user.click(within(thinking).getByRole("radio", { name: "Low" }));
+    expect(within(thinking).getByRole("radio", { name: "Low" })).toBeChecked();
+    await waitFor(() => expect(within(thinking).getByRole("radio", { name: "High" })).toBeEnabled());
+    expect(within(thinking).getByRole("radio", { name: "Low" })).toBeChecked();
+    expect(thinking).toHaveTextContent("Thinks a little first, up to about 4,000 tokens.");
+    expect(fetch).toHaveBeenCalledWith("/api/account/assistant", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ thinking: "low" }) }));
   });
 
   it("tells members that administrators manage it, with no card", async () => {

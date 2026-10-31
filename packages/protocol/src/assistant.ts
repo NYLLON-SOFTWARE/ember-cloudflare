@@ -41,11 +41,94 @@ export const isWorkersAiModel = (model: string) => model.startsWith("@cf/");
 /** What to call `model`: its name in the list Set up Ember AI shows, or else its ID. */
 export const modelName = (model: string) => ASSISTANT_MODELS.find(({ id }) => id === model)?.name ?? model;
 
-/** Ember AI as the AI assistant tab shows it to administrators while it's on: the Cloudflare account it asks through, and its model. */
+/** How much @ember thinks before it answers: not at all, a little, more, or the most. */
+export const THINKING_LEVELS = ["off", "low", "medium", "high"] as const;
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+
+/**
+ * About how many tokens of thinking each level allows, which a model that takes an effort instead is
+ * asked for as its low, medium or high effort.
+ */
+export const THINKING_TOKENS: Record<ThinkingLevel, number> = { off: 0, low: 4_000, medium: 16_000, high: 32_000 };
+
+/** How long @ember's answers are: short, medium, or long. */
+export const ANSWER_LENGTHS = ["short", "medium", "long"] as const;
+export type AnswerLength = (typeof ANSWER_LENGTHS)[number];
+
+/** About how many words each length's answers keep to, which @ember is told: a long one is nearly all one message holds. */
+export const ANSWER_WORDS: Record<AnswerLength, number> = { short: 150, medium: 400, long: 1_500 };
+
+/** How much @ember thinks, and how long it answers. */
+export interface AnswerLevels {
+  thinking: ThinkingLevel;
+  length: AnswerLength;
+}
+
+/** Each level, as its dial names it. */
+export const LEVEL_NAMES: Record<ThinkingLevel | AnswerLength, string> = { off: "Off", low: "Low", medium: "Medium", high: "High", short: "Short", long: "Long" };
+
+/** The levels of @ember's answers to someone who hasn't picked their own. */
+export const DEFAULT_LEVELS: AnswerLevels = { thinking: "low", length: "medium" };
+
+/** The most each dial goes to until an administrator sets less: the top, as Ember adds no limits of its own. */
+export const TOP_LEVELS: AnswerLevels = { thinking: "high", length: "long" };
+
+/** `levels`, each no higher than `most`'s. */
+export function withinMost(levels: AnswerLevels, most: AnswerLevels): AnswerLevels {
+  const lower = <T>(order: readonly T[], level: T, highest: T) => order[Math.min(order.indexOf(level), order.indexOf(highest))]!;
+  return { thinking: lower(THINKING_LEVELS, levels.thinking, most.thinking), length: lower(ANSWER_LENGTHS, levels.length, most.length) };
+}
+
+/**
+ * What `PATCH /api/account/assistant` changes of the most each dial goes to, and `PATCH
+ * /api/users/me/assistant` of your own levels: one dial, or both.
+ */
+export type AnswerLevelChanges = Partial<AnswerLevels>;
+
+/** The changes `data` gives, as a dial sends them, or null when it changes neither dial, or gives a level neither has. */
+export function parseLevelChanges(data: unknown): AnswerLevelChanges | null {
+  const given = typeof data === "object" && data !== null && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
+  const { thinking, length } = given;
+  if (thinking === undefined && length === undefined) return null;
+  if (thinking !== undefined && !(THINKING_LEVELS as readonly unknown[]).includes(thinking)) return null;
+  if (length !== undefined && !(ANSWER_LENGTHS as readonly unknown[]).includes(length)) return null;
+  return { ...(thinking !== undefined && { thinking: thinking as ThinkingLevel }), ...(length !== undefined && { length: length as AnswerLength }) };
+}
+
+/** Why a change to the levels is refused before anything's saved. */
+export const LEVELS_REFUSED = "Choose a level the dial has.";
+
+/**
+ * Ember AI as the AI assistant tab shows it to administrators while it's on: the Cloudflare account it
+ * asks through, its model, and the most each dial goes to for anyone's questions.
+ */
 export interface AssistantSettings {
   accountId: string;
   model: string;
+  most: AnswerLevels;
 }
+
+/** What `PATCH /api/account/assistant` answers once it has saved the most each dial goes to: Ember AI as it is then. */
+export interface AssistantChanged {
+  assistant: AssistantSettings;
+}
+
+/**
+ * The levels of @ember's answers to you while Ember AI is on, as your profile shows them: yours, or
+ * where they start until you pick, no higher than the most administrators allow, which it shows too.
+ */
+export interface YourAnswerLevels {
+  levels: AnswerLevels;
+  most: AnswerLevels;
+}
+
+/** What `PATCH /api/users/me/assistant` answers: your levels as they are then, or null while Ember AI is off. */
+export interface AnswerLevelsAnswer {
+  assistant: YourAnswerLevels | null;
+}
+
+/** What the AI assistant tab says when a change to the most each dial goes to comes while Ember AI is off. */
+export const ASSISTANT_OFF = "Ember AI is off. Turn it on first.";
 
 /**
  * What Set up Ember AI gives `PUT /api/account/assistant`: the Cloudflare account's ID, an API token of

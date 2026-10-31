@@ -1,4 +1,5 @@
 import { ASSISTANT_ID, ASSISTANT_NAME, isMessageTooLong, MAX_MESSAGE_HTML_LENGTH, type Card, type CardImage, type LinkPreview, type Message, type User } from "@ember/protocol";
+import { ANSWER_WORDS, THINKING_TOKENS, type AnswerLength, type AnswerLevels } from "@ember/protocol/assistant";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, prepareBody, previewContent } from "@ember/richtext";
 import { decodeHTMLStrict } from "entities/decode";
 import { Marked } from "marked";
@@ -7,10 +8,11 @@ import { escapeText, linkHref } from "../bots/mrkdwn";
 import type { Question, RefusalReason, Turn } from "./gateway";
 
 // What @ember asks its model when someone asks it something, and what it answers with. It reads the
-// conversation it's asked in, each message after its writer's name, and answers in Markdown, which it
-// posts as the rich text people write (`markdownHtml`), the pictures it shows in a card under it, as bots'
-// image cards are, and a preview of its first link, as the composer adds one below a link. When it can't
-// answer, it says why, in words that say who can do something about it.
+// conversation it's asked in, each message after its writer's name, and answers in Markdown, thinking
+// and writing as much as the asker's levels allow, which it posts as the rich text people write
+// (`markdownHtml`), the pictures it shows in a card under it, as bots' image cards are, and a preview of
+// its first link, as the composer adds one below a link. When it can't answer, it says why, in words
+// that say who can do something about it.
 
 /** How many of the room's latest messages @ember reads when it's asked in the room, the question among them. */
 export const ROOM_MESSAGES_READ = 20;
@@ -24,14 +26,30 @@ export const THREAD_REPLIES_READ = 50;
  */
 export const MAX_CONVERSATION_LENGTH = 40_000;
 
-/** About how many words @ember is asked to keep an answer to: a Medium answer. */
-export const ANSWER_WORDS = 400;
+/**
+ * The most tokens each length's answer may take once its model has thought: several times its words, at
+ * about 1.3 tokens each, as Markdown, code and tables take more, and a model writes past what it's asked.
+ */
+export const ANSWER_TOKENS: Record<AnswerLength, number> = { short: 1_000, medium: 2_000, long: 6_000 };
+
+/** The tokens of thinking an answer may take when it's asked for none, as some models think a little all the same. */
+export const UNTHINKING_TOKENS = 2_000;
+
+/** The most tokens an answer at `levels` may take: its thinking's, which counts toward them, and then its words'. */
+export const maxTokensAt = ({ thinking, length }: AnswerLevels) => (thinking === "off" ? UNTHINKING_TOKENS : THINKING_TOKENS[thinking]) + ANSWER_TOKENS[length];
+
+/** How long @ember waits for its model at the least, which most answers take a fraction of. */
+const LEAST_WAIT_MS = 120_000;
+
+/** How long it waits for each token an answer may take, as long as a slow model takes to write one. */
+const WAIT_PER_TOKEN_MS = 20;
 
 /**
- * The most tokens an answer may take: room for a model that thinks before it answers, as many do
- * unless they're asked not to, and then a Medium answer.
+ * How long @ember waits for its model to answer `question`: the longer, the more it may think and write.
+ * The most, High thinking and a Long answer, is under 13 minutes, within the 15 a request on its way
+ * keeps a room in memory.
  */
-export const ANSWER_MAX_TOKENS = 8_000;
+export const waitFor = ({ maxTokens }: Question) => Math.max(LEAST_WAIT_MS, maxTokens * WAIT_PER_TOKEN_MS);
 
 /** Where @ember is asked something: the community's name, the room's, or null for a DM, and whether it's in a thread. */
 export interface AskedIn {
@@ -45,19 +63,21 @@ export class AnswerError extends Error {}
 
 /**
  * What @ember asks its model about the question `conversation` ends with, which `asker` asked `where`,
- * at `now`: the conversation it can read, its writers named, and how to answer, labeled with who asked.
+ * at `now`: the conversation it can read, its writers named, how to answer, and how much to think and
+ * write, at the asker's `levels`, labeled with who asked.
  */
-export function questionFor(conversation: Message[], asker: User, where: AskedIn, now: Date): Question {
-  return { instructions: instructionsFor(asker, where, now), turns: turnsOf(readable(conversation, where.inThread)), maxTokens: ANSWER_MAX_TOKENS, askerId: asker.id };
+export function questionFor(conversation: Message[], asker: User, where: AskedIn, levels: AnswerLevels, now: Date): Question {
+  const instructions = instructionsFor(asker, where, ANSWER_WORDS[levels.length], now);
+  return { instructions, turns: turnsOf(readable(conversation, where.inThread)), maxTokens: maxTokensAt(levels), thinking: levels.thinking, askerId: asker.id };
 }
 
-/** What @ember is told before the conversation. */
-function instructionsFor(asker: User, { community, roomName, inThread }: AskedIn, now: Date): string {
+/** What @ember is told before the conversation, asked to answer in about `words` words at most. */
+function instructionsFor(asker: User, { community, roomName, inThread }: AskedIn, words: number, now: Date): string {
   const room = roomName === null ? "a direct message" : `the room "${roomName}"`;
   const today = new Intl.DateTimeFormat("en-US", { dateStyle: "full", timeZone: "UTC" }).format(now);
   return [
     `You are ${ASSISTANT_NAME}, the AI assistant in the team chat "${community}". People ask you things by mentioning @ember in a room or a thread, or by writing to you directly.`,
-    `You're asked in ${inThread ? `a thread in ${room}` : room}. Its messages follow, oldest first, each after its writer's name. Answer the last one, which ${asker.name} wrote, as a helpful teammate would: plainly, and in at most about ${ANSWER_WORDS} words.`,
+    `You're asked in ${inThread ? `a thread in ${room}` : room}. Its messages follow, oldest first, each after its writer's name. Answer the last one, which ${asker.name} wrote, as a helpful teammate would: plainly, and in at most about ${words.toLocaleString("en-US")} words.`,
     "Write in Markdown. Links, bold, italics, lists, quotes, code blocks and tables show as they do in the chat, and a picture you show with ![what it shows](its address) appears under your answer. Don't begin with your name.",
     `Today is ${today}, in UTC.`,
   ].join("\n\n");
@@ -183,6 +203,9 @@ export function previewAttachment({ url, image, title, description }: LinkPrevie
 /** Where administrators set Ember AI up, as @ember's notes name it. */
 const SETTINGS = "AI assistant in community settings";
 
+/** Where each person picks how much @ember thinks and writes for them, as its notes name it. */
+const YOUR_LEVELS = "Ember AI on your profile";
+
 /** What @ember says when it can't answer, for each reason it can't, and while its API token doesn't open. */
 export const NOTES: Record<RefusalReason | "unopened token", string> = {
   token: `I can't answer right now: Cloudflare didn't take Ember AI's API token. An administrator can give it another under ${SETTINGS}.`,
@@ -193,5 +216,6 @@ export const NOTES: Record<RefusalReason | "unopened token", string> = {
   "too long": "I can't answer that here: the conversation is longer than my model reads at once. Try asking in a new thread.",
   unanswered: "I couldn't answer: AI Gateway didn't answer in time. Try again in a moment.",
   nothing: "I couldn't answer: my model answered with nothing. Try asking again.",
+  "out of room": `I couldn't answer: my model thought for as long as it may before it wrote anything. Try asking again, or choose less Thinking under ${YOUR_LEVELS}.`,
   "unopened token": `I can't answer right now: Ember AI's API token no longer opens here. An administrator can set it up again under ${SETTINGS}.`,
 };

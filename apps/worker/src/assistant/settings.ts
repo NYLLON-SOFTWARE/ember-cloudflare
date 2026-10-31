@@ -1,5 +1,16 @@
 import { ASSISTANT_NAME } from "@ember/protocol";
-import { ASSISTANT_FORBIDDEN, parseAssistantSetup, type AssistantForgotten, type AssistantSaved, type ModelFormat } from "@ember/protocol/assistant";
+import {
+  ASSISTANT_FORBIDDEN,
+  ASSISTANT_OFF,
+  LEVELS_REFUSED,
+  parseAssistantSetup,
+  parseLevelChanges,
+  type AnswerLevelsAnswer,
+  type AssistantChanged,
+  type AssistantForgotten,
+  type AssistantSaved,
+  type ModelFormat,
+} from "@ember/protocol/assistant";
 import { credentialsOf } from "../auth";
 import { jsonBodyOf } from "../bodies";
 import type { Env } from "../env";
@@ -8,7 +19,8 @@ import { workspace } from "../workspace";
 import { ask, formatsFor, type Gateway, type GatewayRefusal, type Question } from "./gateway";
 
 // Ember AI's setup, as administrators turn it on, change it and turn it off on the AI assistant tab of
-// workspace settings. They answer JSON for its card and its dialog.
+// workspace settings, and the levels of @ember's answers, which they set the most of there, and each
+// person picks on their profile. They answer JSON for the card, its dialog and the profile's dials.
 
 const problem = (status: number, message: string) => Response.json({ error: message }, { status });
 
@@ -70,6 +82,39 @@ export async function forgetAssistant(request: Request, env: Env): Promise<Respo
   if (!forgotten) return problem(401, NOT_SIGNED_IN);
   if (forgotten === "forbidden") return problem(403, ASSISTANT_FORBIDDEN);
   return Response.json({ assistant: null } satisfies AssistantForgotten, { headers: PRIVATE });
+}
+
+/**
+ * `PATCH /api/account/assistant`, `{ thinking?, length? }`: changes the most each of @ember's dials goes
+ * to for anyone's questions, as the Ember AI card's dials do while it's on, answering Ember AI as it is
+ * then. Someone who isn't an administrator hears so before anything they sent is read.
+ */
+export async function changeAssistantMost(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const ember = workspace(env);
+  const administrator = credentials && (await ember.canAdminister(credentials));
+  if (!credentials || administrator === null) return problem(401, NOT_SIGNED_IN);
+  if (!administrator) return problem(403, ASSISTANT_FORBIDDEN);
+  const changes = parseLevelChanges(await jsonBodyOf(request));
+  if (!changes) return problem(422, LEVELS_REFUSED);
+  const changed = await ember.changeAssistantMost(credentials, changes);
+  if (!changed) return problem(401, NOT_SIGNED_IN);
+  if (changed === "forbidden") return problem(403, ASSISTANT_FORBIDDEN);
+  if (changed === "off") return problem(409, ASSISTANT_OFF);
+  return Response.json(changed satisfies AssistantChanged, { headers: PRIVATE });
+}
+
+/**
+ * `PATCH /api/users/me/assistant`, `{ thinking?, length? }`: changes how much @ember thinks and how long
+ * it answers you, as your profile's dials do, answering your levels as they are then.
+ */
+export async function changeAnswerLevels(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, NOT_SIGNED_IN);
+  const changes = parseLevelChanges(await jsonBodyOf(request));
+  if (!changes) return problem(422, LEVELS_REFUSED);
+  const changed = await workspace(env).changeAnswerLevels(credentials, changes);
+  return changed ? Response.json(changed satisfies AnswerLevelsAnswer, { headers: PRIVATE }) : problem(401, NOT_SIGNED_IN);
 }
 
 /**

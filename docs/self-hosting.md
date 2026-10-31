@@ -383,6 +383,19 @@ credits run out, @ember says why in a short note, and the Worker's log has Cloud
 AI Gateway's logs keep each request with the id of whoever asked, as custom metadata's `user_id`,
 which a spend limit can be split by.
 
+Two dials say how much @ember does for each question. Thinking, Off, Low, Medium or High, is how much
+its model thinks before it answers, up to about 4,000, 16,000 or 32,000 tokens, asked for as each API
+takes it: a Workers AI or OpenAI model's reasoning effort, or Anthropic's adaptive thinking, at its
+lowest effort for Off, since Anthropic's newest models don't turn thinking off. Answer length, Short,
+Medium or Long, is about 150, 400 or 1,500 words, which @ember's instructions ask for and its token
+limit allows, with room for code and tables. The Limits on the Ember AI card set the most of each for
+anyone's questions, the top of each until an administrator lowers them, and each person picks their
+own levels under Ember AI on their profile, up to those, starting at Low thinking and a Medium answer.
+A model that refuses a thinking level is asked again without one. @ember waits for its model as long
+as the levels may take, 2 minutes at the least and about 13 at High and Long. An answer its token limit
+cuts short ends with an ellipsis, and when the model thinks for all it may before writing anything,
+@ember says so and suggests less thinking.
+
 ### A preview from GitHub Actions
 
 The Preview workflow (`.github/workflows/preview.yml`) deploys `main` to a Worker named
@@ -550,6 +563,8 @@ pages had them in October 2026:
 - **Ember AI**, if it's on: Workers AI's models are free up to 10,000 Neurons a day on either plan, and
   Workers Paid bills past that at $0.011 per 1,000 Neurons. Other companies' models are paid for with
   AI Gateway's credits, at each provider's own per-token prices, plus a 5% fee on the credits bought.
+  Thinking counts as output, as the answer does, so the [dials](#ember-ai) bound what one answer
+  costs: at most 3,000 tokens out at Off and Short, 6,000 at Low and Medium, and 38,000 at High and Long.
 
 Cloudflare's pages have the details: [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/),
 [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/),

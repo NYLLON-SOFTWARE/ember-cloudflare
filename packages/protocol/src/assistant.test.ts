@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   ACCOUNT_ID_REFUSED,
+  ANSWER_LENGTHS,
+  ANSWER_WORDS,
   API_TOKEN_REFUSED,
   ASSISTANT_MODELS,
+  DEFAULT_LEVELS,
   isWorkersAiModel,
   MAX_MODEL_LENGTH,
   MODEL_FORMATS,
@@ -10,7 +13,13 @@ import {
   modelName,
   modelOf,
   parseAssistantSetup,
+  parseLevelChanges,
+  THINKING_LEVELS,
+  THINKING_TOKENS,
+  TOP_LEVELS,
+  withinMost,
 } from "./assistant";
+import { MAX_MESSAGE_LENGTH } from "./index";
 
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const API_TOKEN = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-Ab";
@@ -66,5 +75,36 @@ describe("Set up Ember AI", () => {
   it("names a listed model, and any other by its ID", () => {
     expect(modelName("anthropic/claude-sonnet-5.5")).toBe("Claude Sonnet 5.5");
     expect(modelName("openai/gpt-5.5")).toBe("openai/gpt-5.5");
+  });
+});
+
+describe("The dials of @ember's answers", () => {
+  it("go from no thinking to the most, and from short answers to long ones, which still fit in a message", () => {
+    expect(THINKING_LEVELS).toEqual(["off", "low", "medium", "high"]);
+    expect(THINKING_LEVELS.map((level) => THINKING_TOKENS[level])).toEqual([0, 4_000, 16_000, 32_000]);
+    expect(ANSWER_LENGTHS).toEqual(["short", "medium", "long"]);
+    expect(ANSWER_LENGTHS.map((length) => ANSWER_WORDS[length])).toEqual([150, 400, 1_500]);
+    // At about six characters a word, with its space.
+    expect(ANSWER_WORDS.long * 6).toBeLessThan(MAX_MESSAGE_LENGTH);
+  });
+
+  it("start at Low thinking and a Medium answer, and go to the top until an administrator sets less", () => {
+    expect(DEFAULT_LEVELS).toEqual({ thinking: "low", length: "medium" });
+    expect(TOP_LEVELS).toEqual({ thinking: "high", length: "long" });
+  });
+
+  it("show each level no higher than the most allowed", () => {
+    expect(withinMost(TOP_LEVELS, { thinking: "low", length: "short" })).toEqual({ thinking: "low", length: "short" });
+    expect(withinMost({ thinking: "off", length: "medium" }, { thinking: "medium", length: "long" })).toEqual({ thinking: "off", length: "medium" });
+    expect(withinMost(DEFAULT_LEVELS, { thinking: "off", length: "medium" })).toEqual({ thinking: "off", length: "medium" });
+  });
+
+  it("change a dial or both, to a level it has", () => {
+    expect(parseLevelChanges({ thinking: "high" })).toEqual({ thinking: "high" });
+    expect(parseLevelChanges({ length: "short" })).toEqual({ length: "short" });
+    expect(parseLevelChanges({ thinking: "off", length: "long", other: true })).toEqual({ thinking: "off", length: "long" });
+    for (const data of [{}, null, "low", [], { thinking: "max" }, { length: "longest" }, { thinking: "low", length: 3 }, { thinking: null }]) {
+      expect(parseLevelChanges(data)).toBeNull();
+    }
   });
 });

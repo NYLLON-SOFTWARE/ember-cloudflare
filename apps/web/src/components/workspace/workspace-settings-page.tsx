@@ -559,6 +559,7 @@ export function WorkspaceSettingsPage({
                 assistant={settings.assistant}
                 onSetUp={() => setSettingUpAssistant(true)}
                 onStopped={() => showAssistant(null)}
+                onChanged={showAssistant}
                 onFailed={onFailed}
               />
               {settingUpAssistant && (

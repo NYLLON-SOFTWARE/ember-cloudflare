@@ -68,6 +68,7 @@ import {
   type WorkspaceServerFrame,
   type WorkspaceSettings,
 } from "@ember/protocol";
+import { DEFAULT_LEVELS, TOP_LEVELS, withinMost, type AnswerLevelChanges, type AnswerLevels, type YourAnswerLevels } from "@ember/protocol/assistant";
 import type { Gateway } from "./assistant/gateway";
 import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
 import { directoryOf, versionOf } from "./avatar-tokens";
@@ -104,6 +105,7 @@ import {
   type NewPerson,
   type OwnProfileEntry,
   type PendingRevocation,
+  type PickedLevels,
   type ProfileEntry,
   type PushDelivery,
   type RoomEventDeliveries,
@@ -250,8 +252,16 @@ const accountOf = ({
 });
 
 /** Ember AI as the AI assistant tab shows `account`'s to administrators, or null while it's off. */
-const assistantSettingsOf = ({ assistant }: Pick<JoinableAccount, "assistant">): AssistantSettings | null =>
-  assistant && { accountId: assistant.accountId, model: assistant.model };
+const assistantSettingsOf = ({ assistant, assistantMost }: Pick<JoinableAccount, "assistant" | "assistantMost">): AssistantSettings | null =>
+  assistant && { accountId: assistant.accountId, model: assistant.model, most: assistantMost };
+
+/** The levels someone who `picked` them has of @ember's dials, where each starts for one they haven't picked, no higher than `most`. */
+const levelsOf = (picked: PickedLevels | null, most: AnswerLevels): AnswerLevels =>
+  withinMost({ thinking: picked?.thinking ?? DEFAULT_LEVELS.thinking, length: picked?.length ?? DEFAULT_LEVELS.length }, most);
+
+/** The levels of @ember's answers to someone who `picked` them, as their profile shows them with `account`'s most, or null while Ember AI is off. */
+const yourLevelsOf = (account: Pick<JoinableAccount, "assistant" | "assistantMost"> | null, picked: PickedLevels | null): YourAnswerLevels | null =>
+  account?.assistant ? { levels: levelsOf(picked, account.assistantMost), most: account.assistantMost } : null;
 
 /** The header in which the Worker passes a workspace socket's credentials on to the Workspace. */
 export const CREDENTIALS_HEADER = "X-Ember-Credentials";
@@ -324,11 +334,13 @@ export interface BotAccess {
 
 /**
  * @ember as a room asks Ember AI to answer a question there (`Workspace.assistantIn`): how Ember AI asks AI
- * Gateway, or null while its API token doesn't open, and the community's name, which @ember is told.
+ * Gateway, or null while its API token doesn't open, the community's name, which @ember is told, and how
+ * much it thinks and how long it answers whoever asked.
  */
 export interface AssistantAccess extends BotAccess {
   gateway: Gateway | null;
   community: string;
+  levels: AnswerLevels;
 }
 
 /** The same, as the bot API has it, with Ember's custom domain, which the API's links name, or null while it has none. */
@@ -943,6 +955,32 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Changes the most each of @ember's dials goes to for anyone's questions by `changes`, as the
+   * administrator `credentials` signs in, answering Ember AI as the AI assistant tab then shows it:
+   * "off" while it's off, "forbidden" for anyone else, and null without a valid session.
+   */
+  async changeAssistantMost(credentials: Credentials, changes: AnswerLevelChanges): Promise<{ assistant: AssistantSettings } | "off" | "forbidden" | null> {
+    return this.administerAccount(credentials, async (account) => {
+      if (!account.assistant) return "off";
+      const assistantMost = { ...account.assistantMost, ...changes };
+      const changed = await this.storeAccount({ ...account, assistantMost }, () => this.store.changeAssistantMost(assistantMost));
+      return { assistant: assistantSettingsOf(changed)! };
+    });
+  }
+
+  /**
+   * Changes how much @ember thinks and how long it answers the person `credentials` signs in by
+   * `changes`, answering their levels as their profile then shows them, or null without a valid session.
+   */
+  async changeAnswerLevels(credentials: Credentials, changes: AnswerLevelChanges): Promise<{ assistant: YourAnswerLevels | null } | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    await this.store.changePickedLevels(session.user.id, changes);
+    const [account, picked] = await Promise.all([this.joinableAccount(), this.store.pickedLevels(session.user.id)]);
+    return { assistant: yourLevelsOf(account, picked) };
+  }
+
+  /**
    * How Ember AI asks AI Gateway, its API token opened, while it's on, or else null, as when the token
    * doesn't open under SESSION_SECRET, once that's changed, until an administrator sets it up again.
    */
@@ -1184,6 +1222,7 @@ export class Workspace extends DurableObject<Env> {
       resendApiKey: null,
       turnstileKeys: null,
       assistant: null,
+      assistantMost: TOP_LEVELS,
       deployedAddress: null,
       otherAddresses: [],
     };
@@ -2350,11 +2389,11 @@ export class Workspace extends DurableObject<Env> {
   /** `person`'s profile, as their own profile page shows it to their `session`. */
   private async yourProfile(person: OwnProfileEntry, session: StoredSession): Promise<YourProfile> {
     const { name, emailAddress, bio, avatar, password, membershipNeeded } = person;
-    const { avatarUrl } = await this.directoryUser(person);
-    const connected = (await this.joinableAccount())?.memberfulSignIn && !session.guest ? person.issuers : null;
+    const [{ avatarUrl }, account] = await Promise.all([this.directoryUser(person), this.joinableAccount()]);
+    const connected = account?.memberfulSignIn && !session.guest ? person.issuers : null;
     return {
       transfer: { userId: person.id, sessionId: session.id },
-      profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded },
+      profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourLevelsOf(account, person.levels) },
       connected,
     };
   }
@@ -2711,12 +2750,13 @@ export class Workspace extends DurableObject<Env> {
    * (`assistantGateway`), and the community's name: null once Ember AI is off or @ember isn't in the room,
    * so that turning Ember AI off, or taking @ember out of a room, stops what's on its way there.
    */
-  async assistantIn(roomId: RoomId): Promise<AssistantAccess | null> {
+  async assistantIn(roomId: RoomId, askerId: UserId): Promise<AssistantAccess | null> {
     // Before anything is read, as `roomAccess` takes it.
     const authorizedAt = Date.now();
-    const [account, member] = await Promise.all([this.joinableAccount(), this.store.isMember(roomId, ASSISTANT_ID)]);
+    const [account, member, picked] = await Promise.all([this.joinableAccount(), this.store.isMember(roomId, ASSISTANT_ID), this.store.pickedLevels(askerId)]);
     if (!account?.assistant || !member) return null;
-    return { bot: { id: ASSISTANT_ID, name: ASSISTANT_NAME }, authorizedAt, gateway: await this.openedAssistant(account), community: account.name };
+    const levels = levelsOf(picked, account.assistantMost);
+    return { bot: { id: ASSISTANT_ID, name: ASSISTANT_NAME }, authorizedAt, gateway: await this.openedAssistant(account), community: account.name, levels };
   }
 
   /**
