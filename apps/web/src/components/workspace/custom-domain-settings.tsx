@@ -51,7 +51,7 @@ export const CLOUDFLARE_CUSTOM_HOSTNAMES = "https://dash.cloudflare.com/?to=/:ac
 /**
  * The name of the record a domain on Cloudflare takes other domains to Ember by, as Cloudflare for SaaS's
  * fallback origin: an AAAA record for 100::, which goes nowhere, as Cloudflare's guide to a Worker as the
- * fallback origin has it, and as the README names it.
+ * fallback origin has it, and as docs/self-hosting.md names it.
  */
 const SAAS_ORIGIN = "ember-saas";
 

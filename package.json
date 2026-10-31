@@ -33,7 +33,7 @@
         "description": "The R2 bucket for the files people upload to rooms. Any name works; the deploy creates it if your account has none by that name."
       },
       "STORAGE_BACKEND": {
-        "description": "Where messages live. Keep `do-sqlite`, which needs nothing more; `d1` also needs a D1 database bound as `DB` (see the README)."
+        "description": "Where messages live. Keep `do-sqlite`, which needs nothing more; `d1` also needs a D1 database bound as `DB` (see docs/self-hosting.md)."
       }
     }
   }
