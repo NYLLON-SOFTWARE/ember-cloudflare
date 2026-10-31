@@ -5,7 +5,7 @@ import { jsonBodyOf } from "../bodies";
 import type { Env } from "../env";
 import { urlOf } from "../request-url";
 import { workspace } from "../workspace";
-import { Outbound, type Network } from "./fetch";
+import { hostOf, Outbound, type Network } from "./fetch";
 import { resolveOverHttps } from "./guard";
 import { isBlank, linkPreview } from "./metadata";
 import { parseHttpUri } from "./uri";
@@ -61,9 +61,9 @@ export async function unfurl(url: string, network: Network, deadlineMs = UNFURL_
   try {
     const preview = await Promise.race([linkPreview(new Outbound(network, deadline), url), gaveUp]);
     if (!deadline.aborted) return preview;
-    console.warn(`Gave up unfurling ${url} after ${deadlineMs / 1000}s`);
+    console.warn(`Gave up unfurling a link to ${hostOf(url)} after ${deadlineMs / 1000}s`);
   } catch (error) {
-    console.error(`Failed to unfurl ${url}`, error);
+    console.error(`Failed to unfurl a link to ${hostOf(url)}`, error);
   }
   return null;
 }

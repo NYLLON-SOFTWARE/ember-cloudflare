@@ -2,6 +2,7 @@ import { ASSISTANT_ID, ASSISTANT_NAME, MAX_MESSAGE_LENGTH, type BotAnswer, type 
 import { MENTION_CONTENT_TYPE, mentionSgid, OPENGRAPH_EMBED_CONTENT_TYPE, prepareBody } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ANSWER_MAX_TOKENS, answerOf, MAX_CONVERSATION_LENGTH, NOTES, previewAttachment, questionFor, ROOM_MESSAGES_READ, THREAD_REPLIES_READ } from "../src/assistant/answers";
+import { markdownHtml } from "../src/bots/markdown";
 import { api, connect, cookieOf, freshDeploy, post, roomSql, settle, shown, startDirect, workspaceSql, type Client, type Session } from "./support";
 
 // What @ember answers when someone asks it something: in the room or thread they asked in, having read
@@ -112,6 +113,9 @@ async function addBot(administrator: Session, name: string): Promise<BotSettings
   expect(response.status, await response.clone().text()).toBe(201);
   return ((await response.json()) as BotAnswer).bot;
 }
+
+/** 350 steps of a numbered list, each numbered 1 in its Markdown, which shows them counting up, longer than a message. */
+const STEPS = Array.from({ length: 350 }, (_, index) => `1. step-${String(index).padStart(18, "0")}`).join("\n");
 
 /** Waits until `room` has sent the Workspace every event it logged, whose answer says whom each message goes to. */
 const allApplied = (room: RoomId) => vi.waitFor(async () => expect(await roomSql(room, "SELECT count(*) AS n FROM room_events")).toEqual([{ n: 0 }]));
@@ -235,6 +239,46 @@ describe("@ember", () => {
     client.close();
   });
 
+  it("posts as much of an answer as a message shows, when all of it would show more", async () => {
+    const { ada, general } = await setUp();
+    internet(() => chatAnswer(STEPS));
+    const client = await connect(general, ada);
+
+    await post(client, `<p>${mention(EMBER)} list the steps</p>`);
+    const { plainText } = await nextAnswer(client);
+    expect(plainText).toMatch(/^1\. step-0{18}\n2\. step-0{17}1\n/);
+    expect(plainText.length).toBeLessThanOrEqual(MAX_MESSAGE_LENGTH);
+    expect(plainText.endsWith("…")).toBe(true);
+    client.close();
+  });
+
+  it("keeps typing while it answers another question there, after posting one answer", async () => {
+    const { ada, general } = await setUp();
+    const [asked, answering] = [new Set<string>(), new Set<string>()];
+    internet(async ({ body }) => {
+      const question = body.messages.at(-1)!.content.endsWith("first?") ? "first" : "second";
+      asked.add(question);
+      while (!answering.has(question)) await new Promise((resolve) => setTimeout(resolve, 10));
+      return chatAnswer(`The ${question} answer.`);
+    });
+    const client = await connect(general, ada);
+
+    await post(client, `<p>${mention(EMBER)} first?</p>`);
+    await post(client, `<p>${mention(EMBER)} second?</p>`);
+    await vi.waitFor(() => expect(asked.size).toBe(2));
+    answering.add("first");
+    expect(await nextAnswer(client)).toMatchObject({ plainText: "The first answer." });
+    answering.add("second");
+    expect(await nextAnswer(client)).toMatchObject({ plainText: "The second answer." });
+    await settle(client);
+    // An answer ends its writer's typing in apps, so after the first one the room says again that @ember is typing.
+    const heard = client.log.flatMap((frame): Array<boolean | string> =>
+      frame.type === "typing" ? [frame.typing] : frame.type === "message.created" && frame.message.creator.id === ASSISTANT_ID ? [frame.message.plainText] : [],
+    );
+    expect(heard.filter((said, index) => said !== heard[index - 1])).toEqual([true, "The first answer.", true, "The second answer.", false]);
+    client.close();
+  });
+
   it("says why it can't answer when AI Gateway refuses, in a note, and logs Cloudflare's words", async () => {
     const { ada, general } = await setUp();
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -348,12 +392,31 @@ describe("@ember's answer", () => {
     expect(answerOf("No links.")).toEqual({ markup: "<p>No links.</p>", cards: [], firstLink: null });
   });
 
-  it("is cut, a block at a time, to what a message holds", () => {
+  it("is cut, a line at a time, to what a message holds", () => {
     const paragraph = `${"word ".repeat(199)}word`;
     const { markup } = answerOf(Array.from({ length: 20 }, () => paragraph).join("\n\n"));
     const body = prepareBody(markup, () => undefined)!;
     expect(body.plainText.length).toBeLessThanOrEqual(MAX_MESSAGE_LENGTH);
     expect(body.plainText.endsWith(`${paragraph}\n\n…`)).toBe(true);
+  });
+
+  it("is measured as it shows, as a numbered list counts up, or a picture's address shows for each reference to it", () => {
+    const pictures = `${Array(6).fill("![][flame]").join(" ")}\n\n[flame]: https://images.example.com/${"f".repeat(1_988)}.png`;
+    for (const text of [STEPS, pictures]) {
+      expect(text.length).toBeLessThan(MAX_MESSAGE_LENGTH);
+      expect(prepareBody(markdownHtml(text), () => undefined)!.plainText.length).toBeGreaterThan(MAX_MESSAGE_LENGTH);
+      const { plainText } = prepareBody(answerOf(text).markup, () => undefined)!;
+      expect(plainText.length).toBeLessThanOrEqual(MAX_MESSAGE_LENGTH);
+      expect(plainText.endsWith("…")).toBe(true);
+    }
+  });
+
+  it("is cut within its first line when even that is longer than a message", () => {
+    const { markup } = answerOf(`${"word ".repeat(2_400)}word`);
+    const { plainText } = prepareBody(markup, () => undefined)!;
+    expect(plainText.length).toBeLessThanOrEqual(MAX_MESSAGE_LENGTH);
+    expect(plainText.length).toBeGreaterThan(MAX_MESSAGE_LENGTH - 10);
+    expect(plainText).toMatch(/^word word .*\n\n…$/s);
   });
 
   it("has a preview below it as the composer writes one", () => {

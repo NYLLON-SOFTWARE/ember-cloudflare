@@ -1,5 +1,5 @@
-import { ASSISTANT_ID, ASSISTANT_NAME, MAX_MESSAGE_LENGTH, type Card, type CardImage, type LinkPreview, type Message, type User } from "@ember/protocol";
-import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext";
+import { ASSISTANT_ID, ASSISTANT_NAME, isMessageTooLong, MAX_MESSAGE_HTML_LENGTH, type Card, type CardImage, type LinkPreview, type Message, type User } from "@ember/protocol";
+import { OPENGRAPH_EMBED_CONTENT_TYPE, prepareBody, previewContent } from "@ember/richtext";
 import { decodeHTMLStrict } from "entities/decode";
 import { Marked } from "marked";
 import { markdownHtml } from "../bots/markdown";
@@ -32,9 +32,6 @@ export const ANSWER_WORDS = 400;
  * unless they're asked not to, and then a Medium answer.
  */
 export const ANSWER_MAX_TOKENS = 8_000;
-
-/** The most Markdown an answer keeps, so that its plain text fits in a message, as Markdown's plain text is no longer than it. */
-const MAX_ANSWER_LENGTH = MAX_MESSAGE_LENGTH - 500;
 
 /** Where @ember is asked something: the community's name, the room's, or null for a DM, and whether it's in a thread. */
 export interface AskedIn {
@@ -112,10 +109,16 @@ const markdown = new Marked({ gfm: true });
  * conversation's form leads some models to write it, and cut to what one message holds.
  */
 export function answerOf(text: string): Answer {
-  const answer = cutToFit(text.replace(/^\s*(?:ember:|\*\*ember:\*\*|\*\*ember\*\*:)\s*/i, ""), MAX_ANSWER_LENGTH);
+  const answer = text.replace(/^\s*(?:ember:|\*\*ember:\*\*|\*\*ember\*\*:)\s*(?=\S)/i, "");
+  const whole = answerIn(answer);
+  return fits(whole) ? whole : cutToFit(answer);
+}
+
+/** The answer `text`, in Markdown, makes: its rich text, a card of the web pictures it shows, and its first web link. */
+function answerIn(text: string): Answer {
   const images: CardImage[] = [];
   let firstLink: string | null = null;
-  markdown.walkTokens(markdown.lexer(answer), (token) => {
+  markdown.walkTokens(markdown.lexer(text), (token) => {
     if (token.type === "image") {
       const url = webAddress(decodeHTMLStrict(token.href));
       if (url) images.push({ url, alt: decodeHTMLStrict(token.text) });
@@ -125,7 +128,7 @@ export function answerOf(text: string): Answer {
     }
   });
   const cards: Card[] = images.length === 0 ? [] : [{ source: "blocks", parts: images.map((image) => ({ kind: "image", image })) }];
-  return { markup: markdownHtml(answer), cards, firstLink };
+  return { markup: markdownHtml(text), cards, firstLink };
 }
 
 /** `address` as a web address, as a link to it goes, or null when it isn't one. */
@@ -134,15 +137,41 @@ function webAddress(address: string): string | null {
   return url && /^https?:/i.test(url) ? url : null;
 }
 
-/** `text` cut, a block at a time, to at most `length` characters, ending with an ellipsis where it's cut. */
-function cutToFit(text: string, length: number): string {
-  if (text.length <= length) return text;
-  let kept = "";
-  for (const { raw } of markdown.lexer(text)) {
-    if (kept.length + raw.length > length - 3) break;
-    kept += raw;
+/**
+ * Whether `answer` fits in a message, as the room measures one (`prepareWithCards`), its markup and its
+ * card no longer than a message's markup may be. The card adds no plain text, as its pictures have no titles.
+ */
+function fits({ markup, cards }: Answer): boolean {
+  if (markup.length > MAX_MESSAGE_HTML_LENGTH || JSON.stringify(cards).length > MAX_MESSAGE_HTML_LENGTH) return false;
+  const body = prepareBody(markup, () => undefined);
+  return body !== null && !isMessageTooLong(body.plainText);
+}
+
+/**
+ * The answer as much of `text` makes as fits in a message: its first lines, or the start of its first
+ * line when even that doesn't fit, ending with an ellipsis where it's cut. Its Markdown can show more
+ * than it's written in, as a numbered list counts up, or a picture's address shows for each reference to
+ * it, so each cut is measured as it shows.
+ */
+function cutToFit(text: string): Answer {
+  const cutFits = (length: number) => fits(cutAt(text, length));
+  const lineEnds = Array.from(text.matchAll(/\n/g), ({ index }) => index);
+  const lines = largest(lineEnds.length, (count) => cutFits(lineEnds[count - 1]!));
+  return cutAt(text, lines > 0 ? lineEnds[lines - 1]! : largest(lineEnds[0] ?? text.length, cutFits));
+}
+
+/** The answer `text`'s first `length` characters make, ending with an ellipsis to say it's cut. */
+const cutAt = (text: string, length: number) => answerIn(`${text.slice(0, length).trimEnd()}\n\n…`);
+
+/** The largest count from 0 to `most` that `holds` is true of, as it is of every count below one it's true of. */
+function largest(most: number, holds: (count: number) => boolean): number {
+  let [low, high] = [0, most + 1];
+  while (high - low > 1) {
+    const count = Math.floor((low + high) / 2);
+    if (holds(count)) low = count;
+    else high = count;
   }
-  return `${(kept || text.slice(0, length - 3)).trimEnd()}\n\n…`;
+  return low;
 }
 
 /** `preview` as the attachment the composer adds below a link it has a preview of, as Lexxy writes one. */

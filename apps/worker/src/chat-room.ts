@@ -197,6 +197,8 @@ export class ChatRoom extends DurableObject<Env> {
   private erased = false;
   private readonly webhooks = new JobQueue(WEBHOOKS_AT_ONCE, WEBHOOKS_WAITING);
   private readonly answers = new JobQueue(ANSWERS_AT_ONCE, ANSWERS_WAITING);
+  /** How many jobs each bot is typing for, by its id and the thread it's typing in, if it's in one. */
+  private readonly typists = new Map<string, number>();
   /**
    * Who has read the room since its latest message, as far as this object has seen. Only a new message
    * in the room marks it unread, so until one comes another read of theirs would change nothing, and
@@ -1235,16 +1237,23 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Runs `work`, the room hearing that `bot` is typing until it's done: in thread `threadId`, if there is
    * one, else in the room, and again every few seconds, as apps forget typing they've stopped hearing of.
+   * While other work of the bot's goes on there, it's still typing once this is done, which the room says
+   * again, as apps stop showing someone typing once a message of theirs arrives.
    */
   private async typingWhile<T>(bot: User, threadId: string | undefined, work: () => Promise<T>): Promise<T> {
     const typing = (typing: boolean) => this.broadcast({ type: "typing", user: bot, typing, ...(threadId !== undefined && { threadId }) });
+    const typist = `${bot.id} ${threadId ?? ""}`;
+    this.typists.set(typist, (this.typists.get(typist) ?? 0) + 1);
     typing(true);
     const again = setInterval(() => typing(true), TYPING_AGAIN_MS);
     try {
       return await work();
     } finally {
       clearInterval(again);
-      typing(false);
+      const jobs = this.typists.get(typist)! - 1;
+      if (jobs === 0) this.typists.delete(typist);
+      else this.typists.set(typist, jobs);
+      typing(jobs > 0);
     }
   }
 
