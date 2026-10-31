@@ -1,11 +1,5 @@
 <p align="center">
-  <img src="apps/web/public/logos/app-icon.png" alt="Ember's flame" width="96" height="96">
-</p>
-
-<h1 align="center">Ember</h1>
-
-<p align="center">
-  <strong>Team chat that's yours, on your own Cloudflare account, with no per-seat fees.</strong>
+  <img src="docs/screenshots/banner.png" alt="Ember: team chat that's yours, on your own Cloudflare account. Open source, deployed in one click, with no per-seat fees, and every message kept.">
 </p>
 
 <p align="center">
@@ -23,12 +17,6 @@
   <a href="#what-it-costs">What it costs</a> ·
   <a href="#get-started">Get started</a> ·
   <a href="docs/self-hosting.md">Self-hosting guide</a>
-</p>
-
-![Ember's Launch room: a deploy bot's card, reactions, and a thread open beside the room](docs/screenshots/hero.png)
-
-<p align="center">
-  <sub>The people and conversations in these screenshots are made up: they're the Fernwood team that <code>pnpm seed</code> creates.</sub>
 </p>
 
 ## Why Ember
@@ -58,6 +46,12 @@ or delete what you wrote.
 Unread rooms stand out, **Activity** narrows the list to what you haven't read, and each room's bell
 says whether you hear about every message, only mentions, or nothing. You see who's here and who's
 typing, as it happens.
+
+![Ember's Launch room: a deploy bot's card, reactions, and a thread open beside the room](docs/screenshots/hero.png)
+
+<p align="center">
+  <sub>The people and conversations in these screenshots are made up: they're the Fernwood team that <code>pnpm seed</code> creates.</sub>
+</p>
 
 ### Say it clearly
 
