@@ -95,6 +95,24 @@ The screenshots suite (`e2e/tests/screenshots/`) makes the screenshots the web a
 which an install prompt shows: a few people chatting, on a phone. `pnpm screenshots` saves them over
 `apps/web/public/screenshots/`, and every other run with the test's results, so they keep working.
 
+## Releasing
+
+Ember's version is `version` in `apps/worker/package.json`, which the Worker reports in its
+`X-Version` header. A pull request that raises it is a release: once it's merged, the Release workflow
+(`.github/workflows/release.yml`) tags the commit `v<version>` and publishes the release, with notes
+listing the pull requests merged since the last, and every copy's Update Ember workflow offers it
+within a week ([Updating](self-hosting.md#updating)). Copies move from release to release, never to
+`main` between them, and may skip any number of releases or go back one, so:
+
+- A released migration never changes, since copies that update have applied it already: CI fails a
+  pull request that changes one. A schema change goes in a new migration.
+- A migration adds to the tables rather than takes away, so the release before still runs on what it
+  leaves: drop a column or table a release after the code stops using it.
+- `.github/workflows/update-ember.yml` stays as it is, since an update can't change a copy's
+  workflows: change `apps/worker/scripts/update-ember.ts`, which updates bring, instead.
+- Ember's other workflows run only in its own repository, and `pnpm run deploy` stays the deploy
+  command, which every copy's Workers Builds runs.
+
 ## Performance
 
 `pnpm perf` load-tests the Worker under `wrangler dev` on both storage backends (latency,

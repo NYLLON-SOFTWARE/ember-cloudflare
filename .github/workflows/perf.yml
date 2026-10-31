@@ -23,7 +23,8 @@ concurrency:
 
 jobs:
   perf:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'perf')
+    # In Ember's own repository only, not the copies Deploy to Cloudflare makes of it.
+    if: github.repository == 'NYLLON-SOFTWARE/ember-cloudflare' && (github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'perf'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

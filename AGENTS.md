@@ -19,7 +19,9 @@ Slack-like chat on Cloudflare Workers and Durable Objects. See `docs/development
   applies its own kind's that it's missing when it opens. The search index keeps its FTS5 tables in
   its own storage on either backend, since D1 can't export a database holding a virtual table, so
   its changes go in `apps/worker/search-migrations/`, listed in `SEARCH_MIGRATIONS`. The worker tests
-  run against both backends, so keep them green on both.
+  run against both backends, so keep them green on both. Deployments update from release to release,
+  so never change a released migration, and add to tables rather than take away
+  (`docs/development.md#releasing`).
 - Both backends bind at most 100 values a statement, so never bind a list whose length depends on
   the data. Write one statement per query shape, too: SQLite can't use an index through
   `? IS NULL OR id < ?`. `docs/database.md` compares our schema with Campfire's and lists what's
