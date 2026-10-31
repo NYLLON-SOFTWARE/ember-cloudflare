@@ -4,7 +4,15 @@ import { featureProjects, RECOVERY_TOKEN } from "./projects/features";
 import { FIRST_RUN, firstRunProjects, SETUP_TOKEN } from "./projects/first-run";
 import { mobileProjects } from "./projects/mobile";
 import { screenshotProjects } from "./projects/screenshots";
-import { MEMBERFUL_KEYS, MEMBERFUL_SITE_PORT, RESEND_API_PORT, SETTINGS_SERVER_PORT, SITEVERIFY_PORT, workspaceSettingsProjects } from "./projects/workspace-settings";
+import {
+  AI_GATEWAY_PORT,
+  MEMBERFUL_KEYS,
+  MEMBERFUL_SITE_PORT,
+  RESEND_API_PORT,
+  SETTINGS_SERVER_PORT,
+  SITEVERIFY_PORT,
+  workspaceSettingsProjects,
+} from "./projects/workspace-settings";
 import type { MobileOptions } from "./tests/mobile/fixtures";
 
 /**
@@ -54,9 +62,10 @@ export default defineConfig<MobileOptions>({
     // The same build again, over HTTPS, for the workspace-settings projects, with the keys of the
     // Memberful site the Memberful specs fake, the address of the Resend API the email specs fake,
     // which Ember sends email with once they give it the API key it takes, as an administrator does in
-    // Set up email, and the address of the siteverify the Turnstile spec fakes, which Ember asks about
-    // checks once it's given a widget's keys in Set up Turnstile. Servers start in turn, so the app is
-    // built by then.
+    // Set up email, the address of the siteverify the Turnstile spec fakes, which Ember asks about
+    // checks once it's given a widget's keys in Set up Turnstile, and the address of the AI Gateway the
+    // Ember AI spec fakes, which Ember asks models through once it's given an account in Set up Ember AI.
+    // Servers start in turn, so the app is built by then.
     {
       command: [
         `node -e "require('node:fs').rmSync('e2e/.wrangler/settings-state', { recursive: true, force: true })"`,
@@ -66,6 +75,7 @@ export default defineConfig<MobileOptions>({
           `--var MEMBERFUL_CLIENT_ID:${MEMBERFUL_KEYS.clientId} --var MEMBERFUL_CLIENT_SECRET:${MEMBERFUL_KEYS.clientSecret}`,
           `--var MEMBERFUL_API_KEY:${MEMBERFUL_KEYS.apiKey} --var MEMBERFUL_WEBHOOK_SECRET:${MEMBERFUL_KEYS.webhookSecret}`,
           `--var RESEND_API_URL:http://127.0.0.1:${RESEND_API_PORT} --var TURNSTILE_SITEVERIFY_URL:http://127.0.0.1:${SITEVERIFY_PORT}`,
+          `--var AI_GATEWAY_URL:http://127.0.0.1:${AI_GATEWAY_PORT}`,
           "--persist-to ../../e2e/.wrangler/settings-state",
         ].join(" "),
       ].join(" && "),

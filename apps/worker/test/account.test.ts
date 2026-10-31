@@ -66,8 +66,8 @@ describe("Community settings page", () => {
     const administrator = await setUp();
     const member = await signIn("Grace");
     const joinCode = await storedJoinCode();
-    expect(await (await settings(administrator)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: true, memberfulSite: null, memberfulWebhooks: false, turnstile: null, email: NEW_EMAIL, invitations: [], emailDomains: [], addresses: { deployed: null, others: [] } } satisfies WorkspaceSettings);
-    expect(await (await settings(member)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: false, memberfulSite: null, memberfulWebhooks: false, turnstile: null, email: NEW_EMAIL, invitations: [], emailDomains: [], addresses: { deployed: null, others: [] } } satisfies WorkspaceSettings);
+    expect(await (await settings(administrator)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: true, memberfulSite: null, memberfulWebhooks: false, turnstile: null, email: NEW_EMAIL, invitations: [], emailDomains: [], addresses: { deployed: null, others: [] }, assistant: null } satisfies WorkspaceSettings);
+    expect(await (await settings(member)).json()).toEqual({ account: named("Ember"), joinCode, canAdminister: false, memberfulSite: null, memberfulWebhooks: false, turnstile: null, email: NEW_EMAIL, invitations: [], emailDomains: [], addresses: { deployed: null, others: [] }, assistant: null } satisfies WorkspaceSettings);
   });
 
   it("asks who's signed in", async () => {
@@ -103,7 +103,7 @@ describe("Rename the workspace", () => {
     expect(await response.json()).toEqual({ account: named("Ember Studio") });
     expect((await storedAccount()).name).toBe("Ember Studio");
 
-    expect(await (await settings(member)).json()).toEqual({ account: named("Ember Studio"), joinCode: await storedJoinCode(), canAdminister: false, memberfulSite: null, memberfulWebhooks: false, turnstile: null, email: NEW_EMAIL, invitations: [], emailDomains: [], addresses: { deployed: null, others: [] } } satisfies WorkspaceSettings);
+    expect(await (await settings(member)).json()).toEqual({ account: named("Ember Studio"), joinCode: await storedJoinCode(), canAdminister: false, memberfulSite: null, memberfulWebhooks: false, turnstile: null, email: NEW_EMAIL, invitations: [], emailDomains: [], addresses: { deployed: null, others: [] }, assistant: null } satisfies WorkspaceSettings);
     expect((await bootstrap(member)).account).toEqual(named("Ember Studio"));
     // "Sign in to <name>", and the installed app's name.
     expect((await bootstrap()).account).toEqual(named("Ember Studio"));
@@ -216,7 +216,7 @@ describe("Rename the workspace", () => {
       vi.spyOn(storeOf(workspace), "account").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
       const reading = workspace.bootstrap(null, null, null);
       expect(await workspace.changeAccount(credentials, { name: "Ember Studio" }, "ember.test")).toEqual(named("Ember Studio"));
-      finishReading({ ...named("Ember"), joinCode: "aB3d-Ef5h-iJ7k", updatedAt: new Date().toISOString(), storedLogo: null, emailFrom: null, resendApiKey: null, deployedAddress: null, otherAddresses: [], turnstileKeys: null });
+      finishReading({ ...named("Ember"), joinCode: "aB3d-Ef5h-iJ7k", updatedAt: new Date().toISOString(), storedLogo: null, emailFrom: null, resendApiKey: null, deployedAddress: null, otherAddresses: [], turnstileKeys: null, assistant: null });
       await reading;
     });
     expect((await bootstrap()).account.name).toBe("Ember Studio");
@@ -638,7 +638,7 @@ describe("Regenerate the join link", () => {
       vi.spyOn(storeOf(workspace), "account").mockReturnValueOnce(new Promise((resolve) => (finishReading = resolve)));
       const reading = workspace.bootstrap(null, null, null);
       const regenerated = await workspace.regenerateJoinCode(credentials);
-      finishReading({ ...named("Ember"), joinCode: old, updatedAt: new Date().toISOString(), storedLogo: null, emailFrom: null, resendApiKey: null, deployedAddress: null, otherAddresses: [], turnstileKeys: null });
+      finishReading({ ...named("Ember"), joinCode: old, updatedAt: new Date().toISOString(), storedLogo: null, emailFrom: null, resendApiKey: null, deployedAddress: null, otherAddresses: [], turnstileKeys: null, assistant: null });
       await reading;
       return regenerated;
     });

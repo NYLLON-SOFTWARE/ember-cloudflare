@@ -32,6 +32,8 @@ import { changeAccount, changeLogo, changeRole, fetchWorkspaceSettings, isSigned
 import { logoVariantsOf } from "@/lib/previews";
 import { apart } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
+import { AssistantSettings } from "./assistant-settings";
+import { AssistantSetup } from "./assistant-setup";
 import { CustomDomainSettings } from "./custom-domain-settings";
 import { EmailSettings, sendsEmail } from "./email-settings";
 import { EmailSetup } from "./email-setup";
@@ -74,7 +76,7 @@ interface Props {
 }
 
 /**
- * Workspace settings, in four sections, of which the address's fragment shows one, all of them staying
+ * Workspace settings, in five sections, of which the address's fragment shows one, all of them staying
  * drawn so what's typed in one waits there while another shows:
  *
  * - General, where administrators change the workspace's icon, which one picked saves at once, showing it
@@ -90,6 +92,8 @@ interface Props {
  *   or for members, the links that let people in, then the administrators and members, whom
  *   administrators can make administrators or members and remove.
  * - Domain settings: for administrators, the custom domain Ember answers at.
+ * - AI assistant: for administrators, whether @ember runs on a model through Cloudflare AI Gateway, which
+ *   Set up Ember AI chooses.
  */
 export function WorkspaceSettingsPage({
   me,
@@ -122,6 +126,7 @@ export function WorkspaceSettingsPage({
   // Set up email, while it's open, with what to go on to once it closes with Ember able to send email.
   const [emailSetup, setEmailSetup] = useState<{ then?: () => void } | null>(null);
   const [settingUpTurnstile, setSettingUpTurnstile] = useState(false);
+  const [settingUpAssistant, setSettingUpAssistant] = useState(false);
   const account = useAccount();
   const name = typedName ?? account.name;
   const tagline = typedTagline ?? account.tagline;
@@ -283,6 +288,8 @@ export function WorkspaceSettingsPage({
   const setUpEmail = (then?: () => void) => setEmailSetup({ then });
   /** Shows where Ember's Turnstile keys come from as Set up Turnstile, or turning Turnstile off, changes it, which only workspace settings shows. */
   const showTurnstile = (turnstile: WorkspaceSettings["turnstile"]) => setSettings((settings) => settings && { ...settings, turnstile });
+  /** Shows Ember AI as Set up Ember AI, or turning it off, changes it, which only workspace settings shows. */
+  const showAssistant = (assistant: WorkspaceSettings["assistant"]) => setSettings((settings) => settings && { ...settings, assistant });
 
   // Regenerate join link: no confirmation first, and no notice after.
   const regenerate = () => {
@@ -539,6 +546,27 @@ export function WorkspaceSettingsPage({
             />
           ) : (
             <p className="text-muted-foreground">Community admins manage the community's domain.</p>
+          ))}
+      </Panel>
+      <Panel id="assistant-settings" hidden={section !== "assistant-settings"} aria-labelledby="assistant-settings-heading" className="flex flex-col gap-6">
+        <PageHeading id="assistant-settings-heading" title="AI assistant" className={SECTION_HEADING}>
+          Add an AI assistant people can ask in the chat.
+        </PageHeading>
+        {settings &&
+          (settings.canAdminister ? (
+            <>
+              <AssistantSettings
+                assistant={settings.assistant}
+                onSetUp={() => setSettingUpAssistant(true)}
+                onStopped={() => showAssistant(null)}
+                onFailed={onFailed}
+              />
+              {settingUpAssistant && (
+                <AssistantSetup assistant={settings.assistant} onSaved={showAssistant} onClose={() => setSettingUpAssistant(false)} onFailed={onFailed} />
+              )}
+            </>
+          ) : (
+            <p className="text-muted-foreground">Community admins manage the AI assistant.</p>
           ))}
       </Panel>
     </SettingsPage>

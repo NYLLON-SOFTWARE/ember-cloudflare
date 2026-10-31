@@ -1,4 +1,4 @@
-import { EMAIL_ADDRESS_TOO_LONG, isAppPage, NAME_TOO_LONG, WORKSPACE_PRELOADS, workspacePageOf } from "@ember/protocol";
+import { EMAIL_ADDRESS_TOO_LONG, isAppPage, NAME_RESERVED, NAME_TOO_LONG, WORKSPACE_PRELOADS, workspacePageOf } from "@ember/protocol";
 import { sessionToken } from "./auth";
 import { contentSecurityPolicy, inlineScriptHashes } from "./csp";
 import type { Env } from "./env";
@@ -95,11 +95,12 @@ export const formAnswer = (data: unknown, status: number, ...cookies: Array<stri
   withCookies(Response.json(data, { status, headers: { "Cache-Control": "no-store" } }), ...cookies);
 
 /**
- * The answer to a sign-up form `parseSignUp` refused: a name or email address longer than Ember keeps
- * is unprocessable (422) on its field, as a password too long is, and a field missing is a bad request.
+ * The answer to a sign-up form `parseSignUp` refused: a name or email address longer than Ember keeps,
+ * or @ember's name, is unprocessable (422) on its field, as a password too long is, and a field missing
+ * is a bad request.
  */
 export function signUpRefusal(error: string): Response {
-  if (error === NAME_TOO_LONG) return formAnswer({ error, field: "name" }, 422);
+  if (error === NAME_TOO_LONG || error === NAME_RESERVED) return formAnswer({ error, field: "name" }, 422);
   if (error === EMAIL_ADDRESS_TOO_LONG) return formAnswer({ error, field: "emailAddress" }, 422);
   return formAnswer({ error }, 400);
 }

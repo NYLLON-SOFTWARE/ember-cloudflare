@@ -21,6 +21,10 @@ export const RESEND_API_PORT = Number(process.env.E2E_RESEND_PORT ?? 8791);
 export const RESEND_KEY = "re_e2e-only-not-a-key";
 /** Where the siteverify the Turnstile spec fakes listens, which the second server's TURNSTILE_SITEVERIFY_URL names. */
 export const SITEVERIFY_PORT = Number(process.env.E2E_SITEVERIFY_PORT ?? 8792);
+/** Where the AI Gateway the Ember AI spec fakes listens, which the second server's AI_GATEWAY_URL names. */
+export const AI_GATEWAY_PORT = Number(process.env.E2E_AI_GATEWAY_PORT ?? 8793);
+/** The Cloudflare account that AI Gateway knows, and its API token, which the Ember AI spec gives Ember. Neither is real. */
+export const AI_GATEWAY_ACCOUNT = { accountId: "e2e0e2e0e2e0e2e0e2e0e2e0e2e0e2e0", apiToken: "e2e-only-not-a-cloudflare-api-token" };
 /** The project that sets the second server up. */
 const SETTINGS_FIRST_RUN = "workspace-settings-first-run";
 

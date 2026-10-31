@@ -6,6 +6,9 @@ import {
   WORKSPACE_PRELOADS,
   type Account,
   type AccountChanges,
+  type AssistantForgotten,
+  type AssistantSaved,
+  type AssistantSetup,
   type Bootstrap,
   type Bot,
   type BotAnswer,
@@ -476,6 +479,21 @@ export async function saveTurnstileKeys(keys: TurnstileKeysChange): Promise<Turn
 /** Takes away the Turnstile widget's keys Ember was given, answering where its keys come from then. Fails with a 403 ApiError for anyone but an administrator. */
 export async function forgetTurnstileKeys(): Promise<TurnstileSettings["turnstile"]> {
   return (await request<TurnstileSettings>("/api/account/turnstile_keys", { method: "DELETE" })).turnstile;
+}
+
+/**
+ * Turns Ember AI on with `setup`, or changes it, once the model has answered a test question through AI
+ * Gateway, answering Ember AI as it is then and what the model said. Fails with a 422 ApiError on the
+ * field AI Gateway or the Worker refuses, or with none for the credits, a 429 one while AI Gateway turns
+ * requests away, a 502 one when it didn't answer, and a 403 one for anyone but an administrator.
+ */
+export async function saveAssistant(setup: AssistantSetup): Promise<AssistantSaved> {
+  return request<AssistantSaved>("/api/account/assistant", { method: "PUT", body: JSON.stringify(setup) });
+}
+
+/** Turns Ember AI off, forgetting its API token. Fails with a 403 ApiError for anyone but an administrator. */
+export async function forgetAssistant(): Promise<null> {
+  return (await request<AssistantForgotten>("/api/account/assistant", { method: "DELETE" })).assistant;
 }
 
 /**

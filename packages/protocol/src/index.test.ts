@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ASSISTANT_NAME,
   canBeCustomDomain,
   CUSTOM_DOMAIN_NOT_A_HOST,
   DEFAULT_NAVIGATION_ICONS,
@@ -18,6 +19,7 @@ import {
   INVITATIONS_AT_ONCE,
   INVOLVEMENTS,
   isEmailAddress,
+  isReservedName,
   isInvolvement,
   isMessageTooLong,
   isPasswordTooLong,
@@ -50,6 +52,7 @@ import {
   MIN_PASSWORD_LENGTH,
   NAVIGATION_ICONS_REFUSED,
   NAVIGATION_SLOTS,
+  NAME_RESERVED,
   NAME_TOO_LONG,
   NO_EMAIL_ADDRESSES,
   NOT_A_CUSTOM_DOMAIN,
@@ -778,6 +781,7 @@ describe("Join with an invitation", () => {
     ["one without a password", { token: "secret", name: "Hal" }, "Name and password are required"],
     ["one without the link's secret", { name: "Hal", password: "heuristically" }, "Name and password are required"],
     ["a name too long", { token: "secret", name: "H".repeat(MAX_USER_NAME_LENGTH + 1), password: "heuristically" }, NAME_TOO_LONG],
+    ["the AI assistant's name", { token: "secret", name: " ember ", password: "heuristically" }, NAME_RESERVED],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseEmailLinkSignUp(body)).toBe(error);
   });
@@ -1163,8 +1167,15 @@ describe("Set up the workspace", () => {
       { name: "Ada", emailAddress: `${"x".repeat(MAX_EMAIL_ADDRESS_LENGTH)}@example.com`, password: "secret words" },
       "Email address must be at most 254 characters",
     ],
+    ["the AI assistant's name", { name: "Ember", emailAddress: "ada@example.com", password: "secret words" }, NAME_RESERVED],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseSignUp(body)).toBe(error);
+  });
+
+  it("keeps the AI assistant's name for it, however it's written", () => {
+    for (const name of ["Ember", "ember", "EMBER", " eMbEr ", "@ember", "@ Ember", "Ｅｍｂｅｒ", "Em\u200Bber", "\u00A0Ember\u00A0"]) expect(isReservedName(name), name).toBe(true);
+    for (const name of ["Embers", "Ember Lee", "Amber", "Emb er", "ember@example.com", ""]) expect(isReservedName(name), name).toBe(false);
+    expect(ASSISTANT_NAME).toBe("Ember");
   });
 
   it("takes a name and an email address as long as Ember keeps, counting the name once trimmed", () => {

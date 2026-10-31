@@ -1,14 +1,14 @@
 import { toBase64url, urlsafeDecode64 } from "./encoding";
 
-// Secrets an administrator gives Ember to keep, a Resend API key and a Turnstile widget's secret key,
-// which the database holds sealed under SESSION_SECRET, so that a copy of the database alone doesn't
-// give them away: AES-GCM, under a 256-bit key HKDF derives from SESSION_SECRET for what the secret is
-// kept for, with a random nonce each time. Sealed, a secret is `v1.`, then its nonce and ciphertext in
-// URL-safe Base64, apart by a dot. One sealed under another SESSION_SECRET, or for something else,
-// doesn't open.
+// Secrets an administrator gives Ember to keep, a Resend API key, a Turnstile widget's secret key and
+// the Cloudflare API token Ember AI asks AI Gateway with, which the database holds sealed under
+// SESSION_SECRET, so that a copy of the database alone doesn't give them away: AES-GCM, under a 256-bit
+// key HKDF derives from SESSION_SECRET for what the secret is kept for, with a random nonce each time.
+// Sealed, a secret is `v1.`, then its nonce and ciphertext in URL-safe Base64, apart by a dot. One sealed
+// under another SESSION_SECRET, or for something else, doesn't open.
 
 /** What a secret is kept for, whose key is derived for it alone. */
-export type SealedSecret = "resend-api-key" | "turnstile-secret-key";
+export type SealedSecret = "resend-api-key" | "turnstile-secret-key" | "ai-gateway-token";
 
 const VERSION = "v1";
 /** AES-GCM's nonce, 96 bits, as it's recommended. */

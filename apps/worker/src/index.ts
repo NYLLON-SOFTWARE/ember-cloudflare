@@ -16,9 +16,11 @@ import {
   MEMBERFUL_SIGN_IN_PATH,
   MEMBERFUL_SIGN_IN_PROBLEMS,
   MEMBERFUL_WEBHOOK_PATH,
+  NAME_RESERVED,
   NO_EMAIL_DOMAINS,
   PASSWORD_RESET_PATH,
   isPasswordTooLong,
+  isReservedName,
   isRoomId,
   OPEN_WITH_MEMBERFUL,
   parseAccountChanges,
@@ -85,6 +87,7 @@ import {
   tokenDigest,
 } from "./auth";
 import { directoryOf } from "./avatar-tokens";
+import { forgetAssistant, saveAssistant } from "./assistant/settings";
 import { avatarTokenOf, showAvatar, storeAvatar } from "./avatars";
 import type { BanProblem } from "./bans";
 import { BodyTooLarge, jsonBodyOf } from "./bodies";
@@ -196,12 +199,13 @@ async function signInWithPassword({ emailAddress, password, returnTo }: Record<s
 
 /**
  * Signs someone in with just a name, as someone new every time, when EMBER_GUEST_SIGN_IN allows it,
- * unless Memberful is members only.
+ * unless Memberful is members only, or the name is @ember's.
  */
 async function signInGuest(given: unknown, request: Request, env: Env): Promise<Response> {
   if (!guestSignIn(env)) return problem(403, "Signing in with just a name is turned off");
   const name = typeof given === "string" ? given.trim() : "";
   if (!name || name.length > MAX_NAME_LENGTH) return problem(422, `Name must be 1 to ${MAX_NAME_LENGTH} characters`);
+  if (isReservedName(name)) return problem(422, NAME_RESERVED);
 
   const token = newSessionToken();
   const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
@@ -595,6 +599,7 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   const yours = await workspace(env).changeProfile(credentials, rest, passwordDigest, checked, pushSubscriptionEndpoint || null);
   if (!yours) return problem(401, "Not signed in");
   if (yours === "email address taken") return problem(422, "That email address has an account already");
+  if (yours === "name reserved") return problem(422, NAME_RESERVED);
   if (yours === "password needed") return problem(422, currentPassword ? CURRENT_PASSWORD_WRONG : CURRENT_PASSWORD_NEEDED);
   return profileAnswer(yours, env);
 }
@@ -959,6 +964,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account/sending_domain_checks" && request.method === "POST") return () => checkSendingDomain(request, env);
   if (pathname === "/api/account/turnstile_keys" && request.method === "PUT") return () => saveTurnstileKeys(request, env);
   if (pathname === "/api/account/turnstile_keys" && request.method === "DELETE") return () => forgetTurnstileKeys(request, env);
+  if (pathname === "/api/account/assistant" && request.method === "PUT") return () => saveAssistant(request, env);
+  if (pathname === "/api/account/assistant" && request.method === "DELETE") return () => forgetAssistant(request, env);
   if (pathname === "/api/account/custom_domain_checks" && request.method === "POST") return () => checkCustomDomain(request, env);
   if (pathname === "/api/account/custom_domain_lookups" && request.method === "POST") return () => lookUpCustomDomain(request, env);
   if (pathname === LOGO_PATH && request.method === "PUT") return () => changeLogo(request, env);

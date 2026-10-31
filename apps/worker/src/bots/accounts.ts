@@ -1,4 +1,4 @@
-import type { UserId } from "@ember/protocol";
+import { NAME_RESERVED, type UserId } from "@ember/protocol";
 import { BOTS_FORBIDDEN, parseBotChanges, parseNewBot, WEBHOOK_URL_REFUSED, type BotAnswer, type Bots, type BotSettings } from "@ember/protocol/bots";
 import { credentialsOf } from "../auth";
 import { userFormOf, userFormPhoto } from "../avatars";
@@ -104,10 +104,11 @@ export async function resetBotKey(request: Request, env: Env, botId: UserId): Pr
   return botAnswer(credentials && (await workspace(env).resetBotKey(credentials, botId)));
 }
 
-function botAnswer(bot: BotSettings | "forbidden" | "not found" | null): Response {
+function botAnswer(bot: BotSettings | "forbidden" | "not found" | "name reserved" | null): Response {
   if (!bot) return problem(401, NOT_SIGNED_IN);
   if (bot === "forbidden") return problem(403, BOTS_FORBIDDEN);
   if (bot === "not found") return problem(404, "Not found");
+  if (bot === "name reserved") return problem(422, NAME_RESERVED);
   return Response.json({ bot } satisfies BotAnswer, { headers: PRIVATE });
 }
 

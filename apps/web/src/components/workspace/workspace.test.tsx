@@ -38,6 +38,7 @@ const workspaceSettings: WorkspaceSettings = {
   memberfulSite: null,
   memberfulWebhooks: false,
   turnstile: null,
+  assistant: null,
   email: { provider: "cloudflare", resendKey: null, cloudflare: true, from: null },
   invitations: [],
   emailDomains: [],

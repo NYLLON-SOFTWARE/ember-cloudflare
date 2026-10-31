@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { botMessagesPath, botSlackPath, MAX_WEBHOOK_URL_LENGTH, parseBotChanges, parseNewBot } from "./bots";
-import { MAX_USER_NAME_LENGTH } from "./index";
+import { MAX_USER_NAME_LENGTH, NAME_RESERVED } from "./index";
 
 describe("Add and edit a bot", () => {
   it("takes the name as typed and the webhook URL trimmed, leaving out what isn't sent", () => {
@@ -36,6 +36,11 @@ describe("Add and edit a bot", () => {
   it("refuses a new bot without a name", () => {
     expect(parseNewBot({})).toBe("Name can't be blank");
     expect(parseNewBot({ webhookUrl: "https://ci.example.com/hook" })).toBe("Name can't be blank");
+  });
+
+  it("refuses a new bot the AI assistant's name, which a change leaves to the Worker", () => {
+    expect(parseNewBot({ name: " EMBER " })).toBe(NAME_RESERVED);
+    expect(parseBotChanges({ name: "Ember" })).toEqual({ name: "Ember" });
   });
 });
 
