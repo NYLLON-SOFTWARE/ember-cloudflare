@@ -603,6 +603,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               ref={roomView}
               room={room}
               messageId={route.page === "room" ? route.messageId : undefined}
+              threadId={route.page === "room" ? route.threadId : undefined}
+              replyId={route.page === "room" ? route.replyId : undefined}
               invitation={invitation?.roomId === room.id ? invitation : null}
               onDismissInvitation={dismissCard}
               me={me}
@@ -658,6 +660,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           className={cn(
             "relative grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]",
             settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",
+            // A thread open beside its room, from 1180px wide, which takes 420px of the room's width.
+            "min-[1180px]:has-[>[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
           )}
         >
           <SkipLink />

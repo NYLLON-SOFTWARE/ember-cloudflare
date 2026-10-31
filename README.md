@@ -52,8 +52,8 @@ On localhost setup is open to whoever's there; a deployed Worker takes the setup
 prints ([Deploying](#deploying)).
 
 Or, before setting it up, run `pnpm seed` to have a made-up team set it up and fill its rooms and DMs
-with conversations that use everything a message can: replies, mentions, reactions, pictures, files,
-link previews and bots. It prints how to sign in as each of them (`apps/worker/scripts/seed.ts` says more).
+with conversations that use everything a message can: threads, quotes, mentions, reactions, pictures,
+files, link previews and bots. It prints how to sign in as each of them (`apps/worker/scripts/seed.ts` says more).
 
 ```sh
 pnpm typecheck

@@ -1,8 +1,8 @@
 // Message bodies as the composer sends them: rich text whose mentions and link previews are Action Text
-// attachments, and the quote Reply starts a message with. Each piece keeps what Reply would quote of it
+// attachments, and the quote that Quote starts a message with. Each piece keeps what Quote would quote of it
 // too, which names the people it mentions and leaves out its previews.
 
-/** A message's markup, and what Reply quotes of it. */
+/** A message's markup, and what Quote quotes of it. */
 export interface Markup {
   body: string;
   quoted: string;
@@ -53,7 +53,7 @@ export function codeBlock(language: string, code: string): Markup {
   return { body, quoted: body };
 }
 
-/** A mention of `person`, as the composer's prompt inserts one, which Reply quotes as their name. */
+/** A mention of `person`, as the composer's prompt inserts one, which Quote quotes as their name. */
 export const mention = (person: Named): Markup => ({
   body: `<action-text-attachment sgid="${escapeHtml(person.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`,
   quoted: escapeHtml(person.name),
@@ -61,7 +61,7 @@ export const mention = (person: Named): Markup => ({
 
 /**
  * The preview the composer adds below a link it unfurls, with the markup `previewContent` in
- * packages/richtext writes as its content. Reply leaves it out.
+ * packages/richtext writes as its content. Quote leaves it out.
  */
 export function preview({ url, title, description, image }: LinkPreview): Markup {
   const imageMarkup = image === undefined ? "" : `<div class="og-embed__image"><img src="${escapeHtml(image)}" class="image center" alt=""></div>`;
@@ -78,7 +78,7 @@ export function linkWithPreview(before: string, link: LinkPreview): Markup {
 }
 
 /**
- * What Reply writes, with `reply` typed on the line it leaves: what `original` said, quoted, then who
+ * What Quote writes, with `reply` typed on the line it leaves: what `original` said, quoted, then who
  * said it, with a link to it at `permalink`.
  */
 export function replyMarkup(original: Markup, author: Named, permalink: string, reply: Markup): Markup {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAppPage, MAX_ID_LENGTH, TRANSFER_PATH, transferLink, workspacePageOf } from "./index";
+import { isAppPage, MAX_ID_LENGTH, threadPath, TRANSFER_PATH, transferLink, workspacePageOf } from "./index";
 
 describe("Error pages", () => {
   it("names the pages the app shows, for the Worker to serve the app at", () => {
@@ -63,6 +63,25 @@ describe("Link to a message", () => {
     for (const path of ["/rooms/general/messages", "/rooms/general/messages/", "/rooms/general/messages/m-1/extra", "/rooms/new/messages/m-1"]) {
       expect(isAppPage(path), path).toBe(false);
     }
+  });
+});
+
+describe("Threads", () => {
+  it("opens a room with a message's thread beside it, or at a reply in the thread", () => {
+    expect(workspacePageOf("/rooms/caf%C3%A9/threads/m%2D1")).toEqual({ page: "room", roomId: "café", threadId: "m-1" });
+    expect(workspacePageOf("/rooms/general/threads/m-1/@r%2D2")).toEqual({ page: "room", roomId: "general", threadId: "m-1", replyId: "r-2" });
+    expect(threadPath("café", "m-1")).toBe("/rooms/caf%C3%A9/threads/m-1");
+    expect(threadPath("general", "m 1", "r/2")).toBe("/rooms/general/threads/m%201/@r%2F2");
+    for (const path of ["/rooms/general/threads", "/rooms/general/threads/", "/rooms/general/threads/m-1/", "/rooms/general/threads/m-1/@", "/rooms/new/threads/m-1"]) {
+      expect(isAppPage(path), path).toBe(false);
+    }
+  });
+
+  it("opens the room without the thread, or the thread at its newest replies, for an id that's malformed or too long for one", () => {
+    const tooLong = "m".repeat(MAX_ID_LENGTH + 1);
+    for (const id of ["%FF", tooLong]) expect(workspacePageOf(`/rooms/general/threads/${id}`), id).toEqual({ page: "room", roomId: "general" });
+    for (const id of ["%FF", tooLong]) expect(workspacePageOf(`/rooms/general/threads/m-1/@${id}`), id).toEqual({ page: "room", roomId: "general", threadId: "m-1" });
+    expect(workspacePageOf("/rooms/%FF/threads/m-1")).toBeNull();
   });
 });
 

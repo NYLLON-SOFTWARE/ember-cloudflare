@@ -478,9 +478,10 @@ describe("Scroll back through history", () => {
     const after = await plan(MESSAGES_AFTER, room, "cursor", 41);
     const newest = await plan(NEWEST_MESSAGES, room, 41);
 
-    // Seeking (room_id=?) alone would walk the room from its newest message down to the cursor.
-    expect(before).toContain("index_messages_on_room_id_and_id (room_id=? AND id<?)");
-    expect(after).toContain("index_messages_on_room_id_and_id (room_id=? AND id>?)");
+    // Seeking (room_id=?) alone would walk the room from its newest message down to the cursor, and
+    // without in_room, through every reply sent only to a thread.
+    expect(before).toContain("index_messages_on_room_id_and_in_room_and_id (room_id=? AND in_room=? AND id<?)");
+    expect(after).toContain("index_messages_on_room_id_and_in_room_and_id (room_id=? AND in_room=? AND id>?)");
     expect(`${before}; ${after}; ${newest}`).not.toContain("TEMP B-TREE");
   });
 

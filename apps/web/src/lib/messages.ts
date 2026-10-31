@@ -23,6 +23,9 @@ const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: "short" });
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "long" });
 const dateTimeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" });
 const dayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "short" });
+const monthDayFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+const yearFormat = new Intl.DateTimeFormat(undefined, { year: "numeric" });
+const shortDateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
 /** A message's time: "3:04 PM". */
 export const timeLabel = (date: Date) => timeFormat.format(date);
@@ -30,6 +33,21 @@ export const timeLabel = (date: Date) => timeFormat.format(date);
 export const dateLabel = (date: Date) => dateFormat.format(date);
 /** What a time or a separator's date shows on hover: "10/12/26, 3:04 PM". */
 export const dateTimeLabel = (date: Date) => dateTimeFormat.format(date);
+
+/**
+ * When a thread's newest reply came, as the thread's summary says it, as of `now`: "today at 3:04 PM",
+ * "yesterday at 3:04 PM", "on Oct 12", or "on Oct 12, 2025" in another year. A narrow summary, as on a
+ * phone, says it `short`: today's time, or "yesterday".
+ */
+export function lastReplyLabel(date: Date, now = new Date()): { long: string; short: string } {
+  const day = dayFormat.format(date);
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (day === dayFormat.format(now)) return { long: `today at ${timeLabel(date)}`, short: timeLabel(date) };
+  if (day === dayFormat.format(yesterday)) return { long: `yesterday at ${timeLabel(date)}`, short: "yesterday" };
+  const on = `on ${(yearFormat.format(date) === yearFormat.format(now) ? monthDayFormat : shortDateFormat).format(date)}`;
+  return { long: on, short: on };
+}
 
 /** The day each message was written, as `dayFormat` writes it, kept with the message, since a timeline asks again on every render. */
 const days = new WeakMap<Message, string>();
@@ -43,7 +61,8 @@ function dayOf(message: Message): string {
  * The messages as message_formatter.js lays them out. A message is the first of its day when the one above it
  * is from another day. It's threaded, without its author's avatar and name, when the one above it is the
  * same person's from no more than five minutes before or after, even across midnight, when it has a separator
- * and still no header.
+ * and still no header. A message deleted while its thread has replies shows neither its author nor its time,
+ * so nothing threads under it, and it threads under nothing.
  */
 export function timeline(messages: Message[]): TimelineItem[] {
   return messages.map((message, index) => {
@@ -53,13 +72,14 @@ export function timeline(messages: Message[]): TimelineItem[] {
     return {
       message,
       firstOfDay: dayOf(previous) !== dayOf(message),
-      threaded: previous.creator.id === message.creator.id && Math.abs(created.getTime() - before.getTime()) <= THREAD_WINDOW_MS,
+      threaded:
+        !message.deleted && !previous.deleted && previous.creator.id === message.creator.id && Math.abs(created.getTime() - before.getTime()) <= THREAD_WINDOW_MS,
     };
   });
 }
 
 /**
- * What Reply writes in the composer (reply_controller.js): what the message shows but its link previews,
+ * What Quote writes in the composer (reply_controller.js): what the message shows but its link previews,
  * quoted, with each mention as the bare name `nameOf` gives, then its author with a link to it, and a line
  * to reply on.
  */
@@ -74,7 +94,7 @@ export function replyQuote(nodes: DisplayNode[], author: string, link: string, n
 }
 
 /**
- * What Reply quotes of a bot's message that shows only cards: their plain text, its lines broken as they are, since
+ * What Quote quotes of a bot's message that shows only cards: their plain text, its lines broken as they are, since
  * what a card lays out has no place in a quote.
  */
 export function cardsQuote(plainText: string): DisplayNode[] {

@@ -19,8 +19,24 @@ export const tooLargeToAttach = (name: string) => `${name} is too large. Choose 
 /** Why an upload failed, as its card says it. */
 export class UploadError extends Error {}
 
-/** Why an answer with `status` failed an upload: a 413, or any other. */
-const refused = (status: number) => new UploadError(status === 413 ? FILE_TOO_LARGE : UPLOAD_FAILED);
+/**
+ * Why an answer with `status` and `text` failed an upload: a 413, a 422 that says why, as one does when the
+ * thread the file was to go in is gone, or any other.
+ */
+function refused(status: number, text = ""): UploadError {
+  if (status === 413) return new UploadError(FILE_TOO_LARGE);
+  return new UploadError((status === 422 && reasonIn(text)) || UPLOAD_FAILED);
+}
+
+/** What an answer's `{ error }` says, if it's that. */
+function reasonIn(text: string): string | undefined {
+  try {
+    const { error } = JSON.parse(text) as { error?: unknown };
+    return typeof error === "string" ? error : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** How much of `total` bytes `sent` is, as a percentage rounded down. */
 const percentOf = (sent: number, total: number) => (total === 0 ? 100 : Math.min(100, Math.floor((sent / total) * 100)));
@@ -56,21 +72,27 @@ async function sendPreview(roomId: RoomId, id: string, preview: Blob | null) {
   if (preview) await fetch(uploadPreviewPath(roomId, id), { method: "PUT", body: preview }).catch(() => {});
 }
 
+/** The thread a file goes in as a reply, which `alsoSend` sends to the room too. */
+export interface UploadThread {
+  parentId: string;
+  alsoSend: boolean;
+}
+
 /**
- * Uploads `file` to `roomId` as the message `clientMessageId` names, telling `onProgress` how much of it
- * has gone, as a percentage rounded down, each time that changes, and answers the message the room posts
- * it as. It fails with an UploadError saying why, as the file's card says it.
+ * Uploads `file` to `roomId` as the message `clientMessageId` names, or as a reply in `thread`, telling
+ * `onProgress` how much of it has gone, as a percentage rounded down, each time that changes, and answers
+ * the message the room posts it as. It fails with an UploadError saying why, as the file's card says it.
  */
-export async function uploadFile(roomId: RoomId, file: File, clientMessageId: string, onProgress: (percent: number) => void): Promise<Message> {
+export async function uploadFile(roomId: RoomId, file: File, clientMessageId: string, onProgress: (percent: number) => void, thread?: UploadThread): Promise<Message> {
   if (file.size > MAX_FILE_SIZE) throw new UploadError(FILE_TOO_LARGE);
   const started = await fetch(uploadsPath(roomId), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name: file.name, type: file.type, size: file.size, clientMessageId }),
+    body: JSON.stringify({ name: file.name, type: file.type, size: file.size, clientMessageId, ...thread }),
   }).catch(() => {
     throw new UploadError(CONNECTION_LOST);
   });
-  if (started.status !== 201) throw refused(started.status);
+  if (started.status !== 201) throw refused(started.status, await started.text().catch(() => ""));
   const { id, partSize, parts } = (await started.json()) as Upload;
   const preview = previewOf(file);
 
@@ -87,7 +109,7 @@ export async function uploadFile(roomId: RoomId, file: File, clientMessageId: st
   await sendPreview(roomId, id, await preview);
   const start = (parts - 1) * partSize;
   const { status, text } = await sendPart(uploadPartPath(roomId, id, parts), file.slice(start), (bytes) => progress(start + bytes));
-  if (status !== 201 && status !== 200) throw refused(status);
+  if (status !== 201 && status !== 200) throw refused(status, text);
   progress(file.size);
   return messageIn(text);
 }

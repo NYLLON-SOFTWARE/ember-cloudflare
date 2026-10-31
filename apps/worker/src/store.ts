@@ -1,16 +1,18 @@
-import type { Boost, Card, Message, RoomId, TimelinePage, User, UserId } from "@ember/protocol";
+import { PARENT_TEXT_LENGTH, parentTextOf, THREAD_FACES, type Boost, type Card, type Message, type RoomId, type ThreadSummary, type TimelinePage, type User, type UserId } from "@ember/protocol";
 import type { PreparedBody } from "@ember/richtext";
 import { statement, type Db, type Statement } from "./db";
 import { fileSigner, type FileUrls } from "./files/addresses";
 import { deletingAllFiles, deletingFilesOf, type AttachedFile } from "./files/blobs";
-import { logEvent, logIndexing, logIndexingEach } from "./room-log";
+import { logEvent, logIndexing, logIndexingEach, logIndexingReplies } from "./room-log";
 import type { IndexedMessage } from "./search-index";
 
 // Messages for one room, kept in the room's Durable Object SQLite storage or in D1 (see db.ts), each
 // with the number of its latest change, and the deletions a tab that connects again may yet need to
 // hear of (migrations/0015_numbered_changes.sql). A file message keeps its file (migrations/0029_file_messages.sql),
 // whose addresses are signed as it's read, so they're always signed under the secret Ember has now, and a
-// bot's message its cards (migrations/0034_message_cards.sql).
+// bot's message its cards (migrations/0034_message_cards.sql). A reply in a thread names its parent, and shows
+// in the room's timeline only when it was also sent there, and a parent is read with its thread's summary
+// (migrations/0044_threads.sql).
 
 interface MessageRow {
   id: string;
@@ -34,6 +36,32 @@ interface MessageRow {
   cards: string | null;
   /** The message's boosts, a JSON array of `BoostRow`s. */
   boosts: string;
+  /** For a reply in a thread, the message it replies to, or null. */
+  parent_id: string | null;
+  /** 1 for a message the room's timeline shows: every message but a reply sent only to its thread. */
+  in_room: number;
+  /** 1 for a message deleted while replies in its thread are left, which keeps its place for them. */
+  deleted: number;
+  /**
+   * Its thread, a JSON `ThreadRow`, read with it, or null for a reply, which has none, or missing from a
+   * row the search index kept before threads.
+   */
+  thread?: string | null;
+  /** Who wrote its thread's newest replies, a JSON array of `ReplierRow`s. */
+  repliers?: string | null;
+  /** For a reply, the start of its parent's plain text, or null once the parent is deleted. */
+  parent_text?: string | null;
+}
+
+/** How many replies a message's thread has, and when the newest was written, if it has any. */
+interface ThreadRow {
+  count: number;
+  latest_at: string | null;
+}
+
+/** Someone who replied in a thread, with the id of their newest reply there. */
+interface ReplierRow extends User {
+  latest: string;
 }
 
 interface BoostRow {
@@ -49,11 +77,40 @@ interface BoostRow {
 export const STORED_CLIENT_MESSAGE_IDS = `SELECT client_message_id FROM messages
   WHERE room_id = ? AND creator_id = ? AND client_message_id IN (SELECT value FROM json_each(?))`;
 
-/** Up to a number of someone's messages, in no particular order, read through the same index as the above. */
-export const MESSAGES_BY = `SELECT id FROM messages WHERE room_id = ? AND creator_id = ? LIMIT ?`;
+/**
+ * Up to a number of someone's messages, in no particular order, read through the same index as the above.
+ * One deleted already, kept for its thread, is left out, so deleting them all comes to an end.
+ */
+export const MESSAGES_BY = `SELECT id FROM messages WHERE room_id = ? AND creator_id = ? AND deleted = 0 LIMIT ?`;
 
 /** As MESSAGES_BY, but only those written by a time. */
-export const MESSAGES_BY_UNTIL = `SELECT id FROM messages WHERE room_id = ? AND creator_id = ? AND created_at <= ? LIMIT ?`;
+export const MESSAGES_BY_UNTIL = `SELECT id FROM messages WHERE room_id = ? AND creator_id = ? AND created_at <= ? AND deleted = 0 LIMIT ?`;
+
+/** A message being deleted, or whose thread loses replies, as `REPLIES_LEFT` reads it. */
+interface DeletingRow {
+  id: string;
+  parent_id: string | null;
+  deleted: number;
+  /** 1 when its thread has replies left once the messages being deleted have gone. */
+  replies_left: number;
+}
+
+/**
+ * Of the messages a JSON array ?3 names that room ?1 has, whose replies each is, whether it's been kept for
+ * its thread already, and whether its thread has replies other than those a JSON array ?2 names.
+ */
+const REPLIES_LEFT = `SELECT id, parent_id, deleted, EXISTS (
+    SELECT 1 FROM messages AS replies WHERE replies.parent_id = messages.id AND replies.id NOT IN (SELECT value FROM json_each(?2))
+  ) AS replies_left
+  FROM messages WHERE room_id = ?1 AND id IN (SELECT value FROM json_each(?3))`;
+
+/** Keeps the messages of room `?` a JSON array names for their threads, at a time, without their text, file or cards. */
+const KEEP_FOR_THREADS = `UPDATE messages SET body = '', plain_text = '', mentions = '[]', attachment = NULL, cards = NULL, deleted = 1, updated_at = ?3
+  WHERE room_id = ?1 AND id IN (SELECT value FROM json_each(?2))`;
+
+/** Numbers changes to the messages of room ?1 a JSON array ?2 names from ?3, in the order it names them. */
+const NUMBER_CHANGES = `UPDATE messages SET change_seq = ?3 + (SELECT key FROM json_each(?2) AS listed WHERE listed.value = messages.id)
+  WHERE room_id = ?1 AND id IN (SELECT value FROM json_each(?2))`;
 
 /** Up to a number of the room's oldest messages, as deleting the room deletes them a batch at a time. */
 export const OLDEST_MESSAGES = `SELECT id FROM messages WHERE room_id = ? ORDER BY id LIMIT ?`;
@@ -80,21 +137,43 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-const toMessage = (row: MessageRow): Message => ({
-  id: row.id,
-  clientMessageId: row.client_message_id,
-  roomId: row.room_id,
-  creator: { id: row.creator_id, name: row.creator_name },
-  body: row.body,
-  plainText: row.plain_text,
-  mentions: (JSON.parse(row.mentions) as (User | UserId)[]).map((person) => (typeof person === "string" ? { id: person, name: "" } : person)),
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-  editedAt: row.edited_at,
+/** For an edit that makes `message`'s plain text `plainText`, logs its thread's replies for the search index, if what they show of it changes. */
+function logIndexingRepliesTo(roomId: RoomId, message: Message, plainText: string): Statement[] {
+  const retold = message.thread !== undefined && parentTextOf(message.plainText) !== parentTextOf(plainText);
+  return retold ? [logIndexingReplies(roomId, JSON.stringify([message.id]))] : [];
+}
+
+/** A message's thread, from its row, if it has replies. */
+function threadOf(row: MessageRow): ThreadSummary | undefined {
+  const thread = row.thread == null ? null : (JSON.parse(row.thread) as ThreadRow);
+  if (!thread || thread.count === 0) return undefined;
   // json_group_array doesn't promise an order, so sort here rather than in the subquery.
-  boosts: (JSON.parse(row.boosts) as BoostRow[]).map(toBoost).sort(byId),
-  ...(row.cards !== null && { cards: JSON.parse(row.cards) as Card[] }),
-});
+  const repliers = (JSON.parse(row.repliers ?? "[]") as ReplierRow[]).sort((a, b) => (a.latest < b.latest ? 1 : a.latest > b.latest ? -1 : 0));
+  return { count: thread.count, latestAt: thread.latest_at!, people: repliers.map(({ id, name }) => ({ id, name })) };
+}
+
+function toMessage(row: MessageRow): Message {
+  const thread = threadOf(row);
+  return {
+    id: row.id,
+    clientMessageId: row.client_message_id,
+    roomId: row.room_id,
+    creator: { id: row.creator_id, name: row.creator_name },
+    body: row.body,
+    plainText: row.plain_text,
+    mentions: (JSON.parse(row.mentions) as (User | UserId)[]).map((person) => (typeof person === "string" ? { id: person, name: "" } : person)),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    editedAt: row.edited_at,
+    // json_group_array doesn't promise an order, so sort here rather than in the subquery.
+    boosts: (JSON.parse(row.boosts) as BoostRow[]).map(toBoost).sort(byId),
+    ...(row.cards !== null && { cards: JSON.parse(row.cards) as Card[] }),
+    // A row the search index kept from before threads has none of their columns.
+    ...(row.parent_id != null && { parentId: row.parent_id, alsoSent: row.in_room === 1, parentText: row.parent_text ?? "" }),
+    ...(thread && { thread }),
+    ...(row.deleted === 1 && { deleted: true }),
+  };
+}
 
 /** Signs a file's addresses (files/addresses.ts). */
 type Signer = (key: string, name: string, preview?: boolean) => Promise<FileUrls>;
@@ -125,24 +204,46 @@ export interface PostedFile {
 }
 
 /**
- * Messages with their boosts gathered by a subquery, so a page is one statement: one round trip to
- * D1, and no list of message ids to bind (both backends bind at most 100 values a statement).
+ * Messages with their boosts, their threads' summaries and a reply's parent's text gathered by subqueries,
+ * so a page is one statement: one round trip to D1, and no list of message ids to bind (both backends bind
+ * at most 100 values a statement). A thread's people are the `THREAD_FACES` who wrote its newest replies,
+ * each under the name they wrote the latest with: the replies with none later by their writers, newest
+ * first, which the thread's index reads in order, so nothing is sorted.
  */
 const SELECT_MESSAGES = `SELECT messages.*, (
     SELECT json_group_array(json_object('id', boosts.id, 'message_id', boosts.message_id, 'booster_id', boosts.booster_id,
       'booster_name', boosts.booster_name, 'content', boosts.content, 'created_at', boosts.created_at))
     FROM boosts WHERE boosts.message_id = messages.id
-  ) AS boosts FROM messages`;
+  ) AS boosts, CASE WHEN messages.parent_id IS NULL THEN (
+    SELECT json_object('count', count(*), 'latest_at', (
+      SELECT latest.created_at FROM messages AS latest WHERE latest.parent_id = messages.id ORDER BY latest.id DESC LIMIT 1
+    )) FROM messages AS replies WHERE replies.parent_id = messages.id
+  ) END AS thread, CASE WHEN messages.parent_id IS NULL THEN (
+    SELECT json_group_array(json_object('id', creator_id, 'name', creator_name, 'latest', id)) FROM (
+      SELECT replies.creator_id, replies.creator_name, replies.id FROM messages AS replies
+      WHERE replies.parent_id = messages.id AND NOT EXISTS (
+        SELECT 1 FROM messages AS later WHERE later.parent_id = messages.id AND later.id > replies.id AND later.creator_id = replies.creator_id
+      )
+      ORDER BY replies.id DESC LIMIT ${THREAD_FACES}
+    )
+  ) END AS repliers, CASE WHEN messages.parent_id IS NOT NULL THEN (
+    SELECT substr(parents.plain_text, 1, ${PARENT_TEXT_LENGTH}) FROM messages AS parents WHERE parents.id = messages.parent_id
+  ) END AS parent_text FROM messages`;
 
 // The newest page and the pages before and after a message are separate statements: SQLite can't seek an
 // index through `? IS NULL OR id < ?`, so a single statement walked the room from its newest message
-// down to the cursor.
-export const NEWEST_MESSAGES = `${SELECT_MESSAGES} WHERE room_id = ? ORDER BY id DESC LIMIT ?`;
-export const MESSAGES_BEFORE = `${SELECT_MESSAGES} WHERE room_id = ? AND id < ? ORDER BY id DESC LIMIT ?`;
-export const MESSAGES_AFTER = `${SELECT_MESSAGES} WHERE room_id = ? AND id > ? ORDER BY id LIMIT ?`;
+// down to the cursor. Each reads only the messages the timeline shows, through their own index, so the
+// replies sent only to threads are never read.
+export const NEWEST_MESSAGES = `${SELECT_MESSAGES} WHERE room_id = ? AND in_room = 1 ORDER BY id DESC LIMIT ?`;
+export const MESSAGES_BEFORE = `${SELECT_MESSAGES} WHERE room_id = ? AND in_room = 1 AND id < ? ORDER BY id DESC LIMIT ?`;
+export const MESSAGES_AFTER = `${SELECT_MESSAGES} WHERE room_id = ? AND in_room = 1 AND id > ? ORDER BY id LIMIT ?`;
 
-/** How many messages a room has, which reads every one. */
-export const COUNT_MESSAGES = `SELECT COUNT(*) AS count FROM messages WHERE room_id = ?`;
+/** How many messages the room's timeline shows, which reads every one. */
+export const COUNT_MESSAGES = `SELECT COUNT(*) AS count FROM messages WHERE room_id = ? AND in_room = 1`;
+
+/** A thread's newest replies, and the page before one of them, as the room's pages are. */
+export const NEWEST_REPLIES = `${SELECT_MESSAGES} WHERE room_id = ? AND parent_id = ? ORDER BY id DESC LIMIT ?`;
+export const REPLIES_BEFORE = `${SELECT_MESSAGES} WHERE room_id = ? AND parent_id = ? AND id < ? ORDER BY id DESC LIMIT ?`;
 
 /**
  * How many changes behind a tab that connects again can be and still catch up, which is as long as the
@@ -156,10 +257,11 @@ export const LATEST_CHANGE = `SELECT MAX(
     COALESCE((SELECT MAX(seq) FROM message_deletions WHERE room_id = ?), 0)
   ) AS seq`;
 /**
- * The messages changed after a change, as they are now, in the order of their latest changes, which
- * their index holds, so the room reads only those, however many it has.
+ * The messages the room's timeline shows changed after a change, as they are now, in the order of their
+ * latest changes, which their index holds, so the room reads only those, however many it has. A tab
+ * opens a thread afresh as it catches up, so replies sent only to their threads are left out.
  */
-export const MESSAGES_CHANGED_SINCE = `${SELECT_MESSAGES} WHERE room_id = ? AND change_seq > ? ORDER BY change_seq`;
+export const MESSAGES_CHANGED_SINCE = `${SELECT_MESSAGES} WHERE room_id = ? AND change_seq > ? AND in_room = 1 ORDER BY change_seq`;
 /** The messages deleted after a change. */
 export const MESSAGES_DELETED_SINCE = `SELECT message_id FROM message_deletions WHERE room_id = ? AND seq > ? ORDER BY seq`;
 
@@ -176,6 +278,29 @@ const MAX_INDEXED_ROW = 600_000;
 
 /** The same in every room, which D1 alone can read at once. */
 const MESSAGES_ANYWHERE_WITH_IDS = `${SELECT_MESSAGES} WHERE id IN (SELECT value FROM json_each(?))`;
+
+/** A new message's place in a thread: the message it replies to, and whether it's also sent to the room. */
+export interface InThread {
+  parent: Message;
+  alsoSend: boolean;
+}
+
+/** A message changed as another changed, with the number of its change. */
+export interface Changed {
+  message: Message;
+  seq: number;
+}
+
+/**
+ * What deleting messages did: the ids of those deleted, their deletions numbered from `seq` in that order,
+ * and after them the messages changed, each kept without its text for its thread, or a parent whose
+ * thread lost replies.
+ */
+export interface Deletion {
+  deletedIds: string[];
+  changed: Changed[];
+  seq: number;
+}
 
 /** Which page `MessageStore.pageAt` reads: the one before a message, or after one, or with neither the newest. */
 export interface PageCursor {
@@ -293,6 +418,22 @@ export class MessageStore {
   }
 
   /**
+   * The thread of the message `parentId` names: the message, and its newest `limit` replies, oldest first,
+   * with whether it has older ones. The message is null, with no replies, when the room doesn't have it or
+   * it's a reply, which has no thread.
+   */
+  async thread(parentId: string, limit: number): Promise<Page & { parent: Message | null }> {
+    const parent = await this.find(parentId);
+    if (!parent || parent.parentId !== undefined) return { parent: null, messages: [], hasMore: false };
+    return { parent, ...(await this.toPage(await this.db.all<MessageRow>(NEWEST_REPLIES, this.roomId, parentId, limit + 1), limit)) };
+  }
+
+  /** The newest `limit` replies in the thread of `parentId` older than `before`, oldest first. */
+  async repliesBefore(parentId: string, before: string, limit: number): Promise<Page> {
+    return this.toPage(await this.db.all<MessageRow>(REPLIES_BEFORE, this.roomId, parentId, before, limit + 1), limit);
+  }
+
+  /**
    * What changed after the room's change `since`, for a tab that has seen it, or null if the room can't
    * say: `since` is later than its latest change, or more than `CHANGES_KEPT` behind it.
    */
@@ -311,12 +452,16 @@ export class MessageStore {
     return this.messagesOf(await this.db.all<MessageRow>(MESSAGES_WITH_IDS, this.roomId, JSON.stringify(ids)));
   }
 
-  /** What the search index keeps of the messages `ids` names that the room has: their text, and their rows for results to show. */
+  /**
+   * What the search index keeps of the messages `ids` names that the room has: their text, and their rows for
+   * results to show. One deleted but kept for its thread is left out, as one deleted outright is.
+   */
   async indexable(ids: string[]): Promise<IndexedMessage[]> {
     const rows = await this.db.all<MessageRow>(MESSAGES_WITH_IDS, this.roomId, JSON.stringify(ids));
-    return rows.map((row) => {
+    return rows.flatMap((row) => {
+      if (row.deleted === 1) return [];
       const message = JSON.stringify(row);
-      return { id: row.id, createdAt: row.created_at, text: row.plain_text, message: message.length <= MAX_INDEXED_ROW ? message : null };
+      return [{ id: row.id, createdAt: row.created_at, text: row.plain_text, message: message.length <= MAX_INDEXED_ROW ? message : null }];
     });
   }
 
@@ -329,7 +474,9 @@ export class MessageStore {
    * Stores a new message, logging it in the same transaction for the Workspace to mark the room unread
    * by, as a reply to a webhook delivery when it's one, and for the search index, and answers it with the
    * change's number. A file message posts `posted`'s file, recording that its upload has finished in
-   * the same transaction.
+   * the same transaction. A reply in a thread, `inThread`, changes its parent's thread too, as the change
+   * after it, logging the parent for the search index, whose results show its thread, and answers the
+   * parent as it is then.
    */
   async create(
     id: string,
@@ -339,30 +486,41 @@ export class MessageStore {
     now: string,
     kind: "message" | "reply" = "message",
     posted?: PostedFile,
-  ): Promise<{ message: Message; seq: number }> {
-    const seq = await this.change((seq) => [
-      statement(
-        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, created_at, updated_at, change_seq, attachment, cards)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        id,
-        this.roomId,
-        clientMessageId,
-        creator.id,
-        creator.name,
-        body.html,
-        body.plainText,
-        JSON.stringify(body.mentions),
-        now,
-        now,
-        seq,
-        posted ? JSON.stringify(posted.file) : null,
-        body.cards ? JSON.stringify(body.cards) : null,
-      ),
-      logEvent(this.roomId, kind, creator.id, now, id),
-      logIndexing(this.roomId, id),
-      ...(posted ? [posted.finished(id)] : []),
-    ]);
+    inThread?: InThread,
+  ): Promise<{ message: Message; seq: number; parent: Changed | null }> {
+    const inRoom = !inThread || inThread.alsoSend;
+    const seq = await this.change(
+      (seq) => [
+        statement(
+          `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, created_at, updated_at, change_seq, attachment, cards, parent_id, in_room)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id,
+          this.roomId,
+          clientMessageId,
+          creator.id,
+          creator.name,
+          body.html,
+          body.plainText,
+          JSON.stringify(body.mentions),
+          now,
+          now,
+          seq,
+          posted ? JSON.stringify(posted.file) : null,
+          body.cards ? JSON.stringify(body.cards) : null,
+          inThread?.parent.id ?? null,
+          inRoom ? 1 : 0,
+        ),
+        logEvent(this.roomId, kind, creator.id, now, id, inRoom),
+        logIndexing(this.roomId, id),
+        ...(posted ? [posted.finished(id)] : []),
+        ...(inThread ? [this.numbered(inThread.parent.id, seq + 1), logIndexing(this.roomId, inThread.parent.id)] : []),
+      ],
+      inThread ? 2 : 1,
+    );
+    // The room is the only writer of its messages, so the parent is as this left it.
+    const parent = inThread ? { message: (await this.find(inThread.parent.id))!, seq: seq + 1 } : null;
     return {
+      parent,
       message: {
         id,
         clientMessageId,
@@ -377,6 +535,7 @@ export class MessageStore {
         boosts: [],
         ...(posted && { attachment: await shownFile(posted.file, await this.sign()) }),
         ...(body.cards && { cards: body.cards }),
+        ...(inThread && { parentId: inThread.parent.id, alsoSent: inThread.alsoSend, parentText: parentTextOf(inThread.parent.plainText) }),
       },
       seq,
     };
@@ -405,8 +564,9 @@ export class MessageStore {
 
   /**
    * Replaces a message's text, which marks it edited, and takes its cards away, since what's sent in its
-   * place is the whole message, logging it for the search index, and answers the message as it is now
-   * with the change's number, as the methods below that change a message answer theirs.
+   * place is the whole message, logging it for the search index, and its thread's replies if what they
+   * show of it changes, and answers the message as it is now with the change's number, as the methods
+   * below that change a message answer theirs.
    */
   async updateBody(message: Message, body: PreparedBody, now: string): Promise<{ message: Message; seq: number }> {
     const seq = await this.change((seq) => [
@@ -422,6 +582,7 @@ export class MessageStore {
         message.id,
       ),
       logIndexing(this.roomId, message.id),
+      ...logIndexingRepliesTo(this.roomId, message, body.plainText),
     ]);
     const { cards: _, ...rest } = message;
     return { message: { ...rest, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now }, seq };
@@ -431,7 +592,8 @@ export class MessageStore {
    * Gives `message` the file `posted` brings, in place of any it had, or takes its file away with null,
    * as a bot's edit does, marking it edited, as a change to its text does, and the file it had deleted,
    * for the room to purge. Its text and cards stay, and so does its plain text, unless it has neither,
-   * when that's its file's name, as a file message's is.
+   * when that's its file's name, as a file message's is, and then its thread's replies, which show it,
+   * are logged for the search index with it.
    */
   async updateAttachment(message: Message, posted: PostedFile | null, now: string): Promise<{ message: Message; seq: number }> {
     const plainText = message.body === "" && !message.cards ? (posted?.file.name ?? "") : message.plainText;
@@ -449,6 +611,7 @@ export class MessageStore {
         message.id,
       ),
       logIndexing(this.roomId, message.id),
+      ...logIndexingRepliesTo(this.roomId, message, plainText),
       ...(posted ? [posted.finished(message.id)] : []),
     ]);
     const { attachment: _, ...rest } = message;
@@ -466,24 +629,51 @@ export class MessageStore {
   }
 
   /**
-   * Deletes the messages `ids` names, each a change of its own, numbered in the order they're named,
-   * and answers the first's number. Their boosts go in the same statement, through ON DELETE CASCADE,
-   * so a failure keeps both, and their files are marked deleted first, for the room to purge. Their ids
-   * stay with their deletions' numbers, and the deletions that fall out of the latest `CHANGES_KEPT` go,
-   * and they're logged for the search index. The ids go as one JSON value, which a page of them can fill.
+   * Deletes the messages `ids` names, each a change of its own, numbered in the order they're named, but
+   * for a message whose thread has replies left, which is kept for them without its text, file, cards or
+   * boosts, and a message kept that way already. One kept that way goes once its last reply does, and the
+   * parents whose threads lose replies change too, each change numbered after the deletions. Boosts go
+   * with their messages, through ON DELETE CASCADE, so a failure keeps both, and the messages' files are
+   * marked deleted first, for the room to purge. The ids deleted stay with their deletions' numbers, and
+   * the deletions that fall out of the latest `CHANGES_KEPT` go, and the messages deleted, kept or changed
+   * are logged for the search index, with the replies to those kept, whose results show none of their
+   * text now. The ids go as JSON values, which a page of them can fill.
    */
-  async delete(ids: string[]): Promise<number> {
+  async delete(ids: string[]): Promise<Deletion> {
     const listed = JSON.stringify(ids);
-    return this.change(
+    const named = await this.db.all<DeletingRow>(REPLIES_LEFT, this.roomId, listed, listed);
+    const kept = named.filter((row) => row.replies_left === 1 && row.deleted === 0).map((row) => row.id);
+    const deletedIds = named.filter((row) => row.replies_left === 0).map((row) => row.id);
+    // The threads that lose replies, but for those whose messages are deleted or kept here themselves.
+    const handled = new Set([...kept, ...deletedIds]);
+    const parentIds = [...new Set(named.flatMap((row) => (row.replies_left === 0 && row.parent_id !== null && !handled.has(row.parent_id) ? [row.parent_id] : [])))];
+    const parents = parentIds.length === 0 ? [] : await this.db.all<DeletingRow>(REPLIES_LEFT, this.roomId, JSON.stringify(deletedIds), JSON.stringify(parentIds));
+    const emptied = parents.filter((row) => row.deleted === 1 && row.replies_left === 0).map((row) => row.id);
+    deletedIds.push(...emptied);
+    const changedIds = [...kept, ...parents.map((row) => row.id).filter((id) => !emptied.includes(id))];
+    const count = deletedIds.length + changedIds.length;
+    if (count === 0) return { deletedIds, changed: [], seq: (await this.latestChange()) + 1 };
+    const [deletedList, keptList, changedList] = [deletedIds, kept, changedIds].map((list) => JSON.stringify(list)) as [string, string, string];
+    const goneOrKept = JSON.stringify([...deletedIds, ...kept]);
+    const unindexed = JSON.stringify([...deletedIds, ...changedIds]);
+    const now = new Date().toISOString();
+    const seq = await this.change(
       (seq) => [
-        deletingFilesOf(this.roomId, listed, new Date().toISOString()),
-        statement(`DELETE FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`, this.roomId, listed),
-        statement(`INSERT INTO message_deletions (room_id, seq, message_id) SELECT ?, ? + key, value FROM json_each(?)`, this.roomId, seq, listed),
-        statement(`DELETE FROM message_deletions WHERE room_id = ? AND seq <= ?`, this.roomId, seq + ids.length - 1 - CHANGES_KEPT),
-        logIndexingEach(this.roomId, listed),
+        // First, while the messages kept still name their files.
+        deletingFilesOf(this.roomId, goneOrKept, now),
+        statement(`DELETE FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`, this.roomId, deletedList),
+        statement(`INSERT INTO message_deletions (room_id, seq, message_id) SELECT ?, ? + key, value FROM json_each(?)`, this.roomId, seq, deletedList),
+        statement(`DELETE FROM message_deletions WHERE room_id = ? AND seq <= ?`, this.roomId, seq + count - 1 - CHANGES_KEPT),
+        statement(KEEP_FOR_THREADS, this.roomId, keptList, now),
+        statement(`DELETE FROM boosts WHERE room_id = ? AND message_id IN (SELECT value FROM json_each(?))`, this.roomId, keptList),
+        statement(NUMBER_CHANGES, this.roomId, changedList, seq + deletedIds.length),
+        logIndexingEach(this.roomId, unindexed),
+        logIndexingReplies(this.roomId, keptList),
       ],
-      ids.length,
+      count,
     );
+    const changed = new Map((await this.withIds(changedIds)).map((message) => [message.id, message]));
+    return { deletedIds, changed: changedIds.map((id, index) => ({ message: changed.get(id)!, seq: seq + deletedIds.length + index })), seq };
   }
 
   /**

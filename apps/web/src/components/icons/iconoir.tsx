@@ -563,6 +563,19 @@ export function Menu(props: IconoirIconProps) {
   );
 }
 
+export function MessageText(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="message-text" {...props}>
+      <path d="M7 12L17 12" {...LINE} />
+      <path d="M7 8L13 8" {...LINE} />
+      <path
+        d="M3 20.2895V5C3 3.89543 3.89543 3 5 3H19C20.1046 3 21 3.89543 21 5V15C21 16.1046 20.1046 17 19 17H7.96125C7.35368 17 6.77906 17.2762 6.39951 17.7506L4.06852 20.6643C3.71421 21.1072 3 20.8567 3 20.2895Z"
+        {...OUTLINE}
+      />
+    </IconoirIcon>
+  );
+}
+
 export function Minus(props: IconoirIconProps) {
   return (
     <IconoirIcon name="minus" {...props}>
@@ -714,6 +727,19 @@ export function QrCode(props: IconoirIconProps) {
         d="M9 15.6V20.4C9 20.7314 8.73137 21 8.4 21H3.6C3.26863 21 3 20.7314 3 20.4V15.6C3 15.2686 3.26863 15 3.6 15H8.4C8.73137 15 9 15.2686 9 15.6Z"
         {...LINE}
       />
+    </IconoirIcon>
+  );
+}
+
+export function QuoteMessage(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="quote-message" {...props}>
+      <path
+        d="M3 20.2895V5C3 3.89543 3.89543 3 5 3H19C20.1046 3 21 3.89543 21 5V15C21 16.1046 20.1046 17 19 17H7.96125C7.35368 17 6.77906 17.2762 6.39951 17.7506L4.06852 20.6643C3.71421 21.1072 3 20.8567 3 20.2895Z"
+        stroke="currentColor"
+      />
+      <path d="M10.5 10H8.5C7.94772 10 7.5 9.55228 7.5 9V8C7.5 7.44772 7.94772 7 8.5 7H9.5C10.0523 7 10.5 7.44772 10.5 8V10ZM10.5 10C10.5 11 9.5 12 8.5 13" {...ROUND_ENDS} />
+      <path d="M16.5 10H14.5C13.9477 10 13.5 9.55228 13.5 9V8C13.5 7.44772 13.9477 7 14.5 7H15.5C16.0523 7 16.5 7.44772 16.5 8V10ZM16.5 10C16.5 11 15.5 12 14.5 13" {...ROUND_ENDS} />
     </IconoirIcon>
   );
 }
@@ -870,15 +896,6 @@ export function Trash(props: IconoirIconProps) {
         d="M21 6L15.375 6M3 6L8.625 6M8.625 6V4C8.625 2.89543 9.52043 2 10.625 2H13.375C14.4796 2 15.375 2.89543 15.375 4V6M8.625 6L15.375 6"
         {...LINE}
       />
-    </IconoirIcon>
-  );
-}
-
-export function Undo(props: IconoirIconProps) {
-  return (
-    <IconoirIcon name="undo" {...props}>
-      <path d="M4.5 8C8.5 8 11 8 15 8C15 8 15 8 15 8C15 8 20 8 20 12.7059C20 18 15 18 15 18C11.5714 18 9.71429 18 6.28571 18" {...LINE} />
-      <path d="M7.5 11.5C6.13317 10.1332 5.36683 9.36683 4 8C5.36683 6.63317 6.13317 5.86683 7.5 4.5" {...LINE} />
     </IconoirIcon>
   );
 }

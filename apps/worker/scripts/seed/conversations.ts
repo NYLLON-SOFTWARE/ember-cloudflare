@@ -1,7 +1,7 @@
-// What Fernwood's rooms and DMs say, written to show everything a message can be: replies quoting what
-// they answer, quotes, mentions, reactions, edits, formatting, code, pictures, a video, files, link
-// previews, emoji on their own, and bots' cards. Maya, who sets Ember up, speaks in a few of them, so
-// signed in as her, some rooms are read and others have news.
+// What Fernwood's rooms and DMs say, written to show everything a message can be: threads, one with a
+// reply also sent to its room, replies quoting what they answer, quotes, mentions, reactions, edits,
+// formatting, code, pictures, a video, files, link previews, emoji on their own, and bots' cards. Maya,
+// who sets Ember up, speaks in a few of them, so signed in as her, some rooms are read and others have news.
 
 import type { RoomIconName, RoomId } from "@ember/protocol";
 import type { BotName, PersonName } from "./cast.ts";
@@ -157,7 +157,8 @@ const support: Script = async ({ people: { amara, sam }, bots: { uptime } }, roo
   await room.watch(amara);
   await room.post(uptime, alert("FIRING", "danger", "5xx responses on the message API are at *7.2%*, above the 5% threshold."));
   const slow = await room.say(amara, html`<p>A few customers say messages are slow to send. ${mention(sam.user)}, is this related?</p>`);
-  await room.reply(sam, slow, "Yes, one of the cache nodes restarted under load. Rolling it now.");
+  await room.replyInThread(sam, slow, "Yes, one of the cache nodes restarted under load. Rolling it now.");
+  await room.replyInThread(amara, slow, "Thanks! I'll tell the customers who wrote in.");
   await room.post(uptime, alert("RESOLVED", "good", "5xx responses on the message API are back to *0.1%*."));
   const thanks = await room.say(amara, "Reports have stopped coming in. Thanks, Sam! 🙏");
   await room.react(sam, thanks, "🙌");
@@ -185,15 +186,17 @@ const launch: Script = async ({ people: { maya, sam, priya, leo, jordan, tomas }
   for (const person of [sam, priya, leo, tomas]) await room.react(person, shipIt, "🎉");
   await room.react(jordan, shipIt, "ship it!");
   const notes = await room.say(sam, html`<p>${mention(maya.user)} can you give the release notes a last read before I tag it?</p>`);
-  await room.reply(maya, notes, "On it 👍 Comments by lunch.");
+  await room.replyInThread(maya, notes, "On it 👍 Comments by lunch.");
+  await room.replyInThread(sam, notes, "Thanks! The upgrade steps are the part I'm least sure of.");
+  await room.replyInThread(maya, notes, "Left two comments there. The rest reads well, tag it whenever you're ready.");
   const regressions = await room.say(
     tomas,
     html`<p>Regression pass is done ✅ Two small things:</p><ol><li>The unread dot lingers after switching rooms on an iPad</li><li>Long room names run under the header on 320px phones</li></ol>`,
   );
-  const fixed = await room.reply(leo, regressions, "Both fixed in #412, mind having one more look?");
+  const fixed = await room.replyInThread(leo, regressions, "Both fixed in #412, mind having one more look?");
   await room.edit(fixed, "Both fixed in #412 and #413, mind having one more look?");
   await room.react(tomas, fixed, "👀");
-  await room.say(tomas, "Confirmed, both fixed 👌");
+  await room.replyInThread(tomas, regressions, "Confirmed, both fixed 👌", { alsoSend: true });
   const announcement = await room.say(
     jordan,
     html`<p>The announcement draft is up, comments welcome: <a href="https://fernwood.example/blog/launch-week">https://fernwood.example/blog/launch-week</a></p>${preview({

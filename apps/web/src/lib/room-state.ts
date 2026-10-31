@@ -1,4 +1,4 @@
-import { HISTORY_PAGE_SIZE, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
+import { HISTORY_PAGE_SIZE, parentTextOf, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
 
 /** `gone` is a room that isn't there for this person any more, deleted or no longer theirs, which nothing reconnects to. */
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "gone";
@@ -88,6 +88,12 @@ export interface RoomState {
    * address. It doesn't say which reaction, so a deletion sent before the latest may not happen.
    */
   refusedUnboosts: number;
+  /**
+   * Set for a timeline that keeps every message it's sent, as a thread's does: it has no way to page
+   * forward, so it can't cut its newest, and then it can't cut its oldest either, which may be the ones
+   * being read.
+   */
+  keepsAll?: true;
 }
 
 export type RoomAction =
@@ -107,6 +113,8 @@ export type RoomAction =
   /** Goes to a message the timeline holds, or to its end when it holds the newest. */
   | { type: "focus"; messageId: string | null }
   | { type: "expire-typing"; before: number }
+  /** Says why something written didn't go, as the room says why it refused something. */
+  | { type: "warn"; message: string }
   | { type: "dismiss-notice" };
 
 export const initialRoomState: RoomState = {
@@ -145,6 +153,12 @@ export const unconfirmed = (messages: RoomState["messages"], snapshot: Message[]
 
 const byId = (a: Message, b: Message) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
+/** What changed while the page was away: the messages changed, as they are now, and the ids of those deleted. */
+export interface Changes {
+  messages: Message[];
+  deletedIds: string[];
+}
+
 /**
  * The page's messages caught up with what changed while it was away, as `resumed` says. Deleted messages
  * go, changed ones are replaced, and new ones take their places by id, except those outside the
@@ -154,7 +168,7 @@ const byId = (a: Message, b: Message) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0
  * be older than the page a welcome before brought, which nothing since names. And whether any came newer
  * than the timeline's end.
  */
-function caughtUp({ messages, oldestId, newestId, hasNewer }: RoomState, { messages: changed, deletedIds }: Extract<ServerFrame, { type: "resumed" }>) {
+function caughtUp({ messages, oldestId, newestId, hasNewer }: RoomState, { messages: changed, deletedIds }: Changes) {
   const deleted = new Set(deletedIds);
   const updates = new Map(changed.map((m) => [m.id, m]));
   const stored = messages.filter((m) => !isPending(m));
@@ -164,7 +178,7 @@ function caughtUp({ messages, oldestId, newestId, hasNewer }: RoomState, { messa
   const added = changed.filter((m) => !loaded.has(m.id) && (oldestId === null || m.id > oldestId) && (end === null || m.id < end));
   const newest = stored.at(-1)?.id ?? newestId;
   const came = changed.some((m) => !loaded.has(m.id) && (newest === null || m.id > newest));
-  return { messages: [...[...kept, ...added].sort(byId), ...unconfirmed(messages, changed)], came };
+  return { messages: [...retold([...kept, ...added], changed).sort(byId), ...unconfirmed(messages, changed)], came };
 }
 
 /**
@@ -184,12 +198,12 @@ const showing = (state: RoomState, page: TimelinePage) => ({
  * The timeline cut back to `MAX_MESSAGES` once it holds more than `MAX_MESSAGES_LEEWAY` over: from its
  * start after it grows at the end, and from its end after it grows at the start, as Campfire's paginator
  * drops the end the reader is furthest from. What's cut is paged to again from the new `oldestId` or
- * `newestId`. Messages waiting for the room aren't cut.
+ * `newestId`. Messages waiting for the room aren't cut, nor is a timeline that `keepsAll`.
  */
 function cut(state: RoomState, from: "start" | "end"): RoomState {
   const stored = state.messages.filter((m) => !isPending(m));
   const over = stored.length - MAX_MESSAGES;
-  if (over <= MAX_MESSAGES_LEEWAY) return state;
+  if (over <= MAX_MESSAGES_LEEWAY || state.keepsAll) return state;
   const dropped = new Set((from === "start" ? stored.slice(0, over) : stored.slice(-over)).map((m) => m.id));
   const messages = state.messages.filter((m) => isPending(m) || !dropped.has(m.id));
   return from === "start"
@@ -199,6 +213,19 @@ function cut(state: RoomState, from: "start" | "end"): RoomState {
 
 const replace = (messages: RoomState["messages"], id: string, update: (m: Message) => Message) =>
   messages.map((m) => (m.id === id ? update(m) : m));
+
+/**
+ * The timeline with the replies to `changed` messages showing the start of their text as it is now, as a
+ * reply also sent to the room shows it: once a message is edited, or deleted with its thread left.
+ */
+function retold(messages: RoomState["messages"], changed: Message[]): RoomState["messages"] {
+  const texts = new Map(changed.map((m) => [m.id, parentTextOf(m.plainText)]));
+  const told = messages.map((m) => {
+    const text = m.parentId === undefined ? undefined : texts.get(m.parentId);
+    return text === undefined || text === m.parentText ? m : { ...m, parentText: text };
+  });
+  return told.every((m, i) => m === messages[i]) ? messages : told;
+}
 
 /** The timeline with the upload this page sent as `clientMessageId` changed by `update`, while it's still on its way. */
 const uploading = (messages: RoomState["messages"], clientMessageId: string, update: (upload: PendingUpload) => PendingUpload) =>
@@ -238,6 +265,62 @@ function withoutTyping(typing: RoomState["typing"], userId: string) {
   if (!(userId in typing)) return typing;
   const { [userId]: _, ...rest } = typing;
   return rest;
+}
+
+/**
+ * The timeline as the room lets a connection in with a welcome, `page` in its place, and `present` there.
+ * Unconfirmed messages stay across a reconnect, and everything else comes fresh from the room: the old
+ * socket may have closed after the room stored one, so those it sent stay as sending while useRoom asks
+ * the room about them.
+ */
+export function welcomed(state: RoomState, page: TimelinePage, present: User[]): RoomState {
+  return {
+    ...state,
+    ...showing(state, page),
+    status: "open",
+    present,
+    // A history request on the old socket will never be answered.
+    loadingOlder: false,
+    loadingNewer: false,
+    loadingPage: false,
+    typing: {},
+    // Whatever the page: whether the room has more than a page of messages.
+    paged: state.paged ?? (page.hasMore || page.hasNewer || page.messages.length > HISTORY_PAGE_SIZE),
+    connections: state.connections + 1,
+  };
+}
+
+/**
+ * The timeline as the room lets a connection in again with what `changed` while it was away, and `present`
+ * there. The pages already loaded stay, older ones included, where a welcome would replace them.
+ */
+export function resumed(state: RoomState, changed: Changes, present: User[]): RoomState {
+  const { messages, came } = caughtUp(state, changed);
+  return cut(
+    {
+      ...state,
+      status: "open",
+      messages,
+      present,
+      // A history request on the old socket will never be answered.
+      loadingOlder: false,
+      loadingNewer: false,
+      loadingPage: false,
+      typing: {},
+      arrivals: came ? state.arrivals + 1 : state.arrivals,
+      connections: state.connections + 1,
+    },
+    "start",
+  );
+}
+
+/** The timeline with the page before `before` that history brings, `messages`, oldest first, and whether there are older ones still. */
+export function paged(state: RoomState, { before, messages: page, hasMore }: { before: string; messages: Message[]; hasMore: boolean }): RoomState {
+  // A page asked for before the timeline took another's place, or was cut, pages from where it no longer starts.
+  if (before !== state.oldestId) return { ...state, loadingOlder: false };
+  // A page can hold the stored copy of a message that a reconnect left unconfirmed.
+  const messages = state.messages.filter((m) => !page.some((stored) => confirms(stored, m)));
+  return cut({ ...state, messages: [...page, ...messages], hasMore, oldestId: page[0]?.id ?? state.oldestId, loadingOlder: false }, "end");
 }
 
 export function roomReducer(state: RoomState, action: RoomAction): RoomState {
@@ -280,6 +363,8 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
       return { ...state, loadingPage: true };
     case "focus":
       return { ...state, focus: { messageId: action.messageId } };
+    case "warn":
+      return { ...state, notice: action.message };
     case "dismiss-notice":
       return { ...state, notice: null };
     case "expire-typing": {
@@ -294,49 +379,14 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
 
 function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomState {
   switch (frame.type) {
-    case "welcome": {
-      // Keep unconfirmed messages across a reconnect; everything else comes fresh from the room. The
-      // old socket may have closed after the room stored one, so those it sent stay as sending while
-      // useRoom asks the room about them.
-      return {
-        ...state,
-        ...showing(state, frame),
-        status: "open",
-        present: frame.present,
-        // A history request on the old socket will never be answered.
-        loadingOlder: false,
-        loadingNewer: false,
-        loadingPage: false,
-        typing: {},
-        // Whatever the page: whether the room has more than a page of messages.
-        paged: state.paged ?? (frame.hasMore || frame.hasNewer || frame.messages.length > HISTORY_PAGE_SIZE),
-        connections: state.connections + 1,
-      };
-    }
-    case "resumed": {
-      // The pages already loaded stay, older ones included, where a welcome would replace them.
-      const { messages, came } = caughtUp(state, frame);
-      return cut(
-        {
-          ...state,
-          status: "open",
-          messages,
-          present: frame.present,
-          // A history request on the old socket will never be answered.
-          loadingOlder: false,
-          loadingNewer: false,
-          loadingPage: false,
-          typing: {},
-          arrivals: came ? state.arrivals + 1 : state.arrivals,
-          connections: state.connections + 1,
-        },
-        "start",
-      );
-    }
+    case "welcome":
+      return welcomed(state, frame, frame.present);
+    case "resumed":
+      return resumed(state, frame, frame.present);
     case "message.created":
       return received(state, frame.message);
     case "message.updated":
-      return { ...state, messages: replace(state.messages, frame.message.id, () => frame.message) };
+      return { ...state, messages: retold(replace(state.messages, frame.message.id, () => frame.message), [frame.message]) };
     case "message.deleted":
       return { ...state, messages: state.messages.filter((m) => m.id !== frame.messageId) };
     case "boost.created":
@@ -371,22 +421,8 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
       const notice = sent === 0 ? state.notice : sent === 1 ? "Your message was sent. Scroll up to see it." : "Your messages were sent. Scroll up to see them.";
       return { ...state, messages, notice };
     }
-    case "history": {
-      // A page asked for before the timeline took another's place, or was cut, pages from where it no longer starts.
-      if (frame.before !== state.oldestId) return { ...state, loadingOlder: false };
-      // A page can hold the stored copy of a message that a reconnect left unconfirmed.
-      const messages = state.messages.filter((m) => !frame.messages.some((stored) => confirms(stored, m)));
-      return cut(
-        {
-          ...state,
-          messages: [...frame.messages, ...messages],
-          hasMore: frame.hasMore,
-          oldestId: frame.messages[0]?.id ?? state.oldestId,
-          loadingOlder: false,
-        },
-        "end",
-      );
-    }
+    case "history":
+      return paged(state, frame);
     case "history.after": {
       if (!state.hasNewer || frame.after !== state.newestId) return { ...state, loadingNewer: false };
       const waiting = state.messages.filter((m) => isPending(m) && !frame.messages.some((stored) => confirms(stored, m)));
@@ -406,8 +442,11 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     case "error": {
       // A message the room refused shows as not sent, as do the ones it couldn't check. An error about no
       // message keeps the same list: the timeline takes a new one for a change, and would ask again for a
-      // page that just failed.
+      // page that just failed. One about a thread, or about messages the timeline isn't sending, as
+      // replies in a thread, is the thread's to show.
       const notSent = frame.clientMessageIds ?? (frame.clientMessageId === undefined ? [] : [frame.clientMessageId]);
+      if (frame.failed === "thread.open" || frame.failed === "thread.before") return state;
+      if (notSent.length > 0 && !state.messages.some((m) => isPending(m) && notSent.includes(m.clientMessageId))) return state;
       const messages = notSent.length
         ? state.messages.map((m) => (isPending(m) && notSent.includes(m.clientMessageId) ? { ...m, failed: true } : m))
         : state.messages;
@@ -422,6 +461,9 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         refusedUnboosts: frame.failed === "boost.delete" ? state.refusedUnboosts + 1 : state.refusedUnboosts,
       };
     }
+    // A thread's, which its own state keeps.
+    case "thread.opened":
+    case "thread.history":
     case "pong":
       return state;
   }

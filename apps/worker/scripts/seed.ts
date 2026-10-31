@@ -1,5 +1,5 @@
 // Fills a new Ember with a made-up team, Fernwood, and their conversations, to see Ember in use:
-// replies quoting what they answer, mentions, reactions, an edit, formatting and code, pictures, a
+// threads, replies quoting what they answer, mentions, reactions, an edit, formatting and code, pictures, a
 // video, files, link previews, DMs and bots' cards. It sets Ember up as the team's first person, so it
 // takes only an Ember nobody has set up yet:
 //

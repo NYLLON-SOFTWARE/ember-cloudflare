@@ -496,6 +496,17 @@ Objects, D1 or speed call for something else.
   rich text in the stored form, and their plain text follows the body's in `plain_text`, so search,
   pushes and webhooks read it with no other column. A page of messages reads no other table for
   them.
+- **A reply names its thread's message.** Campfire has no threads. A reply in one keeps the message it
+  replies to in `messages.parent_id` (room migration 0044), and `messages.in_room` is 0 for a reply
+  sent only to its thread, which the room's pages, its count and what a tab that connects again
+  catches up on leave out, through an index on `(room_id, in_room, id)`. A thread's replies are read
+  through a partial index on `(parent_id, id)`, which holds only replies, and so is the summary under
+  a message with replies, read with the message: how many there are, when the newest came, and the
+  `THREAD_FACES` people who wrote the newest, so nothing has to keep it up to date as replies come and
+  go. A message deleted while its thread has replies stays, emptied, with `deleted` set, until its
+  last reply goes too. `room_events.in_room` is 0 for a reply sent only to its thread, which marks
+  the room unread for nobody and isn't its latest activity, and an upload's row in `blobs` keeps the
+  thread it goes to in `parent_id`, and in `also_sent` whether it goes to the room too.
 
 ## Writing SQL here
 

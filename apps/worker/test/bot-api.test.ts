@@ -622,7 +622,7 @@ describe("Bots read messages", () => {
     const { bot, general } = await withBot();
     await posted(bot.key, general, "Hello!");
     const plan = (await roomSql(general, `EXPLAIN QUERY PLAN ${COUNT_MESSAGES}`, general)).map((row) => (row as { detail: string }).detail).join("; ");
-    expect(plan).toMatch(/^SEARCH messages USING COVERING INDEX index_messages_on_room_id\w* \(room_id=\?\)$/);
+    expect(plan).toBe("SEARCH messages USING COVERING INDEX index_messages_on_room_id_and_in_room_and_id (room_id=? AND in_room=?)");
   });
 });
 

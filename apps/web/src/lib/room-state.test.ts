@@ -1,4 +1,4 @@
-import { HISTORY_PAGE_SIZE, type ClientFrame, type Message, type TimelinePage, type User } from "@ember/protocol";
+import { HISTORY_PAGE_SIZE, type ClientFrame, type Message, type ServerFrame, type TimelinePage, type User } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { timeline } from "./messages";
 import { initialRoomState, isPending, MAX_MESSAGES, roomReducer, type PendingMessage, type PendingUpload, type RoomState } from "./room-state";
@@ -599,5 +599,35 @@ describe("Only members see a room", () => {
     state = roomReducer(state, { type: "status", status: "gone" });
     expect(state.messages).toMatchObject([{ clientMessageId: "c1", pending: true, failed: true }]);
     expect(state.messages[0]).not.toHaveProperty("queued");
+  });
+});
+
+describe("Threads", () => {
+  it("leaves a thread's frames, and the room's refusals of its replies, to the thread", () => {
+    const state = opened(stored(1, 3));
+    const thread = (f: ServerFrame) => frame(state, { type: "frame", frame: f, now: 0 });
+    expect(thread({ type: "thread.opened", parentId: "m001", parent: message({ id: "m001" }), messages: [], hasMore: false })).toBe(state);
+    expect(thread({ type: "thread.history", parentId: "m001", before: "r2", messages: [], hasMore: false })).toBe(state);
+    expect(thread({ type: "error", message: "Couldn't load the thread", failed: "thread.before" })).toBe(state);
+    expect(thread({ type: "error", message: "That message no longer exists", clientMessageId: "c-reply", failed: "message.create" })).toBe(state);
+  });
+
+  it("shows the start of a message over its replies also sent to the room as it is now, edited or deleted, live or on a reconnect", () => {
+    const parent = message({ id: "m001", clientMessageId: "c001", plainText: "Who has the keys?" });
+    const answer = message({ id: "m002", clientMessageId: "c002", creator: grace, parentId: "m001", alsoSent: true, parentText: "Who has the keys?" });
+    let state = opened([parent, answer, message({ id: "m003", clientMessageId: "c003" })]);
+    const untouched = state.messages[2];
+    const edited = { ...parent, plainText: "Who has the car keys? ".repeat(10) };
+    state = frame(state, { type: "frame", frame: { type: "message.updated", message: edited, seq: 2 }, now: 0 });
+    expect(state.messages[1]!.parentText).toBe(edited.plainText.slice(0, 150));
+    expect(state.messages[2]).toBe(untouched);
+
+    const tombstone = { ...parent, body: "", plainText: "", deleted: true };
+    state = frame(state, { type: "frame", frame: { type: "resumed", you: ada, messages: [tombstone], deletedIds: [], present: [ada], seq: 3 }, now: 0 });
+    expect(state.messages.map((m) => m.parentText)).toEqual([undefined, "", undefined]);
+  });
+
+  it("says why something written didn't go, as the room says why it refused something", () => {
+    expect(roomReducer(initialRoomState, { type: "warn", message: "Too long" }).notice).toBe("Too long");
   });
 });

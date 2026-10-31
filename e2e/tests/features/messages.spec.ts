@@ -470,6 +470,27 @@ test.describe("Message action bar", () => {
     }
   });
 
+  test("lays the bar out in two rows of four on touch screens where a row of its buttons doesn't fit", async ({ members }) => {
+    const ada = await members.signIn("Ada", { context: { ...phone, viewport: { width: 320, height: 620 } } });
+    // On a phone, Enter starts a new line, so Send Message sends it.
+    await ada.composer().fill("Eight actions on a narrow phone");
+    await ada.page.getByRole("button", { name: "Send Message" }).tap();
+    const message = ada.message("Eight actions on a narrow phone");
+    await expect(message).not.toHaveAttribute("aria-busy");
+    const options = message.getByRole("button", { name: "Message options" });
+    await options.tap();
+    const first = await box(bar(message).getByRole("button", { name: "Thumbs up" }));
+    const thread = await box(bar(message).getByRole("link", { name: "Reply in thread" }));
+    const quote = await box(bar(message).getByRole("button", { name: "Quote" }));
+    const more = await box(bar(message).getByRole("button", { name: "More reactions" }));
+    expect(thread).toMatchObject({ x: first.x + 3 * 44, y: first.y });
+    expect(quote).toMatchObject({ x: first.x, y: first.y + 44 });
+    expect(more).toMatchObject({ x: thread.x, y: quote.y });
+    // Lined up with Message options' right edge, as far as the timeline lets it.
+    const trigger = await box(options);
+    expect(thread.x + thread.width + 5).toBe(Math.min(trigger.x + trigger.width, 320 - 8));
+  });
+
   test("opens the bar below Message options on touch screens where there's room", async ({ members, participant }) => {
     await (await participant("Grace")).say("Room below me");
     const ada = await members.signIn("Ada", { context: phone });
@@ -544,8 +565,8 @@ test.describe("More actions on a message", () => {
 
     await options.click();
     const panel = moreActions(message);
-    await expect(panel.getByRole("button")).toHaveText(["Copy text", "Copy link", "Edit message", "Delete message"]);
-    await expect(panel.getByRole("button", { name: "Copy text" })).toBeFocused();
+    await expect(panel.getByRole("button")).toHaveText(["Quote", "Copy text", "Copy link", "Edit message", "Delete message"]);
+    await expect(panel.getByRole("button", { name: "Quote" })).toBeFocused();
     // Under the bar, at its right end, where Message options is, without moving the bar.
     const panelBox = await box(panel);
     expect(Math.abs(panelBox.x + panelBox.width - (bar.x + bar.width))).toBeLessThan(1);
@@ -582,7 +603,7 @@ test.describe("More actions on a message", () => {
     const ada = await members.signIn("Ada");
     await ada.page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
     const panel = await openMoreActions(ada, "Copy my words");
-    await expect(panel.getByRole("button")).toHaveText(["Copy text", "Copy link"]);
+    await expect(panel.getByRole("button")).toHaveText(["Quote", "Copy text", "Copy link"]);
     await panel.getByRole("button", { name: "Copy text" }).click();
     await expect.poll(() => ada.page.evaluate(() => navigator.clipboard.readText())).toBe("Copy my words");
     await expect(panel).toBeVisible();
@@ -610,12 +631,15 @@ test.describe("More actions on a message", () => {
   });
 });
 
-test.describe("Reply with a quote", () => {
+test.describe("Quote a message", () => {
   test("quotes the message in the composer in place of what's written there, citing its author with a link to it", async ({ members, participant, rooms }) => {
     await (await participant("Grace")).say("Third time's a charm.");
     const ada = await members.signIn("Ada");
     await ada.composer().fill("Something else");
-    await (await ada.actions("Third time's a charm.")).getByRole("button", { name: "Reply" }).click();
+    // With a mouse, Quote is in More actions.
+    await ada.actions("Third time's a charm.");
+    await ada.message("Third time's a charm.").getByRole("button", { name: "Message options" }).click();
+    await ada.message("Third time's a charm.").getByRole("group", { name: "More actions" }).getByRole("button", { name: "Quote" }).click();
     const composer = ada.composer();
     await expect(composer).toBeFocused();
     await expect(composer.locator("blockquote")).toHaveText("Third time's a charm.");
@@ -637,6 +661,21 @@ test.describe("Reply with a quote", () => {
     await link.click();
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}/@[^/]+$`));
     await expect(ada.message("Third time's a charm.").first()).toBeVisible();
+  });
+
+  test("quotes from the bar on touch screens, where Quote follows Reply in thread", async ({ members, participant }) => {
+    await (await participant("Grace")).say("Quote me by touch");
+    const ada = await members.signIn("Ada", { context: phone });
+    const message = ada.message("Quote me by touch");
+    await message.getByRole("button", { name: "Message options" }).tap();
+    const actions = message.getByRole("group", { name: "Message actions" });
+    const thread = await box(actions.getByRole("link", { name: "Reply in thread" }));
+    const quote = actions.getByRole("button", { name: "Quote" });
+    expect((await box(quote)).x).toBe(thread.x + thread.width);
+    await quote.tap();
+    await expect(ada.composer().locator("blockquote")).toHaveText("Quote me by touch");
+    await expect(ada.composer().locator("cite")).toHaveText("Grace #");
+    await expect(actions).toBeHidden();
   });
 });
 

@@ -13,6 +13,8 @@ export interface Viewing {
   visible: boolean;
   /** When the room last heard from the socket, other than its pings: as it connected, or said whether its tab is shown. */
   heardAt: number;
+  /** The message whose thread the tab has open, from its `thread.open` until its `thread.close`, or another's `thread.open`. */
+  thread?: string;
 }
 
 /**
@@ -24,12 +26,16 @@ export function isViewing({ visible, heardAt }: Pick<Viewing, "visible" | "heard
   return visible && now - Math.max(heardAt, lastPing?.getTime() ?? 0) <= VIEWING_TTL_MS;
 }
 
-/** Everyone viewing the room whose sockets `state` holds, once each, however many tabs they have it open in. */
-export function viewersOf(state: DurableObjectState, now = Date.now()): UserId[] {
+/**
+ * Everyone viewing the room whose sockets `state` holds, once each, however many tabs they have it open in,
+ * or with `thread`, everyone viewing that message's thread in it.
+ */
+export function viewersOf(state: DurableObjectState, now = Date.now(), thread?: string): UserId[] {
   const viewers = new Set<UserId>();
   for (const socket of state.getWebSockets()) {
     if (socket.readyState !== WebSocket.OPEN) continue;
     const viewing = socket.deserializeAttachment() as Viewing;
+    if (thread !== undefined && viewing.thread !== thread) continue;
     if (isViewing(viewing, state.getWebSocketAutoResponseTimestamp(socket), now)) viewers.add(viewing.user.id);
   }
   return [...viewers];

@@ -116,17 +116,21 @@ export async function startUpload(request: Request, env: Env, roomId: RoomId): P
   if (uploader instanceof Response) return uploader;
   const file = parseNewUpload(await jsonBodyOf(request));
   if (typeof file === "string") return problem(file === FILE_TOO_LARGE ? 413 : 422, file);
-  const key = await env.CHAT_ROOM.getByName(roomId).startUpload(roomId, uploader, file);
-  if (!key) return problem(404, ROOM_NOT_FOUND);
-  return Response.json({ id: key, partSize: UPLOAD_PART_SIZE, parts: uploadParts(file.size) } satisfies Upload, { status: 201 });
+  const started = await env.CHAT_ROOM.getByName(roomId).startUpload(roomId, uploader, file);
+  if (!started) return problem(404, ROOM_NOT_FOUND);
+  if (typeof started === "string") return problem(422, started);
+  return Response.json({ id: started.key, partSize: UPLOAD_PART_SIZE, parts: uploadParts(file.size) } satisfies Upload, { status: 201 });
 }
 
 /**
  * What a part that finishes an upload answers: 201 with the message the room posted the file as, or 200
- * with the one an earlier part did, or 404 when the room turned the uploader away or the message is gone.
+ * with the one an earlier part did, 404 when the room turned the uploader away or the message is gone, or
+ * 422 when the thread it was to go in is.
  */
-const posted = (finished: { message: Message; posted: boolean } | null) =>
-  finished ? Response.json(finished.message, { status: finished.posted ? 201 : 200 }) : problem(404, UPLOAD_NOT_FOUND);
+function posted(finished: { message: Message; posted: boolean } | string | null): Response {
+  if (typeof finished === "string") return problem(422, finished);
+  return finished ? Response.json(finished.message, { status: finished.posted ? 201 : 200 }) : problem(404, UPLOAD_NOT_FOUND);
+}
 
 /**
  * Has the room post `uploader`'s upload `key`, which R2 has all of now, answering as `posted` does. When

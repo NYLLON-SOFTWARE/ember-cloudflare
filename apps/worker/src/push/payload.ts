@@ -1,4 +1,4 @@
-import type { RoomId, RoomKind } from "@ember/protocol";
+import { threadPath, type RoomId, type RoomKind } from "@ember/protocol";
 
 // What a push of a new message says, for the service worker to show as it is.
 
@@ -23,14 +23,26 @@ export interface PushedRoom {
   name: string | null;
 }
 
+/** A reply in a thread, as its push names it: the message it replies to, and its own id. */
+export interface PushedReply {
+  parentId: string;
+  replyId: string;
+}
+
 /**
  * A new message's push: a DM's is titled with the sender's name and reads the message's plain text, and
  * any other room's is titled with the room's name and reads "<sender>: <text>". Opening it opens the
- * room, not the message. A title or text too long is cut short, with an ellipsis.
+ * room, not the message. A reply in a thread, `reply`, is titled "<sender> in a thread" in a DM and
+ * "Thread in <room>" elsewhere, and opening it opens the thread at the reply. A title or text too long is
+ * cut short, with an ellipsis.
  */
-export function messagePayload(roomId: RoomId, room: PushedRoom, senderName: string, plainText: string): PushPayload {
-  const [title, body] = room.kind === "direct" ? [senderName, plainText] : [room.name ?? "", `${senderName}: ${plainText}`];
-  return { title: truncated(title, MAX_TITLE_BYTES), body: truncated(body, MAX_BODY_BYTES), path: `/rooms/${roomId}` };
+export function messagePayload(roomId: RoomId, room: PushedRoom, senderName: string, plainText: string, reply?: PushedReply): PushPayload {
+  const direct = room.kind === "direct";
+  const named = direct ? senderName : (room.name ?? "");
+  const title = reply === undefined ? named : direct ? `${named} in a thread` : `Thread in ${named}`;
+  const body = direct ? plainText : `${senderName}: ${plainText}`;
+  const path = reply === undefined ? `/rooms/${roomId}` : threadPath(roomId, reply.parentId, reply.replyId);
+  return { title: truncated(title, MAX_TITLE_BYTES), body: truncated(body, MAX_BODY_BYTES), path };
 }
 
 /**

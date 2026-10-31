@@ -38,7 +38,7 @@ import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, typ
 import { RoomLog } from "./room-log";
 import { searchIndex } from "./search-index";
 import { CLOSE_REASONS, closedAtOnce, closeTooLarge, isTooLarge, MAX_ROOM_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
-import { MessageStore, type PageCursor, type PostedFile, type StoredBody } from "./store";
+import { MessageStore, type Deletion, type InThread, type PageCursor, type PostedFile, type StoredBody } from "./store";
 import { viewersOf, type Viewing } from "./viewing";
 import { workspace, type BotAccess, type WebhookAccess } from "./workspace";
 import type { MessagePush, MessageWebhook } from "./workspace-store";
@@ -107,12 +107,21 @@ export interface KeptFile {
   file: StreamedFile;
 }
 
+/** How `ChatRoom.create` posts a message: as a bot's reply to a webhook delivery, with a file, or in a thread. */
+interface Posting {
+  kind?: "message" | "reply";
+  posted?: PostedFile;
+  inThread?: InThread;
+}
+
 /** What the room answers a bot that names a message it doesn't have. */
 export const NOT_FOUND = "not found";
 /** What the room answers a bot that names someone else's message, which it can't change. */
 export const FORBIDDEN = "forbidden";
 /** What the room answers a bot whose boost has nothing in it. */
 export const BLANK = "blank";
+/** Why the room keeps no reply in a thread whose message it no longer has. */
+export const MESSAGE_GONE = "That message no longer exists";
 /** Why the room keeps no longer boost. */
 const BOOST_TOO_LONG = `Boosts can be up to ${MAX_BOOST_LENGTH} characters.`;
 
@@ -126,6 +135,8 @@ const WEBHOOKS_WAITING = 1024;
 const NO_WEBHOOK = "the bot has been deleted, has left the room or has no webhook";
 /** Why the room posts nothing of what a bot says back: it was deleted or left the room, or its webhook changed, while the delivery ran. */
 const WEBHOOK_CHANGED = "the bot has been deleted, has left the room or its webhook has changed";
+/** Why the room posts nothing of what a bot says back to a reply in a thread: the thread's message was deleted while the delivery ran. */
+const THREAD_GONE = "the thread's message has been deleted";
 
 /** How long an Active Storage key is: `MINIMUM_TOKEN_LENGTH`. */
 const KEY_LENGTH = 28;
@@ -170,8 +181,8 @@ export class ChatRoom extends DurableObject<Env> {
   private readonly webhooks = new JobQueue(WEBHOOKS_AT_ONCE, WEBHOOKS_WAITING);
   /**
    * Who has read the room since its latest message, as far as this object has seen. Only a new message
-   * marks a room unread, so until one comes another read of theirs would change nothing, and isn't
-   * logged.
+   * in the room marks it unread, so until one comes another read of theirs would change nothing, and
+   * isn't logged.
    */
   private readonly readers = new Set<UserId>();
 
@@ -334,8 +345,7 @@ export class ChatRoom extends DurableObject<Env> {
       const ids = await store.messageIdsBy(userId, limit + 1, liftedAt);
       const removed = ids.slice(0, limit);
       if (removed.length === 0) return false;
-      const seq = await store.delete(removed);
-      removed.forEach((messageId, index) => this.broadcast({ type: "message.deleted", messageId, seq: seq + index }));
+      this.broadcastDeletion(await store.delete(removed));
       const couriers = this.couriersFor(roomId);
       couriers.index.deliver();
       couriers.files.deliver();
@@ -440,7 +450,7 @@ export class ChatRoom extends DurableObject<Env> {
       const now = new Date().toISOString();
       if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return NOT_FOUND;
       const store = this.storeFor(roomId);
-      if (!(await store.find(messageId))) return NOT_FOUND;
+      if (!(await this.findUndeleted(store, messageId))) return NOT_FOUND;
       const trimmed = content.trim();
       if (trimmed === "") return BLANK;
       if (trimmed.length > MAX_BOOST_LENGTH) return BOOST_TOO_LONG;
@@ -465,21 +475,32 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Starts `uploader`'s upload of `file` to the room, answering the file's key, or null once the room has
-   * heard that their access ended, or the room was deleted, after the Workspace checked, as it turns away
-   * a socket then. The alarm comes back once it's a day old, to delete it from R2 if it's unfinished.
+   * Starts `uploader`'s upload of `file` to the room, as a reply in the thread it names if it names one,
+   * answering the file's key, or null once the room has heard that their access ended, or the room was
+   * deleted, after the Workspace checked, as it turns away a socket then, or `MESSAGE_GONE` when it has
+   * no such thread. The alarm comes back once it's a day old, to delete it from R2 if it's unfinished.
    */
-  async startUpload(roomId: RoomId, uploader: Uploader, file: NewUpload): Promise<string | null> {
+  async startUpload(roomId: RoomId, uploader: Uploader, file: NewUpload): Promise<{ key: string } | typeof MESSAGE_GONE | null> {
     const startedAt = Date.now();
-    const key = await this.serially(async () => {
+    const started = await this.serially(async () => {
       if (await this.revocationsFor(roomId).refuse(uploader.tags, uploader.authorizedAt)) return null;
+      if (file.parentId !== undefined && !(await this.inThread(this.storeFor(roomId), file.parentId, false))) return MESSAGE_GONE;
       const key = base36(KEY_LENGTH);
-      const blob = { id: key, uploaderId: uploader.user.id, filename: file.name, contentType: file.type, byteSize: file.size, clientMessageId: file.clientMessageId };
+      const blob = {
+        id: key,
+        uploaderId: uploader.user.id,
+        filename: file.name,
+        contentType: file.type,
+        byteSize: file.size,
+        clientMessageId: file.clientMessageId,
+        parentId: file.parentId ?? null,
+        alsoSent: file.alsoSend === true,
+      };
       await this.blobsFor(roomId).create(blob, new Date(startedAt).toISOString());
-      return key;
+      return { key };
     });
-    if (key) await this.wakeAt(roomId, startedAt + UNFINISHED_UPLOAD_KEPT_MS);
-    return key;
+    if (typeof started === "object" && started) await this.wakeAt(roomId, startedAt + UNFINISHED_UPLOAD_KEPT_MS);
+    return started;
   }
 
   /** `uploaderId`'s upload `key` to the room, as far as it has come, or null if they have no such upload. */
@@ -535,11 +556,12 @@ export class ChatRoom extends DurableObject<Env> {
    * Posts `uploader`'s upload `key`, which R2 has all of, as their message: records that the upload has
    * finished, what its one part said the file is when `identified` says, and the message, in one
    * transaction, then tells everyone in the room and sends the Workspace and the search index their
-   * logs, as for any new message. Answers the message, with whether this posted it, or the message an
-   * earlier request posted it as, which was, unless it's been deleted since. Answers null when the room
-   * turns the uploader away, as `startUpload` does, or they have no such upload.
+   * logs, as for any new message, in the thread the upload was started in, if it was. Answers the message,
+   * with whether this posted it, or the message an earlier request posted it as, which was, unless it's
+   * been deleted since. Answers null when the room turns the uploader away, as `startUpload` does, or they
+   * have no such upload, and `MESSAGE_GONE` when the room no longer has its thread.
    */
-  async finishUpload(roomId: RoomId, uploader: Uploader, key: string, identified?: Identified): Promise<{ message: Message; posted: boolean } | null> {
+  async finishUpload(roomId: RoomId, uploader: Uploader, key: string, identified?: Identified): Promise<{ message: Message; posted: boolean } | typeof MESSAGE_GONE | null> {
     return this.serially(async () => {
       const now = new Date().toISOString();
       if (await this.revocationsFor(roomId).refuse(uploader.tags, uploader.authorizedAt)) return null;
@@ -551,8 +573,10 @@ export class ChatRoom extends DurableObject<Env> {
         const message = blob.messageId === null ? null : await store.find(blob.messageId);
         return message && { message, posted: false };
       }
+      const inThread = blob.parentId === null ? undefined : await this.inThread(store, blob.parentId, blob.alsoSent);
+      if (inThread === null) return MESSAGE_GONE;
       const posted: PostedFile = { file: attachedFile(blob, identified), finished: (messageId) => blobs.finished(key, messageId, now, identified) };
-      return { message: await this.postFile(store, uploader.user, blob, posted, now), posted: true };
+      return { message: await this.postFile(store, uploader.user, blob, posted, now, { inThread }), posted: true };
     });
   }
 
@@ -666,15 +690,17 @@ export class ChatRoom extends DurableObject<Env> {
     switch (frame.type) {
       case "message.create": {
         if (isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, clientMessageId: frame.clientMessageId, failed: frame.type });
+        const inThread = frame.parentId === undefined ? undefined : await this.inThread(store, frame.parentId, frame.alsoSend === true);
+        if (inThread === null) return this.send(ws, { type: "error", message: MESSAGE_GONE, clientMessageId: frame.clientMessageId, failed: frame.type });
         const body = await this.prepare(frame.body);
         if (typeof body === "string") return this.send(ws, { type: "error", message: body, clientMessageId: frame.clientMessageId, failed: frame.type });
-        await this.create(store, user, frame.clientMessageId, body, now);
+        await this.create(store, user, frame.clientMessageId, body, now, { inThread });
         // Everyone else takes the message as its author's stop.
         markTyping(ws, false);
         return;
       }
       case "message.update": {
-        const message = await store.find(frame.messageId);
+        const message = await this.findUndeleted(store, frame.messageId);
         if (!message || !(await this.canAdminister(user, message))) return this.refuse(ws, "You can only edit your own messages");
         if (isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, failed: frame.type });
         if (message.cards) return this.send(ws, { type: "error", message: HAS_CARDS, failed: frame.type });
@@ -684,12 +710,12 @@ export class ChatRoom extends DurableObject<Env> {
         return;
       }
       case "message.delete": {
-        const message = await store.find(frame.messageId);
+        const message = await this.findUndeleted(store, frame.messageId);
         if (!message || !(await this.canAdminister(user, message))) return this.refuse(ws, "You can only delete your own messages");
         return this.deleteMessage(store, message);
       }
       case "boost.create": {
-        const message = await store.find(frame.messageId);
+        const message = await this.findUndeleted(store, frame.messageId);
         if (!message) return this.refuse(ws, "That message no longer exists");
         // A person adds each reaction once, so one they've already added is a repeated click.
         if (message.boosts.some((b) => b.booster.id === user.id && b.content === frame.content)) return;
@@ -722,6 +748,20 @@ export class ChatRoom extends DurableObject<Env> {
         const missing = frame.clientMessageIds.filter((id) => !stored.includes(id));
         return this.send(ws, { type: "message.checked", stored, missing });
       }
+      case "thread.open": {
+        const attachment = ws.deserializeAttachment() as Attachment;
+        ws.serializeAttachment({ ...attachment, thread: frame.parentId } satisfies Attachment);
+        return this.send(ws, { type: "thread.opened", parentId: frame.parentId, ...(await store.thread(frame.parentId, HISTORY_PAGE_SIZE)) });
+      }
+      case "thread.close": {
+        const { thread, ...attachment } = ws.deserializeAttachment() as Attachment;
+        if (thread === frame.parentId) ws.serializeAttachment(attachment satisfies Attachment);
+        return;
+      }
+      case "thread.before": {
+        const { messages, hasMore } = await store.repliesBefore(frame.parentId, frame.before, frame.limit ?? HISTORY_PAGE_SIZE);
+        return this.send(ws, { type: "thread.history", parentId: frame.parentId, before: frame.before, messages, hasMore });
+      }
       case "presence.visible": {
         const attachment = ws.deserializeAttachment() as Attachment;
         ws.serializeAttachment({ ...attachment, visible: frame.visible, heardAt: Date.now() } satisfies Attachment);
@@ -735,23 +775,16 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Stores a message from `user`, a bot's reply to a webhook delivery when `kind` says so, or the file
-   * `posted` says, tells everyone in the room, and sends the Workspace and the search index their logs,
-   * which the message is in, answering it.
+   * Stores a message from `user`, as `posting` says, tells everyone in the room, and its parent as it is
+   * now for a reply in a thread, and sends the Workspace and the search index their logs, which the
+   * message is in, answering it.
    */
-  private async create(
-    store: MessageStore,
-    user: User,
-    clientMessageId: string,
-    body: StoredBody,
-    now: string,
-    kind?: "message" | "reply",
-    posted?: PostedFile,
-  ): Promise<Message> {
+  private async create(store: MessageStore, user: User, clientMessageId: string, body: StoredBody, now: string, { kind, posted, inThread }: Posting = {}): Promise<Message> {
     // Before the batch, which on D1 may save the message even when it fails.
-    this.readers.clear();
-    const { message, seq } = await store.create(sortableId(), clientMessageId, user, body, now, kind, posted);
+    if (!inThread || inThread.alsoSend) this.readers.clear();
+    const { message, seq, parent } = await store.create(sortableId(), clientMessageId, user, body, now, kind, posted, inThread);
     this.broadcast({ type: "message.created", message, seq });
+    if (parent) this.broadcast({ type: "message.updated", ...parent });
     const couriers = this.couriersFor(store.roomId);
     couriers.workspace.deliver();
     couriers.index.deliver();
@@ -764,9 +797,9 @@ export class ChatRoom extends DurableObject<Env> {
    * started without an id for its message, as one from before files were messages or a bot's is, gets
    * one, as a bot's text does.
    */
-  private postFile(store: MessageStore, user: User, blob: RoomBlob, posted: PostedFile, now: string, kind?: "message" | "reply"): Promise<Message> {
+  private postFile(store: MessageStore, user: User, blob: RoomBlob, posted: PostedFile, now: string, posting: Omit<Posting, "posted"> = {}): Promise<Message> {
     const body = { html: "", plainText: posted.file.name, mentions: [] };
-    return this.create(store, user, blob.clientMessageId ?? crypto.randomUUID(), body, now, kind, posted);
+    return this.create(store, user, blob.clientMessageId ?? crypto.randomUUID(), body, now, { ...posting, posted });
   }
 
   /**
@@ -776,7 +809,7 @@ export class ChatRoom extends DurableObject<Env> {
    */
   private async startArriving(roomId: RoomId, uploaderId: UserId, { filename, declaredType }: Pick<ArrivingFile, "filename" | "declaredType">, startedAt: number): Promise<string> {
     const key = base36(KEY_LENGTH);
-    const blob = { id: key, uploaderId, filename, contentType: declaredType, byteSize: 0, clientMessageId: null };
+    const blob = { id: key, uploaderId, filename, contentType: declaredType, byteSize: 0, clientMessageId: null, parentId: null, alsoSent: false };
     await this.blobsFor(roomId).create(blob, new Date(startedAt).toISOString());
     return key;
   }
@@ -815,12 +848,11 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Deletes `message`, with its boosts, telling everyone in the room and sending the search index its log,
-   * and has R2 delete its file, if it has one.
+   * Deletes `message`, with its boosts, or keeps it for its thread's replies without them, telling
+   * everyone in the room and sending the search index its log, and has R2 delete its file, if it has one.
    */
   private async deleteMessage(store: MessageStore, message: Message): Promise<void> {
-    const seq = await store.delete([message.id]);
-    this.broadcast({ type: "message.deleted", messageId: message.id, seq });
+    this.broadcastDeletion(await store.delete([message.id]));
     const couriers = this.couriersFor(store.roomId);
     couriers.index.deliver();
     if (message.attachment) couriers.files.deliver();
@@ -842,13 +874,35 @@ export class ChatRoom extends DurableObject<Env> {
     this.couriersFor(store.roomId).index.deliver();
   }
 
+  /** Tells everyone in the room what deleting messages did: the deletions, then the messages it changed. */
+  private broadcastDeletion({ deletedIds, changed, seq }: Deletion): void {
+    deletedIds.forEach((messageId, index) => this.broadcast({ type: "message.deleted", messageId, seq: seq + index }));
+    for (const { message, seq } of changed) this.broadcast({ type: "message.updated", message, seq });
+  }
+
+  /** The message `messageId`, or null when the room has no such message, or keeps it deleted for its thread's replies. */
+  private async findUndeleted(store: MessageStore, messageId: string): Promise<Message | null> {
+    const message = await store.find(messageId);
+    return message?.deleted ? null : message;
+  }
+
+  /**
+   * A new reply's place in the thread of the message `parentId`, sent to the room too when `alsoSend`
+   * says so, or null when the room has no such message, or it's a reply, which has no thread. A thread
+   * whose message was deleted while it had replies still takes them.
+   */
+  private async inThread(store: MessageStore, parentId: string, alsoSend: boolean): Promise<InThread | null> {
+    const parent = await store.find(parentId);
+    return parent && parent.parentId === undefined ? { parent, alsoSend } : null;
+  }
+
   /**
    * The bot `bot`'s message `messageId`, or `NOT_FOUND` or `FORBIDDEN` when the room has no such message
    * or it's someone else's. A bot is never an administrator, so the only messages it can change are its
    * own.
    */
   private async botsOwn(store: MessageStore, bot: User, messageId: string): Promise<Message | string> {
-    const message = await store.find(messageId);
+    const message = await this.findUndeleted(store, messageId);
     if (!message) return NOT_FOUND;
     return message.creator.id === bot.id ? message : FORBIDDEN;
   }
@@ -939,13 +993,21 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Sends the Workspace the oldest events it hasn't taken, as many as one call takes, with who is viewing
    * the room now, for it to mark the room unread for the members who aren't and read for those who've
-   * opened it, and forgets them once it has. Answers how many it sent.
+   * opened it, and forgets them once it has. Answers how many it sent. A reply sent only to its thread
+   * goes with who is viewing the thread, who see it, where those viewing the room only see it counted.
    */
   private async sendEvents(roomId: RoomId): Promise<number> {
     const log = this.logFor(roomId);
-    const events = await log.undelivered(ENTRIES_PER_CALL);
-    if (events.length === 0) return 0;
-    const { pushes, webhooks } = await workspace(this.env).applyRoomEvents(roomId, events, viewersOf(this.ctx));
+    const logged = await log.undelivered(ENTRIES_PER_CALL);
+    if (logged.length === 0) return 0;
+    const now = Date.now();
+    const threads = new Map<string, UserId[]>();
+    const viewingThread = (parentId: string) => {
+      if (!threads.has(parentId)) threads.set(parentId, viewersOf(this.ctx, now, parentId));
+      return threads.get(parentId)!;
+    };
+    const events = logged.map((event) => (event.threadOnly && event.message?.parentId !== undefined ? { ...event, viewerIds: viewingThread(event.message.parentId) } : event));
+    const { pushes, webhooks } = await workspace(this.env).applyRoomEvents(roomId, events, viewersOf(this.ctx, now));
     // The Workspace answers a message's pushes and webhooks once, so they're sent whatever happens next,
     // and the log's next call doesn't wait on push services or bots.
     if (pushes.length > 0) this.ctx.waitUntil(this.push(pushes));
@@ -972,7 +1034,7 @@ export class ChatRoom extends DurableObject<Env> {
         if (!webhook) throw new WebhookError(NO_WEBHOOK);
         const keep = (file: ArrivingFile) => this.keepReplyFile(roomId, webhook.bot, file);
         const { status, reply } = await postWebhook(webhook.url, webhookPayload(roomId, delivery, webhook, message), keep);
-        const refused = reply && (await this.postReply(roomId, webhook, reply));
+        const refused = reply && (await this.postReply(roomId, webhook, reply, message.parentId));
         if (refused) throw new WebhookError(`its reply wasn't posted: ${refused}`);
         console.log(`${job} performed: ${status ?? "no answer in time"}`);
       } catch (error) {
@@ -986,10 +1048,11 @@ export class ChatRoom extends DurableObject<Env> {
    * Posts what a bot says back to a delivery to `webhook`, text or a file, as the bot by its name then,
    * once the Workspace has found it still in the room, delivering to the same URL: one deleted, taken
    * out of the room or sent elsewhere while the delivery ran posts nothing, where Campfire posts it
-   * (`Webhook#deliver`). Answers why the room keeps nothing of it, if it doesn't, and has R2 delete a file
-   * it couldn't ask the Workspace about, as `replyWithFile` has it delete one it refuses.
+   * (`Webhook#deliver`). A reply to a message in a thread, `threadId`'s, goes in the thread, only there.
+   * Answers why the room keeps nothing of it, if it doesn't, and has R2 delete a file it couldn't ask the
+   * Workspace about, as `replyWithFile` has it delete one it refuses.
    */
-  private async postReply(roomId: RoomId, webhook: WebhookAccess, reply: Reply<KeptFile>): Promise<string | null> {
+  private async postReply(roomId: RoomId, webhook: WebhookAccess, reply: Reply<KeptFile>, threadId?: string): Promise<string | null> {
     const found = await workspace(this.env)
       .botWebhook(roomId, webhook.bot.id)
       .catch(async (error: unknown) => {
@@ -997,22 +1060,26 @@ export class ChatRoom extends DurableObject<Env> {
         throw error;
       });
     const access = found?.url === webhook.url ? found : null;
-    return "text" in reply ? this.reply(roomId, access, reply.text) : this.replyWithFile(roomId, access, reply.kept);
+    return "text" in reply ? this.reply(roomId, access, reply.text, threadId) : this.replyWithFile(roomId, access, reply.kept, threadId);
   }
 
   /**
    * Posts `text` as the bot's reply to a delivery, as Campfire's `receive_text_reply_to` does: as the
    * bot's message, which reaches the room as any message does but is delivered to no webhook. Answers why
    * the room keeps nothing of it, if it doesn't: as `createBotMessage` refuses a bot's post, it refuses
-   * one without `access`, or that the room has heard was taken out since the Workspace checked.
+   * one without `access`, or that the room has heard was taken out since the Workspace checked, and one
+   * to thread `threadId` that the room no longer has.
    */
-  private async reply(roomId: RoomId, access: BotAccess | null, text: string): Promise<string | null> {
+  private async reply(roomId: RoomId, access: BotAccess | null, text: string, threadId?: string): Promise<string | null> {
     return this.serially(async () => {
       if (await this.isDeleted()) return "the room is gone";
       if (!access || (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt))) return WEBHOOK_CHANGED;
+      const store = this.storeFor(roomId);
+      const inThread = threadId === undefined ? undefined : await this.inThread(store, threadId, false);
+      if (inThread === null) return THREAD_GONE;
       const body = await this.prepare(text);
       if (typeof body === "string") return body;
-      await this.create(this.storeFor(roomId), access.bot, crypto.randomUUID(), body, new Date().toISOString(), "reply");
+      await this.create(store, access.bot, crypto.randomUUID(), body, new Date().toISOString(), { kind: "reply", inThread });
       return null;
     });
   }
@@ -1040,13 +1107,16 @@ export class ChatRoom extends DurableObject<Env> {
    * it doesn't, having R2 delete it at once: nothing else would once the room is deleted, and otherwise it
    * would wait for the alarm to find it unfinished.
    */
-  private async replyWithFile(roomId: RoomId, access: BotAccess | null, { key, file }: KeptFile): Promise<string | null> {
+  private async replyWithFile(roomId: RoomId, access: BotAccess | null, { key, file }: KeptFile, threadId?: string): Promise<string | null> {
     const refused = await this.serially(async () => {
       const now = new Date().toISOString();
       const blob = (await this.isDeleted()) ? null : await this.blobsFor(roomId).find(key);
       if (!blob) return "the room is gone";
       if (!access || (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt))) return WEBHOOK_CHANGED;
-      await this.postFile(this.storeFor(roomId), access.bot, blob, this.streamed(roomId, blob, file, now), now, "reply");
+      const store = this.storeFor(roomId);
+      const inThread = threadId === undefined ? undefined : await this.inThread(store, threadId, false);
+      if (inThread === null) return THREAD_GONE;
+      await this.postFile(store, access.bot, blob, this.streamed(roomId, blob, file, now), now, { kind: "reply", inThread });
       return null;
     });
     if (refused) await this.env.FILES?.delete(objectKey(key));

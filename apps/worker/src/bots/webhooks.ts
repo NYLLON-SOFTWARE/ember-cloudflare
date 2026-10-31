@@ -1,4 +1,4 @@
-import { MAX_MESSAGE_HTML_LENGTH, type Message, type RoomId, type User } from "@ember/protocol";
+import { MAX_MESSAGE_HTML_LENGTH, threadPath, type Message, type RoomId, type User } from "@ember/protocol";
 import { botMessagesPath } from "@ember/protocol/bots";
 import type { ArrivingFile } from "../files/streamed";
 import { trimmed } from "../trim";
@@ -51,13 +51,15 @@ export function webhookPayload(
   roomId: RoomId,
   { author, roomName }: Pick<MessageWebhook, "author" | "roomName">,
   { bot, token }: Pick<BotWebhook, "bot" | "token">,
-  message: Pick<Message, "id" | "body" | "plainText" | "mentions">,
+  message: Pick<Message, "id" | "body" | "plainText" | "mentions" | "parentId">,
 ): string {
   const plain = withoutMentionsOf(nameIn(message, bot), message.plainText);
+  // A reply in a thread's permalink opens its thread at it.
+  const path = message.parentId === undefined ? `/rooms/${roomId}/@${message.id}` : threadPath(roomId, message.parentId, message.id);
   return railsJson({
     user: { id: author.id, name: author.name },
     room: { id: roomId, name: roomName, path: botMessagesPath(roomId, botKeyOf(bot.id, token)) },
-    message: { id: message.id, body: { html: message.body === "" ? null : message.body, plain }, path: `/rooms/${roomId}/@${message.id}` },
+    message: { id: message.id, body: { html: message.body === "" ? null : message.body, plain }, path },
   });
 }
 

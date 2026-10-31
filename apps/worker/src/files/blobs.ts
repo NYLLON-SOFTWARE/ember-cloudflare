@@ -44,6 +44,10 @@ export interface RoomBlob {
   messageId: string | null;
   /** Its preview's size, once its uploader has sent one (migrations/0030_file_previews.sql). */
   preview: ImageSize | null;
+  /** The message in whose thread it's a reply, or null (migrations/0044_threads.sql). */
+  parentId: string | null;
+  /** Whether a reply in a thread is also sent to the room. */
+  alsoSent: boolean;
 }
 
 interface BlobRow {
@@ -59,6 +63,8 @@ interface BlobRow {
   completed_at: string | null;
   message_id: string | null;
   preview: string | null;
+  parent_id: string | null;
+  also_sent: number;
 }
 
 const toBlob = (row: BlobRow): RoomBlob => ({
@@ -74,6 +80,8 @@ const toBlob = (row: BlobRow): RoomBlob => ({
   completedAt: row.completed_at,
   messageId: row.message_id,
   preview: row.preview === null ? null : (JSON.parse(row.preview) as ImageSize),
+  parentId: row.parent_id,
+  alsoSent: row.also_sent === 1,
 });
 
 /** A file the room has marked deleted, which R2 is to forget: its key, and whether its upload in parts is unfinished. */
@@ -155,9 +163,9 @@ export class Blobs {
   ) {}
 
   /** Records that `blob`'s upload has started, at `createdAt`. */
-  async create(blob: Pick<RoomBlob, "id" | "uploaderId" | "filename" | "contentType" | "byteSize" | "clientMessageId">, createdAt: string): Promise<void> {
+  async create(blob: Pick<RoomBlob, "id" | "uploaderId" | "filename" | "contentType" | "byteSize" | "clientMessageId" | "parentId" | "alsoSent">, createdAt: string): Promise<void> {
     await this.db.run(
-      `INSERT INTO blobs (id, room_id, uploader_id, filename, content_type, byte_size, client_message_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO blobs (id, room_id, uploader_id, filename, content_type, byte_size, client_message_id, created_at, parent_id, also_sent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       blob.id,
       this.roomId,
       blob.uploaderId,
@@ -166,6 +174,8 @@ export class Blobs {
       blob.byteSize,
       blob.clientMessageId,
       createdAt,
+      blob.parentId,
+      blob.alsoSent ? 1 : 0,
     );
   }
 

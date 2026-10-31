@@ -1,4 +1,4 @@
-import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, type Message, type ServerFrame, type User } from "@ember/protocol";
+import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
@@ -6,6 +6,7 @@ import { isPending } from "@/lib/room-state";
 import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { VISIBILITY_CHANGE_DELAY_MS } from "@/lib/visibility";
 import { openRoomSocketAhead, useRoom } from "./use-room";
+import { useThread } from "./use-thread";
 
 vi.mock("@/lib/uploads", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/uploads")>()), uploadFile: vi.fn() }));
 
@@ -117,7 +118,7 @@ afterEach(() => {
 describe("Catch up after a reconnect", () => {
   it("opens the room's socket, which the session cookie signs in", () => {
     joinGeneral({ connect: false });
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=4");
   });
 
   it("is connecting until the room says welcome", () => {
@@ -286,13 +287,13 @@ describe("Catch up after a reconnect", () => {
     joinGeneral();
     socket().drop();
     wait(500);
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&since=0");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=4&since=0");
     socket().open();
     socket().receive({ type: "resumed", you: ada, messages: [message("m1")], deletedIds: [], present: [ada], seq: 3 });
     socket().receive({ type: "message.deleted", messageId: "m1", seq: 4 });
     socket().drop();
     wait(500);
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&since=4");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=4&since=4");
   });
 
   it("names the change before one the room never announced, so connecting again brings it", () => {
@@ -303,7 +304,7 @@ describe("Catch up after a reconnect", () => {
     socket().receive({ type: "message.deleted", messageId: "m1", seq: 4 });
     socket().drop();
     wait(500);
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&since=1");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=4&since=1");
   });
 
   it("names no change until the room has let it in, nor in the next room it opens", () => {
@@ -311,12 +312,12 @@ describe("Catch up after a reconnect", () => {
     socket().open();
     socket().drop();
     wait(500);
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=4");
     socket().open();
     socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 7 });
 
     rerender({ roomId: "random" });
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/random/socket?visible=1&protocol=3");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/random/socket?visible=1&protocol=4");
   });
 
   it("catches up on what changed while it was away, keeping what's loaded, and asks about a message it doesn't confirm", () => {
@@ -428,7 +429,7 @@ describe("Open a room", () => {
 
   it("opens it as a hidden tab's, so that the room reads nothing for it until the room shows in a tab that's shown", async () => {
     openRoomSocketAhead("/rooms/general");
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=3");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=4");
     socket().open();
     socket().receive(welcome());
     expect(socket().sent).toEqual([]);
@@ -443,7 +444,7 @@ describe("Open a room", () => {
   it("takes one opened ahead at a message's permalink as it opens there", () => {
     openRoomSocketAhead("/rooms/general/@m1");
     renderHook(() => useRoom("general", ada, () => {}, "m1"));
-    expect(FakeSocket.all.map((s) => s.url)).toEqual(["ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=3&around=m1"]);
+    expect(FakeSocket.all.map((s) => s.url)).toEqual(["ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=4&around=m1"]);
   });
 
   it("opens none ahead for a page that shows no room", () => {
@@ -910,16 +911,16 @@ describe("Scroll back through history", () => {
 describe("Link to a message", () => {
   it("opens the room around the message its permalink names, and connects again without it once in", () => {
     renderHook(() => useRoom("general", ada, () => {}, "m 5"));
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&around=m%205");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=4&around=m%205");
     // Until the room lets the page in, connecting again still asks for it.
     socket().drop();
     wait(500);
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&around=m%205");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=4&around=m%205");
     socket().open();
     socket().receive({ type: "welcome", you: ada, messages: [message("m 5")], present: [ada], hasMore: false, hasNewer: true, around: "m 5", seq: 4 });
     socket().drop();
     wait(500);
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3&since=4");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=4&since=4");
   });
 
   it("goes to a message it holds without asking the room, and asks for the page around one it doesn't", () => {
@@ -1084,7 +1085,7 @@ describe("Presence", () => {
   it("tells the room whether the tab is shown as it connects", () => {
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
     joinGeneral({ connect: false });
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=3");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=4");
   });
 
   it("tells the room once the tab has been hidden for 5 seconds, and once it has been shown for 5 again", () => {
@@ -1172,5 +1173,118 @@ describe("Only members see a room", () => {
     socket().drop(CloseCode.NotFound);
     await vi.waitFor(() => expect(onSessionChanged).toHaveBeenCalledWith(signedIn));
     expect(result.current.state.status).toBe("reconnecting");
+  });
+});
+
+describe("Threads", () => {
+  const parent = message("m1", { thread: { count: 1, latestAt: "2026-10-12T10:00:00.000Z", people: [grace] } });
+  const reply = (id: string, overrides: Partial<Message> = {}) => message(id, { creator: grace, parentId: "m1", alsoSent: false, ...overrides });
+
+  /** Ada in #general with m1's thread open beside it, at `replyId` if a permalink names one. */
+  function openThread({ connect = true, replyId = undefined as string | undefined } = {}) {
+    const hook = renderHook(() => {
+      const room = useRoom("general", ada, () => {});
+      const thread = useThread("general", room.frames, room.state.status, room.state.offline, ada, "m1", replyId);
+      return { room, thread };
+    });
+    if (connect) {
+      socket().open();
+      socket().receive({ type: "welcome", you: ada, messages: [parent], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
+    }
+    return hook;
+  }
+
+  it("asks the room for the thread once it lets the page in, and again each time it does", () => {
+    const { result } = openThread();
+    expect(socket().sentOfType("thread.open")).toEqual([{ type: "thread.open", parentId: "m1" }]);
+    socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [reply("r1")], hasMore: false });
+    expect(result.current.thread.state.parent).toEqual(parent);
+    expect(result.current.thread.state.replies.messages.map((m) => m.id)).toEqual(["r1"]);
+
+    socket().drop();
+    wait(500);
+    socket().open();
+    socket().receive({ type: "resumed", you: ada, messages: [], deletedIds: [], present: [ada], seq: 1 });
+    expect(socket().sentOfType("thread.open")).toEqual([{ type: "thread.open", parentId: "m1" }]);
+  });
+
+  it("shows the room's replies in the thread, and in the room only those sent there too", () => {
+    const { result } = openThread();
+    socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [], hasMore: false });
+    socket().receive({ type: "message.created", message: reply("r1"), seq: 1 });
+    socket().receive({ type: "message.created", message: reply("r2", { alsoSent: true }), seq: 2 });
+    expect(result.current.thread.state.replies.messages.map((m) => m.id)).toEqual(["r1", "r2"]);
+    expect(result.current.room.state.messages.map((m) => m.id)).toEqual(["m1", "r2"]);
+  });
+
+  it("sends a reply in the thread, and to the room too when asked, showing it in the thread until the room has it", () => {
+    const { result } = openThread();
+    socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [], hasMore: false });
+    act(() => void result.current.thread.postReply("<p>Just here</p>", false));
+    act(() => void result.current.thread.postReply("<p>Everywhere</p>", true));
+    const [here, everywhere] = result.current.thread.state.replies.messages;
+    expect(socket().sentOfType("message.create")).toEqual([
+      { type: "message.create", clientMessageId: here!.clientMessageId, body: "<p>Just here</p>", parentId: "m1", alsoSend: false },
+      { type: "message.create", clientMessageId: everywhere!.clientMessageId, body: "<p>Everywhere</p>", parentId: "m1", alsoSend: true },
+    ]);
+    expect(everywhere).toMatchObject({ pending: true, parentId: "m1", alsoSent: true });
+    expect(result.current.room.state.messages.map((m) => m.id)).toEqual(["m1"]);
+  });
+
+  it("refuses a reply that's too long, saying so in the thread", () => {
+    const { result } = openThread();
+    let sent = true;
+    act(() => {
+      sent = result.current.thread.postReply(`<p>${"x".repeat(MAX_MESSAGE_LENGTH + 1)}</p>`, false);
+    });
+    expect(sent).toBe(false);
+    expect(result.current.thread.state.replies.notice).toBe(MESSAGE_TOO_LONG);
+    expect(socket().sentOfType("message.create")).toEqual([]);
+  });
+
+  it("sends the replies written while the room was away once the thread opens again", () => {
+    const { result } = openThread();
+    socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [], hasMore: false });
+    socket().drop();
+    act(() => void result.current.thread.postReply("<p>Written while away</p>", true));
+    expect(result.current.thread.state.replies.messages[0]).toMatchObject({ queued: true });
+    wait(500);
+    socket().open();
+    socket().receive({ type: "welcome", you: ada, messages: [parent], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
+    expect(socket().sentOfType("message.create")).toEqual([]);
+    socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [], hasMore: false });
+    const written = result.current.thread.state.replies.messages[0]!;
+    expect(socket().sentOfType("message.create")).toEqual([{ type: "message.create", clientMessageId: written.clientMessageId, body: "<p>Written while away</p>", parentId: "m1", alsoSend: true }]);
+    expect(written).not.toHaveProperty("queued");
+  });
+
+  it("pages back through older replies, once at a time", () => {
+    const { result } = openThread();
+    socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [reply("r5"), reply("r6")], hasMore: true });
+    act(() => result.current.thread.loadOlder());
+    act(() => result.current.thread.loadOlder());
+    expect(socket().sentOfType("thread.before")).toEqual([{ type: "thread.before", parentId: "m1", before: "r5", limit: 40 }]);
+    socket().receive({ type: "thread.history", parentId: "m1", before: "r5", messages: [reply("r4")], hasMore: false });
+    expect(result.current.thread.state.replies.messages.map((m) => m.id)).toEqual(["r4", "r5", "r6"]);
+  });
+
+  it("opens at the reply a permalink names, and goes to replies it holds, or else to its end", () => {
+    const { result } = openThread({ replyId: "r1" });
+    socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [reply("r1"), reply("r2")], hasMore: false });
+    expect(result.current.thread.state.replies.focus).toEqual({ messageId: "r1" });
+    act(() => result.current.thread.jump("r2"));
+    expect(result.current.thread.state.replies.focus).toEqual({ messageId: "r2" });
+    act(() => result.current.thread.jump("r0"));
+    expect(result.current.thread.state.replies.focus).toEqual({ messageId: null });
+  });
+
+  it("uploads files as replies in the thread, to the room too when asked", async () => {
+    vi.mocked(uploadFile).mockImplementation(() => new Promise(() => {}));
+    const { result } = openThread();
+    const file = new File(["a"], "a.txt");
+    act(() => void result.current.thread.postFiles([file], true));
+    const [pending] = result.current.thread.state.replies.messages;
+    expect(uploadFile).toHaveBeenCalledWith("general", file, pending!.clientMessageId, expect.any(Function), { parentId: "m1", alsoSend: true });
+    expect(pending).toMatchObject({ pending: true, parentId: "m1", alsoSent: true, upload: { name: "a.txt", percent: 0 } });
   });
 });

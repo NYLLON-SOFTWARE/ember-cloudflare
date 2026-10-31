@@ -1,7 +1,7 @@
 import type { Invitation, Me, Message } from "@ember/protocol";
 import type { ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
@@ -825,5 +825,25 @@ describe("Edit a message", () => {
     heights.m3 = 100;
     resize();
     expect(log.scrollTop).toBe(50);
+  });
+});
+
+describe("Threads", () => {
+  const thread = { header: <p>Who has the keys?</p>, place: { roomName: "general", direct: false } };
+
+  it("shows a thread's message over its replies, with no day's heading between them, and none of a room's welcome", () => {
+    render(list({ messages: [message("Saturday", "2026-10-10T09:00:00"), message("Sunday", "2026-10-11T09:00:00")] }, vi.fn(), null, { thread }));
+    const log = screen.getByRole("log", { name: "Thread" });
+    expect(log).toHaveTextContent(/^Who has the keys\?/);
+    expect(within(log).getAllByRole("heading", { level: 2 }).map((day) => day.textContent)).toEqual(["October 11, 2026"]);
+    cleanup();
+
+    render(list({ messages: [] }, vi.fn(), null, { thread }));
+    expect(screen.queryByRole("heading", { name: "Welcome to #general" })).not.toBeInTheDocument();
+  });
+
+  it("marks the message whose thread is open beside the room", () => {
+    render(list({ messages: messages(1, 2) }, vi.fn(), null, { openThread: "m2" }));
+    expect(screen.getAllByRole("article").map((article) => article.classList.contains("bg-hover"))).toEqual([false, true]);
   });
 });

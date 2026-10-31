@@ -1,11 +1,25 @@
-import { useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type MouseEvent, type Ref, type RefObject } from "react";
+import {
+  useContext,
+  useEffect,
+  useEffectEvent,
+  useId,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type MouseEvent,
+  type Ref,
+  type RefObject,
+} from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { ChatPlusIn, Copy, Download, Edit, Emoji, MoreHoriz, ShareAndroid, Trash, Undo } from "@/components/icons/iconoir";
+import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash } from "@/components/icons/iconoir";
+import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
 import { mentionedPerson, PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { messagePath } from "@/hooks/use-route";
+import { permalinkOf } from "@/hooks/use-route";
 import { replyQuote } from "@/lib/messages";
 import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
@@ -38,15 +52,20 @@ const COPIED = ["text-positive", "motion-safe:animate-success"];
 
 interface Props {
   message: Message;
-  /** What the message shows, which Reply quotes. */
+  /** What the message shows, which Quote quotes. */
   nodes: DisplayNode[];
   /** The message's row: hovering it opens the bar with a mouse, and the bar overlaps its top edge. */
   row: RefObject<HTMLElement | null>;
   /** Whether Edit and Delete message show: on your own messages, and on everyone's for administrators. */
   editable: boolean;
+  /**
+   * The address Reply in thread opens: the message's thread, or its parent's for a reply. Left out in a
+   * thread, whose own composer is there to reply in.
+   */
+  threadPath?: string;
   onReact: (emoji: string) => void;
   /** Writes a reply in the composer, given the quote it starts with. */
-  onReply: (quote: string) => void;
+  onQuote: (quote: string) => void;
   onEdit: () => void;
   /** Deletes the message, from More actions, answering whether the deletion was sent. */
   onDelete: () => boolean;
@@ -66,16 +85,17 @@ export interface MessageActionsHandle {
 }
 
 /**
- * The message actions: Message options, which opens a bar of three quick reactions, Reply, or a file
+ * The message actions: Message options, which opens a bar of three quick reactions, Reply in thread, a file
  * message's Download, Copy link, Edit and More reactions, whose tray holds the other reactions and New
  * boost. With a mouse, hovering the message opens the bar too, laid over the message's top edge at the
  * timeline's right, with Message options pinned as its last button. On touch screens it opens beside
- * Message options. Once opened, the bar stays in the page while it's shut, so Copy link keeps its color.
+ * Message options, with Quote after Reply in thread. Once opened, the bar stays in the page while it's
+ * shut, so Copy link keeps its color.
  *
- * With a mouse, Message options then opens More actions under the bar, as Slack's does: Copy text, Copy
- * link, and on messages you can change, Edit message and Delete message.
+ * With a mouse, Message options then opens More actions under the bar, as Slack's does: Quote, Copy text,
+ * Copy link, and on messages you can change, Edit message and Delete message.
  */
-export function MessageActionsMenu({ message, nodes, row, editable, onReact, onReply, onEdit, onDelete, onNewBoost, ref }: Props) {
+export function MessageActionsMenu({ message, nodes, row, editable, threadPath, onReact, onQuote, onEdit, onDelete, onNewBoost, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -129,10 +149,11 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
     closeAfterReacting();
   };
 
-  // Reply and Edit close the bar too, as their `message-actions#close` does, and take focus themselves.
-  const reply = (quote: string) => {
+  // Quote and Edit close the bar too, as their `message-actions#close` does, and take focus themselves, as
+  // the thread Reply in thread opens does.
+  const quote = (quoted: string) => {
     close();
-    onReply(quote);
+    onQuote(quoted);
   };
 
   const edit = () => {
@@ -361,16 +382,33 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
           onPointerLeave={() => left()}
           className="group/menu fixed z-30 grid w-max min-w-0 gap-[7px]"
         >
-          <div ref={bar} className={cn(PANEL, "flex flex-wrap items-center p-1", overlapping && "pr-9 touch:pr-12")}>
-            <div role="group" aria-label="Quick reactions" className="flex flex-wrap">
+          <div
+            ref={bar}
+            className={cn(
+              PANEL,
+              "flex flex-wrap items-center p-1 group-data-[two-rows]/menu:grid group-data-[two-rows]/menu:grid-cols-[repeat(4,auto)] group-data-[two-rows]/menu:justify-self-end",
+              overlapping && "pr-9 touch:pr-12",
+            )}
+          >
+            <div role="group" aria-label="Quick reactions" className="flex flex-wrap group-data-[two-rows]/menu:col-span-3">
               {REACTIONS.slice(0, QUICK_REACTION_COUNT).map(([emoji, title]) => (
                 <Reaction key={emoji} emoji={emoji} title={title} onClick={() => react(emoji)} />
               ))}
             </div>
+            {threadPath !== undefined && (
+              <PageLink href={threadPath} title="Reply in thread" aria-label="Reply in thread" className={ACTION} onClick={close}>
+                <MessageText />
+              </PageLink>
+            )}
+            {/* More actions holds Quote with a mouse. */}
             {message.attachment ? (
               <FileActions file={message.attachment} />
             ) : (
-              <ReplyButton message={message} nodes={nodes} onClick={reply} />
+              !overlapping && (
+                <QuoteButton message={message} nodes={nodes} title="Quote" aria-label="Quote" className={ACTION} onQuote={quote}>
+                  <QuoteMessage />
+                </QuoteButton>
+              )
             )}
             <button type="button" title="Copy link" aria-label="Copy link" className={ACTION} onClick={(event) => void copyLink(event, message)}>
               <Copy />
@@ -420,6 +458,13 @@ export function MessageActionsMenu({ message, nodes, row, editable, onReact, onR
             hidden={!actionsOpen}
             className={cn(PANEL, "w-max max-w-full justify-self-end overflow-y-auto overscroll-contain p-1 group-data-[panel-above]/menu:-order-1")}
           >
+            {/* Quoting a file message would quote nothing, as its text is empty. */}
+            {!message.attachment && (
+              <QuoteButton message={message} nodes={nodes} className={ITEM} onQuote={quote}>
+                <QuoteMessage />
+                Quote
+              </QuoteButton>
+            )}
             {text !== null && (
               <button type="button" className={ITEM} onClick={(event) => void copy(event, text)}>
                 <Copy />
@@ -466,7 +511,7 @@ function Reaction({ emoji, title, onClick }: { emoji: string; title: string; onC
 }
 
 /**
- * A file message's Download and Share, in Reply's place.
+ * A file message's Download and Share, in Quote's place.
  * Download is hidden in Ember added to an iPhone's or iPad's home screen, as the file's card hides it, and
  * Share shows where the browser can share, sharing the file titled with its name.
  */
@@ -485,23 +530,25 @@ function FileActions({ file }: { file: StoredFile }) {
   );
 }
 
+interface QuoteButtonProps extends Omit<ComponentProps<"button">, "onClick"> {
+  message: Message;
+  nodes: DisplayNode[];
+  onQuote: (quote: string) => void;
+}
+
 /**
- * Reply, which reads the people directory only while the bar's in the page, so a change to the
- * directory doesn't render every message's actions again.
+ * Quote, which writes a reply quoting the message in the composer. It reads the people directory only
+ * while the bar's in the page, so a change to the directory doesn't render every message's actions again.
  */
-function ReplyButton({ message, nodes, onClick }: { message: Message; nodes: DisplayNode[]; onClick: (quote: string) => void }) {
+function QuoteButton({ message, nodes, onQuote, ...props }: QuoteButtonProps) {
   const people = useContext(PeopleContext);
   const nameOf = useNameOf();
-  const reply = () => {
-    const link = new URL(messagePath(message.roomId, message.id), document.baseURI).href;
+  const quote = () => {
+    const link = new URL(permalinkOf(message), document.baseURI).href;
     const mentioned = (userId: string) => mentionedPerson(people, message.mentions, userId)?.name ?? UNKNOWN_PERSON;
-    onClick(replyQuote(nodes, nameOf(message.creator), link, mentioned));
+    onQuote(replyQuote(nodes, nameOf(message.creator), link, mentioned));
   };
-  return (
-    <button type="button" title="Reply" aria-label="Reply" className={ACTION} onClick={reply}>
-      <Undo />
-    </button>
-  );
+  return <button type="button" onClick={quote} {...props} />;
 }
 
 /**
@@ -522,7 +569,7 @@ async function copy({ currentTarget: button }: MouseEvent<HTMLButtonElement>, te
 
 /** Copies the message's address, as Copy link does. Pages carry only the path, made absolute against the page. */
 function copyLink(event: MouseEvent<HTMLButtonElement>, message: Message) {
-  return copy(event, new URL(messagePath(message.roomId, message.id), document.baseURI).href);
+  return copy(event, new URL(permalinkOf(message), document.baseURI).href);
 }
 
 interface Placed {
@@ -544,8 +591,9 @@ interface Placed {
  * with Message options pinned as its last button, and the tray or More actions opens below it, or above
  * when there's more room there. For fingers, it opens 6px below its anchor, lined up with its right
  * edge, or above when it doesn't fit, or beside it when it fits neither, so it doesn't cover what opened
- * it. Answers false, placing nothing, once the row is out of the timeline's sight, when the bar should
- * close.
+ * it, nor Message options. Its buttons then go in two rows of four, where a row of them would wrap or
+ * doesn't fit beside its anchor. Answers false, placing nothing, once the row is out of the timeline's
+ * sight, when the bar should close.
  */
 function placeMenu({ row, container, trigger, anchor, menu, bar, panel, overlapping }: Placed): boolean {
   const viewport = window.visualViewport;
@@ -564,6 +612,7 @@ function placeMenu({ row, container, trigger, anchor, menu, bar, panel, overlapp
   const rowBox = row.getBoundingClientRect();
   if (rowBox.bottom < bounds.top || rowBox.top > bounds.bottom) return false;
   menu.style.maxWidth = `${Math.max(0, bounds.right - bounds.left)}px`;
+  menu.removeAttribute("data-two-rows");
   panel.style.maxHeight = "";
   let menuBox = menu.getBoundingClientRect();
   let y: number;
@@ -588,19 +637,31 @@ function placeMenu({ row, container, trigger, anchor, menu, bar, panel, overlapp
   } else {
     menu.removeAttribute("data-panel-above");
     const anchorBox = anchor.getBoundingClientRect();
-    const below = anchorBox.bottom + 6;
-    const above = anchorBox.top - menuBox.height - 6;
-    right = anchorBox.right;
-    if (below + menuBox.height <= bounds.bottom) y = below;
-    else if (above >= bounds.top) y = above;
-    else {
+    // Beside Add a boost, it keeps clear of Message options at the message's right too.
+    const rightmost = anchor === trigger ? bounds.right : Math.min(bounds.right, triggerBox.left - 6);
+    const spotFor = ({ width, height }: DOMRect) => {
+      const below = anchorBox.bottom + 6;
+      const above = anchorBox.top - height - 6;
+      if (below + height <= bounds.bottom) return { y: below, right: anchorBox.right, fits: true };
+      if (above >= bounds.top) return { y: above, right: anchorBox.right, fits: true };
       // With room neither below nor above, as on a phone held sideways with the tray open, it opens to the
       // left of its anchor, clear of Message options, or to its right where only that has room.
-      y = Math.max(bounds.top, Math.min(anchorBox.top, bounds.bottom - menuBox.height));
-      const roomLeft = anchorBox.left - 6 - bounds.left >= menuBox.width;
-      const roomRight = bounds.right - anchorBox.right - 6 >= menuBox.width;
-      right = roomRight && !roomLeft ? anchorBox.right + 6 + menuBox.width : anchorBox.left - 6;
+      const roomLeft = anchorBox.left - 6 - bounds.left >= width;
+      const roomRight = rightmost - anchorBox.right - 6 >= width;
+      return {
+        y: Math.max(bounds.top, Math.min(anchorBox.top, bounds.bottom - height)),
+        right: roomRight && !roomLeft ? anchorBox.right + 6 + width : anchorBox.left - 6,
+        fits: roomLeft || roomRight,
+      };
+    };
+    let spot = spotFor(menuBox);
+    const [first, last] = [bar.firstElementChild as HTMLElement, bar.lastElementChild as HTMLElement];
+    if (!spot.fits || last.offsetTop > first.offsetTop) {
+      menu.setAttribute("data-two-rows", "");
+      menuBox = menu.getBoundingClientRect();
+      spot = spotFor(menuBox);
     }
+    ({ y, right } = spot);
   }
   const x = Math.max(bounds.left, Math.min(right - menuBox.width, bounds.right - menuBox.width));
   menu.style.left = `${x}px`;

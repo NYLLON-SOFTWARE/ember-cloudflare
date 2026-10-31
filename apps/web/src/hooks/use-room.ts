@@ -2,6 +2,7 @@ import { createContext, useCallback, useEffect, useEffectEvent, useLayoutEffect,
 import {
   CloseCode,
   HISTORY_PAGE_SIZE,
+  isInRoom,
   isMessageTooLong,
   MAX_CHECKED_MESSAGES,
   MAX_MESSAGE_HTML_LENGTH,
@@ -15,6 +16,7 @@ import {
   type User,
 } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
+import type { MessageActions } from "@/components/workspace/message-item";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { openAhead, reconnectingSocket, waitingAhead, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isPending, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
@@ -42,7 +44,38 @@ export const RefusedUnboosts = createContext(0);
  * Whether the room would refuse `body`, whose plain text is `text`, as too long: more text than it
  * takes, or more markup than a frame carries, which only so much formatting makes.
  */
-const isTooLong = (body: string, text: string) => isMessageTooLong(text) || body.length > MAX_MESSAGE_HTML_LENGTH;
+export const isTooLong = (body: string, text: string) => isMessageTooLong(text) || body.length > MAX_MESSAGE_HTML_LENGTH;
+
+/** What a room's socket carries, for what shows a part of the room apart from its timeline, as a thread. */
+export interface RoomFrames {
+  /** Sends `frame` to the room, answering whether it went, which it doesn't while the room is away. */
+  send: (frame: ClientFrame) => boolean;
+  /** Hears each frame the room sends, after the room's timeline has, until the function it answers is called. */
+  listen: (listener: (frame: ServerFrame) => void) => () => void;
+}
+
+/**
+ * What can be done to a room's messages over `send`. Unlike new messages, these aren't kept to send later,
+ * so `warn` says when one couldn't go. An edit longer than the room takes isn't sent either, so its editor
+ * keeps it.
+ */
+export function messageActionsOf(send: RoomFrames["send"], warn: (message: string) => void): MessageActions {
+  const sendOrWarn = (frame: ClientFrame) => {
+    const sent = send(frame);
+    if (!sent) warn("Not connected. Try again once you're reconnected.");
+    return sent;
+  };
+  return {
+    edit: (messageId, body) => {
+      if (!isTooLong(body, writtenBody(body).plainText)) return sendOrWarn({ type: "message.update", messageId, body });
+      warn(MESSAGE_TOO_LONG);
+      return false;
+    },
+    remove: (messageId) => sendOrWarn({ type: "message.delete", messageId }),
+    boost: (messageId, content) => sendOrWarn({ type: "boost.create", messageId, content }),
+    unboost: (boostId) => sendOrWarn({ type: "boost.delete", boostId }),
+  };
+}
 
 /**
  * The address a room's socket is opened at ahead of the room: a hidden tab's, so that the room reads nothing
@@ -71,6 +104,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   const [state, dispatch] = useReducer(roomReducer, initialRoomState);
   const [around] = useState(openedAt);
   const socket = useRef<ReconnectingSocket | null>(null);
+  const listeners = useRef(new Set<(frame: ServerFrame) => void>());
   const lastTypingStarted = useRef(-Infinity);
   const sessionChanged = useEffectEvent(onSessionChanged);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
@@ -147,12 +181,15 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       if (opening) seen = frame.seq;
       else if ("seq" in frame && seen !== undefined && frame.seq === seen + 1) seen = frame.seq;
       if (opening) openingAround = undefined;
-      dispatch({ type: "frame", frame, now: Date.now() });
-      if (!opening) return;
-      room.connected();
-      tellVisibility(visibility.visible);
-      checkUnconfirmed(room, frame.messages);
-      sendQueued(room, frame);
+      // A reply sent only to its thread is the thread's, not the timeline's.
+      if (frame.type !== "message.created" || isInRoom(frame.message)) dispatch({ type: "frame", frame, now: Date.now() });
+      if (opening) {
+        room.connected();
+        tellVisibility(visibility.visible);
+        checkUnconfirmed(room, frame.messages);
+        sendQueued(room, frame);
+      }
+      for (const listener of listeners.current) listener(frame);
     };
 
     const onClose = (code: number, opened: boolean) => {
@@ -209,8 +246,18 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   }, [roomId, around]);
 
   const send = useCallback((frame: ClientFrame) => socket.current?.send(frame) ?? false, []);
+  const frames = useMemo<RoomFrames>(
+    () => ({
+      send,
+      listen: (listener) => {
+        listeners.current.add(listener);
+        return () => void listeners.current.delete(listener);
+      },
+    }),
+    [send],
+  );
   // Says why something written didn't go, as the room says why it refused something.
-  const warn = useCallback((message: string) => dispatch({ type: "frame", frame: { type: "error", message }, now: Date.now() }), []);
+  const warn = useCallback((message: string) => dispatch({ type: "warn", message }), []);
 
   // Whether the timeline is reading older history, or on its way back from it. Files go one after another,
   // each long after the page that sent them rendered, so this is the timeline as it is now.
@@ -313,33 +360,15 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     [send, state.messages, state.hasNewer, state.loadingPage],
   );
 
-  const messageActions = useMemo(() => {
-    // Unlike new messages, these aren't kept to send later, so say when one couldn't go.
-    const sendOrWarn = (frame: ClientFrame) => {
-      const sent = send(frame);
-      if (!sent) warn("Not connected. Try again once you're reconnected.");
-      return sent;
-    };
-    return {
-      // An edit longer than the room takes isn't sent either, so its editor keeps it.
-      edit: (messageId: string, body: string) => {
-        if (!isTooLong(body, writtenBody(body).plainText)) return sendOrWarn({ type: "message.update", messageId, body });
-        warn(MESSAGE_TOO_LONG);
-        return false;
-      },
-      remove: (messageId: string) => sendOrWarn({ type: "message.delete", messageId }),
-      boost: (messageId: string, content: string) => sendOrWarn({ type: "boost.create", messageId, content }),
-      unboost: (boostId: string) => sendOrWarn({ type: "boost.delete", boostId }),
-    };
-  }, [send, warn]);
+  const messageActions = useMemo(() => messageActionsOf(send, warn), [send, warn]);
 
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
 
-  return { state, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice };
+  return { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice };
 }
 
 /** A message `me` is sending to `roomId` as `clientMessageId`, as the timeline shows it until the room has it. */
-function pendingMessage(
+export function pendingMessage(
   clientMessageId: string,
   roomId: string,
   me: User,

@@ -82,6 +82,9 @@ export interface NewUpload {
   type: string;
   size: number;
   clientMessageId: string;
+  /** The message in whose thread the file is a reply, which `alsoSend` sends to the room too. */
+  parentId?: string;
+  alsoSend?: boolean;
 }
 
 /**
@@ -129,12 +132,14 @@ export const isKeepableFileName = (name: string) => name.length <= MAX_FILE_NAME
 /** Parses an untrusted `NewUpload`, or returns why it's refused: `FILE_TOO_LARGE` for a file too large. */
 export function parseNewUpload(data: unknown): NewUpload | string {
   if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
-  const { name, type, size, clientMessageId } = data as Record<string, unknown>;
+  const { name, type, size, clientMessageId, parentId, alsoSend } = data as Record<string, unknown>;
   if (typeof name !== "string" || !name.trim()) return "A file needs a name";
   if (!isKeepableFileName(name)) return FILE_NAME_NOT_KEPT;
   if (typeof type !== "string" || type.length > MAX_FILE_TYPE_LENGTH) return "A file's type must be text";
   if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) return "A file's size must be a number of bytes";
   if (size > MAX_FILE_SIZE) return FILE_TOO_LARGE;
   if (typeof clientMessageId !== "string" || clientMessageId.length === 0 || clientMessageId.length > MAX_ID_LENGTH) return "A file needs an id for its message";
-  return { name, type, size, clientMessageId };
+  if (parentId === undefined) return { name, type, size, clientMessageId };
+  if (typeof parentId !== "string" || parentId.length === 0 || parentId.length > MAX_ID_LENGTH) return "A reply's thread must be a message's id";
+  return { name, type, size, clientMessageId, parentId, alsoSend: alsoSend === true };
 }
