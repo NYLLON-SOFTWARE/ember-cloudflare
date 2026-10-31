@@ -370,6 +370,18 @@ before keeping the setup. @ember then joins every room open to everyone, and tur
 takes it out again and forgets the token. Nobody else can take the name Ember, though anyone who had
 it keeps it.
 
+Mention @ember in a room or a thread, or write to it in a DM, and it answers there: in the thread when
+it's asked in one, typing while its model answers. It reads the thread, its first message and latest
+50 replies, or else the room's latest 20 messages, each after its writer's name, at most about 40,000
+characters of them, and sends them through AI Gateway to the model, whose provider reads them. Its
+answer is a message of its own, in Markdown: links, bold, lists, quotes, code blocks and tables show as
+they do in people's messages, the pictures it links to show in a card under it, and its first web link
+gets a preview, as a pasted link does. It reads bots' messages but never answers one, so that bots
+can't keep each other talking. When the model can't answer, as when the token is refused or the
+credits run out, @ember says why in a short note, and the Worker's log has Cloudflare's own words.
+AI Gateway's logs keep each request with the id of whoever asked, as custom metadata's `user_id`,
+which a spend limit can be split by.
+
 ### A preview from GitHub Actions
 
 The Preview workflow (`.github/workflows/preview.yml`) deploys `main` to a Worker named

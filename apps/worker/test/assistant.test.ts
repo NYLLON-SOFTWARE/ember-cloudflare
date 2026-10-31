@@ -168,7 +168,7 @@ describe("Ember AI", () => {
       expect(await assistantRooms()).toContain(later.id);
     });
 
-    it("can be mentioned, as anyone in the room can", async () => {
+    it("can be mentioned, as anyone in the room can, and answers", async () => {
       const administrator = await setUp();
       fakeGateway();
       await saved(administrator);
@@ -176,6 +176,8 @@ describe("Ember AI", () => {
 
       const sent = await post(client, `<p>Hi <action-text-attachment sgid="${mentionSgid(ASSISTANT_ID)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment></p>`);
       expect(sent).toMatchObject({ plainText: "Hi @Ember", mentions: [{ id: ASSISTANT_ID, name: "Ember" }] });
+      // Its answer is the model's hello (answers.test.ts follows what it answers).
+      expect((await client.next("message.created")).message).toMatchObject({ creator: { id: ASSISTANT_ID, name: "Ember" }, plainText: HELLO });
       client.close();
     });
 

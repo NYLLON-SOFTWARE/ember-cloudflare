@@ -51,8 +51,8 @@ export class Unfurler extends DurableObject<Env> {
   }
 }
 
-/** A new object to unfurl a link in, near this request. */
-const unfurler = (env: Env) => env.UNFURLER.get(env.UNFURLER.newUniqueId());
+/** A new object to unfurl a link in, near this request, or near the room whose message has the link. */
+export const unfurler = (env: Env) => env.UNFURLER.get(env.UNFURLER.newUniqueId());
 
 /** The preview of `url`, or null when it has none or making it takes longer than `deadlineMs`. */
 export async function unfurl(url: string, network: Network, deadlineMs = UNFURL_DEADLINE_MS): Promise<LinkPreview | null> {

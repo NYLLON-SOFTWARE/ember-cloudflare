@@ -6,7 +6,7 @@ import { isQueued, unconfirmed, type ConnectionStatus, type PendingMessage } fro
 import { initialThreadState, threadReducer } from "@/lib/thread-state";
 import { UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { useLatestReducer } from "./use-latest-reducer";
-import { isTooLong, messageActionsOf, pendingMessage, type RoomFrames } from "./use-room";
+import { isTooLong, messageActionsOf, pendingMessage, TYPING_TTL_MS, type RoomFrames } from "./use-room";
 
 /**
  * A thread's live state, the message `parentId` names in `roomId` and its replies, over the room's socket,
@@ -70,6 +70,12 @@ export function useThread(roomId: string, frames: RoomFrames, status: Connection
   useEffect(() => {
     if (offline !== state.replies.offline) dispatch({ type: "offline", offline });
   }, [offline, state.replies.offline]);
+
+  // As the room's timeline does, the thread forgets typing it has stopped hearing of.
+  useEffect(() => {
+    const expire = setInterval(() => dispatch({ type: "expire-typing", before: Date.now() - TYPING_TTL_MS }), 1_000);
+    return () => clearInterval(expire);
+  }, []);
 
   const warn = useCallback((message: string) => dispatch({ type: "warn", message }), []);
 

@@ -33,20 +33,33 @@ export interface Turn {
   text: string;
 }
 
-/** What to ask a model: how it should answer, the conversation, oldest first, ending with what it's asked, and the most tokens its answer may take. */
+/**
+ * What to ask a model: how it should answer, the conversation, oldest first, ending with what it's asked,
+ * the most tokens its answer may take, and who asked, if someone did, whom AI Gateway's logs and spend
+ * limits then know each request by (custom metadata's `user_id`).
+ */
 export interface Question {
   instructions: string;
   turns: Turn[];
   maxTokens: number;
+  askerId?: string;
 }
 
 /**
- * Why a model didn't answer, in words an administrator can act on, with the status to answer them with
- * and the field of Set up Ember AI it's about, if one is: `wrongFormat` when the model was refused in a
- * way another format might not be.
+ * What went wrong asking a model: Cloudflare didn't take the API token, or found no such account, AI
+ * Gateway's credits ran out, the model wasn't taken, AI Gateway turned the request away, the conversation
+ * was longer than the model reads, AI Gateway didn't answer, or the model answered with nothing.
+ */
+export type RefusalReason = "token" | "account" | "credits" | "model" | "busy" | "too long" | "unanswered" | "nothing";
+
+/**
+ * Why a model didn't answer, in words an administrator can act on, with what went wrong, the status to
+ * answer them with and the field of Set up Ember AI it's about, if one is: `wrongFormat` when the model
+ * was refused in a way another format might not be.
  */
 export interface GatewayRefusal {
   status: number;
+  reason: RefusalReason;
   refusal: string;
   field?: AssistantField;
   wrongFormat?: boolean;
@@ -64,18 +77,23 @@ export async function ask(env: Env, gateway: Gateway, question: Question, timeou
   try {
     response = await fetch(`${cloudflareApiOf(env)}/accounts/${gateway.accountId}/ai/v1/${PATHS[gateway.format]}`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${gateway.apiToken}`, "Content-Type": "application/json", "cf-aig-gateway-id": GATEWAY_ID },
+      headers: {
+        Authorization: `Bearer ${gateway.apiToken}`,
+        "Content-Type": "application/json",
+        "cf-aig-gateway-id": GATEWAY_ID,
+        ...(question.askerId !== undefined && { "cf-aig-metadata": JSON.stringify({ user_id: question.askerId }) }),
+      },
       body: JSON.stringify(requestOf(gateway, question)),
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     console.error("Asking AI Gateway failed:", error instanceof Error ? error.name : "unknown error");
-    return { status: 502, refusal: GATEWAY_UNANSWERED };
+    return { status: 502, reason: "unanswered", refusal: GATEWAY_UNANSWERED };
   }
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) return refusalOf(response.status, body);
   const text = answerIn(gateway.format, body)?.trim();
-  return text ? { text } : { status: 502, refusal: NOTHING_ANSWERED, field: "model" };
+  return text ? { text } : { status: 502, reason: "nothing", refusal: NOTHING_ANSWERED, field: "model" };
 }
 
 /**
@@ -152,15 +170,22 @@ function refusalOf(status: number, body: unknown): GatewayRefusal {
   const { codes, message } = errorIn(body);
   const said = (lead: string) => (message ? `${lead} Cloudflare says: ${quoted(message)}` : lead);
   if (status === 401 || (status === 403 && codes.includes(10000))) {
-    return { status: 422, field: "apiToken", refusal: said("Cloudflare didn't take that API token for this account. Check the account ID, and that the token has the Workers AI Read permission.") };
+    const refusal = said("Cloudflare didn't take that API token for this account. Check the account ID, and that the token has the Workers AI Read permission.");
+    return { status: 422, reason: "token", field: "apiToken", refusal };
   }
   // "Could not route to /client/v4/accounts/…, perhaps your object identifier is invalid?"
-  if (codes.includes(7003) || codes.includes(7000)) return { status: 422, field: "accountId", refusal: said("Cloudflare has no account with that ID that the token can reach.") };
-  if (status === 402) return { status: 422, refusal: said("This model is paid for with AI Gateway's credits, and there aren't enough. Top them up under Credits Available in AI Gateway, or choose a Workers AI model.") };
-  if (status === 403) return { status: 422, field: "model", refusal: said("Cloudflare won't run that model for this account.") };
-  if (status === 400 || status === 404 || status === 422) return { status: 422, field: "model", refusal: said("AI Gateway didn't take that model."), wrongFormat: true };
-  if (status === 429) return { status: 429, refusal: said("AI Gateway is turning requests away for now, or a spend limit was reached. Try again later.") };
-  return { status: 502, refusal: said(GATEWAY_UNANSWERED) };
+  if (codes.includes(7003) || codes.includes(7000)) {
+    return { status: 422, reason: "account", field: "accountId", refusal: said("Cloudflare has no account with that ID that the token can reach.") };
+  }
+  if (status === 402) {
+    const refusal = said("This model is paid for with AI Gateway's credits, and there aren't enough. Top them up under Credits Available in AI Gateway, or choose a Workers AI model.");
+    return { status: 422, reason: "credits", refusal };
+  }
+  if (status === 403) return { status: 422, reason: "model", field: "model", refusal: said("Cloudflare won't run that model for this account.") };
+  if (status === 413) return { status: 422, reason: "too long", refusal: said("The model can't read that much at once.") };
+  if (status === 400 || status === 404 || status === 422) return { status: 422, reason: "model", field: "model", refusal: said("AI Gateway didn't take that model."), wrongFormat: true };
+  if (status === 429) return { status: 429, reason: "busy", refusal: said("AI Gateway is turning requests away for now, or a spend limit was reached. Try again later.") };
+  return { status: 502, reason: "unanswered", refusal: said(GATEWAY_UNANSWERED) };
 }
 
 /** The codes and the first message of the errors in a refusal's body, in any of the shapes AI Gateway answers with. */

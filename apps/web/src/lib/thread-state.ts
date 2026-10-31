@@ -1,5 +1,5 @@
 import type { Boost, Message, ServerFrame } from "@ember/protocol";
-import { initialRoomState, isPending, paged, resumed, roomReducer, welcomed, type RoomAction, type RoomState } from "./room-state";
+import { initialRoomState, isPending, paged, resumed, roomReducer, typed, welcomed, type RoomAction, type RoomState } from "./room-state";
 
 /**
  * A thread as its panel shows it: the message it's for, its parent, and its replies, a timeline of their
@@ -96,6 +96,8 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
         : withReplies(roomReducer(state.replies, action));
     case "message.checked":
       return withReplies(roomReducer(state.replies, action));
+    case "typing":
+      return frame.threadId === parentId ? withReplies({ ...state.replies, typing: typed(state.replies.typing, frame, action.now) }) : state;
     case "error": {
       const { replies } = state;
       // The room doesn't say which reaction it refused to delete, so a reaction shown as going in the thread
@@ -107,8 +109,8 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
       if (frame.failed === "thread.before") return { parentId, parent, replies: { ...replies, notice: frame.message, loadingOlder: false } };
       return isAboutSending(replies, frame) ? withReplies(roomReducer(replies, action)) : state;
     }
-    // The room's own pages, presence and typing aren't the thread's. As the room lets the page in again,
-    // useThread opens the thread again.
+    // The room's own pages, presence and typing in the room aren't the thread's. As the room lets the
+    // page in again, useThread opens the thread again.
     default:
       return state;
   }

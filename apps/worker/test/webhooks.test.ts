@@ -10,7 +10,7 @@ import type { WebhookAccess } from "../src/workspace";
 import type { Env } from "../src/env";
 import { objectKey } from "../src/files/blobs";
 import type { RoomEvent } from "../src/room-log";
-import { BOT_WEBHOOK, MESSAGE_WEBHOOKS, type BotWebhook, type MessageWebhook } from "../src/workspace-store";
+import { BOT_WEBHOOK, MESSAGE_BOTS, type BotWebhook, type MessageWebhook } from "../src/workspace-store";
 import {
   api,
   closeOf,
@@ -806,8 +806,8 @@ describe("Webhooks run in the background", () => {
     client.close();
   });
 
-  it("queries webhooks first, finding each one's bot and membership by their keys, and a delivery's webhook by its bot's", async () => {
-    const plan = (await workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_WEBHOOKS}`, "room", "user", "[]", 1)).map((row) => (row as { detail: string }).detail);
+  it("queries webhooks first, with @ember, finding each one's bot and membership by their keys, and a delivery's webhook by its bot's", async () => {
+    const plan = (await workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_BOTS}`, "room", "user", "[]", 1)).map((row) => (row as { detail: string }).detail);
     expect(plan).toContainEqual(expect.stringMatching(/^SCAN webhooks\b/));
     expect(plan.filter((step) => /^SCAN (users|memberships|rooms)\b/.test(step))).toEqual([]);
     const found = (await workspaceSql(`EXPLAIN QUERY PLAN ${BOT_WEBHOOK}`, "room", "bot")).map((row) => (row as { detail: string }).detail);
