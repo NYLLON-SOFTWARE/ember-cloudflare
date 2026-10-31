@@ -912,10 +912,14 @@ export class Workspace extends DurableObject<Env> {
    * assistant tab then shows it: "forbidden" unless they're an administrator, or null without a valid
    * session. Turning it on adds @ember, or lets it back as it was, in every open room, and turning it
    * off deactivates @ember, as deleting a bot does. Everyone's workspace sockets hear of @ember either way.
+   * A change that kept the API token Ember had, as `keptToken` says, changes nothing ("changed") once
+   * that's no longer Ember's token: Ember AI was turned off while the model answered, which forgot it, or
+   * set up again with another.
    */
-  async changeAssistant(credentials: Credentials, gateway: Gateway | null): Promise<{ assistant: AssistantSettings | null } | "forbidden" | null> {
+  async changeAssistant(credentials: Credentials, gateway: Gateway | null, keptToken = false): Promise<{ assistant: AssistantSettings | null } | "forbidden" | "changed" | null> {
     return this.administerAccount(credentials, async (account) => {
       if (gateway === null && account.assistant === null) return { assistant: null };
+      if (gateway && keptToken && (await this.openedAssistant(account))?.apiToken !== gateway.apiToken) return "changed";
       const assistant = gateway && {
         accountId: gateway.accountId,
         sealedApiToken: await seal(this.env.SESSION_SECRET, "ai-gateway-token", gateway.apiToken),
@@ -933,7 +937,12 @@ export class Workspace extends DurableObject<Env> {
    * doesn't open under SESSION_SECRET, once that's changed, until an administrator sets it up again.
    */
   async assistantGateway(): Promise<Gateway | null> {
-    const saved = (await this.joinableAccount())?.assistant;
+    const account = await this.joinableAccount();
+    return account && this.openedAssistant(account);
+  }
+
+  /** How Ember AI asks AI Gateway as `account` keeps it, as `assistantGateway` answers it. */
+  private async openedAssistant({ assistant: saved }: Pick<JoinableAccount, "assistant">): Promise<Gateway | null> {
     if (!saved) return null;
     const apiToken = await unseal(this.env.SESSION_SECRET, "ai-gateway-token", saved.sealedApiToken);
     if (apiToken === null) console.error("The API token Ember AI was given doesn't open under SESSION_SECRET, so it isn't used.");
@@ -2285,7 +2294,8 @@ export class Workspace extends DurableObject<Env> {
     if (!user) return null;
     return this.closingSockets(async () => {
       if (!(await this.store.isAdministrator(user.id))) return "forbidden";
-      const person = await this.store.person(userId);
+      // As when banning, @ember goes with Ember AI, which lifting a ban would otherwise bring back.
+      const person = userId === ASSISTANT_ID ? null : await this.store.person(userId);
       if (!person) return "not found";
 
       const now = Date.now();

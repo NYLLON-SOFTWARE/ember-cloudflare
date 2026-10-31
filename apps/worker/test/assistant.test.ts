@@ -9,7 +9,7 @@ import {
 } from "@ember/protocol/assistant";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GATEWAY_UNANSWERED, NOTHING_ANSWERED } from "../src/assistant/gateway";
-import { API_TOKEN_NEEDED } from "../src/assistant/settings";
+import { API_TOKEN_CHANGED, API_TOKEN_NEEDED } from "../src/assistant/settings";
 import type { Env } from "../src/env";
 import { api, apiWith, cookieOf, createRoom, freshDeploy, openWorkspaceSocket, shown, startDirect, workspaceSql, type Session } from "./support";
 
@@ -191,6 +191,31 @@ describe("Ember AI", () => {
       expect(await workspaceSql("SELECT id FROM users WHERE role = 2")).toEqual([{ id: ASSISTANT_ID }]);
     });
 
+    it("keeps nothing of a change that kept the API token once Ember AI was turned off while the model answered", async () => {
+      const administrator = await setUp();
+      fakeGateway();
+      await saved(administrator);
+      vi.restoreAllMocks();
+      const asked = Promise.withResolvers<void>();
+      const answer = Promise.withResolvers<void>();
+      fakeGateway(async (sent) => {
+        asked.resolve();
+        await answer.promise;
+        return answering(HELLO)(sent);
+      });
+      const { apiToken: _, ...withoutToken } = SETUP;
+
+      const change = setUpAssistant(administrator, withoutToken);
+      await asked.promise;
+      expect((await turnOff(administrator)).status).toBe(200);
+      answer.resolve();
+      const refused = await change;
+      expect(refused.status).toBe(422);
+      expect(await refused.json()).toEqual({ error: API_TOKEN_CHANGED, field: "apiToken" });
+      expect((await storedSettings()).assistant).toBeNull();
+      expect(await storedAssistant()).toMatchObject({ status: 1 });
+    });
+
     it("tries a model it doesn't list in each format until one takes it, and keeps that one", async () => {
       const administrator = await setUp();
       const requests = fakeGateway((sent) => (sent.url.endsWith("/chat/completions") ? answering(HELLO)(sent) : refusing(400, 2001, "This model doesn't support this endpoint.")(sent)));
@@ -341,8 +366,10 @@ describe("Ember AI", () => {
       expect(await workspace.next()).toEqual({ type: "user.updated", user: await inDirectory(member, ASSISTANT_ID) });
       expect(await inDirectory(member, ASSISTANT_ID)).toMatchObject({ status: "deactivated" });
 
-      // Off already, it stays off.
+      // Off already, it stays off, which lifting a ban, as People can someone's, doesn't change.
       expect(await (await turnOff(administrator)).json()).toEqual({ assistant: null });
+      expect((await api(`/api/users/${ASSISTANT_ID}/ban`, { method: "DELETE", headers: as(administrator) })).status).toBe(404);
+      expect(await storedAssistant()).toMatchObject({ status: 1 });
     });
 
     it("brings the same @ember back when it's set up again, in every open room", async () => {
@@ -361,7 +388,7 @@ describe("Ember AI", () => {
   });
 
   describe("@ember", () => {
-    it("isn't one of Chat bots, which can't change or delete it, nor can People remove or ban it", async () => {
+    it("isn't one of Chat bots, which can't change or delete it, nor can People remove, ban or unban it", async () => {
       const administrator = await setUp();
       fakeGateway();
       await saved(administrator);
@@ -371,6 +398,7 @@ describe("Ember AI", () => {
       expect((await api(`/api/account/bots/${ASSISTANT_ID}`, { method: "DELETE", headers: as(administrator) })).status).toBe(404);
       expect((await api(`/api/account/users/${ASSISTANT_ID}`, { method: "DELETE", headers: as(administrator) })).status).toBe(404);
       expect((await api(`/api/users/${ASSISTANT_ID}/ban`, { method: "POST", headers: as(administrator) })).status).toBe(404);
+      expect((await api(`/api/users/${ASSISTANT_ID}/ban`, { method: "DELETE", headers: as(administrator) })).status).toBe(404);
       expect(await storedAssistant()).toMatchObject({ name: "Ember", status: 0 });
     });
 

@@ -18,6 +18,8 @@ const PRIVATE = { "Cache-Control": "no-store" };
 
 /** Why Set up Ember AI needs an API token: Ember has none to keep. */
 export const API_TOKEN_NEEDED = "Paste an API token. Ember doesn't have one yet.";
+/** Why it needs one after the model answered: Ember AI was turned off meanwhile, or set up with another token. */
+export const API_TOKEN_CHANGED = "Ember AI changed while the model answered, so Ember no longer has that API token. Paste an API token.";
 
 /** What Set up Ember AI asks the model before Ember keeps it, so that it's known to answer. */
 const TEST_QUESTION: Question = {
@@ -38,7 +40,8 @@ const MAX_GREETING_LENGTH = 500;
  * the model has answered a test question through AI Gateway with the account and API token given, or the
  * API token Ember has, when none is, answering Ember AI as it is then and what the model said. Someone who
  * isn't an administrator hears so before anything they sent is read. A field that can't be what it's for,
- * or that AI Gateway refuses, is refused on that field.
+ * or that AI Gateway refuses, is refused on that field, as is the API token Ember had once it no longer
+ * has it, so that turning Ember AI off while the model answers stays done.
  */
 export async function saveAssistant(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -48,12 +51,14 @@ export async function saveAssistant(request: Request, env: Env): Promise<Respons
   if (!administrator) return problem(403, ASSISTANT_FORBIDDEN);
   const setup = parseAssistantSetup(await jsonBodyOf(request));
   if ("error" in setup) return formAnswer(setup, 422);
-  const apiToken = setup.apiToken ?? (await ember.assistantGateway())?.apiToken;
+  const kept = setup.apiToken === undefined ? (await ember.assistantGateway())?.apiToken : undefined;
+  const apiToken = setup.apiToken ?? kept;
   if (!apiToken) return formAnswer({ error: API_TOKEN_NEEDED, field: "apiToken" }, 422);
   const answered = await greetingFrom(env, { accountId: setup.accountId, apiToken, model: setup.model });
   if ("refusal" in answered) return formAnswer({ error: answered.refusal, ...(answered.field && { field: answered.field }) }, answered.status);
-  const saved = await ember.changeAssistant(credentials, { accountId: setup.accountId, apiToken, model: setup.model, format: answered.format });
+  const saved = await ember.changeAssistant(credentials, { accountId: setup.accountId, apiToken, model: setup.model, format: answered.format }, kept !== undefined);
   if (!saved) return problem(401, NOT_SIGNED_IN);
+  if (saved === "changed") return formAnswer({ error: API_TOKEN_CHANGED, field: "apiToken" }, 422);
   if (saved === "forbidden" || !saved.assistant) return problem(403, ASSISTANT_FORBIDDEN);
   return Response.json({ assistant: saved.assistant, greeting: answered.greeting } satisfies AssistantSaved, { headers: PRIVATE });
 }
