@@ -472,7 +472,9 @@ test.describe("Message action bar", () => {
 
   test("lays the bar out in two rows of four on touch screens where a row of its buttons doesn't fit", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { ...phone, viewport: { width: 320, height: 620 } } });
-    await ada.send("Eight actions on a narrow phone");
+    // On a phone, Enter starts a new line, so Send Message sends it.
+    await ada.composer().fill("Eight actions on a narrow phone");
+    await ada.page.getByRole("button", { name: "Send Message" }).tap();
     const message = ada.message("Eight actions on a narrow phone");
     await expect(message).not.toHaveAttribute("aria-busy");
     const options = message.getByRole("button", { name: "Message options" });
