@@ -98,14 +98,23 @@ afterEach(() => {
 });
 
 describe("What a view leaves unsent", () => {
-  const messages = [waiting("written while away"), sent("sent"), sent("refused", { failed: true }), sent("a.txt", { upload: { name: "a.txt", size: 1, percent: 50 } })];
+  const messages = [
+    waiting("written while away"),
+    sent("sent before the room let the view in again", { sentOver: 1 }),
+    sent("taken back"),
+    sent("sent since", { sentOver: 2 }),
+    sent("refused", { failed: true }),
+    sent("a.txt", { upload: { name: "a.txt", size: 1, percent: 50 } }),
+  ];
 
-  it("is what was written while the room was away", () => {
-    expect(leftUnsent({ ...initialRoomState, status: "open", messages }).map((m) => m.body)).toEqual(["written while away"]);
+  it("is what was written while the room was away, and what went without the room saying it has it, but for what went over the socket open now", () => {
+    const left = leftUnsent({ ...initialRoomState, status: "open", connections: 2, messages });
+    expect(left.map((m) => m.body)).toEqual(["written while away", "sent before the room let the view in again", "taken back"]);
   });
 
-  it.each(["connecting", "reconnecting"] as const)("is also, while %s, what went over a socket since closed, which the room may never have had", (status) => {
-    expect(leftUnsent({ ...initialRoomState, status, messages }).map((m) => m.body)).toEqual(["written while away", "sent"]);
+  it.each(["connecting", "reconnecting"] as const)("is all of that while %s, as what went over the socket that closed may never have reached the room", (status) => {
+    const left = leftUnsent({ ...initialRoomState, status, connections: 2, messages });
+    expect(left.map((m) => m.body)).toEqual(["written while away", "sent before the room let the view in again", "taken back", "sent since"]);
   });
 
   it("is nothing in a room that's gone, which shows what was waiting as not sent", () => {
@@ -180,13 +189,30 @@ describe("Send what was left unsent", () => {
     expect(socket().sent).toEqual([{ type: "message.check", clientMessageIds: ["Written while away"] }]);
   });
 
-  it("sends what's handed over to a socket the room has let in at once", async () => {
+  it("sends what's handed over to a socket the room has let in once the views going have handed over", async () => {
     handOver("general", [sent("in doubt")]);
     await effectsRun();
     socket().open();
     socket().receive(welcome());
     handOver("general", [waiting("Written while away")]);
+    await effectsRun();
     expect(socket().sentOfType("message.create")).toEqual([{ type: "message.create", clientMessageId: "Written while away", body: "Written while away" }]);
+  });
+
+  it("sends what waited in the order it was written, though each view going hands over its own", async () => {
+    const at = (second: number) => `2026-10-31T10:00:0${second}.000Z`;
+    handOver("general", [waiting("A", { createdAt: at(1) }), waiting("C", { createdAt: at(3) })]);
+    handOver("general", [waiting("B", { createdAt: at(2), parentId: "m1", alsoSent: true })]);
+    await effectsRun();
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.create").map((frame) => frame.body)).toEqual(["A", "B", "C"]);
+
+    // And to a socket the room has let in already.
+    handOver("general", [waiting("E", { createdAt: at(5) })]);
+    handOver("general", [waiting("D", { createdAt: at(4), parentId: "m1" })]);
+    await effectsRun();
+    expect(socket().sentOfType("message.create").map((frame) => frame.body)).toEqual(["A", "B", "C", "D", "E"]);
   });
 
   it("marks what the room refuses as not sent, as a view does", async () => {

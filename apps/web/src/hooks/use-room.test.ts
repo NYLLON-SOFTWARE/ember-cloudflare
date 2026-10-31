@@ -472,6 +472,47 @@ describe("Leave a room with messages waiting", () => {
     expect(outbox!.closedWith).toBe(1000);
   });
 
+  it("keeps what it asked the room about after a reconnect, when the room is left before the room answers", async () => {
+    const { result, unmount } = joinGeneral();
+    act(() => result.current.postMessage("Just before"));
+    const [written] = result.current.state.messages;
+    socket().drop();
+    wait(500);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.check")).toEqual([{ type: "message.check", clientMessageIds: [written!.clientMessageId] }]);
+    unmount();
+    await handedOver();
+
+    const [outbox] = outboxSockets();
+    outbox!.open();
+    outbox!.receive(welcome());
+    expect(outbox!.sent).toEqual([{ type: "message.check", clientMessageIds: [written!.clientMessageId] }]);
+    outbox!.receive({ type: "message.checked", stored: [], missing: [written!.clientMessageId] });
+    const next = joinGeneral();
+    expect(next.result.current.state.messages).toMatchObject([{ clientMessageId: written!.clientMessageId, failed: true }]);
+  });
+
+  it("keeps what the outbox sent, when the room is opened again and left before the room answers for it", async () => {
+    const [written] = await leaveWhileAway("Written while away");
+    const [outbox] = outboxSockets();
+    outbox!.open();
+    outbox!.receive(welcome());
+    outbox!.drop();
+    const { unmount } = joinGeneral();
+    expect(socket().sentOfType("message.check")).toEqual([{ type: "message.check", clientMessageIds: [written!.clientMessageId] }]);
+    unmount();
+    await handedOver();
+
+    const again = outboxSockets().at(-1)!;
+    expect(again).not.toBe(outbox);
+    again.open();
+    again.receive(welcome());
+    expect(again.sent).toEqual([{ type: "message.check", clientMessageIds: [written!.clientMessageId] }]);
+    again.receive({ type: "message.checked", stored: [written!.clientMessageId], missing: [] });
+    expect(again.closedWith).toBe(1000);
+  });
+
   it("sends nothing twice that went as the room was left, before the page had shown it going", async () => {
     const { result, unmount } = joinGeneral();
     socket().drop();
@@ -1461,13 +1502,16 @@ describe("Threads", () => {
       expect(socket().sentOfType("message.create")).toHaveLength(1);
     });
 
-    it("sends what was waiting in the room and in its thread over one socket, once the room is left with the thread open", async () => {
+    it("sends what was waiting in the room and in its thread over one socket, in the order it was written, once the room is left with the thread open", async () => {
       const { result, unmount } = openThread();
       socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [], hasMore: false });
       socket().drop();
       act(() => void result.current.room.postMessage("In the room"));
-      act(() => void result.current.thread.postReply("<p>In the thread</p>", false));
-      const [inRoom] = result.current.room.state.messages.filter(isPending);
+      wait(1);
+      act(() => void result.current.thread.postReply("<p>In the thread</p>", true));
+      wait(1);
+      act(() => void result.current.room.postMessage("In the room again"));
+      const [first, again] = result.current.room.state.messages.filter(isPending);
       const [inThread] = result.current.thread.state.replies.messages;
       unmount();
       await handedOver();
@@ -1476,9 +1520,10 @@ describe("Threads", () => {
       const [outbox] = outboxSockets();
       outbox!.open();
       outbox!.receive(welcome());
-      expect(outbox!.sentOfType("message.create").map((frame) => frame.body)).toEqual(["In the room", "<p>In the thread</p>"]);
-      outbox!.receive({ type: "message.created", message: stored("m2", inRoom!), seq: 1 });
-      outbox!.receive({ type: "message.created", message: stored("r1", inThread!, { parentId: "m1", alsoSent: false }), seq: 2 });
+      expect(outbox!.sentOfType("message.create").map((frame) => frame.body)).toEqual(["In the room", "<p>In the thread</p>", "In the room again"]);
+      outbox!.receive({ type: "message.created", message: stored("m2", first!), seq: 1 });
+      outbox!.receive({ type: "message.created", message: stored("r1", inThread!, { parentId: "m1", alsoSent: true }), seq: 2 });
+      outbox!.receive({ type: "message.created", message: stored("m3", again!), seq: 3 });
       expect(outbox!.closedWith).toBe(1000);
     });
   });

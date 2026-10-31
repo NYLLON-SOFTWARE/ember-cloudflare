@@ -10,7 +10,7 @@ import { dequeued, isPending, isQueued, notSent, unconfirmed, type PendingMessag
  * as their views would show them by now, for the room's next view, or their thread's, to take back.
  */
 interface Outbox {
-  /** In the order they were left: waiting to be sent, sent without the room saying it has them, or not sent. */
+  /** In the order they were written: waiting to be sent, sent without the room saying it has them, or not sent. */
   messages: PendingMessage[];
   socket: ReconnectingSocket | null;
 }
@@ -19,29 +19,31 @@ interface Outbox {
 const outboxes = new Map<string, Outbox>();
 
 /**
- * What a view showing `state` leaves unsent as it goes: what was written while the room was away, and,
- * until the room lets the view in, what went over a socket since closed, which the room may never have
- * had, as what the view took back may have. What went over a socket still open reaches the room as it
- * closes. A file's upload answers for it, and a message shown as not sent has said so.
+ * What a view showing `state` leaves unsent as it goes: what was written while the room was away, and
+ * what went without the room saying it has it, which it may never have had, but for what went over the
+ * socket open now, which reaches the room as it closes. A file's upload answers for it, a message shown
+ * as not sent has said so, and a room that's gone takes nothing more.
  */
-export function leftUnsent({ messages, status }: RoomState): PendingMessage[] {
-  const inDoubt = status === "connecting" || status === "reconnecting";
-  return messages.filter((m): m is PendingMessage => isPending(m) && !m.failed && !m.upload && (m.queued === true || inDoubt));
+export function leftUnsent({ messages, status, connections }: RoomState): PendingMessage[] {
+  if (status === "gone") return [];
+  const goesAsItCloses = (m: PendingMessage) => status === "open" && m.sentOver === connections;
+  return messages.filter((m): m is PendingMessage => isPending(m) && !m.failed && !m.upload && !goesAsItCloses(m));
 }
 
 /**
- * Keeps `messages`, which a view of room `roomId` leaves unsent as it goes, sending them meanwhile. The
- * outbox connects once every view going has handed over, and every view opening taken back, as when a
- * thread goes with its room.
+ * Keeps `messages`, which a view of room `roomId` leaves unsent as it goes, sending them meanwhile, in
+ * the order they were written, which a room left with its thread open hands over a view at a time. The
+ * outbox sends, or connects, once every view going has handed over, and every view opening taken back.
  */
 export function handOver(roomId: string, messages: PendingMessage[]): void {
   if (messages.length === 0) return;
   const outbox = outboxes.get(roomId) ?? { messages: [], socket: null };
   outboxes.set(roomId, outbox);
-  outbox.messages = [...outbox.messages, ...messages];
-  if (outbox.socket) deliver(outbox, messages);
-  else queueMicrotask(() => connect(roomId, outbox));
+  outbox.messages = [...outbox.messages, ...messages].sort(byWritten);
+  queueMicrotask(() => (outbox.socket ? deliver(outbox) : connect(roomId, outbox)));
 }
+
+const byWritten = (a: PendingMessage, b: PendingMessage) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0);
 
 /**
  * Takes back what `me` left unsent in room `roomId`'s timeline, or in the thread of its message
@@ -94,7 +96,7 @@ function hear(roomId: string, outbox: Outbox, frame: ServerFrame): void {
       outbox.socket!.connected();
       // Those among the room's newest messages, or what changed, the room has.
       outbox.messages = unconfirmed(outbox.messages, frame.messages);
-      deliver(outbox, outbox.messages);
+      deliver(outbox);
       break;
     case "message.created":
       outbox.messages = unconfirmed(outbox.messages, [frame.message]);
@@ -114,14 +116,14 @@ function hear(roomId: string, outbox: Outbox, frame: ServerFrame): void {
 }
 
 /**
- * Sends `messages` over the outbox's socket, if the room has let it in: those waiting go, in the order
- * they were written, and the room is asked about those that went before.
+ * Sends what's waiting over the outbox's socket, if the room has let it in, in the order it was written,
+ * and asks the room about what went before.
  */
-function deliver(outbox: Outbox, messages: PendingMessage[]): void {
+function deliver(outbox: Outbox): void {
   const room = outbox.socket!;
-  const asked = messages.filter((m) => isUnsettled(m) && !m.queued).map((m) => m.clientMessageId);
+  const asked = outbox.messages.filter((m) => isUnsettled(m) && !m.queued).map((m) => m.clientMessageId);
   for (let i = 0; i < asked.length; i += MAX_CHECKED_MESSAGES) room.send({ type: "message.check", clientMessageIds: asked.slice(i, i + MAX_CHECKED_MESSAGES) });
-  const sent = new Set(messages.filter((m) => isQueued(m) && room.send(createFrame(m))));
+  const sent = new Set(outbox.messages.filter((m) => isQueued(m) && room.send(createFrame(m))));
   outbox.messages = outbox.messages.map((m) => (sent.has(m) ? dequeued(m) : m));
 }
 
