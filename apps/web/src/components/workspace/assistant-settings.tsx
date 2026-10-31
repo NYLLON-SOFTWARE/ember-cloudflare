@@ -11,7 +11,10 @@ import { BUTTON } from "./email-settings";
 // whether it does, as Turnstile's does. Turning it on opens Set up Ember AI (`AssistantSetup`), as
 // switches open setup that's missing, as the project's owner asked (2026-10-26), and turning it off takes
 // @ember out of every room and forgets the API token. Change opens the setup with the account and model
-// as they are.
+// as they are. While it's on, the card says what @ember sends the model, which its provider reads.
+
+/** What @ember sends the model as it answers, which the card says while Ember AI is on. */
+export const WHAT_EMBER_SENDS = "Mention @ember, or write to it directly, and it answers, sending the thread, or the room's latest messages, through Cloudflare to the model.";
 
 /** What turning Ember AI off asks first. */
 export const CONFIRM_STOP_ASSISTANT = "Are you sure you want to turn off Ember AI? @ember will leave every room, and Ember will forget the API token.";
@@ -75,11 +78,14 @@ export function AssistantSettings({ assistant, onSetUp, onStopped, onFailed }: P
         />
       </div>
       {assistant !== null && (
-        <div>
-          <button type="button" onClick={onSetUp} disabled={stopping} className={BUTTON}>
-            Change
-          </button>
-        </div>
+        <>
+          <p className={NOTE}>{WHAT_EMBER_SENDS}</p>
+          <div>
+            <button type="button" onClick={onSetUp} disabled={stopping} className={BUTTON}>
+              Change
+            </button>
+          </div>
+        </>
       )}
     </section>
   );

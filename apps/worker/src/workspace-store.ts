@@ -348,10 +348,15 @@ export interface AppliedEvents {
   pushes: MessagePush[];
   /** The new messages' deliveries to bots' webhooks, oldest message first. */
   webhooks: MessageWebhook[];
+  /** The new messages @ember is to answer, oldest first. */
+  asks: AssistantAsk[];
 }
 
-/** What a room sends for the events the Workspace has applied: its new messages' pushes and deliveries to bots' webhooks. */
-export type RoomEventDeliveries = Pick<AppliedEvents, "pushes" | "webhooks">;
+/**
+ * What a room sends for the events the Workspace has applied: its new messages' pushes, deliveries to
+ * bots' webhooks and questions for @ember.
+ */
+export type RoomEventDeliveries = Pick<AppliedEvents, "pushes" | "webhooks" | "asks">;
 
 /** A new message's pushes: what they say, and the subscriptions they go to. */
 export interface MessagePush {
@@ -387,6 +392,12 @@ export interface MessageWebhook {
   roomName: string | null;
   botId: UserId;
 }
+
+/**
+ * A new message @ember is to answer, as `MESSAGE_BOTS` finds it: the message, its author and the room's
+ * name, or null for a DM.
+ */
+export type AssistantAsk = Omit<MessageWebhook, "botId">;
 
 /** A bot's webhook as a delivery to it finds it: the bot, by its name now, with its token, which the address it can answer at is made from. */
 export interface BotWebhook {
@@ -1190,37 +1201,40 @@ const deliveryOf = (row: DeliveryRow): PushDelivery => ({
 });
 
 /**
- * The bots' webhooks a new message, numbered ?4, by ?2 in room ?1 is delivered to: in a DM, those of the
- * active bots in it, and in any other room, those of the active bots in it whom the message mentions, a
- * JSON list ?3; never its author's. Each comes with the room's name, but a DM's, and the author's, and
- * its bot's id, whose webhook `BOT_WEBHOOK` reads once the delivery's turn comes. Nothing once the
- * Workspace has applied the message's event. Webhooks are few, so they're read first, and each one's bot
- * and membership found by their keys.
+ * The bots a new message, numbered ?4, by ?2 in room ?1 goes to: in a DM, the active bots in it, and in
+ * any other room, the active bots in it whom the message mentions, a JSON list ?3; never its author.
+ * They're the bots with webhooks, which it's delivered to, and @ember, which answers it unless a bot wrote
+ * it, so that bots can't keep each other talking. Each comes with the room's name, but a DM's, and the
+ * author's, and its id: a bot's webhook `BOT_WEBHOOK` reads once the delivery's turn comes. Nothing once
+ * the Workspace has applied the message's event. Webhooks are few, so they're read first, with @ember,
+ * and each one's bot and membership found by their keys.
  */
-export const MESSAGE_WEBHOOKS = `SELECT users.id,
+export const MESSAGE_BOTS = `SELECT users.id,
     (SELECT name FROM rooms WHERE id = ?1 AND kind <> 'direct') AS room_name, (SELECT name FROM users AS authors WHERE authors.id = ?2) AS author_name
-  FROM webhooks CROSS JOIN users ON users.id = webhooks.user_id
+  FROM (SELECT user_id FROM webhooks UNION ALL SELECT '${ASSISTANT_ID}') AS bots CROSS JOIN users ON users.id = bots.user_id
   WHERE users.role = ${BOT} AND users.status = ${ACTIVE} AND users.id <> ?2
+    AND (users.id <> '${ASSISTANT_ID}' OR NOT EXISTS (SELECT 1 FROM users AS authors WHERE authors.id = ?2 AND authors.role = ${BOT}))
     AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)
     AND (users.id IN (SELECT value FROM json_each(?3)) OR EXISTS (SELECT 1 FROM rooms WHERE id = ?1 AND kind = 'direct'))
     AND ?4 > (SELECT applied_seq FROM rooms WHERE id = ?1)
   ORDER BY lower(users.name), users.id`;
 
-/** A bot a new message is delivered to, as `MESSAGE_WEBHOOKS` finds it. */
-interface WebhookRow {
+/** A bot a new message goes to, as `MESSAGE_BOTS` finds it. */
+interface MessageBotRow {
   id: UserId;
   room_name: string | null;
   author_name: string;
 }
 
-/** A new message's deliveries to bots' webhooks, from the rows `MESSAGE_WEBHOOKS` found for it. */
-const messageWebhooks = ({ userId, message }: RoomEvent, rows: WebhookRow[]): MessageWebhook[] =>
-  rows.map((row) => ({ messageId: message!.id, author: { id: userId, name: row.author_name }, roomName: row.room_name, botId: row.id }));
+/** Where a new message goes, from the rows `MESSAGE_BOTS` found for it: to bots' webhooks, and to @ember to answer. */
+function messageDeliveries({ userId, message }: RoomEvent, rows: MessageBotRow[]): MessageWebhook[] {
+  return rows.map((row) => ({ messageId: message!.id, author: { id: userId, name: row.author_name }, roomName: row.room_name, botId: row.id }));
+}
 
 /**
  * Bot ?2's webhook, with its name and token now, as a delivery to it in room ?1 finds it when its turn
  * comes and again before what the bot says back is posted: nothing once the bot isn't an active one in
- * the room with a webhook, as `MESSAGE_WEBHOOKS` would find none for it then.
+ * the room with a webhook, as `MESSAGE_BOTS` would find none for it then.
  */
 export const BOT_WEBHOOK = `SELECT users.name, users.bot_token, webhooks.url FROM users JOIN webhooks ON webhooks.user_id = users.id
   WHERE users.id = ?2 AND users.role = ${BOT} AND users.status = ${ACTIVE}
@@ -2725,9 +2739,10 @@ export class WorkspaceStore {
       const inRoom = event.threadOnly ? 0 : 1;
       const seeing = event.viewerIds === undefined ? viewers : JSON.stringify(event.viewerIds);
       const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, seeing, mentions, seq, guests ? 1 : 0, inRoom, followers)) - 1 : null;
-      // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it.
-      const webhooks = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_WEBHOOKS, roomId, userId, mentions, seq)) - 1 : null;
-      return { event, marks, pushes, webhooks };
+      // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it, nor is
+      // @ember's answer, which is a reply too.
+      const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq)) - 1 : null;
+      return { event, marks, pushes, bots };
     });
     const told = statements.length;
     statements.push(...(message ? [statement(TOLD_OF_DIRECT_MESSAGE, roomId, message.seq), statement(APPLIED_WITH_MESSAGE, last, roomId, messageAt!)] : [statement(APPLIED, last, roomId)]));
@@ -2738,9 +2753,11 @@ export class WorkspaceStore {
       for (const { user_id } of results[at] as UserIdRow[]) marks.set(user_id, isNewMessage(event));
     }
     const pushes = applied.flatMap(({ event, pushes: at }) => (at === null ? [] : messagePushes(roomId, event, results[at] as PushRow[])));
-    const webhooks = applied.flatMap(({ event, webhooks: at }) => (at === null ? [] : messageWebhooks(event, results[at] as WebhookRow[])));
+    const deliveries = applied.flatMap(({ event, bots: at }) => (at === null ? [] : messageDeliveries(event, results[at] as MessageBotRow[])));
+    const webhooks = deliveries.filter(({ botId }) => botId !== ASSISTANT_ID);
+    const asks = deliveries.flatMap(({ botId, ...ask }) => (botId === ASSISTANT_ID ? [ask] : []));
     const toldIds = message ? userIdsOf(results[told] as UserIdRow[]) : [];
-    return { marks, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks };
+    return { marks, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks, asks };
   }
 
   /** Whether push subscription `id` is still saved, for someone active. */

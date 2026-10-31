@@ -94,10 +94,23 @@ describe("Open a thread", () => {
     expect(frame(state, { type: "message.created", message: other, seq: 1 })).toBe(state);
     expect(frame(state, { type: "message.created", message: message({ id: "m2", clientMessageId: "c2" }), seq: 2 })).toBe(state);
     expect(frame(state, { type: "presence.joined", user: ada })).toBe(state);
+    expect(frame(state, { type: "typing", user: ada, typing: true })).toBe(state);
+    expect(frame(state, { type: "typing", user: ada, typing: true, threadId: "m9" })).toBe(state);
   });
 });
 
 describe("Follow a thread as it changes", () => {
+  it("shows who types in it, as @ember does while it answers there, until their reply comes, they stop, or the thread stops hearing of it", () => {
+    const ember: User = { id: "ember", name: "Ember" };
+    const state = opened(initialThreadState({ parentId: "m1" }), [reply("r1")]);
+    const typing = threadReducer(state, { type: "frame", frame: { type: "typing", user: ember, typing: true, threadId: "m1" }, now: 1_000 });
+    expect(typing.replies.typing).toEqual({ ember: { user: ember, at: 1_000 } });
+    expect(frame(typing, { type: "message.created", message: reply("r2", { creator: ember }), seq: 2 }).replies.typing).toEqual({});
+    expect(frame(typing, { type: "typing", user: ember, typing: false, threadId: "m1" }).replies.typing).toEqual({});
+    expect(threadReducer(typing, { type: "expire-typing", before: 1_000 })).toBe(typing);
+    expect(threadReducer(typing, { type: "expire-typing", before: 2_000 }).replies.typing).toEqual({});
+  });
+
   it("adds new replies, and changes or takes away those that change or go", () => {
     let state = opened(initialThreadState({ parentId: "m1" }), [reply("r1")]);
     state = frame(state, { type: "message.created", message: reply("r2"), seq: 1 });

@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   ASSISTANT_ID,
+  ASSISTANT_NAME,
   CANT_SEND_EMAIL,
   CloseCode,
   domainOfEmailAddress,
@@ -319,6 +320,15 @@ export interface BotAccess {
   bot: User;
   /** When the Workspace checked, in milliseconds since the epoch, as a room's socket has it. */
   authorizedAt: number;
+}
+
+/**
+ * @ember as a room asks Ember AI to answer a question there (`Workspace.assistantIn`): how Ember AI asks AI
+ * Gateway, or null while its API token doesn't open, and the community's name, which @ember is told.
+ */
+export interface AssistantAccess extends BotAccess {
+  gateway: Gateway | null;
+  community: string;
 }
 
 /** The same, as the bot API has it, with Ember's custom domain, which the API's links name, or null while it has none. */
@@ -2566,17 +2576,17 @@ export class Workspace extends DurableObject<Env> {
    * opening it clears their mark. Each event is applied once, however often it's sent. Whoever's mark
    * changes hears of it on their workspace sockets, and nobody else does. A new message in a DM moves it
    * to the top of everyone's DMs there, its author's too, and one call's messages move it once. It
-   * answers the bots' webhooks each new message is delivered to and, while Web Push is on, its pushes,
-   * for the room to send, none of them to a guest while `EMBER_GUEST_SIGN_IN` doesn't let guests stay
-   * signed in.
+   * answers the bots' webhooks each new message is delivered to, the new messages @ember is to answer
+   * and, while Web Push is on, their pushes, for the room to send, none of them to a guest while
+   * `EMBER_GUEST_SIGN_IN` doesn't let guests stay signed in.
    */
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<RoomEventDeliveries> {
-    if (events.length === 0) return { pushes: [], webhooks: [] };
+    if (events.length === 0) return { pushes: [], webhooks: [], asks: [] };
     const { on: pushing } = await webPush(this.env);
-    const { marks, active, pushes, webhooks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env));
+    const { marks, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env));
     for (const [userId, unread] of marks) this.tell([userId], { type: unread ? "room.unread" : "room.read", roomId });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
-    return { pushes, webhooks };
+    return { pushes, webhooks, asks };
   }
 
   /**
@@ -2693,6 +2703,20 @@ export class Workspace extends DurableObject<Env> {
     const authorizedAt = Date.now();
     const webhook = await this.store.botWebhook(roomId, botId);
     return webhook && { ...webhook, authorizedAt };
+  }
+
+  /**
+   * @ember in room `roomId`, as a question for it finds it when its turn comes and again before its answer
+   * is posted, with when this checked, how it asks AI Gateway, or null while its API token doesn't open
+   * (`assistantGateway`), and the community's name: null once Ember AI is off or @ember isn't in the room,
+   * so that turning Ember AI off, or taking @ember out of a room, stops what's on its way there.
+   */
+  async assistantIn(roomId: RoomId): Promise<AssistantAccess | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const [account, member] = await Promise.all([this.joinableAccount(), this.store.isMember(roomId, ASSISTANT_ID)]);
+    if (!account?.assistant || !member) return null;
+    return { bot: { id: ASSISTANT_ID, name: ASSISTANT_NAME }, authorizedAt, gateway: await this.openedAssistant(account), community: account.name };
   }
 
   /**

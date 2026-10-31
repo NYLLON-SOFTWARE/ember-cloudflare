@@ -1,5 +1,5 @@
-import { useEffect, useEffectEvent, useRef } from "react";
-import type { Me, Message, Room, User } from "@ember/protocol";
+import { useEffect, useEffectEvent, useMemo, useRef } from "react";
+import type { Me, Message, Room } from "@ember/protocol";
 import { ArrowLeft, ChatBubbleEmpty, Xmark } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
@@ -14,8 +14,6 @@ import { MessageItem, repliesLabel, type MessageActions, type MessageEditors, ty
 import { MessageList } from "./message-list";
 import { RoomNotice } from "./room-notice";
 
-/** Nobody shows as typing in a thread. */
-const NO_ONE: User[] = [];
 const ignore = () => {};
 const noInvitation = async () => {};
 
@@ -48,6 +46,8 @@ interface Props {
 export function ThreadPanel({ room, name, me, parentId, replyId, frames, status, offline, deleted, roomNotice, onDismissRoomNotice }: Props) {
   const thread = useThread(room.id, frames, status, offline, me, parentId, replyId);
   const { parent, replies } = thread.state;
+  // Replying tells nobody you're typing, so only @ember shows as typing here, as it answers in the thread.
+  const typing = useMemo(() => Object.values(replies.typing).map((t) => t.user), [replies.typing]);
   const direct = room.kind === "direct";
   const composer = useRef<ComposerHandle>(null);
   const { editing, editors } = useMessageEditors(composer);
@@ -140,7 +140,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
             roomName={name}
             direct={direct}
             userId={me.id}
-            typing={NO_ONE}
+            typing={typing}
             disabled={offline}
             threadId={parentId}
             onSend={thread.postReply}

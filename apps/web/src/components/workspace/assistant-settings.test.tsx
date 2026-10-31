@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceSettings } from "@ember/protocol";
 import { ApiError } from "@/lib/api";
-import { AssistantSettings, CONFIRM_STOP_ASSISTANT } from "./assistant-settings";
+import { AssistantSettings, CONFIRM_STOP_ASSISTANT, WHAT_EMBER_SENDS } from "./assistant-settings";
 
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 
@@ -41,6 +41,7 @@ describe("Ember AI", () => {
     const description =
       "Ember AI adds @ember, an AI assistant, to every room open to everyone, running on a model you choose through Cloudflare AI Gateway.";
     expect(card()).toHaveTextContent(description);
+    expect(card()).not.toHaveTextContent(WHAT_EMBER_SENDS);
     expect(assistantSwitch()).not.toBeChecked();
     expect(assistantSwitch()).toHaveAccessibleDescription(description);
     expect(within(card()).queryAllByRole("button")).toEqual([]);
@@ -54,6 +55,8 @@ describe("Ember AI", () => {
     serve();
     const { user, onSetUp } = showCard({ accountId: ACCOUNT_ID, model: "anthropic/claude-sonnet-5.5" });
     expect(card()).toHaveTextContent("@ember runs on Claude Sonnet 5.5 through Cloudflare AI Gateway.");
+    // Who reads what @ember is asked: the model's provider, through Cloudflare.
+    expect(card()).toHaveTextContent(WHAT_EMBER_SENDS);
     expect(assistantSwitch()).toBeChecked();
     expect(assistantSwitch()).toBeEnabled();
     expect(within(card()).getAllByRole("button").map((button) => button.textContent)).toEqual(["Change"]);

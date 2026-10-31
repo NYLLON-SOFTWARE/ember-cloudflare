@@ -78,6 +78,13 @@ one, or DM it, and Ember sends the message to the bot's own webhook and posts it
 
 ![Alerts from a monitoring bot, firing and resolved, in the Support room](docs/screenshots/bots.png)
 
+### Ask @ember
+
+Turn on Ember AI and choose a model, from Workers AI's free ones to Claude, GPT or Gemini, through
+[Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/). Then mention @ember in a room
+or a thread, or DM it, and it reads the conversation and answers right there, with links, lists, code
+and pictures, as a teammate would.
+
 ### Find anything
 
 Search every message in the rooms and DMs you're in, thread replies included.
@@ -148,7 +155,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 |---|---|---|
 | **Apps and workflows** | — | ✅ a directory of 2,600+ apps (Free: 10 of them) and Workflow Builder |
 | **Voice and video calls** | — | ✅ huddles (Free: one-on-one only) |
-| **AI** | — | ✅ summaries, recaps and AI search on every plan, more on Business+ |
+| **AI** | @ember answers when you mention or DM it, on the model you choose | ✅ summaries, recaps and AI search on every plan, more on Business+ |
 | **Canvases, lists and clips** | — | ✅ |
 | **Channels shared with other companies** | — | ✅ Slack Connect |
 | **Scheduled messages and reminders** | — | ✅ |
@@ -169,6 +176,7 @@ Ember is free. Cloudflare runs it, at its own prices:
 | **A growing team** | $5 a month on Workers Paid, for the whole account. It includes 50 million database rows written a month, where Free allows 100,000 a day, and bills any use past its allowances. |
 | **Files** | 10 GB in [R2](https://developers.cloudflare.com/r2/pricing/) free, then $0.015 per GB a month, with nothing to pay for downloads. |
 | **Email, if you want it** | Free with [Resend](https://resend.com), up to 3,000 emails a month and 100 a day, or 3,000 a month included with Workers Paid through Cloudflare Email Service. |
+| **@ember, if you turn it on** | Workers AI's models free up to 10,000 Neurons a day, or other companies' at their own prices, paid with [AI Gateway's credits](https://developers.cloudflare.com/ai-gateway/features/unified-billing/). |
 | **Your own domain, if you want one** | Whatever your registrar charges. |
 
 The free plan's allowances are daily: once a day's are used up, Ember can't save anything new until

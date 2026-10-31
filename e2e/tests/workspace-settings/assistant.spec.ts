@@ -1,10 +1,11 @@
 import type { APIRequestContext, Page } from "@playwright/test";
-import { administratorSession, cookieHeader, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
+import { administratorSession, cookieHeader, editorField, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
 import { HELLO, startFakeGateway, type FakeGateway } from "./fake-gateway";
 
-// The AI assistant tab's Ember AI card and Set up Ember AI, on the second test server, which asks models
-// through the AI Gateway this spec fakes. Each test leaves the workspace as a new one is: Ember AI off.
+// The AI assistant tab's Ember AI card and Set up Ember AI, and @ember answering, on the second test
+// server, which asks models through the AI Gateway this spec fakes. Each test leaves the workspace as a
+// new one is: Ember AI off.
 
 let gateway: FakeGateway;
 test.beforeAll(async () => void (gateway = await startFakeGateway()));
@@ -104,5 +105,38 @@ test.describe("Ember AI", () => {
     const setup = page.getByRole("dialog");
     await setup.getByRole("textbox", { name: "Account ID" }).fill(AI_GATEWAY_ACCOUNT.accountId);
     await expect(setup.getByRole("button", { name: "Continue" })).toBeDisabled();
+  });
+});
+
+test.describe("@ember", () => {
+  test("someone mentions @ember in a room, sees it typing, and reads its answer there", async ({ page, request }) => {
+    const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model: "@cf/zai-org/glm-4.7-flash" }, headers: await asAdministrator(request) });
+    expect(saved.status(), await saved.text()).toBe(200);
+    await useOwnAddress(page);
+    await page.goto("/");
+    await signInAsAdministrator(page);
+    await page.getByRole("complementary", { name: "Conversations" }).getByRole("link", { name: "general" }).click();
+
+    const question = `What's our logo? ${crypto.randomUUID().slice(0, 8)}`;
+    const composer = editorField(page, "Write a message");
+    await composer.pressSequentially("@Embe");
+    await expect(page.getByRole("listbox").getByRole("option")).toHaveText(["Ember"]);
+    await composer.press("Tab");
+    await expect(page.getByRole("listbox")).toBeHidden();
+    await composer.pressSequentially(question);
+    const answering = gateway.hold();
+    await composer.press("Enter");
+    // A mention shows as its avatar, then its name.
+    await expect(page.getByRole("article").filter({ hasText: question })).toContainText(`Ember ${question}`);
+
+    // It's typing while its model answers, and its answer is a message of its own.
+    await expect(page.locator(".spinner")).toHaveText("Ember");
+    answering();
+    const answer = page.getByRole("article").filter({ hasText: HELLO });
+    await expect(answer).toContainText("Ember");
+    await expect(page.locator(".spinner")).toHaveText("");
+    const [instructions, ...turns] = gateway.asked.at(-1)!.body.messages as Array<{ role: string; content: string }>;
+    expect(instructions!.content).toContain(`You're asked in the room "general".`);
+    expect(turns.at(-1)).toEqual({ role: "user", content: `Ada Lovelace: @Ember ${question}` });
   });
 });

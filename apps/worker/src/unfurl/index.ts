@@ -5,7 +5,7 @@ import { jsonBodyOf } from "../bodies";
 import type { Env } from "../env";
 import { urlOf } from "../request-url";
 import { workspace } from "../workspace";
-import { Outbound, type Network } from "./fetch";
+import { hostOf, Outbound, type Network } from "./fetch";
 import { resolveOverHttps } from "./guard";
 import { isBlank, linkPreview } from "./metadata";
 import { parseHttpUri } from "./uri";
@@ -51,8 +51,8 @@ export class Unfurler extends DurableObject<Env> {
   }
 }
 
-/** A new object to unfurl a link in, near this request. */
-const unfurler = (env: Env) => env.UNFURLER.get(env.UNFURLER.newUniqueId());
+/** A new object to unfurl a link in, near this request, or near the room whose message has the link. */
+export const unfurler = (env: Env) => env.UNFURLER.get(env.UNFURLER.newUniqueId());
 
 /** The preview of `url`, or null when it has none or making it takes longer than `deadlineMs`. */
 export async function unfurl(url: string, network: Network, deadlineMs = UNFURL_DEADLINE_MS): Promise<LinkPreview | null> {
@@ -61,9 +61,9 @@ export async function unfurl(url: string, network: Network, deadlineMs = UNFURL_
   try {
     const preview = await Promise.race([linkPreview(new Outbound(network, deadline), url), gaveUp]);
     if (!deadline.aborted) return preview;
-    console.warn(`Gave up unfurling ${url} after ${deadlineMs / 1000}s`);
+    console.warn(`Gave up unfurling a link to ${hostOf(url)} after ${deadlineMs / 1000}s`);
   } catch (error) {
-    console.error(`Failed to unfurl ${url}`, error);
+    console.error(`Failed to unfurl a link to ${hostOf(url)}`, error);
   }
   return null;
 }

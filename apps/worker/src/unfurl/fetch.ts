@@ -101,8 +101,13 @@ const passesGuard = (outbound: Outbound, uri: HttpUri) =>
   );
 
 function failed(url: string, error: unknown): null {
-  console.warn(`Failed to fetch ${url} (${error instanceof Error ? error.message : String(error)})`);
+  console.warn(`Failed to fetch from ${hostOf(url)} (${error instanceof Error ? error.message : String(error)})`);
   return null;
+}
+
+/** How the logs name `url`: by its host alone, as its path and query can hold what someone wrote. */
+export function hostOf(url: string): string {
+  return parseHttpUri(url)?.host ?? "an address it can't read";
 }
 
 /**

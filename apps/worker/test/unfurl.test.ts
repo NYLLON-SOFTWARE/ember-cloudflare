@@ -143,6 +143,8 @@ describe("Link preview lookup", () => {
 });
 
 describe("Link preview safety limits", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it("asks for any type, as a bot, following redirects itself", async () => {
     const { network, requests } = internetOf((request) => (request.method === "HEAD" ? image() : html(PAGE)));
     expect(await unfurl("http://www.example.com/", network)).toEqual(PREVIEW);
@@ -206,6 +208,17 @@ describe("Link preview safety limits", () => {
     const started = Date.now();
     expect(await unfurl("http://www.example.com/", network, 300)).toBeNull();
     expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it("names a link it can't read in its logs by its host alone, as its path and query can hold what someone wrote", async () => {
+    const logged = [vi.spyOn(console, "warn").mockImplementation(() => {}), vi.spyOn(console, "error").mockImplementation(() => {})];
+    const link = "http://www.example.com/plans/private?token=hunter2";
+    expect(await unfurl(link, internetOf(() => Promise.reject(new Error("Network connection lost."))).network)).toBeNull();
+    expect(await unfurl(link, internetOf((request) => new Promise((_, reject) => request.signal.addEventListener("abort", () => reject(request.signal.reason)))).network, 300)).toBeNull();
+    const lines = logged.flatMap((spy) => spy.mock.calls.map((call) => call.map(String).join(" ")));
+    expect(lines).toContainEqual(expect.stringContaining("Failed to fetch from www.example.com (Network connection lost.)"));
+    expect(lines).toContainEqual(expect.stringContaining("Gave up unfurling a link to www.example.com"));
+    expect(lines.join("\n")).not.toMatch(/plans|private|hunter2/);
   });
 
   it("makes at most 45 subrequests, of the 50 a request gets on Workers Free", async () => {

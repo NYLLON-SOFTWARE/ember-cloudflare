@@ -5,6 +5,7 @@ import { AI_GATEWAY_ACCOUNT, AI_GATEWAY_PORT } from "../../projects/workspace-se
 // names, as Ember asks it (apps/worker/src/assistant/gateway.ts): it knows one account,
 // `AI_GATEWAY_ACCOUNT`, and that account's API token, and answers a request in any of AI Gateway's three
 // formats with `HELLO` in that format, refusing as Cloudflare does an account or a token it doesn't know.
+// A spec can hold its answers, to see what shows while a model answers.
 
 /** What every model says, whatever it's asked. */
 export const HELLO = "Hello, team! Mention @ember whenever you'd like a hand.";
@@ -20,17 +21,30 @@ export interface GatewayAsked {
 export interface FakeGateway {
   /** What it was asked, in order. */
   asked: GatewayAsked[];
+  /** Holds back its answers until the function it returns is called, or it closes. */
+  hold(): () => void;
   close(): Promise<void>;
 }
 
 /** Starts AI Gateway. */
 export async function startFakeGateway(): Promise<FakeGateway> {
   const asked: GatewayAsked[] = [];
+  let held = Promise.resolve();
+  let release = () => {};
   const server = createServer((request, response) => {
-    answer(request, response, asked).catch(() => response.writeHead(500).end());
+    answer(request, response, asked, held).catch(() => response.writeHead(500).end());
   });
   await new Promise<void>((resolve) => server.listen(AI_GATEWAY_PORT, "127.0.0.1", resolve));
-  return { asked, close: () => new Promise((resolve) => server.close(() => resolve())) };
+  const hold = () => {
+    held = new Promise<void>((resolve) => (release = resolve));
+    return release;
+  };
+  // Closing answers what it holds, as a spec that fails while it holds answers never lets them go.
+  const close = () => {
+    release();
+    return new Promise<void>((resolve) => server.close(() => resolve()));
+  };
+  return { asked, hold, close };
 }
 
 /** Each format's path under an account, with its answer saying `HELLO`. */
@@ -40,9 +54,10 @@ const ANSWERS: Record<string, unknown> = {
   responses: { object: "response", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: HELLO }] }] },
 };
 
-async function answer(request: IncomingMessage, response: ServerResponse, asked: GatewayAsked[]): Promise<void> {
+async function answer(request: IncomingMessage, response: ServerResponse, asked: GatewayAsked[], held: Promise<void>): Promise<void> {
   let body = "";
   for await (const chunk of request) body += String(chunk);
+  await held;
   const path = request.url ?? "";
   asked.push({ path, authorization: request.headers.authorization, gateway: request.headers["cf-aig-gateway-id"] as string | undefined, body: JSON.parse(body) as Record<string, unknown> });
   const [, account, format] = path.match(/^\/accounts\/([^/]+)\/ai\/v1\/(.+)$/) ?? [];
