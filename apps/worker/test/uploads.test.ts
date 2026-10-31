@@ -783,7 +783,7 @@ describe("Only members see a room", () => {
     await roomStub(room).revoke(room, [{ tag: grace.user.id, code: CloseCode.NotFound }], authorizedAt);
 
     expect(await roomStub(room).startUpload(room, uploader(authorizedAt), file)).toBeNull();
-    const key = (await roomStub(room).startUpload(room, uploader(authorizedAt + 1), file))!;
+    const { key } = (await roomStub(room).startUpload(room, uploader(authorizedAt + 1), file)) as { key: string };
     expect(key).toMatch(KEY);
     const identified = { contentType: "image/jpeg", metadata: '{"identified":true,"analyzed":true}' };
     expect(await roomStub(room).identifyUpload(room, uploader(authorizedAt), key, identified, "multipart", { partNumber: 1, etag: "a" })).toBeNull();

@@ -5,6 +5,7 @@ import {
   MAX_FILE_TYPE_LENGTH,
   MAX_MESSAGE_HTML_LENGTH,
   MESSAGE_TOO_LONG,
+  threadPath,
   type Boost,
   type Message,
   type RoomId,
@@ -411,7 +412,8 @@ async function bodyText(request: Request): Promise<string | null> {
  * `GET /rooms/<room id>/<bot key>/messages`: a page of the room's messages as JSON, oldest first, as
  * `index` answers it: the newest 40, or the 40 before the message `?before` names or after the one
  * `?after` does, with how many the room has in `X-Total-Count` and a `Link` to the next page when the
- * room has more beyond this one.
+ * room has more beyond this one. A message deleted but kept for its thread's replies has nothing to
+ * read, so the page leaves it out, though the room still counts it and pages from it.
  */
 async function listMessages(request: Request, env: Env, roomId: RoomId, key: string): Promise<Response> {
   const access = await botIn(env, roomId, key);
@@ -422,7 +424,7 @@ async function listMessages(request: Request, env: Env, roomId: RoomId, key: str
   if (!page) return exception(404);
 
   const origin = originFor(request, access.customDomain);
-  const body = railsJson(await messagesJson(env, origin, page.messages));
+  const body = railsJson(await messagesJson(env, origin, page.messages.filter((message) => !message.deleted)));
   const etag = await etagOf(body);
   const headers = new Headers({ "X-Total-Count": String(page.total), ETag: etag, "Cache-Control": REVALIDATE });
   const next = nextPage(page, cursor);
@@ -491,5 +493,6 @@ async function peopleJson(env: Env, origin: string, ids: UserId[]) {
   return new Map(people.map(({ id, name, role, avatarUrl }) => [id, { id, name, role, avatar_url: `${origin}${avatarUrl}` }]));
 }
 
-/** A message's address on `origin`: its permalink, which opens its room at it. */
-const permalink = (origin: string, { roomId, id }: Pick<Message, "roomId" | "id">) => `${origin}/rooms/${roomId}/@${id}`;
+/** A message's address on `origin`: its permalink, which opens its room at it, or a reply's thread at it. */
+const permalink = (origin: string, { roomId, id, parentId }: Pick<Message, "roomId" | "id" | "parentId">) =>
+  origin + (parentId === undefined ? `/rooms/${roomId}/@${id}` : threadPath(roomId, parentId, id));

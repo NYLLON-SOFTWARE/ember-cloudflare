@@ -229,10 +229,13 @@ export class RoomSocket {
     return socket;
   }
 
-  /** Writes a message whose body is `body`, answering it once the room has stored it. */
-  post(body: string): Promise<Message> {
+  /**
+   * Writes a message whose body is `body`, or a reply in the thread of `inThread.parentId`, answering it
+   * once the room has stored it.
+   */
+  post(body: string, inThread?: { parentId: string; alsoSend: boolean }): Promise<Message> {
     const clientMessageId = crypto.randomUUID();
-    return this.#ask({ type: "message.create", clientMessageId, body }, (frame) =>
+    return this.#ask({ type: "message.create", clientMessageId, body, ...inThread }, (frame) =>
       frame.type === "message.created" && frame.message.clientMessageId === clientMessageId ? frame.message : undefined,
     );
   }
@@ -323,10 +326,17 @@ export class Conversation {
     return { message, markup, author: person.user };
   }
 
-  /** Replies to what was said, as Reply has it: quoting it, citing its author with a link to it. */
+  /** Replies to what was said, as Quote has it: quoting it, citing its author with a link to it. */
   reply(person: Session, to: Said, written: Markup | string): Promise<Said> {
     const permalink = new URL(`/rooms/${encodeURIComponent(this.roomId)}/@${encodeURIComponent(to.message.id)}`, this.#ember.origin).href;
     return this.say(person, replyMarkup(to.markup, to.author, permalink, markupOf(written)));
+  }
+
+  /** Replies to what was said in its thread, as Reply in thread has it, sending the reply to the room too if `alsoSend`. */
+  async replyInThread(person: Session, to: Said, written: Markup | string, { alsoSend = false } = {}): Promise<Said> {
+    const markup = markupOf(written);
+    const message = await (await this.#socketOf(person)).post(markup.body, { parentId: to.message.id, alsoSend });
+    return { message, markup, author: person.user };
   }
 
   /** Changes what its author said to `written`, as Edit does. */

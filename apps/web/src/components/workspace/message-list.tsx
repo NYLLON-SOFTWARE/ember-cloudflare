@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { joinsWithLink, type Invitation, type Me } from "@ember/protocol";
 import { ArrowDown } from "@/components/icons/iconoir";
 import { useAccount } from "@/hooks/use-account";
@@ -7,8 +7,9 @@ import { ScrollIntoViewContext } from "@/hooks/use-scroll-into-view";
 import { dropTarget } from "@/lib/drop-target";
 import { dateLabel, dateTimeLabel, timeline } from "@/lib/messages";
 import type { Focus, RoomState } from "@/lib/room-state";
+import { cn } from "@/lib/utils";
 import { InvitationCard } from "./invitation-card";
-import { MessageItem, type MessageActions, type MessageEditors } from "./message-item";
+import { MessageItem, type MessageActions, type MessageEditors, type ThreadPlace } from "./message-item";
 
 /**
  * How near the end of the room's messages a reader can be and still be at it, which keeps them there as
@@ -109,6 +110,13 @@ interface Props {
   onJumpToNewest: () => boolean;
   /** Files dropped on the messages, which go to the composer. */
   onDropFiles?: (files: FileList) => void;
+  /**
+   * A thread's message, which its replies, the timeline's messages, show under, in a panel beside its room.
+   * The room's welcome doesn't show there.
+   */
+  thread?: { header: ReactNode; place: ThreadPlace };
+  /** The message whose thread is open beside the room. */
+  openThread?: string;
 }
 
 /**
@@ -116,7 +124,7 @@ interface Props {
  * else, it keeps the reader's place, loads the pages before and after as they near either end, and
  * offers Jump to newest message when new ones come.
  */
-export function MessageList({ roomName, direct = false, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {} }: Props) {
+export function MessageList({ roomName, direct = false, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {}, thread, openThread }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -267,30 +275,52 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
     <div className="min-h-0 flex-1" {...dropTarget(onDropFiles)}>
       {/* `isolate` keeps the message controls' z-indexes inside the timeline, so Jump to newest message
           below stays above them. */}
-      <div ref={scroller} onScroll={onScroll} className="isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain pt-[26px] pb-[18px] [scrollbar-gutter:stable] max-md:pt-[18px] max-md:pb-3" role="log" aria-live="polite" aria-label={`Messages ${direct ? "with" : "in"} ${roomName}`} aria-busy={waiting || newestFirst || undefined}>
+      <div
+        ref={scroller}
+        onScroll={onScroll}
+        className={cn(
+          "isolate h-full overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable]",
+          thread ? "pt-[18px] pb-3" : "pt-[26px] pb-[18px] max-md:pt-[18px] max-md:pb-3",
+        )}
+        role="log"
+        aria-live="polite"
+        aria-label={thread ? "Thread" : `Messages ${direct ? "with" : "in"} ${roomName}`}
+        aria-busy={waiting || newestFirst || undefined}
+      >
         <div ref={content}>
-          <div ref={top} aria-hidden className="h-px" />
-          {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
-
-          {welcomeCard && <InvitationCard joinCode={invitation.joinCode} onDismiss={onDismissInvitation} />}
-
-          {state.status === "open" && items.length === 0 && !state.hasMore && !state.hasNewer && !welcomeCard && (
-            <div className="p-6 text-center text-muted-foreground">
-              <h2 className="mb-1.5 text-xl text-foreground">{direct ? roomName : `Welcome to #${roomName}`}</h2>
-              <p>{direct ? "This is the very beginning of your direct messages." : "This is the very beginning of the room. Say hello!"}</p>
-            </div>
-          )}
-
           <RoomConnection value={state.connections}>
             <RefusedUnboosts value={state.refusedUnboosts}>
               <ScrollIntoViewContext value={opened}>
+                {thread?.header}
+                <div ref={top} aria-hidden className="h-px" />
+                {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
+
+                {welcomeCard && <InvitationCard joinCode={invitation.joinCode} onDismiss={onDismissInvitation} />}
+
+                {!thread && state.status === "open" && items.length === 0 && !state.hasMore && !state.hasNewer && !welcomeCard && (
+                  <div className="p-6 text-center text-muted-foreground">
+                    <h2 className="mb-1.5 text-xl text-foreground">{direct ? roomName : `Welcome to #${roomName}`}</h2>
+                    <p>{direct ? "This is the very beginning of your direct messages." : "This is the very beginning of the room. Say hello!"}</p>
+                  </div>
+                )}
+
                 {(newestFirst ? items.slice(-FIRST_DRAWN) : items).map(({ message, firstOfDay, threaded }) => {
                   // Stable from optimistic copy to stored message, and distinct across senders.
                   const key = `${message.creator.id}:${message.clientMessageId}`;
                   return (
                     <div key={key} data-row={key} data-message-id={message.id}>
-                      {firstOfDay && <DaySeparator at={message.createdAt} />}
-                      <MessageItem message={message} me={me} threaded={threaded} editing={editing.has(message.id)} actions={actions} editors={editors} />
+                      {/* A thread's replies start under its message, without a day's heading between them. */}
+                      {firstOfDay && (!thread || message !== items[0]!.message) && <DaySeparator at={message.createdAt} />}
+                      <MessageItem
+                        message={message}
+                        me={me}
+                        threaded={threaded}
+                        editing={editing.has(message.id)}
+                        actions={actions}
+                        editors={editors}
+                        thread={thread?.place}
+                        open={message.id === openThread}
+                      />
                     </div>
                   );
                 })}

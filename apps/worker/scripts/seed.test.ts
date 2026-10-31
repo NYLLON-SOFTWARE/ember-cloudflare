@@ -60,7 +60,7 @@ describe("the seed's messages", () => {
     ]);
   });
 
-  it("quotes what a reply answers as Reply does, naming whom it mentions and leaving out its previews", () => {
+  it("quotes what a reply answers as Quote does, naming whom it mentions and leaving out its previews", () => {
     const original = html`<p>${mention(MAYA)} see</p>${preview(LINK)}`;
     const permalink = "https://ember.example/rooms/0000000000000002/@0000000000000003";
     const reply = replyMarkup(original, { id: "0000000000000004", name: "Sam Rivera" }, permalink, paragraph("On it"));

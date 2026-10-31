@@ -140,10 +140,32 @@ describe("Send a message", () => {
   });
 
   it("names the room protocol's revision on a room socket's address, which is the first when it doesn't", () => {
-    expect(ROOM_PROTOCOL).toBe(3);
+    expect(ROOM_PROTOCOL).toBe(4);
     expect(read({ visible: "1", protocol: String(ROOM_PROTOCOL) })).toEqual({ visible: true, protocol: ROOM_PROTOCOL });
     expect(read({ visible: "1" })).toEqual({ visible: true, protocol: 1 });
     expect(read({ protocol: "two" })).toEqual({ visible: true, protocol: 1 });
+  });
+});
+
+describe("Threads", () => {
+  it("sends a reply to a message's thread, and to the room too only when it says so", () => {
+    const reply = { type: "message.create", clientMessageId: "c1", body: "<p>hi</p>", parentId: "m1" };
+    expect(parse(reply)).toEqual({ ...reply, alsoSend: false });
+    expect(parse({ ...reply, alsoSend: true })).toEqual({ ...reply, alsoSend: true });
+    expect(parse({ ...reply, alsoSend: "yes" })).toEqual({ ...reply, alsoSend: false });
+    expect(parse({ type: "message.create", clientMessageId: "c1", body: "", alsoSend: true })).toEqual({ type: "message.create", clientMessageId: "c1", body: "" });
+    for (const parentId of [null, "", 42, "x".repeat(65)]) expect(parse({ ...reply, parentId }), String(parentId)).toBeNull();
+  });
+
+  it("opens a thread, and pages back through its replies as history does", () => {
+    expect(parse({ type: "thread.open", parentId: "m1" })).toEqual({ type: "thread.open", parentId: "m1" });
+    expect(parse({ type: "thread.before", parentId: "m1", before: "r1", limit: 5000 })).toEqual({ type: "thread.before", parentId: "m1", before: "r1", limit: 100 });
+    expect(parse({ type: "thread.before", parentId: "m1", before: "r1" })).toEqual({ type: "thread.before", parentId: "m1", before: "r1", limit: undefined });
+    for (const bad of [undefined, "", 42, "x".repeat(65)]) {
+      expect(parse({ type: "thread.open", parentId: bad }), String(bad)).toBeNull();
+      expect(parse({ type: "thread.before", parentId: bad, before: "r1" }), String(bad)).toBeNull();
+      expect(parse({ type: "thread.before", parentId: "m1", before: bad }), String(bad)).toBeNull();
+    }
   });
 });
 

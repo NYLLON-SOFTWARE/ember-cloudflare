@@ -7,8 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import { FlashProvider } from "@/components/flash";
 import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
+import { timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
-import { MessageItem } from "./message-item";
+import { MessageItem, type ThreadPlace } from "./message-item";
 
 const ada: User = { id: "u1", name: "Ada" };
 const grace: User = { id: "u2", name: "Grace" };
@@ -54,11 +55,15 @@ const fileMessage = (overrides: Partial<Message> = {}) => message({ body: "", pl
 
 /**
  * Renders one message, opening and closing its editor as the room does, seen by `me`, who's an
- * administrator if `administrator`. `sent` is what a reaction, edit or deletion reports: false when there's
- * no connection. `update` hands it a new copy of the message, as the room does when the message changes,
+ * administrator if `administrator`, in a thread's panel if `thread` says where, and marked as the open
+ * thread's if `open`. `sent` is what a reaction, edit or deletion reports: false when there's no
+ * connection. `update` hands it a new copy of the message, as the room does when the message changes,
  * `reconnect` lets the page into the room again, and `refuse` has the room refuse to delete a reaction.
  */
-function show(m: Message | PendingMessage, { me = ada, administrator = false, threaded = false, sent = true } = {}) {
+function show(
+  m: Message | PendingMessage,
+  { me = ada, administrator = false, threaded = false, sent = true, thread = undefined as ThreadPlace | undefined, open = false } = {},
+) {
   const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent) };
   let setEditing: (editing: boolean) => void = () => {};
   let setMessage: (message: Message | PendingMessage) => void = () => {};
@@ -78,7 +83,7 @@ function show(m: Message | PendingMessage, { me = ada, administrator = false, th
       <FlashProvider workspace>
         <RoomConnection value={connections}>
           <RefusedUnboosts value={refusals}>
-            <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} />
+            <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} />
           </RefusedUnboosts>
         </RoomConnection>
       </FlashProvider>
@@ -224,7 +229,7 @@ describe("Upload progress", () => {
 });
 
 describe("Download and share files", () => {
-  it("offers Download in place of Reply among a file message's actions", async () => {
+  it("offers Download in place of Quote among a file message's actions", async () => {
     const { user } = show(fileMessage(), { me: grace });
     await user.click(optionsOn("Q3 report.pdf"));
     const bar = actionBar().firstElementChild!;
@@ -232,6 +237,7 @@ describe("Download and share files", () => {
       "Thumbs up",
       "Clapping",
       "Waving hand",
+      "Reply in thread",
       "Download",
       "Copy link",
       "More reactions",
@@ -419,7 +425,7 @@ describe("Edit a message", () => {
       "Thumbs up",
       "Clapping",
       "Waving hand",
-      "Reply",
+      "Quote",
       "Copy link",
       "Edit",
       "More reactions",
@@ -529,7 +535,7 @@ describe("Edit a message", () => {
 });
 
 describe("Message action bar", () => {
-  it("opens the actions from Message options, with three quick reactions, Reply, Copy link and More reactions", async () => {
+  it("opens the actions from Message options, with three quick reactions, Reply in thread, Quote, Copy link and More reactions", async () => {
     const { user } = show(message(), { me: grace });
     const options = optionsOn("Hello");
     expect(options).toHaveAttribute("aria-expanded", "false");
@@ -538,7 +544,16 @@ describe("Message action bar", () => {
     await user.click(options);
     expect(options).toHaveAttribute("aria-expanded", "true");
     expect(options).toHaveAttribute("aria-controls", actionBar().id);
-    expect(within(actionBar()).getAllByRole("button").map((b) => b.title)).toEqual(["Thumbs up", "Clapping", "Waving hand", "Reply", "Copy link", "More reactions"]);
+    const bar = actionBar().firstElementChild!;
+    expect([...bar.querySelectorAll("button, a")].map((control) => control.getAttribute("title"))).toEqual([
+      "Thumbs up",
+      "Clapping",
+      "Waving hand",
+      "Reply in thread",
+      "Quote",
+      "Copy link",
+      "More reactions",
+    ]);
 
     await user.click(options);
     expect(options).toHaveAttribute("aria-expanded", "false");
@@ -702,8 +717,8 @@ describe("More actions on a message", () => {
     expect(options).toHaveAttribute("title", "More actions");
 
     await user.click(options);
-    expect(items()).toEqual(["Copy text", "Copy link"]);
-    expect(within(moreActions()).getByRole("button", { name: "Copy text" })).toHaveFocus();
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link"]);
+    expect(within(moreActions()).getByRole("button", { name: "Quote" })).toHaveFocus();
     expect(options).toHaveClass("bg-hover");
     // The pointer leaving no longer closes the bar.
     fireEvent.pointerLeave(article, { pointerType: "mouse" });
@@ -720,7 +735,7 @@ describe("More actions on a message", () => {
     withMouse();
     const { article, user } = show(message());
     await openMoreActions(user, article);
-    expect(items()).toEqual(["Copy text", "Copy link", "Edit message", "Delete message"]);
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Edit message", "Delete message"]);
     expect(within(moreActions()).getByRole("button", { name: "Delete message" })).toHaveClass("text-negative");
     cleanup();
 
@@ -729,10 +744,10 @@ describe("More actions on a message", () => {
     expect(items()).toEqual(["Copy link", "Delete message"]);
     cleanup();
 
-    // A bot's cards can't be edited either, but their text can be copied.
+    // A bot's cards can't be edited either, but their text can be quoted and copied.
     const cards = show(cardMessage(), { me: grace, administrator: true });
     await openMoreActions(cards.user, cards.article);
-    expect(items()).toEqual(["Copy text", "Copy link", "Delete message"]);
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Delete message"]);
   });
 
   it("copies the message's text, or its address, turning the item green and leaving the actions open", async () => {
@@ -806,7 +821,7 @@ describe("More actions on a message", () => {
     const { user } = show(message({ boosts: [boost("b1", grace, "👍")] }));
     await user.click(screen.getByRole("button", { name: "Add a boost" }));
     await user.click(optionsOn("Hello"));
-    expect(within(moreActions()).getByRole("button", { name: "Copy text" })).toHaveFocus();
+    expect(within(moreActions()).getByRole("button", { name: "Quote" })).toHaveFocus();
     expect(screen.queryByRole("group", { name: "More reactions" })).not.toBeInTheDocument();
 
     await user.keyboard("{Escape}");
@@ -827,7 +842,7 @@ describe("More actions on a message", () => {
     expect(actionBar()).toBeVisible();
     expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
     await user.keyboard("{Enter}");
-    expect(within(moreActions()).getByRole("button", { name: "Copy text" })).toHaveFocus();
+    expect(within(moreActions()).getByRole("button", { name: "Quote" })).toHaveFocus();
   });
 
   it("shares its place under the bar with More reactions, one open at a time", async () => {
@@ -853,10 +868,10 @@ describe("More actions on a message", () => {
   });
 });
 
-describe("Reply with a quote", () => {
-  it("writes a reply in the composer, quoting the message and citing its author with a link to it, and closes the actions", async () => {
+describe("Quote a message", () => {
+  it("writes a quote of the message in the composer, citing its author with a link to it, and closes the actions", async () => {
     const { editors, user } = show(message({ plainText: "Third time's a charm." }), { me: grace });
-    await pressAction(user, "Reply", "Third time's a charm.");
+    await pressAction(user, "Quote", "Third time's a charm.");
     expect(editors.reply).toHaveBeenCalledWith(
       `<blockquote><p>Third time's a charm.</p></blockquote><cite>Ada <a href="${location.origin}/rooms/general/@m1">#</a></cite><p><br></p>`,
     );
@@ -873,8 +888,119 @@ describe("Reply with a quote", () => {
         <MessageItem message={message({ body, plainText: "Thanks @Grace!" })} me={{ ...grace, administrator: false }} threaded={false} editing={false} actions={actions} editors={editors} />
       </PeopleContext>,
     );
-    await pressAction(userEvent.setup(), "Reply", "Ada King");
+    await pressAction(userEvent.setup(), "Quote", "Ada King");
     expect(editors.reply.mock.lastCall![0]).toMatch(/^<blockquote><p>Thanks Grace Hopper!<\/p><\/blockquote><cite>Ada King <a /);
+  });
+
+  it("quotes from More actions with a mouse, whose bar has Reply in thread in its place", async () => {
+    withMouse();
+    const { article, editors, user } = show(message({ plainText: "Third time's a charm." }), { me: grace });
+    fireEvent.pointerEnter(article, { pointerType: "mouse" });
+    const bar = within(actionBar().firstElementChild as HTMLElement);
+    expect(bar.queryByRole("button", { name: "Quote" })).not.toBeInTheDocument();
+    expect(bar.getByRole("link", { name: "Reply in thread" })).toBeInTheDocument();
+
+    await user.click(optionsOn("Third time's a charm."));
+    await user.click(within(screen.getByRole("group", { name: "More actions" })).getByRole("button", { name: "Quote" }));
+    expect(editors.reply.mock.lastCall![0]).toMatch(/^<blockquote><p>Third time's a charm.<\/p><\/blockquote><cite>Ada <a /);
+    expect(optionsOn("Third time's a charm.")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("links a quoted reply to its place in its thread", async () => {
+    const { editors, user } = show(message({ id: "r1", parentId: "m0", plainText: "In the thread" }), { me: grace, thread: { roomName: "general", direct: false } });
+    await pressAction(user, "Quote", "In the thread");
+    expect(editors.reply.mock.lastCall![0]).toContain(`<a href="${location.origin}/rooms/general/threads/m0/@r1">#</a>`);
+  });
+});
+
+describe("Threads", () => {
+  const place: ThreadPlace = { roomName: "general", direct: false };
+  const now = new Date();
+  const replies = { count: 2, latestAt: now.toISOString(), people: [grace, ada] };
+
+  it("offers Reply in thread, which opens the message's thread, or the thread a reply is in", async () => {
+    const { user } = show(message(), { me: grace });
+    await user.click(optionsOn("Hello"));
+    expect(within(actionBar()).getByRole("link", { name: "Reply in thread" })).toHaveAttribute("href", "/rooms/general/threads/m1");
+    cleanup();
+
+    const reply = show(message({ id: "r1", parentId: "m0", alsoSent: true, parentText: "Who has the keys?" }), { me: grace });
+    await reply.user.click(optionsOn("Hello"));
+    expect(within(actionBar()).getByRole("link", { name: "Reply in thread" })).toHaveAttribute("href", "/rooms/general/threads/m0");
+  });
+
+  it("doesn't offer Reply in thread in the thread itself", async () => {
+    const { user } = show(message(), { me: grace, thread: place });
+    await user.click(optionsOn("Hello"));
+    expect(within(actionBar()).queryByRole("link", { name: "Reply in thread" })).not.toBeInTheDocument();
+  });
+
+  it("sums a message's thread up under it, with who replied, how many replies and when the last came, linking to the thread", () => {
+    const { article } = show(message({ thread: replies }));
+    const summary = within(article).getByRole("link", { name: /^2 replies/ });
+    expect(summary).toHaveAttribute("href", "/rooms/general/threads/m1");
+    expect(summary).toHaveTextContent(`Last reply today at ${timeLabel(now)}`);
+    expect(summary.querySelectorAll("img")).toHaveLength(2);
+    cleanup();
+
+    const one = show(message({ thread: { ...replies, count: 1, people: [grace] } }));
+    expect(within(one.article).getByRole("link", { name: /^1 reply(?!s)/ })).toBeInTheDocument();
+  });
+
+  it("shows no summary in the thread, where its replies are", () => {
+    const { article } = show(message({ thread: replies }), { thread: place });
+    expect(within(article).queryByRole("link", { name: /replies/ })).not.toBeInTheDocument();
+  });
+
+  it("says over a reply sent to the room too what it replied to, linking to it in its thread", () => {
+    const { article } = show(message({ id: "r1", parentId: "m0", alsoSent: true, parentText: "Who has the keys?" }));
+    const replied = within(article).getByRole("link", { name: "Who has the keys?" });
+    expect(replied).toHaveAttribute("href", "/rooms/general/threads/m0/@r1");
+    expect(replied.parentElement).toHaveTextContent("replied to a thread: Who has the keys?");
+    cleanup();
+
+    const gone = show(message({ id: "r1", parentId: "m0", alsoSent: true, parentText: "" }));
+    expect(within(gone.article).getByRole("link", { name: "This message was deleted." })).toHaveAttribute("href", "/rooms/general/threads/m0/@r1");
+  });
+
+  it("says in the thread which replies went to the room too, linking to them there", () => {
+    const { article } = show(message({ id: "r1", parentId: "m0", alsoSent: true }), { thread: place });
+    expect(within(article).getByRole("link", { name: "#general" })).toHaveAttribute("href", "/rooms/general/@r1");
+    expect(within(article).getByRole("link", { name: "#general" }).parentElement).toHaveTextContent("Also sent to #general");
+    cleanup();
+
+    const direct = show(message({ id: "r1", parentId: "m0", alsoSent: true }), { thread: { roomName: "Grace", direct: true } });
+    expect(within(direct.article).getByRole("link", { name: "direct message" }).parentElement).toHaveTextContent("Also sent as direct message");
+    cleanup();
+
+    const only = show(message({ id: "r1", parentId: "m0", alsoSent: false }), { thread: place });
+    expect(within(only.article).queryByText(/Also sent/)).not.toBeInTheDocument();
+  });
+
+  it("keeps a deleted message's place for its replies, with its summary and nothing else", () => {
+    const { article } = show(message({ deleted: true, body: "", plainText: "", thread: replies }));
+    expect(article).toHaveTextContent("This message was deleted.");
+    expect(within(article).queryByText("Ada")).not.toBeInTheDocument();
+    expect(within(article).queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
+    expect(within(article).getByRole("link", { name: /^2 replies/ })).toHaveAttribute("href", "/rooms/general/threads/m1");
+    cleanup();
+
+    const inThread = show(message({ deleted: true, body: "", plainText: "", thread: replies }), { thread: place });
+    expect(inThread.article).toHaveTextContent("This message was deleted.");
+    expect(within(inThread.article).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("marks the message whose thread is open beside the room", () => {
+    expect(show(message(), { open: true }).article).toHaveClass("bg-hover");
+    cleanup();
+    expect(show(message()).article).not.toHaveClass("bg-hover");
+  });
+
+  it("links a reply's time, and Copy link, to its place in its thread", async () => {
+    const { article, user } = show(message({ id: "r1", parentId: "m0" }), { thread: place });
+    expect(within(article).getByRole("link", { name: timeLabel(new Date("2026-10-12T10:00:00.000Z")) })).toHaveAttribute("href", "/rooms/general/threads/m0/@r1");
+    await pressAction(user, "Copy link");
+    expect(await navigator.clipboard.readText()).toBe(`${location.origin}/rooms/general/threads/m0/@r1`);
   });
 });
 
@@ -1263,15 +1389,15 @@ describe("Bot cards", () => {
     expect(article.querySelector(".text-\\[2\\.4em\\]")).toBeNull();
   });
 
-  it("quotes a bot's cards' plain text in a reply where they're all the message shows, and otherwise its text", async () => {
+  it("quotes a bot's cards' plain text where they're all the message shows, and otherwise its text", async () => {
     const { editors, user } = show(cardMessage(), { me: grace });
-    await pressAction(user, "Reply", "Ada");
+    await pressAction(user, "Quote", "Ada");
     const cite = `<cite>Ada <a href="${location.origin}/rooms/general/@m1">#</a></cite><p><br></p>`;
     expect(editors.reply).toHaveBeenCalledWith(`<blockquote><p>Deployed 🚀<br>web is live</p></blockquote>${cite}`);
     cleanup();
 
     const withText = show(message({ plainText: "Nightly report", cards: [deployCard] }), { me: grace });
-    await pressAction(withText.user, "Reply", "Nightly report");
+    await pressAction(withText.user, "Quote", "Nightly report");
     expect(withText.editors.reply).toHaveBeenCalledWith(`<blockquote><p>Nightly report</p></blockquote>${cite}`);
   });
 

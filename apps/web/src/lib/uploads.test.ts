@@ -100,6 +100,41 @@ describe("Attach files", () => {
   });
 });
 
+describe("Threads", () => {
+  it("starts a reply's upload with its thread, and whether it goes to the room too", async () => {
+    const fetch = vi.fn(async () => started(1));
+    vi.stubGlobal("fetch", fetch);
+    const uploading = uploadFile("r1", new File(["hi"], "notes.txt", { type: "text/plain" }), "c1", () => {}, { parentId: "m0", alsoSend: true });
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(uploadsPath("r1"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "notes.txt", type: "text/plain", size: 2, clientMessageId: "c1", parentId: "m0", alsoSend: true }),
+    });
+    (await part(1)).answer(201, JSON.stringify(message));
+    expect(await uploading).toEqual(message);
+  });
+
+  it("fails as the room says for a reply whose thread is gone, as it starts or as its last part goes", async () => {
+    const gone = JSON.stringify({ error: "That message no longer exists" });
+    const failure = (upload: Promise<Message>) => upload.then(() => null, (error: unknown) => (error instanceof UploadError ? error.message : error));
+    const reply = () => uploadFile("r1", new File(["hi"], "notes.txt"), "c1", () => {}, { parentId: "m0", alsoSend: false });
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(gone, { status: 422 })));
+    expect(await failure(reply())).toBe("That message no longer exists");
+
+    vi.stubGlobal("fetch", vi.fn(async () => started(1)));
+    const uploading = failure(reply());
+    (await part(1)).answer(422, gone);
+    expect(await uploading).toBe("That message no longer exists");
+
+    // A 422 that doesn't say why fails as any other answer does.
+    FakeRequest.all = [];
+    const unsaid = failure(reply());
+    (await part(1)).answer(422, "<!DOCTYPE html>");
+    expect(await unsaid).toBe(UPLOAD_FAILED);
+  });
+});
+
 describe("Image, video and file previews", () => {
   it("sends the preview the browser makes of a file just before its last part, once the Worker has it", async () => {
     const thumbnail = new Blob(["thumbnail"], { type: "image/webp" });

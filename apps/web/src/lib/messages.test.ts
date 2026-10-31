@@ -1,7 +1,7 @@
 import type { Message } from "@ember/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
-import { dateLabel, dateTimeLabel, replyQuote, timeLabel, timeline } from "./messages";
+import { dateLabel, dateTimeLabel, lastReplyLabel, replyQuote, timeLabel, timeline } from "./messages";
 
 const at = (iso: string, creatorId = "u1"): Message => ({
   id: iso,
@@ -40,6 +40,25 @@ describe("Group messages by author", () => {
   });
 });
 
+describe("Threads", () => {
+  it("groups nothing under a message deleted while its thread has replies, nor it under anything, as it shows no author", () => {
+    const deleted: Message = { ...at("2026-10-12T09:01:00"), deleted: true };
+    const items = timeline([at("2026-10-12T09:00:00"), deleted, at("2026-10-12T09:02:00")]);
+    expect(items.map((i) => i.threaded)).toEqual([false, false, false]);
+  });
+
+  it("says when a thread's last reply came: today or yesterday at its time, or the day, with its year in another", () => {
+    const now = new Date(2026, 9, 30, 15, 0);
+    const today = new Date(2026, 9, 30, 9, 41);
+    const yesterday = new Date(2026, 9, 29, 9, 41);
+    expect(lastReplyLabel(today, now)).toEqual({ long: `today at ${timeLabel(today)}`, short: timeLabel(today) });
+    expect(lastReplyLabel(yesterday, now)).toEqual({ long: `yesterday at ${timeLabel(yesterday)}`, short: "yesterday" });
+    expect(lastReplyLabel(new Date(2026, 9, 12, 9, 41), now)).toEqual({ long: "on Oct 12", short: "on Oct 12" });
+    expect(lastReplyLabel(new Date(2025, 9, 12, 9, 41), now)).toEqual({ long: "on Oct 12, 2025", short: "on Oct 12, 2025" });
+    expect(lastReplyLabel(new Date(2026, 9, 31, 23, 0), new Date(2026, 10, 1, 0, 5)).short).toBe("yesterday");
+  });
+});
+
 describe("Day separators", () => {
   it("starts a day at the first message and wherever the date changes in the reader's time zone", () => {
     const items = timeline([at("2026-10-11T23:59:59"), at("2026-10-12T00:00:00", "u2"), at("2026-10-12T18:00:00"), at("2026-10-14T08:00:00")]);
@@ -71,7 +90,7 @@ describe("Day separators", () => {
   });
 });
 
-describe("Reply with a quote", () => {
+describe("Quote a message", () => {
   const MENTION = 'content-type="application/vnd.campfire.mention" sgid="0123456789abcdef"';
   const LINK = "https://ember.test/rooms/general/@m1";
   const CITE = `<cite>Ada <a href="${LINK}">#</a></cite><p><br></p>`;

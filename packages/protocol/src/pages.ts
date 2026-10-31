@@ -18,9 +18,11 @@ export type WorkspacePage =
   | { page: "newest-room" }
   /**
    * A room, at `/rooms/<id>`, or at one of its messages' permalinks, `/rooms/<id>/@<message id>`, which
-   * opens it around that message.
+   * opens it around that message, or with a message's thread open beside it, at
+   * `/rooms/<id>/threads/<message id>`, or at a reply's permalink, `/rooms/<id>/threads/<message id>/@<reply id>`,
+   * which opens the thread at the reply.
    */
-  | { page: "room"; roomId: RoomId; messageId?: string }
+  | { page: "room"; roomId: RoomId; messageId?: string; threadId?: string; replyId?: string }
   /**
    * A message at its own address, `/rooms/<id>/messages/<message id>`, which goes on to its permalink.
    */
@@ -67,6 +69,13 @@ export const PROFILE_PATH = "/users/me/profile";
 export const PUSH_SUBSCRIPTIONS_PATH = "/users/me/push_subscriptions";
 export const SEARCHES_PATH = "/searches";
 
+/**
+ * A message's thread, which opens beside its room, or a reply's permalink there, which opens the thread at
+ * the reply.
+ */
+export const threadPath = (roomId: RoomId, parentId: string, replyId?: string) =>
+  `/rooms/${encodeURIComponent(roomId)}/threads/${encodeURIComponent(parentId)}` + (replyId === undefined ? "" : `/@${encodeURIComponent(replyId)}`);
+
 /** A path segment as text, or null for a malformed escape, which names nothing. */
 function decoded(segment: string): string | null {
   try {
@@ -106,6 +115,8 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   const directSettings = pathname.match(/^\/rooms\/directs\/([^/]+)\/edit$/);
   const directSettingsRoomId = directSettings && decoded(directSettings[1]!);
   if (directSettingsRoomId) return { page: "direct-settings", roomId: directSettingsRoomId };
+  const thread = pathname.match(/^\/rooms\/([^/]+)\/threads\/([^/]+)(?:\/@([^/]+))?$/);
+  if (thread) return threadPageOf(thread[1]!, thread[2]!, thread[3]);
   const ofKind = pathname.match(/^\/rooms\/(opens|closeds|directs)\/([^/]+)$/);
   const ofKindRoomId = ofKind && decoded(ofKind[2]!);
   if (ofKindRoomId) return { page: "room-of-kind", kind: kindOf(ofKind[1]!), roomId: ofKindRoomId };
@@ -118,6 +129,21 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   // the room at its newest messages, as one naming a message the room doesn't have does.
   const messageId = decoded(room[2] ?? room[3] ?? "");
   return messageId && messageId.length <= MAX_ID_LENGTH ? { page, roomId, messageId } : { page, roomId };
+}
+
+/**
+ * A thread's page, from its address's segments: its room, with the thread open, and at the reply the third
+ * names. A thread or reply whose id is malformed, or longer than any message's, is left out, as a
+ * permalink's message is, so the room opens without the thread, or the thread at its newest replies.
+ */
+function threadPageOf(roomSegment: string, threadSegment: string, replySegment: string | undefined): WorkspacePage | null {
+  const roomId = roomSegment === "new" ? null : decoded(roomSegment);
+  if (!roomId) return null;
+  const isMessageId = (id: string | null): id is string => id !== null && id !== "" && id.length <= MAX_ID_LENGTH;
+  const threadId = decoded(threadSegment);
+  if (!isMessageId(threadId)) return { page: "room", roomId };
+  const replyId = replySegment === undefined ? null : decoded(replySegment);
+  return isMessageId(replyId) ? { page: "room", roomId, threadId, replyId } : { page: "room", roomId, threadId };
 }
 
 /**

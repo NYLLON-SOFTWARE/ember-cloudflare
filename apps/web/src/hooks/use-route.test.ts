@@ -8,6 +8,7 @@ import {
   messagePath,
   navigate,
   newRoomPath,
+  permalinkOf,
   roomIdFromPath,
   roomPath,
   roomSettingsPath,
@@ -89,6 +90,19 @@ describe("Link to a message", () => {
     expect(result.current).toBe(first + 2);
     act(() => history.back());
     await waitFor(() => expect(result.current).toBe(first + 3));
+  });
+});
+
+describe("Threads", () => {
+  it("reads a thread's address as its room's page with the thread open, at a reply when it names one", () => {
+    expect(routeOf("/rooms/general/threads/m%201")).toEqual({ page: "room", roomId: "general", threadId: "m 1" });
+    expect(routeOf("/rooms/general/threads/m1/@r1")).toEqual({ page: "room", roomId: "general", threadId: "m1", replyId: "r1" });
+    expect(roomIdFromPath("/rooms/general/threads/m1/@r1")).toBe("general");
+  });
+
+  it("links a message to its place in its room, and a reply to its place in its thread", () => {
+    expect(permalinkOf({ roomId: "general", id: "m1" })).toBe("/rooms/general/@m1");
+    expect(permalinkOf({ roomId: "general", id: "r1", parentId: "m1" })).toBe("/rooms/general/threads/m1/@r1");
   });
 });
 

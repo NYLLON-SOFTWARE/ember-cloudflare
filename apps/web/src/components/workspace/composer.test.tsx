@@ -12,9 +12,9 @@ import { editorLoaded } from "./editor";
 // and every test starts before its code has loaded.
 vi.mock("./editor", async (importOriginal) => ({ ...(await importOriginal<typeof import("./editor")>()), editorLoaded: vi.fn(() => false) }));
 
-async function showComposer({ typing = [] as User[], disabled = false, roomId = "r1" } = {}) {
-  const onSend = vi.fn((_body: string) => true);
-  const onSendFiles = vi.fn((_files: File[]) => {});
+async function showComposer({ typing = [] as User[], disabled = false, roomId = "r1", threadId = undefined as string | undefined, direct = false, autoFocus = true } = {}) {
+  const onSend = vi.fn((_body: string, _alsoSend: boolean) => true);
+  const onSendFiles = vi.fn((_files: File[], _alsoSend: boolean) => {});
   const onTyping = vi.fn();
   const composer = createRef<ComposerHandle>();
   const view = render(
@@ -22,16 +22,19 @@ async function showComposer({ typing = [] as User[], disabled = false, roomId = 
       ref={composer}
       roomId={roomId}
       roomName="general"
+      direct={direct}
       userId="u1"
       typing={typing}
       disabled={disabled}
+      threadId={threadId}
       onSend={onSend}
       onSendFiles={onSendFiles}
       onTyping={onTyping}
+      autoFocus={autoFocus}
     />,
   );
   // The editor loads as the first composer shows.
-  const input = await screen.findByRole("textbox", { name: "Write a message" });
+  const input = await screen.findByRole("textbox", { name: threadId === undefined ? "Write a message" : "Write a reply" });
   return { onSend, onSendFiles, onTyping, composer, view, user: userEvent.setup(), input };
 }
 
@@ -136,7 +139,7 @@ describe("Send from the keyboard", () => {
   it("sends what's written on Enter, then empties the box and keeps focus", async () => {
     const { onSend, input, user } = await showComposer();
     await user.type(input, "Hello there{Enter}");
-    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Hello there</p>");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Hello there</p>", false);
     expect(input).toHaveValue("");
     expect(input).toHaveFocus();
   });
@@ -148,7 +151,7 @@ describe("Send from the keyboard", () => {
     expect(input).toHaveValue("line one\nline two");
 
     await user.click(sendButton());
-    expect(onSend).toHaveBeenCalledWith("<p>line one<br>line two</p>");
+    expect(onSend).toHaveBeenCalledWith("<p>line one<br>line two</p>", false);
   });
 
   it("starts a new line on Enter while the toolbar shows, sends on Ctrl+Enter, and then hides the toolbar", async () => {
@@ -158,7 +161,7 @@ describe("Send from the keyboard", () => {
     expect(onSend).not.toHaveBeenCalled();
 
     await user.keyboard("{Control>}{Enter}{/Control}");
-    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>one<br>two</p>");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>one<br>two</p>", false);
     expect(formattingOptions()).toHaveAttribute("aria-pressed", "false");
   });
 
@@ -186,7 +189,7 @@ describe("Send from the keyboard", () => {
     const { onSend, input, user } = await showComposer();
     onSend.mockReturnValue(false);
     await user.type(input, "Too much{Enter}");
-    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Too much</p>");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Too much</p>", false);
     expect(input).toHaveValue("Too much");
     expect(input).toHaveFocus();
     expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>Too much</p>");
@@ -268,7 +271,7 @@ describe("Attach files", () => {
     expect(revoked).toEqual(["blob:moon.jpg"]);
 
     await user.click(sendButton());
-    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "notes.txt" })]);
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "notes.txt" })], false);
   });
 
   it("sends the files, each as a message of its own, before what's written, and empties the list", async () => {
@@ -276,8 +279,8 @@ describe("Attach files", () => {
     const [b, a] = [fileOf("b.txt"), fileOf("a.txt")];
     await user.upload(attachFiles(), [b, a]);
     await user.type(input, "Here they are{Enter}");
-    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([a, b]);
-    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Here they are</p>");
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([a, b], false);
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Here they are</p>", false);
     expect(onSendFiles.mock.invocationCallOrder[0]).toBeLessThan(onSend.mock.invocationCallOrder[0]!);
     expect(chips()).toEqual([]);
     expect(input).toHaveFocus();
@@ -291,7 +294,7 @@ describe("Attach files", () => {
     await user.upload(attachFiles(), fileOf("a.txt"));
     await user.click(sendButton());
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "a.txt" })]);
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "a.txt" })], false);
     expect(chips()).toEqual([]);
   });
 
@@ -371,7 +374,7 @@ describe("250 MB file limit", () => {
 
     // It stays through sending and removing files.
     await user.click(sendButton());
-    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "fits.mov" })]);
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "fits.mov" })], false);
     expect(screen.getByRole("alert")).toBe(alert);
 
     // Picking more says only what's wrong with them.
@@ -424,6 +427,56 @@ describe("Keep drafts", () => {
     localStorage.setItem("composer-draft-u2-r1", "<p>Grace's own</p>");
     const { input } = await showComposer({ roomId: "r1" });
     expect(input).toHaveValue("");
+  });
+});
+
+describe("Reply in a thread", () => {
+  const alsoSend = () => screen.getByRole("checkbox", { name: "Also send to #general" });
+
+  it("asks for a reply, with Also send to the room, unticked, before Send", async () => {
+    const { input } = await showComposer({ threadId: "m1" });
+    expect(input).toHaveAttribute("placeholder", "Reply…");
+    expect(alsoSend()).not.toBeChecked();
+    expect(alsoSend().compareDocumentPosition(sendButton()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("offers to send it as a direct message too in a DM", async () => {
+    await showComposer({ threadId: "m1", direct: true });
+    expect(screen.getByRole("checkbox", { name: "Also send as direct message" })).not.toBeChecked();
+  });
+
+  it("sends a reply to the thread alone, or to the room too while Also send is ticked, which sending unticks", async () => {
+    const { onSend, input, user } = await showComposer({ threadId: "m1" });
+    await user.type(input, "Just here{Enter}");
+    expect(onSend).toHaveBeenLastCalledWith("<p>Just here</p>", false);
+
+    await user.click(alsoSend());
+    await user.type(input, "Everywhere{Enter}");
+    expect(onSend).toHaveBeenLastCalledWith("<p>Everywhere</p>", true);
+    expect(alsoSend()).not.toBeChecked();
+  });
+
+  it("sends files to the room too while Also send is ticked", async () => {
+    const { onSendFiles, user } = await showComposer({ threadId: "m1" });
+    await user.upload(attachFiles(), new File(["hi"], "notes.txt", { type: "text/plain" }));
+    await user.click(alsoSend());
+    await user.click(sendButton());
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ name: "notes.txt" })], true);
+    expect(alsoSend()).not.toBeChecked();
+  });
+
+  it("keeps a thread's draft apart from its room's", async () => {
+    localStorage.setItem("composer-draft-u1-r1", "<p>For the room</p>");
+    const { input, user } = await showComposer({ threadId: "m1" });
+    expect(input).toHaveValue("");
+    await user.type(input, "For the thread");
+    expect(localStorage.getItem("composer-draft-u1-r1/threads/m1")).toBe("<p>For the thread</p>");
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>For the room</p>");
+  });
+
+  it("leaves focus be as the room opens with a thread beside it, which takes it", async () => {
+    const { input } = await showComposer({ autoFocus: false });
+    expect(input).not.toHaveFocus();
   });
 });
 

@@ -1,11 +1,23 @@
 import { useMemo, useSyncExternalStore } from "react";
-import { EMAIL_SIGN_UP_PATH, INVITATION_PATH, KIND_SEGMENTS, workspacePageOf, type RoomAccess, type RoomId, type RoomKind, type UserId, type WorkspacePage } from "@ember/protocol";
+import {
+  EMAIL_SIGN_UP_PATH,
+  INVITATION_PATH,
+  KIND_SEGMENTS,
+  threadPath,
+  workspacePageOf,
+  type Message,
+  type RoomAccess,
+  type RoomId,
+  type RoomKind,
+  type UserId,
+  type WorkspacePage,
+} from "@ember/protocol";
 
 // The app's few pages, at Campfire's addresses where it has them, which @ember/protocol lists for the
 // Worker too: a small typed router over the History API rather than a library. A page with changes to
 // lose can hold the app on it by guarding against leaving.
 
-export { BOTS_PATH, CUSTOM_STYLES_PATH, NEW_BOT_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
+export { BOTS_PATH, CUSTOM_STYLES_PATH, NEW_BOT_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, threadPath, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
 
 /** Whether a room's form makes it open to everyone or private, as the form's address says. */
 export type Access = RoomAccess;
@@ -18,6 +30,9 @@ export const roomPath = (roomId: RoomId) => `/rooms/${encodeURIComponent(roomId)
 export const personPath = (userId: UserId) => `/users/${encodeURIComponent(userId)}`;
 /** A message's permalink, as Campfire's `room_at_message_path` gives it, which opens its room. */
 export const messagePath = (roomId: RoomId, messageId: string) => `${roomPath(roomId)}/@${encodeURIComponent(messageId)}`;
+/** Where a message's time and Copy link go: its permalink, or a reply's in its thread, which opens the thread at it. */
+export const permalinkOf = ({ roomId, id, parentId }: Pick<Message, "roomId" | "id" | "parentId">) =>
+  parentId === undefined ? messagePath(roomId, id) : threadPath(roomId, parentId, id);
 export const newRoomPath = (access: Access) => `/rooms/${KIND_SEGMENTS[access]}/new`;
 /** A room's settings page, at the address for its kind. */
 export const roomSettingsPath = (kind: RoomKind, roomId: RoomId) => `/rooms/${KIND_SEGMENTS[kind]}/${encodeURIComponent(roomId)}/edit`;

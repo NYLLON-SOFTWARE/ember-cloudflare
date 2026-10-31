@@ -260,7 +260,7 @@ test.describe("Upload progress", () => {
 });
 
 test.describe("Download and share files", () => {
-  test("downloads a file message's file from its card, and offers Download on its action bar in place of Reply", async ({ members, request, rooms }) => {
+  test("downloads a file message's file from its card, and offers Download on its action bar in place of Quote", async ({ members, request, rooms }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     const { attachment } = await upload(request, ada, rooms.general.id, "Q3 report.txt", "Up and to the right");
@@ -271,7 +271,10 @@ test.describe("Download and share files", () => {
 
     const bar = await grace.actions("Q3 report.txt");
     await expect(bar.getByRole("link", { name: "Download" })).toHaveAttribute("href", attachment!.downloadUrl);
-    await expect(bar.getByRole("button", { name: "Reply" })).toHaveCount(0);
+    await expect(bar.getByRole("button", { name: "Quote" })).toHaveCount(0);
+    // Quoting a file would quote nothing, so More actions has no Quote either.
+    await grace.message("Q3 report.txt").getByRole("button", { name: "Message options" }).click();
+    await expect(grace.message("Q3 report.txt").getByRole("group", { name: "More actions" }).getByRole("button")).toHaveText(["Copy link"]);
     // Chromium on Linux can't share.
     await expect(bar.getByRole("button", { name: "Share" })).toHaveCount(0);
     await expect(grace.message("Q3 report.txt").getByRole("button", { name: "Share Q3 report.txt" })).toHaveCount(0);

@@ -139,9 +139,9 @@ describe("Sign out", () => {
 
 describe("Connection sign-in and revocation", () => {
   it("opens room sockets at the room's own address, over wss on https pages", () => {
-    expect(roomSocketUrl("general", { visible: true })).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=3");
+    expect(roomSocketUrl("general", { visible: true })).toBe("ws://localhost:3000/api/rooms/general/socket?visible=1&protocol=4");
     vi.stubGlobal("location", new URL("https://ember.example/rooms/general"));
-    expect(roomSocketUrl("general", { visible: false })).toBe("wss://ember.example/api/rooms/general/socket?visible=0&protocol=3");
+    expect(roomSocketUrl("general", { visible: false })).toBe("wss://ember.example/api/rooms/general/socket?visible=0&protocol=4");
     vi.unstubAllGlobals();
   });
 });

@@ -151,7 +151,7 @@ export interface RichTextEditorHandle {
   /** Whether a list it offers, such as the people to mention, is open, which takes Enter for itself. */
   hasOpenPrompt(): boolean;
   focus(): void;
-  /** Writes `markup` in place of what's written, then takes focus with the cursor at the end, as Reply does. */
+  /** Writes `markup` in place of what's written, then takes focus with the cursor at the end, as Quote does. */
   replace(markup: string): void;
 }
 
@@ -222,7 +222,7 @@ export default function RichTextEditor({
     isBlank: () => editor.current?.isBlank ?? true,
     hasOpenPrompt: () => editor.current?.hasOpenPrompt ?? false,
     focus: () => editor.current?.focus(),
-    // Campfire's composer_controller.js#replaceMessageContent, for Reply's quote.
+    // Campfire's composer_controller.js#replaceMessageContent, for what Quote writes.
     replace: (markup) => {
       const lexxy = editor.current;
       if (!lexxy) return;

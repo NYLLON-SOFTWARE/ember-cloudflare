@@ -82,6 +82,7 @@ export {
   PUSH_SUBSCRIPTIONS_PATH,
   SEARCHES_PATH,
   SIGN_UP_PATH,
+  threadPath,
   TRANSFER_PATH,
   transferLink,
   TURNSTILE_CHECK_PATH,
@@ -1305,15 +1306,47 @@ export interface Message {
    * text may be empty then, and its plain text has theirs after its own.
    */
   cards?: Card[];
+  /** A reply in a thread: the message it replies to, its parent, which is never a reply itself. */
+  parentId?: string;
+  /** Whether a reply was also sent to the room, whose timeline shows it then as well as its thread. */
+  alsoSent?: boolean;
+  /** The start of a reply's parent's plain text, which the room shows over a reply also sent there: empty once the parent is deleted. */
+  parentText?: string;
+  /** The replies in the message's thread, once it has some, as the room shows them under it. */
+  thread?: ThreadSummary;
+  /**
+   * A message deleted while replies in its thread are left, which keeps its place for them: its text, file,
+   * cards and boosts are gone, and it goes once its last reply does.
+   */
+  deleted?: boolean;
 }
+
+/** How many of the people who replied in a thread its summary shows. */
+export const THREAD_FACES = 4;
+
+/** A thread, as the room shows it under the message it's for. */
+export interface ThreadSummary {
+  /** How many replies it has. */
+  count: number;
+  /** When the newest was written. */
+  latestAt: string;
+  /** Who wrote the replies, each once, the one who wrote the newest first, up to `THREAD_FACES`. */
+  people: User[];
+}
+
+/** Whether a message shows in its room's timeline: every message but a reply that was sent only to its thread. */
+export const isInRoom = (message: Pick<Message, "parentId" | "alsoSent">) => message.parentId === undefined || message.alsoSent === true;
 
 /**
  * What a tab sends on a room socket. A socket from an IP address a ban blocks can read, but the room
  * answers each frame that would change messages or boosts with an `error`.
  */
 export type ClientFrame =
-  /** A new message, its body markup, as the composer writes it. The room keeps what it can show of it, or refuses it. */
-  | { type: "message.create"; clientMessageId: string; body: string }
+  /**
+   * A new message, its body markup, as the composer writes it. The room keeps what it can show of it, or refuses it.
+   * With `parentId`, it's a reply in that message's thread, which `alsoSend` sends to the room too.
+   */
+  | { type: "message.create"; clientMessageId: string; body: string; parentId?: string; alsoSend?: boolean }
   /** A message's new body, as for `message.create`. */
   | { type: "message.update"; messageId: string; body: string }
   | { type: "message.delete"; messageId: string }
@@ -1332,6 +1365,10 @@ export type ClientFrame =
   | { type: "history.around"; messageId?: string }
   /** Asks which of these messages the room stored from the sender, after a closed socket lost their confirmations. */
   | { type: "message.check"; clientMessageIds: string[] }
+  /** A message's thread, as opening it shows it: the message and its newest page of replies. */
+  | { type: "thread.open"; parentId: string }
+  /** Up to `limit` of a thread's replies before one, oldest first, as its history pages back from the oldest it holds. */
+  | { type: "thread.before"; parentId: string; before: string; limit?: number }
   /** Says the tab has been shown, or hidden, for a few seconds, since the socket's address or the last of these said otherwise. */
   | { type: "presence.visible"; visible: boolean }
   | { type: "ping" };
@@ -1387,6 +1424,13 @@ export type ServerFrame =
   | ({ type: "history.around" } & TimelinePage)
   /** Answers message.check: which of the sender's messages the room stored, and which it never received. */
   | { type: "message.checked"; stored: string[]; missing: string[] }
+  /**
+   * Answers thread.open: the message, or null when the room doesn't have it or it's a reply, which has no
+   * thread, and its newest page of replies, oldest first, with whether it has older ones.
+   */
+  | { type: "thread.opened"; parentId: string; parent: Message | null; messages: Message[]; hasMore: boolean }
+  /** Answers thread.before: the replies before `before`, oldest first, and whether there are older ones still. */
+  | { type: "thread.history"; parentId: string; before: string; messages: Message[]; hasMore: boolean }
   /**
    * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
    * `clientMessageIds` the messages it was about.
@@ -1446,10 +1490,11 @@ export type WorkspaceServerFrame =
 /**
  * The revision of the room protocol the app speaks, which its room sockets' addresses name. The room
  * tells a tab running an older app to reload, and refuses its messages and edits: before revision 2,
- * tabs sent a message's text rather than its markup, which the room would now read as markup, and
- * before revision 3, an edit dropped the message's mentions.
+ * tabs sent a message's text rather than its markup, which the room would now read as markup, before
+ * revision 3, an edit dropped the message's mentions, and before revision 4, tabs knew nothing of
+ * threads, and showed every reply in the room.
  */
-export const ROOM_PROTOCOL = 3;
+export const ROOM_PROTOCOL = 4;
 
 /** What a room socket's address tells the room about the tab opening it. */
 export interface RoomSocketParams {
@@ -1598,7 +1643,9 @@ export function parseClientFrame(raw: string): ClientFrame | null {
   switch (f.type) {
     case "message.create": {
       const body = markup(f.body);
-      return id(f.clientMessageId) && body !== null ? { type: f.type, clientMessageId: f.clientMessageId, body } : null;
+      if (!id(f.clientMessageId) || body === null) return null;
+      if (f.parentId === undefined) return { type: f.type, clientMessageId: f.clientMessageId, body };
+      return id(f.parentId) ? { type: f.type, clientMessageId: f.clientMessageId, body, parentId: f.parentId, alsoSend: f.alsoSend === true } : null;
     }
     case "message.update": {
       const body = markup(f.body);
@@ -1624,6 +1671,10 @@ export function parseClientFrame(raw: string): ClientFrame | null {
         ? { type: f.type, clientMessageIds: ids }
         : null;
     }
+    case "thread.open":
+      return id(f.parentId) ? { type: f.type, parentId: f.parentId } : null;
+    case "thread.before":
+      return id(f.parentId) && id(f.before) ? { type: f.type, parentId: f.parentId, before: f.before, limit: pageLimit(f.limit) } : null;
     case "presence.visible":
       return typeof f.visible === "boolean" ? { type: f.type, visible: f.visible } : null;
     case "typing.start":

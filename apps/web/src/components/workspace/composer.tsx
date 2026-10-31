@@ -45,10 +45,10 @@ const FOOTER = "bg-background px-[22px] pt-2.5 pb-[max(12px,env(safe-area-inset-
 const BUTTON = "flex size-8 shrink-0 cursor-pointer items-center justify-center touch:size-11";
 
 /**
- * Where what someone has written in a room and not yet sent is kept in this browser, for each person
- * apart, so whoever signs in here next doesn't see it.
+ * Where what someone has written in a room, or in one of its threads, and not yet sent is kept in this
+ * browser, for each person apart, so whoever signs in here next doesn't see it.
  */
-const draftKey = (userId: string, roomId: string) => `composer-draft-${userId}-${roomId}`;
+const draftKey = (userId: string, roomId: string, threadId?: string) => `composer-draft-${userId}-${roomId}` + (threadId === undefined ? "" : `/threads/${threadId}`);
 
 // Storage can be unavailable, as in some private windows, which only means drafts aren't kept.
 function readDraft(key: string): string | undefined {
@@ -225,19 +225,26 @@ interface Props {
    * the editor shows anyway.
    */
   deferEditor?: boolean;
+  /**
+   * The message whose thread the composer writes replies in, which can be sent to the room too: Also send
+   * to the room is ticked for that, until they've gone.
+   */
+  threadId?: string;
   /** Sends a message, its body markup, answering whether it went: one that didn't stays to be changed. */
-  onSend: (body: string) => boolean;
+  onSend: (body: string, alsoSend: boolean) => boolean;
   /** Sends files, each as a message of its own, before the message written with them. */
-  onSendFiles: (files: File[]) => void;
+  onSendFiles: (files: File[], alsoSend: boolean) => void;
   onTyping: (active: boolean) => void;
   /** Opens the editor on your newest message, for Up Arrow. */
   onEditLastMessage?: () => void;
+  /** Whether the editor takes focus as it shows, except on touch screens, as it does unless something else is to have it. */
+  autoFocus?: boolean;
   ref?: Ref<ComposerHandle>;
 }
 
 export interface ComposerHandle {
   focus(): void;
-  /** Writes `markup` in place of what's written, as Reply does, taking focus. */
+  /** Writes `markup` in place of what's written, as Quote does, taking focus. */
   replace(markup: string): void;
   /** Adds files to send with the next message, as dropping them on the room's messages does. */
   addFiles(files: Iterable<File>): void;
@@ -247,15 +254,16 @@ export interface ComposerHandle {
  * The composer: a card with the editor on top, and below it Attach files, Formatting options, which
  * shows Lexxy's toolbar under the text, and a round Send button. @ offers the room's people to mention.
  * Files picked, pasted or dropped wait above the card to go with the next message. What's written is
- * kept as a draft until it's sent.
+ * kept as a draft until it's sent. A thread's has Also send to the room before Send.
  */
-export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, onSend, onSendFiles, onTyping, onEditLastMessage, ref }: Props) {
+export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, threadId, onSend, onSendFiles, onTyping, onEditLastMessage, autoFocus = true, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const form = useRef<HTMLFormElement>(null);
   const [toolbarOpen, setToolbarOpen] = useState(false);
   // Whether the toolbar shows only for its Link field, which Ctrl or Cmd+K opened while it was shut.
   const [toolbarForLink, setToolbarForLink] = useState(false);
-  const key = draftKey(userId, roomId);
+  const [alsoSend, setAlsoSend] = useState(false);
+  const key = draftKey(userId, roomId, threadId);
   const [draft, setDraft] = useState(() => readDraft(key));
   // Touch screens bring up their keyboard on focus, so there it waits for a tap.
   const [focusOnOpen] = useState(() => !hasTouchKeyboard());
@@ -267,9 +275,9 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   const picked = usePickedFiles();
   // Whether the editor was blank when it last changed, so emptying it tells the room you've stopped once.
   const wasBlank = useRef(!draft);
-  // Whether Reply wrote what the editor opens with, before it showed, so it takes focus as Reply has it do.
+  // Whether Quote wrote what the editor opens with, before it showed, so it takes focus as Quote has it do.
   const replied = useRef(false);
-  const placeholder = `Message ${direct ? "" : "#"}${roomName}`;
+  const placeholder = threadId !== undefined ? "Reply…" : `Message ${direct ? "" : "#"}${roomName}`;
 
   // What's written changed, to `body`, or to nothing: the room hears whether you're typing, and it's kept.
   const wrote = (body: string | null) => {
@@ -312,22 +320,25 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
 
   // This sends nothing while the room is disconnected, and otherwise sends the files picked, then what's
   // written unless it's blank, closes the toolbar and focuses the editor, on touch screens too. Before
-  // the editor shows, as its code loads, only the files go.
+  // the editor shows, as its code loads, only the files go. Also send to the room is unticked once
+  // anything's gone, as Slack unticks it.
   const submit = () => {
     if (disabled) return;
     if (picked.files.length > 0) {
-      onSendFiles(picked.files.map(({ file }) => file));
+      onSendFiles(picked.files.map(({ file }) => file), alsoSend);
       picked.clear();
+      setAlsoSend(false);
     }
     const written = editor.current;
     if (!written) return;
     if (!written.isBlank()) {
       // One the room won't take, as when it's too long, stays to be cut down.
-      if (!onSend(written.value())) return;
+      if (!onSend(written.value(), alsoSend)) return;
       // Everyone else stops showing you as typing when your message arrives.
       wasBlank.current = true;
       written.clear();
       keepDraft(key, null);
+      setAlsoSend(false);
     }
     setToolbarOpen(false);
     setToolbarForLink(false);
@@ -368,7 +379,8 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   }, [toolbarForLink]);
 
   return (
-    <footer className={FOOTER}>
+    // A thread's panel is narrower than its room, and its composer keeps closer to its sides.
+    <footer className={cn(FOOTER, threadId !== undefined && "px-4")}>
       {/* Not validated, since Lexxy checks its Link field itself. An address left unfinished there, or the field
           left open and empty, would otherwise stop Send without a word. */}
       <form
@@ -407,14 +419,14 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
               {editorShown ? (
                 <RichTextEditor
                   ref={editor}
-                  label="Write a message"
+                  label={threadId !== undefined ? "Write a reply" : "Write a message"}
                   placeholder={placeholder}
                   rows={2}
                   initialValue={draft}
                   mentionsFrom={mentionPromptSrc(roomId)}
                   // Under the text on touch screens are the keyboard and the home indicator.
                   mentionsAbove={hasTouchKeyboard()}
-                  autoFocus={() => replied.current || (focusOnOpen && focusStayedOn(focusAtOpen))}
+                  autoFocus={() => replied.current || (autoFocus && focusOnOpen && focusStayedOn(focusAtOpen))}
                   onChange={changed}
                   onKeyDown={keyDown}
                   onLinkPasted={previewLink}
@@ -466,6 +478,27 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
               <TextSquare className="size-[18px] opacity-70" />
               <span className="sr-only">Rich text</span>
             </button>
+            {/* For fingers, the box sits far enough into its label for a fingertip on it to land on the label. */}
+            {threadId !== undefined && (
+              <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm">
+                <input
+                  type="checkbox"
+                  checked={alsoSend}
+                  disabled={disabled}
+                  onChange={(event) => setAlsoSend(event.target.checked)}
+                  className="m-0 size-4 flex-none cursor-pointer accent-foreground"
+                />
+                <span className="truncate">
+                  {direct ? (
+                    "Also send as direct message"
+                  ) : (
+                    <>
+                      Also send to <strong className="font-semibold text-message-ink">#{roomName}</strong>
+                    </>
+                  )}
+                </span>
+              </label>
+            )}
             <button
               type="submit"
               disabled={disabled}

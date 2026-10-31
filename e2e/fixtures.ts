@@ -372,6 +372,15 @@ export class Participant {
     return (frame as Extract<ServerFrame, { type: "message.created" }>).message;
   }
 
+  /** Replies in the thread of the message `parentId`, and in the room too when `alsoSend`, and resolves once the room has stored it. */
+  async reply(parentId: string, text: string, { alsoSend = false } = {}): Promise<Message> {
+    const clientMessageId = crypto.randomUUID();
+    const created = this.next((frame) => frame.type === "message.created" && frame.message.clientMessageId === clientMessageId);
+    this.send({ type: "message.create", clientMessageId, body: bodyFromPlainText(text), parentId, alsoSend });
+    const frame = await created;
+    return (frame as Extract<ServerFrame, { type: "message.created" }>).message;
+  }
+
   /** Posts messages back to back, without waiting for each, and resolves once the room has stored them all, in order. */
   sayAll(texts: string[]): Promise<Message[]> {
     return Promise.all(texts.map((text) => this.say(text)));
