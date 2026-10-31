@@ -13,7 +13,9 @@ describe("How mentions look", () => {
   it("names users by their ids, which Lexxy keeps where it drops anything shaped like a URL", () => {
     expect(mentionSgid("0mgx5k2p9abc1234")).toBe("0mgx5k2p9abc1234");
     expect(userIdFromSgid("0mgx5k2p9abc1234")).toBe("0mgx5k2p9abc1234");
-    for (const sgid of ["gid://ember/User/0mgx5k2p9abc1234", "0MGX5K2P9ABC1234", "0mgx5k2p9abc123", "0mgx5k2p9abc12345", " 0mgx5k2p9abc1234", "0mgx5k2p9abc-234", ""]) {
+    // @ember's id is its own, the AI assistant's.
+    expect(userIdFromSgid("ember")).toBe("ember");
+    for (const sgid of ["gid://ember/User/0mgx5k2p9abc1234", "0MGX5K2P9ABC1234", "0mgx5k2p9abc123", "0mgx5k2p9abc12345", " 0mgx5k2p9abc1234", "0mgx5k2p9abc-234", "", "Ember", "embers", "@ember"]) {
       expect(userIdFromSgid(sgid), sgid).toBeUndefined();
     }
   });

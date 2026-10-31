@@ -12,8 +12,8 @@ import { previewContent } from "./previews";
 import { htmlEscape } from "./ruby";
 import { toHtml } from "./serialize";
 
-/** An Ember id: 16 lowercase base-36 characters (the Worker's `sortableId`). */
-const USER_ID = /^[0-9a-z]{16}$/;
+/** An Ember id: 16 lowercase base-36 characters (the Worker's `sortableId`), or @ember's, which is its own (`ASSISTANT_ID`). */
+const USER_ID = /^(?:[0-9a-z]{16}|ember)$/;
 
 /** The sgid that names a user in a mention. */
 export function mentionSgid(userId: string): string {

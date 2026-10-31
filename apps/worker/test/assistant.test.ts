@@ -7,11 +7,12 @@ import {
   type AssistantSaved,
   type AssistantSetup,
 } from "@ember/protocol/assistant";
+import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GATEWAY_UNANSWERED, NOTHING_ANSWERED } from "../src/assistant/gateway";
 import { API_TOKEN_CHANGED, API_TOKEN_NEEDED } from "../src/assistant/settings";
 import type { Env } from "../src/env";
-import { api, apiWith, cookieOf, createRoom, freshDeploy, openWorkspaceSocket, shown, startDirect, workspaceSql, type Session } from "./support";
+import { api, apiWith, connect, cookieOf, createRoom, freshDeploy, openWorkspaceSocket, post, shown, startDirect, workspaceSql, type Session } from "./support";
 
 // Ember AI's setup on the AI assistant tab, the @ember account it adds, and its reserved name.
 
@@ -165,6 +166,17 @@ describe("Ember AI", () => {
       // An open room made later takes it in, as it does anyone active.
       const later = await createRoom("Later", { as: administrator });
       expect(await assistantRooms()).toContain(later.id);
+    });
+
+    it("can be mentioned, as anyone in the room can", async () => {
+      const administrator = await setUp();
+      fakeGateway();
+      await saved(administrator);
+      const client = await connect(await openRooms().then(([room]) => room!), administrator);
+
+      const sent = await post(client, `<p>Hi <action-text-attachment sgid="${mentionSgid(ASSISTANT_ID)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment></p>`);
+      expect(sent).toMatchObject({ plainText: "Hi @Ember", mentions: [{ id: ASSISTANT_ID, name: "Ember" }] });
+      client.close();
     });
 
     it("keeps the API token it has when a change gives none, and needs one when it has none", async () => {
