@@ -102,6 +102,8 @@ export type RoomAction =
   | { type: "offline"; offline: boolean }
   | { type: "frame"; frame: ServerFrame; now: number }
   | { type: "pending"; message: PendingMessage }
+  /** What this page left unsent here when the room, or the thread, was last left, as the outbox kept it since. */
+  | { type: "kept"; messages: PendingMessage[] }
   | { type: "sent"; clientMessageIds: string[] }
   | { type: "upload-progress"; clientMessageId: string; percent: number }
   | { type: "upload-failed"; clientMessageId: string; error: string }
@@ -250,10 +252,10 @@ function received(state: RoomState, message: Message): RoomState {
 
 export const isQueued = (m: Message | PendingMessage): m is PendingMessage => isPending(m) && m.queued === true;
 
-const dequeued = ({ queued: _, ...message }: PendingMessage): PendingMessage => message;
+export const dequeued = ({ queued: _, ...message }: PendingMessage): PendingMessage => message;
 
 /** The messages waiting for a connection, shown as not sent. */
-const notSent = (messages: RoomState["messages"]) => messages.map((m) => (isQueued(m) ? { ...dequeued(m), failed: true } : m));
+export const notSent = <M extends Message>(messages: M[]): Array<M | PendingMessage> => messages.map((m) => (isQueued(m) ? { ...dequeued(m), failed: true } : m));
 
 /** Offline, the messages waiting for a connection show as not sent, and say so. */
 function unsent(state: RoomState): RoomState {
@@ -340,6 +342,12 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
       // the newest page has come, which useRoom asks for first when the timeline doesn't hold it.
       const focus = state.hasNewer || state.loadingPage ? state.focus : { messageId: null };
       return unsent({ ...state, messages: [...state.messages, action.message], focus });
+    }
+    // After the timeline, as what waits for the room is, leaving it where it is. A view opened twice over,
+    // as React opens it in development, takes them back twice.
+    case "kept": {
+      const kept = action.messages.filter((k) => !state.messages.some((m) => isPending(m) && m.clientMessageId === k.clientMessageId));
+      return kept.length === 0 ? state : { ...state, messages: [...state.messages, ...kept] };
     }
     case "sent": {
       const sent = (m: Message | PendingMessage): m is PendingMessage => isQueued(m) && action.clientMessageIds.includes(m.clientMessageId);
