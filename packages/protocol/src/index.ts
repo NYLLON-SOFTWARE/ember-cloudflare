@@ -2,7 +2,7 @@
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
 
-import type { AssistantSettings } from "./assistant.ts";
+import type { AssistantSettings, YourAnswerLevels } from "./assistant.ts";
 import type { Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
@@ -43,8 +43,21 @@ export {
 // and the web app's main chunk, which imports this, would otherwise cost the app one more script to load
 // (`oneAppScript` in apps/web/vite.config.ts says why).
 export type { Bot, BotAnswer, BotChanges, BotRoom, Bots, BotSettings, NewBot } from "./bots.ts";
-// So is the rest of assistant.ts, from "@ember/protocol/assistant", which only Set up Ember AI and the Worker's assistant use.
-export type { AssistantForgotten, AssistantSaved, AssistantSettings, AssistantSetup, ModelFormat } from "./assistant.ts";
+// So is the rest of assistant.ts, from "@ember/protocol/assistant", which only Ember AI's settings, its dials and the Worker's assistant use.
+export type {
+  AnswerLength,
+  AnswerLevelChanges,
+  AnswerLevels,
+  AnswerLevelsAnswer,
+  AssistantChanged,
+  AssistantForgotten,
+  AssistantSaved,
+  AssistantSettings,
+  AssistantSetup,
+  ModelFormat,
+  ThinkingLevel,
+  YourAnswerLevels,
+} from "./assistant.ts";
 export {
   FILE_NAME_NOT_KEPT,
   FILE_TOO_LARGE,
@@ -785,6 +798,8 @@ export interface Profile {
    * who has nothing to connect.
    */
   memberful: boolean | null;
+  /** How much @ember thinks and how long it answers you, and the most each may be, or null while Ember AI is off. */
+  assistant: YourAnswerLevels | null;
 }
 
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */

@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ACCOUNT_ID_REFUSED, API_TOKEN_REFUSED, ASSISTANT_MODELS, MODEL_REFUSED, type AssistantSettings } from "@ember/protocol/assistant";
+import { ACCOUNT_ID_REFUSED, API_TOKEN_REFUSED, ASSISTANT_MODELS, MODEL_REFUSED, TOP_LEVELS, type AssistantSettings } from "@ember/protocol/assistant";
 import { ApiError } from "@/lib/api";
 import { AI_GATEWAY_DASHBOARD, AssistantSetup, MODEL_CATALOG, WORKERS_AI_DASHBOARD } from "./assistant-setup";
 
@@ -245,7 +245,7 @@ describe("Set up Ember AI", () => {
 
   it("opens on Ember AI as it is to change it, keeping the API token Ember has when none is given", async () => {
     serve();
-    const { user } = showSetup({ accountId: ACCOUNT_ID, model: "openai/gpt-6.1-sol" });
+    const { user } = showSetup({ accountId: ACCOUNT_ID, model: "openai/gpt-6.1-sol", most: TOP_LEVELS });
     await dialog("Set up Ember AI");
     expect(accountIdField()).toHaveValue(ACCOUNT_ID);
     expect(apiTokenField()).toHaveValue("");
@@ -261,7 +261,7 @@ describe("Set up Ember AI", () => {
 
   it("opens a model it doesn't list under Another model, with its ID", async () => {
     serve();
-    const { user } = showSetup({ accountId: ACCOUNT_ID, model: "mistral/mistral-large-3" });
+    const { user } = showSetup({ accountId: ACCOUNT_ID, model: "mistral/mistral-large-3", most: TOP_LEVELS });
     await user.click(await screen.findByRole("button", { name: "Continue" }));
     expect(await screen.findByRole("combobox", { name: "Model" })).toHaveValue("");
     expect(modelIdField()).toHaveValue("mistral/mistral-large-3");

@@ -1,17 +1,24 @@
-import type { APIRequestContext, Page } from "@playwright/test";
+import { DEFAULT_LEVELS, TOP_LEVELS } from "@ember/protocol/assistant";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { administratorSession, cookieHeader, editorField, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
 import { HELLO, startFakeGateway, type FakeGateway } from "./fake-gateway";
 
 // The AI assistant tab's Ember AI card and Set up Ember AI, and @ember answering, on the second test
 // server, which asks models through the AI Gateway this spec fakes. Each test leaves the workspace as a
-// new one is: Ember AI off.
+// new one is: Ember AI off, and its dials where they start.
 
 let gateway: FakeGateway;
 test.beforeAll(async () => void (gateway = await startFakeGateway()));
 test.afterAll(() => gateway.close());
 test.afterEach(async ({ request }) => {
-  const forgotten = await request.delete("/api/account/assistant", { headers: await asAdministrator(request) });
+  const headers = await asAdministrator(request);
+  // Ember keeps the dials while Ember AI is off, so they go back first, the most only while it's on.
+  const unlimited = await request.patch("/api/account/assistant", { data: TOP_LEVELS, headers });
+  expect([200, 409], await unlimited.text()).toContain(unlimited.status());
+  const unpicked = await request.patch("/api/users/me/assistant", { data: DEFAULT_LEVELS, headers });
+  expect(unpicked.status(), await unpicked.text()).toBe(200);
+  const forgotten = await request.delete("/api/account/assistant", { headers });
   expect(forgotten.status(), await forgotten.text()).toBe(200);
 });
 
@@ -24,6 +31,12 @@ async function openAssistant(page: Page) {
   await page.goto("/account/edit#assistant-settings");
   await signInAsAdministrator(page);
   return page.getByRole("region", { name: "Ember AI", exact: true });
+}
+
+/** Chooses `level` on `dial`, a group of radio buttons, by its name, as someone clicks it. */
+async function choose(dial: Locator, level: string) {
+  await dial.getByText(level, { exact: true }).click();
+  await expect(dial.getByRole("radio", { name: level })).toBeChecked();
 }
 
 test.describe("Ember AI", () => {
@@ -138,5 +151,54 @@ test.describe("@ember", () => {
     const [instructions, ...turns] = gateway.asked.at(-1)!.body.messages as Array<{ role: string; content: string }>;
     expect(instructions!.content).toContain(`You're asked in the room "general".`);
     expect(turns.at(-1)).toEqual({ role: "user", content: `Ada Lovelace: @Ember ${question}` });
+  });
+
+  test("someone picks how much @ember thinks and writes for them on their profile, up to the most the administrator allows, and it asks its model so", async ({
+    page,
+    request,
+  }) => {
+    const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model: "@cf/zai-org/glm-4.7-flash" }, headers: await asAdministrator(request) });
+    expect(saved.status(), await saved.text()).toBe(200);
+
+    // The administrator lets @ember think no more than Medium for anyone, which Ember keeps.
+    const card = await openAssistant(page);
+    const mostThinking = card.getByRole("group", { name: "Thinking" });
+    await expect(mostThinking.getByRole("radio", { name: "High" })).toBeChecked();
+    await choose(mostThinking, "Medium");
+    await expect(mostThinking.getByRole("radio", { name: "Medium" })).toBeEnabled();
+    await page.reload();
+    await expect(page.getByRole("region", { name: "Ember AI", exact: true }).getByRole("group", { name: "Thinking" }).getByRole("radio", { name: "Medium" })).toBeChecked();
+
+    // On their profile, their own levels start at Low and a Medium answer, and go no higher than that.
+    await page.goto("/users/me/profile");
+    const levels = page.getByRole("region", { name: "Ember AI", exact: true });
+    const thinking = levels.getByRole("group", { name: "Thinking" });
+    const length = levels.getByRole("group", { name: "Answer length" });
+    await expect(thinking.getByRole("radio", { name: "Low" })).toBeChecked();
+    await expect(length.getByRole("radio", { name: "Medium" })).toBeChecked();
+    await expect(thinking.getByRole("radio", { name: "High" })).toBeDisabled();
+    await choose(thinking, "Medium");
+    await choose(length, "Short");
+    await expect(length).toHaveAccessibleDescription("About 150 words.");
+    await expect(length.getByRole("radio", { name: "Short" })).toBeEnabled();
+    await page.reload();
+    await expect(page.getByRole("region", { name: "Ember AI", exact: true }).getByRole("group", { name: "Thinking" }).getByRole("radio", { name: "Medium" })).toBeChecked();
+
+    await page.goto("/");
+    await page.getByRole("complementary", { name: "Conversations" }).getByRole("link", { name: "general" }).click();
+    const composer = editorField(page, "Write a message");
+    await composer.pressSequentially("@Embe");
+    await expect(page.getByRole("listbox").getByRole("option")).toHaveText(["Ember"]);
+    await composer.press("Tab");
+    await composer.pressSequentially(`How long is a fortnight? ${crypto.randomUUID().slice(0, 8)}`);
+    const answering = gateway.hold();
+    await composer.press("Enter");
+    await expect(page.locator(".spinner")).toHaveText("Ember");
+    answering();
+    await expect(page.locator(".spinner")).toHaveText("");
+    const { body } = gateway.asked.at(-1)!;
+    expect(body).toMatchObject({ model: "@cf/zai-org/glm-4.7-flash", reasoning_effort: "medium" });
+    const [instructions] = body.messages as Array<{ role: string; content: string }>;
+    expect(instructions!.content).toContain("in at most about 150 words.");
   });
 });

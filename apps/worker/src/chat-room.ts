@@ -22,7 +22,7 @@ import {
   type UserId,
 } from "@ember/protocol";
 import { prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
-import { AnswerError, answerOf, NOTES, previewAttachment, questionFor, ROOM_MESSAGES_READ, THREAD_REPLIES_READ, type Answer } from "./assistant/answers";
+import { AnswerError, answerOf, NOTES, previewAttachment, questionFor, ROOM_MESSAGES_READ, THREAD_REPLIES_READ, waitFor, type Answer } from "./assistant/answers";
 import { ask } from "./assistant/gateway";
 import { JobQueue } from "./at-once";
 import { postWebhook, WebhookError, webhookPayload, type Reply } from "./bots/webhooks";
@@ -145,9 +145,6 @@ const THREAD_GONE = "the thread's message has been deleted";
 /** How many of a room's questions for @ember it answers at once, and how many more can wait, as each waits on a model. */
 const ANSWERS_AT_ONCE = 4;
 const ANSWERS_WAITING = 100;
-
-/** How long @ember waits for its model to answer: a little less than Cloudflare waits for an answer from AI Gateway before giving up itself. */
-const ANSWER_TIMEOUT_MS = 120_000;
 
 /** How often @ember says again that it's typing while it answers, as apps forget typing they haven't heard of for 5 seconds. */
 const TYPING_AGAIN_MS = 3_000;
@@ -1156,7 +1153,7 @@ export class ChatRoom extends DurableObject<Env> {
       try {
         const message = (await this.isDeleted()) ? null : await this.findUndeleted(this.storeFor(roomId), question.messageId);
         if (!message) throw new AnswerError("the message is gone");
-        const access = await workspace(this.env).assistantIn(roomId);
+        const access = await workspace(this.env).assistantIn(roomId, question.author.id);
         if (!access) throw new AnswerError(ASSISTANT_GONE);
         const refused = await this.typingWhile(access.bot, message.parentId, async () => this.postAnswer(roomId, await this.answerTo(roomId, access, question, message), message));
         if (refused) throw new AnswerError(`it wasn't posted: ${refused}`);
@@ -1170,14 +1167,16 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * What @ember answers `message`, `question`'s message, with what it reads of the conversation, in
-   * Markdown, or the note it posts when its model doesn't answer, saying why, which the room logs.
+   * Markdown, at the asker's levels, ending with an ellipsis when the model was cut short, or the note it
+   * posts when its model doesn't answer, saying why, which the room logs.
    */
-  private async answerTo(roomId: RoomId, { gateway, community }: AssistantAccess, { author, roomName }: AssistantAsk, message: Message): Promise<string> {
+  private async answerTo(roomId: RoomId, { gateway, community, levels }: AssistantAccess, { author, roomName }: AssistantAsk, message: Message): Promise<string> {
     if (!gateway) return NOTES["unopened token"];
     const conversation = await this.conversationOf(this.storeFor(roomId), message);
     const where = { community, roomName, inThread: message.parentId !== undefined };
-    const answered = await ask(this.env, gateway, questionFor(conversation, author, where, new Date()), ANSWER_TIMEOUT_MS);
-    if (!("refusal" in answered)) return answered.text;
+    const asked = questionFor(conversation, author, where, levels, new Date());
+    const answered = await ask(this.env, gateway, asked, waitFor(asked));
+    if (!("refusal" in answered)) return answered.cut ? `${answered.text}\n\n…` : answered.text;
     console.error(`Ember AI's model didn't answer message ${message.id}: ${answered.refusal}`);
     return NOTES[answered.reason];
   }
@@ -1203,7 +1202,7 @@ export class ChatRoom extends DurableObject<Env> {
   private async postAnswer(roomId: RoomId, text: string, message: Message): Promise<string | null> {
     const answer = answerOf(text);
     const preview = answer.firstLink === null ? null : await this.previewOf(answer.firstLink);
-    const access = await workspace(this.env).assistantIn(roomId);
+    const access = await workspace(this.env).assistantIn(roomId, message.creator.id);
     return this.serially(async () => {
       if (await this.isDeleted()) return "the room is gone";
       if (!access || (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt))) return ASSISTANT_GONE;

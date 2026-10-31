@@ -1,4 +1,4 @@
-import { ASSISTANT_MODELS, MODEL_FORMATS, type AssistantField, type ModelFormat } from "@ember/protocol/assistant";
+import { ASSISTANT_MODELS, MODEL_FORMATS, type AssistantField, type ModelFormat, type ThinkingLevel } from "@ember/protocol/assistant";
 import type { Env } from "../env";
 import { isLoopback } from "../loopback";
 
@@ -35,22 +35,25 @@ export interface Turn {
 
 /**
  * What to ask a model: how it should answer, the conversation, oldest first, ending with what it's asked,
- * the most tokens its answer may take, and who asked, if someone did, whom AI Gateway's logs and spend
- * limits then know each request by (custom metadata's `user_id`).
+ * the most tokens its answer may take, its thinking among them, how much to think first, if it's told,
+ * and who asked, if someone did, whom AI Gateway's logs and spend limits then know each request by
+ * (custom metadata's `user_id`).
  */
 export interface Question {
   instructions: string;
   turns: Turn[];
   maxTokens: number;
+  thinking?: ThinkingLevel;
   askerId?: string;
 }
 
 /**
  * What went wrong asking a model: Cloudflare didn't take the API token, or found no such account, AI
  * Gateway's credits ran out, the model wasn't taken, AI Gateway turned the request away, the conversation
- * was longer than the model reads, AI Gateway didn't answer, or the model answered with nothing.
+ * was longer than the model reads, AI Gateway didn't answer, the model answered with nothing, or it took
+ * every token it could before it answered anything.
  */
-export type RefusalReason = "token" | "account" | "credits" | "model" | "busy" | "too long" | "unanswered" | "nothing";
+export type RefusalReason = "token" | "account" | "credits" | "model" | "busy" | "too long" | "unanswered" | "nothing" | "out of room";
 
 /**
  * Why a model didn't answer, in words an administrator can act on, with what went wrong, the status to
@@ -67,12 +70,28 @@ export interface GatewayRefusal {
 
 export const GATEWAY_UNANSWERED = "AI Gateway didn't answer. Try again in a moment.";
 export const NOTHING_ANSWERED = "The model answered with nothing. Try again, or choose another model.";
+export const OUT_OF_ROOM = "The model took every token it could before it answered. Try again, or choose another model.";
+
+/** A model's answer: its text, and whether it was cut short, as it took every token it could. */
+export interface Answered {
+  text: string;
+  cut?: true;
+}
 
 /**
  * What the model `gateway` names answers `question` in its format, or why it didn't, waiting at most
- * `timeoutMs` for it.
+ * `timeoutMs` for it. A model that doesn't take being told how much to think is asked again without.
  */
-export async function ask(env: Env, gateway: Gateway, question: Question, timeoutMs: number): Promise<{ text: string } | GatewayRefusal> {
+export async function ask(env: Env, gateway: Gateway, question: Question, timeoutMs: number): Promise<Answered | GatewayRefusal> {
+  const answered = await askOnce(env, gateway, question, timeoutMs);
+  if (question.thinking === undefined || !("refusal" in answered) || !answered.wrongFormat) return answered;
+  console.error(`Asking ${gateway.model} again without a thinking level, which it didn't take: ${answered.refusal}`);
+  const { thinking: _, ...unthinking } = question;
+  return askOnce(env, gateway, unthinking, timeoutMs);
+}
+
+/** What the model `gateway` names answers `question`, asked once. */
+async function askOnce(env: Env, gateway: Gateway, question: Question, timeoutMs: number): Promise<Answered | GatewayRefusal> {
   let response: Response;
   try {
     response = await fetch(`${cloudflareApiOf(env)}/accounts/${gateway.accountId}/ai/v1/${PATHS[gateway.format]}`, {
@@ -93,7 +112,9 @@ export async function ask(env: Env, gateway: Gateway, question: Question, timeou
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) return refusalOf(response.status, body);
   const text = answerIn(gateway.format, body)?.trim();
-  return text ? { text } : { status: 502, reason: "nothing", refusal: NOTHING_ANSWERED, field: "model" };
+  const cut = ranOutIn(gateway.format, body);
+  if (text) return cut ? { text, cut } : { text };
+  return cut ? { status: 502, reason: "out of room", refusal: OUT_OF_ROOM, field: "model" } : { status: 502, reason: "nothing", refusal: NOTHING_ANSWERED, field: "model" };
 }
 
 /**
@@ -113,18 +134,25 @@ function cloudflareApiOf(env: Env): string {
   return standIn && isLoopback(standIn) ? standIn.origin : CLOUDFLARE_API;
 }
 
-/** The body of a request asking `question` in `gateway`'s format. */
-function requestOf({ model, format }: Gateway, { instructions, turns, maxTokens }: Question): Record<string, unknown> {
+/**
+ * The body of a request asking `question` in `gateway`'s format, telling the model how much to think as
+ * the format does: Anthropic's adaptive thinking at an effort, whose lowest is as little as their models
+ * think, OpenAI's reasoning effort, or Chat Completions' `reasoning_effort`, "none" for no thinking.
+ */
+function requestOf({ model, format }: Gateway, { instructions, turns, maxTokens, thinking }: Question): Record<string, unknown> {
+  const effort = thinking === "off" ? "none" : thinking;
   if (format === "messages") {
-    return { model, max_tokens: maxTokens, system: instructions, messages: alternating(turns).map(({ role, text }) => ({ role, content: text })) };
+    const messages = alternating(turns).map(({ role, text }) => ({ role, content: text }));
+    return { model, max_tokens: maxTokens, system: instructions, messages, ...(effort && { thinking: { type: "adaptive" }, output_config: { effort: effort === "none" ? "low" : effort } }) };
   }
   if (format === "responses") {
-    return { model, max_output_tokens: maxTokens, instructions, input: turns.map(({ role, text }) => ({ role, content: text })) };
+    return { model, max_output_tokens: maxTokens, instructions, input: turns.map(({ role, text }) => ({ role, content: text })), ...(effort && { reasoning: { effort } }) };
   }
   return {
     model,
     max_completion_tokens: maxTokens,
     messages: [{ role: "system", content: instructions }, ...turns.map(({ role, text }) => ({ role, content: text }))],
+    ...(effort && { reasoning_effort: effort }),
   };
 }
 
@@ -153,6 +181,15 @@ function answerIn(format: ModelFormat, body: unknown): string | null {
   const [choice] = Array.isArray(body.choices) ? body.choices : [];
   const content = isObject(choice) && isObject(choice.message) ? choice.message.content : null;
   return typeof content === "string" ? content : textOf(content, "text");
+}
+
+/** Whether a model's answer in `format` stopped where it did because it took every token it could. */
+function ranOutIn(format: ModelFormat, body: unknown): boolean {
+  if (!isObject(body)) return false;
+  if (format === "messages") return body.stop_reason === "max_tokens";
+  if (format === "responses") return body.status === "incomplete" && isObject(body.incomplete_details) && body.incomplete_details.reason === "max_output_tokens";
+  const [choice] = Array.isArray(body.choices) ? body.choices : [];
+  return isObject(choice) && choice.finish_reason === "length";
 }
 
 /** The text of the parts of `content` whose type is `type`, joined, or null without any. */

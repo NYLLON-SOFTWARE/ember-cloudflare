@@ -507,6 +507,13 @@ Objects, D1 or speed call for something else.
   last reply goes too. `room_events.in_room` is 0 for a reply sent only to its thread, which marks
   the room unread for nobody and isn't its latest activity, and an upload's row in `blobs` keeps the
   thread it goes to in `parent_id`, and in `also_sent` whether it goes to the room too.
+- **@ember's levels are columns of the person, and the most of each is a setting.** Campfire has no
+  AI assistant. The levels someone picks of @ember's Thinking and Answer length are
+  `users.assistant_thinking` and `users.assistant_answer_length` (workspace migration 0045), null for
+  a dial they haven't picked. Their profile reads them in the statement that already reads it, and a
+  question for @ember in a statement of its own, in parallel with the account and @ember's membership
+  of the room. The most administrators allow is `assistant_limits` in the account's settings, kept
+  while Ember AI is off.
 
 ## Writing SQL here
 
