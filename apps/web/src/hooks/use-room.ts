@@ -1,4 +1,4 @@
-import { createContext, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { createContext, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   CloseCode,
   HISTORY_PAGE_SIZE,
@@ -18,10 +18,12 @@ import {
 import { writtenBody } from "@ember/richtext/dom";
 import type { MessageActions } from "@/components/workspace/message-item";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
+import { handOver, leftUnsent, takeBack } from "@/lib/outbox";
 import { openAhead, reconnectingSocket, waitingAhead, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isPending, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
 import { UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { settledVisibility } from "@/lib/visibility";
+import { useLatestReducer } from "./use-latest-reducer";
 
 /** How long someone shows as typing after the room last heard them start, as Campfire's typing_tracker.js keeps them. */
 const TYPING_TTL_MS = 5_000;
@@ -101,13 +103,16 @@ export function openRoomSocketAhead(pathname: string): () => void {
  * the timeline starts around.
  */
 export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | null) => void, openedAt?: string) {
-  const [state, dispatch] = useReducer(roomReducer, initialRoomState);
+  const [state, dispatch, latest] = useLatestReducer(roomReducer, () => initialRoomState);
   const [around] = useState(openedAt);
   const socket = useRef<ReconnectingSocket | null>(null);
   const listeners = useRef(new Set<(frame: ServerFrame) => void>());
   const lastTypingStarted = useRef(-Infinity);
   const sessionChanged = useEffectEvent(onSessionChanged);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
+  // What this page left unsent here when the room was last left waits in the timeline again, to go, or
+  // show as not sent, as it would have had the room stayed open.
+  const takeBackUnsent = useEffectEvent(() => takeBack(roomId, me));
 
   // A message sent over the socket can lose its answer, where one posted over HTTP fails only when the
   // request does: the socket can close after the room stored a message but before the confirmation came
@@ -217,6 +222,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     };
 
     dispatch({ type: "reset" });
+    const kept = takeBackUnsent();
+    if (kept.length > 0) dispatch({ type: "kept", messages: kept });
     const room = reconnectingSocket({
       url: () => {
         // The room's first socket is the one opened ahead of it, if one is waiting: a hidden tab's, which the
@@ -242,6 +249,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       visibility.stop();
       room.close();
       socket.current = null;
+      // Leaving the room loses none of what was written here: the outbox sends what hasn't gone.
+      handOver(roomId, leftUnsent(latest.current));
     };
   }, [roomId, around]);
 

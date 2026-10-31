@@ -15,6 +15,8 @@ export interface PendingMessage extends Message {
   failed?: boolean;
   /** Written without a connection, to send once the room lets one in again, unless the page goes offline first. */
   queued?: boolean;
+  /** Which of the connections the room let this page in on, as `connections` counts them, it went over. */
+  sentOver?: number;
   /** A file on its way to becoming a message of its own, which its card shows in the message's place. */
   upload?: PendingUpload;
 }
@@ -102,6 +104,8 @@ export type RoomAction =
   | { type: "offline"; offline: boolean }
   | { type: "frame"; frame: ServerFrame; now: number }
   | { type: "pending"; message: PendingMessage }
+  /** What this page left unsent here when the room, or the thread, was last left, as the outbox kept it since. */
+  | { type: "kept"; messages: PendingMessage[] }
   | { type: "sent"; clientMessageIds: string[] }
   | { type: "upload-progress"; clientMessageId: string; percent: number }
   | { type: "upload-failed"; clientMessageId: string; error: string }
@@ -250,10 +254,10 @@ function received(state: RoomState, message: Message): RoomState {
 
 export const isQueued = (m: Message | PendingMessage): m is PendingMessage => isPending(m) && m.queued === true;
 
-const dequeued = ({ queued: _, ...message }: PendingMessage): PendingMessage => message;
+export const dequeued = ({ queued: _, ...message }: PendingMessage): PendingMessage => message;
 
 /** The messages waiting for a connection, shown as not sent. */
-const notSent = (messages: RoomState["messages"]) => messages.map((m) => (isQueued(m) ? { ...dequeued(m), failed: true } : m));
+export const notSent = <M extends Message>(messages: M[]): Array<M | PendingMessage> => messages.map((m) => (isQueued(m) ? { ...dequeued(m), failed: true } : m));
 
 /** Offline, the messages waiting for a connection show as not sent, and say so. */
 function unsent(state: RoomState): RoomState {
@@ -339,11 +343,20 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
       // Sending goes to the end of the timeline, as Campfire's insertPendingMessage scrolls there, once
       // the newest page has come, which useRoom asks for first when the timeline doesn't hold it.
       const focus = state.hasNewer || state.loadingPage ? state.focus : { messageId: null };
-      return unsent({ ...state, messages: [...state.messages, action.message], focus });
+      // A file goes over HTTP, and one written while the room was away over no connection yet.
+      const message = action.message.queued || action.message.upload ? action.message : { ...action.message, sentOver: state.connections };
+      return unsent({ ...state, messages: [...state.messages, message], focus });
+    }
+    // After the timeline, as what waits for the room is, leaving it where it is. What went, went over the
+    // outbox's socket or an earlier view's, none of this one's. A view opened twice over, as React opens it
+    // in development, takes them back twice.
+    case "kept": {
+      const kept = action.messages.flatMap(({ sentOver: _, ...k }) => (state.messages.some((m) => isPending(m) && m.clientMessageId === k.clientMessageId) ? [] : [k]));
+      return kept.length === 0 ? state : { ...state, messages: [...state.messages, ...kept] };
     }
     case "sent": {
       const sent = (m: Message | PendingMessage): m is PendingMessage => isQueued(m) && action.clientMessageIds.includes(m.clientMessageId);
-      return { ...state, messages: state.messages.map((m) => (sent(m) ? dequeued(m) : m)) };
+      return { ...state, messages: state.messages.map((m) => (sent(m) ? { ...dequeued(m), sentOver: state.connections } : m)) };
     }
     case "upload-progress":
       return { ...state, messages: uploading(state.messages, action.clientMessageId, (upload) => ({ ...upload, percent: action.percent })) };

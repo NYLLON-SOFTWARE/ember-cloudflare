@@ -1,5 +1,5 @@
 import type { WebSocketRoute } from "@playwright/test";
-import { ROOM_SOCKET } from "../../fixtures";
+import { editorField, ROOM_SOCKET } from "../../fixtures";
 import { expect, test, type Member, type Members } from "./fixtures";
 
 test.describe("Who's here", () => {
@@ -171,5 +171,46 @@ test.describe("Catch up after a reconnect", () => {
     await expect(grace.message("Written during a short drop")).toBeVisible();
     await expect(ada.message("Written during a short drop")).not.toHaveAttribute("aria-busy");
     await expect(ada.message("Written during a short drop")).toHaveCount(1);
+  });
+
+  test("sends a message written during a short drop once the connection is back, though the room was left meanwhile", async ({ members, rooms }) => {
+    const { ada, cut, restore } = await cuttable(members);
+    const grace = await members.signIn("Grace");
+    const room = (name: string) => ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name });
+
+    await cut();
+    await ada.send("Written before leaving");
+    await expect(ada.message("Written before leaving")).toHaveAttribute("aria-busy", "true");
+    await room(rooms.random.name).click();
+    await expect(ada.page.getByRole("log", { name: `Messages in ${rooms.random.name}` })).toBeVisible();
+
+    restore();
+    await expect(grace.message("Written before leaving")).toBeVisible();
+    await room(rooms.general.name).click();
+    await expect(ada.message("Written before leaving")).not.toHaveAttribute("aria-busy");
+    for (const member of [ada, grace]) await expect(member.message("Written before leaving")).toHaveCount(1);
+  });
+
+  test("sends a reply written during a short drop once the connection is back, though the thread was closed meanwhile", async ({ members }) => {
+    const { ada, cut, restore } = await cuttable(members);
+    const grace = await members.signIn("Grace");
+    const thread = ada.page.getByRole("complementary", { name: "Thread" });
+    const replies = (member: Member) => member.message("Who has the keys?").getByRole("link", { name: /^1 reply\b/ });
+    await grace.send("Who has the keys?");
+    await (await ada.actions("Who has the keys?")).getByRole("link", { name: "Reply in thread" }).click();
+    await expect(thread.getByRole("article").filter({ hasText: "Who has the keys?" })).toBeVisible();
+
+    await cut();
+    await editorField(thread, "Write a reply").fill("In the cupboard");
+    await editorField(thread, "Write a reply").press("Enter");
+    await expect(thread.getByRole("article").filter({ hasText: "In the cupboard" })).toHaveAttribute("aria-busy", "true");
+    await thread.getByRole("link", { name: "Close thread" }).click();
+    await expect(thread).toHaveCount(0);
+
+    restore();
+    await expect(replies(grace)).toBeVisible();
+    await replies(ada).click();
+    await expect(thread.getByRole("article").filter({ hasText: "In the cupboard" })).toHaveCount(1);
+    await expect(thread.getByRole("article").filter({ hasText: "In the cupboard" })).not.toHaveAttribute("aria-busy");
   });
 });

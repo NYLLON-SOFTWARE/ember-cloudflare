@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef } from "react";
 import { HISTORY_PAGE_SIZE, MAX_CHECKED_MESSAGES, MESSAGE_TOO_LONG, type Message, type User } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
+import { handOver, leftUnsent, takeBack } from "@/lib/outbox";
 import { isQueued, unconfirmed, type ConnectionStatus, type PendingMessage } from "@/lib/room-state";
 import { initialThreadState, threadReducer } from "@/lib/thread-state";
 import { UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
+import { useLatestReducer } from "./use-latest-reducer";
 import { isTooLong, messageActionsOf, pendingMessage, type RoomFrames } from "./use-room";
 
 /**
@@ -11,12 +13,15 @@ import { isTooLong, messageActionsOf, pendingMessage, type RoomFrames } from "./
  * `frames`, as `me`, whose connection to the room is `status`, and `offline` once it's been away a while.
  * `openedAt` is the reply whose permalink opened the thread, which it goes to as `jump` does. It asks the
  * room for the thread as it opens, and again each time the room lets the page in again, and tells the
- * room as it closes, so that its replies reach this person as pushes again.
+ * room as it closes, so that its replies reach this person as pushes again. Replies it leaves unsent as
+ * it closes, the outbox sends.
  */
 export function useThread(roomId: string, frames: RoomFrames, status: ConnectionStatus, offline: boolean, me: User, parentId: string, openedAt?: string) {
-  const [state, dispatch] = useReducer(threadReducer, { parentId, replyId: openedAt }, initialThreadState);
+  const [state, dispatch, latest] = useLatestReducer(threadReducer, () => initialThreadState({ parentId, replyId: openedAt }));
   const { send } = frames;
   const closed = useRef(false);
+  // As the room's timeline takes back what was left unsent there, the thread takes back its replies.
+  const takeBackUnsent = useEffectEvent(() => takeBack(roomId, me, parentId));
 
   // As useRoom asks about the messages a reconnect doesn't confirm, the thread asks about its replies,
   // once it has opened again.
@@ -37,6 +42,8 @@ export function useThread(roomId: string, frames: RoomFrames, status: Connection
 
   useEffect(() => {
     closed.current = false;
+    const kept = takeBackUnsent();
+    if (kept.length > 0) dispatch({ type: "kept", messages: kept });
     const open = () => send({ type: "thread.open", parentId });
     const stop = frames.listen((frame) => {
       dispatch({ type: "frame", frame, now: Date.now() });
@@ -52,6 +59,7 @@ export function useThread(roomId: string, frames: RoomFrames, status: Connection
       closed.current = true;
       stop();
       send({ type: "thread.close", parentId });
+      handOver(roomId, leftUnsent(latest.current.replies));
     };
   }, [frames, send, parentId]);
 

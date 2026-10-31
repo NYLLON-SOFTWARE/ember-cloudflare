@@ -1,6 +1,8 @@
 import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type Message, type ServerFrame, type User } from "@ember/protocol";
-import { act, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { takeBack } from "@/lib/outbox";
 import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
 import { isPending } from "@/lib/room-state";
 import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
@@ -110,6 +112,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // The views a test leaves open close while the fakes stand in, and what they leave unsent goes with the
+  // test, rather than to the next.
+  cleanup();
+  takeBack("general", ada);
+  takeBack("general", ada, "m1");
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -411,6 +418,150 @@ describe("Catch up after a reconnect", () => {
     expect(socket().closedWith).toBe(1000);
     wait(60_000);
     expect(FakeSocket.all).toHaveLength(1);
+  });
+});
+
+/** Once the views going have handed what they left unsent to the outbox, which connects then. */
+const handedOver = () => act(async () => {});
+/** The sockets the outbox opened, a hidden tab's, so that the room reads nothing for them. */
+const outboxSockets = () => FakeSocket.all.filter((s) => s.url.includes("visible=0"));
+/** The room's copy of what Ada wrote as `written`. */
+const stored = (id: string, written: Message, overrides: Partial<Message> = {}): Message =>
+  message(id, { clientMessageId: written.clientMessageId, body: written.body, plainText: written.plainText, ...overrides });
+
+describe("Leave a room with messages waiting", () => {
+  /** Ada in #general, whose connection dropped, leaving the room after writing `bodies`. */
+  async function leaveWhileAway(...bodies: string[]) {
+    const { result, unmount } = joinGeneral();
+    socket().drop();
+    for (const body of bodies) act(() => result.current.postMessage(body));
+    const written = result.current.state.messages;
+    unmount();
+    await handedOver();
+    return written;
+  }
+
+  it("sends what was written while the room was away once it's back, after the room is left, over a socket of its own", async () => {
+    const [written] = await leaveWhileAway("Written while away");
+    const [outbox] = outboxSockets();
+    expect(outbox!.url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=4");
+    outbox!.open();
+    outbox!.receive(welcome());
+    expect(outbox!.sent).toEqual([{ type: "message.create", clientMessageId: written!.clientMessageId, body: "Written while away" }]);
+
+    outbox!.receive({ type: "message.created", message: stored("m1", written!), seq: 1 });
+    expect(outbox!.closedWith).toBe(1000);
+    // Nothing waits for the room's next view, which has it from the room.
+    const { result } = joinGeneral({ messages: [stored("m1", written!)] });
+    expect(result.current.state.messages).toEqual([stored("m1", written!)]);
+    expect(socket().sent).toEqual([]);
+  });
+
+  it("asks the room about what went just before the connection dropped, once the room is left", async () => {
+    const { result, unmount } = joinGeneral();
+    act(() => result.current.postMessage("Just before"));
+    const [written] = result.current.state.messages;
+    socket().drop();
+    unmount();
+    await handedOver();
+    const [outbox] = outboxSockets();
+    outbox!.open();
+    outbox!.receive(welcome());
+    expect(outbox!.sent).toEqual([{ type: "message.check", clientMessageIds: [written!.clientMessageId] }]);
+    outbox!.receive({ type: "message.checked", stored: [written!.clientMessageId], missing: [] });
+    expect(outbox!.closedWith).toBe(1000);
+  });
+
+  it("keeps what it asked the room about after a reconnect, when the room is left before the room answers", async () => {
+    const { result, unmount } = joinGeneral();
+    act(() => result.current.postMessage("Just before"));
+    const [written] = result.current.state.messages;
+    socket().drop();
+    wait(500);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.check")).toEqual([{ type: "message.check", clientMessageIds: [written!.clientMessageId] }]);
+    unmount();
+    await handedOver();
+
+    const [outbox] = outboxSockets();
+    outbox!.open();
+    outbox!.receive(welcome());
+    expect(outbox!.sent).toEqual([{ type: "message.check", clientMessageIds: [written!.clientMessageId] }]);
+    outbox!.receive({ type: "message.checked", stored: [], missing: [written!.clientMessageId] });
+    const next = joinGeneral();
+    expect(next.result.current.state.messages).toMatchObject([{ clientMessageId: written!.clientMessageId, failed: true }]);
+  });
+
+  it("keeps what the outbox sent, when the room is opened again and left before the room answers for it", async () => {
+    const [written] = await leaveWhileAway("Written while away");
+    const [outbox] = outboxSockets();
+    outbox!.open();
+    outbox!.receive(welcome());
+    outbox!.drop();
+    const { unmount } = joinGeneral();
+    expect(socket().sentOfType("message.check")).toEqual([{ type: "message.check", clientMessageIds: [written!.clientMessageId] }]);
+    unmount();
+    await handedOver();
+
+    const again = outboxSockets().at(-1)!;
+    expect(again).not.toBe(outbox);
+    again.open();
+    again.receive(welcome());
+    expect(again.sent).toEqual([{ type: "message.check", clientMessageIds: [written!.clientMessageId] }]);
+    again.receive({ type: "message.checked", stored: [written!.clientMessageId], missing: [] });
+    expect(again.closedWith).toBe(1000);
+  });
+
+  it("sends nothing twice that went as the room was left, before the page had shown it going", async () => {
+    const { result, unmount } = joinGeneral();
+    socket().drop();
+    act(() => result.current.postMessage("Written while away"));
+    wait(500);
+    const room = socket();
+    room.open();
+    // The room lets the page in, and the page sends what was waiting, as a click leaves the room.
+    act(() => {
+      room.onmessage?.({ data: JSON.stringify(welcome()) });
+      unmount();
+    });
+    await handedOver();
+    expect(room.sentOfType("message.create")).toHaveLength(1);
+    expect(outboxSockets()).toEqual([]);
+  });
+
+  it("takes back what's still waiting when the room is opened again, sending it once the room lets the page in", async () => {
+    const [written] = await leaveWhileAway("Written while away");
+    const [outbox] = outboxSockets();
+    const { result } = joinGeneral({ connect: false });
+    expect(outbox!.closedWith).toBe(1000);
+    expect(result.current.state.messages).toEqual([written]);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.create")).toEqual([{ type: "message.create", clientMessageId: written!.clientMessageId, body: "Written while away" }]);
+  });
+
+  it("takes it back once when the room is opened twice over, as React opens it in development", async () => {
+    const [written] = await leaveWhileAway("Written while away");
+    const outboxes = outboxSockets().length;
+    const { result } = renderHook(() => useRoom("general", ada, () => {}), { wrapper: StrictMode });
+    await handedOver();
+    expect(result.current.state.messages).toEqual([written]);
+    expect(outboxSockets()).toHaveLength(outboxes);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.create")).toHaveLength(1);
+  });
+
+  it(`shows what couldn't be sent within ${OFFLINE_AFTER_MS / 1000} seconds of leaving as not sent once the room is opened again, without saying it's not connected`, async () => {
+    const [written] = await leaveWhileAway("Written while away");
+    wait(OFFLINE_AFTER_MS);
+    const { result } = joinGeneral();
+    const [shown] = result.current.state.messages;
+    expect(shown).toMatchObject({ clientMessageId: written!.clientMessageId, pending: true, failed: true });
+    expect(shown).not.toHaveProperty("queued");
+    expect(result.current.state.notice).toBeNull();
+    expect(socket().sent).toEqual([]);
   });
 });
 
@@ -1286,5 +1437,94 @@ describe("Threads", () => {
     const [pending] = result.current.thread.state.replies.messages;
     expect(uploadFile).toHaveBeenCalledWith("general", file, pending!.clientMessageId, expect.any(Function), { parentId: "m1", alsoSend: true });
     expect(pending).toMatchObject({ pending: true, parentId: "m1", alsoSent: true, upload: { name: "a.txt", percent: 0 } });
+  });
+
+  describe("Close a thread with replies waiting", () => {
+    /**
+     * m1's thread, opened beside Ada's #general, `room`, apart from it, so that it can close while the room
+     * stays open, and opened twice over, as React opens it in development, when `strict`.
+     */
+    const openBeside = (room: ReturnType<typeof joinGeneral>, { strict = false } = {}) =>
+      renderHook(
+        () => {
+          const { frames, state } = room.result.current;
+          return useThread("general", frames, state.status, state.offline, ada, "m1");
+        },
+        { wrapper: strict ? StrictMode : undefined },
+      );
+
+    /** Ada's reply in m1's thread, written while the room was away, and the room she's still in, once she closes the thread. */
+    async function closeWhileAway(alsoSend: boolean) {
+      const room = joinGeneral({ messages: [parent] });
+      const thread = openBeside(room);
+      socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [], hasMore: false });
+      socket().drop();
+      act(() => void thread.result.current.postReply("<p>Written while away</p>", alsoSend));
+      const [written] = thread.result.current.state.replies.messages;
+      thread.unmount();
+      await handedOver();
+      return { room, written: written! };
+    }
+
+    it("sends what was written in the thread while the room was away once it's back, after the thread is closed", async () => {
+      const { written } = await closeWhileAway(true);
+      const [outbox] = outboxSockets();
+      outbox!.open();
+      outbox!.receive(welcome());
+      expect(outbox!.sent).toEqual([{ type: "message.create", clientMessageId: written.clientMessageId, body: "<p>Written while away</p>", parentId: "m1", alsoSend: true }]);
+      outbox!.receive({ type: "message.created", message: stored("r1", written, { parentId: "m1", alsoSent: true }), seq: 1 });
+      expect(outbox!.closedWith).toBe(1000);
+    });
+
+    it("takes back the replies still waiting when the thread opens again, sending them once the room lets the page in", async () => {
+      const { room, written } = await closeWhileAway(false);
+      const [outbox] = outboxSockets();
+      const { result } = openBeside(room);
+      expect(outbox!.closedWith).toBe(1000);
+      expect(result.current.state.replies.messages).toEqual([written]);
+
+      wait(500);
+      socket().open();
+      socket().receive({ type: "welcome", you: ada, messages: [parent], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
+      socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [], hasMore: false });
+      expect(socket().sentOfType("message.create")).toEqual([{ type: "message.create", clientMessageId: written.clientMessageId, body: "<p>Written while away</p>", parentId: "m1", alsoSend: false }]);
+    });
+
+    it("takes them back once when the thread opens twice over, as React opens it in development", async () => {
+      const { room, written } = await closeWhileAway(false);
+      const { result } = openBeside(room, { strict: true });
+      await handedOver();
+      expect(result.current.state.replies.messages).toEqual([written]);
+      wait(500);
+      socket().open();
+      socket().receive({ type: "welcome", you: ada, messages: [parent], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
+      socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [], hasMore: false });
+      expect(socket().sentOfType("message.create")).toHaveLength(1);
+    });
+
+    it("sends what was waiting in the room and in its thread over one socket, in the order it was written, once the room is left with the thread open", async () => {
+      const { result, unmount } = openThread();
+      socket().receive({ type: "thread.opened", parentId: "m1", parent, messages: [], hasMore: false });
+      socket().drop();
+      act(() => void result.current.room.postMessage("In the room"));
+      wait(1);
+      act(() => void result.current.thread.postReply("<p>In the thread</p>", true));
+      wait(1);
+      act(() => void result.current.room.postMessage("In the room again"));
+      const [first, again] = result.current.room.state.messages.filter(isPending);
+      const [inThread] = result.current.thread.state.replies.messages;
+      unmount();
+      await handedOver();
+
+      expect(outboxSockets()).toHaveLength(1);
+      const [outbox] = outboxSockets();
+      outbox!.open();
+      outbox!.receive(welcome());
+      expect(outbox!.sentOfType("message.create").map((frame) => frame.body)).toEqual(["In the room", "<p>In the thread</p>", "In the room again"]);
+      outbox!.receive({ type: "message.created", message: stored("m2", first!), seq: 1 });
+      outbox!.receive({ type: "message.created", message: stored("r1", inThread!, { parentId: "m1", alsoSent: true }), seq: 2 });
+      outbox!.receive({ type: "message.created", message: stored("m3", again!), seq: 3 });
+      expect(outbox!.closedWith).toBe(1000);
+    });
   });
 });
