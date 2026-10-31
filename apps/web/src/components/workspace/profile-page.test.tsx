@@ -14,6 +14,7 @@ import {
   type ProfileChanges,
   type SidebarRoom,
 } from "@ember/protocol";
+import type { AnswerLevelChanges, AnswerLevelsAnswer, YourAnswerLevels } from "@ember/protocol/assistant";
 import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
@@ -29,7 +30,9 @@ vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob([
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Ada's avatar as the profile loads it: her initials, until she uploads one. */
 const INITIALS = "/users/t0k3n/avatar?v=1";
-const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null };
+const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, assistant: null };
+/** Ada's levels of @ember's dials while Ember AI is on: where they start, up to Medium thinking. */
+const LEVELS: YourAnswerLevels = { levels: { thinking: "low", length: "medium" }, most: { thinking: "medium", length: "long" } };
 const account: Account = { name: "Analytical Engines", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {} };
 /** The sign-in links loading and saving the profile give. */
 const [LOADED_LINK, SAVED_LINK] = ["u1.mgk3x2a9.loaded", "u1.mgk3x2b0.saved"];
@@ -41,6 +44,8 @@ interface Answers {
   saved?: () => Response | Promise<Response>;
   /** What saving an avatar answers, rather than the profile with an avatar. */
   uploaded?: () => Response | Promise<Response>;
+  /** What changing your levels of @ember's dials answers, rather than `LEVELS` with the changes sent. */
+  leveled?: () => Response | Promise<Response>;
 }
 
 /** Ada's avatar once she has uploaded one. */
@@ -51,6 +56,7 @@ function serve({
   loaded = () => Response.json({ profile, transferId: LOADED_LINK } satisfies ProfileAnswer),
   saved,
   uploaded = () => Response.json({ profile: { ...profile, avatarUrl: UPLOADED, avatar: true }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+  leveled,
 }: Answers = {}) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
@@ -63,6 +69,10 @@ function serve({
       }
       case `PUT ${AVATAR_PATH}`:
         return uploaded();
+      case "PATCH /api/users/me/assistant": {
+        const changes = JSON.parse(String(init?.body)) as AnswerLevelChanges;
+        return leveled ? leveled() : Response.json({ assistant: { ...LEVELS, levels: { ...LEVELS.levels, ...changes } } } satisfies AnswerLevelsAnswer);
+      }
       case `DELETE ${AVATAR_PATH}`:
         return Response.json({ profile: { ...profile, avatarUrl: "/users/t0k3n/avatar?v=3" }, transferId: SAVED_LINK } satisfies ProfileAnswer);
       default:
@@ -441,6 +451,93 @@ describe("Connect Memberful", () => {
     showPage();
     await loaded();
     expect(memberful()).not.toBeInTheDocument();
+  });
+});
+
+describe("Ember AI on your profile", () => {
+  const section = () => screen.queryByRole("region", { name: "Ember AI" });
+  const dial = (name: string) => within(section()!).getByRole("group", { name });
+  const level = (dialName: string, name: string) => within(dial(dialName)).getByRole("radio", { name });
+  const withLevels = () => serve({ loaded: () => Response.json({ profile: { ...profile, assistant: LEVELS }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+
+  it("has your levels of @ember's dials while Ember AI is on, between the form and your rooms' levels, none above the most allowed", async () => {
+    withLevels();
+    const { showRooms } = showPage();
+    await loaded();
+    showRooms([{ id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" }]);
+    expect(section()).toHaveTextContent("How much @ember thinks before it answers you, and how long its answers are, up to the most an administrator allows.");
+    expect(level("Thinking", "Low")).toBeChecked();
+    expect(dial("Thinking")).toHaveAccessibleDescription("Thinks a little first, up to about 4,000 tokens.");
+    for (const name of ["Off", "Low", "Medium"]) expect(level("Thinking", name)).toBeEnabled();
+    expect(level("Thinking", "High")).toBeDisabled();
+    expect(level("Answer length", "Medium")).toBeChecked();
+    expect(dial("Answer length")).toHaveAccessibleDescription("About 400 words.");
+    expect(level("Answer length", "Long")).toBeEnabled();
+    expect(saveButton().compareDocumentPosition(section()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(section()!.compareDocumentPosition(screen.getByRole("list", { name: "Conversation notifications" }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("saves a level as soon as it's chosen, showing it meanwhile", async () => {
+    withLevels();
+    const { user } = showPage();
+    await loaded();
+    await user.click(level("Thinking", "Medium"));
+    expect(level("Thinking", "Medium")).toBeChecked();
+    await waitFor(() => expect(level("Thinking", "Off")).toBeEnabled());
+    expect(level("Thinking", "Medium")).toBeChecked();
+    expect(dial("Thinking")).toHaveAccessibleDescription("Thinks more first, up to about 16,000 tokens.");
+    await user.click(level("Answer length", "Long"));
+    await waitFor(() => expect(level("Answer length", "Long")).toBeChecked());
+    const sent = vi.mocked(fetch).mock.calls.filter(([path]) => path === "/api/users/me/assistant").map(([, init]) => [init?.method, JSON.parse(String(init?.body))]);
+    expect(sent).toEqual([["PATCH", { thinking: "medium" }], ["PATCH", { length: "long" }]]);
+  });
+
+  it("says why a level wasn't saved, showing it as it was", async () => {
+    serve({
+      loaded: () => Response.json({ profile: { ...profile, assistant: LEVELS }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+      leveled: () => Response.json({ error: "Choose a level the dial has." }, { status: 422 }),
+    });
+    const { user, onFailed } = showPage();
+    await loaded();
+    await user.click(level("Thinking", "Off"));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
+    expect(level("Thinking", "Low")).toBeChecked();
+    expect(level("Thinking", "Off")).toBeEnabled();
+  });
+
+  it("keeps the levels a dial saved when a save of the profile answers after it, with your levels from before", async () => {
+    let answer = (_: Response) => {};
+    serve({
+      loaded: () => Response.json({ profile: { ...profile, assistant: LEVELS }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+      saved: () => new Promise((resolve) => (answer = resolve)),
+    });
+    const { user } = showPage();
+    await loaded();
+    await user.type(field("Name"), " King");
+    await user.click(saveButton());
+    await user.click(level("Thinking", "Medium"));
+    await waitFor(() => expect(level("Thinking", "Off")).toBeEnabled());
+
+    await act(async () => answer(Response.json({ profile: { ...profile, name: "Ada Lovelace King", assistant: LEVELS }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(level("Thinking", "Medium")).toBeChecked();
+  });
+
+  it("has none once Ember AI is turned off, as a save says", async () => {
+    serve({
+      loaded: () => Response.json({ profile: { ...profile, assistant: LEVELS }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+      leveled: () => Response.json({ assistant: null } satisfies AnswerLevelsAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    await user.click(level("Answer length", "Short"));
+    await waitFor(() => expect(section()).not.toBeInTheDocument());
+  });
+
+  it("has none while Ember AI is off", async () => {
+    showPage();
+    await loaded();
+    expect(section()).not.toBeInTheDocument();
   });
 });
 

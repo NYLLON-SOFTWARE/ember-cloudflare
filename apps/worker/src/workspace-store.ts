@@ -41,7 +41,7 @@ import {
   type UserId,
   type UserStatus,
 } from "@ember/protocol";
-import { MODEL_FORMATS, type ModelFormat } from "@ember/protocol/assistant";
+import { ANSWER_LENGTHS, MODEL_FORMATS, THINKING_LEVELS, TOP_LEVELS, type AnswerLength, type AnswerLevelChanges, type AnswerLevels, type ModelFormat, type ThinkingLevel } from "@ember/protocol/assistant";
 import { statement, type Db, type Statement } from "./db";
 import type { StoredPicture } from "./files/pictures";
 import { messagePayload, type PushPayload } from "./push/payload";
@@ -115,6 +115,8 @@ export interface JoinableAccount extends Omit<Account, "logo"> {
   turnstileKeys: SavedTurnstileKeys | null;
   /** How Ember AI asks AI Gateway, while an administrator has it on, or else null. */
   assistant: SavedAssistant | null;
+  /** The most each of @ember's dials goes to for anyone's questions, as administrators set it, whether Ember AI is on or not. */
+  assistantMost: AnswerLevels;
   /** Where a deploy puts Ember, as the latest page opened there told it, or null until one has (`EmberAddresses.deployed`). */
   deployedAddress: string | null;
   /** The custom domains Ember has moved away from, newest first, which may still reach it (`EmberAddresses.others`). */
@@ -219,6 +221,14 @@ export interface OwnProfileEntry extends ProfileEntry {
   membershipNeeded: boolean;
   /** The issuers of the accounts elsewhere they've connected, such as the Memberful site's address. */
   issuers: string[];
+  /** How much @ember thinks and how long it answers them, as they picked. */
+  levels: PickedLevels;
+}
+
+/** How much @ember thinks and how long it answers someone, as they picked each, or null for a dial they haven't. */
+export interface PickedLevels {
+  thinking: ThinkingLevel | null;
+  length: AnswerLength | null;
 }
 
 /** Someone who signs in with a Memberful account, which no account here is linked to yet. */
@@ -787,6 +797,19 @@ function assistantIn(settings: Record<string, unknown> | null): SavedAssistant |
   return (MODEL_FORMATS as readonly unknown[]).includes(format) ? { accountId, sealedApiToken, model, format: format as ModelFormat } : null;
 }
 
+/**
+ * The most each of @ember's dials goes to, which the account's settings keep as `assistant_limits`,
+ * `{ thinking, length }`, or the top for a dial administrators haven't set.
+ */
+function assistantMostIn(settings: Record<string, unknown> | null): AnswerLevels {
+  const kept = settings?.assistant_limits;
+  const { thinking, length } = typeof kept === "object" && kept !== null ? (kept as Record<string, unknown>) : {};
+  return { thinking: levelIn(THINKING_LEVELS, thinking) ?? TOP_LEVELS.thinking, length: levelIn(ANSWER_LENGTHS, length) ?? TOP_LEVELS.length };
+}
+
+/** `kept` as one of a dial's `levels`, or null when it isn't one. */
+const levelIn = <T extends string>(levels: readonly T[], kept: unknown): T | null => ((levels as readonly unknown[]).includes(kept) ? (kept as T) : null);
+
 /** Ember AI as the account's settings keep it (`assistantIn`), or null for off. */
 const assistantSetting = (assistant: SavedAssistant | null) =>
   JSON.stringify(assistant && { account_id: assistant.accountId, api_token: assistant.sealedApiToken, model: assistant.model, format: assistant.format });
@@ -1294,6 +1317,7 @@ const rememberSetting = (key: string) => `UPDATE accounts SET settings = json_se
     '$.${key}', json(?1)
   )`;
 const REMEMBER_DEPLOYED_ADDRESS = rememberSetting("deployed_address");
+const REMEMBER_ASSISTANT_LIMITS = rememberSetting("assistant_limits");
 const REMEMBER_OTHER_ADDRESSES = rememberSetting("other_addresses");
 
 /** Navigation icon changes as the merge patch `CHANGE_NAVIGATION_ICONS` takes them: null for a slot's default. */
@@ -1592,8 +1616,23 @@ const PERSON_WITH_PROFILE = `SELECT id, name, email_address, bio, role, status, 
 /** The same, with the avatar they've uploaded, and whether they have a password, which people without one keep as none or blank. */
 const OWN_PROFILE = `SELECT id, name, email_address, bio, role, status, updated_at, avatar_key, avatar_variant,
     coalesce(password_digest, '') <> '' AS password, NOT ${NEEDS_NO_MEMBERSHIP} AS membership_needed,
-    (SELECT json_group_array(issuer) FROM identities WHERE identities.user_id = users.id) AS issuers
+    (SELECT json_group_array(issuer) FROM identities WHERE identities.user_id = users.id) AS issuers,
+    assistant_thinking, assistant_answer_length
   FROM users WHERE id = ?`;
+
+/** How much someone picked for @ember to think and how long its answers to them are. */
+const ANSWER_LEVELS = `SELECT assistant_thinking, assistant_answer_length FROM users WHERE id = ?`;
+
+/** Changes the dials someone picks a level of, ?1 and ?2, a null one staying as it is. */
+const CHANGE_ANSWER_LEVELS = `UPDATE users SET assistant_thinking = coalesce(?1, assistant_thinking), assistant_answer_length = coalesce(?2, assistant_answer_length) WHERE id = ?3`;
+
+/** What a row's `assistant_thinking` and `assistant_answer_length` say someone picked. */
+const pickedLevelsOf = (row: LevelColumns): PickedLevels => ({ thinking: levelIn(THINKING_LEVELS, row.assistant_thinking), length: levelIn(ANSWER_LENGTHS, row.assistant_answer_length) });
+
+interface LevelColumns {
+  assistant_thinking: string | null;
+  assistant_answer_length: string | null;
+}
 
 /** Gives someone an avatar, or none, recording when, which changes its address. */
 const CHANGE_AVATAR = `UPDATE users SET avatar_key = ?, avatar_variant = ?, updated_at = ? WHERE id = ?`;
@@ -1751,6 +1790,7 @@ export class WorkspaceStore {
       resendApiKey: resendApiKeyIn(settings),
       turnstileKeys: turnstileKeysIn(settings),
       assistant: assistantIn(settings),
+      assistantMost: assistantMostIn(settings),
       deployedAddress: deployedAddressIn(settings),
       otherAddresses: otherAddressesIn(settings),
     };
@@ -2963,13 +3003,30 @@ export class WorkspaceStore {
 
   /** Someone with their profile and the avatar they've uploaded, whatever their status, or null if nobody has id `userId`. */
   async ownProfile(userId: UserId): Promise<OwnProfileEntry | null> {
-    const [row] = await this.db.all<DirectoryRow & AvatarColumns & { email_address: string | null; password: number; membership_needed: number; issuers: string }>(
+    const [row] = await this.db.all<DirectoryRow & AvatarColumns & LevelColumns & { email_address: string | null; password: number; membership_needed: number; issuers: string }>(
       OWN_PROFILE,
       userId,
     );
     if (!row) return null;
     const issuers = JSON.parse(row.issuers) as string[];
-    return { ...directoryEntry(row), emailAddress: row.email_address, avatar: avatarOf(row), password: row.password === 1, membershipNeeded: row.membership_needed === 1, issuers };
+    const membershipNeeded = row.membership_needed === 1;
+    return { ...directoryEntry(row), emailAddress: row.email_address, avatar: avatarOf(row), password: row.password === 1, membershipNeeded, issuers, levels: pickedLevelsOf(row) };
+  }
+
+  /** How much `userId` picked for @ember to think and how long its answers to them are, or null for nobody. */
+  async pickedLevels(userId: UserId): Promise<PickedLevels | null> {
+    const [row] = await this.db.all<LevelColumns>(ANSWER_LEVELS, userId);
+    return row ? pickedLevelsOf(row) : null;
+  }
+
+  /** Changes the levels `userId` picks of @ember's dials to `changes`, keeping a dial they leave out. */
+  async changePickedLevels(userId: UserId, changes: AnswerLevelChanges): Promise<void> {
+    await this.db.run(CHANGE_ANSWER_LEVELS, changes.thinking ?? null, changes.length ?? null, userId);
+  }
+
+  /** Sets the most each of @ember's dials goes to for anyone's questions, without recording when, as no page's address goes by it. */
+  async changeAssistantMost(most: AnswerLevels): Promise<void> {
+    await this.db.run(REMEMBER_ASSISTANT_LIMITS, JSON.stringify(most));
   }
 
   /**

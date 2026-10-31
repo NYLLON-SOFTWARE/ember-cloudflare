@@ -3,6 +3,7 @@ import {
   ACCOUNT_ID_REFUSED,
   ASSISTANT_FORBIDDEN,
   MODEL_REFUSED,
+  TOP_LEVELS,
   type AssistantForgotten,
   type AssistantSaved,
   type AssistantSetup,
@@ -130,7 +131,7 @@ describe("Ember AI", () => {
       const response = await setUpAssistant(administrator, { ...SETUP, accountId: ` ${ACCOUNT_ID.toUpperCase()} `, apiToken: ` ${API_TOKEN}\n` });
       expect(response.status, await response.clone().text()).toBe(200);
       expect(response.headers.get("Cache-Control")).toBe("no-store");
-      expect(await response.json()).toEqual({ assistant: { accountId: ACCOUNT_ID, model: SETUP.model }, greeting: HELLO } satisfies AssistantSaved);
+      expect(await response.json()).toEqual({ assistant: { accountId: ACCOUNT_ID, model: SETUP.model, most: TOP_LEVELS }, greeting: HELLO } satisfies AssistantSaved);
 
       // Claude takes Anthropic's Messages, with the instructions as its system prompt.
       expect(requests).toEqual([{ url: `${CLOUDFLARE_API}/messages`, authorization: `Bearer ${API_TOKEN}`, gateway: "default", body: expect.any(Object) as unknown }]);
@@ -144,7 +145,7 @@ describe("Ember AI", () => {
       // The database holds the API token sealed, never as it was given.
       expect((await storedSettings()).assistant).toEqual({ account_id: ACCOUNT_ID, api_token: expect.stringMatching(/^v1\.[\w-]{16}\.[\w-]+$/) as unknown, model: SETUP.model, format: "messages" });
       expect(JSON.stringify(await workspaceSql("SELECT * FROM accounts"))).not.toContain(API_TOKEN);
-      expect(await assistantSettings(administrator)).toEqual({ accountId: ACCOUNT_ID, model: SETUP.model });
+      expect(await assistantSettings(administrator)).toEqual({ accountId: ACCOUNT_ID, model: SETUP.model, most: TOP_LEVELS });
       expect(await assistantSettings(member)).toBeNull();
     });
 
@@ -194,7 +195,7 @@ describe("Ember AI", () => {
       await saved(administrator);
       const sealed = ((await storedSettings()).assistant as { api_token: string }).api_token;
       const changed = await saved(administrator, { ...withoutToken, model: "openai/gpt-6.1-sol" });
-      expect(changed.assistant).toEqual({ accountId: ACCOUNT_ID, model: "openai/gpt-6.1-sol" });
+      expect(changed.assistant).toEqual({ accountId: ACCOUNT_ID, model: "openai/gpt-6.1-sol", most: TOP_LEVELS });
       expect(requests.map(({ url, authorization }) => [url, authorization])).toEqual([
         [`${CLOUDFLARE_API}/messages`, `Bearer ${API_TOKEN}`],
         [`${CLOUDFLARE_API}/responses`, `Bearer ${API_TOKEN}`],

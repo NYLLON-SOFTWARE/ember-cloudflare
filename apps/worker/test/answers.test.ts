@@ -1,7 +1,19 @@
 import { ASSISTANT_ID, ASSISTANT_NAME, MAX_MESSAGE_LENGTH, type BotAnswer, type BotSettings, type DirectRoom, type Message, type NewWorkspace, type RoomId, type User } from "@ember/protocol";
+import { DEFAULT_LEVELS, TOP_LEVELS, type AnswerLevelChanges } from "@ember/protocol/assistant";
 import { MENTION_CONTENT_TYPE, mentionSgid, OPENGRAPH_EMBED_CONTENT_TYPE, prepareBody } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ANSWER_MAX_TOKENS, answerOf, MAX_CONVERSATION_LENGTH, NOTES, previewAttachment, questionFor, ROOM_MESSAGES_READ, THREAD_REPLIES_READ } from "../src/assistant/answers";
+import {
+  answerOf,
+  MAX_CONVERSATION_LENGTH,
+  maxTokensAt,
+  NOTES,
+  previewAttachment,
+  questionFor,
+  ROOM_MESSAGES_READ,
+  THREAD_REPLIES_READ,
+  UNTHINKING_TOKENS,
+  waitFor,
+} from "../src/assistant/answers";
 import { markdownHtml } from "../src/bots/markdown";
 import { api, connect, cookieOf, freshDeploy, post, roomSql, settle, shown, startDirect, workspaceSql, type Client, type Session } from "./support";
 
@@ -12,15 +24,17 @@ import { api, connect, cookieOf, freshDeploy, post, roomSql, settle, shown, star
 const EMBER: User = { id: ASSISTANT_ID, name: ASSISTANT_NAME };
 /** A Workers AI model, which takes Chat Completions, whose turns AI Gateway is sent as they are. */
 const MODEL = "@cf/zai-org/glm-4.7-flash";
+/** Anthropic's model, which takes Messages, and OpenAI's, which takes Responses. */
+const [MESSAGES_MODEL, RESPONSES_MODEL] = ["anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol"];
 const SETUP = { accountId: "0123456789abcdef0123456789abcdef", apiToken: "an-api-token-with-workers-ai-read_0123456", model: MODEL };
 
-/** Sets Ember up with Ada as its administrator, signed in, and Ember AI on, answering her session and the general room. */
-async function setUp(): Promise<{ ada: Session; general: RoomId }> {
+/** Sets Ember up with Ada as its administrator, signed in, and Ember AI on with `model`, answering her session and the general room. */
+async function setUp(model = MODEL): Promise<{ ada: Session; general: RoomId }> {
   const response = await api("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" }) });
   expect(response.status).toBe(201);
   const ada = { user: shown(((await response.json()) as NewWorkspace).user), cookie: cookieOf(response) };
-  vi.spyOn(globalThis, "fetch").mockImplementation(async () => chatAnswer("Hello, team!"));
-  const saved = await api("/api/account/assistant", { method: "PUT", headers: { Cookie: ada.cookie }, body: JSON.stringify(SETUP) });
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => answerAt(new Request(input, init).url, "Hello, team!"));
+  const saved = await api("/api/account/assistant", { method: "PUT", headers: { Cookie: ada.cookie }, body: JSON.stringify({ ...SETUP, model }) });
   expect(saved.status, await saved.clone().text()).toBe(200);
   vi.restoreAllMocks();
   const [{ id: general }] = (await workspaceSql("SELECT id FROM rooms WHERE name = 'general'")) as [{ id: RoomId }];
@@ -35,17 +49,60 @@ async function turnOff(administrator: Session): Promise<void> {
 /** How a message mentioning `person` is written. */
 const mention = (person: Pick<User, "id">) => `<action-text-attachment sgid="${mentionSgid(person.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
 
-/** A model's answer saying `text`, as Chat Completions answers. */
-const chatAnswer = (text: string) => Response.json({ object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }] });
+/** A model's answer saying `text`, as Chat Completions answers, stopped where it did for `reason`. */
+const chatAnswer = (text: string, reason: "stop" | "length" = "stop") =>
+  Response.json({ object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: reason }] });
+
+/**
+ * A model's answer saying `text` after its thinking, or only thinking when `text` is blank, in the format
+ * of the API at `url`, stopped at its token limit if `cut`.
+ */
+function answerAt(url: string, text: string, cut = false): Response {
+  if (url.endsWith("/messages")) {
+    const content = [{ type: "thinking", thinking: "Let me see." }, ...(text ? [{ type: "text", text }] : [])];
+    return Response.json({ type: "message", role: "assistant", content, stop_reason: cut ? "max_tokens" : "end_turn" });
+  }
+  if (url.endsWith("/responses")) {
+    const message = { type: "message", role: "assistant", content: [{ type: "output_text", text }] };
+    const output = [{ type: "reasoning", summary: [] }, ...(text ? [message] : [])];
+    return Response.json({ object: "response", output, ...(cut ? { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } } : { status: "completed" }) });
+  }
+  return chatAnswer(text, cut ? "length" : "stop");
+}
+
+/** Changes how much @ember thinks and how long it answers `person`, as their profile's dials do. */
+async function pickLevels(person: Session, changes: AnswerLevelChanges): Promise<void> {
+  const response = await api("/api/users/me/assistant", { method: "PATCH", headers: { Cookie: person.cookie }, body: JSON.stringify(changes) });
+  expect(response.status, await response.clone().text()).toBe(200);
+}
+
+/** Changes the most @ember thinks and writes for anyone as `administrator`, as the Ember AI card's dials do. */
+async function limitLevels(administrator: Session, changes: AnswerLevelChanges): Promise<void> {
+  const response = await api("/api/account/assistant", { method: "PATCH", headers: { Cookie: administrator.cookie }, body: JSON.stringify(changes) });
+  expect(response.status, await response.clone().text()).toBe(200);
+}
 
 /** Cloudflare's answer to a request it refuses with `status`, in its own shape. */
 const refusal = (status: number, code: number, message: string) => Response.json({ success: false, errors: [{ code, message }], messages: [], result: null }, { status });
 
-/** A question AI Gateway was sent, as Chat Completions takes it. */
+/**
+ * A question AI Gateway was sent, as Chat Completions takes it, or with the fields that Anthropic's
+ * Messages and OpenAI's Responses say how much to think and write with.
+ */
 interface Asked {
   url: string;
   metadata: string | null;
-  body: { model: string; max_completion_tokens: number; messages: Array<{ role: string; content: string }> };
+  body: {
+    model: string;
+    max_completion_tokens: number;
+    reasoning_effort?: string;
+    messages: Array<{ role: string; content: string }>;
+    max_tokens?: number;
+    thinking?: { type: string };
+    output_config?: { effort: string };
+    max_output_tokens?: number;
+    reasoning?: { effort: string };
+  };
 }
 
 /** A page with a preview, at http://www.example.com/, and the image it shows. */
@@ -143,9 +200,11 @@ describe("@ember", () => {
     expect(url).toBe(`https://api.cloudflare.com/client/v4/accounts/${SETUP.accountId}/ai/v1/chat/completions`);
     // AI Gateway's logs and spend limits know each request by who asked.
     expect(JSON.parse(metadata!)).toEqual({ user_id: ada.user.id });
-    expect(body).toMatchObject({ model: MODEL, max_completion_tokens: ANSWER_MAX_TOKENS });
+    // At the levels everyone starts with: a little thinking, and a Medium answer.
+    expect(body).toMatchObject({ model: MODEL, max_completion_tokens: maxTokensAt(DEFAULT_LEVELS), reasoning_effort: "low" });
     const [instructions, ...turns] = body.messages;
     expect(instructions!.role).toBe("system");
+    expect(instructions!.content).toContain("in at most about 400 words.");
     expect(instructions!.content).toContain(`You're asked in the room "general".`);
     expect(instructions!.content).toContain("Answer the last one, which Ada Lovelace wrote");
     expect(turns).toEqual([
@@ -279,6 +338,124 @@ describe("@ember", () => {
     client.close();
   });
 
+  it("thinks and writes as much as the asker picked, up to the most an administrator allows", async () => {
+    const { ada, general } = await setUp();
+    const questions = internet(() => chatAnswer("Here's the plan."));
+    const client = await connect(general, ada);
+
+    await pickLevels(ada, { thinking: "high", length: "long" });
+    await post(client, `<p>${mention(EMBER)} plan the launch?</p>`);
+    await nextAnswer(client);
+    await limitLevels(ada, { thinking: "medium", length: "short" });
+    await post(client, `<p>${mention(EMBER)} and the party?</p>`);
+    await nextAnswer(client);
+    await pickLevels(ada, { thinking: "off" });
+    await post(client, `<p>${mention(EMBER)} quickly?</p>`);
+    await nextAnswer(client);
+
+    expect(questions.map(({ body }) => [body.reasoning_effort, body.max_completion_tokens])).toEqual([
+      ["high", 32_000 + 6_000],
+      ["medium", 16_000 + 1_000],
+      // Room for a model that thinks a little all the same, as thinking counts toward the most.
+      ["none", UNTHINKING_TOKENS + 1_000],
+    ]);
+    expect(questions.map(({ body }) => body.messages[0]!.content.match(/in at most about ([\d,]+) words/)![1])).toEqual(["1,500", "150", "150"]);
+    client.close();
+  });
+
+  it("asks a model that doesn't take a thinking level again without one", async () => {
+    const { ada, general } = await setUp();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const questions = internet(({ body }) =>
+      body.reasoning_effort === undefined ? chatAnswer("Without thinking.") : Response.json({ error: { message: "Unrecognized request argument supplied: reasoning_effort" } }, { status: 400 }),
+    );
+    const client = await connect(general, ada);
+
+    await post(client, `<p>${mention(EMBER)} hello?</p>`);
+    expect(await nextAnswer(client)).toMatchObject({ plainText: "Without thinking." });
+    expect(questions.map(({ body }) => body.reasoning_effort)).toEqual(["low", undefined]);
+    expect(questions[1]!.body.max_completion_tokens).toBe(questions[0]!.body.max_completion_tokens);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining(`Asking ${MODEL} again without a thinking level`));
+    client.close();
+  });
+
+  it("asks a model that takes Anthropic's Messages to think adaptively at the asker's effort, Low at Off, and again without thinking when it won't", async () => {
+    const { ada, general } = await setUp(MESSAGES_MODEL);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const questions = internet(({ url, body }) =>
+      body.output_config?.effort === "high"
+        ? Response.json({ type: "error", error: { type: "invalid_request_error", message: "output_config.effort: high isn't available for this model" } }, { status: 400 })
+        : answerAt(url, "Here's the plan."),
+    );
+    const client = await connect(general, ada);
+
+    await post(client, `<p>${mention(EMBER)} plan the launch?</p>`);
+    await nextAnswer(client);
+    await pickLevels(ada, { thinking: "off", length: "short" });
+    await post(client, `<p>${mention(EMBER)} quickly?</p>`);
+    await nextAnswer(client);
+    await pickLevels(ada, { thinking: "high" });
+    await post(client, `<p>${mention(EMBER)} and the party?</p>`);
+    expect(await nextAnswer(client)).toMatchObject({ plainText: "Here's the plan." });
+
+    expect(questions.map(({ body }) => [body.thinking, body.output_config, body.max_tokens])).toEqual([
+      [{ type: "adaptive" }, { effort: "low" }, 4_000 + 2_000],
+      // Anthropic's newest models don't turn thinking off, so Off asks them to think as little as they do.
+      [{ type: "adaptive" }, { effort: "low" }, UNTHINKING_TOKENS + 1_000],
+      [{ type: "adaptive" }, { effort: "high" }, 32_000 + 1_000],
+      [undefined, undefined, 32_000 + 1_000],
+    ]);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining(`Asking ${MESSAGES_MODEL} again without a thinking level`));
+    client.close();
+  });
+
+  it("asks a model that takes OpenAI's Responses to reason at the asker's effort, none at Off, and again without reasoning when it won't", async () => {
+    const { ada, general } = await setUp(RESPONSES_MODEL);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const questions = internet(({ url, body }) =>
+      body.reasoning?.effort === "none"
+        ? Response.json({ error: { message: "Unsupported value: 'reasoning.effort' does not support 'none' with this model.", type: "invalid_request_error" } }, { status: 400 })
+        : answerAt(url, "Here's the plan."),
+    );
+    const client = await connect(general, ada);
+
+    await post(client, `<p>${mention(EMBER)} plan the launch?</p>`);
+    await nextAnswer(client);
+    await pickLevels(ada, { thinking: "off", length: "short" });
+    await post(client, `<p>${mention(EMBER)} quickly?</p>`);
+    expect(await nextAnswer(client)).toMatchObject({ plainText: "Here's the plan." });
+    await pickLevels(ada, { thinking: "high" });
+    await post(client, `<p>${mention(EMBER)} and the party?</p>`);
+    await nextAnswer(client);
+
+    expect(questions.map(({ body }) => [body.reasoning, body.max_output_tokens])).toEqual([
+      [{ effort: "low" }, 4_000 + 2_000],
+      [{ effort: "none" }, UNTHINKING_TOKENS + 1_000],
+      [undefined, UNTHINKING_TOKENS + 1_000],
+      [{ effort: "high" }, 32_000 + 1_000],
+    ]);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining(`Asking ${RESPONSES_MODEL} again without a thinking level`));
+    client.close();
+  });
+
+  it.each([
+    ["Chat Completions", MODEL],
+    ["Anthropic's Messages", MESSAGES_MODEL],
+    ["OpenAI's Responses", RESPONSES_MODEL],
+  ])("ends an answer cut short in %s with an ellipsis, and says so when it was cut short before it wrote anything", async (_, model) => {
+    const { ada, general } = await setUp(model);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const answers = ["The first three steps are", ""];
+    internet(({ url }) => answerAt(url, answers.shift()!, true));
+    const client = await connect(general, ada);
+
+    await post(client, `<p>${mention(EMBER)} all the steps?</p>`);
+    expect(await nextAnswer(client)).toMatchObject({ plainText: "The first three steps are\n\n…" });
+    await post(client, `<p>${mention(EMBER)} and now?</p>`);
+    expect(await nextAnswer(client)).toMatchObject({ plainText: NOTES["out of room"] });
+    client.close();
+  });
+
   it("says why it can't answer when AI Gateway refuses, in a note, and logs Cloudflare's words", async () => {
     const { ada, general } = await setUp();
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -340,14 +517,24 @@ const NOW = new Date("2026-10-31T12:00:00Z");
 
 describe("What @ember asks its model", () => {
   it("says who it is, where it's asked, by whom, and today's date, and labels the question with who asked", () => {
-    const { instructions, maxTokens, askerId } = questionFor([message("1", "Hi")], ADA, IN_GENERAL, NOW);
+    const { instructions, maxTokens, thinking, askerId } = questionFor([message("1", "Hi")], ADA, IN_GENERAL, DEFAULT_LEVELS, NOW);
     expect(instructions).toContain(`You are Ember, the AI assistant in the team chat "Fernwood".`);
     expect(instructions).toContain(`You're asked in the room "general".`);
     expect(instructions).toContain("Answer the last one, which Ada Lovelace wrote");
     expect(instructions).toContain("Today is Saturday, October 31, 2026, in UTC.");
-    expect(maxTokens).toBe(ANSWER_MAX_TOKENS);
+    expect(instructions).toContain("in at most about 400 words.");
+    expect([thinking, maxTokens]).toEqual(["low", 4_000 + 2_000]);
     expect(askerId).toBe("ada");
-    expect(questionFor([message("1", "Hi")], ADA, { ...IN_GENERAL, roomName: null }, NOW).instructions).toContain("You're asked in a direct message.");
+    expect(questionFor([message("1", "Hi")], ADA, { ...IN_GENERAL, roomName: null }, DEFAULT_LEVELS, NOW).instructions).toContain("You're asked in a direct message.");
+  });
+
+  it("waits two minutes for an answer, or longer the more it may think and write, never as long as a pending request keeps a room in memory", () => {
+    const waiting = (levels: typeof DEFAULT_LEVELS) => waitFor(questionFor([message("1", "Hi")], ADA, IN_GENERAL, levels, NOW));
+    expect(waiting(DEFAULT_LEVELS)).toBe(120_000);
+    expect(waiting({ thinking: "off", length: "short" })).toBe(120_000);
+    expect(waiting({ thinking: "medium", length: "medium" })).toBe(18_000 * 20);
+    expect(waiting(TOP_LEVELS)).toBe(38_000 * 20);
+    expect(waiting(TOP_LEVELS)).toBeLessThan(15 * 60_000);
   });
 
   it("reads each message after its writer's name, its own answers as its own, files by their names, and leaves out what's deleted or blank", () => {
@@ -360,7 +547,7 @@ describe("What @ember asks its model", () => {
       message("6", "  "),
       message("7", "@Ember thanks!"),
     ];
-    expect(questionFor(conversation, ADA, IN_GENERAL, NOW).turns).toEqual([
+    expect(questionFor(conversation, ADA, IN_GENERAL, DEFAULT_LEVELS, NOW).turns).toEqual([
       { role: "user", text: "Ada Lovelace: Who's in?" },
       { role: "user", text: "Grace Hopper: Me" },
       { role: "assistant", text: "Ada and Grace are." },
@@ -372,7 +559,7 @@ describe("What @ember asks its model", () => {
   it("reads the newest messages that fit, the question always, and a thread's first message first", () => {
     const long = "x".repeat(MAX_CONVERSATION_LENGTH / 4);
     const conversation = ["1", "2", "3", "4", "5"].map((id) => message(id, `${id}${long}`)).concat(message("6", "@Ember what now?"));
-    const texts = (inThread: boolean) => questionFor(conversation, ADA, { ...IN_GENERAL, inThread }, NOW).turns.map(({ text }) => text.slice(14, 15));
+    const texts = (inThread: boolean) => questionFor(conversation, ADA, { ...IN_GENERAL, inThread }, DEFAULT_LEVELS, NOW).turns.map(({ text }) => text.slice(14, 15));
     expect(texts(false)).toEqual(["3", "4", "5", "@"]);
     expect(texts(true)).toEqual(["1", "4", "5", "@"]);
   });

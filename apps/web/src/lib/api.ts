@@ -6,6 +6,9 @@ import {
   WORKSPACE_PRELOADS,
   type Account,
   type AccountChanges,
+  type AnswerLevelChanges,
+  type AnswerLevelsAnswer,
+  type AssistantChanged,
   type AssistantForgotten,
   type AssistantSaved,
   type AssistantSetup,
@@ -494,6 +497,19 @@ export async function saveAssistant(setup: AssistantSetup): Promise<AssistantSav
 /** Turns Ember AI off, forgetting its API token. Fails with a 403 ApiError for anyone but an administrator. */
 export async function forgetAssistant(): Promise<null> {
   return (await request<AssistantForgotten>("/api/account/assistant", { method: "DELETE" })).assistant;
+}
+
+/**
+ * Changes the most each of @ember's dials goes to for anyone's questions, answering Ember AI as it is
+ * then. Fails with a 409 ApiError while it's off, and a 403 one for anyone but an administrator.
+ */
+export async function changeAssistantMost(changes: AnswerLevelChanges): Promise<AssistantChanged["assistant"]> {
+  return (await request<AssistantChanged>("/api/account/assistant", { method: "PATCH", body: JSON.stringify(changes) })).assistant;
+}
+
+/** Changes how much @ember thinks and how long it answers you, answering your levels as they are then, or null while Ember AI is off. */
+export async function changeAnswerLevels(changes: AnswerLevelChanges): Promise<AnswerLevelsAnswer["assistant"]> {
+  return (await request<AnswerLevelsAnswer>("/api/users/me/assistant", { method: "PATCH", body: JSON.stringify(changes) })).assistant;
 }
 
 /**
