@@ -1,6 +1,6 @@
 # Ember
 
-Slack-like chat on Cloudflare Workers and Durable Objects. See `README.md` for the layout.
+Slack-like chat on Cloudflare Workers and Durable Objects. See `docs/development.md` for the layout.
 
 - Ember's palette lives in `apps/web/src/index.css` as shadcn/ui tokens. Use the tokens
   (`bg-surface`, `bg-hover`, `text-muted-foreground`, `text-message-ink`, ...) rather than raw colors.
