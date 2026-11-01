@@ -82,7 +82,8 @@ made with Deploy to Cloudflare comes up to each with a pull request. Its Update 
 (`.github/workflows/update-ember.yml`) looks for a newer release every Monday, or when you run it from
 the Actions tab (Update Ember, then Run workflow), and opens a pull request, "Update Ember to v1.2.3",
 that links to what's new. Merging it deploys the update, as every push to `main` does, and that's all:
-each room's and the workspace's tables bring themselves up to date the first time they open.
+each room's and the workspace's tables bring themselves up to date the first time they open. Closing
+it instead turns that release down until the next, whose pull request brings its changes too.
 
 A new GitHub repository doesn't let workflows open pull requests, so until yours does, the workflow
 opens an issue instead, with a link that opens the pull request for you to merge. To have it open them
@@ -92,15 +93,18 @@ itself, tick **Allow GitHub Actions to create and approve pull requests** in you
 Your copy shares no history with Ember's repository, so an update brings only what Ember changed
 since the commit your copy was made from, or the release its last update brought, and keeps whatever
 you changed, such as the names Deploy to Cloudflare gave your Worker and bucket in `wrangler.jsonc`.
-Where one of Ember's changes meets one of yours, the pull request is a draft that names the files left
-with conflict markers (`<<<<<<<`, `=======` and `>>>>>>>`) around both: edit them on its branch to keep
-what both need, then merge it. GitHub doesn't let a workflow change workflows either, so an update
+Where one of Ember's changes meets one of yours, the pull request is a draft that names the files: edit
+them on its branch to keep what both need, then merge it. Most have conflict markers around both
+versions, yours after `<<<<<<< HEAD` and Ember's after `=======` up to `>>>>>>> ember/v1.2.3`; for a
+file one side deleted, or one that isn't text, it says which version it kept. GitHub doesn't let a
+workflow change workflows either, so an update
 leaves your copy's as they are. Ember's others run only in its own repository, and when Update Ember's
 has a new version, the pull request says so, for you to copy it over yours.
 
 A release's migrations add to Ember's tables rather than take anything away, so reverting an update's
-merge, which deploys the release before it, leaves tables that release still works with. To stop
-updates, disable the workflow in the Actions tab.
+merge, which deploys the release before it, leaves tables that release still works with. The next
+release's pull request brings the reverted one's changes again, with its own. To stop updates, disable
+the workflow in the Actions tab.
 
 `apps/worker/scripts/update-ember.ts` makes the update, wherever git 2.40 or newer runs. For a copy on
 GitLab, which doesn't run GitHub's workflows, or to update by hand, run it in a clone of your copy, and

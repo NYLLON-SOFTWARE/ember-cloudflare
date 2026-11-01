@@ -23,9 +23,12 @@ import { isDeepStrictEqual } from "node:util";
 const EMBER = "https://github.com/NYLLON-SOFTWARE/ember-cloudflare";
 /** Where to fetch Ember from, which the tests point at a repository of their own. */
 const EMBER_REPOSITORY = process.env.EMBER_REPOSITORY || `${EMBER}.git`;
-/** Where Ember's main branch and release tags are fetched to, apart from the copy's own. */
-const EMBER_MAIN = "refs/ember/main";
-const EMBER_TAGS = "refs/ember/tags/";
+/**
+ * Where Ember's main branch and release tags are fetched to, apart from the copy's own: a release is
+ * refs/ember/v1.2.3, which git also knows as ember/v1.2.3, as conflict markers name it.
+ */
+const EMBER_REFS = "refs/ember/";
+const EMBER_MAIN = `${EMBER_REFS}main`;
 const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
 /**
  * What names the release an update brought: the trailer in its commit's message, or the title of
@@ -38,8 +41,11 @@ const WORKFLOWS = ".github/workflows";
 const UPDATE_WORKFLOW = `${WORKFLOWS}/update-ember.yml`;
 /** The Worker's settings, where Deploy to Cloudflare names the deployer's Worker and bucket. */
 const WRANGLER = "wrangler.jsonc";
-/** Where in wrangler.jsonc those names are. */
-const DEPLOYERS_NAME = /^(?:name|r2_buckets\.\d+\.bucket_name)$/;
+/** Where in wrangler.jsonc a bucket's name and binding are, by the bucket's place in the list. */
+const BUCKET_NAME = /^r2_buckets\.(\d+)\.bucket_name$/;
+const BUCKET_BINDING = /^r2_buckets\.(\d+)\.binding$/;
+/** Where Ember says which release it is: a release's version is the one there. */
+const VERSION_FILE = "apps/worker/package.json";
 /** What GitHub answers a workflow that may not open pull requests, as a new repository's may not. */
 const PULL_REQUESTS_NOT_PERMITTED = /not permitted to create or approve pull requests/i;
 /** The first git whose merge-tree takes --merge-base. */
@@ -51,6 +57,12 @@ interface Release {
   version: number[];
 }
 
+interface Conflict {
+  file: string;
+  /** What git says of a conflict it couldn't mark in the file, as when one side deleted it or it isn't text. */
+  note?: string;
+}
+
 interface Update {
   release: Release;
   /** The Ember commit the copy's changes are measured from, and how to name it. */
@@ -58,8 +70,7 @@ interface Update {
   /** The releases it brings, oldest first. */
   releases: Release[];
   commit: string;
-  /** The files left with conflict markers. */
-  conflicts: string[];
+  conflicts: Conflict[];
   /** What a published update leaves as the copy has it: Ember's changes to its workflows, and whether its Update Ember differs. */
   workflows: { changed: boolean; updateDiffers: boolean };
 }
@@ -100,12 +111,12 @@ function requireGit(): void {
 }
 
 function fetchEmber(): void {
-  git(["fetch", "--quiet", "--no-tags", "--force", EMBER_REPOSITORY, `+refs/heads/main:${EMBER_MAIN}`, `+refs/tags/v*:${EMBER_TAGS}v*`]);
+  git(["fetch", "--quiet", "--no-tags", "--force", EMBER_REPOSITORY, `+refs/heads/main:${EMBER_MAIN}`, `+refs/tags/v*:${EMBER_REFS}v*`]);
 }
 
 /** Ember's releases, oldest first: its tags named for a version. */
 function releases(): Release[] {
-  const listing = git(["for-each-ref", "--format=%(refname:lstrip=3) %(objectname) %(*objectname)", EMBER_TAGS]);
+  const listing = git(["for-each-ref", "--format=%(refname:lstrip=2) %(objectname) %(*objectname)", EMBER_REFS]);
   return listing
     .split("\n")
     .flatMap((line) => {
@@ -128,19 +139,36 @@ function madeFrom(): string | undefined {
   return git(["rev-list", "-1", "--first-parent", `--before=${created}`, EMBER_MAIN]) || undefined;
 }
 
-/** The releases the copy's updates brought, as their commits' messages name them. */
-const releasesBrought = () => new Set([...git(["log", "--format=%B", "HEAD"]).matchAll(RELEASE_NAMED)].map((match) => match[1]!));
+/** The version the copy's code is at, as Ember's own file says, if it says one. */
+function versionHere(): number[] | undefined {
+  try {
+    const { version } = JSON.parse(fileAt("HEAD", VERSION_FILE) ?? "") as { version?: unknown };
+    return RELEASE_TAG.exec(`v${String(version)}`)?.slice(1).map(Number);
+  } catch {
+    return undefined;
+  }
+}
 
 /**
- * The Ember commit the copy's changes are measured from. A clone of Ember's repository shares its
- * history, which says. A copy made with Deploy to Cloudflare doesn't, so it's the latest of the commit
- * it was made from and the releases its updates brought.
+ * The releases the copy's updates brought, as their commits' messages name them, but those newer
+ * than the copy's version, which reverting an update takes back with the rest of it.
+ */
+function releasesBrought(all: Release[]): Release[] {
+  const named = new Set([...git(["log", "--format=%B", "HEAD"]).matchAll(RELEASE_NAMED)].map((match) => match[1]!));
+  const version = versionHere();
+  return all.filter((release) => named.has(release.tag) && (!version || compareVersions(release.version, version) <= 0));
+}
+
+/**
+ * The Ember commit the copy's changes are measured from: the latest of where it parts from Ember's
+ * history and the releases its updates brought, whose commits leave Ember's history out. A clone of
+ * Ember's repository shares that history; a copy made with Deploy to Cloudflare parts from it at the
+ * commit it was made from.
  */
 function baseOf(newest: Release, all: Release[]): string {
   const shared = run("git", ["merge-base", "HEAD", newest.commit]);
-  if (shared.status === 0) return shared.stdout.trim();
-  const brought = releasesBrought();
-  const candidates = [madeFrom(), ...all.filter((release) => brought.has(release.tag)).map((release) => release.commit)];
+  const parted = shared.status === 0 ? shared.stdout.trim() : madeFrom();
+  const candidates = [parted, ...releasesBrought(all).map((release) => release.commit)];
   const known = candidates.filter((commit) => commit !== undefined);
   if (known.length === 0) throw new Error("This copy's first commit is older than Ember's, so it can't be a copy of Ember.");
   return known.reduce((latest, commit) => (isAncestor(latest, commit) ? commit : latest));
@@ -151,13 +179,29 @@ function nameOf(commit: string, all: Release[]): string {
   return all.find((release) => release.commit === commit)?.tag ?? `Ember's commit ${git(["rev-parse", "--short", commit])}`;
 }
 
-/** Ember's changes from `base` to `release`, merged into the copy's as a tree, and the files left with conflict markers. */
-function merge(base: string, release: Release): { tree: string; conflicts: string[] } {
-  const result = run("git", ["merge-tree", "--write-tree", "-z", "--name-only", "--no-messages", `--merge-base=${base}`, "HEAD", release.commit]);
+/** How git names a release fetched to refs/ember/. */
+const refOf = (release: Release) => `ember/${release.tag}`;
+
+/** Ember's changes from `base` to `release`, merged into the copy's as a tree, and where they conflict. */
+function merge(base: string, release: Release): { tree: string; conflicts: Conflict[] } {
+  const result = run("git", ["merge-tree", "--write-tree", "-z", "--name-only", `--merge-base=${base}`, "HEAD", refOf(release)]);
   // It answers 1 for a merge with conflicts, whose tree holds the markers, and more for one it couldn't make.
   if (result.status > 1) throw new Error(`git merge-tree failed: ${result.stderr.trim()}`);
-  const [tree = "", ...conflicts] = result.stdout.split("\0").filter(Boolean);
-  return { tree, conflicts };
+  // The tree, the files with conflicts, then after an empty field git's messages: each the number of
+  // paths it's about, those paths, its type and its text.
+  const fields = result.stdout.split("\0");
+  const tree = fields.shift() ?? "";
+  const files = fields.splice(0, fields.indexOf(""));
+  fields.shift();
+  const notes = new Map<string, string[]>();
+  while (fields[0]) {
+    const paths = fields.splice(0, Number(fields.shift()));
+    const [type = "", text = ""] = fields.splice(0, 2);
+    // A conflict in a file's lines leaves markers there, which say all there is to say.
+    if (!type.startsWith("CONFLICT") || type === "CONFLICT (contents)") continue;
+    for (const file of paths) notes.set(file, [...(notes.get(file) ?? []), text.trim()]);
+  }
+  return { tree, conflicts: files.map((file) => ({ file, note: notes.get(file)?.join(" ") })) };
 }
 
 /** `tree` as `edit` leaves it, edited in an index of its own. */
@@ -261,26 +305,49 @@ function stringsOf(text: string): { path: string; start: number; end: number; va
   return strings;
 }
 
-/** The names Deploy to Cloudflare wrote into wrangler.jsonc, by where they are. */
-const deployersNames = (text: string) => new Map(stringsOf(text).flatMap(({ path, value }) => (DEPLOYERS_NAME.test(path) ? [[path, value]] : [])));
+/**
+ * The names Deploy to Cloudflare writes into wrangler.jsonc, and where they are, by what they name:
+ * the Worker, and each bucket by its binding, which stays the bucket's wherever it moves in the list.
+ */
+function namesIn(text: string): Map<string, { start: number; end: number; value: string }> {
+  const strings = stringsOf(text);
+  const bindings = new Map<string, string>();
+  for (const { path, value } of strings) {
+    const place = BUCKET_BINDING.exec(path)?.[1];
+    if (place !== undefined) bindings.set(place, value);
+  }
+  const names = new Map<string, { start: number; end: number; value: string }>();
+  for (const string of strings) {
+    const place = BUCKET_NAME.exec(string.path)?.[1];
+    const binding = place === undefined ? undefined : bindings.get(place);
+    if (string.path === "name") names.set("the Worker", string);
+    else if (binding !== undefined) names.set(`the bucket bound to ${binding}`, string);
+  }
+  return names;
+}
 
-/** `text` with the values at `names`' paths set to theirs. */
+const deployersNames = (text: string) => new Map([...namesIn(text)].map(([what, { value }]): [string, string] => [what, value]));
+
+/** `text` with the names of what `names` names set to theirs. */
 function withNames(text: string, names: Map<string, string>): string {
-  const named = stringsOf(text).filter(({ path }) => names.has(path));
-  return named.reduceRight((result, { path, start, end }) => result.slice(0, start) + JSON.stringify(names.get(path)) + result.slice(end), text);
+  const named = [...namesIn(text)].filter(([what]) => names.has(what)).sort(([, a], [, b]) => a.start - b.start);
+  return named.reduceRight((result, [what, { start, end }]) => result.slice(0, start) + JSON.stringify(names.get(what)) + result.slice(end), text);
 }
 
 /**
  * Ember's wrangler.jsonc at `release` with the copy's names for its Worker and bucket, when those are
  * all the copy changed there, however Deploy to Cloudflare laid the file out: the names sit beside
- * lines Ember changes, such as their comments, where a merge would leave conflict markers.
+ * lines Ember changes, such as their comments, where a merge would leave conflict markers. A name
+ * whose binding the release lacks, as when Ember renames one, is the merge's to place.
  */
 function wranglerWithCopysNames(base: string, release: Release): string | undefined {
   const [ours, was, now] = ["HEAD", base, release.commit].map((revision) => fileAt(revision, WRANGLER));
   if (ours === undefined || was === undefined || now === undefined) return undefined;
   try {
+    const names = deployersNames(ours);
     const onlyNamed = isDeepStrictEqual(dataOf(withNames(ours, deployersNames(was))), dataOf(was));
-    return onlyNamed ? withNames(now, deployersNames(ours)) : undefined;
+    const placed = [...names.keys()].every((what) => namesIn(now).has(what));
+    return onlyNamed && placed ? withNames(now, names) : undefined;
   } catch {
     // Not JSONC that this reads, so it's the merge's to make.
     return undefined;
@@ -304,6 +371,16 @@ const branchOf = (release: Release) => `update-ember/${release.tag}`;
 const titleOf = (release: Release) => `Update Ember to ${release.tag}`;
 const releaseLink = (release: Release) => `[${release.tag}](${EMBER}/releases/tag/${release.tag})`;
 
+/** How to settle the update's conflicts: those git marked in their files, and those it has a note on. */
+function conflictsHelp(update: Update): string {
+  const markers = `conflict markers around both versions: your copy's lines after \`<<<<<<< HEAD\`, and Ember's after \`=======\` up to \`>>>>>>> ${refOf(update.release)}\``;
+  const kept = "it kept your copy's version unless its note says otherwise";
+  const marked = update.conflicts.some((conflict) => !conflict.note);
+  const noted = update.conflicts.some((conflict) => conflict.note);
+  const how = !noted ? `Git left ${markers}.` : !marked ? `Git couldn't mark where they meet, so ${kept}.` : `Where git could, it left ${markers}. Where it couldn't, ${kept}.`;
+  return `On this branch, edit each of these files to keep what both need, and commit. ${how}`;
+}
+
 /** What the update brings and what it needs, for its pull request or issue. */
 function details(update: Update): string[] {
   const { release, base } = update;
@@ -314,10 +391,9 @@ function details(update: Update): string[] {
   if (update.conflicts.length > 0) {
     lines.push(
       "",
-      "**This needs a hand before it's merged.** Some of Ember's changes meet ones made in your copy, so these files have conflict markers " +
-        "(`<<<<<<<`, `=======` and `>>>>>>>`) around both. Edit each on this branch to keep what both need:",
+      `**This needs a hand before it's merged.** Some of Ember's changes meet ones made in your copy. ${conflictsHelp(update)}`,
       "",
-      ...update.conflicts.map((file) => `- \`${file}\``),
+      ...update.conflicts.map(({ file, note }) => `- \`${file}\`${note ? `: \`${note}\`` : ""}`),
     );
   }
   if (update.workflows.updateDiffers) {
@@ -387,27 +463,53 @@ function report(message: string): void {
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${message}\n`);
 }
 
-/** Leaves the update on its branch, for whoever ran this to push. */
+/** Leaves the update on its branch, for whoever ran this to push, unless an earlier run left it there. */
 function makeBranch(update: Update): void {
   const branch = branchOf(update.release);
-  git(["branch", "--force", branch, update.commit]);
-  const conflicts = update.conflicts.length > 0 ? ` First fix the conflict markers in ${update.conflicts.join(", ")} on it and commit.` : "";
+  if (gitSays(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`])) {
+    // It may hold what whoever ran this fixed and committed there since.
+    return report(`${branch} is made already: push it and merge it to update, or delete it (git branch -D ${branch}) and run this again to have it made anew.`);
+  }
+  git(["branch", branch, update.commit]);
+  const files = update.conflicts.map((conflict) => conflict.file).join(", ");
+  const conflicts = update.conflicts.length > 0 ? ` First fix the conflicts in ${files} on it and commit.` : "";
+  const notes = update.conflicts.flatMap(({ file, note }) => (note ? [`${file}: ${note}`] : []));
   report(
-    `${branch} brings this copy up to Ember ${update.release.tag} from ${update.base.name}.${conflicts} ` +
-      `Then push it (git push -u origin ${branch}) and merge it into your main branch to deploy it.`,
+    [
+      `${branch} brings this copy up to Ember ${update.release.tag} from ${update.base.name}.${conflicts} ` +
+        `Then push it (git push -u origin ${branch}) and merge it into your main branch to deploy it.`,
+      ...notes,
+    ].join("\n"),
   );
 }
 
+/** The pull request or issue that offered `release` before, an open one rather than one closed. */
+function offerOf(release: Release): { url: string; state: string } | undefined {
+  const branch = branchOf(release);
+  const pulls = listed<{ url: string; state: string; headRefName: string }>(["pr", "list", "--head", branch, "--state", "all", "--json", "url,state,headRefName"]);
+  const issues = listed<{ url: string; state: string; title: string }>(["issue", "list", "--state", "all", "--limit", "100", "--json", "url,state,title"]);
+  const offers = [...pulls.filter((pull) => pull.headRefName === branch), ...issues.filter((issue) => issue.title === titleOf(release))];
+  return offers.find((offer) => offer.state === "OPEN") ?? offers[0];
+}
+
 /**
- * Pushes the update's branch and opens its pull request. A new repository doesn't let workflows open
- * pull requests, so then it opens an issue with a link that opens it in a click.
+ * Pushes the update's branch and opens its pull request, once per release: closing it turns that
+ * release down. A new repository doesn't let workflows open pull requests, so then it opens an issue
+ * with a link that opens it in a click.
  */
 function publish(update: Update): void {
   const branch = branchOf(update.release);
-  if (gitSays(["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`])) {
-    return report(`${branch} is waiting already: merge its pull request to update, or delete the branch to have it made again.`);
+  const offer = offerOf(update.release);
+  if (offer?.state === "OPEN") {
+    closeStale({ update, where: offer.url });
+    return report(`${offer.url} offers this copy Ember ${update.release.tag} already.`);
   }
-  git(["push", "--quiet", "origin", `${update.commit}:refs/heads/${branch}`]);
+  // Closed, or merged and since reverted: either way, its release is turned down.
+  if (offer) return report(`${offer.url} offered this copy Ember ${update.release.tag} and is ${offer.state.toLowerCase()} now, so this waits for Ember's next release.`);
+  // A run that pushed the branch but couldn't offer it leaves it to offer now, with whatever it has since.
+  if (!gitSays(["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`])) {
+    git(["push", "--quiet", "origin", `${update.commit}:refs/heads/${branch}`]);
+  }
   const main = git(["symbolic-ref", "--short", "HEAD"]);
   const title = titleOf(update.release);
   const body = pullRequestBody(update);
@@ -451,7 +553,7 @@ function update(args: string[]): void {
   const named = wrangler === undefined ? merged.tree : withFile(merged.tree, WRANGLER, wrangler);
   // A workflow's token can't push a commit that changes workflows, so a published update keeps the copy's.
   const tree = publishing ? withCopysWorkflows(named) : named;
-  const conflicts = merged.conflicts.filter((file) => !(wrangler !== undefined && file === WRANGLER) && !(publishing && file.startsWith(`${WORKFLOWS}/`)));
+  const conflicts = merged.conflicts.filter(({ file }) => !(wrangler !== undefined && file === WRANGLER) && !(publishing && file.startsWith(`${WORKFLOWS}/`)));
   const workflows = publishing ? workflowsLeft(base, newest) : { changed: false, updateDiffers: false };
   if (tree === git(["rev-parse", "HEAD^{tree}"])) {
     return report(`Ember ${newest.tag} changes nothing this copy has${workflows.changed ? " but Ember's own workflows" : ""}.`);

@@ -10,25 +10,29 @@ const WORKFLOW = ".github/workflows/update-ember.yml";
 
 /**
  * Stands in for the GitHub CLI: it notes each call in $GH_LOG/calls and what it read in
- * $GH_LOG/<command>-body, answers `pr create` with a pull request's address unless
- * $GH_NO_PULL_REQUESTS has it refused as a new repository's settings do, `issue create` with an
- * issue's, and the listings with $GH_PULLS and $GH_ISSUES.
+ * $GH_LOG/<command>-body. `pr create` opens pull request 7, unless $GH_PR_FAILS has it fail saying
+ * that, and `issue create` opens issue 8; the listings answer $GH_PULLS and $GH_ISSUES, or else what
+ * it opened.
  */
 const GH = `#!/usr/bin/env bash
 echo "$*" >> "$GH_LOG/calls"
+# The value the arguments after the first give the option the first names.
+option() { local name=$1; shift; while [ $# -gt 0 ] && [ "$1" != "$name" ]; do shift; done; echo "$2"; }
 case "$1 $2" in
   "pr create")
     cat > "$GH_LOG/pr-body"
-    if [ -n "$GH_NO_PULL_REQUESTS" ]; then
-      echo "pull request create failed: GraphQL: GitHub Actions is not permitted to create or approve pull requests (createPullRequest)" >&2
-      exit 1
-    fi
+    if [ -n "$GH_PR_FAILS" ]; then echo "$GH_PR_FAILS" >&2; exit 1; fi
+    printf '[{ "url": "https://github.com/me/chat/pull/7", "state": "OPEN", "headRefName": "%s" }]' "$(option --head "$@")" > "$GH_LOG/pulls"
     echo "https://github.com/me/chat/pull/7" ;;
-  "issue create") cat > "$GH_LOG/issue-body"; echo "https://github.com/me/chat/issues/8" ;;
-  "pr list") echo "\${GH_PULLS:-[]}" ;;
-  "issue list") echo "\${GH_ISSUES:-[]}" ;;
+  "issue create")
+    cat > "$GH_LOG/issue-body"
+    printf '[{ "url": "https://github.com/me/chat/issues/8", "state": "OPEN", "title": "%s" }]' "$(option --title "$@")" > "$GH_LOG/issues"
+    echo "https://github.com/me/chat/issues/8" ;;
+  "pr list") echo "\${GH_PULLS:-$(cat "$GH_LOG/pulls" 2>/dev/null || echo "[]")}" ;;
+  "issue list") echo "\${GH_ISSUES:-$(cat "$GH_LOG/issues" 2>/dev/null || echo "[]")}" ;;
 esac
 `;
+const PULL_REQUESTS_NOT_PERMITTED = "pull request create failed: GraphQL: GitHub Actions is not permitted to create or approve pull requests (createPullRequest)";
 
 let dir: string;
 /** git's settings for these repositories alone, whatever the machine's say. */
@@ -40,6 +44,8 @@ beforeEach(() => {
   gitEnv = {
     GIT_CONFIG_GLOBAL: path.join(dir, "gitconfig"),
     GIT_CONFIG_NOSYSTEM: "1",
+    // So git says what it says of conflicts in English.
+    LC_ALL: "C",
     GIT_AUTHOR_NAME: "Test",
     GIT_AUTHOR_EMAIL: "test@example.com",
     GIT_COMMITTER_NAME: "Test",
@@ -181,14 +187,55 @@ describe("updating a copy made with Deploy to Cloudflare", () => {
     expect(show(copy, "update-ember/v0.3.0", "src/app.ts")).toBe(app("2").trim());
   });
 
+  it("measures the next update from before one the copy reverted", () => {
+    const repo = ember();
+    const copy = deployedCopy(repo);
+    update(copy, repo);
+    git(copy, ["merge", "--quiet", "--ff-only", "update-ember/v0.2.0"]);
+    git(copy, ["revert", "--no-edit", "HEAD"], "2026-10-12T12:00:00Z");
+    releaseNext(repo);
+    const { status, output } = update(copy, repo);
+    expect(status, output).toBe(0);
+    expect(output).toContain("update-ember/v0.3.0 brings this copy up to Ember v0.3.0 from Ember's commit");
+    // From v0.2.0, its new file would look deleted in the copy, and its line changed there.
+    expect(show(copy, "update-ember/v0.3.0", "src/new.ts")).toBe("export {};");
+    expect(show(copy, "update-ember/v0.3.0", "src/app.ts")).toBe(app("2").trim());
+  });
+
   it("leaves conflict markers where one of Ember's changes meets one of the copy's", () => {
     const repo = ember();
     const copy = deployedCopy(repo);
     commit(copy, "2026-10-07T12:00:00Z", { "src/app.ts": app("our two") });
     const { status, output } = update(copy, repo);
     expect(status, output).toBe(0);
-    expect(output).toContain("First fix the conflict markers in src/app.ts on it and commit.");
-    expect(show(copy, "update-ember/v0.2.0", "src/app.ts")).toMatch(/<<<<<<< [\s\S]*our two[\s\S]*=======[\s\S]*Two![\s\S]*>>>>>>> /);
+    expect(output).toContain("First fix the conflicts in src/app.ts on it and commit.");
+    expect(show(copy, "update-ember/v0.2.0", "src/app.ts")).toMatch(/<<<<<<< HEAD\n[\s\S]*our two[\s\S]*=======[\s\S]*Two![\s\S]*>>>>>>> ember\/v0\.2\.0/);
+  });
+
+  it("says what git kept where it couldn't mark a conflict", () => {
+    const repo = ember();
+    commit(repo, "2026-10-11T12:00:00Z", { "src/app.ts": null, "apps/worker/package.json": '{ "version": "0.2.1" }\n' });
+    git(repo, ["tag", "v0.2.1"]);
+    const copy = deployedCopy(repo);
+    commit(copy, "2026-10-07T12:00:00Z", { "src/app.ts": app("our two") });
+    const { status, output } = update(copy, repo);
+    expect(status, output).toBe(0);
+    expect(output).toContain("First fix the conflicts in src/app.ts on it and commit.");
+    expect(output).toContain("\nsrc/app.ts: CONFLICT (modify/delete): src/app.ts deleted in ember/v0.2.1 and modified in HEAD.");
+    expect(show(copy, "update-ember/v0.2.1", "src/app.ts")).toBe(app("our two").trim());
+  });
+
+  it("leaves a branch an earlier run made as it is, with what was fixed on it", () => {
+    const repo = ember();
+    const copy = deployedCopy(repo);
+    update(copy, repo);
+    git(copy, ["switch", "--quiet", "update-ember/v0.2.0"]);
+    const fixed = commit(copy, "2026-10-12T12:00:00Z", { "src/app.ts": app("fixed") });
+    git(copy, ["switch", "--quiet", "main"]);
+    const { status, output } = update(copy, repo);
+    expect(status, output).toBe(0);
+    expect(output).toContain("update-ember/v0.2.0 is made already");
+    expect(git(copy, ["rev-parse", "update-ember/v0.2.0"])).toBe(fixed);
   });
 
   it("keeps the copy's names for its Worker and bucket where Ember changes the lines beside them", () => {
@@ -201,6 +248,29 @@ describe("updating a copy made with Deploy to Cloudflare", () => {
     expect(status, output).toBe(0);
     expect(output).not.toContain("conflict markers");
     expect(show(copy, "update-ember/v0.2.1", "wrangler.jsonc")).toBe(wrangler("my-chat", "my-files", "2026-10-10").replace("// The Worker.", "// The Worker, named.").replace("// Its files.", "// Its files, named.").trim());
+  });
+
+  it("keeps the copy's bucket's name with its binding where Ember adds a bucket before it", () => {
+    const repo = ember();
+    const twoBuckets = wrangler("ember", "ember", "2026-10-10").replace('"r2_buckets": [', '"r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "ember-backups" }, ');
+    commit(repo, "2026-10-11T12:00:00Z", { "wrangler.jsonc": twoBuckets, "apps/worker/package.json": '{ "version": "0.2.1" }\n' });
+    git(repo, ["tag", "v0.2.1"]);
+    const copy = deployedCopy(repo);
+    const { status, output } = update(copy, repo);
+    expect(status, output).toBe(0);
+    const named = twoBuckets.replace('"name": "ember"', '"name": "my-chat"').replace('"bucket_name": "ember" }', '"bucket_name": "my-files" }');
+    expect(show(copy, "update-ember/v0.2.1", "wrangler.jsonc")).toBe(named.trim());
+  });
+
+  it("leaves the copy's bucket's name to the merge where Ember renames its binding", () => {
+    const repo = ember();
+    commit(repo, "2026-10-11T12:00:00Z", { "wrangler.jsonc": wrangler("ember", "ember", "2026-10-10").replace('"FILES"', '"UPLOADS"'), "apps/worker/package.json": '{ "version": "0.2.1" }\n' });
+    git(repo, ["tag", "v0.2.1"]);
+    const copy = deployedCopy(repo);
+    const { status, output } = update(copy, repo);
+    expect(status, output).toBe(0);
+    expect(output).toContain("First fix the conflicts in wrangler.jsonc on it and commit.");
+    expect(show(copy, "update-ember/v0.2.1", "wrangler.jsonc")).toMatch(/<<<<<<< HEAD\n[\s\S]*"FILES", "bucket_name": "my-files"[\s\S]*=======[\s\S]*"UPLOADS", "bucket_name": "ember"[\s\S]*>>>>>>> /);
   });
 
   it("takes Ember's settings with the copy's names however the copy laid its settings out", () => {
@@ -218,7 +288,7 @@ describe("updating a copy made with Deploy to Cloudflare", () => {
     const copy = deployedCopy(repo, wrangler("my-chat", "my-files").replace("src/index.ts", "src/ours.ts"));
     const { status, output } = update(copy, repo);
     expect(status, output).toBe(0);
-    expect(output).toContain("First fix the conflict markers in wrangler.jsonc on it and commit.");
+    expect(output).toContain("First fix the conflicts in wrangler.jsonc on it and commit.");
     expect(show(copy, "update-ember/v0.2.0", "wrangler.jsonc")).toMatch(/<<<<<<< [\s\S]*src\/ours\.ts[\s\S]*=======[\s\S]*2026-10-10[\s\S]*>>>>>>> /);
   });
 
@@ -232,17 +302,36 @@ describe("updating a copy made with Deploy to Cloudflare", () => {
 });
 
 describe("updating a clone of Ember's repository", () => {
-  it("merges from where the clone and Ember part", () => {
-    const repo = ember();
+  /** A clone of Ember's v0.1.0 whose main names its Worker and bucket. */
+  function cloneOf(repo: string): string {
     const clone = path.join(dir, "clone");
     git(dir, ["clone", "--quiet", "--branch", "v0.1.0", repo, clone]);
     git(clone, ["switch", "--quiet", "--create", "main"]);
     commit(clone, "2026-10-02T12:00:00Z", { "wrangler.jsonc": wrangler("our-ember", "our-files") });
+    return clone;
+  }
+
+  it("merges from where the clone and Ember part", () => {
+    const repo = ember();
+    const clone = cloneOf(repo);
     const { status, output } = update(clone, repo);
     expect(status, output).toBe(0);
     expect(output).toContain("from v0.1.0");
     expect(show(clone, "update-ember/v0.2.0", "wrangler.jsonc")).toBe(wrangler("our-ember", "our-files", "2026-10-10").trim());
     expect(show(clone, "update-ember/v0.2.0", "src/app.ts")).toBe(app("Two!").trim());
+  });
+
+  it("measures the next update from the release the last one brought", () => {
+    const repo = ember();
+    const clone = cloneOf(repo);
+    update(clone, repo);
+    git(clone, ["merge", "--quiet", "--ff-only", "update-ember/v0.2.0"]);
+    releaseNext(repo);
+    const { status, output } = update(clone, repo);
+    expect(status, output).toBe(0);
+    expect(output).toContain("from v0.2.0.");
+    // From where they part, the clone's line would look changed as v0.2.0 changed it, and conflict.
+    expect(show(clone, "update-ember/v0.3.0", "src/app.ts")).toBe(app("2").trim());
   });
 });
 
@@ -286,12 +375,23 @@ describe("publishing an update, as the Update Ember workflow does", () => {
     git(copy, ["push", "--quiet", "origin", "main"]);
     expect(update(copy, repo, ["--publish"], env).status).toBe(0);
     expect(calls()).toContain("pr create --base main --head update-ember/v0.2.0 --title Update Ember to v0.2.0 --body-file - --draft");
-    expect(body("pr")).toContain("- `src/app.ts`");
+    expect(body("pr")).toContain("Git left conflict markers around both versions: your copy's lines after `<<<<<<< HEAD`, and Ember's after `=======` up to `>>>>>>> ember/v0.2.0`.\n\n- `src/app.ts`\n");
+  });
+
+  it("gives git's note on a conflict it couldn't mark", () => {
+    const { repo, copy, env, body } = published();
+    commit(repo, "2026-10-11T12:00:00Z", { "src/app.ts": null, "apps/worker/package.json": '{ "version": "0.2.1" }\n' });
+    git(repo, ["tag", "v0.2.1"]);
+    commit(copy, "2026-10-07T12:00:00Z", { "src/app.ts": app("our two") });
+    git(copy, ["push", "--quiet", "origin", "main"]);
+    expect(update(copy, repo, ["--publish"], env).status).toBe(0);
+    expect(body("pr")).toContain("Git couldn't mark where they meet, so it kept your copy's version unless its note says otherwise.");
+    expect(body("pr")).toContain("- `src/app.ts`: `CONFLICT (modify/delete): src/app.ts deleted in ember/v0.2.1 and modified in HEAD.");
   });
 
   it("opens an issue linking to the pull request when GitHub won't let it open one", () => {
     const { repo, copy, env, calls, body } = published();
-    const { status, output } = update(copy, repo, ["--publish"], { ...env, GH_NO_PULL_REQUESTS: "1" });
+    const { status, output } = update(copy, repo, ["--publish"], { ...env, GH_PR_FAILS: PULL_REQUESTS_NOT_PERMITTED });
     expect(status, output).toBe(0);
     expect(output).toContain("so https://github.com/me/chat/issues/8 links to the one that brings this copy up to Ember v0.2.0.");
     expect(calls()).toContain("issue create --title Update Ember to v0.2.0 --body-file -");
@@ -304,8 +404,37 @@ describe("publishing an update, as the Update Ember workflow does", () => {
     update(copy, repo, ["--publish"], env);
     const { status, output } = update(copy, repo, ["--publish"], env);
     expect(status, output).toBe(0);
-    expect(output).toContain("update-ember/v0.2.0 is waiting already");
+    expect(output).toContain("https://github.com/me/chat/pull/7 offers this copy Ember v0.2.0 already.");
     expect(calls().filter((call) => call.startsWith("pr create"))).toHaveLength(1);
+  });
+
+  it("offers an update an earlier run pushed but couldn't offer, as its branch has it", () => {
+    const { repo, copy, origin, env, calls } = published();
+    expect(update(copy, repo, ["--publish"], { ...env, GH_PR_FAILS: "HTTP 502: Bad Gateway" }).status).toBe(1);
+    git(copy, ["fetch", "--quiet", "origin", "update-ember/v0.2.0"]);
+    git(copy, ["switch", "--quiet", "--create", "fixing", "FETCH_HEAD"]);
+    const fixed = commit(copy, "2026-10-12T12:00:00Z", { "src/app.ts": app("fixed") });
+    git(copy, ["push", "--quiet", "origin", "fixing:update-ember/v0.2.0"]);
+    git(copy, ["switch", "--quiet", "main"]);
+    const { status, output } = update(copy, repo, ["--publish"], env);
+    expect(status, output).toBe(0);
+    expect(output).toContain("Opened https://github.com/me/chat/pull/7");
+    expect(git(origin, ["rev-parse", "update-ember/v0.2.0"])).toBe(fixed);
+    expect(calls().filter((call) => call.startsWith("pr create"))).toHaveLength(2);
+  });
+
+  it("takes a closed pull request as turning its release down, until the next", () => {
+    const { repo, copy, origin, env, calls } = published();
+    const pulls = JSON.stringify([{ url: "https://github.com/me/chat/pull/3", state: "CLOSED", headRefName: "update-ember/v0.2.0" }]);
+    const declined = update(copy, repo, ["--publish"], { ...env, GH_PULLS: pulls });
+    expect(declined.status, declined.output).toBe(0);
+    expect(declined.output).toContain("https://github.com/me/chat/pull/3 offered this copy Ember v0.2.0 and is closed now, so this waits for Ember's next release.");
+    expect(calls().some((call) => call.startsWith("pr create"))).toBe(false);
+    expect(() => git(origin, ["rev-parse", "--verify", "--quiet", "refs/heads/update-ember/v0.2.0"])).toThrow();
+    releaseNext(repo);
+    const { status, output } = update(copy, repo, ["--publish"], { ...env, GH_PULLS: pulls });
+    expect(status, output).toBe(0);
+    expect(output).toContain("Opened https://github.com/me/chat/pull/7, which brings this copy up to Ember v0.3.0.");
   });
 
   it("closes the pull requests and issues of the updates it replaces", () => {
