@@ -21,7 +21,9 @@ jobs:
         # Deployments apply each migration once, by name, so a change to a released one would reach
         # only new deployments, never those that update: a schema change goes in a new migration.
         run: |
-          release=$(git ls-remote --tags --refs --sort=-v:refname origin 'refs/tags/v*' | head -n 1 | cut -f 2)
+          # Apart from a pipe, so a failed lookup fails the step rather than reading as no releases.
+          releases=$(git ls-remote --tags --refs --sort=-v:refname origin 'refs/tags/v*')
+          release=$(echo "$releases" | head -n 1 | cut -f 2)
           if [ -z "$release" ]; then exit 0; fi
           git fetch --quiet --no-tags --depth=1 origin "+$release:$release"
           changed=$(git diff --name-only --no-renames --diff-filter=DMT "$release" HEAD -- apps/worker/migrations apps/worker/search-migrations)

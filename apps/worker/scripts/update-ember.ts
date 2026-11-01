@@ -483,6 +483,19 @@ function makeBranch(update: Update): void {
   );
 }
 
+/** The files on origin's `branch` that still have the conflict markers an update to `release` leaves. */
+function markedOn(branch: string, release: Release): Conflict[] {
+  git(["fetch", "--quiet", "--no-tags", "origin", `refs/heads/${branch}`]);
+  const marker = `^>>>>>>> ${refOf(release).replaceAll(".", "\\.")}$`;
+  const found = run("git", ["grep", "-l", "-z", "-e", marker, "FETCH_HEAD", "--"]);
+  // It answers 1 when it finds none, and more when it couldn't look.
+  if (found.status > 1) throw new Error(`git grep failed: ${found.stderr.trim()}`);
+  return found.stdout
+    .split("\0")
+    .filter(Boolean)
+    .map((match) => ({ file: match.slice("FETCH_HEAD:".length) }));
+}
+
 /** The pull request or issue that offered `release` before, an open one rather than one closed. */
 function offerOf(release: Release): { url: string; state: string } | undefined {
   const branch = branchOf(release);
@@ -506,14 +519,15 @@ function publish(update: Update): void {
   }
   // Closed, or merged and since reverted: either way, its release is turned down.
   if (offer) return report(`${offer.url} offered this copy Ember ${update.release.tag} and is ${offer.state.toLowerCase()} now, so this waits for Ember's next release.`);
-  // A run that pushed the branch but couldn't offer it leaves it to offer now, with whatever it has since.
-  if (!gitSays(["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`])) {
-    git(["push", "--quiet", "origin", `${update.commit}:refs/heads/${branch}`]);
-  }
+  // A run that pushed the branch but couldn't offer it leaves it to offer now, with whatever it has
+  // since, so the conflicts it describes are the markers left on it rather than this run's merge's.
+  const pushed = gitSays(["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`]);
+  if (!pushed) git(["push", "--quiet", "origin", `${update.commit}:refs/heads/${branch}`]);
+  const offering = pushed ? { ...update, conflicts: markedOn(branch, update.release) } : update;
   const main = git(["symbolic-ref", "--short", "HEAD"]);
   const title = titleOf(update.release);
-  const body = pullRequestBody(update);
-  const draft = update.conflicts.length > 0 ? ["--draft"] : [];
+  const body = pullRequestBody(offering);
+  const draft = offering.conflicts.length > 0 ? ["--draft"] : [];
   const opened = run("gh", ["pr", "create", "--base", main, "--head", branch, "--title", title, "--body-file", "-", ...draft], body);
   if (opened.status === 0) {
     const where = lastLine(opened.stdout);
@@ -522,7 +536,7 @@ function publish(update: Update): void {
   }
   if (!PULL_REQUESTS_NOT_PERMITTED.test(opened.stderr)) throw new Error(`gh pr create failed: ${opened.stderr.trim()}`);
   const link = openPullRequestLink(main, branch, title, body);
-  const filed = run("gh", ["issue", "create", "--title", title, "--body-file", "-"], issueBody(update, link));
+  const filed = run("gh", ["issue", "create", "--title", title, "--body-file", "-"], issueBody(offering, link));
   if (filed.status !== 0) {
     report(`GitHub doesn't let this workflow open pull requests, so open ${branch}'s yourself: ${link}`);
     throw new Error(`gh issue create failed too: ${filed.stderr.trim()}`);
