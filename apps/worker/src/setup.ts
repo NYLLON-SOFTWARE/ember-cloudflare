@@ -96,18 +96,26 @@ export function setupAccessOf(request: Request, env: Env): SetupAccess {
 }
 
 /**
- * The setup password or token `request` brings as its bearer token, or "" without one. The page sends it
- * percent-encoded, since a header can't hold every character a password can, and the spaces around it
- * count for no more than those around the deployment's own.
+ * The setup password or token `request` brings as its bearer token, each way it may mean it, or none
+ * without one: decoded, as the page sends it percent-encoded, since a header can't hold every character a
+ * password can, and as it came, from a client that doesn't encode it. The spaces around it count for no
+ * more than those around the deployment's own.
  */
-function setupSecretGivenBy(request: Request): string {
-  const given = bearerTokenOf(request);
+function setupSecretsGivenBy(request: Request): string[] {
+  const given = bearerTokenOf(request).trim();
+  if (!given) return [];
+  let decoded = given;
   try {
-    return decodeURIComponent(given).trim();
+    decoded = decodeURIComponent(given).trim();
   } catch {
-    // Not encoded as the page encodes it, so it's checked as it came, but for the spaces around it.
-    return given.trim();
+    // Not encoded as the page encodes it, so only as it came.
   }
+  return decoded === given ? [given] : [decoded, given];
+}
+
+/** Whether any of `given` is one of `secrets`, each compared in constant time. */
+async function isOneOf(given: string[], secrets: string[]): Promise<boolean> {
+  return (await Promise.all(given.flatMap((value) => secrets.map((secret) => isToken(value, secret))))).includes(true);
 }
 
 /**
@@ -125,12 +133,12 @@ async function setupRefusal(request: Request, env: Env): Promise<Response | null
     console.error(`The setup password, EMBER_SETUP_PASSWORD or EMBER_SETUP_TOKEN, must be at least ${MIN_SETUP_PASSWORD_LENGTH} characters, so setup is closed`);
     return formAnswer({ error: SETUP_PASSWORD_TOO_SHORT }, 403);
   }
-  const given = setupSecretGivenBy(request);
-  if (!given) return formAnswer({ error: passwords.length > 0 ? SETUP_PASSWORD_NEEDED : SETUP_LINK_NEEDED }, 403);
-  if (token !== null && (await isToken(given, token))) return null;
+  const given = setupSecretsGivenBy(request);
+  if (given.length === 0) return formAnswer({ error: passwords.length > 0 ? SETUP_PASSWORD_NEEDED : SETUP_LINK_NEEDED }, 403);
+  if (token !== null && (await isOneOf(given, [token]))) return null;
   if (passwords.length === 0) return formAnswer({ error: SETUP_LINK_REFUSED }, 403);
   if (!(await workspace(env).trySetupPassword())) return formAnswer({ error: SETUP_TRIES_LIMITED }, 429);
-  if ((await Promise.all(passwords.map((password) => isToken(given, password)))).includes(true)) return null;
+  if (await isOneOf(given, passwords)) return null;
   return formAnswer({ error: SETUP_PASSWORD_REFUSED }, 403);
 }
 

@@ -397,11 +397,13 @@ describe("Setup password from the deploy form", () => {
   it("takes a setup password of any characters, as the page encodes it, or as it comes where it isn't encoded", async () => {
     const password = 'Pässwört "🔥" 100% / ü';
     expect((await withPassword("/api/first_run/check", { password, token: encoded(password) })).status).toBe(204);
-    // Not percent-encoded, as a script might send it.
-    const raw = "100%sure, of course";
-    expect((await withPassword("/api/first_run/check", { password: raw, token: raw })).status).toBe(204);
-    expect((await withPassword("/api/first_run/check", { password: raw, token: `  ${raw}` })).status).toBe(204);
-    expect((await withPassword("/api/first_run/check", { password: raw, token: "100%sure" })).status).toBe(403);
+    // Not percent-encoded, as a script might send it, whether or not it reads as encoded.
+    for (const raw of ["100%sure, of course", "correct%20horse battery"]) {
+      expect((await withPassword("/api/first_run/check", { password: raw, token: raw })).status, raw).toBe(204);
+      expect((await withPassword("/api/first_run/check", { password: raw, token: `  ${raw}` })).status, raw).toBe(204);
+      expect((await withPassword("/api/first_run/check", { password: raw, token: encoded(raw) })).status, raw).toBe(204);
+    }
+    expect((await withPassword("/api/first_run/check", { password: "100%sure, of course", token: "100%sure" })).status).toBe(403);
   });
 
   it(`refuses a setup password shorter than ${MIN_SETUP_PASSWORD_LENGTH} characters, saying so in the log without repeating it`, async () => {

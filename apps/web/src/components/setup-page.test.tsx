@@ -405,15 +405,31 @@ describe("Setup password", () => {
     await waitFor(() => expect(loadPage).toHaveBeenCalledWith("/"));
   });
 
-  it("opens the form without asking where the setup link brings a token, as a deploy may have printed one too", async () => {
+  it("opens the form without asking where the setup link brings a token the Worker takes, as a deploy may have printed one too", async () => {
     const token = "e2e1".repeat(16);
     history.replaceState(null, "", `/first_run#token=${token}`);
-    const fetch = answers([201, workspace]);
+    const fetch = answers([204, null], [201, workspace]);
     render(<SetupPage placeholders={DEFAULTS} access="password" onSetUp={() => {}} />);
+    expect(await screen.findByLabelText("Name")).toHaveFocus();
     expect(screen.queryByLabelText("Setup password")).not.toBeInTheDocument();
     await fillIn("correct horse");
-    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
-    expect(authorizationOf(fetch.mock.calls[0]!)).toBe(`Bearer ${token}`);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual(["/api/first_run/check", "/api/first_run"]);
+    for (const call of fetch.mock.calls) expect(authorizationOf(call)).toBe(`Bearer ${token}`);
+  });
+
+  it("asks for the setup password where the setup link it opens with is out of date", async () => {
+    history.replaceState(null, "", `/first_run#token=${"0".repeat(64)}`);
+    const fetch = answers([403, { error: "That isn't this Ember's setup password" }], [204, null]);
+    render(<SetupPage placeholders={DEFAULTS} access="password" onSetUp={() => {}} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("That setup link is out of date. Type this Ember's setup password instead.");
+    expect(setupPasswordField()).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+
+    await typeSetupPassword(password);
+    expect(await screen.findByLabelText("Name")).toBeInTheDocument();
+    expect(authorizationOf(fetch.mock.calls[1]!)).toBe(`Bearer ${encodeURIComponent(password)}`);
   });
 
   it("says nobody can set Ember up while its setup password is too short, and how to give it a longer one", () => {

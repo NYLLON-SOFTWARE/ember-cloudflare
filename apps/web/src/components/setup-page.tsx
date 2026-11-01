@@ -29,11 +29,15 @@ import { loadPage } from "@/lib/page";
 // up: the page asks for it first, has the Worker check it, and sends it with the form as a bearer token.
 // One deployed from a terminal takes the setup link its deploy printed, `/first_run#token=<its setup
 // token>`, instead: the token rides in the fragment, which no request or log sees, and goes with the form
-// the same way, so the link opens the form without asking for a password. Opened without the link, or
-// where the Worker has neither to match (`setupAccess` from /api/bootstrap), the page says what to do in
-// the form's place, rather than showing a form that would be refused.
+// the same way, so the link opens the form without asking for a password. Where the Worker takes a
+// password too, the Worker checks the link's token first, so a link that's out of date asks for the
+// password instead. Opened without the link, or where the Worker has neither to match (`setupAccess`
+// from /api/bootstrap), the page says what to do in the form's place, rather than showing a form that
+// would be refused.
 
 const TITLE = "Set up Ember";
+/** What the setup password step says where the setup link it was opened with is refused. */
+const STALE_LINK = "That setup link is out of date. Type this Ember's setup password instead.";
 /** The token in a setup link's fragment. */
 const setupTokenOf = (hash: string) => new URLSearchParams(hash.slice(1)).get("token") || null;
 /** The Worker's setup password, as its settings in the Cloudflare dashboard name it. */
@@ -64,7 +68,8 @@ export function SetupPage(props: { placeholders: SetupPlaceholders; access: Setu
 
 function Setup({ placeholders, access, onSetUp }: { placeholders: SetupPlaceholders; access: SetupAccess; onSetUp: (workspace: NewWorkspace) => void }) {
   const [setupToken] = useState(() => setupTokenOf(location.hash));
-  const [setupPassword, setSetupPassword] = useState<string | null>(null);
+  /** The setup password, or the setup link's token, the Worker has accepted, where it takes a password. */
+  const [accepted, setAccepted] = useState<string | null>(null);
 
   useEffect(() => {
     const title = document.title;
@@ -79,28 +84,31 @@ function Setup({ placeholders, access, onSetUp }: { placeholders: SetupPlacehold
   if (access === "closed") return <SetupClosed />;
   if (access === "weak") return <SetupPasswordTooShort />;
   if (access === "link" && setupToken === null) return <SetupLinkNeeded />;
-  if (access === "password" && setupToken === null && setupPassword === null) return <SetupPasswordStep onAccepted={setSetupPassword} />;
-  return <SetupForm placeholders={placeholders} setupSecret={setupToken ?? setupPassword} onSetUp={onSetUp} />;
+  if (access === "password" && accepted === null) return <SetupPasswordStep linkToken={setupToken} onAccepted={setAccepted} />;
+  return <SetupForm placeholders={placeholders} setupSecret={access === "password" ? accepted : setupToken} onSetUp={onSetUp} />;
 }
 
 /**
  * The page's first step where the deployment has a setup password: the Worker checks it before the
- * form opens, so a mistyped one is said to be wrong before anything else is filled in.
+ * form opens, so a mistyped one is said to be wrong before anything else is filled in. The token of a
+ * setup link it opens with, which a deploy may have printed too, is checked first the same way, so a
+ * link that's out of date asks for the password rather than opening a form that would be refused.
  */
-function SetupPasswordStep({ onAccepted }: { onAccepted: (password: string) => void }) {
+function SetupPasswordStep({ linkToken, onAccepted }: { linkToken: string | null; onAccepted: (secret: string) => void }) {
   const [refusal, setRefusal] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(linkToken !== null);
   const input = useRef<HTMLInputElement>(null);
+  const linkChecked = useRef(false);
 
-  async function submit() {
-    const password = input.current?.value ?? "";
+  /** Has the Worker check `secret`, saying beneath the field why one is refused, as `refusalOf` puts it. */
+  async function check(secret: string, refusalOf: (message: string) => string = (message) => message) {
     setBusy(true);
     setRefusal(null);
     setProblem(null);
     try {
-      await checkSetupPassword(password);
-      onAccepted(password);
+      await checkSetupPassword(secret);
+      onAccepted(secret);
     } catch (error) {
       setBusy(false);
       if (!(error instanceof ApiError)) return setProblem("Couldn't reach Ember. Check your connection and try again.");
@@ -110,17 +118,24 @@ function SetupPasswordStep({ onAccepted }: { onAccepted: (password: string) => v
       if (error.status !== 403) return setProblem(error.message);
       // A refused one starts over, saying why beneath it.
       if (input.current) input.current.value = "";
-      setRefusal(error.message);
+      setRefusal(refusalOf(error.message));
       input.current?.focus();
     }
   }
+
+  // Once, though development's strict mode runs effects twice.
+  useEffect(() => {
+    if (linkToken === null || linkChecked.current) return;
+    linkChecked.current = true;
+    void check(linkToken, () => STALE_LINK);
+  }, [linkToken]);
 
   return (
     <SetupCard problem={problem} subtitle="Ember is waiting for its administrator.">
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          void submit();
+          void check(input.current?.value ?? "");
         }}
       >
         <div className="grid gap-6 px-5 pt-6 pb-7">
