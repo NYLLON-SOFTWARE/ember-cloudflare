@@ -36,6 +36,8 @@ const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
  */
 const RELEASE_NAMED = /^(?:Ember-Release: |Update Ember to )(v\d+\.\d+\.\d+)\b/gm;
 const UPDATE_TITLE = /^Update Ember to v\d+\.\d+\.\d+$/;
+/** The trailer an update's commit has for each conflict git couldn't mark, which nothing in its file shows. */
+const NOTED_CONFLICT = /^Ember-Conflict: (.+)$/gm;
 /** A workflow's token can't change workflows, so a published update leaves the copy's as they are. */
 const WORKFLOWS = ".github/workflows";
 const UPDATE_WORKFLOW = `${WORKFLOWS}/update-ember.yml`;
@@ -361,9 +363,13 @@ function workflowsLeft(base: string, release: Release): Update["workflows"] {
   return { changed, updateDiffers: blob("HEAD") !== blob(release.commit) };
 }
 
-/** The update's commit, whose message names its release for the next update to measure from. */
-function commitOf(tree: string, release: Release, base: Update["base"]): string {
-  const message = `Update Ember to ${release.tag}\n\nBrings this copy up to Ember ${release.tag} from ${base.name}: ${EMBER}/compare/${base.commit}...${release.tag}\n\nEmber-Release: ${release.tag}\n`;
+/**
+ * The update's commit, whose message names its release for the next update to measure from, and the
+ * conflicts git couldn't mark, for a later run to find on its branch.
+ */
+function commitOf(tree: string, release: Release, base: Update["base"], conflicts: Conflict[]): string {
+  const noted = conflicts.filter((conflict) => conflict.note).map((conflict) => `Ember-Conflict: ${JSON.stringify(conflict)}\n`);
+  const message = `Update Ember to ${release.tag}\n\nBrings this copy up to Ember ${release.tag} from ${base.name}: ${EMBER}/compare/${base.commit}...${release.tag}\n\nEmber-Release: ${release.tag}\n${noted.join("")}`;
   return git(["commit-tree", tree, "-p", "HEAD", "-F", "-"], message);
 }
 
@@ -483,17 +489,23 @@ function makeBranch(update: Update): void {
   );
 }
 
-/** The files on origin's `branch` that still have the conflict markers an update to `release` leaves. */
-function markedOn(branch: string, release: Release): Conflict[] {
+/**
+ * The conflicts on origin's `branch`, which an earlier run pushed with the update to `release`: the
+ * files that still have the markers it leaves, and those git couldn't mark, as its commit names them.
+ */
+function conflictsOn(branch: string, release: Release): Conflict[] {
   git(["fetch", "--quiet", "--no-tags", "origin", `refs/heads/${branch}`]);
   const marker = `^>>>>>>> ${refOf(release).replaceAll(".", "\\.")}$`;
   const found = run("git", ["grep", "-l", "-z", "-e", marker, "FETCH_HEAD", "--"]);
   // It answers 1 when it finds none, and more when it couldn't look.
   if (found.status > 1) throw new Error(`git grep failed: ${found.stderr.trim()}`);
-  return found.stdout
+  const marked = found.stdout
     .split("\0")
     .filter(Boolean)
-    .map((match) => ({ file: match.slice("FETCH_HEAD:".length) }));
+    .map((match) => match.slice("FETCH_HEAD:".length));
+  // The branch's own commits, those the copy's main lacks, include the update's.
+  const noted = [...git(["log", "--format=%B", "HEAD..FETCH_HEAD"]).matchAll(NOTED_CONFLICT)].map((match) => JSON.parse(match[1]!) as Conflict);
+  return [...marked.filter((file) => !noted.some((conflict) => conflict.file === file)).map((file) => ({ file })), ...noted];
 }
 
 /** The pull request or issue that offered `release` before, an open one rather than one closed. */
@@ -520,10 +532,11 @@ function publish(update: Update): void {
   // Closed, or merged and since reverted: either way, its release is turned down.
   if (offer) return report(`${offer.url} offered this copy Ember ${update.release.tag} and is ${offer.state.toLowerCase()} now, so this waits for Ember's next release.`);
   // A run that pushed the branch but couldn't offer it leaves it to offer now, with whatever it has
-  // since, so the conflicts it describes are the markers left on it rather than this run's merge's.
+  // since, so the conflicts it describes are the branch's rather than this run's merge's. A conflict
+  // git couldn't mark leaves nothing there to show it's settled, so its note stays.
   const pushed = gitSays(["ls-remote", "--exit-code", "--heads", "origin", `refs/heads/${branch}`]);
   if (!pushed) git(["push", "--quiet", "origin", `${update.commit}:refs/heads/${branch}`]);
-  const offering = pushed ? { ...update, conflicts: markedOn(branch, update.release) } : update;
+  const offering = pushed ? { ...update, conflicts: conflictsOn(branch, update.release) } : update;
   const main = git(["symbolic-ref", "--short", "HEAD"]);
   const title = titleOf(update.release);
   const body = pullRequestBody(offering);
@@ -574,7 +587,7 @@ function update(args: string[]): void {
   }
   const from = { commit: base, name: nameOf(base, all) };
   const brought = all.filter((release) => compareVersions(release.version, newest.version) <= 0 && !isAncestor(release.commit, base));
-  const result = { release: newest, base: from, releases: brought, commit: commitOf(tree, newest, from), conflicts, workflows };
+  const result = { release: newest, base: from, releases: brought, commit: commitOf(tree, newest, from, conflicts), conflicts, workflows };
   if (publishing) publish(result);
   else makeBranch(result);
 }

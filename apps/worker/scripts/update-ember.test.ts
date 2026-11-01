@@ -438,6 +438,35 @@ describe("publishing an update, as the Update Ember workflow does", () => {
     expect(body("pr")).toContain("- `src/app.ts`\n");
   });
 
+  it("describes an update an earlier run pushed by git's notes on the conflicts it couldn't mark there", () => {
+    const { repo, copy, env, calls, body } = published();
+    commit(repo, "2026-10-11T12:00:00Z", { "src/app.ts": null, "apps/worker/package.json": '{ "version": "0.2.1" }\n' });
+    git(repo, ["tag", "v0.2.1"]);
+    commit(copy, "2026-10-07T12:00:00Z", { "src/app.ts": app("our two") });
+    git(copy, ["push", "--quiet", "origin", "main"]);
+    expect(update(copy, repo, ["--publish"], { ...env, GH_PR_FAILS: "HTTP 502: Bad Gateway" }).status).toBe(1);
+    const { status, output } = update(copy, repo, ["--publish"], env);
+    expect(status, output).toBe(0);
+    expect(calls().at(-3)).toBe("pr create --base main --head update-ember/v0.2.1 --title Update Ember to v0.2.1 --body-file - --draft");
+    expect(body("pr")).toContain("- `src/app.ts`: `CONFLICT (modify/delete): src/app.ts deleted in ember/v0.2.1 and modified in HEAD.");
+  });
+
+  it("offers an update an earlier run pushed as ready once the markers on its branch are fixed", () => {
+    const { repo, copy, env, calls, body } = published();
+    commit(copy, "2026-10-07T12:00:00Z", { "src/app.ts": app("our two") });
+    git(copy, ["push", "--quiet", "origin", "main"]);
+    expect(update(copy, repo, ["--publish"], { ...env, GH_PR_FAILS: "HTTP 502: Bad Gateway" }).status).toBe(1);
+    git(copy, ["fetch", "--quiet", "origin", "update-ember/v0.2.0"]);
+    git(copy, ["switch", "--quiet", "--create", "fixing", "FETCH_HEAD"]);
+    commit(copy, "2026-10-12T12:00:00Z", { "src/app.ts": app("our Two!") });
+    git(copy, ["push", "--quiet", "origin", "fixing:update-ember/v0.2.0"]);
+    git(copy, ["switch", "--quiet", "main"]);
+    const { status, output } = update(copy, repo, ["--publish"], env);
+    expect(status, output).toBe(0);
+    expect(calls().at(-3)).toBe("pr create --base main --head update-ember/v0.2.0 --title Update Ember to v0.2.0 --body-file -");
+    expect(body("pr")).not.toContain("needs a hand");
+  });
+
   it("takes a closed pull request as turning its release down, until the next", () => {
     const { repo, copy, origin, env, calls } = published();
     const pulls = JSON.stringify([{ url: "https://github.com/me/chat/pull/3", state: "CLOSED", headRefName: "update-ember/v0.2.0" }]);
