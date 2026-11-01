@@ -60,6 +60,7 @@ import {
   type NewRoomForm,
   type PersonAnswer,
   type ProfileAnswer,
+  type ReleaseCheck,
   type RoomId,
   type RoomSettings,
   type SendingDomainCheck,
@@ -117,6 +118,7 @@ import { webPush } from "./push/keys";
 import { deletePushSubscription, listPushSubscriptions, savePushSubscription, sendTestNotification } from "./push/subscriptions";
 import { showQrCode } from "./qr-code";
 import { RECOVERY_PATH, resetPassword } from "./recovery";
+import { releaseCheck } from "./releases";
 import { urlOf } from "./request-url";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
 import { clearSearches, recordSearch, searchMessages } from "./searches";
@@ -422,6 +424,18 @@ async function lookUpCustomDomain(request: Request, env: Env): Promise<Response>
   const lookup = parseCustomDomainCheck(await jsonBodyOf(request));
   if (typeof lookup === "string") return problem(422, lookup);
   return json((await lookUpDns(lookup.domain)) satisfies CustomDomainLookup, { headers: { "Cache-Control": "no-store" } });
+}
+
+/**
+ * The release this Ember is, and the newest one GitHub names, for an administrator, as General settings
+ * says, telling them when a newer one is out.
+ */
+async function release(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const administrator = credentials && (await workspace(env).canAdminister(credentials));
+  if (administrator === null) return problem(401, "Not signed in");
+  if (!administrator) return problem(403, "Only administrators can change the workspace");
+  return json((await releaseCheck()) satisfies ReleaseCheck, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** The workspace's custom CSS, for the Custom CSS page, which only administrators can open. */
@@ -971,6 +985,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account/custom_domain_lookups" && request.method === "POST") return () => lookUpCustomDomain(request, env);
   if (pathname === LOGO_PATH && request.method === "PUT") return () => changeLogo(request, env);
   if (pathname === LOGO_PATH && request.method === "DELETE") return () => removeLogo(request, env);
+  if (pathname === "/api/account/release" && request.method === "GET") return () => release(request, env);
   if (pathname === "/api/account/custom_styles" && request.method === "GET") return () => customStyles(request, env);
   if (pathname === "/api/account/custom_styles" && request.method === "PATCH") return () => changeCustomStyles(request, env);
   if (pathname === "/api/account/room_order" && request.method === "PUT") return () => setSharedOrder(request, env);

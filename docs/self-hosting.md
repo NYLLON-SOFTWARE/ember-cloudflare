@@ -85,6 +85,11 @@ that links to what's new. Merging it deploys the update, as every push to `main`
 each room's and the workspace's tables bring themselves up to date the first time they open. Closing
 it instead turns that release down until the next, whose pull request brings its changes too.
 
+Ember tells its administrators too: while a newer release is out, Admin on the rail has a dot, and
+General, in Community settings, names the release, with its notes and how to update. To know, the
+Worker asks GitHub for the page of Ember's latest release once an administrator has Ember open, telling
+it nothing but the version it is, and keeps the answer for six hours.
+
 A new GitHub repository doesn't let workflows open pull requests, so until yours does, the workflow
 opens an issue instead, with a link that opens the pull request for you to merge. To have it open them
 itself, tick **Allow GitHub Actions to create and approve pull requests** in your repository's

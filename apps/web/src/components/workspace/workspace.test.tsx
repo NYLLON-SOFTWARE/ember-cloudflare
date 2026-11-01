@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloseCode, startingInvolvement, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
@@ -119,14 +119,14 @@ class WorkspaceSocket extends QuietSocket {
   }
 }
 
-function showWorkspace(path = "/") {
+function showWorkspace(path = "/", me = ada) {
   const [onAccountChanged, onSignOut, onSessionChanged] = [vi.fn(), vi.fn(), vi.fn()];
   history.replaceState(null, "", path);
   const { unmount } = render(
     <PushContext value={PUSH_ON}>
       <FlashProvider workspace>
         <Workspace
-          me={ada}
+          me={me}
           workspaceName="Analytical Engines"
           onAccountChanged={onAccountChanged}
           onSignOut={onSignOut}
@@ -909,6 +909,74 @@ describe("Rail", () => {
     expect(railCurrent()).toEqual(["Home"]);
     await user.click(await screen.findByRole("link", { name: "Settings for this room" }));
     expect(railCurrent()).toEqual(["Workspace"]);
+  });
+});
+
+describe("New releases", () => {
+  const NOTES = "https://github.com/NYLLON-SOFTWARE/ember-cloudflare/releases/tag/v0.2.0";
+  const asAdministrator = { ...ada, administrator: true };
+  /** How many times the release check was asked for. */
+  const releaseChecks = () => vi.mocked(fetch).mock.calls.filter(([input]) => String(input) === "/api/account/release").length;
+  // Unmounted while what it calls on the way out is still stubbed.
+  afterEach(cleanup);
+
+  /** The browser's idle callbacks, which run when a test says. */
+  function idleCallbacks() {
+    const idle: Array<() => void> = [];
+    vi.stubGlobal("requestIdleCallback", (run: () => void) => idle.push(run));
+    vi.stubGlobal("cancelIdleCallback", () => {});
+    return idle;
+  }
+
+  it("asks, for an administrator, whether a newer release is out once the rooms have loaded and the browser is idle, marking Admin while one is", async () => {
+    const idle = idleCallbacks();
+    serve({
+      "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true }),
+      "GET /api/account/release": () => Response.json({ release: "0.1", newest: { release: "0.2", notes: NOTES, newer: true } }),
+    });
+    const { user } = showWorkspace("/rooms/random", asAdministrator);
+    expect(await roomHeading()).toHaveTextContent("random");
+    // With the pages few visits need.
+    await vi.waitFor(() => expect(idle).toHaveLength(2));
+    expect(releaseChecks()).toBe(0);
+    act(() => idle.forEach((run) => run()));
+    const admin = screen.getByRole("link", { name: "Admin" });
+    await waitFor(() => expect(admin).toHaveAccessibleDescription("Ember 0.2 is available"));
+
+    // General says so too, as the release check answered, which it isn't asked again for.
+    await user.click(admin);
+    expect(await screen.findByRole("heading", { level: 2, name: "Ember 0.2 is available" })).toBeInTheDocument();
+    expect(releaseChecks()).toBe(1);
+  });
+
+  it("leaves Admin unmarked while this is the newest release, or GitHub didn't say, as General says", async () => {
+    for (const [newest, says] of [
+      [{ release: "0.1", notes: NOTES, newer: false }, "This is the newest release."],
+      [null, "GitHub didn't say whether a newer release is out."],
+    ] as const) {
+      const idle = idleCallbacks();
+      serve({
+        "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true }),
+        "GET /api/account/release": () => Response.json({ release: "0.1", newest }),
+      });
+      const { unmount } = showWorkspace("/account/edit", asAdministrator);
+      await communitySettings();
+      await vi.waitFor(() => expect(idle).toHaveLength(2));
+      act(() => idle.forEach((run) => run()));
+      expect(await screen.findByRole("region", { name: "Ember 0.1" })).toHaveTextContent(says);
+      expect(screen.getByRole("link", { name: "Admin" })).not.toHaveAccessibleDescription();
+      unmount();
+    }
+  });
+
+  it("asks nothing for anyone else", async () => {
+    const idle = idleCallbacks();
+    showWorkspace("/rooms/random");
+    await roomHeading();
+    await vi.waitFor(() => expect(idle).toHaveLength(1));
+    act(() => idle.forEach((run) => run()));
+    await import("./pages");
+    expect(releaseChecks()).toBe(0);
   });
 });
 

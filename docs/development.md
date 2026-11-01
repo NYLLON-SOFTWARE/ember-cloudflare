@@ -101,8 +101,9 @@ Ember's version is `version` in `apps/worker/package.json`, which the Worker rep
 `X-Version` header. A pull request that raises it is a release: once it's merged, the Release workflow
 (`.github/workflows/release.yml`) tags the commit `v<version>` and publishes the release, with notes
 listing the pull requests merged since the last, and every copy's Update Ember workflow offers it
-within a week ([Updating](self-hosting.md#updating)). Copies move from release to release, never to
-`main` between them, and may skip any number of releases or go back one, so:
+within a week ([Updating](self-hosting.md#updating)), as General settings tells their administrators,
+going by GitHub's latest release. Copies move from release to release, never to `main` between them,
+and may skip any number of releases or go back one, so:
 
 - A released migration never changes, since copies that update have applied it already: CI fails a
   pull request that changes one. A schema change goes in a new migration.

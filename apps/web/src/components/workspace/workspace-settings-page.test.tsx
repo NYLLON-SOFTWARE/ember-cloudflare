@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,7 @@ import {
   MAX_TAGLINE_LENGTH,
   NO_EMAIL_DOMAINS,
   OPEN_WITH_MEMBERFUL,
+  UPDATING_EMBER,
   type Account,
   type AccountChanges,
   type AssistantSetup,
@@ -16,6 +17,7 @@ import {
   type EmailInvitation,
   type Invited,
   type Me,
+  type ReleaseCheck,
   type RoleChange,
   type RoomId,
   type SidebarRoom,
@@ -28,6 +30,7 @@ import { AccountContext } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
 import { navigate, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
+import { HOW_COPIES_UPDATE } from "./ember-version";
 import { CONFIRM_REMOVE } from "./people-list";
 import { workspaceSectionPath, type WorkspaceSection } from "./settings-navigation";
 import { CHANGES_SAVED } from "./settings-page";
@@ -258,6 +261,7 @@ function Page({ me, listed, rooms: listedRooms, callbacks }: { me: Me; listed: D
               rooms={sidebar.rooms}
               sharedOrder={sidebar.sharedOrder}
               onSharedOrderSaved={sharedOrderSaved}
+              release={release}
             />
           </Sheet>
         </FlashProvider>
@@ -268,6 +272,8 @@ function Page({ me, listed, rooms: listedRooms, callbacks }: { me: Me; listed: D
 
 /** The section the tests show, as the address's fragment names it: Community, unless their `describe` names another. */
 let section: WorkspaceSection = "community-settings";
+/** What the Worker said of Ember's releases, as the workspace gives the page it: nothing, unless a test says. */
+let release: ReleaseCheck | null = null;
 /** Shows `shown` in the tests of the `describe` that calls it. */
 const showingSection = (shown: WorkspaceSection) => beforeEach(() => void (section = shown));
 
@@ -294,6 +300,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   history.replaceState(null, "", "/");
   section = "community-settings";
+  release = null;
 });
 
 describe("Community settings page", () => {
@@ -373,10 +380,54 @@ describe("Community settings page", () => {
 });
 
 describe("Version", () => {
-  it("doesn't show Ember's version", async () => {
+  /** Ember 0.2's page on GitHub, with its notes. */
+  const NOTES = "https://github.com/NYLLON-SOFTWARE/ember-cloudflare/releases/tag/v0.2.0";
+  const card = () => screen.findByRole("region", { name: /^Ember \d/ });
+
+  it("shows administrators which release this is once the Worker has said, at the end of General", async () => {
+    release = { release: "0.1", newest: { release: "0.1", notes: NOTES, newer: false } };
+    showPage();
+    const shown = await card();
+    expect(shown).toHaveTextContent(/^Ember 0\.1This is the newest release\.$/);
+    expect(within(shown).queryByRole("link")).not.toBeInTheDocument();
+    const general = screen.getByRole("region", { name: "Basic community settings" });
+    expect(general.lastElementChild).toBe(shown);
+  });
+
+  it("says when a newer release is out, with its notes and how to update", async () => {
+    release = { release: "0.1", newest: { release: "0.2", notes: NOTES, newer: true } };
+    showPage();
+    const shown = await card();
+    expect(within(shown).getByRole("heading", { level: 2 })).toHaveTextContent("Ember 0.2 is available");
+    expect(shown).toHaveTextContent("This is Ember 0.1.");
+    expect(shown).toHaveTextContent(HOW_COPIES_UPDATE);
+    for (const [name, href] of [
+      ["What's new", NOTES],
+      ["How to update", UPDATING_EMBER],
+    ]) {
+      const link = within(shown).getByRole("link", { name });
+      expect(link).toHaveAttribute("href", href);
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener");
+    }
+  });
+
+  it("says when GitHub didn't say whether a newer release is out", async () => {
+    release = { release: "0.1", newest: null };
+    showPage();
+    expect(await card()).toHaveTextContent(/^Ember 0\.1GitHub didn't say whether a newer release is out\.$/);
+  });
+
+  it("shows nothing of it before the Worker has said, nor to members", async () => {
     showPage();
     await nameField();
-    expect(screen.queryByText(/version/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Ember \d/)).not.toBeInTheDocument();
+    cleanup();
+    release = { release: "0.1", newest: { release: "0.2", notes: NOTES, newer: true } };
+    serve(asMember);
+    showPage(asLinus);
+    expect(await screen.findByRole("heading", { level: 2, name: "Analytical Engines" })).toBeInTheDocument();
+    expect(screen.queryByText(/^Ember \d/)).not.toBeInTheDocument();
   });
 });
 

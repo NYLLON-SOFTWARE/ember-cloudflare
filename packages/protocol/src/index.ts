@@ -741,6 +741,21 @@ export interface CustomStyles {
   customStyles: string;
 }
 
+/** Ember's repository, which publishes its releases, and its docs on updating a deployment to one. */
+export const EMBER_REPOSITORY = "https://github.com/NYLLON-SOFTWARE/ember-cloudflare";
+export const UPDATING_EMBER = `${EMBER_REPOSITORY}/blob/main/docs/self-hosting.md#updating`;
+
+/**
+ * What `GET /api/account/release` answers an administrator, for General settings to say: the release
+ * this Ember is, named without its version's trailing ".0", such as "0.1", and the newest release of
+ * Ember on GitHub, named so too, with the address of its notes there and whether it's newer than this
+ * one, or null when GitHub didn't name one.
+ */
+export interface ReleaseCheck {
+  release: string;
+  newest: { release: string; notes: string; newer: boolean } | null;
+}
+
 /** The roles an administrator can give someone with the crown on workspace settings. Bots stay bots. */
 export type PersonRole = Exclude<Role, "bot">;
 
