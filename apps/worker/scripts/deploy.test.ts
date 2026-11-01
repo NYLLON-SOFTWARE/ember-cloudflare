@@ -343,6 +343,26 @@ describe("Setup password", () => {
   });
 });
 
+describe("Deploy to Cloudflare's form", () => {
+  const ofEmber = (file: string) => readFileSync(new URL(`../../../${file}`, import.meta.url), "utf8");
+  /** The secrets the form asks a deployer for: the lines of .dev.vars.example that aren't commented. */
+  const asked = ofEmber(".dev.vars.example")
+    .split("\n")
+    .filter((line) => /^[A-Z_]+=/.test(line))
+    .map((line) => line.slice(0, line.indexOf("=")));
+  const { bindings } = JSON.parse(ofEmber("package.json")).cloudflare as { bindings: Record<string, { description: string }> };
+
+  it("asks only for the setup password, since it won't deploy until every field it shows is filled in", () => {
+    expect(asked).toEqual(["EMBER_SETUP_PASSWORD"]);
+  });
+
+  it("describes what it asks for in under 200 characters, as it leaves out a longer description", () => {
+    for (const name of asked) expect(bindings[name]?.description).toBeTruthy();
+    const tooLong = Object.entries(bindings).filter(([, { description }]) => description.length >= 200);
+    expect(tooLong.map(([name]) => name)).toEqual([]);
+  });
+});
+
 describe("Updates for a copy made with Deploy to Cloudflare", () => {
   const WORKFLOW = ".github/workflows/update-ember.yml";
   const embersWorkflow = readFileSync(new URL(`../../../${WORKFLOW}`, import.meta.url), "utf8");
