@@ -101,8 +101,8 @@ function SetupPasswordStep({ linkToken, onAccepted }: { linkToken: string | null
   const input = useRef<HTMLInputElement>(null);
   const linkChecked = useRef(false);
 
-  /** Has the Worker check `secret`, saying beneath the field why one is refused, as `refusalOf` puts it. */
-  async function check(secret: string, refusalOf: (message: string) => string = (message) => message) {
+  /** Has the Worker check `secret`, the password typed or the token of the link the page opened `withLink`. */
+  async function check(secret: string, withLink = false) {
     setBusy(true);
     setRefusal(null);
     setProblem(null);
@@ -111,6 +111,8 @@ function SetupPasswordStep({ linkToken, onAccepted }: { linkToken: string | null
       onAccepted(secret);
     } catch (error) {
       setBusy(false);
+      // A link that couldn't be checked opens the form all the same, which has it checked again when it's sent.
+      if (withLink && !(error instanceof ApiError && error.status < 500)) return onAccepted(secret);
       if (!(error instanceof ApiError)) return setProblem("Couldn't reach Ember. Check your connection and try again.");
       // Someone else set it up first.
       if (error.status === 409) return loadPage("/");
@@ -118,7 +120,7 @@ function SetupPasswordStep({ linkToken, onAccepted }: { linkToken: string | null
       if (error.status !== 403) return setProblem(error.message);
       // A refused one starts over, saying why beneath it.
       if (input.current) input.current.value = "";
-      setRefusal(refusalOf(error.message));
+      setRefusal(withLink ? STALE_LINK : error.message);
       input.current?.focus();
     }
   }
@@ -127,7 +129,7 @@ function SetupPasswordStep({ linkToken, onAccepted }: { linkToken: string | null
   useEffect(() => {
     if (linkToken === null || linkChecked.current) return;
     linkChecked.current = true;
-    void check(linkToken, () => STALE_LINK);
+    void check(linkToken, true);
   }, [linkToken]);
 
   return (

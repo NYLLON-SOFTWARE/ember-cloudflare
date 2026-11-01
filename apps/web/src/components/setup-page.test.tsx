@@ -418,6 +418,18 @@ describe("Setup password", () => {
     for (const call of fetch.mock.calls) expect(authorizationOf(call)).toBe(`Bearer ${token}`);
   });
 
+  it("opens the form with the setup link where Ember couldn't be reached to check it, as the form has it checked again", async () => {
+    const token = "e2e1".repeat(16);
+    history.replaceState(null, "", `/first_run#token=${token}`);
+    const fetch = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new TypeError("Failed to fetch")).mockResolvedValueOnce(Response.json(workspace, { status: 201 }));
+    const onSetUp = vi.fn();
+    render(<SetupPage placeholders={DEFAULTS} access="password" onSetUp={onSetUp} />);
+    expect(await screen.findByLabelText("Name")).toBeInTheDocument();
+    await fillIn("correct horse");
+    await waitFor(() => expect(onSetUp).toHaveBeenCalledWith(workspace));
+    expect(authorizationOf(fetch.mock.calls[1]!)).toBe(`Bearer ${token}`);
+  });
+
   it("asks for the setup password where the setup link it opens with is out of date", async () => {
     history.replaceState(null, "", `/first_run#token=${"0".repeat(64)}`);
     const fetch = answers([403, { error: "That isn't this Ember's setup password" }], [204, null]);
