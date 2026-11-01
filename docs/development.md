@@ -110,7 +110,9 @@ and may skip any number of releases or go back one, so:
 - A migration adds to the tables rather than takes away, so the release before still runs on what it
   leaves: drop a column or table a release after the code stops using it.
 - `.github/workflows/update-ember.yml` stays as it is, since an update can't change a copy's
-  workflows: change `apps/worker/scripts/update-ember.ts`, which updates bring, instead.
+  workflows: change `apps/worker/scripts/update-ember.ts`, which updates bring, instead. Its copy
+  beside that script, which the deploy offers copies without the workflow, as Deploy to
+  Cloudflare's are, is the same file, as a test checks.
 - Ember's other workflows run only in its own repository, and `pnpm run deploy` stays the deploy
   command, which every copy's Workers Builds runs.
 

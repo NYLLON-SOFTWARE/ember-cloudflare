@@ -18,7 +18,9 @@
 // a Memberful custom app, for its members to sign in (apps/worker/src/memberful.ts), and of a Turnstile
 // widget, for open sign-up's check, in place of any given in Set up Turnstile (apps/worker/src/turnstile.ts),
 // go up with every deploy whose environment gives them, as the Preview workflow's does from the
-// repository's secrets.
+// repository's secrets. Deploy to Cloudflare's copy of Ember leaves out the .github folder, and with
+// it the Update Ember workflow that offers the copy Ember's releases, so a deploy without that workflow
+// ends by saying how to add it.
 
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -30,6 +32,12 @@ import { vapidKeys } from "./vapid-keys.ts";
 
 /** The repository's root, where wrangler.jsonc is. */
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url));
+
+/** Ember's repository, where its releases come from. */
+const EMBER = "https://github.com/NYLLON-SOFTWARE/ember-cloudflare";
+/** The workflow that offers a copy Ember's releases (docs/self-hosting.md#updating), and Ember's, kept beside this script. */
+const UPDATE_WORKFLOW = ".github/workflows/update-ember.yml";
+const EMBERS_UPDATE_WORKFLOW = new URL("./update-ember.yml", import.meta.url);
 
 /** Runs `pnpm exec wrangler` from the root, with its output captured or shown, and `env` besides this process's. */
 function wrangler(args: string[], capture: boolean, env: Record<string, string> = {}) {
@@ -184,6 +192,37 @@ function tellSetupLink(setupToken: SetupToken, token: string | undefined, url: s
   }
 }
 
+/**
+ * The GitHub repository the checkout came from, as `owner/name`, or null where git's origin isn't one
+ * on github.com. A build's origin may carry its clone's credentials, which go no further than this.
+ */
+function githubRepository(): string | null {
+  const origin = spawnSync("git", ["remote", "get-url", "origin"], { cwd: ROOT, encoding: "utf8" });
+  if (origin.status !== 0) return null;
+  return /^(?:https:\/\/(?:[^@/]*@)?github\.com\/|git@github\.com:)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/i.exec(origin.stdout.trim())?.[1] ?? null;
+}
+
+/**
+ * Says how to add the Update Ember workflow to a copy that has none, as Deploy to Cloudflare's don't:
+ * on GitHub, with a link that opens the copy's editor with Ember's workflow in it, ready to commit.
+ */
+function tellUpdateWorkflow(): void {
+  if (existsSync(path.join(ROOT, UPDATE_WORKFLOW))) return;
+  const repository = githubRepository();
+  const missing = "\nThis copy of Ember has no Update Ember workflow, which Deploy to Cloudflare leaves out with the rest of the .github folder, so nothing offers it Ember's new releases.";
+  if (repository && `https://github.com/${repository}`.toLowerCase() !== EMBER.toLowerCase() && existsSync(EMBERS_UPDATE_WORKFLOW)) {
+    // A branch's name may hold what a link can't, such as `#`, so each of its parts goes in encoded.
+    const branch = (process.env.WORKERS_CI_BRANCH || "main").split("/").map(encodeURIComponent).join("/");
+    const editor = `https://github.com/${repository}/new/${branch}`;
+    const workflow = new URLSearchParams({ filename: UPDATE_WORKFLOW, value: readFileSync(EMBERS_UPDATE_WORKFLOW, "utf8") });
+    console.log(`${missing} To have each come as a pull request, commit the workflow in GitHub's editor, which this opens with it filled in: ${editor}?${workflow}`);
+  } else {
+    console.log(
+      `${missing} On GitHub, add ${UPDATE_WORKFLOW} to it as Ember has it, ${EMBER}/blob/main/${UPDATE_WORKFLOW}, to have each come as a pull request; elsewhere, update it with apps/worker/scripts/update-ember.ts (docs/self-hosting.md#updating).`,
+    );
+  }
+}
+
 /** Deploys with `args` and the missing secrets, says how to set Ember up, and answers wrangler's exit status. */
 async function deploy(args: string[]): Promise<number> {
   const target = targetOptions(args);
@@ -197,7 +236,10 @@ async function deploy(args: string[]): Promise<number> {
     // wrangler records what it deployed, the Worker's address among it, in the file the environment names, else one of this deploy's own.
     const output = process.env.WRANGLER_OUTPUT_FILE_PATH || path.join(dir, "wrangler-output.json");
     const status = wrangler(["deploy", "--secrets-file", file, ...args], false, { WRANGLER_OUTPUT_FILE_PATH: output }).status ?? 1;
-    if (status === 0) tellSetupLink(setupToken, secrets.EMBER_SETUP_TOKEN, deployedUrl(output), target);
+    if (status === 0) {
+      tellSetupLink(setupToken, secrets.EMBER_SETUP_TOKEN, deployedUrl(output), target);
+      tellUpdateWorkflow();
+    }
     return status;
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -250,6 +250,19 @@ describe("updating a copy made with Deploy to Cloudflare", () => {
     expect(show(copy, "update-ember/v0.2.1", "wrangler.jsonc")).toBe(wrangler("my-chat", "my-files", "2026-10-10").replace("// The Worker.", "// The Worker, named.").replace("// Its files.", "// Its files, named.").trim());
   });
 
+  it("keeps the preview bucket Deploy to Cloudflare adds after the bucket's name, as the button writes it, where Ember changes the lines beside them", () => {
+    const repo = ember();
+    const commented = wrangler("ember", "ember", "2026-10-10").replace("// The Worker.", "// The Worker, named.").replace("// Its files.", "// Its files, named.");
+    commit(repo, "2026-10-11T12:00:00Z", { "wrangler.jsonc": commented, "apps/worker/package.json": '{ "version": "0.2.1" }\n' });
+    git(repo, ["tag", "v0.2.1"]);
+    const asDeployed = (settings: string) => settings.replace('"name": "ember"', '"name": "my-chat"').replace('"bucket_name": "ember"', '"bucket_name": "my-files","preview_bucket_name": "my-files"');
+    const copy = deployedCopy(repo, asDeployed(wrangler("ember", "ember")));
+    const { status, output } = update(copy, repo);
+    expect(status, output).toBe(0);
+    expect(output).not.toContain("conflict");
+    expect(show(copy, "update-ember/v0.2.1", "wrangler.jsonc")).toBe(asDeployed(commented).trim());
+  });
+
   it("keeps the copy's bucket's name with its binding where Ember adds a bucket before it", () => {
     const repo = ember();
     const twoBuckets = wrangler("ember", "ember", "2026-10-10").replace('"r2_buckets": [', '"r2_buckets": [{ "binding": "BACKUPS", "bucket_name": "ember-backups" }, ');
