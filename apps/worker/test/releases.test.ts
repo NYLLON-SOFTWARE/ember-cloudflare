@@ -165,6 +165,26 @@ describe("Checking for a newer release", () => {
     expect(asked).toHaveLength(3);
   });
 
+  it("keeps a release GitHub named for one request when another's check, made at the same time, fails after it", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The first request to ask GitHub hears nothing back until the second has had its answer.
+    let answerFirst = false;
+    const asked = fakeGitHub(async () => {
+      if (asked.length > 1) return redirectTo(pageOf(NEXT));
+      while (!answerFirst) await new Promise((resolve) => setTimeout(resolve, 5));
+      return new Response("Unavailable", { status: 503 });
+    });
+    const named = { release: releaseNameOf(NEXT), notes: pageOf(NEXT), newer: true };
+    const newestIn = async (response: Response) => ((await response.json()) as ReleaseCheck).newest;
+    const checks = [checkRelease(administrator), checkRelease(administrator)];
+    expect(await newestIn((await Promise.race(checks)).clone())).toEqual(named);
+    answerFirst = true;
+    expect(await Promise.all(checks.map(async (check) => newestIn(await check)))).toEqual([named, named]);
+    expect((await releaseCheckFor(administrator)).newest).toEqual(named);
+    expect(asked).toHaveLength(2);
+  });
+
   it("answers only administrators, asking GitHub nothing for anyone else", async () => {
     await setUp();
     const asked = latestIs(NEXT);

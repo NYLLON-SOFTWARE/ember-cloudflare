@@ -42,7 +42,9 @@ export function forgetNewestRelease(): void {
 /**
  * What General settings says of releases: this Ember's, and the newest on GitHub, with whether it's newer,
  * or null when GitHub didn't name one. GitHub is asked again only once what it said last is no longer
- * kept, in a subrequest for each address it redirects to.
+ * kept, in a subrequest for each address it redirects to. Requests that find it due at the same time each
+ * ask, since a subrequest belongs to the request that made it, which can end first, but one that hears no
+ * release doesn't replace a release another heard meanwhile.
  */
 export async function releaseCheck(): Promise<ReleaseCheck> {
   if (!heard || Date.now() >= heard.until) {
@@ -50,7 +52,7 @@ export async function releaseCheck(): Promise<ReleaseCheck> {
       console.warn("Asking GitHub for Ember's newest release failed:", error instanceof Error ? error.message : "unknown error");
       return null;
     });
-    heard = { release, until: Date.now() + (release ? ANSWER_KEPT_MS : NO_ANSWER_KEPT_MS) };
+    if (release || !heard?.release || Date.now() >= heard.until) heard = { release, until: Date.now() + (release ? ANSWER_KEPT_MS : NO_ANSWER_KEPT_MS) };
   }
   const newest = heard.release;
   return {
