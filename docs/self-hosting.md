@@ -29,14 +29,14 @@ account, as [Deploying](#deploying) describes.
 ## Deploying
 
 The Deploy to Cloudflare button at the top asks you to name the repository, the Worker and the R2
-bucket for files (turn R2 on for your account first), then Cloudflare's Workers Builds builds and
-deploys it, and again after every push to the copy. There are no secrets to fill in. Connecting
-GitHub or GitLab to Cloudflare the first time leaves you on Cloudflare's page for deploying one of
-your own repositories, so click the button again afterwards. If your account already has a bucket
-named `ember`, the form picks it, so pick a new one there for this Ember's files. The copy has all of
-Ember but its `.github` folder, so add the Update Ember workflow to it, as [Updating](#updating) says,
-for it to be offered Ember's releases. To deploy from your machine instead, after
-`pnpm exec wrangler login`:
+bucket for files (turn R2 on for your account first), and to make up a setup password,
+`EMBER_SETUP_PASSWORD`, of at least 12 characters, then Cloudflare's Workers Builds builds and
+deploys it, and again after every push to the copy. Connecting GitHub or GitLab to Cloudflare the
+first time leaves you on Cloudflare's page for deploying one of your own repositories, so click the
+button again afterwards. If your account already has a bucket named `ember`, the form picks it, so
+pick a new one there for this Ember's files. The copy has all of Ember but its `.github` folder, so
+add the Update Ember workflow to it, as [Updating](#updating) says, for it to be offered Ember's
+releases. To deploy from your machine instead, after `pnpm exec wrangler login`:
 
 ```sh
 pnpm build
@@ -48,22 +48,36 @@ and a VAPID key pair for push notifications on its first deploy, and later deplo
 a new secret would sign everyone out and a new pair would end every push subscription. They go up
 with the code and never appear in the deploy's output.
 
-The first deploy also makes the Worker's setup token, `EMBER_SETUP_TOKEN`, and once it has deployed,
-prints the setup link that carries it, `https://<your Worker>/first_run#token=<the token>`: in your
-terminal, or in the build's log in the Cloudflare dashboard after Deploy to Cloudflare. Open it to set
-up Ember. Only that link opens the form, so nobody who merely finds the address can make themselves the
-administrator, and once Ember is set up the link is spent: setup closes for good, as in Campfire.
-The token rides in the link's fragment, which no request or log sees. `/first_run` opened without it
-says all this, and if the link is lost, make a new token, give it to the Worker, and open the link
-with that one:
+Whoever deployed Ember sets it up, and nobody else. After Deploy to Cloudflare, open the Worker's
+address and type the setup password you gave the form: `/first_run` asks for it before the
+administrator's account, so nobody who merely finds the address can make themselves the
+administrator, and it allows 10 tries at the password every 10 minutes, from anywhere, so nobody can
+guess it either. Once Ember is set up, setup closes for good, as in Campfire. If the password is
+forgotten, give `EMBER_SETUP_PASSWORD` a new value in the Worker's **Settings**, under **Variables and
+Secrets**, or from a terminal, and type that one:
+
+```sh
+pnpm exec wrangler secret put EMBER_SETUP_PASSWORD   # asks for it; add --name <worker> for a Worker not named in wrangler.jsonc
+```
+
+A first deploy from a terminal, for a Worker with no setup password, makes the Worker a setup token,
+`EMBER_SETUP_TOKEN`, instead, and once it has deployed, prints the setup link that carries it,
+`https://<your Worker>/first_run#token=<the token>`, which opens the form without asking for a
+password. The token rides in the link's fragment, which no request or log sees, and the link is
+spent once Ember is set up. If it's lost, give the Worker a setup password as above, or make a new
+token, give it to the Worker, and open the link with that one:
 
 ```sh
 openssl rand -hex 32                              # the new token: keep it
 pnpm exec wrangler secret put EMBER_SETUP_TOKEN   # asks for it; add --name <worker> for a Worker not named in wrangler.jsonc
 ```
 
-On localhost, where `wrangler dev` serves, setup is open to whoever's there unless `.dev.vars`
-sets a token.
+A deploy whose environment sets `EMBER_SETUP_PASSWORD` gives a Worker without one that password, and
+makes it no token. A setup password shorter than 12 characters opens nothing, and `/first_run` says
+so; a setup token set to anything but 64 lowercase hex characters counts as a setup password. Spaces
+and line breaks around either, which pasting can bring along, don't count. On localhost, where
+`wrangler dev` serves, setup is open to whoever's there unless `.dev.vars` sets a setup password or
+token.
 
 The setup form suggests Kevin Rose and kevin@kevinrose.com for the administrator. To suggest your
 own, set the Worker's `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL_PLACEHOLDER` variables,
@@ -472,10 +486,10 @@ they go up with the deploy, never in its logs. A public repository's Actions log
 the workflow prints no setup link and makes no setup token: the Worker takes its token from an
 `EMBER_SETUP_TOKEN` repository secret, if you add one (`openssl rand -hex 32`) before the first
 deploy, and the run's log then says to open `<the preview>/first_run#token=<your token>` to set
-Ember up. Without the secret, the deploy check says nobody can set the preview up until you deploy
-it from a terminal with `pnpm run deploy --name ember-production`, which makes a token and prints
-the link, or make one with `openssl rand -hex 32` and give it to the preview with
-`wrangler secret put EMBER_SETUP_TOKEN --name ember-production`, which asks for it.
+Ember up. Without the secret, the deploy check says nobody can set the preview up until you give it
+a setup password with `wrangler secret put EMBER_SETUP_PASSWORD --name ember-production`, which asks
+for it, or deploy it from a terminal with `pnpm run deploy --name ember-production`, which makes a
+token and prints the link.
 
 Repository variables named `EMBER_SETUP_NAME_PLACEHOLDER` and `EMBER_SETUP_EMAIL_PLACEHOLDER`, if
 you add them, become the preview's setup form placeholders.
@@ -485,9 +499,9 @@ Its version, under the sign-in page's card, is the commit it deployed. After eac
 `node apps/worker/scripts/check-deploy.ts <url>` checks, without signing in, that `/api/health`
 answers (which needs `SESSION_SECRET`, and the Workspace and a room's Durable Object reading their
 storage), that the page loads through the Worker with its headers, that the API asks for sign-in,
-and whether Ember is set up yet, or waits for its setup link. `/api/health` tells strangers only
-whether Ember is up; with the Worker's `EMBER_RECOVERY_TOKEN` in its environment, the check hears
-which storage it uses too, and why when it's down. It sends the token only to an `https://` address,
+and whether Ember is set up yet, or waits for its setup password or link. `/api/health` tells
+strangers only whether Ember is up; with the Worker's `EMBER_RECOVERY_TOKEN` in its environment, the
+check hears which storage it uses too, and why when it's down. It sends the token only to an `https://` address,
 or an `http://` one on this machine, and follows no redirect with it. The preview's link is on the
 run's summary and under the repository's Deployments.
 
@@ -533,7 +547,7 @@ address the API doesn't have does.
 
 ### Security notes
 
-What a self-hoster should know, beyond keeping the setup link to themselves:
+What a self-hoster should know, beyond keeping the setup password and link to themselves:
 
 - Every answer carries a `Content-Security-Policy` beside Rails' headers: scripts only from your
   Worker, images from any HTTPS site, since link previews show their page's image, and no page of
@@ -565,9 +579,12 @@ What a self-hoster should know, beyond keeping the setup link to themselves:
   your current password, so holding someone's session isn't enough to take their account, and a new
   password ends your other sessions and forgets their browsers' push subscriptions. A password reset,
   deactivation or ban ends all of a person's sessions within a minute.
-- Until Ember is set up, only the setup link the deploy printed opens the form, so finding a new
-  deployment's address isn't enough to become its administrator; on localhost, and on a Worker
-  without a setup token, setup is open or closed as [Deploying](#deploying) says.
+- Until Ember is set up, only the setup password, or the setup link a deploy printed, opens the form,
+  so finding a new deployment's address isn't enough to become its administrator. Tries at the
+  password count against one limit for the whole deployment, 10 every 10 minutes, kept in its
+  storage, so neither another address nor a restarted Worker starts the count over; past it, the
+  right password waits too, though the link doesn't, since its token is too long to guess. On
+  localhost, and on a Worker with neither, setup is open or closed as [Deploying](#deploying) says.
 - `EMBER_GUEST_SIGN_IN=true` lets anyone with the address in with just a name, so keep it to
   `wrangler dev`, as `.dev.vars.example` says.
 - With Open on, anyone who finds the address can make an account, with any email address, and

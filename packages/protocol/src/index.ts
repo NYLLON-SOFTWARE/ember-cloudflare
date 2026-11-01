@@ -849,12 +849,25 @@ export interface SetupPlaceholders {
 }
 
 /**
- * How setup can be reached from where the app runs: with the deploy's setup link, which ends in the
- * deployment's `EMBER_SETUP_TOKEN` secret; open to whoever is here, over loopback, where `wrangler dev`
- * serves, while no token is set; or closed until a deploy, or `wrangler secret put EMBER_SETUP_TOKEN`,
- * gives the deployment a token.
+ * How setup can be reached from where the app runs, while Ember waits to be set up:
+ * - "password": with the deployment's setup password, which Deploy to Cloudflare's form asks the deployer
+ *   to make up (`EMBER_SETUP_PASSWORD`), typed into the page;
+ * - "link": with the setup link a deploy from a terminal prints, which ends in the deployment's
+ *   `EMBER_SETUP_TOKEN`;
+ * - "open": by whoever is here, over loopback, where `wrangler dev` serves, while the deployment has neither;
+ * - "weak": by nobody, while its setup password is shorter than `MIN_SETUP_PASSWORD_LENGTH`;
+ * - "closed": by nobody, while it has neither.
  */
-export type SetupAccess = "link" | "open" | "closed";
+export type SetupAccess = "password" | "link" | "open" | "weak" | "closed";
+
+/**
+ * The fewest characters a setup password may have, so nobody can guess one while Ember waits to be set
+ * up. A setup token, 64 hex characters, has more.
+ */
+export const MIN_SETUP_PASSWORD_LENGTH = 12;
+
+/** Whether `secret` is too short to be a setup password, counted in characters rather than bytes. */
+export const isSetupPasswordTooShort = (secret: string) => [...secret].length < MIN_SETUP_PASSWORD_LENGTH;
 
 /** What the app asks first (`GET /api/bootstrap`): whether Ember is set up, and who this browser is signed in as. */
 export interface Bootstrap {

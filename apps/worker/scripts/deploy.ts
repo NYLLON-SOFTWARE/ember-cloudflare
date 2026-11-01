@@ -6,15 +6,16 @@
 //
 // Sessions are stored keyed with SESSION_SECRET, so changing it would sign everyone out: the first
 // deploy makes one and later ones keep it. Browsers subscribe to push notifications with
-// VAPID_PUBLIC_KEY, so the first deploy makes a VAPID key pair too, and later ones keep it. The first
-// deploy also makes EMBER_SETUP_TOKEN, the one secret meant to be read: it prints the setup link that
-// carries it, which is how whoever deployed, and nobody else, sets Ember up (apps/worker/src/setup.ts),
-// and which is spent once they have. The secrets go up with the code in one `wrangler deploy
-// --secrets-file`, from a file only this deploy can read, and nothing else here prints them:
-// Cloudflare's build logs mask nothing, as GitHub's would. A CI log can be public, as a public
-// repository's Actions logs are, so there the deploy makes no setup token, and says so, unless
-// EMBER_SETUP_TOKEN in its environment brings one the deployer keeps as a secret of their own.
-// Workers Builds' log is the account's own, so Deploy to Cloudflare gets its link there. The keys of
+// VAPID_PUBLIC_KEY, so the first deploy makes a VAPID key pair too, and later ones keep it. Whoever
+// deployed, and nobody else, sets Ember up (apps/worker/src/setup.ts) with its setup password,
+// EMBER_SETUP_PASSWORD, which Deploy to Cloudflare's form asks them to make up, or which the deploy's
+// environment gives. A Worker with neither that nor a setup token gets EMBER_SETUP_TOKEN, the one secret
+// meant to be read: the deploy prints the setup link that carries it, which is spent once Ember is set
+// up. The secrets go up with the code in one `wrangler deploy --secrets-file`, from a file only this
+// deploy can read, and nothing else here prints them: Cloudflare's build logs mask nothing, as GitHub's
+// would. A CI log can be public, as a public repository's Actions logs are, so there the deploy makes no
+// setup token, and says so, unless EMBER_SETUP_TOKEN in its environment brings one the deployer keeps as
+// a secret of their own. Workers Builds' log is the account's own, so it can carry the link. The keys of
 // a Memberful custom app, for its members to sign in (apps/worker/src/memberful.ts), and of a Turnstile
 // widget, for open sign-up's check, in place of any given in Set up Turnstile (apps/worker/src/turnstile.ts),
 // go up with every deploy whose environment gives them, as the Preview workflow's does from the
@@ -78,6 +79,8 @@ function secretNames(target: string[]): string[] {
 
 /** The shape of EMBER_SETUP_TOKEN, as the Worker checks it (apps/worker/src/secrets.ts): `openssl rand -hex 32`. */
 const SETUP_TOKEN = /^[0-9a-f]{64}$/;
+/** The fewest characters the Worker takes in a setup password (MIN_SETUP_PASSWORD_LENGTH in packages/protocol). */
+const MIN_SETUP_PASSWORD_LENGTH = 12;
 
 /** Whether this deploy's output may be public: a CI log, except Workers Builds', which is the account's own. */
 const inPublicLog = () => !!process.env.CI && !process.env.WORKERS_CI;
@@ -111,8 +114,12 @@ function uploading(made: string[], given: string[]): string {
   return secrets.length ? `Deploying with ${secrets.join(", and ")}` : "Deploying with the Worker's secrets as they are";
 }
 
-/** What became of the Worker's setup token: made here, given by the environment, withheld from a public log, or kept from before. */
-type SetupToken = "made" | "given" | "withheld" | "kept";
+/**
+ * What became of the Worker's setup token: made here, given by the environment, withheld from a public
+ * log, or kept from before, or not needed, as the Worker has a setup password, which a first deploy says
+ * how to use ("password"), and a later one doesn't ("kept").
+ */
+type SetupToken = "made" | "given" | "withheld" | "kept" | "password";
 
 /** New values for the secrets a Worker that has `names` is missing, and what became of its setup token. */
 async function missingSecrets(names: string[]): Promise<{ secrets: Record<string, string>; setupToken: SetupToken }> {
@@ -124,8 +131,16 @@ async function missingSecrets(names: string[]): Promise<{ secrets: Record<string
     Object.assign(secrets, { VAPID_PUBLIC_KEY: publicKey, VAPID_PRIVATE_KEY: privateKey });
   }
   let setupToken: SetupToken = "kept";
-  if (!names.includes("EMBER_SETUP_TOKEN")) {
-    const given = process.env.EMBER_SETUP_TOKEN;
+  const password = process.env.EMBER_SETUP_PASSWORD?.trim();
+  if (names.includes("EMBER_SETUP_PASSWORD")) {
+    // As Deploy to Cloudflare's form gives it. The first deploy makes SESSION_SECRET too; by a later
+    // one, Ember may well be set up.
+    if (!names.includes("SESSION_SECRET")) setupToken = "password";
+  } else if (password) {
+    if ([...password].length < MIN_SETUP_PASSWORD_LENGTH) throw new Error(`EMBER_SETUP_PASSWORD must be at least ${MIN_SETUP_PASSWORD_LENGTH} characters.`);
+    [secrets.EMBER_SETUP_PASSWORD, setupToken] = [password, "password"];
+  } else if (!names.includes("EMBER_SETUP_TOKEN")) {
+    const given = process.env.EMBER_SETUP_TOKEN?.trim();
     if (given) {
       if (!SETUP_TOKEN.test(given)) throw new Error("EMBER_SETUP_TOKEN must be 64 lowercase hex characters, as `openssl rand -hex 32` makes.");
       [secrets.EMBER_SETUP_TOKEN, setupToken] = [given, "given"];
@@ -175,19 +190,26 @@ function deployedUrl(outputFile: string): string | null {
 }
 
 /**
- * Says how to set Ember up at `url`, as what became of the Worker's setup token allows, naming the
- * Worker as the deploy's `target` options do, so a new token goes to the Worker deployed, not wrangler.jsonc's.
+ * Says how to set Ember up at `url`, with its setup password or link, as what became of the Worker's setup
+ * token allows, naming the Worker as the deploy's `target` options do, so a new password or token goes to
+ * the Worker deployed, not wrangler.jsonc's.
  */
 function tellSetupLink(setupToken: SetupToken, token: string | undefined, url: string | null, target: string[]): void {
-  const page = `${url ?? "https://<your Worker>"}/first_run#token=`;
+  const setup = `${url ?? "https://<your Worker>"}/first_run`;
+  const page = `${setup}#token=`;
   // `wrangler secret put` asks for the value, so the person sees the token they make, which a pipe would hide.
   const newToken = `make one with openssl rand -hex 32, give it to the Worker with ${["pnpm exec wrangler secret put EMBER_SETUP_TOKEN", ...target].join(" ")}, which asks for it, and open ${page}<the token>`;
-  if (setupToken === "made") {
+  const putPassword = `${["pnpm exec wrangler secret put EMBER_SETUP_PASSWORD", ...target].join(" ")}, which asks for it`;
+  if (setupToken === "password") {
+    console.log(
+      `\nSet up Ember at ${setup} with its setup password, EMBER_SETUP_PASSWORD. If it's forgotten, give it a new one in the Cloudflare dashboard, in the Worker's Settings under Variables and Secrets, or with ${putPassword}.`,
+    );
+  } else if (setupToken === "made") {
     console.log(`\nSet up Ember at ${page}${token}\nThat link carries this deployment's setup token, printed only now, and is spent once Ember is set up. If it's lost, ${newToken}`);
   } else if (setupToken === "given") {
     console.log(`\nSet up Ember at ${page}<your EMBER_SETUP_TOKEN>`);
   } else if (setupToken === "withheld") {
-    const notice = `Nobody can set Ember up until the Worker has an EMBER_SETUP_TOKEN secret, and this log may be public, so this deploy made none. Set EMBER_SETUP_TOKEN in the deploy's environment from a secret of your own (openssl rand -hex 32) and deploy again, then open ${page}<your EMBER_SETUP_TOKEN>; or ${newToken}`;
+    const notice = `Nobody can set Ember up until the Worker has a setup password or an EMBER_SETUP_TOKEN secret, and this log may be public, so this deploy made no token. Give it a setup password of at least ${MIN_SETUP_PASSWORD_LENGTH} characters with ${putPassword}, and open ${setup}; or set EMBER_SETUP_TOKEN in the deploy's environment from a secret of your own (openssl rand -hex 32) and deploy again, then open ${page}<your EMBER_SETUP_TOKEN>; or ${newToken}`;
     console.log(process.env.GITHUB_ACTIONS === "true" ? `::notice::${notice}` : `\n${notice}`);
   }
 }

@@ -77,6 +77,7 @@ function deploy(
     WORKERS_CI: _workers,
     WORKERS_CI_BRANCH: _branch,
     EMBER_SETUP_TOKEN: _token,
+    EMBER_SETUP_PASSWORD: _password,
     WRANGLER_OUTPUT_FILE_PATH: _output,
     MEMBERFUL_URL: _site,
     MEMBERFUL_CLIENT_ID: _client,
@@ -235,14 +236,14 @@ describe("Installer-protected setup link", () => {
 
   it("takes the setup token the environment brings, and prints the link's shape without it, since its holder knows it", () => {
     const token = "ab".repeat(32);
-    const { status, secrets, logs } = deploy(withoutSetupToken, [], { env: { EMBER_SETUP_TOKEN: token } });
+    const { status, secrets, logs } = deploy(withoutSetupToken, [], { env: { EMBER_SETUP_TOKEN: ` ${token}\n` } });
     expect(status).toBe(0);
     expect(secrets).toEqual({ EMBER_SETUP_TOKEN: token });
     expect(logs).toContain(`Set up Ember at ${WORKER_URL}/first_run#token=<your EMBER_SETUP_TOKEN>`);
     expect(logs).not.toContain(token);
   });
 
-  it.each(["hunter2", "AB".repeat(32), `${"ab".repeat(32)}\n`])("refuses a setup token from the environment that can't be one (%j), before deploying", (token) => {
+  it.each(["hunter2", "AB".repeat(32), `${"ab".repeat(32)}0`])("refuses a setup token from the environment that can't be one (%j), before deploying", (token) => {
     const { status, deployed, logs } = deploy(withoutSetupToken, [], { env: { EMBER_SETUP_TOKEN: token } });
     expect(status).toBe(1);
     expect(deployed).toBe(false);
@@ -260,7 +261,8 @@ describe("Installer-protected setup link", () => {
     expect(status).toBe(0);
     expect(secrets).toEqual({ SESSION_SECRET: expect.any(String), VAPID_PUBLIC_KEY: expect.any(String), VAPID_PRIVATE_KEY: expect.any(String) });
     expect(logs).not.toContain("Set up Ember at");
-    expect(logs).toContain("this log may be public, so this deploy made none");
+    expect(logs).toContain("this log may be public, so this deploy made no token");
+    expect(logs).toContain(`Give it a setup password of at least 12 characters with pnpm exec wrangler secret put EMBER_SETUP_PASSWORD, which asks for it, and open ${WORKER_URL}/first_run;`);
     expect(logs).toContain(`${WORKER_URL}/first_run#token=<your EMBER_SETUP_TOKEN>`);
     expect(logs).toContain(`pnpm exec wrangler secret put EMBER_SETUP_TOKEN, which asks for it, and open ${WORKER_URL}/first_run#token=<the token>`);
     expect(logs).not.toContain("::notice::");
@@ -268,7 +270,7 @@ describe("Installer-protected setup link", () => {
 
   it("says so as a notice under GitHub Actions, where it shows on the run", () => {
     const { logs } = deploy("no worker", [], { env: { CI: "true", GITHUB_ACTIONS: "true" } });
-    expect(logs).toMatch(/^::notice::Nobody can set Ember up until the Worker has an EMBER_SETUP_TOKEN secret/m);
+    expect(logs).toMatch(/^::notice::Nobody can set Ember up until the Worker has a setup password or an EMBER_SETUP_TOKEN secret/m);
   });
 
   it("takes the token a CI's environment brings, and keeps it out of the log", () => {
@@ -282,6 +284,61 @@ describe("Installer-protected setup link", () => {
   it("prints the link under Workers Builds, whose log is the account's own, as Deploy to Cloudflare runs it", () => {
     const { secrets, logs } = deploy("no worker", [], { env: { CI: "true", WORKERS_CI: "1" } });
     expect(secrets!.EMBER_SETUP_TOKEN).toMatch(SECRET);
+    expect(logs).toContain(setupLink(secrets!.EMBER_SETUP_TOKEN!));
+  });
+});
+
+describe("Setup password", () => {
+  const PASSWORD = "correct horse battery staple";
+  /** What the deploy says of setting Ember up with its setup password. */
+  const withPassword = (url = WORKER_URL) => `Set up Ember at ${url}/first_run with its setup password, EMBER_SETUP_PASSWORD.`;
+
+  it("makes no setup token for a Worker Deploy to Cloudflare's form gave a setup password, and says to set Ember up with it", () => {
+    const { status, secrets, logs } = deploy(["EMBER_SETUP_PASSWORD"]);
+    expect(status).toBe(0);
+    expect(secrets).toEqual({ SESSION_SECRET: expect.stringMatching(SECRET), VAPID_PUBLIC_KEY: expect.any(String), VAPID_PRIVATE_KEY: expect.any(String) });
+    expect(logs).toContain(withPassword());
+    expect(logs).toContain("in the Worker's Settings under Variables and Secrets, or with pnpm exec wrangler secret put EMBER_SETUP_PASSWORD, which asks for it");
+    expect(logs).not.toContain("#token=");
+  });
+
+  it("says nothing of setup on a later deploy, by which Ember may well be set up", () => {
+    const { status, secrets, logs } = deploy([...EVERY_SECRET.filter((name) => name !== "EMBER_SETUP_TOKEN"), "EMBER_SETUP_PASSWORD"]);
+    expect(status).toBe(0);
+    expect(secrets).toEqual({});
+    expect(logs).not.toContain("Set up Ember");
+  });
+
+  it.each([
+    ["a terminal", {}],
+    ["a CI whose log may be public", { CI: "true", GITHUB_ACTIONS: "true" }],
+  ])("takes the setup password the environment brings in %s, without spaces around it, and keeps it out of the log", (_, env) => {
+    const { status, secrets, logs } = deploy("no worker", ["--name", "ember-production"], { env: { ...env, EMBER_SETUP_PASSWORD: ` ${PASSWORD}\n` } });
+    expect(status).toBe(0);
+    expect(secrets).toEqual({ SESSION_SECRET: expect.any(String), VAPID_PUBLIC_KEY: expect.any(String), VAPID_PRIVATE_KEY: expect.any(String), EMBER_SETUP_PASSWORD: PASSWORD });
+    expect(logs).toContain(withPassword());
+    expect(logs).toContain("pnpm exec wrangler secret put EMBER_SETUP_PASSWORD --name ember-production, which asks for it");
+    expect(logs).not.toContain("horse");
+    expect(logs).not.toContain("::notice::");
+  });
+
+  it("keeps the setup password a Worker has over one the environment brings", () => {
+    const { secrets } = deploy(["EMBER_SETUP_PASSWORD"], [], { env: { EMBER_SETUP_PASSWORD: PASSWORD } });
+    expect(secrets).not.toHaveProperty("EMBER_SETUP_PASSWORD");
+  });
+
+  it("refuses a setup password from the environment shorter than 12 characters, before deploying", () => {
+    const { status, deployed, logs } = deploy("no worker", [], { env: { EMBER_SETUP_PASSWORD: "ünicode-pw!" } });
+    expect(status).toBe(1);
+    expect(deployed).toBe(false);
+    expect(logs).toContain("EMBER_SETUP_PASSWORD must be at least 12 characters");
+    expect(logs).not.toContain("ünicode");
+  });
+
+  it("makes a setup token, as without a password, where the environment's is blank", () => {
+    const { secrets, logs } = deploy("no worker", [], { env: { EMBER_SETUP_PASSWORD: "  " } });
+    expect(secrets!.EMBER_SETUP_TOKEN).toMatch(SECRET);
+    expect(secrets).not.toHaveProperty("EMBER_SETUP_PASSWORD");
     expect(logs).toContain(setupLink(secrets!.EMBER_SETUP_TOKEN!));
   });
 });

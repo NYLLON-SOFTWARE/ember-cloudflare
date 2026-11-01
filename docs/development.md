@@ -43,8 +43,8 @@ optional settings, such as push notifications' keys, go in a `.dev.vars` beside 
 
 Open http://localhost:5173 and set up Ember: the first visitor creates the workspace's administrator
 and its rooms, general and random. Then open a second browser, pick a name, and chat with yourself.
-On localhost setup is open to whoever's there; a deployed Worker takes the setup link its deploy
-prints ([Deploying](self-hosting.md#deploying)).
+On localhost setup is open to whoever's there; a deployed Worker takes its setup password, or the
+setup link its deploy prints ([Deploying](self-hosting.md#deploying)).
 
 Or, before setting it up, run `pnpm seed` to have a made-up team set it up and fill its rooms and DMs
 with conversations that use everything a message can: threads, quotes, mentions, reactions, pictures,
