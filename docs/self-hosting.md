@@ -96,10 +96,10 @@ you changed, such as the names Deploy to Cloudflare gave your Worker and bucket 
 Where one of Ember's changes meets one of yours, the pull request is a draft that names the files: edit
 them on its branch to keep what both need, then merge it. Most have conflict markers around both
 versions, yours after `<<<<<<< HEAD` and Ember's after `=======` up to `>>>>>>> ember/v1.2.3`; for a
-file one side deleted, or one that isn't text, it says which version it kept. GitHub doesn't let a
-workflow change workflows either, so an update
-leaves your copy's as they are. Ember's others run only in its own repository, and when Update Ember's
-has a new version, the pull request says so, for you to copy it over yours.
+file one side deleted, one that isn't text, or one in a folder Ember moved, it gives git's note on
+what it did. GitHub doesn't let a workflow change workflows either, so an update leaves your copy's as
+they are. Ember's others run only in its own repository, and when Update Ember's has a new version,
+the pull request says so, for you to copy it over yours.
 
 A release's migrations add to Ember's tables rather than take anything away, so reverting an update's
 merge, which deploys the release before it, leaves tables that release still works with. The next

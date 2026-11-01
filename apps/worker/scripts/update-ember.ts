@@ -61,7 +61,7 @@ interface Release {
 
 interface Conflict {
   file: string;
-  /** What git says of a conflict it couldn't mark in the file, as when one side deleted it or it isn't text. */
+  /** What git says of a conflict it couldn't mark in the file, as when one side deleted it, it isn't text, or a folder moved. */
   note?: string;
 }
 
@@ -201,9 +201,12 @@ function merge(base: string, release: Release): { tree: string; conflicts: Confl
     const [type = "", text = ""] = fields.splice(0, 2);
     // A conflict in a file's lines leaves markers there, which say all there is to say.
     if (!type.startsWith("CONFLICT") || type === "CONFLICT (contents)") continue;
-    for (const file of paths) notes.set(file, [...(notes.get(file) ?? []), text.trim()]);
+    // Some leave no file conflicted, as where git can't tell which folder a file belongs in: those go by their first path.
+    const conflicted = paths.filter((file) => files.includes(file));
+    for (const file of conflicted.length > 0 ? conflicted : paths.slice(0, 1)) notes.set(file, [...(notes.get(file) ?? []), text.trim()]);
   }
-  return { tree, conflicts: files.map((file) => ({ file, note: notes.get(file)?.join(" ") })) };
+  const unlisted = [...notes.keys()].filter((file) => !files.includes(file));
+  return { tree, conflicts: [...files, ...unlisted].map((file) => ({ file, note: notes.get(file)?.join(" ") })) };
 }
 
 /** `tree` as `edit` leaves it, edited in an index of its own. */
@@ -495,8 +498,9 @@ function makeBranch(update: Update): void {
  */
 function conflictsOn(branch: string, release: Release): Conflict[] {
   git(["fetch", "--quiet", "--no-tags", "origin", `refs/heads/${branch}`]);
-  const marker = `^>>>>>>> ${refOf(release).replaceAll(".", "\\.")}$`;
-  const found = run("git", ["grep", "-l", "-z", "-e", marker, "FETCH_HEAD", "--"]);
+  // In a file one side renamed, each side's name has its path after it.
+  const marker = `^>>>>>>> ${refOf(release).replaceAll(".", "\\.")}(:.*)?$`;
+  const found = run("git", ["grep", "-l", "-z", "-E", "-e", marker, "FETCH_HEAD", "--"]);
   // It answers 1 when it finds none, and more when it couldn't look.
   if (found.status > 1) throw new Error(`git grep failed: ${found.stderr.trim()}`);
   const marked = found.stdout

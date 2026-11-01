@@ -389,6 +389,19 @@ describe("publishing an update, as the Update Ember workflow does", () => {
     expect(body("pr")).toContain("- `src/app.ts`: `CONFLICT (modify/delete): src/app.ts deleted in ember/v0.2.1 and modified in HEAD.");
   });
 
+  it("gives git's note on a conflict that leaves no file conflicted, as where Ember moves a folder", () => {
+    const { repo, copy, env, calls, body } = published();
+    git(repo, ["mv", "src", "lib"]);
+    commit(repo, "2026-10-11T12:00:00Z", { "apps/worker/package.json": '{ "version": "0.2.1" }\n' });
+    git(repo, ["tag", "v0.2.1"]);
+    // Git would move the copy's file in the folder to Ember's new one, but a file of the copy's is there.
+    commit(copy, "2026-10-07T12:00:00Z", { "src/extra.ts": "export {};\n", "lib/extra.ts": "export {};\n" });
+    git(copy, ["push", "--quiet", "origin", "main"]);
+    expect(update(copy, repo, ["--publish"], env).status).toBe(0);
+    expect(calls()).toContain("pr create --base main --head update-ember/v0.2.1 --title Update Ember to v0.2.1 --body-file - --draft");
+    expect(body("pr")).toContain("- `lib/extra.ts`: `CONFLICT (implicit dir rename): Existing file/dir at lib/extra.ts in the way of implicit directory rename(s)");
+  });
+
   it("opens an issue linking to the pull request when GitHub won't let it open one", () => {
     const { repo, copy, env, calls, body } = published();
     const { status, output } = update(copy, repo, ["--publish"], { ...env, GH_PR_FAILS: PULL_REQUESTS_NOT_PERMITTED });
@@ -449,6 +462,20 @@ describe("publishing an update, as the Update Ember workflow does", () => {
     expect(status, output).toBe(0);
     expect(calls().at(-3)).toBe("pr create --base main --head update-ember/v0.2.1 --title Update Ember to v0.2.1 --body-file - --draft");
     expect(body("pr")).toContain("- `src/app.ts`: `CONFLICT (modify/delete): src/app.ts deleted in ember/v0.2.1 and modified in HEAD.");
+  });
+
+  it("finds the markers in a file Ember renamed on a branch an earlier run pushed", () => {
+    const { repo, copy, env, calls, body } = published();
+    git(repo, ["mv", "src/app.ts", "src/main.ts"]);
+    commit(repo, "2026-10-11T12:00:00Z", { "apps/worker/package.json": '{ "version": "0.2.1" }\n' });
+    git(repo, ["tag", "v0.2.1"]);
+    commit(copy, "2026-10-07T12:00:00Z", { "src/app.ts": app("our two") });
+    git(copy, ["push", "--quiet", "origin", "main"]);
+    expect(update(copy, repo, ["--publish"], { ...env, GH_PR_FAILS: "HTTP 502: Bad Gateway" }).status).toBe(1);
+    const { status, output } = update(copy, repo, ["--publish"], env);
+    expect(status, output).toBe(0);
+    expect(calls().at(-3)).toBe("pr create --base main --head update-ember/v0.2.1 --title Update Ember to v0.2.1 --body-file - --draft");
+    expect(body("pr")).toContain("- `src/main.ts`\n");
   });
 
   it("offers an update an earlier run pushed as ready once the markers on its branch are fixed", () => {
