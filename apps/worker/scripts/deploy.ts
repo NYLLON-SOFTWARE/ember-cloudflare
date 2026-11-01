@@ -211,7 +211,9 @@ function tellUpdateWorkflow(): void {
   const repository = githubRepository();
   const missing = "\nThis copy of Ember has no Update Ember workflow, which Deploy to Cloudflare leaves out with the rest of the .github folder, so nothing offers it Ember's new releases.";
   if (repository && `https://github.com/${repository}`.toLowerCase() !== EMBER.toLowerCase() && existsSync(EMBERS_UPDATE_WORKFLOW)) {
-    const editor = `https://github.com/${repository}/new/${process.env.WORKERS_CI_BRANCH || "main"}`;
+    // A branch's name may hold what a link can't, such as `#`, so each of its parts goes in encoded.
+    const branch = (process.env.WORKERS_CI_BRANCH || "main").split("/").map(encodeURIComponent).join("/");
+    const editor = `https://github.com/${repository}/new/${branch}`;
     const workflow = new URLSearchParams({ filename: UPDATE_WORKFLOW, value: readFileSync(EMBERS_UPDATE_WORKFLOW, "utf8") });
     console.log(`${missing} To have each come as a pull request, commit the workflow in GitHub's editor, which this opens with it filled in: ${editor}?${workflow}`);
   } else {

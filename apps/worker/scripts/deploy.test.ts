@@ -330,10 +330,12 @@ describe("Updates for a copy made with Deploy to Cloudflare", () => {
   it.each([
     ["https://github.com/someone/my-ember", "main", "https://github.com/someone/my-ember/new/main"],
     ["git@github.com:someone/my-ember.git", "production", "https://github.com/someone/my-ember/new/production"],
+    ["https://github.com/someone/my-ember.git", "release/v1#stable", "https://github.com/someone/my-ember/new/release/v1%23stable"],
   ])("opens the editor of the repository git cloned the copy from (%s) on the branch Workers Builds deploys (%s)", (origin, branch, editor) => {
     const { logs } = deploy(EVERY_SECRET, [], { script: checkout({ origin }), env: { CI: "true", WORKERS_CI: "1", WORKERS_CI_BRANCH: branch } });
     const link = editorLink(logs, "someone/my-ember");
     expect(`${link.origin}${link.pathname}`).toBe(editor);
+    expect(link.searchParams.get("filename")).toBe(WORKFLOW);
   });
 
   it.each([
