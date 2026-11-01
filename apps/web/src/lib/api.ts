@@ -156,12 +156,26 @@ export function dropWorkspacePreloads(): void {
 }
 
 /**
- * Sets up the workspace with its first administrator, with the photo they chose, if any, and signs this
- * browser in as them. A photo that's refused fails with an ApiError for the `avatar` field.
+ * The setup password, or the setup link's token, as a bearer token: percent-encoded, since a header can't
+ * hold every character a password can.
  */
-export async function setUpWorkspace(administrator: SignUp, photo: ChosenPhoto | null = null, setupToken: string | null = null): Promise<NewWorkspace> {
-  // The setup link's token goes as a bearer token.
-  const headers = setupToken === null ? undefined : { Authorization: `Bearer ${setupToken}` };
+const setupAuthorization = (secret: string) => ({ Authorization: `Bearer ${encodeURIComponent(secret)}` });
+
+/**
+ * Checks the setup password typed into Set up Ember before the rest of its form is filled in, failing
+ * with an ApiError that says why the Worker refuses it.
+ */
+export async function checkSetupPassword(password: string): Promise<void> {
+  await request<unknown>("/api/first_run/check", { method: "POST", headers: setupAuthorization(password) });
+}
+
+/**
+ * Sets up the workspace with its first administrator, with the photo they chose, if any, and signs this
+ * browser in as them, with the setup password or link's token where the deployment takes one. A photo
+ * that's refused fails with an ApiError for the `avatar` field.
+ */
+export async function setUpWorkspace(administrator: SignUp, photo: ChosenPhoto | null = null, setupSecret: string | null = null): Promise<NewWorkspace> {
+  const headers = setupSecret === null ? undefined : setupAuthorization(setupSecret);
   return request<NewWorkspace>("/api/first_run", { method: "POST", headers, body: userBody(administrator, photo) });
 }
 

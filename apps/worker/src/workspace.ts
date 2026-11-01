@@ -129,6 +129,13 @@ const CACHED_SESSIONS = 10_000;
 const SIGN_IN_ATTEMPTS = 10;
 const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
 /**
+ * The limit on tries at a deployment's setup password while Ember waits to be set up: 10 in a fixed
+ * 10-minute window, from anywhere, which the Workspace's storage keeps under SETUP_TRY_WINDOW.
+ */
+const SETUP_TRIES = 10;
+const SETUP_TRY_WINDOW_MS = 10 * 60 * 1000;
+const SETUP_TRY_WINDOW = "setupTryWindow";
+/**
  * Open sign-up's limits' hour: the sign-ups from an IP address are counted in a fixed one, before the
  * password is hashed, which takes more CPU than the rest of a request, and the new people in the
  * workspace in the last one, counted from the people kept, whatever the Workspace's memory forgets.
@@ -1367,6 +1374,23 @@ export class Workspace extends DurableObject<Env> {
     this.sessions.remember(tokenDigest, session);
     await this.publishPerson(session.user.id);
     return meOf(session);
+  }
+
+  /**
+   * Counts a try at the deployment's setup password against its limit before it's checked: false past
+   * the limit. A right guess would make whoever made it the administrator, so unlike sign-in's limit,
+   * which is per IP address and kept in memory, this one is the whole deployment's and stored: neither
+   * another address nor a Workspace that starts over starts the count over.
+   */
+  async trySetupPassword(): Promise<boolean> {
+    const now = Date.now();
+    const kept = await this.ctx.storage.get<{ count: number; endsAt: number }>(SETUP_TRY_WINDOW);
+    const window = kept !== undefined && kept.endsAt > now ? kept : { count: 0, endsAt: now + SETUP_TRY_WINDOW_MS };
+    // Past the limit there's nothing more to keep until the window ends, so a flood of tries writes nothing.
+    if (window.count >= SETUP_TRIES) return false;
+    window.count++;
+    await this.ctx.storage.put(SETUP_TRY_WINDOW, window);
+    return true;
   }
 
   /**

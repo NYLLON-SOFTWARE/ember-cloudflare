@@ -35,9 +35,16 @@ export interface Env {
   /** What the Set up Ember form suggests for their email address in place of "kevin@kevinrose.com". */
   EMBER_SETUP_EMAIL_PLACEHOLDER?: string;
   /**
-   * 64 lowercase hex characters (`openssl rand -hex 32`) that the deploy's setup link carries, which
-   * is what lets its holder set Ember up (setup.ts). `pnpm run deploy` makes one for a Worker that has
-   * none. Unset, setup is closed, except over loopback, where `wrangler dev` serves.
+   * The setup password, at least 12 characters, which the Set up Ember page asks for, so that only
+   * whoever deployed Ember sets it up (setup.ts). Deploy to Cloudflare's form asks the deployer to make
+   * one up. With neither it nor EMBER_SETUP_TOKEN, setup is closed, except over loopback, where
+   * `wrangler dev` serves.
+   */
+  EMBER_SETUP_PASSWORD?: string;
+  /**
+   * 64 lowercase hex characters (`openssl rand -hex 32`) that the setup link a deploy prints carries,
+   * which also lets its holder set Ember up. `pnpm run deploy` makes one for a Worker that has neither it
+   * nor a setup password. Set to anything else, it counts as a setup password.
    */
   EMBER_SETUP_TOKEN?: string;
   /**

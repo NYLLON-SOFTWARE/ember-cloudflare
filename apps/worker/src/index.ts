@@ -123,7 +123,7 @@ import { urlOf } from "./request-url";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
 import { clearSearches, recordSearch, searchMessages } from "./searches";
 import { isOnboardedToEmailSending } from "./sending-domain";
-import { firstRun, isSetupPath, setupAccessOf, setupPage, setupPlaceholdersOf } from "./setup";
+import { checkSetup, firstRun, isSetupPath, setupAccessOf, setupPage, setupPlaceholdersOf } from "./setup";
 import { closedAtOnce } from "./sockets";
 import { newTransferId, transferPage, transferSession } from "./transfers";
 import { refusalOfTurnstileKeys, turnstileCheckPage, turnstileKeysOf } from "./turnstile";
@@ -965,6 +965,7 @@ async function connectToRoom(request: Request, env: Env, roomId: RoomId): Promis
 function apiAction(request: Request, env: Env, pathname: string): (() => Response | Promise<Response>) | null {
   if (pathname === "/api/bootstrap" && request.method === "GET") return () => bootstrap(request, env);
   if (pathname === "/api/first_run" && request.method === "POST") return () => firstRun(request, env);
+  if (pathname === "/api/first_run/check" && request.method === "POST") return () => checkSetup(request, env);
   if (pathname === "/api/session" && request.method === "POST") return () => signIn(request, env);
   if (pathname === "/api/session" && request.method === "DELETE") return () => endSession(request, env);
   if (pathname === "/api/session/transfers" && request.method === "POST") return () => transferSession(request, env);
@@ -1139,14 +1140,14 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
 
 /**
  * What an exception answers: JSON from the API and the bot API, and Campfire's 500 page otherwise.
- * Setup's form holds the first administrator's password, and recovery its token and a new password, so
- * there the log says only that the request failed, and a bot's key is filtered out of its address, as
- * Campfire's log filters it.
+ * Setup's form holds the first administrator's password, and its check the setup password, and recovery
+ * its token and a new password, so there the log says only that the request failed, and a bot's key is
+ * filtered out of its address, as Campfire's log filters it.
  */
 function failure(request: Request, pathname: string, error: unknown): Response {
   // A JSON body over the limit is refused as too large, rather than failed on.
   if (error instanceof BodyTooLarge) return problem(413, error.message);
-  const holdsSecrets = pathname === "/api/first_run" || pathname === RECOVERY_PATH;
+  const holdsSecrets = pathname === "/api/first_run" || pathname === "/api/first_run/check" || pathname === RECOVERY_PATH;
   console.error(`${request.method} ${withoutBotKeys(pathname)} failed:`, holdsSecrets ? "500 Internal Server Error" : error);
   if (pathname.startsWith("/api/")) return problem(500, "Something went wrong");
   if (isBotPath(pathname)) return exception(500);
