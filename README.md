@@ -198,11 +198,18 @@ was made.
 
 1. Turn on R2 in your Cloudflare dashboard, for the files people share.
 2. Click **Deploy to Cloudflare** above. Cloudflare copies Ember to your GitHub or GitLab account, asks
-   you to name the Worker and its bucket, and deploys it. There are no secrets to fill in.
-3. Open the setup link at the end of the deploy's build log, `https://<your Worker>/first_run#token=…`,
+   you to name the Worker and its bucket, and deploys it. There are no secrets to fill in. If it first
+   has you connect GitHub or GitLab, it comes back to a page for deploying one of your own repositories
+   instead: click the button again, and Ember's form opens with your account connected.
+3. Open the setup link near the end of the deploy's build log, `https://<your Worker>/first_run#token=…`,
    and create your community and its administrator. Only that link opens setup, so nobody who finds
    the address first can take it over.
-4. Invite your team with the join link on general's welcome card, or by email.
+4. Add the Update Ember workflow to your copy, which Cloudflare leaves out with the rest of Ember's
+   `.github` folder: the build log says how, with a link to GitHub's editor with it filled in for you
+   to commit, or create `.github/workflows/update-ember.yml` in your copy with what
+   [Ember's](https://github.com/NYLLON-SOFTWARE/ember-cloudflare/blob/main/.github/workflows/update-ember.yml)
+   has.
+5. Invite your team with the join link on general's welcome card, or by email.
 
 From then on, every push to your copy deploys again, and each new release of Ember arrives in your copy
 as a pull request that deploys it once you merge it, while Ember's admin settings say it's out. The

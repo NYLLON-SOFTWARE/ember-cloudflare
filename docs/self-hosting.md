@@ -30,8 +30,13 @@ account, as [Deploying](#deploying) describes.
 
 The Deploy to Cloudflare button at the top asks you to name the repository, the Worker and the R2
 bucket for files (turn R2 on for your account first), then Cloudflare's Workers Builds builds and
-deploys it, and again after every push to the copy. There are no secrets to fill in. To deploy from
-your machine instead, after `pnpm exec wrangler login`:
+deploys it, and again after every push to the copy. There are no secrets to fill in. Connecting
+GitHub or GitLab to Cloudflare the first time leaves you on Cloudflare's page for deploying one of
+your own repositories, so click the button again afterwards. If your account already has a bucket
+named `ember`, the form picks it, so pick a new one there for this Ember's files. The copy has all of
+Ember but its `.github` folder, so add the Update Ember workflow to it, as [Updating](#updating) says,
+for it to be offered Ember's releases. To deploy from your machine instead, after
+`pnpm exec wrangler login`:
 
 ```sh
 pnpm build
@@ -43,10 +48,10 @@ and a VAPID key pair for push notifications on its first deploy, and later deplo
 a new secret would sign everyone out and a new pair would end every push subscription. They go up
 with the code and never appear in the deploy's output.
 
-The first deploy also makes the Worker's setup token, `EMBER_SETUP_TOKEN`, and ends by printing the
-setup link that carries it, `https://<your Worker>/first_run#token=<the token>`: in your terminal,
-or in the build's log in the Cloudflare dashboard after Deploy to Cloudflare. Open it to set up
-Ember. Only that link opens the form, so nobody who merely finds the address can make themselves the
+The first deploy also makes the Worker's setup token, `EMBER_SETUP_TOKEN`, and once it has deployed,
+prints the setup link that carries it, `https://<your Worker>/first_run#token=<the token>`: in your
+terminal, or in the build's log in the Cloudflare dashboard after Deploy to Cloudflare. Open it to set
+up Ember. Only that link opens the form, so nobody who merely finds the address can make themselves the
 administrator, and once Ember is set up the link is spent: setup closes for good, as in Campfire.
 The token rides in the link's fragment, which no request or log sees. `/first_run` opened without it
 says all this, and if the link is lost, make a new token, give it to the Worker, and open the link
@@ -78,12 +83,20 @@ touching storage.
 ### Updating
 
 Ember publishes [releases](https://github.com/NYLLON-SOFTWARE/ember-cloudflare/releases), and a copy
-made with Deploy to Cloudflare comes up to each with a pull request. Its Update Ember workflow
-(`.github/workflows/update-ember.yml`) looks for a newer release every Monday, or when you run it from
-the Actions tab (Update Ember, then Run workflow), and opens a pull request, "Update Ember to v1.2.3",
-that links to what's new. Merging it deploys the update, as every push to `main` does, and that's all:
-each room's and the workspace's tables bring themselves up to date the first time they open. Closing
-it instead turns that release down until the next, whose pull request brings its changes too.
+made with Deploy to Cloudflare comes up to each with a pull request from its Update Ember workflow,
+`.github/workflows/update-ember.yml`, once you add it. Cloudflare's copy leaves out Ember's `.github`
+folder, so every deploy without the workflow ends its build log by saying so, and where git tells the
+build which GitHub repository it's from, with a link that opens GitHub's editor on your copy with
+Ember's workflow filled in: commit it there. Or create the file in your copy, on GitHub with **Add
+file**, then **Create new file**, with what
+[Ember's](https://github.com/NYLLON-SOFTWARE/ember-cloudflare/blob/main/.github/workflows/update-ember.yml)
+has.
+
+The workflow looks for a newer release every Monday, or when you run it from the Actions tab (Update
+Ember, then Run workflow), and opens a pull request, "Update Ember to v1.2.3", that links to what's
+new. Merging it deploys the update, as every push to `main` does, and that's all: each room's and the
+workspace's tables bring themselves up to date the first time they open. Closing it instead turns that
+release down until the next, whose pull request brings its changes too.
 
 Ember tells its administrators too: while a newer release is out, Admin on the rail has a dot, and
 General, in Community settings, names the release, with its notes and how to update. To know, the

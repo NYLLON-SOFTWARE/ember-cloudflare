@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,16 +61,21 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const output = (name: string) => (existsSync(path.join(dir, name)) ? readFileSync(path.join(dir, name), "utf8").trim() : null);
 
 /**
- * Runs the script with `args` for a Worker whose secrets are `listing`, in a shell like a terminal's
- * unless `env` says it's CI's, Workers Builds' or GitHub Actions', or brings a setup token.
+ * Runs the script, or `script`, with `args` for a Worker whose secrets are `listing`, in a shell like a
+ * terminal's unless `env` says it's CI's, Workers Builds' or GitHub Actions', or brings a setup token.
  */
-function deploy(listing: Listing, args: string[] = [], { deployStatus = 0, env = {} }: { deployStatus?: number; env?: Record<string, string> } = {}) {
+function deploy(
+  listing: Listing,
+  args: string[] = [],
+  { deployStatus = 0, env = {}, script = SCRIPT }: { deployStatus?: number; env?: Record<string, string>; script?: string } = {},
+) {
   const LISTING = Array.isArray(listing) ? JSON.stringify(listing.map((name) => ({ name, type: "secret_text" }))) : listing;
   // The suite itself runs under CI, which the script must hear only from the test.
   const {
     CI: _ci,
     GITHUB_ACTIONS: _actions,
     WORKERS_CI: _workers,
+    WORKERS_CI_BRANCH: _branch,
     EMBER_SETUP_TOKEN: _token,
     WRANGLER_OUTPUT_FILE_PATH: _output,
     MEMBERFUL_URL: _site,
@@ -83,7 +88,7 @@ function deploy(listing: Listing, args: string[] = [], { deployStatus = 0, env =
     RESEND_API_KEY: _resendKey,
     ...shell
   } = process.env;
-  const run = spawnSync(process.execPath, [SCRIPT, ...args], {
+  const run = spawnSync(process.execPath, [script, ...args], {
     env: { ...shell, PATH: `${dir}:${process.env.PATH}`, LISTING, OUT: dir, DEPLOY_STATUS: String(deployStatus), TARGETS: JSON.stringify([WORKER_URL]), ...env },
     encoding: "utf8",
   });
@@ -278,6 +283,75 @@ describe("Installer-protected setup link", () => {
     const { secrets, logs } = deploy("no worker", [], { env: { CI: "true", WORKERS_CI: "1" } });
     expect(secrets!.EMBER_SETUP_TOKEN).toMatch(SECRET);
     expect(logs).toContain(setupLink(secrets!.EMBER_SETUP_TOKEN!));
+  });
+});
+
+describe("Updates for a copy made with Deploy to Cloudflare", () => {
+  const WORKFLOW = ".github/workflows/update-ember.yml";
+  const embersWorkflow = readFileSync(new URL(`../../../${WORKFLOW}`, import.meta.url), "utf8");
+
+  /**
+   * A checkout of a copy of Ember with this script, cloned from `origin` if one's given, and without the
+   * Update Ember workflow unless `workflow`, as Deploy to Cloudflare's copies are: answers the script there.
+   */
+  function checkout({ origin, workflow = false }: { origin?: string; workflow?: boolean } = {}): string {
+    const root = path.join(dir, "checkout");
+    const scripts = path.join(root, "apps/worker/scripts");
+    mkdirSync(scripts, { recursive: true });
+    for (const file of ["deploy.ts", "vapid-keys.ts", "update-ember.yml"]) copyFileSync(new URL(`./${file}`, import.meta.url), path.join(scripts, file));
+    if (workflow) {
+      mkdirSync(path.join(root, ".github/workflows"), { recursive: true });
+      writeFileSync(path.join(root, WORKFLOW), embersWorkflow);
+    }
+    spawnSync("git", ["init", "--quiet"], { cwd: root });
+    if (origin) spawnSync("git", ["remote", "add", "origin", origin], { cwd: root });
+    return path.join(scripts, "deploy.ts");
+  }
+
+  /** The link to GitHub's editor for `repository` in the deploy's `logs`. */
+  const editorLink = (logs: string, repository: string) => new URL(new RegExp(`https://github\\.com/${repository}/new/\\S+`).exec(logs)?.[0] ?? "https://missing.invalid/");
+
+  it("keeps Ember's Update Ember workflow beside the script as it is, to offer copies without one", () => {
+    expect(readFileSync(new URL("./update-ember.yml", import.meta.url), "utf8")).toBe(embersWorkflow);
+  });
+
+  it("links a copy without the workflow to GitHub's editor with Ember's filled in, keeping the clone's credentials out of the log", () => {
+    const script = checkout({ origin: "https://x-access-token:ghs_clone-only@github.com/someone/my-ember.git" });
+    const { status, logs } = deploy("no worker", [], { script, env: { CI: "true", WORKERS_CI: "1" } });
+    expect(status).toBe(0);
+    expect(logs).toContain("This copy of Ember has no Update Ember workflow, which Deploy to Cloudflare leaves out with the rest of the .github folder");
+    const link = editorLink(logs, "someone/my-ember");
+    expect(`${link.origin}${link.pathname}`).toBe("https://github.com/someone/my-ember/new/main");
+    expect(link.searchParams.get("filename")).toBe(WORKFLOW);
+    expect(link.searchParams.get("value")).toBe(embersWorkflow);
+    expect(logs).not.toContain("ghs_clone-only");
+  });
+
+  it.each([
+    ["https://github.com/someone/my-ember", "main", "https://github.com/someone/my-ember/new/main"],
+    ["git@github.com:someone/my-ember.git", "production", "https://github.com/someone/my-ember/new/production"],
+  ])("opens the editor of the repository git cloned the copy from (%s) on the branch Workers Builds deploys (%s)", (origin, branch, editor) => {
+    const { logs } = deploy(EVERY_SECRET, [], { script: checkout({ origin }), env: { CI: "true", WORKERS_CI: "1", WORKERS_CI_BRANCH: branch } });
+    const link = editorLink(logs, "someone/my-ember");
+    expect(`${link.origin}${link.pathname}`).toBe(editor);
+  });
+
+  it.each([
+    ["git names no origin", undefined],
+    ["the copy is on GitLab", "https://gitlab.com/someone/my-ember.git"],
+    ["the checkout is of Ember's own repository", "https://github.com/NYLLON-SOFTWARE/ember-cloudflare.git"],
+  ])("says where Ember's workflow is when %s, and how to update elsewhere", (_, origin) => {
+    const { logs } = deploy(EVERY_SECRET, [], { script: checkout({ origin }) });
+    expect(logs).toContain(`On GitHub, add ${WORKFLOW} to it as Ember has it, https://github.com/NYLLON-SOFTWARE/ember-cloudflare/blob/main/${WORKFLOW}`);
+    expect(logs).toContain("elsewhere, update it with apps/worker/scripts/update-ember.ts");
+    expect(logs).not.toContain("/new/");
+  });
+
+  it("says nothing of the workflow to a copy that has it, nor when wrangler fails to deploy", () => {
+    const origin = "https://github.com/someone/my-ember.git";
+    expect(deploy(EVERY_SECRET, [], { script: checkout({ origin, workflow: true }) }).logs).not.toContain("Update Ember workflow");
+    rmSync(path.join(dir, "checkout"), { recursive: true });
+    expect(deploy(EVERY_SECRET, [], { script: checkout({ origin }), deployStatus: 1 }).logs).not.toContain("Update Ember workflow");
   });
 });
 
