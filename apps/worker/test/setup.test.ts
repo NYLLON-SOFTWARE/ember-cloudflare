@@ -400,6 +400,7 @@ describe("Setup password from the deploy form", () => {
     // Not percent-encoded, as a script might send it.
     const raw = "100%sure, of course";
     expect((await withPassword("/api/first_run/check", { password: raw, token: raw })).status).toBe(204);
+    expect((await withPassword("/api/first_run/check", { password: raw, token: `  ${raw}` })).status).toBe(204);
     expect((await withPassword("/api/first_run/check", { password: raw, token: "100%sure" })).status).toBe(403);
   });
 

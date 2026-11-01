@@ -105,8 +105,8 @@ function setupSecretGivenBy(request: Request): string {
   try {
     return decodeURIComponent(given).trim();
   } catch {
-    // Not encoded as the page encodes it, so it's checked as it came.
-    return given;
+    // Not encoded as the page encodes it, so it's checked as it came, but for the spaces around it.
+    return given.trim();
   }
 }
 
