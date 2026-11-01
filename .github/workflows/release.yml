@@ -1,0 +1,37 @@
+name: Release
+
+# Releases Ember whenever main's version, apps/worker/package.json's, is a new one: tags the commit
+# v<version> and publishes the release, with notes that list the pull requests merged since the last.
+# Copies of Ember update from release to release (docs/self-hosting.md#updating), so a pull request
+# that changes the version is how to release (docs/development.md#releasing).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # Releases come from Ember's own repository, not from the copies Deploy to Cloudflare makes of it.
+    if: github.repository == 'NYLLON-SOFTWARE/ember-cloudflare'
+    runs-on: ubuntu-latest
+    steps:
+      # Pinned to a commit, not a tag, because this job can write to the repository. It's the commit v4 pointed at.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Release the version, if it's new
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(jq -r .version apps/worker/package.json)
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            echo "Ember $version is out already."
+            exit 0
+          fi
+          gh release create "v$version" --target "$GITHUB_SHA" --title "Ember $version" --generate-notes
+          echo "Released [Ember $version]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/v$version)." >> "$GITHUB_STEP_SUMMARY"

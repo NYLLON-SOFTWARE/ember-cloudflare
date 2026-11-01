@@ -204,8 +204,10 @@ was made.
    the address first can take it over.
 4. Invite your team with the join link on general's welcome card, or by email.
 
-From then on, every push to your copy deploys again. The [self-hosting guide](docs/self-hosting.md)
-covers deploying from your own machine, a custom domain, email, push notifications, Memberful and more.
+From then on, every push to your copy deploys again, and each new release of Ember arrives in your copy
+as a pull request that deploys it once you merge it. The [self-hosting guide](docs/self-hosting.md)
+covers updating, deploying from your own machine, a custom domain, email, push notifications, Memberful
+and more.
 
 ### Try it on your computer
 

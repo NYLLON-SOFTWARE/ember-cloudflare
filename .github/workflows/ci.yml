@@ -9,11 +9,28 @@ on:
 permissions:
   contents: read
 
+# Both jobs run only in Ember's own repository and on pull requests to it: the copies Deploy to
+# Cloudflare makes of it skip them, so they don't spend their owners' Actions minutes.
 jobs:
   check:
+    if: github.repository == 'NYLLON-SOFTWARE/ember-cloudflare'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Released migrations stay as they are
+        # Deployments apply each migration once, by name, so a change to a released one would reach
+        # only new deployments, never those that update: a schema change goes in a new migration.
+        run: |
+          # Apart from a pipe, so a failed lookup fails the step rather than reading as no releases.
+          releases=$(git ls-remote --tags --refs --sort=-v:refname origin 'refs/tags/v*')
+          release=$(echo "$releases" | head -n 1 | cut -f 2)
+          if [ -z "$release" ]; then exit 0; fi
+          git fetch --quiet --no-tags --depth=1 origin "+$release:$release"
+          changed=$(git diff --name-only --no-renames --diff-filter=DMT "$release" HEAD -- apps/worker/migrations apps/worker/search-migrations)
+          if [ -n "$changed" ]; then
+            echo "::error::${release#refs/tags/} released these migrations, so they can't change; add a new one instead:" $changed
+            exit 1
+          fi
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -25,6 +42,7 @@ jobs:
       - run: pnpm build
 
   e2e:
+    if: github.repository == 'NYLLON-SOFTWARE/ember-cloudflare'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
