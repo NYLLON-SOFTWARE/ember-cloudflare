@@ -58,6 +58,7 @@ import {
   type PushSubscriptionKeys,
   type PushSubscriptionSave,
   type PushSubscriptions,
+  type ReleaseCheck,
   type ResentInvitation,
   type Room,
   type RoomChanges,
@@ -356,6 +357,14 @@ export async function checkCustomDomain(domain: string): Promise<CustomDomainRea
 /** Where the DNS of `domain` is, as Set up in Workspace settings asks for its steps: the zone it's in and who serves it, either null where DNS doesn't say. */
 export async function lookUpCustomDomain(domain: string): Promise<CustomDomainLookup> {
   return request<CustomDomainLookup>("/api/account/custom_domain_lookups", { method: "POST", body: JSON.stringify({ domain }) });
+}
+
+/**
+ * The release this Ember is, and the newest one GitHub names, as General settings says, null when GitHub
+ * didn't name one. Fails with a 403 ApiError for anyone but an administrator.
+ */
+export async function checkForRelease(): Promise<ReleaseCheck> {
+  return request<ReleaseCheck>("/api/account/release");
 }
 
 /** A logo chosen for the workspace, with the variants made of it, or null where none could be made (`logoVariantsOf`). */

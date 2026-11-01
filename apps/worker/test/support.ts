@@ -27,6 +27,7 @@ import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, ROOM_HEADER, SESSI
 import { toBase64, toBase64url, urlsafeDecode64 } from "../src/encoding";
 import type { Env } from "../src/env";
 import worker from "../src/index";
+import { forgetNewestRelease } from "../src/releases";
 import { searchIndex } from "../src/search-index";
 import { workspace, type Workspace } from "../src/workspace";
 
@@ -75,7 +76,7 @@ export const builtPages = {
 
 /**
  * Empties every Durable Object and the D1 database, which then gets its tables back, so a test starts
- * as a fresh deploy does: no account, people or rooms.
+ * as a fresh deploy does: no account, people or rooms, nor any release heard of.
  */
 export async function freshDeploy(): Promise<void> {
   // A reset can leave the storage of a Durable Object that's still busy, as the Workspace is while its
@@ -86,6 +87,7 @@ export async function freshDeploy(): Promise<void> {
     if (DB) await applyD1Migrations(DB, TEST_MIGRATIONS);
   } while (await anyoneLeft());
   host = undefined;
+  forgetNewestRelease();
 }
 
 const anyoneLeft = async () => ((await workspaceSql("SELECT count(*) AS n FROM users")) as Array<{ n: number }>)[0]!.n > 0;

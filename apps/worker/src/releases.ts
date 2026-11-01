@@ -1,0 +1,94 @@
+import { EMBER_REPOSITORY, type ReleaseCheck } from "@ember/protocol";
+import { releaseNameOf, VERSION } from "./version";
+
+// Whether a newer release of Ember is out, which General settings tells administrators, with how to
+// update (docs/self-hosting.md#updating). GitHub's address for a repository's latest release redirects to
+// that release's page, whose address ends in its tag, and that's all this asks of GitHub, rather than
+// asking its API, whose limit of 60 requests an hour for each IP address the many Workers sharing one
+// would spend. A repository that has moved redirects to its new address first. Each isolate keeps what
+// GitHub said for six hours, and that it didn't say for ten minutes, before asking again.
+
+/** Where GitHub sends whoever asks for Ember's latest release. */
+const LATEST_RELEASE = `${EMBER_REPOSITORY}/releases/latest`;
+const GITHUB = new URL(EMBER_REPOSITORY).origin;
+/** What the Worker says it is to GitHub. */
+const USER_AGENT = `Ember/${VERSION} (+${EMBER_REPOSITORY})`;
+/** How long GitHub has to answer, its redirects and all. */
+const CHECK_TIMEOUT_MS = 5_000;
+/** The most redirects followed to the latest release's page. */
+const MOST_REDIRECTS = 3;
+/** How long an isolate keeps the newest release GitHub named, or that it named none. */
+export const ANSWER_KEPT_MS = 6 * 60 * 60 * 1000;
+export const NO_ANSWER_KEPT_MS = 10 * 60 * 1000;
+
+/** The page of a repository's latest release, which redirects to that release's, and that release's, whose path ends in its tag. */
+const LATEST_PAGE = /^\/[^/]+\/[^/]+\/releases\/latest$/;
+const RELEASE_PAGE = /^\/[^/]+\/[^/]+\/releases\/tag\/v(\d+\.\d+\.\d+)$/;
+
+/** A release of Ember: its version, such as "0.2.0", and the address of its page on GitHub, which has its notes. */
+interface Release {
+  version: string;
+  page: string;
+}
+
+/** The newest release GitHub last named, or null when it named none, and until when that's kept. */
+let heard: { release: Release | null; until: number } | undefined;
+
+/** Forgets the newest release GitHub named, as an isolate starting afresh has, so that the next check asks again. */
+export function forgetNewestRelease(): void {
+  heard = undefined;
+}
+
+/**
+ * What General settings says of releases: this Ember's, and the newest on GitHub, with whether it's newer,
+ * or null when GitHub didn't name one. GitHub is asked again only once what it said last is no longer
+ * kept, in a subrequest for each address it redirects to.
+ */
+export async function releaseCheck(): Promise<ReleaseCheck> {
+  if (!heard || Date.now() >= heard.until) {
+    const release = await newestOnGitHub().catch((error: unknown) => {
+      console.warn("Asking GitHub for Ember's newest release failed:", error instanceof Error ? error.message : "unknown error");
+      return null;
+    });
+    heard = { release, until: Date.now() + (release ? ANSWER_KEPT_MS : NO_ANSWER_KEPT_MS) };
+  }
+  const newest = heard.release;
+  return {
+    release: releaseNameOf(VERSION),
+    newest: newest && { release: releaseNameOf(newest.version), notes: newest.page, newer: isNewer(newest.version, VERSION) },
+  };
+}
+
+/** Ember's newest release, as GitHub's page for its latest redirects to that release's, or null when it doesn't. */
+async function newestOnGitHub(): Promise<Release | null> {
+  const signal = AbortSignal.timeout(CHECK_TIMEOUT_MS);
+  let address = LATEST_RELEASE;
+  for (let redirects = 0; redirects < MOST_REDIRECTS; redirects++) {
+    const answer = await fetch(address, { redirect: "manual", headers: { "User-Agent": USER_AGENT }, signal });
+    await answer.body?.cancel();
+    const location = answer.status >= 300 && answer.status < 400 ? answer.headers.get("Location") : null;
+    if (location === null) return noRelease(`GitHub answered ${answer.status}`);
+    const next = new URL(location, address);
+    const version = next.origin === GITHUB ? RELEASE_PAGE.exec(next.pathname)?.[1] : undefined;
+    if (version) return { version, page: next.href };
+    if (next.origin !== GITHUB || !LATEST_PAGE.test(next.pathname)) return noRelease(`GitHub redirected to ${next.href}`);
+    address = next.href;
+  }
+  return noRelease(`GitHub redirected more than ${MOST_REDIRECTS} times`);
+}
+
+/** That GitHub didn't name a release, as `why` says, which is logged. */
+function noRelease(why: string): null {
+  console.warn(`GitHub didn't name Ember's newest release: ${why}`);
+  return null;
+}
+
+/** A version's numbers, such as [0, 1, 0] for "0.1.0". */
+const numbersOf = (version: string) => (/^(\d+)\.(\d+)\.(\d+)/.exec(version) ?? []).slice(1).map(Number);
+
+/** Whether version `a` comes after version `b`. */
+function isNewer(a: string, b: string): boolean {
+  const [later, earlier] = [numbersOf(a), numbersOf(b)];
+  const differs = later.findIndex((number, at) => number !== earlier[at]);
+  return differs !== -1 && later[differs]! > (earlier[differs] ?? -1);
+}

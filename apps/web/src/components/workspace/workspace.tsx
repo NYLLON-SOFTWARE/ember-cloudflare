@@ -8,8 +8,10 @@ import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@
 import { useAppBadge } from "@/hooks/use-app-badge";
 import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
+import { useReleaseCheck } from "@/hooks/use-release-check";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
+import { whenIdle } from "@/lib/idle";
 import { lastRoomVisited } from "@/lib/last-room";
 import { takeMemberfulFlash } from "@/lib/memberful";
 import { loadPage } from "@/lib/page";
@@ -65,16 +67,6 @@ const RARE_PAGES = new Set<Route["page"]>([
  */
 export function loadPageAhead(pathname: string): Promise<unknown> {
   return RARE_PAGES.has(routeOf(pathname).page) ? loadRarePages().catch(() => {}) : Promise.resolve();
-}
-
-/** Runs `run` once the browser is idle, or in a second where it can't say, and returns what cancels it. */
-function whenIdle(run: () => void): () => void {
-  if (typeof requestIdleCallback !== "function") {
-    const timer = setTimeout(run, 1_000);
-    return () => clearTimeout(timer);
-  }
-  const idle = requestIdleCallback(run);
-  return () => cancelIdleCallback(idle);
 }
 
 /**
@@ -311,6 +303,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // doesn't wait for them. If they fail to, the first page that needs them tries again.
   const listed = rooms !== null;
   useEffect(() => (listed ? whenIdle(() => void loadRarePages().catch(() => {})) : undefined), [listed]);
+  // And for an administrator, whether a newer release of Ember is out, which the rail's Admin marks.
+  const release = useReleaseCheck(administrator, listed);
+  const newRelease = release?.newest?.newer ? release.newest.release : null;
 
   // On a phone, the drawer closes as New direct message opens.
   const openNewDirect = (opener: HTMLElement | null) => {
@@ -502,7 +497,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // The app's badge counts what Activity does, as badge_dot_controller.js counts the sidebar's unread rows,
   // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
   useAppBadge(answered ? activity.unread : null);
-  const rail = <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} onNewDirect={openNewDirect} />;
+  const rail = (
+    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} newRelease={newRelease} onNewDirect={openNewDirect} />
+  );
   const sidebar = (
     <Sidebar
       workspaceName={workspaceName}
@@ -560,6 +557,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             sharedOrder={sharedOrder}
             onSharedOrderSaved={reorderedRooms}
             onSessionChanged={onSessionChanged}
+            release={release}
           />
         ));
       case "custom-styles":

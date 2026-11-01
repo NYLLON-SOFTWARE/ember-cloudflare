@@ -8,9 +8,9 @@ import { Rail, type Activity, type RailPage } from "./rail";
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };
 
-/** The rail for the page `current` names, as `me` sees it. */
-const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect = () => {}) => (
-  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} onNewDirect={onNewDirect} />
+/** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's. */
+const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect = () => {}, newRelease: string | null = null) => (
+  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} newRelease={newRelease} onNewDirect={onNewDirect} />
 );
 
 afterEach(() => history.replaceState(null, "", "/"));
@@ -54,6 +54,19 @@ describe("Rail", () => {
     rerender(railAt("workspace"));
     expect(screen.getByRole("link", { name: "Workspace" })).toHaveAttribute("aria-current", "page");
     expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+  });
+
+  it("marks Admin with a dot while a newer release of Ember is out, which it says to screen readers", () => {
+    const grace = { ...ada, administrator: true };
+    const { rerender } = render(railAt("home", activityOff, grace, () => {}, "0.2"));
+    const admin = screen.getByRole("link", { name: "Admin" });
+    expect(admin).toHaveAccessibleDescription("Ember 0.2 is available");
+    const dot = admin.lastElementChild;
+    expect(dot).toHaveAttribute("aria-hidden", "true");
+    expect(dot).toHaveClass("absolute", "rounded-full", "border-2", "border-surface", "bg-foreground");
+    rerender(railAt("home", activityOff, grace));
+    expect(admin).not.toHaveAccessibleDescription();
+    expect(admin.lastElementChild).toHaveTextContent("Admin");
   });
 
   it("titles the logo with the workspace's name", () => {

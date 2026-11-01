@@ -19,15 +19,18 @@ interface RailLinkProps {
   label: string;
   href: string;
   current: boolean;
+  /** What a dot at the icon's corner says is waiting there, said to screen readers as a description. */
+  notice?: string;
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
 }
 
-/** One of the rail's links, marked when it's the page shown. */
-function RailLink({ slot, label, href, current, onClick }: RailLinkProps) {
+/** One of the rail's links, marked when it's the page shown, with a dot in ink when something's waiting there. */
+function RailLink({ slot, label, href, current, notice, onClick }: RailLinkProps) {
   return (
-    <PageLink href={href} aria-current={current ? "page" : undefined} onClick={onClick} className={RAIL_LINK}>
+    <PageLink href={href} aria-current={current ? "page" : undefined} aria-description={notice} onClick={onClick} className={RAIL_LINK}>
       <NavigationIcon slot={slot} size={22} className="size-[22px]" />
       <span>{label}</span>
+      {notice && <span aria-hidden="true" className="absolute top-[5px] right-[13px] size-[11px] rounded-full border-2 border-surface bg-foreground" />}
     </PageLink>
   );
 }
@@ -81,15 +84,18 @@ interface Props {
   workspaceName: string;
   current: RailPage;
   activity: Activity;
+  /** The release of Ember out since this one, such as "0.2", which Admin marks for an administrator, or null for none. */
+  newRelease: string | null;
   /** Opens New direct message, which DMs does in place, from the link that opened it. */
   onNewDirect: (opener: HTMLElement) => void;
 }
 
 /**
  * The persistent navigation rail, drawn with the icons an administrator chose in Community settings, or
- * else with Iconoir's, as the project's owner chose.
+ * else with Iconoir's, as the project's owner chose. Admin has a dot while a newer release of Ember is
+ * out, which General, where it goes, tells of.
  */
-export function Rail({ me, workspaceName, current, activity, onNewDirect }: Props) {
+export function Rail({ me, workspaceName, current, activity, newRelease, onNewDirect }: Props) {
   const { logo } = useAccount();
   const marked = activity.on ? null : current;
   return (
@@ -118,7 +124,13 @@ export function Rail({ me, workspaceName, current, activity, onNewDirect }: Prop
       <ActivityButton {...activity} />
       <RailLink slot="search" label="Search" href={SEARCHES_PATH} current={marked === "search"} />
       <hr className="my-1 w-8 border-t" />
-      <RailLink slot="admin" label={me.administrator ? "Admin" : "Workspace"} href={WORKSPACE_SETTINGS_PATH} current={marked === "workspace"} />
+      <RailLink
+        slot="admin"
+        label={me.administrator ? "Admin" : "Workspace"}
+        href={WORKSPACE_SETTINGS_PATH}
+        current={marked === "workspace"}
+        notice={newRelease === null ? undefined : `Ember ${newRelease} is available`}
+      />
       <AppearanceMenu />
       {/* Your avatar, at 36px, links to your profile, where you log out. */}
       <PageLink
