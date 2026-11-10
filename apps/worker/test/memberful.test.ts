@@ -279,6 +279,8 @@ const account = (memberful: Partial<Pick<Account, "memberfulJoin" | "memberfulSi
   openSignUp: false,
   memberfulJoin: false,
   memberfulSignIn: false,
+  ssoJoin: false,
+  ssoSignIn: false,
   emailDomainSignUp: false,
   emailDomains: [],
   navigationIcons: {},
@@ -2089,7 +2091,7 @@ describe("Disconnect Memberful", () => {
     const other = await memberfulSession("203.0.113.40");
     const credentials = await credentialsFor(member.cookie.split("=")[1]!, new Request(origin), env as unknown as Env);
     // As when a reset lands between the check and the change.
-    const refused = await runInDurableObject(workspaceStub(), (workspace: Workspace) => workspace.disconnectMemberful(credentials!, SITE, "a digest from before", null));
+    const refused = await runInDurableObject(workspaceStub(), (workspace: Workspace) => workspace.disconnectElsewhere(credentials!, SITE, "a digest from before", null));
     expect(refused).toBe("refused");
     expect(await identities()).toHaveLength(1);
     expect(await signsIn(other)).toBe(true);

@@ -49,6 +49,7 @@ import { PicturePicker } from "./picture-picker";
 import { RoomOrder } from "./room-order";
 import { workspaceSectionOf } from "./settings-navigation";
 import { CHANGES_SAVED, PageHeading, Panel, SECTION_HEADING, SettingsPage, TITLE, TITLE_LINK } from "./settings-page";
+import { SsoSetup } from "./sso-setup";
 import { TurnstileSettings } from "./turnstile-settings";
 import { TurnstileSetup } from "./turnstile-setup";
 import { HowPeopleJoin, WaysToJoin } from "./ways-to-join";
@@ -97,7 +98,7 @@ interface Props {
  *   linking to its settings, and whether huddles are on, through the Realtime SFU app whose keys Set up
  *   huddles takes.
  * - Membership: for administrators, who can join, with switches for Open, the join link, which they can
- *   regenerate, and Memberful, how Ember sends email, and whether Cloudflare Turnstile checks who joins,
+ *   regenerate, Memberful and single sign-on, which Set up single sign-on sets up, how Ember sends email, and whether Cloudflare Turnstile checks who joins,
  *   or for members, the links that let people in, then the administrators and members, whom
  *   administrators can make administrators or members and remove.
  * - Domain settings: for administrators, the custom domain Ember answers at.
@@ -139,6 +140,8 @@ export function WorkspaceSettingsPage({
   const [settingUpTurnstile, setSettingUpTurnstile] = useState(false);
   const [settingUpAssistant, setSettingUpAssistant] = useState(false);
   const [settingUpHuddles, setSettingUpHuddles] = useState(false);
+  // Set up single sign-on, while it's open, with what to go on to once it closes with the provider saved.
+  const [ssoSetup, setSsoSetup] = useState<{ then?: () => void } | null>(null);
   const account = useAccount();
   const name = typedName ?? account.name;
   const tagline = typedTagline ?? account.tagline;
@@ -305,6 +308,8 @@ export function WorkspaceSettingsPage({
   const showAssistant = (assistant: WorkspaceSettings["assistant"]) => setSettings((settings) => settings && { ...settings, assistant });
   /** Shows huddles as Set up huddles, or turning them off, changes them, which only workspace settings shows. */
   const showHuddles = (huddles: WorkspaceSettings["huddles"]) => setSettings((settings) => settings && { ...settings, huddles });
+  /** Shows the single sign-on provider as Set up single sign-on, or removing it, changes it, which only workspace settings shows. */
+  const showSso = (sso: WorkspaceSettings["sso"]) => setSettings((settings) => settings && { ...settings, sso });
 
   // Regenerate join link: no confirmation first, and no notice after.
   const regenerate = () => {
@@ -502,8 +507,22 @@ export function WorkspaceSettingsPage({
                   saveEmailDomains={saveEmailDomains}
                   onSetUpEmail={setUpEmail}
                   onSetUpTurnstile={() => setSettingUpTurnstile(true)}
+                  onSetUpSso={(then) => setSsoSetup({ then })}
+                  onSsoForgotten={showSso}
+                  onFailed={onFailed}
                   joinLink={settings.joinCode !== null && <InviteLink joinCode={settings.joinCode} onRegenerate={regenerate} regenerating={regenerating} />}
                 />
+                {ssoSetup && (
+                  <SsoSetup
+                    sso={settings.sso}
+                    onSaved={showSso}
+                    onClose={(saved) => {
+                      setSsoSetup(null);
+                      if (saved) ssoSetup.then?.();
+                    }}
+                    onFailed={onFailed}
+                  />
+                )}
                 <InviteByEmail
                   invitations={settings.invitations}
                   emails={sendsEmail(settings.email)}

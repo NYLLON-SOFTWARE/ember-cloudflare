@@ -19,13 +19,15 @@ import { InviteLink, ShareableLink } from "./invite-link";
 import { EMAIL_SIGN_UP_LINK, emailSignUpUrl, SIGN_UP_LINK, signUpUrl } from "./join-link";
 import { MemberfulSettings } from "./memberful-settings";
 import { workspaceSectionPath } from "./settings-navigation";
+import { SingleSignOnSettings } from "./sso-settings";
 import { SetUpTurnstile } from "./turnstile-settings";
 
 // The ways for new people to join, at the top of Membership: for administrators, a card for each, Open,
-// Join link, Email domain and Memberful, whose switch saves as it's flipped, as the Memberful card's
-// did, and which shows the way's settings while it's on. Open lets anyone in, and Memberful's Members
-// only only its members, so while either is on the ways it overrides are greyed out, keeping their
-// settings for when it's off. Members see the links that let people in.
+// Join link, Email domain, Memberful and Single sign-on, whose switch saves as it's flipped, as the
+// Memberful card's did, and which shows the way's settings while it's on. Open lets anyone in, and
+// Memberful's Members only only its members, as SSO only does the provider's people, so while one is on
+// the ways it overrides are greyed out, keeping their settings for when it's off. Members see the links
+// that let people in.
 
 /** What turning on Open asks first, since it lets anyone in. */
 export const CONFIRM_OPEN = "Are you sure you want to let anyone create an account? Ember doesn't check that the email addresses people sign up with are theirs.";
@@ -34,18 +36,25 @@ export const CONFIRM_OPEN = "Are you sure you want to let anyone create an accou
 export const CONFIRM_MEMBERS_ONLY =
   "Are you sure only Memberful's members should sign in? Everyone but administrators and the people they invite will need a Memberful membership to sign in.";
 
+/** What turning on SSO only asks first, as Members only does. */
+export const CONFIRM_SSO_ONLY =
+  "Turn on SSO only? Everyone except administrators and people you invite will need an account with your provider to sign in.";
+
 /** Why a way is greyed out while Open is on. */
 const OPEN_OVERRIDES = "Set aside while Open lets anyone join.";
 
 /** Why a way is greyed out while Memberful is members only. */
 const MEMBERS_ONLY_OVERRIDES = "Off while Memberful is members only.";
 
+/** Why a way is greyed out while single sign-on is the only way in. */
+const SSO_ONLY_OVERRIDES = "Off while SSO only is on.";
+
 const CARD = "flex flex-col gap-3 rounded-[10px] border bg-surface px-[2ch] py-4 text-start max-md:px-3";
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
-type WaySetting = keyof Pick<AccountSettings, "openSignUp" | "joinLink" | "emailDomainSignUp" | "memberfulJoin" | "memberfulSignIn">;
+type WaySetting = keyof Pick<AccountSettings, "openSignUp" | "joinLink" | "emailDomainSignUp" | "memberfulJoin" | "memberfulSignIn" | "ssoJoin" | "ssoSignIn">;
 
-const ASKS_FIRST: Partial<Record<WaySetting, string>> = { openSignUp: CONFIRM_OPEN, memberfulSignIn: CONFIRM_MEMBERS_ONLY };
+const ASKS_FIRST: Partial<Record<WaySetting, string>> = { openSignUp: CONFIRM_OPEN, memberfulSignIn: CONFIRM_MEMBERS_ONLY, ssoSignIn: CONFIRM_SSO_ONLY };
 
 interface Props {
   settings: WorkspaceSettings;
@@ -57,12 +66,18 @@ interface Props {
   onSetUpEmail: (then?: () => void) => void;
   /** Opens Set up Turnstile, whose check lifts the limits that stand in for it. */
   onSetUpTurnstile: () => void;
+  /** Opens Set up single sign-on, calling `then`, if given, once it closes with the provider saved. */
+  onSetUpSso: (then?: () => void) => void;
+  /** Shows the provider as removing it left it. */
+  onSsoForgotten: (sso: WorkspaceSettings["sso"]) => void;
+  /** Says why removing the provider failed, as the workspace's alerts do. */
+  onFailed: (error: unknown) => void;
   /** The join link, with its buttons, which its card shows while it's on. */
   joinLink: ReactNode;
 }
 
 /** Who can join, for administrators: a card for each way, with its switch, and its settings while it's on. */
-export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmail, onSetUpTurnstile, joinLink }: Props) {
+export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmail, onSetUpTurnstile, onSetUpSso, onSsoForgotten, onFailed, joinLink }: Props) {
   const account = useAccount();
   // The domains Email domain keeps, which the workspace shows only while it's on: as it last showed them,
   // saved here or in another tab, or else as the page loaded them. Set as it renders, rather than after,
@@ -77,10 +92,16 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
   const memberful = moved.memberfulJoin ?? account.memberfulJoin;
   // Off with Memberful, as the server turns it.
   const membersOnly = memberful && (moved.memberfulSignIn ?? account.memberfulSignIn);
+  const sso = moved.ssoJoin ?? account.ssoJoin;
+  // Off with Single sign-on, likewise.
+  const ssoOnly = sso && (moved.ssoSignIn ?? account.ssoSignIn);
   // A way sets the others aside while it's on, until turning it off is saved, so that none is turned on
   // while the server still has the way that overrides it on, which would refuse it.
   const openOverrides = open || account.openSignUp;
   const membersOnlyOverrides = membersOnly || account.memberfulSignIn;
+  const ssoOnlyOverrides = ssoOnly || account.ssoSignIn;
+  // Why the ways that people who sign in only elsewhere turn off are greyed out, if they are.
+  const elsewhereOnly = membersOnlyOverrides ? MEMBERS_ONLY_OVERRIDES : ssoOnlyOverrides ? SSO_ONLY_OVERRIDES : null;
 
   const switchTo = (setting: WaySetting) => (on: boolean) => {
     if (moved[setting] !== undefined) return;
@@ -105,7 +126,7 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
         description="Anyone can create an account at Ember's sign-up page."
         checked={open}
         onCheckedChange={switchTo("openSignUp")}
-        setAside={membersOnlyOverrides && !open ? MEMBERS_ONLY_OVERRIDES : null}
+        setAside={open ? null : elsewhereOnly}
       >
         <ShareableLink id="sign_up" label="Share so anyone can sign up" url={signUpUrl()} sharing={SIGN_UP_LINK} />
         {!account.restrictRoomCreation && (
@@ -130,7 +151,7 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
         description="Anyone with the link can create an account."
         checked={link}
         onCheckedChange={switchTo("joinLink")}
-        setAside={membersOnlyOverrides ? MEMBERS_ONLY_OVERRIDES : openOverrides ? OPEN_OVERRIDES : null}
+        setAside={elsewhereOnly ?? (openOverrides ? OPEN_OVERRIDES : null)}
       >
         {joinLink}
       </Way>
@@ -143,7 +164,7 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
         saveDomains={saveEmailDomains}
         onSetUpEmail={onSetUpEmail}
         onSetUpTurnstile={onSetUpTurnstile}
-        setAside={membersOnlyOverrides ? MEMBERS_ONLY_OVERRIDES : openOverrides ? OPEN_OVERRIDES : null}
+        setAside={elsewhereOnly ?? (openOverrides ? OPEN_OVERRIDES : null)}
       />
       <MemberfulSettings
         site={settings.memberfulSite}
@@ -156,7 +177,21 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
         // arriving out of order undo the later one.
         memberfulSaving={moved.memberfulJoin !== undefined}
         membersOnlySaving={moved.memberfulSignIn !== undefined}
-        setAside={openOverrides && !membersOnly ? OPEN_OVERRIDES : null}
+        setAside={membersOnly ? null : openOverrides ? OPEN_OVERRIDES : ssoOnlyOverrides ? SSO_ONLY_OVERRIDES : null}
+      />
+      <SingleSignOnSettings
+        sso={settings.sso}
+        checked={sso}
+        onCheckedChange={switchTo("ssoJoin")}
+        ssoOnly={ssoOnly}
+        onSsoOnlyChange={switchTo("ssoSignIn")}
+        // As Memberful's two do, each waits for the other's move.
+        ssoSaving={moved.ssoJoin !== undefined}
+        ssoOnlySaving={moved.ssoSignIn !== undefined}
+        setAside={ssoOnly ? null : openOverrides ? OPEN_OVERRIDES : membersOnlyOverrides ? MEMBERS_ONLY_OVERRIDES : null}
+        onSetUp={onSetUpSso}
+        onForgotten={onSsoForgotten}
+        onFailed={onFailed}
       />
     </section>
   );
@@ -205,7 +240,7 @@ function Way({ id, title, description, checked, onCheckedChange, setAside, child
  * How new people join, for members: open sign-up's link while it's on, or else Email domain's while it
  * lets people in, and the join link, with `joinCode`, while it does, unless they're a guest, who isn't
  * given the code, or else a line saying how they join with Memberful, if they do, at `memberfulSite`,
- * or that only the people administrators invite can.
+ * or with single sign-on, or that only the people administrators invite can.
  */
 export function HowPeopleJoin({ joinCode, memberfulSite }: { joinCode: string | null; memberfulSite: string | null }) {
   const account = useAccount();
@@ -220,10 +255,18 @@ export function HowPeopleJoin({ joinCode, memberfulSite }: { joinCode: string | 
           <strong>Members sign in with Memberful</strong>, so the join link is off.
         </p>
       );
+    if (account.ssoSignIn)
+      return (
+        <p className="text-start">
+          <strong>This workspace uses single sign-on</strong>, so the join link is off.
+        </p>
+      );
     return account.memberfulJoin && memberfulSite !== null ? (
       <p className="text-start">
         Members of <strong className="wrap-anywhere">{memberfulSite}</strong> join by signing in with Memberful.
       </p>
+    ) : account.ssoJoin ? (
+      <p className="text-start">New people join with single sign-on.</p>
     ) : (
       <p className="text-start">Only the people administrators invite can join.</p>
     );

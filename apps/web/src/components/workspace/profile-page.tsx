@@ -15,6 +15,7 @@ import {
   type ProfileChanges,
   type SidebarRoom,
 } from "@ember/protocol";
+import { SSO_DISCONNECTED_NOTICE, type SsoStatus } from "@ember/protocol/sso";
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
@@ -38,6 +39,7 @@ import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PicturePicker } from "./picture-picker";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
+import { SingleSignOnConnection } from "./sso-connection";
 import { avatarUrlOf, avatarVersionOf } from "./user-avatar";
 
 interface Props {
@@ -97,6 +99,13 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
   return fields;
 }
 
+/** What the new password field adds that saving one disconnects: the accounts elsewhere you've connected, or nothing. */
+function disconnectsWithNewPassword(memberful: MemberfulStatus | null, sso: SsoStatus | null): string {
+  if (memberful?.connected && sso?.connected) return " Changing it disconnects Memberful and single sign-on.";
+  if (memberful?.connected) return " Changing it disconnects Memberful.";
+  return sso?.connected ? " Changing it disconnects single sign-on." : "";
+}
+
 /**
  * Your profile: how to install Ember, for the browsers that get steps, then your avatar, which a photo
  * picked saves at once, showing it meanwhile, with the notice "It may take up to 30 minutes to change
@@ -104,7 +113,8 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
  * current password while you have one, which changing your email address or password takes, and your
  * bio, which Save changes saves with the notice "✓", keeping the page, then, while members sign in with
  * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
- * unlinks with the notice "Your Memberful account is disconnected.", then, while Ember AI is on, how much @ember thinks and
+ * unlinks with the notice "Your Memberful account is disconnected.", then, likewise, while members sign
+ * in with single sign-on, connecting your account at the provider, then, while Ember AI is on, how much @ember thinks and
  * how long it answers you, then your notification level in each of your rooms and DMs, then a sign-in
  * link for you, a new one each time the page loads or saves, and Log out in the top bar. Go Back
  * returns to the page it was opened from. Your avatar, name and bio reach everyone's open pages at
@@ -129,7 +139,9 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const [hasEmailAddress, setHasEmailAddress] = useState(false);
   /** The Memberful account you've connected, or none to connect yet, or null while there's nothing to show. */
   const [memberful, setMemberful] = useState<MemberfulStatus | null>(null);
-  /** Whether you need Memberful to sign in while it's members only, unlike administrators and the people they invite. */
+  /** The account at the single sign-on provider you've connected, or none to connect yet, or null while there's nothing to show. */
+  const [sso, setSso] = useState<SsoStatus | null>(null);
+  /** Whether you need Memberful, or single sign-on, to sign in while it's the only way in, unlike administrators and the people they invite. */
   const [membershipNeeded, setMembershipNeeded] = useState(true);
   /** Which model @ember answers you with, how much it thinks and how long its answers are, or null while Ember AI is off. */
   const [assistant, setAssistant] = useState<Profile["assistant"]>(null);
@@ -138,6 +150,8 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const currentPasswordInput = useRef<HTMLInputElement>(null);
   /** Whether you've disconnected your Memberful account here, since when no answer shows it connected: connecting one reloads the page. */
   const disconnectedMemberful = useRef(false);
+  /** Likewise for your account at the single sign-on provider. */
+  const disconnectedSso = useRef(false);
   const people = useContext(PeopleContext);
   const back = useBackPath();
   const flash = useFlash();
@@ -170,7 +184,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   useEffect(() => () => void (picked && URL.revokeObjectURL(picked)), [picked]);
 
   /**
-   * Shows your avatar, whether you have a password, where you stand with Memberful and whether you need
+   * Shows your avatar, whether you have a password, where you stand with Memberful and single sign-on and whether you need
    * it, and a new sign-in link, as an answer has them. An answer can arrive after a later one, as a
    * profile's save can after a photo's, and the later avatar stays then.
    */
@@ -183,6 +197,8 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     // arriving late doesn't show it connected again, and shows what the Worker does for one disconnected.
     const { memberful } = profile;
     setMemberful(disconnectedMemberful.current && memberful?.connected ? (memberful.membersOnly ? { membersOnly: true, connected: null } : null) : memberful);
+    const { sso } = profile;
+    setSso(disconnectedSso.current && sso?.connected ? (sso.ssoOnly ? { ...sso, connected: null } : null) : sso);
     setMembershipNeeded(profile.membershipNeeded);
     setTransferId(transferId);
   }
@@ -192,6 +208,13 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     disconnectedMemberful.current = true;
     showAnswer(answer);
     flash("notice", MEMBERFUL_DISCONNECTED_NOTICE);
+  }
+
+  /** Shows your profile as disconnecting your account at the single sign-on provider answered it, with the notice. */
+  function disconnectedFromSso(answer: ProfileAnswer) {
+    disconnectedSso.current = true;
+    showAnswer(answer);
+    flash("notice", SSO_DISCONNECTED_NOTICE);
   }
 
   /** Saves `file` as your avatar, once a photo is picked. */
@@ -323,10 +346,10 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
               className={FIELD_INPUT}
             />
             <p id="profile-password-help" className="text-[0.8em] text-muted-foreground">
-              {/* Someone who signed in with Memberful or just a name has no password. */}
+              {/* Someone who signed in with Memberful, single sign-on or just a name has no password. */}
               {fields && !hasPassword ? "Leave blank to keep signing in without a password." : "Leave blank to keep your current password."}
               {/* As the one it replaces connected it, while it's saved with an email address to sign in by. */}
-              {fields && hasPassword && memberful?.connected && fields.emailAddress.trim() !== "" && " A new one disconnects your Memberful account."}
+              {fields && hasPassword && fields.emailAddress.trim() !== "" && disconnectsWithNewPassword(memberful, sso)}
             </p>
           </Field>
           {hasPassword && (
@@ -371,6 +394,18 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
             hasEmailAddress={hasEmailAddress}
             membershipNeeded={membershipNeeded}
             onDisconnected={disconnected}
+            onFailed={onFailed}
+          />
+        )}
+        {sso && (
+          <SingleSignOnConnection
+            name={sso.name}
+            connected={sso.connected}
+            ssoOnly={sso.ssoOnly}
+            hasPassword={hasPassword}
+            hasEmailAddress={hasEmailAddress}
+            membershipNeeded={membershipNeeded}
+            onDisconnected={disconnectedFromSso}
             onFailed={onFailed}
           />
         )}
