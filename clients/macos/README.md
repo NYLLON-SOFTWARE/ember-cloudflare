@@ -15,6 +15,14 @@ open build/Ember.app
 
 `swift run` also works while developing, but without an app bundle macOS gives it no notifications.
 
+The app icon (`Resources/AppIcon.icns`) is made from Ember's flame logo
+(`apps/web/public/logos/app-icon.png`, copied to `Sources/EmberDesktop/Resources/ember-logo.png`).
+To regenerate it after the logo changes, run:
+
+```sh
+swift scripts/make-icon.swift Sources/EmberDesktop/Resources/ember-logo.png Resources
+```
+
 Sign in with your Ember's address (for example `chat.example.com` or `ember.<you>.workers.dev`), and
 the email and password you use on the web.
 

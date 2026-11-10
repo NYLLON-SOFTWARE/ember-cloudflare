@@ -8,6 +8,7 @@ let package = Package(
         .executableTarget(
             name: "EmberDesktop",
             path: "Sources/EmberDesktop",
+            resources: [.copy("Resources/ember-logo.png")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(

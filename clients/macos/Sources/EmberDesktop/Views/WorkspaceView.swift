@@ -39,7 +39,11 @@ struct WorkspaceView: View {
                 RoomView(room: room, store: store)
                     .id(id)
             } else {
-                ContentUnavailableView("Pick a room", systemImage: "bubble.left.and.bubble.right")
+                VStack(spacing: 12) {
+                    EmberLogo(size: 72).opacity(0.85)
+                    Text("Pick a room").font(.title3).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .onChange(of: state.selectedRoomId) { _, _ in state.selectionChanged() }
@@ -64,7 +68,7 @@ struct RoomRow: View {
                 .lineLimit(1)
             Spacer()
             if room.unread {
-                Circle().fill(.orange).frame(width: 7, height: 7)
+                Circle().fill(Brand.accent).frame(width: 7, height: 7)
             }
         }
         .tag(room.id)

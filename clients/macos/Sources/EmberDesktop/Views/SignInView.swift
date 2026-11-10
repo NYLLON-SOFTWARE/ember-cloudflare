@@ -10,10 +10,13 @@ struct SignInView: View {
     var body: some View {
         @Bindable var state = state
         VStack(spacing: 18) {
-            Image(systemName: "flame.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(.orange)
-            Text("Sign in to Ember").font(.title2.bold())
+            EmberLogo(size: 88)
+                .shadow(color: Brand.accent.opacity(0.35), radius: 18)
+            VStack(spacing: 4) {
+                Text("Sign in to Ember").font(.title2.bold())
+                Text("Use the address of your Ember and the account you use on the web.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
 
             Form {
                 TextField("Server", text: $state.serverText, prompt: Text("chat.example.com"))
@@ -25,6 +28,7 @@ struct SignInView: View {
                     .onSubmit(signIn)
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
             .frame(width: 380)
             .scrollDisabled(true)
             .fixedSize(horizontal: false, vertical: true)
@@ -42,6 +46,9 @@ struct SignInView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RadialGradient(colors: [Brand.accent.opacity(0.12), .clear], center: .top, startRadius: 0, endRadius: 520)
+        )
     }
 
     private func signIn() {
