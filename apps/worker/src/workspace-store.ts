@@ -356,6 +356,8 @@ export interface LoggedOutSessions {
 export interface DueRefresh {
   subject: string;
   sealedToken: string;
+  /** Since when the provider hasn't answered for it, in milliseconds since the epoch, or null while it has. */
+  failingSince: number | null;
 }
 
 /** Whose account connecting one elsewhere is for, and the digest of the password that checked out to start it, or "" without one. */
@@ -373,6 +375,8 @@ export interface LinkedPerson {
   membershipNeeded: boolean;
   /** When their membership was last read, by the Workspace's clock: as a sign-in began, or a check asked Memberful. */
   checkedAt: number;
+  /** Whether another account of theirs, at a way in that's open, lets them in as last read, when this one's lapsing suspends nobody. */
+  otherwiseLetIn: boolean;
 }
 
 /** A membership the Workspace has yet to check with the Memberful site's admin API. */
@@ -687,8 +691,8 @@ const INSERT_LINKED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, 
 const INSERT_IDENTITY_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at, identity_issuer, identity_sid)
   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?6, ?7, ?8)`;
 
-/** Keeps the refresh token ?3, sealed, that a single sign-on provider gave for the account at issuer ?1 with subject ?2, to ask it again with at ?4. */
-const KEEP_REFRESH_TOKEN = `UPDATE identities SET refresh_token = ?3, refresh_due_at = ?4 WHERE issuer = ?1 AND subject = ?2`;
+/** Keeps the refresh token ?3, sealed, that a single sign-on provider gave for the account at issuer ?1 with subject ?2, to ask it again with at ?4, as a sign-in that just had its word. */
+const KEEP_REFRESH_TOKEN = `UPDATE identities SET refresh_token = ?3, refresh_due_at = ?4, refresh_failing_since = NULL WHERE issuer = ?1 AND subject = ?2`;
 
 /** What `email_links.kind` holds for an invitation, and for a link someone asked for with an address at the email domains. */
 const INVITATION = "'invitation'";
@@ -801,8 +805,14 @@ const PASSWORD_RESET_HOLDER = `SELECT user_id FROM password_resets WHERE ${WORKI
 /** The lowercase email addresses, among those in ?1, a JSON array, that someone has whatever their case. */
 const TAKEN_EMAIL_ADDRESSES = `SELECT lower(email_address) AS email_address FROM users WHERE lower(email_address) IN (SELECT lower(value) FROM json_each(?1))`;
 
-/** The people the accounts at issuer ?1 with the subjects ?2, a JSON array, are linked to, with when each account's membership was last read. */
-const LINKED_PEOPLE = `SELECT identities.subject, users.id, users.status, NOT ${NEEDS_NO_MEMBERSHIP} AS membership_needed, identities.checked_at
+/**
+ * The people the accounts at issuer ?1 with the subjects ?2, a JSON array, are linked to, with when each
+ * account's membership was last read, and whether another account of theirs, at one of the issuers ?3, a
+ * JSON array, lets them in as last read.
+ */
+const LINKED_PEOPLE = `SELECT identities.subject, users.id, users.status, NOT ${NEEDS_NO_MEMBERSHIP} AS membership_needed, identities.checked_at,
+    EXISTS (SELECT 1 FROM identities AS other WHERE other.user_id = users.id AND other.issuer <> identities.issuer AND other.lapsed = 0
+      AND other.issuer IN (SELECT value FROM json_each(?3))) AS otherwise_let_in
   FROM identities JOIN users ON users.id = identities.user_id WHERE identities.issuer = ?1 AND identities.subject IN (SELECT value FROM json_each(?2))`;
 
 /**
@@ -843,8 +853,12 @@ const SCHEDULE_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, 
 /** Makes the catch-up at issuer ?1 due at ?2, unless one is due already, however much later, while anyone is linked to an account there. */
 const START_MEMBERSHIP_CATCH_UP = `INSERT INTO membership_catch_ups (issuer, due_at) SELECT ?1, ?2 WHERE ${ANYONE_LINKED} ON CONFLICT (issuer) DO NOTHING`;
 
-/** Records that the memberships of the accounts at issuer ?1 with the subjects ?2, a JSON array, were read at ?3, unless they were since. */
-const STAMP_MEMBERSHIPS = `UPDATE identities SET checked_at = ?3 WHERE issuer = ?1 AND subject IN (SELECT value FROM json_each(?2)) AND checked_at < ?3`;
+/**
+ * Records that the memberships of the accounts at issuer ?1 with the subjects ?2, a JSON array, were read
+ * at ?3, lapsed if ?4 is 1, unless they were since. A read at the same moment as one before, as linking an
+ * account records its first, is recorded too.
+ */
+const STAMP_MEMBERSHIPS = `UPDATE identities SET checked_at = ?3, lapsed = ?4 WHERE issuer = ?1 AND subject IN (SELECT value FROM json_each(?2)) AND checked_at <= ?3`;
 
 /** Whom an account elsewhere can be connected to: someone active, neither a guest nor a bot. */
 const CONNECTABLE = `users.status = ${ACTIVE} AND users.guest = 0 AND users.role <> ${BOT}`;
@@ -2660,18 +2674,32 @@ export class WorkspaceStore {
     ]);
   }
 
-  /** The person the account elsewhere that `issuer` and `subject` name is linked to, whatever their status, or null for nobody. */
-  async linkedPerson(issuer: string, subject: string): Promise<LinkedPerson | null> {
-    return (await this.linkedPeople(issuer, [subject])).get(subject) ?? null;
+  /**
+   * The person the account elsewhere that `issuer` and `subject` name is linked to, whatever their status,
+   * or null for nobody, and whether an account of theirs at one of `openIssuers` lets them in.
+   */
+  async linkedPerson(issuer: string, subject: string, openIssuers: string[]): Promise<LinkedPerson | null> {
+    return (await this.linkedPeople(issuer, [subject], openIssuers)).get(subject) ?? null;
   }
 
-  /** The people the accounts at `issuer` with `subjects` are linked to, whatever their status, by subject, leaving out those linked to nobody. */
-  async linkedPeople(issuer: string, subjects: string[]): Promise<Map<string, LinkedPerson>> {
-    const rows = await this.db.all<{ subject: string; id: UserId; status: number; membership_needed: number; checked_at: number }>(LINKED_PEOPLE, issuer, JSON.stringify(subjects));
+  /** The people the accounts at `issuer` with `subjects` are linked to, whatever their status, by subject, leaving out those linked to nobody, as `linkedPerson` finds them. */
+  async linkedPeople(issuer: string, subjects: string[], openIssuers: string[]): Promise<Map<string, LinkedPerson>> {
+    const rows = await this.db.all<{ subject: string; id: UserId; status: number; membership_needed: number; checked_at: number; otherwise_let_in: number }>(
+      LINKED_PEOPLE,
+      issuer,
+      JSON.stringify(subjects),
+      JSON.stringify(openIssuers),
+    );
     return new Map(
       rows.map((row) => [
         row.subject,
-        { userId: row.id, status: STATUSES[row.status] ?? "active", membershipNeeded: row.membership_needed === 1, checkedAt: row.checked_at },
+        {
+          userId: row.id,
+          status: STATUSES[row.status] ?? "active",
+          membershipNeeded: row.membership_needed === 1,
+          checkedAt: row.checked_at,
+          otherwiseLetIn: row.otherwise_let_in === 1,
+        },
       ]),
     );
   }
@@ -2753,9 +2781,18 @@ export class WorkspaceStore {
   async dueRefreshes(issuer: string, now: number, limit: number): Promise<DueRefresh[]> {
     const [, due] = await this.db.batch([
       statement(`UPDATE identities SET refresh_token = NULL, refresh_due_at = NULL WHERE refresh_due_at IS NOT NULL AND issuer <> ?`, issuer),
-      statement(`SELECT subject, refresh_token FROM identities WHERE refresh_due_at <= ? AND issuer = ? AND refresh_token IS NOT NULL ORDER BY refresh_due_at LIMIT ?`, now, issuer, limit),
+      statement(
+        `SELECT subject, refresh_token, refresh_failing_since FROM identities WHERE refresh_due_at <= ? AND issuer = ? AND refresh_token IS NOT NULL ORDER BY refresh_due_at LIMIT ?`,
+        now,
+        issuer,
+        limit,
+      ),
     ]);
-    return (due as Array<{ subject: string; refresh_token: string }>).map((row) => ({ subject: row.subject, sealedToken: row.refresh_token }));
+    return (due as Array<{ subject: string; refresh_token: string; refresh_failing_since: number | null }>).map((row) => ({
+      subject: row.subject,
+      sealedToken: row.refresh_token,
+      failingSince: row.refresh_failing_since,
+    }));
   }
 
   /**
@@ -2768,18 +2805,19 @@ export class WorkspaceStore {
 
   /**
    * Keeps what asking the provider with the refresh token `asked` came to, for the account at `issuer`
-   * with `subject`: the token it gave in its place, sealed, or `asked` again, to ask with at `dueAt`, or
-   * neither, once it no longer takes it. Unless a sign-in has kept another since, which stays. Whether
-   * it kept it.
+   * with `subject`: the token it gave in its place, sealed, or `asked` again, to ask with at `dueAt`, with
+   * since when it hasn't answered, `failingSince`, if it hasn't, or neither, once it no longer takes it.
+   * Unless a sign-in has kept another since, which stays. Whether it kept it.
    */
-  async settleRefresh(issuer: string, subject: string, asked: string, next: { sealedToken: string; dueAt: number } | null): Promise<boolean> {
+  async settleRefresh(issuer: string, subject: string, asked: string, next: { sealedToken: string; dueAt: number; failingSince?: number } | null): Promise<boolean> {
     const settled = await this.db.all(
-      `UPDATE identities SET refresh_token = ?4, refresh_due_at = ?5 WHERE issuer = ?1 AND subject = ?2 AND refresh_token = ?3 RETURNING subject`,
+      `UPDATE identities SET refresh_token = ?4, refresh_due_at = ?5, refresh_failing_since = ?6 WHERE issuer = ?1 AND subject = ?2 AND refresh_token = ?3 RETURNING subject`,
       issuer,
       subject,
       asked,
       next?.sealedToken ?? null,
       next?.dueAt ?? null,
+      next?.failingSince ?? null,
     );
     return settled.length > 0;
   }
@@ -3198,7 +3236,7 @@ export class WorkspaceStore {
       statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
       statement(`DELETE FROM push_subscriptions WHERE user_id = ?`, userId),
       statement(`UPDATE users SET status = ${SUSPENDED}, updated_at = ? WHERE id = ? AND status = ${ACTIVE}`, now, userId),
-      statement(STAMP_MEMBERSHIPS, issuer, JSON.stringify([subject]), readAt),
+      statement(STAMP_MEMBERSHIPS, issuer, JSON.stringify([subject]), readAt, 1),
     ]);
     return queued!.length > 0;
   }
@@ -3213,13 +3251,13 @@ export class WorkspaceStore {
     await this.db.batch([
       statement(`UPDATE users SET status = ${ACTIVE}, updated_at = ? WHERE id = ? AND status = ${SUSPENDED}`, now, userId),
       statement(GRANT_OPEN_ROOMS_TO_USER, userId, now, now),
-      statement(STAMP_MEMBERSHIPS, issuer, JSON.stringify([subject]), readAt),
+      statement(STAMP_MEMBERSHIPS, issuer, JSON.stringify([subject]), readAt, 0),
     ]);
   }
 
-  /** Records that the memberships of the accounts at the Memberful site `issuer` with `subjects` were read at `readAt`, unless they were since. */
-  async stampMemberships(issuer: string, subjects: string[], readAt: number): Promise<void> {
-    if (subjects.length > 0) await this.db.run(STAMP_MEMBERSHIPS, issuer, JSON.stringify(subjects), readAt);
+  /** Records that the memberships of the accounts at `issuer` with `subjects` were read at `readAt`, lapsed or not, unless they were since. */
+  async stampMemberships(issuer: string, subjects: string[], readAt: number, lapsed: boolean): Promise<void> {
+    if (subjects.length > 0) await this.db.run(STAMP_MEMBERSHIPS, issuer, JSON.stringify(subjects), readAt, lapsed ? 1 : 0);
   }
 
   /** Every IP address a ban blocks. */

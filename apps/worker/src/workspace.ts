@@ -227,6 +227,12 @@ export const SSO_CHECK_MS = 60 * 60 * 1000;
 /** How soon it asks again when the provider didn't answer. */
 const SSO_RETRY_MS = 5 * 60 * 1000;
 /**
+ * How long it keeps asking a provider that doesn't answer for an account, as while it's down, or it
+ * refuses the app's secret, before it ends the sessions that account signed in, so that nobody stays
+ * signed in for long without the provider's word.
+ */
+export const SSO_GIVE_UP_MS = 24 * 60 * 60 * 1000;
+/**
  * How many accounts the alarm asks the provider about in a run, at most: each is a request for new
  * tokens, and one to its userinfo endpoint, so that a run's subrequests stay well within the Free plan's.
  */
@@ -694,14 +700,15 @@ const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, adminis
 const takesReservedName = (name: string, rename: string) => rename !== name && isReservedName(rename) && !isReservedName(name);
 
 /**
- * What reading that `person`'s membership is `subscribed`, or not, changes: "lapsed" for an active member
- * without one, whom it suspends, "renewed" for a suspended member with one, whom it lets back, and null
- * for anyone else, administrators and the people they invited included, who are let in whatever their
- * membership.
+ * What reading that `person`'s membership is `subscribed`, or not, at a way in that's `open`, changes:
+ * "lapsed" for an active member without one, whom it suspends, unless another account of theirs, at a way
+ * in that's open, lets them in, "renewed" for a suspended member with one, whom it lets back, as long as
+ * the way is open, since one that's closed lets nobody in, and null for anyone else, administrators and
+ * the people they invited included, who are let in whatever their membership.
  */
-function membershipChange({ status, membershipNeeded }: LinkedPerson, subscribed: boolean): "lapsed" | "renewed" | null {
-  if (!subscribed && status === "active" && membershipNeeded) return "lapsed";
-  if (subscribed && status === "suspended") return "renewed";
+function membershipChange({ status, membershipNeeded, otherwiseLetIn }: LinkedPerson, subscribed: boolean, open: boolean): "lapsed" | "renewed" | null {
+  if (!subscribed && status === "active" && membershipNeeded && !otherwiseLetIn) return "lapsed";
+  if (subscribed && status === "suspended" && open) return "renewed";
   return null;
 }
 
@@ -2070,11 +2077,16 @@ export class Workspace extends DurableObject<Env> {
       const { joins, closed } = rulesOf(account, via);
       // As a sign-in started before the other way was made the only one finds it.
       if (closed) return "off";
-      const linked = (await this.store.linkedPerson(issuer, member.id)) ?? (joins ? await this.linkVerifiedEmail(via, issuer, member, readAt) : null);
+      const openIssuers = await this.openIssuers(account);
+      // Only an account that lets its person in is linked by email address, lest linking it suspend them.
+      const byEmail = joins && member.subscribed;
+      const linked = (await this.store.linkedPerson(issuer, member.id, openIssuers)) ?? (byEmail ? await this.linkVerifiedEmail(via, issuer, member, readAt, openIssuers) : null);
       if (linked) {
         await this.keepChecking(via, kept);
         if (linked.status === "deactivated" || linked.status === "banned") return "refused";
-        if ((await this.settleMembership(issuer, member.id, linked, member.subscribed, readAt)) !== "active") return "membership";
+        const status = await this.settleMembership(issuer, member.id, linked, member.subscribed, readAt, true);
+        // Another account of theirs may keep them in, but this one doesn't sign them in.
+        if (status !== "active" || (linked.membershipNeeded && !member.subscribed)) return "membership";
         // On D1 a role change can overlap it, so it's remembered only if none did.
         const session = await this.sessions.keep(tokenDigest, () =>
           this.store.startLinkedSession(linked.userId, sortableId(), tokenDigest, client, new Date().toISOString(), linkedAccountOf(issuer, member), kept),
@@ -2089,7 +2101,12 @@ export class Workspace extends DurableObject<Env> {
       const free = (name: string) => !agents.some((agent) => sameName(agent.name, name));
       const name = member.names.find(free) ?? namelessMember(free);
       const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: false, lastActiveAt: Date.now() };
-      const person = { ...session.user, emailAddress: member.emailAddress };
+      // An address the provider didn't verify is kept with the account there, but isn't theirs here, where
+      // it would sign them in to a password reset, and keep its owner from joining with it. Someone here
+      // with it still signs in with their password, as with one it verified.
+      const unverified = member.emailVerified === false && member.emailAddress !== null;
+      if (unverified && (await this.store.hasEmailAddress(member.emailAddress!))) return "taken";
+      const person = { ...session.user, emailAddress: unverified ? null : member.emailAddress };
       try {
         await this.store.createLinkedMember(person, linkedAccountOf(issuer, member), readAt, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString(), kept);
       } catch (error) {
@@ -2109,11 +2126,25 @@ export class Workspace extends DurableObject<Env> {
    * the provider says it verified, while the Single sign-on card says to go by those, as signing in for
    * the first time does (`signInElsewhere`), answering whom it linked, as signing in finds them.
    */
-  private async linkVerifiedEmail(via: SignInElsewhere, issuer: string, member: MemberElsewhere, readAt: number): Promise<LinkedPerson | null> {
+  private async linkVerifiedEmail(via: SignInElsewhere, issuer: string, member: MemberElsewhere, readAt: number, openIssuers: string[]): Promise<LinkedPerson | null> {
     if (via !== "sso" || !member.emailVerified || member.emailAddress === null) return null;
     if (!(await this.ssoProvider())?.linksVerifiedEmails) return null;
     const userId = await this.store.linkVerifiedEmail(linkedAccountOf(issuer, member), member.emailAddress, readAt, new Date().toISOString());
-    return userId === null ? null : this.store.linkedPerson(issuer, member.id);
+    return userId === null ? null : this.store.linkedPerson(issuer, member.id, openIssuers);
+  }
+
+  /**
+   * The issuers of the ways in that are open in `account`: the deployment's Memberful site, and the
+   * single sign-on provider's, unless the other way is the only way in and it isn't (`rulesOf`). An
+   * account at one of them that lets someone in keeps them in while another lapses.
+   */
+  private async openIssuers(account: JoinableAccount | null): Promise<string[]> {
+    const site = memberfulKeysOf(this.env)?.site ?? null;
+    const provider = await this.ssoProvider();
+    return [
+      ...(site !== null && !rulesOf(account, "memberful").closed ? [site] : []),
+      ...(provider !== null && !rulesOf(account, "sso").closed ? [provider.issuer] : []),
+    ];
   }
 
   /**
@@ -2193,12 +2224,14 @@ export class Workspace extends DurableObject<Env> {
     const { userId } = connecting;
     // One at a time, as signing in elsewhere is, so that two can't connect the same account.
     return this.closingSockets(async () => {
-      if (!rulesOf(await this.joinableAccount(), via).only) return "unneeded";
-      const linked = await this.store.linkedPerson(issuer, member.id);
+      const account = await this.joinableAccount();
+      if (!rulesOf(account, via).only) return "unneeded";
+      const linked = await this.store.linkedPerson(issuer, member.id, await this.openIssuers(account));
       if (linked && linked.userId !== userId) return "claimed";
       if (linked) {
         if (linked.status === "deactivated" || linked.status === "banned") return "refused";
-        if ((await this.settleMembership(issuer, member.id, linked, member.subscribed, readAt)) !== "active") return "membership";
+        const status = await this.settleMembership(issuer, member.id, linked, member.subscribed, readAt, true);
+        if (status !== "active" || (linked.membershipNeeded && !member.subscribed)) return "membership";
       } else {
         const person = await this.store.connectingPerson(userId, issuer);
         if (!person) return "refused";
@@ -2314,9 +2347,9 @@ export class Workspace extends DurableObject<Env> {
    * are let in whatever their membership, and someone removed or banned stays so. Answers their status
    * then. One change at a time.
    */
-  private async settleMembership(issuer: string, subject: string, linked: LinkedPerson, subscribed: boolean, readAt: number): Promise<UserStatus> {
+  private async settleMembership(issuer: string, subject: string, linked: LinkedPerson, subscribed: boolean, readAt: number, open: boolean): Promise<UserStatus> {
     if (linked.checkedAt > readAt) return linked.status;
-    const change = membershipChange(linked, subscribed);
+    const change = membershipChange(linked, subscribed, open);
     if (change === "lapsed") {
       await this.suspendLapsed(linked.userId, issuer, subject, readAt);
       return "suspended";
@@ -2325,7 +2358,7 @@ export class Workspace extends DurableObject<Env> {
       await this.restoreRenewed(linked.userId, issuer, subject, readAt);
       return "active";
     }
-    await this.store.stampMemberships(issuer, [subject], readAt);
+    await this.store.stampMemberships(issuer, [subject], readAt, !subscribed);
     return linked.status;
   }
 
@@ -3817,11 +3850,12 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Asks the single sign-on provider again about the accounts linked at it that are due, as many as a run
    * asks about, with the refresh token each sign-in kept: one it no longer takes, as once someone has been
-   * removed or signed out there, ends the sessions that account signed in, and one it takes keeps the
-   * token it gives in its place, to ask again in an hour, and goes by what it says now of whether the
-   * account is in a group the card lets in, as a sign-in goes by it (`settleMembership`). An account it
-   * doesn't answer for is asked again in a few minutes. Refresh tokens at any other issuer, and all of
-   * them while there's no provider, are forgotten.
+   * removed or signed out there, ends the sessions that account signed in, and suspends its person as a
+   * lapsed membership does, and one it takes keeps the token it gives in its place, to ask again in an
+   * hour, and goes by what it says now of whether the account is in a group the card lets in, as a
+   * sign-in goes by it (`settleMembership`). An account it doesn't answer for is asked again in a few
+   * minutes, for a day (`settleUnanswered`). Refresh tokens at any other issuer are forgotten, and all of
+   * them wait while there's no provider.
    */
   private async checkSsoAccounts(): Promise<void> {
     const provider = await this.ssoProvider();
@@ -3830,8 +3864,7 @@ export class Workspace extends DurableObject<Env> {
     const due = await this.store.dueRefreshes(provider.issuer, Date.now(), SSO_CHECKS_PER_RUN);
     if (due.length === 0) return;
     const discovery = await discover(provider.issuer);
-    for (const { subject, sealedToken } of due) {
-      const retry = { sealedToken, dueAt: Date.now() + SSO_RETRY_MS };
+    for (const { subject, sealedToken, failingSince } of due) {
       const token = await unseal(this.env.SESSION_SECRET, "sso-refresh-token", sealedToken);
       if (token === null) {
         await this.store.settleRefresh(provider.issuer, subject, sealedToken, null);
@@ -3840,22 +3873,51 @@ export class Workspace extends DurableObject<Env> {
       const readAt = Date.now();
       const answer = typeof discovery === "object" && discovery !== null ? await refreshTokens(provider, discovery, token) : null;
       if (answer === null || typeof discovery !== "object" || discovery === null) {
-        await this.store.settleRefresh(provider.issuer, subject, sealedToken, retry);
+        await this.settleUnanswered(provider.issuer, subject, sealedToken, sealedToken, failingSince, readAt);
       } else if (answer === "invalid") {
-        // A sign-in since, which kept a token of its own, is the provider's word after this one.
+        // A sign-in since, which kept a token of its own, is the provider's word after this one. The
+        // provider no longer vouching for the account, as once someone is removed there, its sessions end,
+        // and its person is suspended, as one whose membership lapsed is, unless they need none, or another
+        // way in lets them in, until signing in with it again lets them back.
         if (await this.store.settleRefresh(provider.issuer, subject, sealedToken, null)) {
-          await this.closingSockets(() => this.endLoggedOut(provider.issuer, { subject, sid: null, startedBy: readAt }));
+          await this.closingSockets(async () => {
+            await this.endLoggedOut(provider.issuer, { subject, sid: null, startedBy: readAt });
+            await this.applyMemberships(provider.issuer, "sso", new Map([[subject, false]]), readAt);
+          });
         }
       } else {
         const given = answer.refreshToken === null ? sealedToken : await seal(this.env.SESSION_SECRET, "sso-refresh-token", answer.refreshToken);
-        await this.store.settleRefresh(provider.issuer, subject, sealedToken, { sealedToken: given, dueAt: Date.now() + SSO_CHECK_MS });
         const claims = await claimsOf(provider, discovery, answer, null);
-        // A refresh's tokens may leave the groups out, as Entra's userinfo always does, which says nothing of them.
-        const saysGroups = provider.allowedGroups.length === 0 || (claims !== null && claims[provider.groupsClaim] !== undefined);
-        if (claims?.sub === subject && saysGroups) {
-          await this.closingSockets(() => this.applyMemberships(provider.issuer, new Map([[subject, isAllowed(provider, claims)]]), readAt));
+        // An answer whose ID token doesn't check out, or that names someone else, is no answer.
+        if (claims?.sub !== subject) {
+          await this.settleUnanswered(provider.issuer, subject, sealedToken, given, failingSince, readAt);
+          continue;
+        }
+        await this.store.settleRefresh(provider.issuer, subject, sealedToken, { sealedToken: given, dueAt: Date.now() + SSO_CHECK_MS });
+        // A refreshed ID token says the groups as signing in's did, so one without them puts its person in
+        // none, but a refresh without one has only the userinfo endpoint's word, which may leave them out,
+        // as Entra's always does, and then says nothing of them.
+        const saysGroups = provider.allowedGroups.length === 0 || answer.idToken !== null || claims[provider.groupsClaim] !== undefined;
+        if (saysGroups) {
+          await this.closingSockets(() => this.applyMemberships(provider.issuer, "sso", new Map([[subject, isAllowed(provider, claims)]]), readAt));
         }
       }
+    }
+  }
+
+  /**
+   * Keeps asking the provider at `issuer` about the account with `subject` in a few minutes, with `keep`
+   * in place of the refresh token `asked`, while it hasn't answered for a day since `failingSince`, or
+   * now. After that, it stops asking, and the sessions the account signed in end, which signing in with
+   * it again starts anew.
+   */
+  private async settleUnanswered(issuer: string, subject: string, asked: string, keep: string, failingSince: number | null, readAt: number): Promise<void> {
+    const since = failingSince ?? readAt;
+    if (readAt - since < SSO_GIVE_UP_MS) {
+      await this.store.settleRefresh(issuer, subject, asked, { sealedToken: keep, dueAt: Date.now() + SSO_RETRY_MS, failingSince: since });
+    } else if (await this.store.settleRefresh(issuer, subject, asked, null)) {
+      console.error("The single sign-on provider hasn't answered for an account's refresh token in a day, so the sessions it signed in end.");
+      await this.closingSockets(() => this.endLoggedOut(issuer, { subject, sid: null, startedBy: readAt }));
     }
   }
 
@@ -3909,7 +3971,7 @@ export class Workspace extends DurableObject<Env> {
     const subjects = checks.map(({ subject }) => subject);
     const readAt = Date.now();
     const memberships = await membershipsOf(api, subjects);
-    if (memberships) await this.oneAtATime(() => this.applyMemberships(api.site, memberships, readAt));
+    if (memberships) await this.oneAtATime(() => this.applyMemberships(api.site, "memberful", memberships, readAt));
     await this.store.settleMembershipChecks(api.site, subjects, memberships ? readAt : null, Date.now());
   }
 
@@ -3918,17 +3980,21 @@ export class Workspace extends DurableObject<Env> {
    * Memberful site `issuer`, as read at `readAt`, as `settleMembership` does, recording all the reads that
    * change nothing at once.
    */
-  private async applyMemberships(issuer: string, memberships: Map<string, boolean>, readAt: number): Promise<void> {
-    const unchanged: string[] = [];
-    for (const [subject, linked] of await this.store.linkedPeople(issuer, [...memberships.keys()])) {
+  private async applyMemberships(issuer: string, via: SignInElsewhere, memberships: Map<string, boolean>, readAt: number): Promise<void> {
+    const account = await this.joinableAccount();
+    const open = !rulesOf(account, via).closed;
+    const [kept, lapsed]: [string[], string[]] = [[], []];
+    for (const [subject, linked] of await this.store.linkedPeople(issuer, [...memberships.keys()], await this.openIssuers(account))) {
       // The Workspace has gone by a newer read.
       if (linked.checkedAt > readAt) continue;
-      const change = membershipChange(linked, memberships.get(subject)!);
+      const subscribed = memberships.get(subject)!;
+      const change = membershipChange(linked, subscribed, open);
       if (change === "lapsed") await this.suspendLapsed(linked.userId, issuer, subject, readAt);
       else if (change === "renewed") await this.restoreRenewed(linked.userId, issuer, subject, readAt);
-      else unchanged.push(subject);
+      else (subscribed ? kept : lapsed).push(subject);
     }
-    await this.store.stampMemberships(issuer, unchanged, readAt);
+    await this.store.stampMemberships(issuer, kept, readAt, false);
+    await this.store.stampMemberships(issuer, lapsed, readAt, true);
   }
 
   /**

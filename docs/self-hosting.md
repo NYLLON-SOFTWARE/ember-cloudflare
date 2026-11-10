@@ -484,7 +484,8 @@ Someone new whose email address someone here has already is turned away and aske
 their password, unless the card's Link accounts by verified email is checked. Then an
 address the provider says it verified links the account to whoever here has it, once, if only one
 person does, and only while Ember knows that address is theirs too: they joined with an invitation or
-an Email domain link Ember emailed to it, and haven't changed it since. An address someone typed as
+an Email domain link Ember emailed to it, and haven't changed it since, and only when the
+account is in an allowed group, so that linking never suspends anyone. An address someone typed as
 they joined proves nothing, since anyone could type a colleague's, and administrators are never
 linked this way; they, and everyone else, can connect their account from their profile with their
 password. Only check it for a provider that verifies addresses and doesn't let people change their
@@ -498,11 +499,27 @@ need no group, as with Memberful. Extra scopes go in the card's Scopes, beside `
 
 The provider keeps having its say after sign-in. Each sign-in keeps the refresh token the provider
 gave, encrypted, and once an hour the Workspace asks the provider again with it. When the provider no
-longer takes it, as once someone is removed or deactivated there, or their sessions are revoked, the
-sessions that account signed in here end. When someone is no longer in an allowed group, they're
-suspended as a lapsed Memberful member is, until they sign in in one again. A provider that sends a
-back-channel logout ends the sessions that its session signed in here at once, or every session an
-account signed in, when it names the account. While SSO only is on, someone with an account from
+longer takes it, as once someone is removed or deactivated there, or their sessions are revoked, or
+the token expires unused, the sessions that account signed in here end, and the person is suspended
+as a lapsed Memberful member is, password sessions and all, until they sign in with the provider
+again. Administrators and the people they invite are never suspended. When someone is no longer in an
+allowed group, they're suspended the same way. A refreshed ID token that leaves the groups claim out
+puts its person in no group, but a refresh with no ID token goes by the userinfo endpoint, and when
+that leaves the claim out, as Entra's does, it says nothing of groups, so a provider that gives no ID
+token on refresh only enforces groups at the next sign-in. A provider that doesn't answer is asked
+again every few minutes, for a day, after which the sessions the account signed in end, as do those
+of an answer whose ID token doesn't check out. The Workspace keeps one refresh token per account, the
+latest sign-in's, so with a provider that rotates refresh tokens, an answer lost on its way back ends
+that account's sessions here at the next check, and revoking the latest device's session there ends
+them all; signing in again starts them anew. A provider that sends a back-channel logout ends the
+sessions that its session signed in here at once, or every session an account signed in, when it
+names the account, without suspending anyone. Someone linked to both a Memberful site and the
+provider is suspended only once neither lets them in, as last read, and a way in that's closed,
+because the other is the only way in, lets nobody back.
+
+Someone new is given the email address the provider gives only when the provider says it verified
+it, since some providers let people set their own, and otherwise joins without one, which they can
+add on their profile; their account there keeps it either way. While SSO only is on, someone with an account from
 before connects theirs from their profile, or as they sign in with their password, as with
 Memberful's Members only, and disconnects it there too. Single sign-on and SSO only turn themselves
 off while there's no provider to sign in with, as once its secrets are gone or its saved secret no

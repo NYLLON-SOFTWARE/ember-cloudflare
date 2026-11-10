@@ -36,6 +36,8 @@ interface Props {
   setAside?: string | null;
   /** What's said in place of SSO only's switch while Memberful is members only, when the switch turns both on and off, or null. */
   beside?: string | null;
+  /** What's said in place of what it does while Members only closes it, or null. */
+  closed?: string | null;
   /** Opens Set up single sign-on, calling `then`, if given, once it closes with the provider saved. */
   onSetUp: (then?: () => void) => void;
   /** Shows the provider as removing it left it: the deployment's secrets', if they give one. */
@@ -58,6 +60,7 @@ export function SingleSignOnSettings({
   ssoOnlySaving = false,
   setAside = null,
   beside = null,
+  closed = null,
   onSetUp,
   onForgotten,
   onFailed,
@@ -100,6 +103,8 @@ export function SingleSignOnSettings({
               "No provider is set up, so no one can sign in with single sign-on. Turn it off, then on again to set it up."
             ) : setAside !== null ? (
               setAside
+            ) : closed !== null && sso !== null ? (
+              closed
             ) : sso === null ? (
               "Let people join and sign in with Okta, Entra ID, Google Workspace, or another identity provider."
             ) : (

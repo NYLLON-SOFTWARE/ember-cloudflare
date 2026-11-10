@@ -34,6 +34,8 @@ interface Props {
   setAside?: string | null;
   /** What's said in place of Members only's switch while SSO only is on, when the switch turns both on and off, or null. */
   beside?: string | null;
+  /** What's said in place of what it does while SSO only closes it, or null. */
+  closed?: string | null;
 }
 
 /**
@@ -53,6 +55,7 @@ export function MemberfulSettings({
   membersOnlySaving = false,
   setAside = null,
   beside = null,
+  closed = null,
 }: Props) {
   const { customDomain } = useAccount();
   const [settingUp, setSettingUp] = useState(false);
@@ -82,6 +85,8 @@ export function MemberfulSettings({
               "It's on, but this deployment no longer has its Memberful keys, so nobody can sign in with Memberful."
             ) : setAside !== null ? (
               setAside
+            ) : closed !== null && site !== null ? (
+              closed
             ) : askingForKeys ? (
               "Memberful can't be turned on until this deployment has your Memberful site's keys. These steps give it them."
             ) : site === null ? (

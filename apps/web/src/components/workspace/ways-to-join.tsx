@@ -53,6 +53,19 @@ const SSO_ONLY_OVERRIDES = "Off while SSO only is on.";
 /** Why a way is greyed out while Memberful and single sign-on are the only ways in. */
 const EITHER_ONLY_OVERRIDES = "Off while Memberful and single sign-on are the only ways in.";
 
+/**
+ * What turning on SSO only, or Members only, adds to its question while the other way is on without
+ * being the only way in too: that it closes the other way, to the people who joined with it as well.
+ */
+export const CLOSES_MEMBERFUL =
+  " Memberful will be off too, even for members who joined with it, unless Members only is on as well. Those without a password reset theirs to get back in.";
+export const CLOSES_SSO =
+  " Single sign-on will be off too, even for people who joined with it, unless SSO only is on as well. Those without a password reset theirs to get back in.";
+
+/** What the Memberful card says while SSO only closes it, in place of what it does, and the other way around. */
+const MEMBERFUL_CLOSED = "Off while SSO only is on, even for members who joined with it. Turn it on to let Memberful's members in alongside the provider's people.";
+const SSO_CLOSED = "Off while Memberful is members only, even for people who joined with it. Turn it on to let the provider's people in alongside Memberful's members.";
+
 /** What the Memberful card says in place of Members only's switch while SSO only is on, and the other way around. */
 const MEMBERS_ONLY_BESIDE_SSO = "SSO only is on, so Memberful's members join and sign in alongside the provider's people, and nobody else does.";
 const SSO_ONLY_BESIDE_MEMBERFUL = "Memberful is members only, so the provider's people join and sign in alongside Memberful's members, and nobody else does.";
@@ -117,11 +130,18 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
     (setting: WaySetting, asking = true) =>
     (on: boolean) => {
       if (moved[setting] !== undefined) return;
-      const question = on && asking ? ASKS_FIRST[setting] : undefined;
+      const question = on && asking ? questionFor(setting) : undefined;
       if (question && !confirm(question)) return;
       setMoved((moved) => ({ ...moved, [setting]: on }));
       saveSwitch({ [setting]: on }, () => setMoved(({ [setting]: _, ...others }) => others));
     };
+  /** What turning `setting` on asks first, if anything, warning that it closes the other way while that's on alone. */
+  const questionFor = (setting: WaySetting) => {
+    const question = ASKS_FIRST[setting];
+    if (setting === "ssoSignIn" && memberful && !membersOnly) return `${question}${CLOSES_MEMBERFUL}`;
+    if (setting === "memberfulSignIn" && sso && !ssoOnly) return `${question}${CLOSES_SSO}`;
+    return question;
+  };
   /**
    * The switch of a way whose only-switch is `onlySetting`, while the other way is the only way in, when
    * the way lets nobody in unless it's the only way in too: on turns that on, which turns the way on
@@ -191,6 +211,7 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
         onCheckedChange={ssoOnly ? switchBeside("memberfulJoin", "memberfulSignIn") : switchTo("memberfulJoin")}
         membersOnly={membersOnly}
         beside={ssoOnly ? MEMBERS_ONLY_BESIDE_SSO : null}
+        closed={ssoOnly && !membersOnly ? MEMBERFUL_CLOSED : null}
         onMembersOnlyChange={switchTo("memberfulSignIn")}
         // Saving either changes the other's setting too, so each waits for the other's move, lest saves
         // arriving out of order undo the later one.
@@ -204,6 +225,7 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
         onCheckedChange={membersOnly ? switchBeside("ssoJoin", "ssoSignIn") : switchTo("ssoJoin")}
         ssoOnly={ssoOnly}
         beside={membersOnly ? SSO_ONLY_BESIDE_MEMBERFUL : null}
+        closed={membersOnly && !ssoOnly ? SSO_CLOSED : null}
         onSsoOnlyChange={switchTo("ssoSignIn")}
         // As Memberful's two do, each waits for the other's move.
         ssoSaving={moved.ssoJoin !== undefined}

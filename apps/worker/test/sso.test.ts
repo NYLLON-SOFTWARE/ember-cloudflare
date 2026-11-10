@@ -34,7 +34,8 @@ import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { toBase64url } from "../src/encoding";
 import { forgetProviders } from "../src/oidc";
-import { api, apiWith, cookieOf, freshDeploy, origin, shown, workspaceSql, workspaceStub, type Session } from "./support";
+import { SSO_GIVE_UP_MS } from "../src/workspace";
+import { api, apiWith, cookieOf, freshDeploy, origin, shown, withWorkspaceEnv, workspaceSql, workspaceStub, type Session } from "./support";
 
 // Single sign-on against a fake OpenID Connect provider, which signs its tokens with keys made for the
 // suite, as Zitadel, Keycloak or any other provider would.
@@ -132,6 +133,8 @@ function fakeProvider() {
     /** An ID token the token endpoint gives instead of one it makes, as a forger's would be. */
     givenIdToken: null as string | null,
     revoked: new Set<string>(),
+    /** Whether a refresh gives no ID token, as some providers' don't, leaving the userinfo endpoint's word. */
+    refreshWithoutIdToken: false,
     down: false,
     requests: [] as SentToProvider[],
     codes: new Map<string, { sub: string; sid: string; nonce: string; challenge: string; redirectUri: string }>(),
@@ -157,7 +160,7 @@ function fakeProvider() {
     provider.refreshTokens.set(refreshToken, { sub, sid });
     const person = provider.people.get(sub)!;
     const claims = { ...person, iss: ISSUER, aud: CLIENT_ID, iat: now(), exp: now() + 3600, sid, ...(nonce === null ? {} : { nonce }), ...provider.idToken };
-    const idToken = provider.givenIdToken ?? (await signed(provider.signWith, claims));
+    const idToken = nonce === null && provider.refreshWithoutIdToken ? undefined : (provider.givenIdToken ?? (await signed(provider.signWith, claims)));
     return Response.json({ access_token: accessToken, token_type: "Bearer", expires_in: 3600, id_token: idToken, refresh_token: refreshToken });
   }
 
@@ -577,6 +580,23 @@ describe("Sign in with SSO", () => {
     expect(await count("identities")).toBe(0);
   });
 
+  it("never links by email address an account the card's groups don't let in, leaving whoever has it be", async () => {
+    const administrator = await setUpWithSso({ linksVerifiedEmails: true, allowedGroups: "staff" });
+    const member = await joinWithInvitation(administrator);
+    await workspaceSql("UPDATE users SET invited_by = NULL");
+    expect(locationOf(await signInWithSso({ ...gracesAccount, groups: ["visitors"] }))).toBe(backToSignIn("membership"));
+    expect(await count("identities")).toBe(0);
+    expect(await signsIn(member)).toBe(true);
+    expect(await statusOf(administrator, member.user.id)).toBe("active");
+  });
+
+  it("gives someone new no email address the provider didn't verify, keeping it with their account there", async () => {
+    await setUpWithSso();
+    const me = await signedInAs(await signInWithSso({ ...dorothy, email_verified: false }));
+    expect(await workspaceSql("SELECT email_address FROM users WHERE id = ?", me.id)).toEqual([{ email_address: null }]);
+    expect(await workspaceSql("SELECT email_address FROM identities")).toEqual([{ email_address: dorothy.email }]);
+  });
+
   it("links by a verified email address only someone who proved it's theirs here, by joining with a link emailed to it", async () => {
     const administrator = await setUpWithSso({ linksVerifiedEmails: true });
     // Anyone with the join link can type a colleague's address before the colleague joins.
@@ -742,6 +762,33 @@ describe("Members only and SSO only together", () => {
     expect(await count("identities")).toBe(0);
   });
 
+  it("keeps someone linked to both in while either lets them in, suspending them once neither does", async () => {
+    await withWorkspaceEnv(MEMBERFUL_KEYS, async () => {
+      const administrator = await setUpWithSso({ only: true, allowedGroups: "staff" });
+      await turnOn(administrator, { memberfulSignIn: true });
+      const session = await ssoSession(katherine);
+      const now = new Date().toISOString();
+      await workspaceSql(
+        "INSERT INTO identities (issuer, subject, user_id, checked_at, created_at, updated_at, lapsed) VALUES (?, ?, ?, ?, ?, ?, 0)",
+        MEMBERFUL_SITE,
+        mary.id,
+        session.user.id,
+        Date.now(),
+        now,
+        now,
+      );
+      provider.people.set(katherine.sub, { ...katherine, groups: ["visitors"] });
+      await workspaceSql("UPDATE identities SET refresh_due_at = ? WHERE issuer = ?", Date.now() - 1, ISSUER);
+      expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+      expect(await statusOf(administrator, session.user.id)).toBe("active");
+      // Once Memberful's word is that hers has lapsed too, nothing lets her in.
+      await workspaceSql("UPDATE identities SET lapsed = 1 WHERE issuer = ?", MEMBERFUL_SITE);
+      await workspaceSql("UPDATE identities SET refresh_due_at = ? WHERE issuer = ?", Date.now() - 1, ISSUER);
+      expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+      expect(await statusOf(administrator, session.user.id)).toBe("suspended");
+    });
+  });
+
   it("signs nobody in with SSO, not even someone linked, while Memberful is members only and SSO only isn't on", async () => {
     const administrator = await setUpWithSso();
     await signedInAs(await signInWithSso(katherine));
@@ -850,7 +897,7 @@ describe("Checking accounts with their refresh tokens", () => {
     expect(await signsIn(session)).toBe(true);
   });
 
-  it("signs out an account whose refresh token the provider no longer takes, without suspending it", async () => {
+  it("signs out an account whose refresh token the provider no longer takes, suspending its member until they sign in with it again", async () => {
     const administrator = await setUpWithSso();
     const session = await ssoSession(katherine);
     provider.revoked.add(katherine.sub);
@@ -858,7 +905,31 @@ describe("Checking accounts with their refresh tokens", () => {
     expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
     expect(await signsIn(session)).toBe(false);
     expect(await refreshed()).toEqual([{ refresh_token: null, refresh_due_at: null }]);
+    expect(await statusOf(administrator, session.user.id)).toBe("suspended");
+    provider.revoked.delete(katherine.sub);
+    expect((await ssoSession(katherine)).user.id).toBe(session.user.id);
     expect(await statusOf(administrator, session.user.id)).toBe("active");
+  });
+
+  it("ends a member's password sessions too, as the provider no longer takes their refresh token", async () => {
+    const administrator = await setUpWithSso();
+    const member = await joinAsGrace();
+    const connected = await api(SSO_CONNECTIONS_PATH, { method: "POST", headers: as(member), body: JSON.stringify({ currentPassword: grace.password }) });
+    // Connecting from a profile takes SSO only; without it, linking by sign-in is how a member gets one.
+    expect(connected.status).toBe(403);
+    await turn(administrator, { ssoSignIn: true });
+    const started = await api(SSO_CONNECTIONS_PATH, { method: "POST", headers: as(member), body: JSON.stringify({ currentPassword: grace.password }) });
+    const { ssoConnection } = (await started.json()) as SsoConnection;
+    provider.signingIn = gracesAccount;
+    await callback({ code: provider.authorize(ssoConnection), state: new URL(ssoConnection).searchParams.get("state")!, iss: ISSUER }, `${cookieOf(started)}; ${member.cookie}`);
+    await turn(administrator, { ssoSignIn: false });
+    expect(await signsIn(member)).toBe(true);
+    provider.revoked.add(gracesAccount.sub);
+    await due();
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await signsIn(member)).toBe(false);
+    const password = await api("/api/session", { method: "POST", body: JSON.stringify({ emailAddress: grace.emailAddress, password: grace.password }) });
+    expect(password.status).not.toBe(201);
   });
 
   it("suspends someone who is no longer in a group the card lets in, ending their sessions", async () => {
@@ -875,14 +946,59 @@ describe("Checking accounts with their refresh tokens", () => {
     expect(await statusOf(administrator, session.user.id)).toBe("active");
   });
 
-  it("goes by groups only when a refresh says them, since a provider's refreshed tokens may leave them out", async () => {
+  it("puts someone in no group once a refreshed ID token leaves the groups claim out", async () => {
     const administrator = await setUpWithSso({ allowedGroups: "staff" });
     const session = await ssoSession(katherine);
     provider.people.set(katherine.sub, { ...katherine, groups: undefined });
     await due();
     expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await signsIn(session)).toBe(false);
+    expect(await statusOf(administrator, session.user.id)).toBe("suspended");
+  });
+
+  it("goes by groups only when a refresh without an ID token says them, since the userinfo endpoint may leave them out", async () => {
+    const administrator = await setUpWithSso({ allowedGroups: "staff" });
+    const session = await ssoSession(katherine);
+    provider.refreshWithoutIdToken = true;
+    provider.people.set(katherine.sub, { ...katherine, groups: undefined });
+    await due();
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
     expect(await signsIn(session)).toBe(true);
+    provider.people.set(katherine.sub, { ...katherine, groups: ["visitors"] });
+    await due();
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await statusOf(administrator, session.user.id)).toBe("suspended");
+  });
+
+  it("stops asking a provider that hasn't answered for a day, ending the account's sessions without suspending anyone", async () => {
+    const administrator = await setUpWithSso();
+    const session = await ssoSession(katherine);
+    provider.down = true;
+    await due();
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await signsIn(session)).toBe(true);
+    const [{ refresh_failing_since: since }] = (await workspaceSql("SELECT refresh_failing_since FROM identities")) as [{ refresh_failing_since: number }];
+    expect(since).toBeGreaterThan(Date.now() - 60_000);
+    await workspaceSql("UPDATE identities SET refresh_failing_since = ?, refresh_due_at = ?", Date.now() - SSO_GIVE_UP_MS - 1, Date.now() - 1);
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await signsIn(session)).toBe(false);
+    expect(await refreshed()).toEqual([{ refresh_token: null, refresh_due_at: null }]);
     expect(await statusOf(administrator, session.user.id)).toBe("active");
+  });
+
+  it("counts an answer whose ID token doesn't check out as no answer, and forgets the failures once one does", async () => {
+    await setUpWithSso();
+    const session = await ssoSession(katherine);
+    provider.signWith = forgedKey;
+    await due();
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    const failing = async () => ((await workspaceSql("SELECT refresh_failing_since FROM identities")) as [{ refresh_failing_since: number | null }])[0].refresh_failing_since;
+    expect(await failing()).not.toBeNull();
+    expect(await signsIn(session)).toBe(true);
+    provider.signWith = firstKey;
+    await due();
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await failing()).toBeNull();
   });
 
   it("keeps the refresh tokens, asking later, while the provider's secret no longer opens", async () => {

@@ -43,7 +43,7 @@ import { CONFIRM_REMOVE } from "./people-list";
 import { workspaceSectionPath, type WorkspaceSection } from "./settings-navigation";
 import { CHANGES_SAVED } from "./settings-page";
 import { CONFIRM_FORGET_SSO } from "./sso-settings";
-import { CONFIRM_MEMBERS_ONLY, CONFIRM_OPEN, CONFIRM_SSO_ONLY } from "./ways-to-join";
+import { CLOSES_MEMBERFUL, CONFIRM_MEMBERS_ONLY, CONFIRM_OPEN, CONFIRM_SSO_ONLY } from "./ways-to-join";
 import { WorkspaceSettingsPage } from "./workspace-settings-page";
 
 vi.mock("@/lib/previews", () => ({
@@ -2847,6 +2847,22 @@ describe("Single sign-on", () => {
     expect(screen.queryByRole("switch", { name: "Members only" })).not.toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: "SSO only" })).not.toBeInTheDocument();
     expect(await way("Join link")).toHaveAccessibleDescription("Off while Memberful and single sign-on are the only ways in.");
+  });
+
+  it("says single sign-on is off for everyone while Memberful is members only and SSO only isn't on", async () => {
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, { ssoJoin: true, memberfulJoin: true, memberfulSignIn: true }));
+    showPage();
+    expect(await way("Single sign-on")).not.toBeChecked();
+    expect(await way("Single sign-on")).toHaveAccessibleDescription(/^Off while Memberful is members only, even for people who joined with it\./);
+  });
+
+  it("warns, as SSO only is turned on, that it turns Memberful off too while Memberful isn't members only", async () => {
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, { ssoJoin: true, memberfulJoin: true }));
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { user } = showPage();
+    await user.click(await way("SSO only"));
+    expect(confirm).toHaveBeenCalledWith(`${CONFIRM_SSO_ONLY}${CLOSES_MEMBERFUL}`);
+    expect(saved()).toEqual([]);
   });
 
   it("turns Memberful off with Members only while both are the only ways in, leaving single sign-on the only one", async () => {
