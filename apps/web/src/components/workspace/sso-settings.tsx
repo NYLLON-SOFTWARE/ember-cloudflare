@@ -34,6 +34,8 @@ interface Props {
   ssoOnlySaving?: boolean;
   /** Why the switch can't be moved while another way to join is on, said in place of what it does, or null. */
   setAside?: string | null;
+  /** What's said in place of SSO only's switch while Memberful is members only, when the switch turns both on and off, or null. */
+  beside?: string | null;
   /** Opens Set up single sign-on, calling `then`, if given, once it closes with the provider saved. */
   onSetUp: (then?: () => void) => void;
   /** Shows the provider as removing it left it: the deployment's secrets', if they give one. */
@@ -55,6 +57,7 @@ export function SingleSignOnSettings({
   ssoSaving = false,
   ssoOnlySaving = false,
   setAside = null,
+  beside = null,
   onSetUp,
   onForgotten,
   onFailed,
@@ -115,7 +118,8 @@ export function SingleSignOnSettings({
           aria-describedby="sso-description"
         />
       </div>
-      {checked && sso !== null && setAside === null && (
+      {checked && sso !== null && setAside === null && beside !== null && <p className={cn(NOTE, "border-t pt-3")}>{beside}</p>}
+      {checked && sso !== null && setAside === null && beside === null && (
         <div className="flex items-center gap-x-[1ch] gap-y-4 border-t pt-3">
           <div className="min-w-0 flex-1">
             <div id="sso-only-heading">SSO only</div>

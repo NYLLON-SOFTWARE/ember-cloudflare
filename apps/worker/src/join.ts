@@ -7,7 +7,6 @@ import {
   isPasswordTooLong,
   isPasswordTooShort,
   JOINING_PROBLEMS,
-  MEMBERFUL_SIGN_IN_NEEDED,
   onlyAddressesAt,
   parseEmailLinkRequest,
   parseEmailLinkSignUp,
@@ -27,7 +26,6 @@ import {
   type SignUp,
 } from "@ember/protocol";
 import { agentsName } from "@ember/protocol/agents";
-import { SSO_SIGN_IN_NEEDED } from "@ember/protocol/sso";
 import { authenticate, clientOf, newSessionToken, sessionCookie, tokenDigest } from "./auth";
 import { userFormOf, userFormPhoto } from "./avatars";
 import { jsonBodyOf } from "./bodies";
@@ -37,7 +35,7 @@ import { emailLinkDigest, newEmailLink } from "./invitations";
 import { appPage, empty, formAnswer, home, signInFirst, signUpRefusal } from "./pages";
 import { passwordHasher } from "./passwords";
 import { passedTurnstile, turnstileKeysFor } from "./turnstile";
-import { workspace, type SignInElsewhere } from "./workspace";
+import { signInNeededWith, workspace, type OnlyWay } from "./workspace";
 import type { NewPerson } from "./workspace-store";
 
 // Joining with the workspace's join link, as Campfire's UsersController does (`new` and `create`),
@@ -51,10 +49,7 @@ import type { NewPerson } from "./workspace-store";
 // workspace's email domains, while an administrator lets those domains in.
 
 /** What the join form answers while Memberful is members only, or single sign-on the only way in: why, and where to go instead. */
-const elsewhereInstead = (via: SignInElsewhere) => ({
-  error: via === "sso" ? SSO_SIGN_IN_NEEDED : MEMBERFUL_SIGN_IN_NEEDED,
-  redirect: "/session/new",
-});
+const elsewhereInstead = (way: OnlyWay) => ({ error: signInNeededWith(way), redirect: "/session/new" });
 
 /** What a form for joining answers while its way in is off: why, and the sign-in page, which says so. */
 const signInInsteadOf = (problem: JoiningProblem) => ({ error: JOINING_PROBLEMS[problem], redirect: signInSaying(problem) });
@@ -80,7 +75,7 @@ export async function joinPage(request: Request, env: Env, code: string): Promis
   const [session, link] = await Promise.all([authenticate(request, env), workspace(env).joinLink(code)]);
   if (session) return home(request);
   if (link === "not found") return empty(404);
-  if (link === "memberful" || link === "sso") return signInFirst(request);
+  if (link === "memberful" || link === "sso" || link === "either") return signInFirst(request);
   if (link === "off") return signInSayingWhy(request, "link_off");
   return pageForJoining(request, env);
 }
@@ -137,7 +132,7 @@ export async function join(request: Request, env: Env, code: string): Promise<Re
   const [session, link] = await Promise.all([authenticate(request, env), workspace(env).joinLink(code)]);
   if (session) return signedInAlready();
   if (link === "not found") return formAnswer({ error: "Not found" }, 404);
-  if (link === "memberful" || link === "sso") return formAnswer(elsewhereInstead(link), 403);
+  if (link === "memberful" || link === "sso" || link === "either") return formAnswer(elsewhereInstead(link), 403);
   if (link === "off") return formAnswer(signInInsteadOf("link_off"), 403);
 
   const sent = await userFormOf(request);
@@ -152,7 +147,7 @@ export async function join(request: Request, env: Env, code: string): Promise<Re
   const token = newSessionToken();
   const user = await workspace(env).join(code, person, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
   if (user === "not found") return formAnswer({ error: "Not found" }, 404);
-  if (user === "memberful" || user === "sso") return formAnswer(elsewhereInstead(user), 403);
+  if (user === "memberful" || user === "sso" || user === "either") return formAnswer(elsewhereInstead(user), 403);
   if (user === "off") return formAnswer(signInInsteadOf("link_off"), 403);
   if (user === "agent's name") return agentsNameRefused(form.name);
   if (!user) return emailAddressTaken(form.emailAddress);

@@ -71,7 +71,8 @@ export const ssoSettingsOf = ({ source, issuer, clientId, name, scopes, groupsCl
 /**
  * What the provider says of whoever `tokens` are for: the ID token's claims, once it checks out
  * (`idTokenClaims`) with `nonce`, or any nonce for a refresh's, with the userinfo endpoint's over them,
- * as long as it names the same person. A refresh may give no ID token, when the userinfo endpoint's are
+ * as long as it names the same person, and with whether the email address was verified as the answer
+ * that gave the address says. A refresh may give no ID token, when the userinfo endpoint's are
  * all there is, if it names someone. Null when neither checks out.
  */
 export async function claimsOf(provider: SsoProvider, discovery: Discovery, tokens: TokenSet, nonce: string | null): Promise<Claims | null> {
@@ -83,7 +84,11 @@ export async function claimsOf(provider: SsoProvider, discovery: Discovery, toke
   const subject = fromToken?.sub ?? info?.sub;
   if (typeof subject !== "string" || subject === "" || subject.length > 255) return null;
   if (info && info.sub !== subject) return fromToken;
-  return { ...(fromToken ?? {}), ...(info ?? {}), sub: subject };
+  const claims: Claims = { ...(fromToken ?? {}), ...(info ?? {}), sub: subject };
+  // Whether an email address was verified is the word of whichever answer gave that address, lest the
+  // ID token's verifying one address vouch for another the userinfo endpoint gives.
+  if (info && "email" in info && info.email !== fromToken?.email) claims.email_verified = info.email_verified;
+  return claims;
 }
 
 /** The groups the claim `claim` lists: a list of names, an object keyed by them, as Zitadel's roles are, or a single name. */

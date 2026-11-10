@@ -335,11 +335,17 @@ Workspace settings' Membership, where each way has a switch:
 - [Single sign-on](#single-sign-on), below, lets in the people of an identity provider that speaks
   OpenID Connect, such as Zitadel, Keycloak, Authentik, Okta, Microsoft Entra ID or Google Workspace.
   Its SSO only switch keeps signing in to them and administrators, as Members only does, and can't be
-  on with Open or Members only.
+  on with Open.
 
 While Open is on, Join link, Email domain and Memberful are set aside, keeping their settings, and
 while Memberful is members only, Open, Join link and Email domain are, so Open and Members only can't
 both be on. With all four off, only the people administrators invite by email, below, can join.
+
+Members only and SSO only can be on together, for a community whose paying members sign in with
+Memberful and whose staff sign in with single sign-on: then those two, administrators and the people
+they invite are the only ones who sign in. While one of them is on, the other way lets nobody in, not
+even the people linked to it, unless it's the only way in too, so turning it on in Who can join turns
+on its only switch with it.
 
 To have open sign-up, Email domain's page and the page for a forgotten password check that whoever
 uses them is a person, an administrator sets up [Turnstile](https://developers.cloudflare.com/turnstile/),

@@ -15,7 +15,7 @@ import {
   withEmailAddress,
   type Me,
 } from "@ember/protocol";
-import { DEFAULT_SSO_NAME, SSO_CONNECTED, SSO_SIGN_IN_PROBLEMS, ssoSignInPath } from "@ember/protocol/sso";
+import { DEFAULT_SSO_NAME, SSO_CONNECTED, SSO_SIGN_IN_PROBLEMS, ssoSignInPath, type ElsewhereConnection } from "@ember/protocol/sso";
 import { AuthAlternative } from "@/components/auth-alternative";
 import { AUTH_FORM, AuthCard, AuthHeading, AuthPage, Problem, type SignedOutWorkspace } from "@/components/auth-page";
 import { FIELD_INPUT, Field, PRIMARY_BUTTON, SubmitButton } from "@/components/field";
@@ -57,15 +57,23 @@ interface Connection {
   name: string;
 }
 
+/** Where `answer` says to connect an account elsewhere: Memberful's, the provider's, called `ssoName`, or both. */
+const connectionsOf = (answer: ElsewhereConnection, ssoName: string): Connection[] => [
+  ...("memberfulConnection" in answer ? [{ url: answer.memberfulConnection, name: "Memberful" }] : []),
+  ...("ssoConnection" in answer ? [{ url: answer.ssoConnection, name: ssoName }] : []),
+];
+
 /**
  * Signs in with an email address and password, or with Memberful while its members sign in with it, or
  * with single sign-on while it's offered, or with just a name when the workspace allows it, or, while
- * Memberful is members only, or single sign-on the only way in, with that, or a password for
- * administrators, which asks anyone else to connect their account there until they have.
+ * Memberful is members only, or single sign-on the only way in, with that, or with either while both
+ * are, or a password for administrators, which asks anyone else to connect their account there until
+ * they have.
  */
 export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWorkspace; onSignedIn: (me: Me) => void }) {
   const { memberfulSignIn: membersOnly, ssoSignIn: ssoOnly } = workspace.account;
   const ssoName = workspace.signInWithSso ?? DEFAULT_SSO_NAME;
+  const eitherOnly = membersOnly && ssoOnly;
   const [arrival] = useState(problemOnArrival);
   const [asGuest, setAsGuest] = useState(false);
   // Someone whose email address elsewhere is someone's here is asked for that someone's password.
@@ -76,7 +84,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
   const [problem, setProblem] = useState<string | null>(() => arrival?.text ?? joiningProblemOnArrival());
   /** Why the last sign-in was refused, said at the top of the form. */
   const [refusal, setRefusal] = useState<string | null>(null);
-  const [connection, setConnection] = useState<Connection | null>(null);
+  const [connections, setConnections] = useState<Connection[] | null>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
 
   useTitle("Sign in");
@@ -86,9 +94,9 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
     forgetJoiningProblem();
   }, []);
 
-  function connect(asked: Connection) {
+  function connect(asked: Connection[]) {
     setBusy(false);
-    setConnection(asked);
+    setConnections(asked);
   }
 
   async function submit() {
@@ -98,8 +106,7 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
     try {
       // Connecting Memberful, or single sign-on, comes back to the page this tab was sent here from, signed in.
       const answer = await signIn({ emailAddress, password: passwordInput.current?.value ?? "", returnTo: returnPath() ?? undefined });
-      if ("memberfulConnection" in answer) return connect({ url: answer.memberfulConnection, name: "Memberful" });
-      if ("ssoConnection" in answer) return connect({ url: answer.ssoConnection, name: ssoName });
+      if ("memberfulConnection" in answer || "ssoConnection" in answer) return connect(connectionsOf(answer, ssoName));
       onSignedIn(answer);
     } catch (error) {
       setBusy(false);
@@ -116,14 +123,19 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
     <AuthPage workspace={workspace}>
       {problem && <Problem>{problem}</Problem>}
       <AuthCard onAnimationEnd={(event) => event.target === event.currentTarget && setShaking(false)} className={shaking ? "motion-safe:animate-shake" : undefined}>
-        {connection !== null ? (
+        {connections !== null && connections[0] !== undefined ? (
           <>
             <AuthHeading title={`Sign in to ${workspace.account.name}`} logo={workspace.account.logo}>
-              This workspace now uses {connection.name}. Connect your {connection.name} account to keep signing in.
+              {connections.length > 1
+                ? `This workspace now uses ${connections.map(({ name }) => name).join(" and ")}. Connect your account at either to keep signing in.`
+                : `This workspace now uses ${connections[0].name}. Connect your ${connections[0].name} account to keep signing in.`}
             </AuthHeading>
             <Button asChild className={PRIMARY_BUTTON}>
-              <a href={connection.url}>Connect {connection.name}</a>
+              <a href={connections[0].url}>Connect {connections[0].name}</a>
             </Button>
+            {connections.slice(1).map(({ url, name }) => (
+              <AuthAlternative key={name} question="Or" action={`Connect ${name}`} href={url} />
+            ))}
           </>
         ) : asGuest ? (
           <GuestSignIn logo={workspace.account.logo} onSignedIn={onSignedIn} onUsePassword={() => setAsGuest(false)} />
@@ -187,13 +199,17 @@ export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWork
             {membersOnly || ssoOnly ? (
               withPassword ? (
                 <AuthAlternative
-                  question={ssoOnly ? SSO_QUESTION : "Member?"}
-                  action={`Sign in with ${ssoOnly ? ssoName : "Memberful"}`}
+                  question={eitherOnly ? "No password?" : ssoOnly ? SSO_QUESTION : "Member?"}
+                  action={eitherOnly ? `Sign in with ${ssoName} or Memberful` : `Sign in with ${ssoOnly ? ssoName : "Memberful"}`}
                   onClick={() => setWithPassword(false)}
                   disabled={busy}
                 />
               ) : (
-                <AuthAlternative question="Have a password?" action="Sign in with a password" onClick={() => setWithPassword(true)} />
+                <>
+                  {/* Single sign-on's button comes first, and Memberful's here, while either signs people in. */}
+                  {eitherOnly && <AuthAlternative question="Member?" action="Sign in with Memberful" href={memberfulSignInPath(returnPath())} />}
+                  <AuthAlternative question="Have a password?" action="Sign in with a password" onClick={() => setWithPassword(true)} />
+                </>
               )
             ) : (
               <>

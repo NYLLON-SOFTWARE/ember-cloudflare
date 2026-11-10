@@ -2820,10 +2820,41 @@ describe("Single sign-on", () => {
     await user.click(await way("SSO only"));
     expect(confirm).toHaveBeenCalledWith(CONFIRM_SSO_ONLY);
     await waitFor(() => expect(saved()).toEqual([{ settings: { ssoSignIn: true } }]));
-    for (const name of ["Open", "Join link", "Email domain", "Memberful"]) {
+    for (const name of ["Open", "Join link", "Email domain"]) {
       expect(await way(name)).toBeDisabled();
       expect(await way(name)).toHaveAccessibleDescription(SSO_ONLY_OVERRIDES);
     }
+    // Memberful can be the other only way in, so it stays, but off: alone, it would let nobody in.
+    expect(await way("Memberful")).toBeEnabled();
+    expect(await way("Memberful")).not.toBeChecked();
+  });
+
+  it("shows Memberful off while SSO only is on, though it's on, since it lets nobody in unless it's members only too", async () => {
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, { ssoJoin: true, ssoSignIn: true, memberfulJoin: true }));
+    showPage();
+    expect(await way("Memberful")).not.toBeChecked();
+    expect(screen.queryByRole("switch", { name: "Members only" })).not.toBeInTheDocument();
+  });
+
+  it("turns Members only on, without asking, as Memberful is turned on while SSO only is on, so that either lets people in", async () => {
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, { ssoJoin: true, ssoSignIn: true }));
+    const confirm = vi.spyOn(window, "confirm");
+    const { user } = showPage();
+    await user.click(await way("Memberful"));
+    await waitFor(() => expect(saved()).toEqual([{ settings: { memberfulSignIn: true } }]));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(await way("Memberful")).toBeChecked();
+    expect(screen.queryByRole("switch", { name: "Members only" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "SSO only" })).not.toBeInTheDocument();
+    expect(await way("Join link")).toHaveAccessibleDescription("Off while Memberful and single sign-on are the only ways in.");
+  });
+
+  it("turns Memberful off with Members only while both are the only ways in, leaving single sign-on the only one", async () => {
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, { ssoJoin: true, ssoSignIn: true, memberfulJoin: true, memberfulSignIn: true }));
+    const { user } = showPage();
+    await user.click(await way("Memberful"));
+    await waitFor(() => expect(saved()).toEqual([{ settings: { memberfulJoin: false } }]));
+    expect(await way("SSO only")).toBeChecked();
   });
 
   it("is set aside while Open lets anyone join, as Memberful is", async () => {

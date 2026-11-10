@@ -1,9 +1,22 @@
-import { type AccountSettings, type Bootstrap, type Directory, type Me, type NewWorkspace, type ProfileAnswer, type UserId, type UserStatus } from "@ember/protocol";
+import {
+  MEMBERFUL_CALLBACK_PATH,
+  memberfulSignInPath,
+  type AccountSettings,
+  type Bootstrap,
+  type Directory,
+  type Me,
+  type MemberfulConnection,
+  type NewWorkspace,
+  type ProfileAnswer,
+  type UserId,
+  type UserStatus,
+} from "@ember/protocol";
 import {
   ISSUER_MISMATCH,
   ISSUER_UNREACHABLE,
   ISSUER_UNSUPPORTED,
   CLIENT_SECRET_REFUSED,
+  MEMBERFUL_OR_SSO_SIGN_IN_NEEDED,
   OPEN_WITH_SSO,
   SSO_CALLBACK_PATH,
   SSO_CONNECTIONS_PATH,
@@ -555,6 +568,15 @@ describe("Sign in with SSO", () => {
     expect(await identities()).toEqual([{ issuer: ISSUER, subject: gracesAccount.sub, user_id: member.user.id }]);
   });
 
+  it("goes by whether the address the userinfo endpoint gives was verified, not another the ID token verified", async () => {
+    const administrator = await setUpWithSso({ linksVerifiedEmails: true });
+    await joinWithInvitation(administrator);
+    provider.idToken = { email: "someone@example.com", email_verified: true };
+    const { email_verified: _, ...unverified } = gracesAccount;
+    expect(locationOf(await signInWithSso(unverified))).toBe(backToSignIn("taken"));
+    expect(await count("identities")).toBe(0);
+  });
+
   it("links by a verified email address only someone who proved it's theirs here, by joining with a link emailed to it", async () => {
     const administrator = await setUpWithSso({ linksVerifiedEmails: true });
     // Anyone with the join link can type a colleague's address before the colleague joins.
@@ -636,6 +658,99 @@ describe("SSO only", () => {
     expect(disconnected.status).toBe(200);
     expect(((await disconnected.json()) as ProfileAnswer).profile.sso).toEqual({ name: "Acme", ssoOnly: true, connected: null });
     expect(await count("identities")).toBe(0);
+  });
+});
+
+describe("Members only and SSO only together", () => {
+  const MEMBERFUL_SITE = "https://example.memberful.com";
+  const MEMBERFUL_KEYS = { MEMBERFUL_URL: `${MEMBERFUL_SITE}/`, MEMBERFUL_CLIENT_ID: "ember-client-id", MEMBERFUL_CLIENT_SECRET: "ember-client-secret" };
+  /** A member of the Memberful site, as its member API describes them. */
+  const mary = { id: "5151", email: "mary@example.com", fullName: "Mary Jackson", unrestrictedAccess: false, subscriptions: [{ active: true }] };
+
+  /** A request to a Worker that has Memberful's keys too. */
+  const withMemberful = (path: string, init: RequestInit<IncomingRequestCfProperties> = {}) => apiWith(MEMBERFUL_KEYS, path, init);
+
+  beforeEach(() => {
+    // The Memberful site answers beside the provider: a token for any code, and Mary to it.
+    const fetch = vi.mocked(globalThis.fetch);
+    const providers = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (input, init) => {
+      const url = new Request(input, init).url;
+      if (url === `${MEMBERFUL_SITE}/oauth/token`) return Response.json({ access_token: "memberful-token", token_type: "bearer", expires_in: 900, refresh_token: "r" });
+      if (url.startsWith(`${MEMBERFUL_SITE}/api/graphql/member`)) return Response.json({ data: { currentMember: mary } });
+      return providers(input, init);
+    });
+  });
+
+  async function turnOn(administrator: Session, settings: AccountSettings): Promise<void> {
+    const response = await withMemberful("/api/account", { method: "PATCH", headers: as(administrator), body: JSON.stringify({ settings }) });
+    expect(response.status, await response.clone().text()).toBe(200);
+  }
+
+  /** Starts signing in with Memberful: the state, and the cookie that keeps it. */
+  async function startMemberful(): Promise<{ state: string; cookie: string }> {
+    const started = await withMemberful(memberfulSignInPath(null));
+    expect(started.status, await started.clone().text()).toBe(302);
+    return { state: new URL(started.headers.get("Location")!).searchParams.get("state")!, cookie: cookieOf(started) };
+  }
+
+  const memberfulCallback = ({ state, cookie }: { state: string; cookie: string }) =>
+    withMemberful(`${MEMBERFUL_CALLBACK_PATH}?${new URLSearchParams({ code: "a-code", state })}`, { headers: { "CF-Connecting-IP": IP, Cookie: cookie } });
+
+  const offered = async () => (await (await withMemberful("/api/bootstrap")).json()) as Bootstrap;
+
+  it("can both be on, when someone new joins with either, and the join link and guests are off", async () => {
+    const administrator = await setUpWithSso({ only: true });
+    await turnOn(administrator, { memberfulSignIn: true });
+    expect((await offered()).account).toMatchObject({ memberfulJoin: true, memberfulSignIn: true, ssoJoin: true, ssoSignIn: true });
+    expect(await offered()).toMatchObject({ signInWithMemberful: true, signInWithSso: "Acme" });
+
+    expect((await signedInAs(await signInWithSso(katherine))).name).toBe("Katherine Johnson");
+    const marys = await memberfulCallback(await startMemberful());
+    expect(marys.status).toBe(302);
+    expect(locationOf(marys)).not.toContain("memberful=");
+    expect(await count("identities")).toBe(2);
+
+    const joined = await api(`/api/join/${await joinCode()}`, { method: "POST", body: JSON.stringify(grace) });
+    expect(joined.status).toBe(403);
+    expect(await joined.json()).toMatchObject({ error: MEMBERFUL_OR_SSO_SIGN_IN_NEEDED });
+    const guest = await api("/api/session", { method: "POST", body: JSON.stringify({ name: "Mallory" }) });
+    expect(await guest.json()).toEqual({ error: MEMBERFUL_OR_SSO_SIGN_IN_NEEDED });
+  });
+
+  it("sends a member whose password checks out on to connect their account at either", async () => {
+    const administrator = await setUpWithSso();
+    await joinAsGrace();
+    await turnOn(administrator, { ssoSignIn: true, memberfulSignIn: true });
+    const password = await withMemberful("/api/session", { method: "POST", headers: { "CF-Connecting-IP": IP }, body: JSON.stringify({ emailAddress: grace.emailAddress, password: grace.password }) });
+    expect(password.status).toBe(202);
+    const connection = (await password.json()) as MemberfulConnection & SsoConnection;
+    expect(new URL(connection.memberfulConnection).origin).toBe(MEMBERFUL_SITE);
+    expect(new URL(connection.ssoConnection).origin).toBe(ISSUER);
+    expect(password.headers.getSetCookie().map((cookie) => cookie.split("=")[0])).toEqual(["__Host-memberful_state", "__Host-sso_state"]);
+  });
+
+  it("lets nobody in with Memberful while SSO only is on and Memberful isn't members only, as its card shows it off", async () => {
+    const administrator = await setUpWithSso();
+    await turnOn(administrator, { memberfulJoin: true });
+    const early = await startMemberful();
+    await turnOn(administrator, { ssoSignIn: true });
+    expect((await offered()).signInWithMemberful).toBe(false);
+    expect(locationOf(await withMemberful(memberfulSignInPath(null)))).toBe(`${origin}/session/new?memberful=off`);
+    // Nor a sign-in started before.
+    expect(locationOf(await memberfulCallback(early))).toBe(`${origin}/session/new?memberful=off`);
+    expect(await count("identities")).toBe(0);
+  });
+
+  it("signs nobody in with SSO, not even someone linked, while Memberful is members only and SSO only isn't on", async () => {
+    const administrator = await setUpWithSso();
+    await signedInAs(await signInWithSso(katherine));
+    const early = await startAndAuthorize();
+    await turnOn(administrator, { memberfulSignIn: true });
+    expect((await offered()).signInWithSso).toBeNull();
+    expect(locationOf(await page(ssoSignInPath(null)))).toBe(backToSignIn("off"));
+    // Nor a sign-in started before.
+    expect(locationOf(await callback(early.params, early.cookie))).toBe(backToSignIn("off"));
   });
 });
 

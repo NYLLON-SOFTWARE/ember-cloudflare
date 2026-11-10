@@ -32,6 +32,8 @@ interface Props {
   membersOnlySaving?: boolean;
   /** Why the switch can't be moved while another way to join is on, said in place of what it does, or null. */
   setAside?: string | null;
+  /** What's said in place of Members only's switch while SSO only is on, when the switch turns both on and off, or null. */
+  beside?: string | null;
 }
 
 /**
@@ -50,6 +52,7 @@ export function MemberfulSettings({
   memberfulSaving = false,
   membersOnlySaving = false,
   setAside = null,
+  beside = null,
 }: Props) {
   const { customDomain } = useAccount();
   const [settingUp, setSettingUp] = useState(false);
@@ -100,7 +103,8 @@ export function MemberfulSettings({
           aria-describedby="memberful-description"
         />
       </div>
-      {checked && site !== null && setAside === null && (
+      {checked && site !== null && setAside === null && beside !== null && <p className={cn(NOTE, "border-t pt-3")}>{beside}</p>}
+      {checked && site !== null && setAside === null && beside === null && (
         <div className="flex items-center gap-x-[1ch] gap-y-4 border-t pt-3">
           <div className="min-w-0 flex-1">
             <div id="members-only-heading">Members only</div>

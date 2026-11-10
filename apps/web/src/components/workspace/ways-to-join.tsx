@@ -26,8 +26,9 @@ import { SetUpTurnstile } from "./turnstile-settings";
 // Join link, Email domain, Memberful and Single sign-on, whose switch saves as it's flipped, as the
 // Memberful card's did, and which shows the way's settings while it's on. Open lets anyone in, and
 // Memberful's Members only only its members, as SSO only does the provider's people, so while one is on
-// the ways it overrides are greyed out, keeping their settings for when it's off. Members see the links
-// that let people in.
+// the ways it overrides are greyed out, keeping their settings for when it's off. Members only and SSO
+// only together let in both, so while one is on, the other card's switch turns its own on or off with
+// it, as nothing else of it lets anyone in then. Members see the links that let people in.
 
 /** What turning on Open asks first, since it lets anyone in. */
 export const CONFIRM_OPEN = "Are you sure you want to let anyone create an account? Ember doesn't check that the email addresses people sign up with are theirs.";
@@ -48,6 +49,13 @@ const MEMBERS_ONLY_OVERRIDES = "Off while Memberful is members only.";
 
 /** Why a way is greyed out while single sign-on is the only way in. */
 const SSO_ONLY_OVERRIDES = "Off while SSO only is on.";
+
+/** Why a way is greyed out while Memberful and single sign-on are the only ways in. */
+const EITHER_ONLY_OVERRIDES = "Off while Memberful and single sign-on are the only ways in.";
+
+/** What the Memberful card says in place of Members only's switch while SSO only is on, and the other way around. */
+const MEMBERS_ONLY_BESIDE_SSO = "SSO only is on, so Memberful's members join and sign in alongside the provider's people, and nobody else does.";
+const SSO_ONLY_BESIDE_MEMBERFUL = "Memberful is members only, so the provider's people join and sign in alongside Memberful's members, and nobody else does.";
 
 const CARD = "flex flex-col gap-3 rounded-[10px] border bg-surface px-[2ch] py-4 text-start max-md:px-3";
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
@@ -89,10 +97,11 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
   const open = moved.openSignUp ?? account.openSignUp;
   const link = moved.joinLink ?? account.joinLink;
   const emailDomain = moved.emailDomainSignUp ?? account.emailDomainSignUp;
-  const memberful = moved.memberfulJoin ?? account.memberfulJoin;
+  // Turning an only-switch on turns its way on with it, as the server does.
+  const memberful = moved.memberfulJoin ?? (moved.memberfulSignIn || account.memberfulJoin);
   // Off with Memberful, as the server turns it.
   const membersOnly = memberful && (moved.memberfulSignIn ?? account.memberfulSignIn);
-  const sso = moved.ssoJoin ?? account.ssoJoin;
+  const sso = moved.ssoJoin ?? (moved.ssoSignIn || account.ssoJoin);
   // Off with Single sign-on, likewise.
   const ssoOnly = sso && (moved.ssoSignIn ?? account.ssoSignIn);
   // A way sets the others aside while it's on, until turning it off is saved, so that none is turned on
@@ -101,15 +110,24 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
   const membersOnlyOverrides = membersOnly || account.memberfulSignIn;
   const ssoOnlyOverrides = ssoOnly || account.ssoSignIn;
   // Why the ways that people who sign in only elsewhere turn off are greyed out, if they are.
-  const elsewhereOnly = membersOnlyOverrides ? MEMBERS_ONLY_OVERRIDES : ssoOnlyOverrides ? SSO_ONLY_OVERRIDES : null;
+  const elsewhereOnly =
+    membersOnlyOverrides && ssoOnlyOverrides ? EITHER_ONLY_OVERRIDES : membersOnlyOverrides ? MEMBERS_ONLY_OVERRIDES : ssoOnlyOverrides ? SSO_ONLY_OVERRIDES : null;
 
-  const switchTo = (setting: WaySetting) => (on: boolean) => {
-    if (moved[setting] !== undefined) return;
-    const question = on ? ASKS_FIRST[setting] : undefined;
-    if (question && !confirm(question)) return;
-    setMoved((moved) => ({ ...moved, [setting]: on }));
-    saveSwitch({ [setting]: on }, () => setMoved(({ [setting]: _, ...others }) => others));
-  };
+  const switchTo =
+    (setting: WaySetting, asking = true) =>
+    (on: boolean) => {
+      if (moved[setting] !== undefined) return;
+      const question = on && asking ? ASKS_FIRST[setting] : undefined;
+      if (question && !confirm(question)) return;
+      setMoved((moved) => ({ ...moved, [setting]: on }));
+      saveSwitch({ [setting]: on }, () => setMoved(({ [setting]: _, ...others }) => others));
+    };
+  /**
+   * The switch of a way whose only-switch is `onlySetting`, while the other way is the only way in, when
+   * the way lets nobody in unless it's the only way in too: on turns that on, which turns the way on
+   * with it, without asking, as the other did, and off turns the way off, which turns that off too.
+   */
+  const switchBeside = (setting: WaySetting, onlySetting: WaySetting) => (on: boolean) => (on ? switchTo(onlySetting, false)(true) : switchTo(setting)(false));
 
   return (
     <section aria-labelledby="ways-to-join-heading" className="flex flex-col gap-3">
@@ -169,26 +187,28 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
       <MemberfulSettings
         site={settings.memberfulSite}
         webhooks={settings.memberfulWebhooks}
-        checked={memberful}
-        onCheckedChange={switchTo("memberfulJoin")}
+        checked={ssoOnly ? membersOnly : memberful}
+        onCheckedChange={ssoOnly ? switchBeside("memberfulJoin", "memberfulSignIn") : switchTo("memberfulJoin")}
         membersOnly={membersOnly}
+        beside={ssoOnly ? MEMBERS_ONLY_BESIDE_SSO : null}
         onMembersOnlyChange={switchTo("memberfulSignIn")}
         // Saving either changes the other's setting too, so each waits for the other's move, lest saves
         // arriving out of order undo the later one.
         memberfulSaving={moved.memberfulJoin !== undefined}
         membersOnlySaving={moved.memberfulSignIn !== undefined}
-        setAside={membersOnly ? null : openOverrides ? OPEN_OVERRIDES : ssoOnlyOverrides ? SSO_ONLY_OVERRIDES : null}
+        setAside={membersOnly ? null : openOverrides ? OPEN_OVERRIDES : null}
       />
       <SingleSignOnSettings
         sso={settings.sso}
-        checked={sso}
-        onCheckedChange={switchTo("ssoJoin")}
+        checked={membersOnly ? ssoOnly : sso}
+        onCheckedChange={membersOnly ? switchBeside("ssoJoin", "ssoSignIn") : switchTo("ssoJoin")}
         ssoOnly={ssoOnly}
+        beside={membersOnly ? SSO_ONLY_BESIDE_MEMBERFUL : null}
         onSsoOnlyChange={switchTo("ssoSignIn")}
         // As Memberful's two do, each waits for the other's move.
         ssoSaving={moved.ssoJoin !== undefined}
         ssoOnlySaving={moved.ssoSignIn !== undefined}
-        setAside={ssoOnly ? null : openOverrides ? OPEN_OVERRIDES : membersOnlyOverrides ? MEMBERS_ONLY_OVERRIDES : null}
+        setAside={ssoOnly ? null : openOverrides ? OPEN_OVERRIDES : null}
         onSetUp={onSetUpSso}
         onForgotten={onSsoForgotten}
         onFailed={onFailed}
@@ -249,6 +269,12 @@ export function HowPeopleJoin({ joinCode, memberfulSite }: { joinCode: string | 
   // Open lets anyone in, people at the email domains too.
   const emailDomain = !open && signsUpWithEmailDomain(account);
   if (!open && linkCode === null && !emailDomain) {
+    if (account.memberfulSignIn && account.ssoSignIn)
+      return (
+        <p className="text-start">
+          <strong>Members sign in with Memberful or single sign-on</strong>, so the join link is off.
+        </p>
+      );
     if (account.memberfulSignIn)
       return (
         <p className="text-start">

@@ -5,7 +5,7 @@
 // at the provider, which sends their browser back to `SSO_CALLBACK_PATH`, and tells Ember when someone
 // signs out or is removed there, at `SSO_LOGOUT_PATH`.
 
-import type { MemberfulAccount, MemberfulConnectionStart, MemberfulDisconnection } from "./index.ts";
+import type { MemberfulAccount, MemberfulConnection, MemberfulConnectionStart, MemberfulDisconnection } from "./index.ts";
 
 /**
  * The provider as the Single sign-on card shows it to administrators: where its issuer, app and secret
@@ -127,6 +127,13 @@ export interface SsoConnection {
 }
 
 /**
+ * What signing in with a password answers someone whose password checks out while they sign in only
+ * elsewhere, until they've connected an account there: where to connect one at Memberful, or at the
+ * provider, or at either while Members only and SSO only are both on.
+ */
+export type ElsewhereConnection = MemberfulConnection | SsoConnection | (MemberfulConnection & SsoConnection);
+
+/**
  * Why signing in with the provider didn't sign anyone in, or didn't connect an account, which the
  * callback sends the browser back to sign in with, as `?sso=`, or to your profile when it's signed in as
  * you, and the page says.
@@ -167,6 +174,9 @@ export const ssoProblemOf = (value: string | null): SsoSignInProblem | null =>
 
 /** Why signing in with a password, joining with the join link, or signing in with just a name is refused while single sign-on is the only way in. */
 export const SSO_SIGN_IN_NEEDED = "This workspace uses single sign-on. Only administrators and invited people can sign in with a password.";
+/** The same, while Memberful's Members only and SSO only are both on, so that either signs people in. */
+export const MEMBERFUL_OR_SSO_SIGN_IN_NEEDED =
+  "Members sign in with Memberful or single sign-on. Only administrators and invited people can sign in with a password.";
 /** Why connecting from your profile is refused without your password, while you have one. */
 export const SSO_PASSWORD_NEEDED = "Enter your password to connect single sign-on.";
 /** Why disconnecting is refused without your password, without one, without an email address, or while you aren't connected. */
@@ -177,9 +187,8 @@ export const SSO_NOT_CONNECTED = "Single sign-on isn't connected.";
 
 /** Why single sign-on can't be turned on yet, nor SSO only. */
 export const SSO_SETUP_NEEDED = "Set up single sign-on first.";
-/** Why turning on Open, or SSO only, is refused while the other is on, and SSO only while Memberful is members only. */
+/** Why turning on Open, or SSO only, is refused while the other is on. */
 export const OPEN_WITH_SSO = "Open and SSO only can't be on at the same time.";
-export const MEMBERFUL_WITH_SSO = "Members only and SSO only can't be on at the same time.";
 /** What the Single sign-on card tells anyone but an administrator. */
 export const SSO_FORBIDDEN = "Only administrators can set up single sign-on";
 

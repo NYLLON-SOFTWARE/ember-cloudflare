@@ -3,6 +3,7 @@ import {
   ASSISTANT_ID,
   ASSISTANT_NAME,
   CANT_SEND_EMAIL,
+  MEMBERFUL_SIGN_IN_NEEDED,
   CloseCode,
   domainOfEmailAddress,
   EMAILS_PER_ADDRESS,
@@ -74,6 +75,7 @@ import {
   type WorkspaceSettings,
   type SsoSettings,
 } from "@ember/protocol";
+import { MEMBERFUL_OR_SSO_SIGN_IN_NEEDED, SSO_SIGN_IN_NEEDED } from "@ember/protocol/sso";
 import {
   DEFAULT_LEVELS,
   MAX_ASSISTANT_MODELS,
@@ -279,16 +281,31 @@ function ssoChange(account: Pick<Account, "ssoJoin" | "ssoSignIn">, { ssoJoin, s
 /**
  * The ways in by an account elsewhere: by a Memberful site's, or by the single sign-on provider's. Each
  * lets its people join while it's on, and may be the only way in, but for administrators and the people
- * they invite.
+ * they invite, or one of the only two, with the other.
  */
 export type SignInElsewhere = "memberful" | "sso";
 
-/** Whether `via` lets someone new join `account`, and whether it's the only way in. */
-const rulesOf = (account: JoinableAccount | null, via: SignInElsewhere) =>
-  via === "memberful" ? { joins: account?.memberfulJoin ?? false, only: account?.memberfulSignIn ?? false } : { joins: account?.ssoJoin ?? false, only: account?.ssoSignIn ?? false };
+/** How people sign in while they sign in only elsewhere: by one way in, or by "either" while both are the only ways in. */
+export type OnlyWay = SignInElsewhere | "either";
 
-/** Which way in by an account elsewhere is the only one, while one is. Never both. */
-const onlyWayOf = (account: Pick<Account, "memberfulSignIn" | "ssoSignIn">): SignInElsewhere => (account.ssoSignIn ? "sso" : "memberful");
+/**
+ * Whether `via` lets someone new join `account`, whether it's the only way in, or one of them, and
+ * whether it's closed, as it is while the other is the only way in and it isn't: then it lets nobody in,
+ * not even the people linked to it, as signing in with a password doesn't.
+ */
+function rulesOf(account: JoinableAccount | null, via: SignInElsewhere) {
+  const [on, only] = via === "memberful" ? [account?.memberfulJoin ?? false, account?.memberfulSignIn ?? false] : [account?.ssoJoin ?? false, account?.ssoSignIn ?? false];
+  const closed = !only && account !== null && signsInElsewhereOnly(account);
+  return { joins: on && !closed, only, closed };
+}
+
+/** Why signing in with a password, joining with the join link, or signing in with just a name is refused, by `way`. */
+export const signInNeededWith = (way: OnlyWay) =>
+  way === "either" ? MEMBERFUL_OR_SSO_SIGN_IN_NEEDED : way === "sso" ? SSO_SIGN_IN_NEEDED : MEMBERFUL_SIGN_IN_NEEDED;
+
+/** How people sign in while they sign in only elsewhere (`signsInElsewhereOnly`). */
+const onlyWayOf = ({ memberfulSignIn, ssoSignIn }: Pick<Account, "memberfulSignIn" | "ssoSignIn">): OnlyWay =>
+  memberfulSignIn && ssoSignIn ? "either" : ssoSignIn ? "sso" : "memberful";
 
 /**
  * The account as every page shows it, without its join code, which only the people in it see, nor its
@@ -583,18 +600,17 @@ export type MemberfulRefusal = "off" | "unneeded" | "refused" | "membership" | "
  * What a join link does: joins, is off while an administrator has turned it off, or Memberful is members
  * only, or single sign-on the only way in, or isn't the join link.
  */
-export type JoinLink = "joins" | "off" | SignInElsewhere | "not found";
+export type JoinLink = "joins" | "off" | OnlyWay | "not found";
 
 /** Why open sign-up lets nobody in: it's off, or the workspace has let in as many new people as it does in an hour. */
 export type SignUpRefusal = "closed" | "full";
 
 /**
  * Why a change to the account changes nothing: Open and Memberful's Members only can't both be on
- * ("conflict"), nor Open and SSO only ("sso conflict"), nor Members only and SSO only ("only conflict"),
- * and Email domain can't be on without a domain to let in, nor be turned on while Ember can't send email,
+ * ("conflict"), nor Open and SSO only ("sso conflict"), and Email domain can't be on without a domain to let in, nor be turned on while Ember can't send email,
  * since it emails people the links they join with.
  */
-export type AccountRefusal = "conflict" | "sso conflict" | "only conflict" | "no email domains" | "no email";
+export type AccountRefusal = "conflict" | "sso conflict" | "no email domains" | "no email";
 
 /**
  * What asking for a link to join with an address at the email domains came to: "asked", whatever Ember
@@ -904,8 +920,8 @@ export class Workspace extends DurableObject<Env> {
   /**
    * What the join link with `code` does: "not found" unless `code` is the workspace's join code, which it
    * can't be before first run, "memberful" while Memberful is members only, which turns it off, "sso"
-   * while single sign-on is the only way in, which does too, and "off" while an administrator has turned
-   * it off.
+   * while single sign-on is the only way in, which does too, "either" while both are, and "off" while an
+   * administrator has turned it off.
    */
   async joinLink(code: string): Promise<JoinLink> {
     const account = await this.joinableAccount();
@@ -988,7 +1004,8 @@ export class Workspace extends DurableObject<Env> {
    * account there, since they keep signing in with it once it's off.
    */
   async offersMemberfulSignIn(site: string | null): Promise<boolean> {
-    return site !== null && this.offersSignInAt(site, (await this.joinableAccount())?.memberfulJoin ?? false);
+    const { joins, closed } = rulesOf(await this.joinableAccount(), "memberful");
+    return site !== null && !closed && this.offersSignInAt(site, joins);
   }
 
   /**
@@ -997,7 +1014,8 @@ export class Workspace extends DurableObject<Env> {
    */
   async offersSsoSignIn(): Promise<string | null> {
     const [account, provider] = await Promise.all([this.joinableAccount(), this.ssoProvider()]);
-    return provider && (await this.offersSignInAt(provider.issuer, account?.ssoJoin ?? false)) ? provider.name : null;
+    const { joins, closed } = rulesOf(account, "sso");
+    return provider && !closed && (await this.offersSignInAt(provider.issuer, joins)) ? provider.name : null;
   }
 
   /** Whether signing in at `issuer` is offered: while it `joins` people, or anyone here is linked to an account there. */
@@ -1088,14 +1106,13 @@ export class Workspace extends DurableObject<Env> {
         ...(icons && { navigationIcons: icons }),
         ...(emailFrom !== undefined && emailFrom !== account.emailFrom && { emailFrom }),
       };
-      // Open lets anyone in, Members only only Memberful's members, and SSO only only the provider's
-      // people, so none is turned on while another is.
+      // Open lets anyone in, and Members only only Memberful's members, as SSO only does the provider's
+      // people, so Open is turned on with neither. Members only and SSO only together let in both.
       const open = change.openSignUp ?? account.openSignUp;
       const membersOnly = memberful?.memberfulSignIn ?? account.memberfulSignIn;
       const ssoOnly = ssoSwitches?.ssoSignIn ?? account.ssoSignIn;
       if (open && membersOnly && (change.openSignUp || !account.memberfulSignIn)) return "conflict";
       if (open && ssoOnly && (change.openSignUp || !account.ssoSignIn)) return "sso conflict";
-      if (membersOnly && ssoOnly) return "only conflict";
       if (Object.keys(change).length === 0) return this.shownAccount(account);
       const { memberful: _, ssoSwitches: __, ...settled } = change;
       const changed = { ...account, ...settled, ...memberful, ...ssoSwitches, navigationIcons: withNavigationIcons(account.navigationIcons, icons ?? {}) };
@@ -1973,7 +1990,7 @@ export class Workspace extends DurableObject<Env> {
    * with a password, and anyone else hears which way they sign in, "memberful" or "sso", which only
    * someone who knows their password can, so it says nothing about who has an account.
    */
-  async startSession(userId: UserId, passwordDigest: string, rehash: string | null, tokenDigest: string, client: Client): Promise<Me | SignInElsewhere | null> {
+  async startSession(userId: UserId, passwordDigest: string, rehash: string | null, tokenDigest: string, client: Client): Promise<Me | OnlyWay | null> {
     const account = await this.joinableAccount();
     const membersOnly = account !== null && signsInElsewhereOnly(account);
     if (membersOnly && !(await this.store.signsInWhileMembersOnly(userId))) return onlyWayOf(account);
@@ -2004,7 +2021,7 @@ export class Workspace extends DurableObject<Env> {
    * Memberful is members only, or single sign-on the only way in, which answers which way people sign
    * in, or the name is an agent's, which answers "agent's name". Everyone's workspace sockets hear of them.
    */
-  async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me | SignInElsewhere | "agent's name"> {
+  async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me | OnlyWay | "agent's name"> {
     // One at a time, as joining is, so that none can overlap turning Members only on.
     return this.oneAtATime(async () => {
       const account = await this.joinableAccount();
@@ -2030,7 +2047,8 @@ export class Workspace extends DurableObject<Env> {
    * What it said of their membership, as of `readAt`, is gone by as a check's is (`settleMembership`),
    * unless the Workspace has gone by a newer read: a member whose membership has lapsed, or who is in no
    * group the card lets in, is suspended, their sessions elsewhere ending, and one whose membership is
-   * renewed is let back. Answers "off" for someone new while `via` is off, "refused" for someone linked
+   * renewed is let back. Answers "off" for someone new while `via` is off, and for anyone while the other
+   * way is the only way in and `via` isn't (`rulesOf`), "refused" for someone linked
    * who has been removed or banned, "membership" for anyone but an administrator, or someone they
    * invited, without an active membership, and "taken" when someone here has the email address someone
    * new would have, which creates nothing. Everyone's workspace sockets hear of someone new.
@@ -2049,7 +2067,9 @@ export class Workspace extends DurableObject<Env> {
     // answering.
     return this.closingSockets(async () => {
       const account = await this.joinableAccount();
-      const { joins } = rulesOf(account, via);
+      const { joins, closed } = rulesOf(account, via);
+      // As a sign-in started before the other way was made the only one finds it.
+      if (closed) return "off";
       const linked = (await this.store.linkedPerson(issuer, member.id)) ?? (joins ? await this.linkVerifiedEmail(via, issuer, member, readAt) : null);
       if (linked) {
         await this.keepChecking(via, kept);
@@ -2526,7 +2546,7 @@ export class Workspace extends DurableObject<Env> {
     });
     if (userId === null) return "wrong";
     const session = await this.startSession(userId, passwordDigest, null, tokenDigest, client);
-    return session === "memberful" || session === "sso" ? null : session;
+    return typeof session === "string" ? null : session;
   }
 
   /**

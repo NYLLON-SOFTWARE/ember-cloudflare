@@ -96,6 +96,7 @@ import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTria
 import {
   SSO_CONNECTIONS_PATH,
   SSO_SETTINGS_PATH,
+  type ElsewhereConnection,
   type SsoConnection,
   type SsoConnectionStart,
   type SsoDisconnection,
@@ -274,10 +275,10 @@ export async function resetPasswordWithCode(reset: PasswordResetWithCode): Promi
 /**
  * Signs in with an email address and password: who signed in, or, for a member whose password checks out
  * while Memberful is members only, or single sign-on the only way in, until they've connected their
- * account there, where to connect it, which signs them in and opens the page `credentials.returnTo` names.
+ * account there, where to connect it, at either while both are, which signs them in and opens the page `credentials.returnTo` names.
  */
-export async function signIn(credentials: PasswordSignIn): Promise<Me | MemberfulConnection | SsoConnection> {
-  const answer = await request<{ user: Me } | MemberfulConnection | SsoConnection>("/api/session", { method: "POST", body: JSON.stringify(credentials) });
+export async function signIn(credentials: PasswordSignIn): Promise<Me | ElsewhereConnection> {
+  const answer = await request<{ user: Me } | ElsewhereConnection>("/api/session", { method: "POST", body: JSON.stringify(credentials) });
   return "user" in answer ? answer.user : answer;
 }
 

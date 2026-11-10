@@ -16,7 +16,6 @@ import {
   MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD,
   MEMBERFUL_NOT_CONNECTED,
   MEMBERFUL_PASSWORD_NEEDED,
-  MEMBERFUL_SIGN_IN_NEEDED,
   MEMBERFUL_SIGN_IN_PATH,
   MEMBERFUL_SIGN_IN_PROBLEMS,
   MEMBERFUL_WEBHOOK_PATH,
@@ -62,7 +61,6 @@ import {
   type Favorites,
   type Involvement,
   type MemberfulAccount,
-  type MemberfulConnection,
   type MemberfulStatus,
   type NewJoinCode,
   type NewRoomForm,
@@ -81,7 +79,6 @@ import {
 } from "@ember/protocol";
 import { agentsName } from "@ember/protocol/agents";
 import {
-  MEMBERFUL_WITH_SSO,
   OPEN_WITH_SSO,
   SSO_CALLBACK_PATH,
   SSO_CONNECTIONS_PATH,
@@ -92,10 +89,9 @@ import {
   SSO_NOT_CONNECTED,
   SSO_PASSWORD_NEEDED,
   SSO_SETTINGS_PATH,
-  SSO_SIGN_IN_NEEDED,
   SSO_SIGN_IN_PATH,
   SSO_SIGN_IN_PROBLEMS,
-  type SsoConnection,
+  type ElsewhereConnection,
   type SsoStatus,
 } from "@ember/protocol/sso";
 import { mentionPromptItem } from "@ember/richtext";
@@ -174,7 +170,7 @@ import { isFromUnsupportedBrowser, unsupportedBrowserPage } from "./unsupported-
 import { platformOf } from "./user-agent";
 import { versionOf } from "./version";
 import type { SsoProvider } from "./sso-provider";
-import { ACCOUNT_BEFORE_SETUP, CREDENTIALS_HEADER, workspace, type SignInElsewhere, type YourProfile } from "./workspace";
+import { ACCOUNT_BEFORE_SETUP, CREDENTIALS_HEADER, signInNeededWith, workspace, type OnlyWay, type SignInElsewhere, type YourProfile } from "./workspace";
 
 export { ChatRoom } from "./chat-room";
 export { PasswordHasher } from "./passwords";
@@ -234,13 +230,9 @@ async function signInWithPassword({ emailAddress, password, returnTo }: Record<s
       user = await workspace(env).startSession(kept.userId, kept.passwordDigest, null, digest, client);
     }
   }
-  if (user === "memberful") {
-    const connecting = found && (await memberfulConnectionFor(request, env, found.userId, found.passwordDigest, returnTo));
-    return connecting ? connectionAnswer(connecting) : problem(403, MEMBERFUL_SIGN_IN_NEEDED);
-  }
-  if (user === "sso") {
-    const connecting = found && (await ssoConnectionFor(request, env, found.userId, found.passwordDigest, returnTo));
-    return connecting ? connectionAnswer(connecting) : problem(403, SSO_SIGN_IN_NEEDED);
+  if (typeof user === "string") {
+    const connecting = found && (await connectionsFor(request, env, user, found.userId, found.passwordDigest, returnTo));
+    return connecting ? connectionAnswer(connecting) : problem(403, signInNeededWith(user));
   }
   if (!user) return problem(401, SIGN_IN_REJECTED);
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
@@ -258,9 +250,8 @@ async function signInGuest(given: unknown, request: Request, env: Env): Promise<
 
   const token = newSessionToken();
   const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
-  if (user === "memberful") return problem(403, MEMBERFUL_SIGN_IN_NEEDED);
-  if (user === "sso") return problem(403, SSO_SIGN_IN_NEEDED);
   if (user === "agent's name") return problem(422, agentsName(name));
+  if (typeof user === "string") return problem(403, signInNeededWith(user));
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
 
@@ -446,7 +437,6 @@ async function changeAccount(request: Request, env: Env): Promise<Response> {
   if (account === "forbidden") return problem(403, "Only administrators can change the workspace");
   if (account === "conflict") return problem(422, OPEN_WITH_MEMBERFUL);
   if (account === "sso conflict") return problem(422, OPEN_WITH_SSO);
-  if (account === "only conflict") return problem(422, MEMBERFUL_WITH_SSO);
   if (account === "no email domains") return problem(422, NO_EMAIL_DOMAINS);
   if (account === "no email") return problem(422, EMAIL_DOMAIN_NEEDS_EMAIL);
   return refusal ? problem(422, refusal) : json({ account });
@@ -784,7 +774,7 @@ async function connectElsewhere(request: Request, env: Env, elsewhere: Connectin
   }
   const connecting = await elsewhere.connectionFor(request, env, check.userId, check.passwordDigest, PROFILE_PATH);
   // Something changed meanwhile: their password, the setting, or what they've connected.
-  return connecting ? connectionAnswer(connecting) : problem(409, `Connecting ${elsewhere.name} didn't start. Try again.`);
+  return connecting ? connectionAnswer({ connection: connecting.connection, cookies: connecting.cookie === null ? [] : [connecting.cookie] }) : problem(409, `Connecting ${elsewhere.name} didn't start. Try again.`);
 }
 
 /**
@@ -833,8 +823,26 @@ const disconnectSso = (request: Request, env: Env) => disconnectElsewhere(reques
  * account there, with the cookie that keeps the state it goes with, or on to Ember's custom domain to
  * connect from there, which no cache should keep.
  */
-const connectionAnswer = ({ connection, cookie }: { connection: MemberfulConnection | SsoConnection; cookie: string | null }) =>
-  json(connection, { status: 202, headers: { ...(cookie === null ? {} : { "Set-Cookie": cookie }), "Cache-Control": "no-store" } });
+function connectionAnswer({ connection, cookies }: { connection: ElsewhereConnection; cookies: string[] }): Response {
+  const answer = json(connection, { status: 202, headers: { "Cache-Control": "no-store" } });
+  for (const cookie of cookies) answer.headers.append("Set-Cookie", cookie);
+  return answer;
+}
+
+/**
+ * Starts connecting the account of `userId`, whose password checked out against `passwordDigest`, by
+ * `way`, as signing in with a password does while people sign in only elsewhere: at Memberful, at the
+ * provider, or at both while either signs people in, when whichever starts is offered. Null when none does.
+ */
+async function connectionsFor(request: Request, env: Env, way: OnlyWay, userId: UserId, passwordDigest: string, returnTo: unknown) {
+  const [memberful, sso] = await Promise.all([
+    way === "sso" ? null : memberfulConnectionFor(request, env, userId, passwordDigest, returnTo),
+    way === "memberful" ? null : ssoConnectionFor(request, env, userId, passwordDigest, returnTo),
+  ]);
+  if (!memberful && !sso) return null;
+  const connection = { ...memberful?.connection, ...sso?.connection } as ElsewhereConnection;
+  return { connection, cookies: [memberful?.cookie, sso?.cookie].filter((cookie): cookie is string => typeof cookie === "string") };
+}
 
 /**
  * Gives you the avatar the form brings, answering your profile then. Who's asking is checked before the

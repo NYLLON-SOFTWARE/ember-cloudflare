@@ -501,6 +501,39 @@ describe("Sign in with single sign-on", () => {
     expect(screen.getByRole("link", { name: "Connect Acme" })).toHaveAttribute("href", SSO_AUTHORIZE);
     expect(onSignedIn).not.toHaveBeenCalled();
   });
+
+  describe("while Members only is on too", () => {
+    const eitherOnly = { ...ssoOnly, signInWithMemberful: true, account: { ...ssoOnly.account, memberfulJoin: true, memberfulSignIn: true } };
+    const MEMBERFUL_AUTHORIZE = "https://example.memberful.com/oauth?client_id=ember&state=m3m";
+
+    it("offers Sign in with the provider in place of the password form, and Sign in with Memberful under it", () => {
+      render(<SignInPage workspace={eitherOnly} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+      const sso = screen.getByRole("link", { name: "Sign in with Acme" });
+      expect(sso).toHaveAttribute("href", "/auth/sso");
+      expect(sso.compareDocumentPosition(screen.getByRole("link", { name: "Sign in with Memberful" }))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument();
+      expect(screen.getByText("Have a password?")).toBeInTheDocument();
+    });
+
+    it("goes back to both from the password form", async () => {
+      const user = userEvent.setup();
+      render(<SignInPage workspace={eitherOnly} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+      await user.click(screen.getByRole("button", { name: "Sign in with a password" }));
+      await user.click(screen.getByRole("button", { name: "Sign in with Acme or Memberful" }));
+      expect(screen.getByRole("link", { name: "Sign in with Acme" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Sign in with Memberful" })).toBeInTheDocument();
+    });
+
+    it("asks a member whose password checks out to connect their account at either", async () => {
+      respond(202, { memberfulConnection: MEMBERFUL_AUTHORIZE, ssoConnection: SSO_AUTHORIZE });
+      render(<SignInPage workspace={eitherOnly} onSignedIn={vi.fn()} />, { wrapper: FlashProvider });
+      await userEvent.click(screen.getByRole("button", { name: "Sign in with a password" }));
+      await signIn("correct horse");
+      expect(await screen.findByText("This workspace now uses Memberful and Acme. Connect your account at either to keep signing in.")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Connect Memberful" })).toHaveAttribute("href", MEMBERFUL_AUTHORIZE);
+      expect(screen.getByRole("link", { name: "Connect Acme" })).toHaveAttribute("href", SSO_AUTHORIZE);
+    });
+  });
 });
 
 describe("Reset a forgotten password with an emailed code", () => {
