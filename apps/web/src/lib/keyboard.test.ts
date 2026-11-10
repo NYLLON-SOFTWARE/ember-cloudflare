@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { huddleShortcut, muteShortcut, opensFind, opensLink, pressedAlone, savesEdit, sendsMessage, togglesHuddle, togglesMute } from "./keyboard";
+import { huddleShortcut, movesRoom, movesUnreadRoom, muteShortcut, opensFind, opensLink, pressedAlone, savesEdit, sendsMessage, togglesHuddle, togglesMute } from "./keyboard";
 
 function pointer(coarse: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" && coarse }));
@@ -190,5 +190,30 @@ describe("togglesMute", () => {
     expect(muteShortcut()).toEqual({ keys: ["⌘", "⇧", "Space"], aria: "Meta+Shift+Space" });
     on("Linux x86_64");
     expect(muteShortcut()).toEqual({ keys: ["Ctrl", "Shift", "Space"], aria: "Control+Shift+Space" });
+  });
+});
+
+describe("movesRoom and movesUnreadRoom", () => {
+  it("take Alt and an arrow, Option on a Mac, for the room above or below, and with Shift too for an unread one", () => {
+    expect(movesRoom(press("ArrowUp", { altKey: true }))).toBe(-1);
+    expect(movesRoom(press("ArrowDown", { altKey: true }))).toBe(1);
+    expect(movesUnreadRoom(press("ArrowUp", { altKey: true, shiftKey: true }))).toBe(-1);
+    expect(movesUnreadRoom(press("ArrowDown", { altKey: true, shiftKey: true }))).toBe(1);
+  });
+
+  it("leave each other's keys be", () => {
+    expect(movesRoom(press("ArrowDown", { altKey: true, shiftKey: true }))).toBeNull();
+    expect(movesUnreadRoom(press("ArrowDown", { altKey: true }))).toBeNull();
+  });
+
+  it("leave the arrows alone, with Ctrl or Cmd held, other keys, or while an input method composes", () => {
+    for (const match of [movesRoom, movesUnreadRoom]) {
+      expect(match(press("ArrowDown"))).toBeNull();
+      expect(match(press("ArrowDown", { shiftKey: true }))).toBeNull();
+      for (const modifier of ["ctrlKey", "metaKey", "isComposing"]) {
+        expect(match(press("ArrowDown", { altKey: true, shiftKey: match === movesUnreadRoom, [modifier]: true })), modifier).toBeNull();
+      }
+      expect(match(press("ArrowLeft", { altKey: true, shiftKey: match === movesUnreadRoom }))).toBeNull();
+    }
   });
 });

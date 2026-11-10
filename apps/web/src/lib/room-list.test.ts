@@ -5,8 +5,10 @@ import {
   inDirectOrder,
   inSidebarOrder,
   markedUnread,
+  neighborRoom,
   NO_ROOM_LIST,
   roomListReducer,
+  sidebarOrder,
   suggestedPeople,
   withRoom,
   type DirectSidebarRoom,
@@ -276,6 +278,40 @@ describe("DM order", () => {
     const saved = (minutes: number): Room => ({ id: "d1", kind: "direct", members: [{ id: "ada", name: "Ada" }], activeAt: at(minutes) });
     expect(withRoom(listed, saved(1))).toEqual(listed);
     expect(withRoom(listed, saved(7))).toEqual([activeAt(direct("d1", "Ada"), 7)]);
+  });
+});
+
+describe("Move between rooms with Alt and an arrow", () => {
+  const hidden = room("r4", "Archive");
+  const rooms = [room("r1", "general"), room("r2", "Design", true), { ...hidden, involvement: "invisible" as const }, direct("d1", "Ada"), room("r3", "ops")];
+
+  it("lists the rooms as the sidebar draws them, starred first, then the DMs, leaving hidden ones out", () => {
+    expect(sidebarOrder(rooms, ["r3"])).toEqual(["r3", "r2", "r1", "d1"]);
+    expect(sidebarOrder(rooms, [], ["r1"])).toEqual(["r1", "r2", "r3", "d1"]);
+  });
+
+  it("finds the room above or below, stopping at either end", () => {
+    const order = ["r3", "r2", "r1", "d1"];
+    expect(neighborRoom(order, "r2", 1)).toBe("r1");
+    expect(neighborRoom(order, "r2", -1)).toBe("r3");
+    expect(neighborRoom(order, "r3", -1)).toBeNull();
+    expect(neighborRoom(order, "d1", 1)).toBeNull();
+  });
+
+  it("starts at the top going down, or the bottom going up, when no room it lists is shown", () => {
+    const order = ["r3", "r2", "r1"];
+    expect(neighborRoom(order, null, 1)).toBe("r3");
+    expect(neighborRoom(order, "r4", -1)).toBe("r1");
+    expect(neighborRoom([], null, 1)).toBeNull();
+  });
+
+  it("skips the rooms that aren't unread when asked for the nearest unread one", () => {
+    const order = ["r3", "r2", "r1", "d1"];
+    const unread = (roomId: string) => roomId === "r3" || roomId === "d1";
+    expect(neighborRoom(order, "r2", 1, unread)).toBe("d1");
+    expect(neighborRoom(order, "r2", -1, unread)).toBe("r3");
+    expect(neighborRoom(order, "r3", -1, unread)).toBeNull();
+    expect(neighborRoom(order, "r1", 1, () => false)).toBeNull();
   });
 });
 

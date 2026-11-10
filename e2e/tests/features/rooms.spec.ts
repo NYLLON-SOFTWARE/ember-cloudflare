@@ -27,6 +27,20 @@ test.describe("Conversations sidebar", () => {
     await ada.page.goBack();
     await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
   });
+
+  test("opens the room below or above with Alt and an arrow, from the composer too", async ({ members, rooms }) => {
+    const ada = await members.signIn("Ada");
+    const heading = ada.page.getByRole("heading", { level: 1 });
+    await expect(heading).toHaveText("general");
+
+    await ada.page.getByRole("textbox", { name: "Write a message" }).click();
+    await ada.page.keyboard.press("Alt+ArrowDown");
+    await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.random.id}$`));
+    await expect(heading).toHaveText("random");
+
+    await ada.page.keyboard.press("Alt+ArrowUp");
+    await expect(heading).toHaveText("general");
+  });
 });
 
 test.describe("Live sidebar updates", () => {

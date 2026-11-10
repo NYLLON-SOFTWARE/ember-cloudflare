@@ -15,11 +15,11 @@ import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
 import { hearHuddleEnd, leaveHuddle, muteHuddle } from "@/lib/huddle-store";
 import { whenIdle } from "@/lib/idle";
-import { opensFind, togglesHuddle, togglesMute } from "@/lib/keyboard";
+import { movesRoom, movesUnreadRoom, opensFind, togglesHuddle, togglesMute } from "@/lib/keyboard";
 import { lastRoomVisited } from "@/lib/last-room";
 import { takeMemberfulFlash } from "@/lib/memberful";
 import { loadPage } from "@/lib/page";
-import { markedUnread } from "@/lib/room-list";
+import { markedUnread, neighborRoom, sidebarOrder } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, type Route } from "@/hooks/use-route";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
@@ -564,10 +564,26 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     if (!huddlesOn || !room || room.kind === "direct" || goneRoom) return;
     pressed(() => setHuddlePreview(room.id));
   });
+  // Alt and an arrow open the room or DM above or below the one shown, in the order the sidebar draws them,
+  // only the unread ones while Activity is on, and with Shift too, the nearest one marked unread. They work
+  // from the composer too, but not in a dialog, and not on a starred room's focused row, which Alt and an
+  // arrow move instead. Held down, each repeat opens the next.
+  const roomKeyPressed = useEffectEvent((event: KeyboardEvent) => {
+    if (event.defaultPrevented || !rooms) return;
+    const toUnread = movesUnreadRoom(event);
+    const step = movesRoom(event) ?? toUnread;
+    if (step === null || (event.target instanceof Element && event.target.closest("[role=dialog]"))) return;
+    event.preventDefault();
+    const unread = (roomId: RoomId) => rooms.some((r) => r.id === roomId && markedUnread(r, currentRoomId));
+    const drawn = unreadOnly ? rooms.filter((r) => r.id === currentRoomId || markedUnread(r, currentRoomId)) : rooms;
+    const next = neighborRoom(sidebarOrder(drawn, favorites.rooms, sharedOrder), currentRoomId, step, toUnread === null ? undefined : unread);
+    if (next) select(next);
+  });
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
       findPressed(event);
       huddleKeyPressed(event);
+      roomKeyPressed(event);
     };
     window.addEventListener("keydown", listener);
     return () => window.removeEventListener("keydown", listener);

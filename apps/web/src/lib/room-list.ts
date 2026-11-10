@@ -70,6 +70,30 @@ export function inDirectOrder<T extends DirectSidebarRoom>(directs: T[]): T[] {
 }
 
 /**
+ * The ids of `rooms` in the order the sidebar draws them: the rooms, starred first, then the ones
+ * `sharedOrder` ranks, then the rest, and then the DMs, none hidden.
+ */
+export function sidebarOrder(rooms: SidebarRoom[], favorites: RoomId[], sharedOrder: RoomId[] = []): RoomId[] {
+  const { shared, directs } = apart(rooms);
+  return [...inSidebarOrder(shared, favorites, sharedOrder), ...inDirectOrder(directs)].map((room) => room.id);
+}
+
+/**
+ * The room `step` rows from `currentId` in `order`, the nearest one `isUnread` says is unread when it's
+ * given, or null at either end. With no room shown, or one the order leaves out, down starts at the top
+ * and up at the bottom.
+ */
+export function neighborRoom(order: RoomId[], currentId: RoomId | null, step: -1 | 1, isUnread?: (roomId: RoomId) => boolean): RoomId | null {
+  const place = currentId === null ? -1 : order.indexOf(currentId);
+  const start = place === -1 ? (step === 1 ? 0 : order.length - 1) : place + step;
+  for (let at = start; at >= 0 && at < order.length; at += step) {
+    const roomId = order[at]!;
+    if (!isUnread || isUnread(roomId)) return roomId;
+  }
+  return null;
+}
+
+/**
  * The people the sidebar suggests for DMs, of the ones `suggestions` lists, given someone's `rooms` as
  * they are now: everyone but the people in their DMs, as many as `suggestedCount` allows for them, as
  * the server would list them now, but for the people who've joined since it did.

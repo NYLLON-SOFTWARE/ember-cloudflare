@@ -1507,6 +1507,87 @@ describe("Star rooms", () => {
   });
 });
 
+describe("Move between rooms with Alt and an arrow", () => {
+  const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
+  /** Presses Alt and `key`, and Shift too when `shift` says so, on whatever has the focus. */
+  const altArrow = (key: "ArrowUp" | "ArrowDown", shift = false) => fireEvent.keyDown(document.activeElement ?? document.body, { key, altKey: true, shiftKey: shift });
+
+  it("opens the room or DM above or below the one shown, in the sidebar's order, stopping at either end", async () => {
+    serve({ "GET /api/sidebar": () => Response.json(roomList([...rooms, design, withGrace], ["random"])) });
+    showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    expect(sidebarRooms()).toEqual(["random★", "Design", "general"]);
+
+    altArrow("ArrowUp");
+    expect(location.pathname).toBe("/rooms/random");
+    for (const room of ["design", "general", "d1"]) {
+      expect(altArrow("ArrowDown")).toBe(false);
+      await waitFor(() => expect(location.pathname).toBe(`/rooms/${room}`));
+    }
+    altArrow("ArrowDown");
+    expect(location.pathname).toBe("/rooms/d1");
+    altArrow("ArrowUp");
+    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
+  });
+
+  it("opens the nearest room marked unread with Shift too, and does nothing when there's none that way", async () => {
+    const list = roomList([...rooms, design, withGrace]);
+    serve({ "GET /api/sidebar": () => Response.json({ ...list, rooms: list.rooms.map((room) => ({ ...room, unread: room.id === withGrace.id })) }) });
+    showWorkspace("/rooms/design");
+    expect(await roomHeading()).toHaveTextContent("Design");
+
+    altArrow("ArrowUp", true);
+    expect(location.pathname).toBe("/rooms/design");
+    altArrow("ArrowDown", true);
+    await waitFor(() => expect(location.pathname).toBe("/rooms/d1"));
+  });
+
+  it("still moves a focused starred row with Shift held too, as before", async () => {
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList([...rooms, design], ["design", "random"])),
+      "PUT /api/sidebar/order": () => Response.json({ favorites: { rooms: ["random", "design"], version: 1 } }),
+    });
+    showWorkspace("/rooms/design");
+    expect(await roomHeading()).toHaveTextContent("Design");
+
+    within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /Design/ }).focus();
+    expect(altArrow("ArrowDown", true)).toBe(false);
+    await waitFor(() => expect(sidebarRooms()).toEqual(["random★", "Design★", "general"]));
+    expect(location.pathname).toBe("/rooms/design");
+  });
+
+  it("goes by the rooms Activity shows while it's on", async () => {
+    const list = roomList([...rooms, design], []);
+    serve({ "GET /api/sidebar": () => Response.json({ ...list, rooms: list.rooms.map((room) => ({ ...room, unread: room.id === "random" })) }) });
+    showWorkspace("/rooms/design");
+    expect(await roomHeading()).toHaveTextContent("Design");
+    await userEvent.click(screen.getByRole("button", { name: "Activity" }));
+
+    // general sits between Design and random in the full list, but Activity leaves it out.
+    altArrow("ArrowDown");
+    await waitFor(() => expect(location.pathname).toBe("/rooms/random"));
+  });
+
+  it("moves a focused starred room's row instead, and leaves the keys to a dialog", async () => {
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList([...rooms, design], ["random", "design"])),
+      "PUT /api/sidebar/order": () => Response.json({ favorites: { rooms: ["design", "random"], version: 1 } }),
+    });
+    const { user } = showWorkspace("/rooms/random");
+    await roomHeading();
+    const row = within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /Design/ });
+    row.focus();
+    altArrow("ArrowUp");
+    await waitFor(() => expect(sidebarRooms()).toEqual(["Design★", "random★", "general"]));
+    expect(location.pathname).toBe("/rooms/random");
+
+    await user.click(screen.getByRole("link", { name: "DMs" }));
+    const dialog = await screen.findByRole("combobox", { name: "Search people" });
+    expect(fireEvent.keyDown(dialog, { key: "ArrowDown", altKey: true })).toBe(true);
+    expect(location.pathname).toBe("/rooms/random");
+  });
+});
+
 describe("Welcome card for administrators, until they dismiss it", () => {
   const invited = { ...roomList(rooms), invitation: { roomId: "general", joinCode: "aB3d-Ef5h-iJ7k" } };
   const card = () => screen.queryByRole("heading", { name: "Welcome to Ember" });
