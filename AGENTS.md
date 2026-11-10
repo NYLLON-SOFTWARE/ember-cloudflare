@@ -11,7 +11,8 @@ Slack-like chat on Cloudflare Workers and Durable Objects. See `docs/development
   `lucide-react`; its README says how to add one, which is the owner's to pick. shadcn/ui components
   arrive with `lucide-react` icons, so swap those.
 - Every WebSocket frame is typed in `packages/protocol`. Change the types there first, validate
-  anything from a client in `parseClientFrame`, and keep the worker and web app in step.
+  anything from a client in `parseClientFrame`, and keep the worker and web app in step, and the
+  macOS client's mirror of the frames in `clients/macos/Sources/EmberDesktop/Frames.swift`.
 - Data is stored through `apps/worker/src/db.ts`, whose SQL must work on both Durable Object SQLite
   and D1; a write that has to be atomic is one `batch`. Schema changes go in a new file under
   `apps/worker/migrations/`, listed in `MIGRATIONS` in `apps/worker/src/migrations.ts` with the kind
