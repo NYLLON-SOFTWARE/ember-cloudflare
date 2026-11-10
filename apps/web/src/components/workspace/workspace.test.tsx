@@ -1586,6 +1586,19 @@ describe("Move between rooms with Alt and an arrow", () => {
     expect(fireEvent.keyDown(dialog, { key: "ArrowDown", altKey: true })).toBe(true);
     expect(location.pathname).toBe("/rooms/random");
   });
+
+  it("leaves the keys to a native dialog, like the image viewer's", async () => {
+    showWorkspace("/rooms/random");
+    await roomHeading();
+    const viewer = document.body.appendChild(document.createElement("dialog"));
+    const close = viewer.appendChild(document.createElement("button"));
+    try {
+      expect(fireEvent.keyDown(close, { key: "ArrowDown", altKey: true })).toBe(true);
+      expect(location.pathname).toBe("/rooms/random");
+    } finally {
+      viewer.remove();
+    }
+  });
 });
 
 describe("Welcome card for administrators, until they dismiss it", () => {

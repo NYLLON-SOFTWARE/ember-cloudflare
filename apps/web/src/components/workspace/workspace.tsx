@@ -572,7 +572,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     if (event.defaultPrevented || !rooms) return;
     const toUnread = movesUnreadRoom(event);
     const step = movesRoom(event) ?? toUnread;
-    if (step === null || (event.target instanceof Element && event.target.closest("[role=dialog]"))) return;
+    if (step === null || (event.target instanceof Element && event.target.closest("dialog, [role=dialog]"))) return;
     event.preventDefault();
     const unread = (roomId: RoomId) => rooms.some((r) => r.id === roomId && markedUnread(r, currentRoomId));
     const drawn = unreadOnly ? rooms.filter((r) => r.id === currentRoomId || markedUnread(r, currentRoomId)) : rooms;
