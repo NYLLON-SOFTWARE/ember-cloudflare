@@ -557,7 +557,8 @@ describe("Link to a message", () => {
 
     act(() => navigate("/rooms/general/threads/m1"));
     expect(await screen.findByRole("complementary", { name: "Thread" })).toBeInTheDocument();
-    expect(room.sent).toContainEqual({ type: "thread.open", parentId: "m1" });
+    // The thread asks for itself as it mounts, which can come just after its panel shows.
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "thread.open", parentId: "m1" }));
     expect(room.sent).not.toContainEqual({ type: "history.around" });
   });
 
