@@ -49,7 +49,8 @@ import recentSearchesWithFilters from "../migrations/0048_recent_searches.sql";
 import identityAccounts from "../migrations/0049_identity_accounts.sql";
 import agents from "../migrations/0050_agents.sql";
 import huddles from "../migrations/0051_huddles.sql";
-import sso from "../migrations/0052_sso.sql";
+import agentPromptTemplates from "../migrations/0052_agent_prompt_templates.sql";
+import sso from "../migrations/0053_sso.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -125,7 +126,8 @@ export const MIGRATIONS: Migration[] = [
   { name: "0049_identity_accounts.sql", scope: "workspace", sql: identityAccounts },
   { name: "0050_agents.sql", scope: "workspace", sql: agents },
   { name: "0051_huddles.sql", scope: "workspace", sql: huddles },
-  { name: "0052_sso.sql", scope: "workspace", sql: sso },
+  { name: "0052_agent_prompt_templates.sql", scope: "workspace", sql: agentPromptTemplates },
+  { name: "0053_sso.sql", scope: "workspace", sql: sso },
 ];
 
 /**

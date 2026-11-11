@@ -176,10 +176,13 @@ script, which merges from where yours and Ember's part.
 
 Before a release with big changes, Ember may publish betas of it, such as `v0.5.0-beta.1`, on its
 [releases page](https://github.com/NYLLON-SOFTWARE/ember-cloudflare/releases), marked as
-pre-releases, for trying what's coming. Nobody is offered one without asking: Update Ember brings a
-copy releases alone, and Admin tells administrators of releases alone, since GitHub's latest release
-is never a pre-release. A copy whose update script predates betas, as Ember 0.4.2's and earlier do,
-doesn't see them at all.
+pre-releases, for trying what's coming. Nobody gets one without asking: Update Ember brings a copy
+releases alone, and a copy whose update script predates betas, as Ember 0.4.2's and earlier do,
+doesn't see them at all. While a beta is out ahead of the newest release, General offers it to an
+Ember on the newest release, in a reddish box of its own under the Ember card, since a beta is
+experimental: **Ember 0.6 beta 1 is out to try**, with its notes and how to try it. Admin on the rail
+has no dot for it. To know, the Worker asks GitHub for Ember's tags as `git ls-remote` does, with its
+check for the latest release, telling it nothing but the version it is.
 
 To try a beta:
 
@@ -189,10 +192,15 @@ To try a beta:
 - On your computer: in a clone of Ember, `git checkout v0.5.0-beta.1`, then `pnpm install`,
   `pnpm build`, which `pnpm dev` serves the app from, `pnpm dev`, and `pnpm seed` for a community
   to try it in, as [Development](development.md#getting-started) says.
-- On a copy you have: run Update Ember from the Actions tab with **Take Ember's newest beta** ticked,
-  and merge the pull request it opens. The box comes with the workflow Ember has now, and an update's
-  pull request says when yours is older, for you to copy Ember's over it. Where the copy's update
-  script predates betas, run the beta's own in a clone of the copy, and push the branch it makes:
+- On a copy you have: run its beta workflow, **Update Ember to its newest beta**, from the Actions
+  tab, and merge the pull request it opens. For a copy the deploy told the Worker about, General's
+  **Open GitHub action to try it** opens the workflow on GitHub, where **Run workflow** runs it, or,
+  while the copy hasn't the workflow, **Add GitHub action to try betas** opens GitHub's editor with
+  Ember's filled in, `apps/worker/scripts/update-ember-beta.yml`, for you to commit. It runs the update
+  script from Ember's newest release or beta rather than the copy's own, so it works however old the
+  copy is. Update Ember's **Take Ember's newest beta** box, in the workflow Ember has had since 0.5
+  beta 1, does the same with the copy's own script. Elsewhere, as on GitLab, run the beta's script in a
+  clone of the copy, and push the branch it makes:
 
   ```sh
   git fetch https://github.com/NYLLON-SOFTWARE/ember-cloudflare.git refs/tags/v0.5.0-beta.1
@@ -209,9 +217,9 @@ To try a beta:
 A copy that runs a beta is offered the betas after it, then the release, each as a pull request like
 any update's, and from then on releases alone, until it asks for a beta again. A pull request for a
 beta it asked for stays open until a release passes it. Its General says it's a beta, ahead of the
-newest release, and once the release is out, that it's available. A beta's migrations count as
-released ones, so a copy goes from beta to beta to release as it does from release to release, and
-reverting a beta's update leaves tables the release before it still works with.
+newest release, and that the next beta, then the release, is available, as Admin's dot does. A beta's
+migrations count as released ones, so a copy goes from beta to beta to release as it does from
+release to release, and reverting a beta's update leaves tables the release before it still works with.
 
 ### The build's token
 
@@ -696,8 +704,9 @@ browser goes on showing the old picture it keeps for half an hour.
 
 @ember follows Ember's own instructions, and Instructions, on its page, adds an administrator's to
 them, up to 10,000 characters, such as how the team likes answers written or what to leave to people.
-What Ember adds around them shows the whole prompt @ember is given, from the Worker's own code. They're
-kept while Ember AI is off.
+What Ember adds around them shows the whole prompt @ember is given, from the Worker's own code, and
+administrators can [modify it with caution](#what-ember-adds-around-the-instructions). They're kept
+while Ember AI is off.
 
 The Models list on @ember's page has the models people can pick, at most 20, starting with the one
 Set up Ember AI chose. Its radio buttons choose which answers everyone who hasn't picked another, Add
@@ -782,9 +791,10 @@ agent's page, which changes it. The page sets up:
   show, so people know when to ask it.
 - **Instructions**, its system prompt, up to 10,000 characters: its task, how to go about it, and what to
   leave alone. What Ember adds around them shows the prompt the Worker writes around them, from the
-  same code. They aren't secret, as anyone who can ask the agent could get it to repeat them, so leave
-  out keys, passwords and private links. Nor are they a boundary: someone in the conversation can talk
-  an agent out of them, so what an agent reads and does is up to Ember's code, as it is for @ember.
+  same code, which administrators can [modify with caution](#what-ember-adds-around-the-instructions).
+  They aren't secret, as anyone who can ask the agent could get it to repeat them, so leave out keys,
+  passwords and private links. Nor are they a boundary: someone in the conversation can talk an agent
+  out of them, so what an agent reads and does is up to Ember's code, as it is for @ember.
 - **How it answers**: its model, from the catalog's text models, or Another model by its ID, and its
   own Thinking and Answer length, the dials @ember has, which people can't change on their profile as
   they can for @ember. For a model outside Workers AI, the page says the most an answer at those
@@ -813,6 +823,37 @@ messages, deleted agents' too, on a DM with it alone in the sidebar and the room
 mention prompt and New direct message, and on its profile. The profile shows everyone what the agent
 does, the model it answers with, where that runs (Cloudflare's Workers AI, or the company that makes
 the model, which AI Gateway sends what it's asked to), and who set it up, but not its instructions.
+
+#### What Ember adds around the instructions
+
+Ember writes the rest of @ember's and each agent's system prompt around their instructions: who they
+are, where they're asked, how the chat shows Markdown and pictures, what they may do on the web, and
+the date. Under What Ember adds around them, on @ember's page and each agent's, a box headed Modify
+with caution keeps it as Ember writes it until Modify is pressed, as a change there can leave a model
+unsure who it is, where it's asked or what the chat can show. Modify opens the template Ember fills in
+each time it's asked, up to 10,000 characters, with what each placeholder stands for:
+
+| Placeholder | What Ember fills in |
+| --- | --- |
+| `{{name}}` | Its name |
+| `{{community}}` | The community's name |
+| `{{where}}` | The room, thread or direct message it's asked in |
+| `{{asker}}` | The name of whoever asked |
+| `{{words}}` | About how many words it may answer in, from Answer length |
+| `{{web}}` | What it may do on the web, or who could let it |
+| `{{today}}` | Today's date, in UTC |
+| `{{instructions}}` | The instructions, which it needs once |
+
+The preview above it follows what's typed, and the box says why Ember can't take a template, before
+anything's saved: one without `{{instructions}}`, or with it twice, or with a placeholder Ember doesn't
+fill in, such as a misspelt one. A template that leaves out a placeholder, such as `{{web}}` or
+`{{today}}`, is taken, though the model then isn't told what it would have said. While @ember has no
+instructions added, `{{instructions}}` on a line of its own goes with its line, and within a line it
+leaves the rest of the line as it's written. An agent's template saves with Save changes, and
+@ember's with Save beside it, or Save instructions. Try it asks an agent with the template as the page
+has it, saved or not. Use Ember's own puts Ember's back, which Ember keeps as its own, so that it
+changes as Ember's does in later releases, where a modified template stays as it was saved. While it's
+modified, What Ember adds around them is marked Modified.
 
 ### Huddles
 
