@@ -961,18 +961,19 @@ const LOGGED_OUT_BY_BOTH = `sessions.identity_issuer = ?1 AND sessions.identity_
   AND sessions.user_id IN (SELECT user_id FROM identities WHERE issuer = ?1 AND subject = ?3)`;
 
 /**
- * Every session started by ?4 of whoever the account at issuer ?1 with subject ?3 is linked to, as long as
- * they need a membership, however they signed in, as a provider that no longer vouches for the account
- * ends while it's the only way in (`LoggedOut.everywhere`).
+ * The sessions started by ?4 of whoever the account at issuer ?1 with subject ?3 is linked to that it signed
+ * in, as `LOGGED_OUT_BY_SUBJECT`'s, and, should they need a membership, every other one of theirs however
+ * they signed in, as a provider that no longer vouches for the account ends while it's the only way in
+ * (`LoggedOut.everywhere`). Someone who needs none can sign in again with their password.
  */
-const LOGGED_OUT_EVERYWHERE = `?2 IS NULL AND sessions.created_at <= ?4 AND sessions.user_id IN (SELECT identities.user_id FROM identities
-  JOIN users ON users.id = identities.user_id WHERE identities.issuer = ?1 AND identities.subject = ?3 AND NOT ${NEEDS_NO_MEMBERSHIP})`;
+const LOGGED_OUT_EVERYWHERE = `?2 IS NULL AND sessions.created_at <= ?4 AND sessions.user_id IN (SELECT user_id FROM identities WHERE issuer = ?1 AND subject = ?3)
+  AND (sessions.identity_issuer = ?1 OR NOT EXISTS (SELECT 1 FROM users WHERE users.id = sessions.user_id AND ${NEEDS_NO_MEMBERSHIP}))`;
 
 /** Which of those `loggedOut` names. */
 const loggedOutBy = ({ subject, sid, everywhere }: LoggedOut) =>
   subject === null ? LOGGED_OUT_BY_SID : sid === null ? (everywhere ? LOGGED_OUT_EVERYWHERE : LOGGED_OUT_BY_SUBJECT) : LOGGED_OUT_BY_BOTH;
 
-/** The statements that end the sessions `loggedOut` (one of the three above) names, queuing their sockets' revocations with prefix ?5, code ?6, due at ?7. */
+/** The statements that end the sessions `loggedOut` (one of the four above) names, queuing their sockets' revocations with prefix ?5, code ?6, due at ?7. */
 const loggingOut = (loggedOut: string) => ({
   queue: `INSERT INTO pending_revocations (room_id, tag, code, due_at)
     SELECT memberships.room_id, ?5 || sessions.id, ?6, ?7 FROM sessions JOIN memberships ON memberships.user_id = sessions.user_id

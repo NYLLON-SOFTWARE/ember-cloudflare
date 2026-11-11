@@ -501,24 +501,35 @@ The provider keeps having its say after sign-in. Each sign-in keeps the refresh 
 gave, encrypted, and once an hour the Workspace asks the provider again with it. When the provider no
 longer takes it, as once someone is removed or deactivated there, or signs out there, or their token
 expires unused, which it doesn't tell apart, the sessions that account signed in here end, and while
-SSO only is on, so do the rest of a member's, password ones included, since they can't sign in again
-without the provider. Without SSO only, a member who has a password can still sign in with it: turn
-SSO only on to make the provider the only way in. When someone is no longer in an allowed group,
-they're suspended as a lapsed Memberful member is, until they sign in in one again. A refreshed ID
-token that leaves the groups claim out puts its person in no group, but a refresh with no ID token
-goes by the userinfo endpoint, and when that leaves the claim out, as Entra's does, it says nothing of
-groups, so a provider that gives no ID token on refresh only enforces groups at the next sign-in. An
-answer counts only whole: one whose ID token doesn't check out, or whose userinfo endpoint doesn't
-answer, or answers for someone else, is no answer. A provider that doesn't answer is asked again every
-few minutes, for a day, after which the sessions the account signed in end. The Workspace keeps one
-refresh token per account, the latest sign-in's, so with a provider that rotates refresh tokens, an
-answer lost on its way back ends that account's sessions here at the next check, as revoking the
-latest device's session there does for every device; signing in again starts them anew. A provider
+SSO only is on without Members only, so do the rest of a member's, password ones included, since they
+can't sign in again without the provider. While Members only is on too, the sessions Memberful signed
+in stay, since Memberful still lets them in. Without SSO only, a member who has a password can still
+sign in with it: turn SSO only on to make the provider the only way in. When someone is no longer in
+an allowed group, they're suspended as a lapsed Memberful member is, until the next hourly check, or a
+sign-in, finds them in one again. A refreshed ID token that leaves the groups claim out puts its
+person in no group, but a refresh with no ID token goes by the userinfo endpoint, and when that leaves
+the claim out, as Entra's does, it says nothing of groups, so a provider that gives no ID token on
+refresh only enforces groups at the next sign-in, and one with neither a refreshed ID token nor a
+userinfo endpoint keeps its accounts while it takes their refresh tokens, without checking their
+groups. Ember needs the userinfo endpoint's answer only when there's no ID token, or when Allowed
+groups lists some and the ID token leaves the groups claim out; otherwise, while it's down, the ID
+token's word stands. An answer counts only whole: one whose ID token doesn't check out, or whose
+userinfo endpoint answers for someone else, or doesn't answer when it's needed, is no answer. A
+provider that doesn't answer is asked again every few minutes, for a day, after which the sessions the
+account signed in end. The Workspace keeps one refresh token per account, the latest sign-in's, so
+with a provider that rotates refresh tokens, an answer lost on its way back ends that account's
+sessions here at the next check, as revoking the latest device's session there does for every device;
+signing in again starts them anew. A provider that gives no refresh token leaves nothing to ask with,
+so after sign-in only a back-channel logout or the next sign-in checks the account again. A provider
 that sends a back-channel logout ends the sessions that its session signed in here at once, or every
 session an account signed in, when it names the account. Someone linked to both a Memberful site and
 the provider is suspended only once neither lets them in, going by the Memberful membership only while
 Ember can ask Memberful's admin API, and by the provider only while it keeps a refresh token to ask
 with. A way in that's closed, because the other is the only way in, lets nobody back.
+
+One known gap: someone linked to both whose one way Ember doesn't keep reading, Memberful without
+`MEMBERFUL_API_KEY` or a provider that gives no refresh token, can go back and forth between suspended
+and active, as the other way's checks suspend them and signing in with the first lets them in again.
 
 Someone new is given the email address the provider gives only when the provider says it verified
 it, since some providers let people set their own, and otherwise joins without one, which they can

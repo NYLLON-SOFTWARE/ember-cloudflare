@@ -3852,8 +3852,9 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Asks the single sign-on provider again about the accounts linked at it that are due, as many as a run
    * asks about, with the refresh token each sign-in kept: one it no longer takes, as once someone has been
-   * removed or signed out there, ends the sessions that account signed in, and suspends its person as a
-   * lapsed membership does, and one it takes keeps the token it gives in its place, to ask again in an
+   * removed or signed out there, ends the sessions that account signed in, and while single sign-on alone
+   * is the only way in, every session of a member it links, though it suspends nobody, since a sign-out
+   * looks the same, and one it takes keeps the token it gives in its place, to ask again in an
    * hour, and goes by what it says now of whether the account is in a group the card lets in, as a
    * sign-in goes by it (`settleMembership`). An account it doesn't answer for is asked again in a few
    * minutes, for a day (`settleUnanswered`). Refresh tokens at any other issuer are forgotten, and all of
@@ -3880,8 +3881,10 @@ export class Workspace extends DurableObject<Env> {
         // The provider no longer vouches for the account, as once someone is removed there, or signs out,
         // or their token expires unused, which it doesn't say apart: the sessions it signed in end, and
         // while it's the only way in, every session of a member it links, who can't sign in again without
-        // it. A sign-in since, which kept a token of its own, is the provider's word after this one.
-        const everywhere = (await this.joinableAccount())?.ssoSignIn ?? false;
+        // it. While Memberful is another, the sessions it signed in are its word to keep. A sign-in since,
+        // which kept a token of its own, is the provider's word after this one.
+        const account = await this.joinableAccount();
+        const everywhere = (account?.ssoSignIn ?? false) && !(account?.memberfulSignIn ?? false);
         await this.endUnvouched(provider.issuer, subject, sealedToken, readAt, everywhere, failingSince);
       } else if (answer.idToken === null && discovery.userinfoEndpoint === null) {
         // Taking the refresh token is all such a provider says: the account is still there.

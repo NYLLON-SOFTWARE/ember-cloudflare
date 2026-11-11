@@ -71,9 +71,10 @@ export const ssoSettingsOf = ({ source, issuer, clientId, name, scopes, groupsCl
 /**
  * What the provider says of whoever `tokens` are for: the ID token's claims, once it checks out
  * (`idTokenClaims`) with `nonce`, or any nonce for a refresh's, with the userinfo endpoint's over them,
- * as long as it names the same person, and its endpoint answers, if the provider has one, and with whether the email address was verified as the answer
- * that gave the address says. A refresh may give no ID token, when the userinfo endpoint's are
- * all there is, if it names someone. Null when neither checks out.
+ * as long as it names the same person, and with whether the email address was verified as the answer
+ * that gave the address says. A refresh may give no ID token, when the userinfo endpoint's are all there
+ * is, if it names someone. Null when neither checks out, or when the endpoint doesn't answer and the
+ * answer depends on it (`needsUserinfo`).
  */
 export async function claimsOf(provider: SsoProvider, discovery: Discovery, tokens: TokenSet, nonce: string | null): Promise<Claims | null> {
   const fromToken = tokens.idToken === null ? null : await idTokenClaims(provider, discovery, tokens.idToken, nonce);
@@ -81,8 +82,8 @@ export async function claimsOf(provider: SsoProvider, discovery: Discovery, toke
   if (nonce !== null && fromToken === null) return null;
   if (tokens.idToken !== null && fromToken === null) return null;
   const info = await userinfo(discovery, tokens.accessToken);
-  // An endpoint that didn't answer leaves the answer half told, as of the groups it may give alone.
-  if (discovery.userinfoEndpoint !== null && info === null) return null;
+  // An endpoint that didn't answer leaves the answer half told, when it alone could give the groups.
+  if (discovery.userinfoEndpoint !== null && info === null && needsUserinfo(provider, fromToken)) return null;
   const subject = fromToken?.sub ?? info?.sub;
   if (typeof subject !== "string" || subject === "" || subject.length > 255) return null;
   // One that names someone else answers for nobody (OpenID Connect Core §5.3.2).
@@ -93,6 +94,13 @@ export async function claimsOf(provider: SsoProvider, discovery: Discovery, toke
   if (info && "email" in info && info.email !== fromToken?.email) claims.email_verified = info.email_verified;
   return claims;
 }
+
+/**
+ * Whether what the provider says of someone depends on the userinfo endpoint: there's no ID token, or the
+ * card lets in only some groups and the ID token doesn't list any.
+ */
+const needsUserinfo = (provider: SsoProvider, fromToken: Claims | null) =>
+  fromToken === null || (provider.allowedGroups.length > 0 && fromToken[provider.groupsClaim] === undefined);
 
 /** The groups the claim `claim` lists: a list of names, an object keyed by them, as Zitadel's roles are, or a single name. */
 export function groupsOf(claims: Claims, claim: string): string[] {

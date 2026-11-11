@@ -563,6 +563,17 @@ describe("Sign in with SSO", () => {
     expect(locationOf(await signInWithSso({ ...katherine, groups: undefined, [roles]: { visitors: {} } }))).toBe(backToSignIn("membership"));
   });
 
+  it("goes by the ID token alone while the userinfo endpoint is down, unless the groups the card needs could come from it alone", async () => {
+    const administrator = await setUpWithSso();
+    provider.userinfoDown = true;
+    provider.idToken = { groups: undefined };
+    await signedInAs(await signInWithSso(katherine));
+    expect((await saveSso(administrator, { allowedGroups: "staff" })).status).toBe(200);
+    expect(locationOf(await signInWithSso(katherine))).toBe(backToSignIn("failed"));
+    provider.idToken = {};
+    await signedInAs(await signInWithSso(katherine));
+  });
+
   it("sends someone whose email address someone here has to sign in with their password, unless the card links verified ones", async () => {
     const administrator = await setUpWithSso();
     const member = await joinWithInvitation(administrator);
@@ -843,6 +854,32 @@ describe("Members only and SSO only together", () => {
     });
   });
 
+  it("leaves the sessions Memberful signed in be once the provider no longer takes a refresh token, as Memberful still lets its person in", async () => {
+    await withWorkspaceEnv(MEMBERFUL_KEYS, async () => {
+      const administrator = await setUpWithSso({ only: true });
+      await turnOn(administrator, { memberfulSignIn: true });
+      const signedIn = await ssoSession(katherine);
+      const now = new Date().toISOString();
+      await workspaceSql(
+        "INSERT INTO identities (issuer, subject, user_id, checked_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        MEMBERFUL_SITE,
+        mary.id,
+        signedIn.user.id,
+        Date.now(),
+        now,
+        now,
+      );
+      const marys = await memberfulCallback(await startMemberful());
+      const viaMemberful = { user: signedIn.user, cookie: marys.headers.getSetCookie().find((cookie) => cookie.includes("session_token"))!.split(";")[0]! };
+      expect(await signsIn(viaMemberful)).toBe(true);
+      provider.revoked.add(katherine.sub);
+      await workspaceSql("UPDATE identities SET refresh_due_at = ? WHERE issuer = ?", Date.now() - 1, ISSUER);
+      expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+      expect(await signsIn(signedIn)).toBe(false);
+      expect(await signsIn(viaMemberful)).toBe(true);
+    });
+  });
+
   it("signs nobody in with SSO, not even someone linked, while Memberful is members only and SSO only isn't on", async () => {
     const administrator = await setUpWithSso();
     await signedInAs(await signInWithSso(katherine));
@@ -1000,9 +1037,9 @@ describe("Checking accounts with their refresh tokens", () => {
     expect((await refreshed())[0]!.refresh_token).not.toBeNull();
   });
 
-  /** Joins as Grace with a password, then connects her account at the provider from her profile while SSO only is on, answering her password session. */
-  async function connectedGrace(administrator: Session): Promise<Session> {
-    const member = await joinAsGrace();
+  /** Joins as Grace with a password, as `join` has her, then connects her account at the provider from her profile while SSO only is on, answering her password session. */
+  async function connectedGrace(administrator: Session, join: (administrator: Session) => Promise<Session> = joinAsGrace): Promise<Session> {
+    const member = await join(administrator);
     await turn(administrator, { ssoSignIn: true });
     const started = await api(SSO_CONNECTIONS_PATH, { method: "POST", headers: as(member), body: JSON.stringify({ currentPassword: grace.password }) });
     const { ssoConnection } = (await started.json()) as SsoConnection;
@@ -1021,6 +1058,17 @@ describe("Checking accounts with their refresh tokens", () => {
     expect(await signsIn(member)).toBe(false);
     expect(await statusOf(administrator, member.user.id)).toBe("active");
     expect(await signsIn(administrator)).toBe(true);
+  });
+
+  it("ends the sessions an invited person's account signed in while SSO only is on, leaving their password ones, which are a way in of their own", async () => {
+    const administrator = await setUpWithSso();
+    const invited = await connectedGrace(administrator, joinWithInvitation);
+    const signedIn = await ssoSession(gracesAccount);
+    provider.revoked.add(gracesAccount.sub);
+    await due();
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(await signsIn(signedIn)).toBe(false);
+    expect(await signsIn(invited)).toBe(true);
   });
 
   it("leaves a member's password sessions be while SSO only is off, when their password is a way in of its own", async () => {
