@@ -32,6 +32,10 @@ interface Props {
   membersOnlySaving?: boolean;
   /** Why the switch can't be moved while another way to join is on, said in place of what it does, or null. */
   setAside?: string | null;
+  /** What's said in place of Members only's switch while SSO only is on, when the switch turns both on and off, or null. */
+  beside?: string | null;
+  /** What's said in place of what it does while SSO only closes it, or null. */
+  closed?: string | null;
 }
 
 /**
@@ -50,6 +54,8 @@ export function MemberfulSettings({
   memberfulSaving = false,
   membersOnlySaving = false,
   setAside = null,
+  beside = null,
+  closed = null,
 }: Props) {
   const { customDomain } = useAccount();
   const [settingUp, setSettingUp] = useState(false);
@@ -79,6 +85,8 @@ export function MemberfulSettings({
               "It's on, but this deployment no longer has its Memberful keys, so nobody can sign in with Memberful."
             ) : setAside !== null ? (
               setAside
+            ) : closed !== null && site !== null ? (
+              closed
             ) : askingForKeys ? (
               "Memberful can't be turned on until this deployment has your Memberful site's keys. These steps give it them."
             ) : site === null ? (
@@ -95,12 +103,14 @@ export function MemberfulSettings({
         <Switch
           checked={on}
           onCheckedChange={switchTo}
-          disabled={setAside !== null || membersOnlySaving}
+          // Beside SSO only, it saves Members only's setting or its own, so it waits for either's move.
+          disabled={setAside !== null || membersOnlySaving || (beside !== null && memberfulSaving)}
           aria-labelledby="memberful-heading"
           aria-describedby="memberful-description"
         />
       </div>
-      {checked && site !== null && setAside === null && (
+      {checked && site !== null && setAside === null && beside !== null && <p className={cn(NOTE, "border-t pt-3")}>{beside}</p>}
+      {checked && site !== null && setAside === null && beside === null && (
         <div className="flex items-center gap-x-[1ch] gap-y-4 border-t pt-3">
           <div className="min-w-0 flex-1">
             <div id="members-only-heading">Members only</div>

@@ -18,6 +18,7 @@ import { whenIdle } from "@/lib/idle";
 import { opensFind, togglesHuddle, togglesMute } from "@/lib/keyboard";
 import { lastRoomVisited } from "@/lib/last-room";
 import { takeMemberfulFlash } from "@/lib/memberful";
+import { takeSsoFlash } from "@/lib/sso";
 import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { markedUnread } from "@/lib/room-list";
@@ -354,10 +355,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // Why the room ended this tab's huddle, when it does. Whoever's signed in next starts in none.
   useEffect(() => hearHuddleEnd((why) => flash("alert", why)), [flash]);
   useEffect(() => leaveHuddle, []);
-  // What connecting a Memberful account came to, as the address Memberful sent this browser back to says.
+  // What connecting a Memberful account, or one at the single sign-on provider, came to, as the address
+  // the browser was sent back to says.
   useEffect(() => {
-    const message = takeMemberfulFlash();
-    if (message) flash(message.kind, message.text);
+    for (const message of [takeMemberfulFlash(), takeSsoFlash()]) if (message) flash(message.kind, message.text);
   }, [flash]);
   // A session that's ended goes to sign in; anything else is an alert. Once another person's workspace
   // has taken this one's place, as another tab signing in makes it, what this one's pages hear is

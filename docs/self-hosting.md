@@ -340,10 +340,20 @@ Workspace settings' Membership, where each way has a switch:
 - Memberful, below, lets in the members of a Memberful site, who sign in with their Memberful
   accounts while everyone else keeps a password. Its Members only switch keeps signing in to them
   and administrators.
+- [Single sign-on](#single-sign-on), below, lets in the people of an identity provider that speaks
+  OpenID Connect, such as Zitadel, Keycloak, Authentik, Okta, Microsoft Entra ID or Google Workspace.
+  Its SSO only switch keeps signing in to them and administrators, as Members only does, and can't be
+  on with Open.
 
 While Open is on, Join link, Email domain and Memberful are set aside, keeping their settings, and
 while Memberful is members only, Open, Join link and Email domain are, so Open and Members only can't
 both be on. With all four off, only the people administrators invite by email, below, can join.
+
+Members only and SSO only can be on together, for a community whose paying members sign in with
+Memberful and whose staff sign in with single sign-on: then those two, administrators and the people
+they invite are the only ones who sign in. While one of them is on, the other way lets nobody in, not
+even the people linked to it, unless it's the only way in too, so turning it on in Who can join turns
+on its only switch with it.
 
 To have open sign-up, Email domain's page and the page for a forgotten password check that whoever
 uses them is a person, an administrator sets up [Turnstile](https://developers.cloudflare.com/turnstile/),
@@ -446,6 +456,128 @@ once a day too, in case one never came. Administrators, and the people they invi
 membership, are never suspended. Administrators see suspended members dimmed in Workspace settings,
 where they can remove them, and everyone else sees them as removed. All of this goes on whether
 Memberful is on or not, since its members keep signing in with it once it's off.
+
+### Single sign-on
+
+People can join and sign in with an account at an identity provider that speaks
+[OpenID Connect](https://openid.net/developers/how-connect-works/), the standard most providers
+share. Ember uses the authorization code flow with PKCE, checks every ID token against the
+provider's published keys, and needs nothing from any one provider, so the steps are much the same
+everywhere. It's off until an administrator sets a provider up on the Single sign-on card in
+Workspace settings:
+
+1. At the provider, register a web app for Ember that uses the authorization code flow with a client
+   secret. Give it the redirect URI `https://<Ember's address>/auth/sso/callback`, and, if the
+   provider offers back-channel logout, the logout URI
+   `https://<Ember's address>/auth/sso/backchannel_logout`. The card shows both, with Ember's custom
+   domain if it has one. Let it give refresh tokens, often called the refresh token grant or
+   `offline_access`.
+2. On the card, give the provider's issuer, the address its discovery document lives under (Ember
+   reads `<issuer>/.well-known/openid-configuration` and checks it names the same issuer), and the
+   app's Client ID and Client Secret, which Ember keeps encrypted. The name is what the sign-in page's
+   button says: Sign in with Acme.
+3. Turn on Single sign-on under Who can join, and SSO only too if everyone but administrators and the
+   people they invite should sign in with the provider.
+
+A deployment can give the issuer and app as the secrets `SSO_ISSUER`, `SSO_CLIENT_ID` and
+`SSO_CLIENT_SECRET` instead, which take the place of any the card set up. `pnpm run deploy` uploads
+them when its environment has them, and the Preview workflow passes repository secrets of the same
+names through.
+
+Someone who signs in with the provider signs in as the person their account there is linked to, or
+else joins as a new member, in every open room, named as the provider names them. Accounts are
+linked by the issuer and the account's subject there, so keep the issuer once people have signed in:
+at another issuer, even the same provider's at a new domain, everyone would be someone new.
+Someone new whose email address someone here has already is turned away and asked to sign in with
+their password, unless the card's Link accounts by verified email is checked. Then an
+address the provider says it verified links the account to whoever here has it, once, if only one
+person does, and only while Ember knows that address is theirs too: they joined with an invitation or
+an Email domain link Ember emailed to it, and haven't changed it since, and only when the
+account is in an allowed group, so that linking never suspends anyone. An address someone typed as
+they joined proves nothing, since anyone could type a colleague's, and administrators are never
+linked this way; they, and everyone else, can connect their account from their profile with their
+password. Only check it for a provider that verifies addresses and doesn't let people change their
+own, since whoever controls an address there gets the account here.
+
+The card's Allowed groups keep Ember to the people in at least one of them, as the claim the card
+names lists them: `groups` unless it says otherwise, as a list of names or an object keyed by them.
+With none listed, anyone the provider signs in is let in. Administrators, and the people they invite,
+need no group, as with Memberful. Extra scopes go in the card's Scopes, beside `openid`, `profile`,
+`email` and `offline_access`, which Ember always asks for, the last while the provider offers it.
+
+The provider keeps having its say after sign-in. Each sign-in keeps the refresh token the provider
+gave, encrypted, and once an hour the Workspace asks the provider again with it. When the provider no
+longer takes it, as once someone is removed or deactivated there, or signs out there, or their token
+expires unused, which it doesn't tell apart, the sessions that account signed in here end, and while
+SSO only is on without Members only, so do the rest of a member's, password ones included, since they
+can't sign in again without the provider. While Members only is on too, the sessions Memberful signed
+in stay, since Memberful still lets them in. Without SSO only, a member who has a password can still
+sign in with it: turn SSO only on to make the provider the only way in. When someone is no longer in
+an allowed group, they're suspended as a lapsed Memberful member is, until the next hourly check, or a
+sign-in, finds them in one again. A refreshed ID token that leaves the groups claim out puts its
+person in no group, but a refresh with no ID token goes by the userinfo endpoint, and when that leaves
+the claim out, as Entra's does, it says nothing of groups, so a provider that gives no ID token on
+refresh only enforces groups at the next sign-in, and one with neither a refreshed ID token nor a
+userinfo endpoint keeps its accounts while it takes their refresh tokens, without checking their
+groups. Ember needs the userinfo endpoint's answer only when there's no ID token, or when Allowed
+groups lists some and the ID token leaves the groups claim out; otherwise, while it's down, the ID
+token's word stands. An answer counts only whole: one whose ID token doesn't check out, or whose
+userinfo endpoint answers for someone else, or doesn't answer when it's needed, is no answer. A
+provider that doesn't answer is asked again every few minutes, for a day, after which the sessions the
+account signed in end. The Workspace keeps one refresh token per account, the latest sign-in's, so
+with a provider that rotates refresh tokens, an answer lost on its way back ends that account's
+sessions here at the next check, as revoking the latest device's session there does for every device;
+signing in again starts them anew. A provider that gives no refresh token leaves nothing to ask with,
+so after sign-in only a back-channel logout or the next sign-in checks the account again. A provider
+that sends a back-channel logout ends the sessions that its session signed in here at once, or every
+session an account signed in, when it names the account. Someone linked to both a Memberful site and
+the provider is suspended only once neither lets them in, going by the Memberful membership only while
+Ember can ask Memberful's admin API, and by the provider only while it keeps a refresh token to ask
+with. A way in that's closed, because the other is the only way in, lets nobody back.
+
+One known gap: someone linked to both whose one way Ember doesn't keep reading, Memberful without
+`MEMBERFUL_API_KEY` or a provider that gives no refresh token, can go back and forth between suspended
+and active, as the other way's checks suspend them and signing in with the first lets them in again.
+
+Someone new is given the email address the provider gives only when the provider says it verified
+it, since some providers let people set their own, and otherwise joins without one, which they can
+add on their profile; their account there keeps it either way. While SSO only is on, someone with an account from
+before connects theirs from their profile, or as they sign in with their password, as with
+Memberful's Members only, and disconnects it there too. Single sign-on and SSO only turn themselves
+off while there's no provider to sign in with, as once its secrets are gone or its saved secret no
+longer opens under a new SESSION_SECRET, so passwords work again. Keep at least one administrator with
+a password and an email address while SSO only is on, or [reset one's password](#resetting-a-password)
+to get back in if the provider is down.
+
+Some providers need a word of care:
+
+- Google's issuer, `https://accounts.google.com`, is every Google account's, so with an External
+  consent screen anyone with one can join. To keep it to your company, set the groups claim to `hd`,
+  the hosted domain Google names, and list your domain under Allowed groups.
+- Microsoft Entra ID's issuer has to be your tenant's, `https://login.microsoftonline.com/<tenant
+  ID>/v2.0`: the `common` and `organizations` addresses name a template rather than an issuer, which
+  Ember refuses. Entra lists groups by their IDs, and leaves them out of a token for someone in more
+  than about 200, who then isn't let in by group.
+- Keycloak gives refresh tokens for `offline_access` only to people with the role of that name, which
+  its default roles include; someone without it can't sign in, since Ember asks for it whenever the
+  discovery document lists it.
+
+#### Zitadel
+
+1. In a project, add an application of the type Web, with the authentication method Code (PKCE with
+   a client secret, which Zitadel calls `CODE` with `client_secret_basic`). Add the redirect URI
+   above, and, under the app's settings, the back-channel logout URI. Under Token Settings, check
+   Refresh Token.
+2. On the card, the issuer is your instance's address, such as `https://example.zitadel.cloud` or your
+   own domain, and the Client ID and Client Secret are the ones Zitadel shows once, as it creates the
+   app.
+3. To let in only some people, give them a role on the project, check User roles inside ID Token
+   under the app's Token Settings, set the card's groups claim to
+   `urn:zitadel:iam:org:project:roles`, and list the roles under Allowed groups.
+
+Zitadel's refresh tokens last 90 days by default however often they're used, after which the hourly
+check finds the provider no longer takes one and the person signs in again; raise the refresh token
+expiration in the instance's OIDC settings for longer.
 
 ### Sending email
 
