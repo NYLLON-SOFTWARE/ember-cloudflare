@@ -499,23 +499,26 @@ need no group, as with Memberful. Extra scopes go in the card's Scopes, beside `
 
 The provider keeps having its say after sign-in. Each sign-in keeps the refresh token the provider
 gave, encrypted, and once an hour the Workspace asks the provider again with it. When the provider no
-longer takes it, as once someone is removed or deactivated there, or their sessions are revoked, or
-the token expires unused, the sessions that account signed in here end, and the person is suspended
-as a lapsed Memberful member is, password sessions and all, until they sign in with the provider
-again. Administrators and the people they invite are never suspended. When someone is no longer in an
-allowed group, they're suspended the same way. A refreshed ID token that leaves the groups claim out
-puts its person in no group, but a refresh with no ID token goes by the userinfo endpoint, and when
-that leaves the claim out, as Entra's does, it says nothing of groups, so a provider that gives no ID
-token on refresh only enforces groups at the next sign-in. A provider that doesn't answer is asked
-again every few minutes, for a day, after which the sessions the account signed in end, as do those
-of an answer whose ID token doesn't check out. The Workspace keeps one refresh token per account, the
-latest sign-in's, so with a provider that rotates refresh tokens, an answer lost on its way back ends
-that account's sessions here at the next check, and revoking the latest device's session there ends
-them all; signing in again starts them anew. A provider that sends a back-channel logout ends the
-sessions that its session signed in here at once, or every session an account signed in, when it
-names the account, without suspending anyone. Someone linked to both a Memberful site and the
-provider is suspended only once neither lets them in, as last read, and a way in that's closed,
-because the other is the only way in, lets nobody back.
+longer takes it, as once someone is removed or deactivated there, or signs out there, or their token
+expires unused, which it doesn't tell apart, the sessions that account signed in here end, and while
+SSO only is on, so do the rest of a member's, password ones included, since they can't sign in again
+without the provider. Without SSO only, a member who has a password can still sign in with it: turn
+SSO only on to make the provider the only way in. When someone is no longer in an allowed group,
+they're suspended as a lapsed Memberful member is, until they sign in in one again. A refreshed ID
+token that leaves the groups claim out puts its person in no group, but a refresh with no ID token
+goes by the userinfo endpoint, and when that leaves the claim out, as Entra's does, it says nothing of
+groups, so a provider that gives no ID token on refresh only enforces groups at the next sign-in. An
+answer counts only whole: one whose ID token doesn't check out, or whose userinfo endpoint doesn't
+answer, or answers for someone else, is no answer. A provider that doesn't answer is asked again every
+few minutes, for a day, after which the sessions the account signed in end. The Workspace keeps one
+refresh token per account, the latest sign-in's, so with a provider that rotates refresh tokens, an
+answer lost on its way back ends that account's sessions here at the next check, as revoking the
+latest device's session there does for every device; signing in again starts them anew. A provider
+that sends a back-channel logout ends the sessions that its session signed in here at once, or every
+session an account signed in, when it names the account. Someone linked to both a Memberful site and
+the provider is suspended only once neither lets them in, going by the Memberful membership only while
+Ember can ask Memberful's admin API, and by the provider only while it keeps a refresh token to ask
+with. A way in that's closed, because the other is the only way in, lets nobody back.
 
 Someone new is given the email address the provider gives only when the provider says it verified
 it, since some providers let people set their own, and otherwise joins without one, which they can

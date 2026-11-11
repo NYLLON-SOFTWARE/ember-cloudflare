@@ -342,6 +342,11 @@ export const NOTHING_KEPT: SignInKept = { sid: null, refresh: null };
 export interface LoggedOut {
   subject: string | null;
   sid: string | null;
+  /**
+   * Whether it ends every session of whoever the account with `subject` is linked to, however they
+   * signed in, as long as they need a membership, rather than only those the account signed in.
+   */
+  everywhere?: boolean;
   /** The sessions it ends are those started by then, in milliseconds, so that one signed in after the provider said so stays. */
   startedBy: number;
 }
@@ -377,6 +382,17 @@ export interface LinkedPerson {
   checkedAt: number;
   /** Whether another account of theirs, at a way in that's open, lets them in as last read, when this one's lapsing suspends nobody. */
   otherwiseLetIn: boolean;
+}
+
+/**
+ * The ways in whose accounts can keep someone in while another of theirs lapses (`LinkedPerson.otherwiseLetIn`):
+ * those open and still being read, `checked`, as a Memberful site whose admin API the Workspace asks, and
+ * those open whose accounts count only while the Workspace keeps asking about them with a refresh token,
+ * `refreshed`, as a single sign-on provider. An account nobody asks about anymore says nothing of now.
+ */
+export interface OtherWays {
+  checked: string[];
+  refreshed: string[];
 }
 
 /** A membership the Workspace has yet to check with the Memberful site's admin API. */
@@ -807,12 +823,12 @@ const TAKEN_EMAIL_ADDRESSES = `SELECT lower(email_address) AS email_address FROM
 
 /**
  * The people the accounts at issuer ?1 with the subjects ?2, a JSON array, are linked to, with when each
- * account's membership was last read, and whether another account of theirs, at one of the issuers ?3, a
- * JSON array, lets them in as last read.
+ * account's membership was last read, and whether another account of theirs lets them in as last read:
+ * one at the issuers ?3, a JSON array, or at the issuers ?4 while it keeps a refresh token (`OtherWays`).
  */
 const LINKED_PEOPLE = `SELECT identities.subject, users.id, users.status, NOT ${NEEDS_NO_MEMBERSHIP} AS membership_needed, identities.checked_at,
     EXISTS (SELECT 1 FROM identities AS other WHERE other.user_id = users.id AND other.issuer <> identities.issuer AND other.lapsed = 0
-      AND other.issuer IN (SELECT value FROM json_each(?3))) AS otherwise_let_in
+      AND (other.issuer IN (SELECT value FROM json_each(?3)) OR (other.refresh_token IS NOT NULL AND other.issuer IN (SELECT value FROM json_each(?4))))) AS otherwise_let_in
   FROM identities JOIN users ON users.id = identities.user_id WHERE identities.issuer = ?1 AND identities.subject IN (SELECT value FROM json_each(?2))`;
 
 /**
@@ -884,8 +900,8 @@ const CONNECTING_PERSON = `SELECT NOT ${NEEDS_NO_MEMBERSHIP} AS membership_neede
  * address ?8, to person ?5 at ?4, if they can have one connected and their password's digest is still
  * ?6, or "" without one, as it was when they started connecting it.
  */
-const CONNECT_IDENTITY = `INSERT INTO identities (issuer, subject, user_id, checked_at, created_at, updated_at, name, email_address)
-  SELECT ?1, ?2, id, ?3, ?4, ?4, ?7, ?8 FROM users WHERE id = ?5 AND ${CONNECTABLE} AND coalesce(password_digest, '') = ?6
+const CONNECT_IDENTITY = `INSERT INTO identities (issuer, subject, user_id, checked_at, created_at, updated_at, name, email_address, lapsed)
+  SELECT ?1, ?2, id, ?3, ?4, ?4, ?7, ?8, ?9 FROM users WHERE id = ?5 AND ${CONNECTABLE} AND coalesce(password_digest, '') = ?6
   RETURNING user_id`;
 
 /**
@@ -944,8 +960,17 @@ const LOGGED_OUT_BY_SUBJECT = `sessions.identity_issuer = ?1 AND ?2 IS NULL AND 
 const LOGGED_OUT_BY_BOTH = `sessions.identity_issuer = ?1 AND sessions.identity_sid = ?2 AND sessions.created_at <= ?4
   AND sessions.user_id IN (SELECT user_id FROM identities WHERE issuer = ?1 AND subject = ?3)`;
 
+/**
+ * Every session started by ?4 of whoever the account at issuer ?1 with subject ?3 is linked to, as long as
+ * they need a membership, however they signed in, as a provider that no longer vouches for the account
+ * ends while it's the only way in (`LoggedOut.everywhere`).
+ */
+const LOGGED_OUT_EVERYWHERE = `?2 IS NULL AND sessions.created_at <= ?4 AND sessions.user_id IN (SELECT identities.user_id FROM identities
+  JOIN users ON users.id = identities.user_id WHERE identities.issuer = ?1 AND identities.subject = ?3 AND NOT ${NEEDS_NO_MEMBERSHIP})`;
+
 /** Which of those `loggedOut` names. */
-const loggedOutBy = ({ subject, sid }: LoggedOut) => (subject === null ? LOGGED_OUT_BY_SID : sid === null ? LOGGED_OUT_BY_SUBJECT : LOGGED_OUT_BY_BOTH);
+const loggedOutBy = ({ subject, sid, everywhere }: LoggedOut) =>
+  subject === null ? LOGGED_OUT_BY_SID : sid === null ? (everywhere ? LOGGED_OUT_EVERYWHERE : LOGGED_OUT_BY_SUBJECT) : LOGGED_OUT_BY_BOTH;
 
 /** The statements that end the sessions `loggedOut` (one of the three above) names, queuing their sockets' revocations with prefix ?5, code ?6, due at ?7. */
 const loggingOut = (loggedOut: string) => ({
@@ -2676,19 +2701,20 @@ export class WorkspaceStore {
 
   /**
    * The person the account elsewhere that `issuer` and `subject` name is linked to, whatever their status,
-   * or null for nobody, and whether an account of theirs at one of `openIssuers` lets them in.
+   * or null for nobody, and whether an account of theirs at one of `otherWays` lets them in.
    */
-  async linkedPerson(issuer: string, subject: string, openIssuers: string[]): Promise<LinkedPerson | null> {
-    return (await this.linkedPeople(issuer, [subject], openIssuers)).get(subject) ?? null;
+  async linkedPerson(issuer: string, subject: string, otherWays: OtherWays): Promise<LinkedPerson | null> {
+    return (await this.linkedPeople(issuer, [subject], otherWays)).get(subject) ?? null;
   }
 
   /** The people the accounts at `issuer` with `subjects` are linked to, whatever their status, by subject, leaving out those linked to nobody, as `linkedPerson` finds them. */
-  async linkedPeople(issuer: string, subjects: string[], openIssuers: string[]): Promise<Map<string, LinkedPerson>> {
+  async linkedPeople(issuer: string, subjects: string[], { checked, refreshed }: OtherWays): Promise<Map<string, LinkedPerson>> {
     const rows = await this.db.all<{ subject: string; id: UserId; status: number; membership_needed: number; checked_at: number; otherwise_let_in: number }>(
       LINKED_PEOPLE,
       issuer,
       JSON.stringify(subjects),
-      JSON.stringify(openIssuers),
+      JSON.stringify(checked),
+      JSON.stringify(refreshed),
     );
     return new Map(
       rows.map((row) => [
@@ -2796,6 +2822,22 @@ export class WorkspaceStore {
   }
 
   /**
+   * Puts the refresh token `sealedToken` back for the account at `issuer` with `subject`, due at `dueAt`,
+   * with since when the provider hasn't answered for it, `failingSince`, as acting on settling it failed,
+   * unless a sign-in has kept another since.
+   */
+  async restoreRefresh(issuer: string, subject: string, sealedToken: string, dueAt: number, failingSince: number | null): Promise<void> {
+    await this.db.run(
+      `UPDATE identities SET refresh_token = ?3, refresh_due_at = ?4, refresh_failing_since = ?5 WHERE issuer = ?1 AND subject = ?2 AND refresh_token IS NULL`,
+      issuer,
+      subject,
+      sealedToken,
+      dueAt,
+      failingSince,
+    );
+  }
+
+  /**
    * Puts off asking with the refresh tokens due by `now` until `until`, keeping them, as while there's no
    * provider to ask, which may be back, as once a secret that didn't open is set up again.
    */
@@ -2864,10 +2906,17 @@ export class WorkspaceStore {
    * since it checked out. Whether it's linked. A unique index refuses it for an account linked to
    * anyone already, or a second account of theirs at its issuer.
    */
-  async connectIdentity({ userId, passwordDigest }: Connecting, account: LinkedAccount, checkedAt: number, now: string, kept: SignInKept): Promise<boolean> {
+  async connectIdentity(
+    { userId, passwordDigest }: Connecting,
+    account: LinkedAccount,
+    checkedAt: number,
+    lapsed: boolean,
+    now: string,
+    kept: SignInKept,
+  ): Promise<boolean> {
     const { issuer, subject, name, emailAddress } = account;
     const [connected] = await this.db.batch([
-      statement(CONNECT_IDENTITY, issuer, subject, checkedAt, now, userId, passwordDigest, name, emailAddress),
+      statement(CONNECT_IDENTITY, issuer, subject, checkedAt, now, userId, passwordDigest, name, emailAddress, lapsed ? 1 : 0),
       ...this.keepingRefresh(account, kept),
     ]);
     return connected!.length > 0;

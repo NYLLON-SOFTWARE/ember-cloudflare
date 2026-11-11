@@ -102,7 +102,7 @@ import { pictureObjects, type StoredPicture } from "./files/pictures";
 import type { SfuApp } from "./huddles/sfu";
 import { alphanumeric, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
-import { memberfulApiOf, memberfulKeysOf, membershipsOf, namelessMember } from "./memberful-api";
+import { memberfulApiOf, membershipsOf, namelessMember } from "./memberful-api";
 import { discover, refreshTokens } from "./oidc";
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
@@ -132,6 +132,7 @@ import {
   type LinkedPerson,
   type LoggedOut,
   type LoggedOutSessions,
+  type OtherWays,
   type NewPerson,
   type OwnProfileEntry,
   type PendingRevocation,
@@ -2077,10 +2078,10 @@ export class Workspace extends DurableObject<Env> {
       const { joins, closed } = rulesOf(account, via);
       // As a sign-in started before the other way was made the only one finds it.
       if (closed) return "off";
-      const openIssuers = await this.openIssuers(account);
+      const otherWays = await this.otherWays(account);
       // Only an account that lets its person in is linked by email address, lest linking it suspend them.
       const byEmail = joins && member.subscribed;
-      const linked = (await this.store.linkedPerson(issuer, member.id, openIssuers)) ?? (byEmail ? await this.linkVerifiedEmail(via, issuer, member, readAt, openIssuers) : null);
+      const linked = (await this.store.linkedPerson(issuer, member.id, otherWays)) ?? (byEmail ? await this.linkVerifiedEmail(via, issuer, member, readAt, otherWays) : null);
       if (linked) {
         await this.keepChecking(via, kept);
         if (linked.status === "deactivated" || linked.status === "banned") return "refused";
@@ -2126,25 +2127,25 @@ export class Workspace extends DurableObject<Env> {
    * the provider says it verified, while the Single sign-on card says to go by those, as signing in for
    * the first time does (`signInElsewhere`), answering whom it linked, as signing in finds them.
    */
-  private async linkVerifiedEmail(via: SignInElsewhere, issuer: string, member: MemberElsewhere, readAt: number, openIssuers: string[]): Promise<LinkedPerson | null> {
+  private async linkVerifiedEmail(via: SignInElsewhere, issuer: string, member: MemberElsewhere, readAt: number, otherWays: OtherWays): Promise<LinkedPerson | null> {
     if (via !== "sso" || !member.emailVerified || member.emailAddress === null) return null;
     if (!(await this.ssoProvider())?.linksVerifiedEmails) return null;
     const userId = await this.store.linkVerifiedEmail(linkedAccountOf(issuer, member), member.emailAddress, readAt, new Date().toISOString());
-    return userId === null ? null : this.store.linkedPerson(issuer, member.id, openIssuers);
+    return userId === null ? null : this.store.linkedPerson(issuer, member.id, otherWays);
   }
 
   /**
-   * The issuers of the ways in that are open in `account`: the deployment's Memberful site, and the
-   * single sign-on provider's, unless the other way is the only way in and it isn't (`rulesOf`). An
-   * account at one of them that lets someone in keeps them in while another lapses.
+   * The ways in whose accounts keep someone in while another of theirs lapses (`OtherWays`), of those open
+   * in `account`, unless the other way is the only way in and it isn't (`rulesOf`): the deployment's
+   * Memberful site while the Workspace can ask its admin API, and the single sign-on provider's.
    */
-  private async openIssuers(account: JoinableAccount | null): Promise<string[]> {
-    const site = memberfulKeysOf(this.env)?.site ?? null;
+  private async otherWays(account: JoinableAccount | null): Promise<OtherWays> {
+    const site = memberfulApiOf(this.env)?.site ?? null;
     const provider = await this.ssoProvider();
-    return [
-      ...(site !== null && !rulesOf(account, "memberful").closed ? [site] : []),
-      ...(provider !== null && !rulesOf(account, "sso").closed ? [provider.issuer] : []),
-    ];
+    return {
+      checked: site !== null && !rulesOf(account, "memberful").closed ? [site] : [],
+      refreshed: provider !== null && !rulesOf(account, "sso").closed ? [provider.issuer] : [],
+    };
   }
 
   /**
@@ -2226,7 +2227,7 @@ export class Workspace extends DurableObject<Env> {
     return this.closingSockets(async () => {
       const account = await this.joinableAccount();
       if (!rulesOf(account, via).only) return "unneeded";
-      const linked = await this.store.linkedPerson(issuer, member.id, await this.openIssuers(account));
+      const linked = await this.store.linkedPerson(issuer, member.id, await this.otherWays(account));
       if (linked && linked.userId !== userId) return "claimed";
       if (linked) {
         if (linked.status === "deactivated" || linked.status === "banned") return "refused";
@@ -2237,7 +2238,8 @@ export class Workspace extends DurableObject<Env> {
         if (!person) return "refused";
         if (person.subject !== null) return "another";
         if (person.membershipNeeded && !member.subscribed) return "membership";
-        if (!(await this.store.connectIdentity(connecting, linkedAccountOf(issuer, member), readAt, new Date().toISOString(), kept))) return "refused";
+        const connected = await this.store.connectIdentity(connecting, linkedAccountOf(issuer, member), readAt, !member.subscribed, new Date().toISOString(), kept);
+        if (!connected) return "refused";
         this.linkedSites.add(issuer);
       }
       await this.keepChecking(via, kept);
@@ -3875,16 +3877,16 @@ export class Workspace extends DurableObject<Env> {
       if (answer === null || typeof discovery !== "object" || discovery === null) {
         await this.settleUnanswered(provider.issuer, subject, sealedToken, sealedToken, failingSince, readAt);
       } else if (answer === "invalid") {
-        // A sign-in since, which kept a token of its own, is the provider's word after this one. The
-        // provider no longer vouching for the account, as once someone is removed there, its sessions end,
-        // and its person is suspended, as one whose membership lapsed is, unless they need none, or another
-        // way in lets them in, until signing in with it again lets them back.
-        if (await this.store.settleRefresh(provider.issuer, subject, sealedToken, null)) {
-          await this.closingSockets(async () => {
-            await this.endLoggedOut(provider.issuer, { subject, sid: null, startedBy: readAt });
-            await this.applyMemberships(provider.issuer, "sso", new Map([[subject, false]]), readAt);
-          });
-        }
+        // The provider no longer vouches for the account, as once someone is removed there, or signs out,
+        // or their token expires unused, which it doesn't say apart: the sessions it signed in end, and
+        // while it's the only way in, every session of a member it links, who can't sign in again without
+        // it. A sign-in since, which kept a token of its own, is the provider's word after this one.
+        const everywhere = (await this.joinableAccount())?.ssoSignIn ?? false;
+        await this.endUnvouched(provider.issuer, subject, sealedToken, readAt, everywhere, failingSince);
+      } else if (answer.idToken === null && discovery.userinfoEndpoint === null) {
+        // Taking the refresh token is all such a provider says: the account is still there.
+        const given = answer.refreshToken === null ? sealedToken : await seal(this.env.SESSION_SECRET, "sso-refresh-token", answer.refreshToken);
+        await this.store.settleRefresh(provider.issuer, subject, sealedToken, { sealedToken: given, dueAt: Date.now() + SSO_CHECK_MS });
       } else {
         const given = answer.refreshToken === null ? sealedToken : await seal(this.env.SESSION_SECRET, "sso-refresh-token", answer.refreshToken);
         const claims = await claimsOf(provider, discovery, answer, null);
@@ -3915,9 +3917,25 @@ export class Workspace extends DurableObject<Env> {
     const since = failingSince ?? readAt;
     if (readAt - since < SSO_GIVE_UP_MS) {
       await this.store.settleRefresh(issuer, subject, asked, { sealedToken: keep, dueAt: Date.now() + SSO_RETRY_MS, failingSince: since });
-    } else if (await this.store.settleRefresh(issuer, subject, asked, null)) {
+    } else {
       console.error("The single sign-on provider hasn't answered for an account's refresh token in a day, so the sessions it signed in end.");
-      await this.closingSockets(() => this.endLoggedOut(issuer, { subject, sid: null, startedBy: readAt }));
+      await this.endUnvouched(issuer, subject, asked, readAt, false, since);
+    }
+  }
+
+  /**
+   * Stops asking the provider at `issuer` about the account with `subject` with the refresh token `asked`,
+   * and ends the sessions it signed in, or, `everywhere`, every session of a member it links, unless a
+   * sign-in has kept another token since. Should ending them fail, the token is put back, to try again in
+   * a few minutes, as having failed since `failingSince`.
+   */
+  private async endUnvouched(issuer: string, subject: string, asked: string, readAt: number, everywhere: boolean, failingSince: number | null): Promise<void> {
+    if (!(await this.store.settleRefresh(issuer, subject, asked, null))) return;
+    try {
+      await this.closingSockets(() => this.endLoggedOut(issuer, { subject, sid: null, startedBy: readAt, everywhere }));
+    } catch (error) {
+      await this.store.restoreRefresh(issuer, subject, asked, Date.now() + SSO_RETRY_MS, failingSince);
+      throw error;
     }
   }
 
@@ -3984,7 +4002,7 @@ export class Workspace extends DurableObject<Env> {
     const account = await this.joinableAccount();
     const open = !rulesOf(account, via).closed;
     const [kept, lapsed]: [string[], string[]] = [[], []];
-    for (const [subject, linked] of await this.store.linkedPeople(issuer, [...memberships.keys()], await this.openIssuers(account))) {
+    for (const [subject, linked] of await this.store.linkedPeople(issuer, [...memberships.keys()], await this.otherWays(account))) {
       // The Workspace has gone by a newer read.
       if (linked.checkedAt > readAt) continue;
       const subscribed = memberships.get(subject)!;

@@ -71,7 +71,7 @@ export const ssoSettingsOf = ({ source, issuer, clientId, name, scopes, groupsCl
 /**
  * What the provider says of whoever `tokens` are for: the ID token's claims, once it checks out
  * (`idTokenClaims`) with `nonce`, or any nonce for a refresh's, with the userinfo endpoint's over them,
- * as long as it names the same person, and with whether the email address was verified as the answer
+ * as long as it names the same person, and its endpoint answers, if the provider has one, and with whether the email address was verified as the answer
  * that gave the address says. A refresh may give no ID token, when the userinfo endpoint's are
  * all there is, if it names someone. Null when neither checks out.
  */
@@ -81,9 +81,12 @@ export async function claimsOf(provider: SsoProvider, discovery: Discovery, toke
   if (nonce !== null && fromToken === null) return null;
   if (tokens.idToken !== null && fromToken === null) return null;
   const info = await userinfo(discovery, tokens.accessToken);
+  // An endpoint that didn't answer leaves the answer half told, as of the groups it may give alone.
+  if (discovery.userinfoEndpoint !== null && info === null) return null;
   const subject = fromToken?.sub ?? info?.sub;
   if (typeof subject !== "string" || subject === "" || subject.length > 255) return null;
-  if (info && info.sub !== subject) return fromToken;
+  // One that names someone else answers for nobody (OpenID Connect Core §5.3.2).
+  if (info && info.sub !== subject) return null;
   const claims: Claims = { ...(fromToken ?? {}), ...(info ?? {}), sub: subject };
   // Whether an email address was verified is the word of whichever answer gave that address, lest the
   // ID token's verifying one address vouch for another the userinfo endpoint gives.
