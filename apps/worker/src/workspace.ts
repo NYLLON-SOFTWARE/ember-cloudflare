@@ -3895,14 +3895,16 @@ export class Workspace extends DurableObject<Env> {
           await this.settleUnanswered(provider.issuer, subject, sealedToken, given, failingSince, readAt);
           continue;
         }
-        await this.store.settleRefresh(provider.issuer, subject, sealedToken, { sealedToken: given, dueAt: Date.now() + SSO_CHECK_MS });
         // A refreshed ID token says the groups as signing in's did, so one without them puts its person in
         // none, but a refresh without one has only the userinfo endpoint's word, which may leave them out,
         // as Entra's always does, and then says nothing of them.
         const saysGroups = provider.allowedGroups.length === 0 || answer.idToken !== null || claims[provider.groupsClaim] !== undefined;
-        if (saysGroups) {
-          await this.closingSockets(() => this.applyMemberships(provider.issuer, "sso", new Map([[subject, isAllowed(provider, claims)]]), readAt));
-        }
+        // One at a time with sign-ins, as ending the sessions is: one that kept its token since has the
+        // provider's word after this one.
+        await this.closingSockets(async () => {
+          const settled = await this.store.settleRefresh(provider.issuer, subject, sealedToken, { sealedToken: given, dueAt: Date.now() + SSO_CHECK_MS });
+          if (settled && saysGroups) await this.applyMemberships(provider.issuer, "sso", new Map([[subject, isAllowed(provider, claims)]]), readAt);
+        });
       }
     }
   }
@@ -3929,14 +3931,17 @@ export class Workspace extends DurableObject<Env> {
    * sign-in has kept another token since. Should ending them fail, the token is put back, to try again in
    * a few minutes, as having failed since `failingSince`.
    */
-  private async endUnvouched(issuer: string, subject: string, asked: string, readAt: number, everywhere: boolean, failingSince: number | null): Promise<void> {
-    if (!(await this.store.settleRefresh(issuer, subject, asked, null))) return;
-    try {
-      await this.closingSockets(() => this.endLoggedOut(issuer, { subject, sid: null, startedBy: readAt, everywhere }));
-    } catch (error) {
-      await this.store.restoreRefresh(issuer, subject, asked, Date.now() + SSO_RETRY_MS, failingSince);
-      throw error;
-    }
+  private endUnvouched(issuer: string, subject: string, asked: string, readAt: number, everywhere: boolean, failingSince: number | null): Promise<void> {
+    // One at a time with sign-ins, so that none keeps its token between forgetting this one and ending them.
+    return this.closingSockets(async () => {
+      if (!(await this.store.settleRefresh(issuer, subject, asked, null))) return;
+      try {
+        await this.endLoggedOut(issuer, { subject, sid: null, startedBy: readAt, everywhere });
+      } catch (error) {
+        await this.store.restoreRefresh(issuer, subject, asked, Date.now() + SSO_RETRY_MS, failingSince);
+        throw error;
+      }
+    });
   }
 
   /**

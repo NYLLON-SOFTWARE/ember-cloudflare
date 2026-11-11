@@ -145,9 +145,14 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
   /**
    * The switch of a way whose only-switch is `onlySetting`, while the other way is the only way in, when
    * the way lets nobody in unless it's the only way in too: on turns that on, which turns the way on
-   * with it, without asking, as the other did, and off turns the way off, which turns that off too.
+   * with it, without asking, as the other did, and off turns the way off, which turns that off too. As
+   * on and off save different settings, it waits for either's move, lest the earlier save land last.
    */
-  const switchBeside = (setting: WaySetting, onlySetting: WaySetting) => (on: boolean) => (on ? switchTo(onlySetting, false)(true) : switchTo(setting)(false));
+  const switchBeside = (setting: WaySetting, onlySetting: WaySetting) => (on: boolean) => {
+    if (moved[setting] !== undefined || moved[onlySetting] !== undefined) return;
+    if (on) switchTo(onlySetting, false)(true);
+    else switchTo(setting)(false);
+  };
 
   return (
     <section aria-labelledby="ways-to-join-heading" className="flex flex-col gap-3">

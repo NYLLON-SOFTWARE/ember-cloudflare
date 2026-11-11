@@ -118,7 +118,8 @@ export function SingleSignOnSettings({
         <Switch
           checked={checked}
           onCheckedChange={switchTo}
-          disabled={setAside !== null || ssoOnlySaving || forgetting}
+          // Beside Members only, it saves SSO only's setting or its own, so it waits for either's move.
+          disabled={setAside !== null || ssoOnlySaving || (beside !== null && ssoSaving) || forgetting}
           aria-labelledby="sso-heading"
           aria-describedby="sso-description"
         />

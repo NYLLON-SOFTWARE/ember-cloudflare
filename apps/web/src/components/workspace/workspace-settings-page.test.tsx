@@ -2873,6 +2873,26 @@ describe("Single sign-on", () => {
     expect(await way("SSO only")).toBeChecked();
   });
 
+  it("waits for Memberful's move to be saved before it can be moved back while SSO only is on, since on and off save different settings", async () => {
+    let answer = (_: Response) => {};
+    const both = { ssoJoin: true, ssoSignIn: true, memberfulJoin: true, memberfulSignIn: true };
+    serve(withAccount({ ...withSso, memberfulSite: "https://example.memberful.com" }, both), { saved: () => new Promise((resolve) => (answer = resolve)) });
+    const { user } = showPage();
+    const memberful = await way("Memberful");
+    await user.click(memberful);
+    expect(memberful).not.toBeChecked();
+    expect(memberful).toBeDisabled();
+    // Were it moved back now, turning Members only on could be saved before turning Memberful off.
+    await user.click(memberful);
+    expect(saved()).toEqual([{ settings: { memberfulJoin: false } }]);
+
+    await act(async () => answer(Response.json({ account: { ...withSso.account, ...both, memberfulJoin: false, memberfulSignIn: false } })));
+    expect(memberful).toBeEnabled();
+    await user.click(memberful);
+    expect(memberful).toBeChecked();
+    expect(saved()).toEqual([{ settings: { memberfulJoin: false } }, { settings: { memberfulSignIn: true } }]);
+  });
+
   it("is set aside while Open lets anyone join, as Memberful is", async () => {
     serve(withAccount(withSso, { openSignUp: true }));
     showPage();

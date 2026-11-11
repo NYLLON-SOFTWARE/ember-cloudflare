@@ -31,7 +31,7 @@ import {
   type SsoSettings,
 } from "@ember/protocol/sso";
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { toBase64url } from "../src/encoding";
 import { forgetProviders } from "../src/oidc";
 import { SSO_GIVE_UP_MS, type Workspace } from "../src/workspace";
@@ -960,6 +960,44 @@ describe("Checking accounts with their refresh tokens", () => {
     expect(await signsIn(session)).toBe(false);
     expect(await refreshed()).toEqual([{ refresh_token: null, refresh_due_at: null }]);
     expect(await statusOf(administrator, session.user.id)).toBe("active");
+  });
+
+  /**
+   * Holds up the Workspace's changes (`oneAtATime`) until `release` is called, counting those that line up
+   * behind it in `lined`. It's let go from inside the Workspace, which alone can settle what it made.
+   */
+  async function holdChanges(): Promise<{ release: () => Promise<void>; lined: MockInstance }> {
+    let letGo!: () => void;
+    let lined!: MockInstance;
+    await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+      const line = workspace as unknown as { oneAtATime(change: () => Promise<void>): Promise<void> };
+      void line.oneAtATime(() => new Promise((resolve) => (letGo = resolve)));
+      lined = vi.spyOn(line, "oneAtATime");
+    });
+    return { release: () => runInDurableObject(workspaceStub(), () => letGo()), lined };
+  }
+
+  it("leaves an account's sessions be once a sign-in keeps a token of its own while the provider is asked with the one before", async () => {
+    await setUpWithSso();
+    const session = await ssoSession(katherine);
+    provider.revoked.add(katherine.sub);
+    await due();
+    const { release, lined } = await holdChanges();
+    const signingIn = signInWithSso(katherine);
+    let checking: Promise<boolean>;
+    try {
+      await vi.waitFor(() => expect(lined).toHaveBeenCalledTimes(1));
+      // The refresh is answered while the sign-in waits to keep its token, and goes by it after.
+      checking = runDurableObjectAlarm(workspaceStub());
+      await vi.waitFor(() => expect(lined).toHaveBeenCalledTimes(2));
+    } finally {
+      await release();
+    }
+    const signedIn = await signingIn;
+    expect(await checking).toBe(true);
+    expect(await signsIn({ user: session.user, cookie: sessionCookieOf(signedIn) })).toBe(true);
+    expect(await signsIn(session)).toBe(true);
+    expect((await refreshed())[0]!.refresh_token).not.toBeNull();
   });
 
   /** Joins as Grace with a password, then connects her account at the provider from her profile while SSO only is on, answering her password session. */

@@ -103,7 +103,8 @@ export function MemberfulSettings({
         <Switch
           checked={on}
           onCheckedChange={switchTo}
-          disabled={setAside !== null || membersOnlySaving}
+          // Beside SSO only, it saves Members only's setting or its own, so it waits for either's move.
+          disabled={setAside !== null || membersOnlySaving || (beside !== null && memberfulSaving)}
           aria-labelledby="memberful-heading"
           aria-describedby="memberful-description"
         />
