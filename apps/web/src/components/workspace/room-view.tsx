@@ -132,7 +132,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
     <RoomTabsContext value={tabs}>
       <RoomFramesContext value={frames}>
         {/* The room's header and messages, placed in the page's grid as if they were its own. */}
-        <div className={panes ? "grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]" : "contents"} inert={covered}>
+        <div className={panes ? "grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)]" : "contents"} inert={covered}>
           <Header
             room={room}
             me={me}

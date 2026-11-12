@@ -88,29 +88,30 @@ test.describe("Avatars open people's profiles", () => {
     await expect(ada.composer().getByRole("link")).toHaveCount(0);
     await ada.composer().press("Enter");
 
-    // Each opens their profile beside the room, which stays at its address, in place of anyone else's.
+    // Each opens their profile beside the room, in place of anyone else's, the room's address saying whose it is.
     const roomAddress = page.url();
     const profile = page.getByRole("complementary", { name: "Profile" });
-    const profileOf = async (name: string) => {
-      await expect(profile.getByRole("heading", { level: 2, name, exact: true })).toBeVisible();
-      expect(page.url()).toBe(roomAddress);
+    const profileOf = async (person: typeof grace) => {
+      await expect(profile.getByRole("heading", { level: 2, name: person.session.user.name, exact: true })).toBeVisible();
+      await expect(page).toHaveURL(`${roomAddress}?profile=${person.session.user.id}`);
     };
     const question = ada.message("Ask me anything");
     await question.getByRole("link", { name: graceTitle }).click();
-    await profileOf(`Grace ${tag}`);
+    await profileOf(grace);
     await profile.getByRole("button", { name: "Close profile" }).click();
     await expect(profile).toBeHidden();
+    await expect(page).toHaveURL(roomAddress);
 
     await question.getByRole("heading", { level: 3 }).getByRole("link", { name: `Grace ${tag}`, exact: true }).click();
-    await profileOf(`Grace ${tag}`);
+    await profileOf(grace);
 
     const boost = question.getByRole("list", { name: "Reactions" }).getByRole("link", { name: `Linus ${tag} boosted 👍` });
     await expect(boost).toHaveAttribute("title", `Linus ${tag}`);
     await boost.click();
-    await profileOf(`Linus ${tag}`);
+    await profileOf(linus);
 
     await ada.message("Thanks").getByRole("paragraph").getByRole("link", { name: graceTitle }).click();
-    await profileOf(`Grace ${tag}`);
+    await profileOf(grace);
 
     // Their page is a link away.
     await profile.getByRole("button", { name: "More actions" }).click();
