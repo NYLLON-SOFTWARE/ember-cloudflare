@@ -75,8 +75,8 @@ const NO_EDITORS: MessageEditors = { open() {}, close() {}, returnFocus() {}, at
 
 /** What each list calls itself, and one of its items. */
 const NAMES = {
-  todo: { title: "To-dos", item: "To-do", empty: "No to-dos", select: "Select a to-do to view details." },
-  saved: { title: "Saved", item: "Saved item", empty: "Nothing saved", select: "Select an item to view it." },
+  todo: { title: "To-dos", item: "To-do", empty: "No to-dos" },
+  saved: { title: "Saved", item: "Saved item", empty: "Nothing saved" },
 } as const satisfies Record<SavedList, Record<string, string>>;
 
 const TOOLBAR_BUTTON =
@@ -298,7 +298,10 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
       <p className="text-muted-foreground">That item isn’t in your {names.title.toLowerCase()}.</p>
     </Detail>
   ) : (
-    <MainContent className="grid h-full place-content-center border-l bg-background p-6 text-center text-muted-foreground">{names.select}</MainContent>
+    // Nothing open: the pane stays quiet, with the list's icon faded in its middle.
+    <MainContent aria-label={names.item} className="grid h-full place-content-center border-l bg-background p-6">
+      {list === "todo" ? <CheckCircle className="size-24 text-hover" strokeWidth={1} /> : <Bookmark className="size-24 text-hover" strokeWidth={1} />}
+    </MainContent>
   );
 
   const panes: Pane[] = [

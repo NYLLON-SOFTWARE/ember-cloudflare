@@ -68,7 +68,7 @@ describe("To-dos", () => {
     expect(screen.getByText(/Thread in #general/)).toBeInTheDocument();
     expect(screen.getByText("Call Grace")).toBeInTheDocument();
     expect(screen.getByText(/Reply to Lin/)).toHaveClass("line-through");
-    expect(screen.getByText("Select a to-do to view details.")).toBeInTheDocument();
+    expect(screen.getByRole("main", { name: "To-do" })).toHaveTextContent("");
   });
 
   it("marks a to-do completed from its row, moving it to Completed", async () => {
