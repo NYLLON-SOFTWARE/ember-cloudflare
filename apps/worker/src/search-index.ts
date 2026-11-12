@@ -424,6 +424,35 @@ export class SearchIndex extends DurableObject<Env> {
     const threads = this.sql.exec<ThreadMarks>(THREAD_MARKS, threadIds, userId).toArray();
     return { rows, threads, next: found.length > limit ? page.at(-1)!.latest : null };
   }
+
+  /** The newest `limit` messages with files, or with links, in `roomIds`, each with its row as its room keeps it. */
+  shelved(roomIds: RoomId[], links: boolean, limit: number): ShelvedMessage[] {
+    const { sql, values } = shelvedStatement(roomIds, links, limit);
+    return this.sql.exec<{ messageId: string; roomId: RoomId; message: string | null }>(sql, ...values).toArray();
+  }
+}
+
+/** A message the index holds with a file or a link, and its row as its room keeps it, or null where it kept none. */
+export interface ShelvedMessage {
+  messageId: string;
+  roomId: RoomId;
+  message: string | null;
+}
+
+/**
+ * Up to ?2 of the newest messages with files in the rooms a JSON array ?1 names, through the index of
+ * messages with files, which few are, newest first.
+ */
+const WITH_FILES = `SELECT message_id AS messageId, room_id AS roomId, message FROM search_messages
+  WHERE has_file = 1 AND room_id IN (SELECT value FROM json_each(?1)) ORDER BY id DESC LIMIT ?2`;
+
+/** The same, of messages with links. */
+const WITH_LINKS = `SELECT message_id AS messageId, room_id AS roomId, message FROM search_messages
+  WHERE has_link = 1 AND room_id IN (SELECT value FROM json_each(?1)) ORDER BY id DESC LIMIT ?2`;
+
+/** The newest `limit` messages with files, or with links, in `roomIds`, for the Files page and a room's Files & links (library.ts). */
+export function shelvedStatement(roomIds: RoomId[], links: boolean, limit: number): SearchStatement {
+  return { sql: links ? WITH_LINKS : WITH_FILES, values: [JSON.stringify(roomIds), limit] };
 }
 
 /** What results show of a message, and its text with the words it matched marked, if its search has words. */

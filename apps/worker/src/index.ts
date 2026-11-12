@@ -146,6 +146,7 @@ import { urlOf } from "./request-url";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
 import { clearSearches, recordSearch, searchMessages } from "./searches";
 import { directPreviews, listedThreads } from "./conversations";
+import { libraryAction } from "./library";
 import { isOnboardedToEmailSending } from "./sending-domain";
 import { checkSetup, firstRun, isSetupPath, setupAccessOf, setupPage, setupPlaceholdersOf } from "./setup";
 import { closedAtOnce } from "./sockets";
@@ -1222,6 +1223,9 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   const room = pathname.match(/^\/api\/rooms\/([^/]+)$/);
   if (room && request.method === "PATCH") return () => (isRoomId(room[1]!) ? changeRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND));
   if (room && request.method === "DELETE") return () => (isRoomId(room[1]!) ? deleteRoom(request, env, room[1]!) : problem(404, ROOM_NOT_FOUND));
+  // The Files page, a room's Files & links, and its tabs (library.ts).
+  const library = libraryAction(request, env, pathname);
+  if (library) return library;
   return null;
 }
 

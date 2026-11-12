@@ -6,6 +6,7 @@ import { DMS_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "
 import { unreadBadge } from "@/lib/unread-badge";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
+import { FilesRailLink } from "./files-rail-link";
 import { NavigationIcon } from "./navigation-icon";
 import { OpenSearchContext, opensSearch } from "./search-box";
 import { UserAvatar } from "./user-avatar";
@@ -93,7 +94,7 @@ function ActivityButton({ on, unread, onToggle }: Activity) {
  * home, Search on search, whatever's searched for, Admin or Workspace on workspace settings, your avatar
  * on your profile), Home on a room's page, and DMs on the DMs page and a DM's, but none while Activity is on.
  */
-export type RailPage = "home" | "room" | "dms" | "search" | "workspace" | "profile" | null;
+export type RailPage = "home" | "room" | "dms" | "search" | "workspace" | "profile" | "files" | null;
 
 interface Props {
   me: Me;
@@ -139,6 +140,7 @@ export function Rail({ me, workspaceName, current, activity, directsUnread, newR
       <RailLink slot="home" label="Home" href="/" current={marked === "home" || marked === "room"} />
       <RailLink slot="dms" label="DMs" href={DMS_PATH} current={marked === "dms"} unread={directsUnread} />
       <ActivityButton {...activity} />
+      <FilesRailLink current={marked === "files"} className={RAIL_LINK} />
       {/* Opens the search box in place, for everything. */}
       <RailLink slot="search" label="Search" href={SEARCHES_PATH} current={marked === "search"} onClick={opensSearch(openSearch)} />
       <hr className="my-1 w-8 border-t" />

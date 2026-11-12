@@ -77,6 +77,7 @@ const RARE_PAGES = new Set<Route["page"]>([
   "people",
   "drafts",
   "threads",
+  "files",
 ]);
 
 /**
@@ -122,6 +123,7 @@ const RAIL_PAGES = {
   people: "home",
   drafts: "home",
   threads: "home",
+  files: "files",
 } as const satisfies Record<Route["page"], RailPage>;
 
 /** The Home sidebar's link each of its pages marks. */
@@ -708,6 +710,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       onSessionChanged={onSessionChanged}
     />
   );
+  // The Files page has its own column in the sidebar's place, as Slack's has.
+  const filesNav =
+    route.page === "files" ? <RarePage show={({ FilesNav }) => <FilesNav me={me} place={route.place} />} loading={null} onFailed={failed} /> : null;
 
   /**
    * One of the pages few visits need, as `show` makes it once they've loaded. Keyed by the page, so that going on
@@ -777,6 +782,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />);
       case "push-subscriptions":
         return rarePage(({ PushSubscriptionsPage }) => <PushSubscriptionsPage back={back} onFailed={failed} />);
+      case "files":
+        return rarePage(({ FilesPage }) => <FilesPage me={me} place={route.place} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
       case "search":
         return rarePage(({ SearchPage }) => <SearchPage me={me} rooms={rooms ?? NO_ROOMS} back={back} onFailed={failed} />);
       case "people":
@@ -882,7 +889,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             {rail}
             {!settings && (
               <aside aria-label="Conversations" className="min-h-0 overflow-hidden border-r">
-                {!directsInPage && sidebar}
+                {filesNav ?? (!directsInPage && sidebar)}
               </aside>
             )}
           </div>
@@ -923,7 +930,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
                 >
                   <Xmark className="size-5" />
                 </SheetClose>
-                {sidebar}
+                {filesNav ?? sidebar}
               </aside>
             )}
           </SheetContent>

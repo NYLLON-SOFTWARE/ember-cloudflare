@@ -71,7 +71,12 @@ export type WorkspacePage =
   /** What you've written and not sent, at `/drafts`, or what you've sent lately, at `/drafts/sent`. */
   | { page: "drafts"; tab: "drafts" | "sent" }
   /** The threads you follow, at `/threads`, latest active first, each with a box to reply in. */
-  | { page: "threads" };
+  | { page: "threads" }
+  /** The workspace's files, at `/files`, its canvases at `/files/canvases`, or the files you've starred at `/files/starred`. */
+  | { page: "files"; place: FilesPlace };
+
+/** Which of the workspace's files the Files page lists. */
+export type FilesPlace = "all" | "canvases" | "starred";
 
 /** Rails' names for each kind of room's controller. */
 export const KIND_SEGMENTS = { open: "opens", closed: "closeds", direct: "directs" } as const satisfies Record<RoomKind, string>;
@@ -104,6 +109,10 @@ const LIST_PAGES = new Map<string, WorkspacePage>([
   [SENT_PATH, { page: "drafts", tab: "sent" }],
   [THREADS_PATH, { page: "threads" }],
 ]);
+export const FILES_PATH = "/files";
+
+/** The Files page's address for `place`. */
+export const filesPath = (place: FilesPlace) => (place === "all" ? FILES_PATH : `${FILES_PATH}/${place}`);
 
 /**
  * A message's thread, which opens beside its room, or a reply's permalink there, which opens the thread at
@@ -153,6 +162,8 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   const appId = app && decoded(app[1]!);
   if (appId) return { page: "app-settings", appId };
   if (pathname === SEARCHES_PATH) return { page: "search" };
+  const files = pathname.match(/^\/files(?:\/(canvases|starred))?$/);
+  if (files) return { page: "files", place: (files[1] as FilesPlace | undefined) ?? "all" };
   if (/^\/users\/[^/]+\/profile$/.test(pathname)) return { page: "profile" };
   if (/^\/users\/[^/]+\/push_subscriptions$/.test(pathname)) return { page: "push-subscriptions" };
   const person = pathname.match(/^\/users\/([^/]+)$/);

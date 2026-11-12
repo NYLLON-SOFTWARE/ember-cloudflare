@@ -21,3 +21,6 @@ export { DraftsPage } from "./drafts-page";
 export { PeoplePage } from "./people-page";
 export { ThreadsPage } from "./threads-page";
 export { DirectsColumn, DirectsHome } from "./directs-pane";
+export { FilesNav } from "./files-nav";
+export { FilesPage } from "./files-page";
+export { AddTabDialog, EditTabsDialog, RoomTabPanel } from "./room-tab-panels";

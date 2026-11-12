@@ -133,6 +133,7 @@ export {
   type RoomAccess,
   type WorkspacePage,
 } from "./pages.ts";
+export { FILES_PATH, filesPath, type FilesPlace } from "./pages.ts";
 export {
   MAX_PUSH_ENDPOINT_LENGTH,
   MAX_PUSH_KEY_LENGTH,

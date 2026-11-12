@@ -114,6 +114,8 @@ import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import type { RoomEvent } from "./room-log";
 import type { PickedTool } from "./apps/tools";
+import { RoomTabStore, type LibraryShelf, type TabAction, type TabAnswer } from "./room-tabs";
+import type { FileMark, FileMarks } from "@ember/protocol/library";
 import { seal, unseal } from "./sealed";
 import { isToken } from "./secrets";
 import { SessionCache } from "./session-cache";
@@ -3803,6 +3805,40 @@ export class Workspace extends DurableObject<Env> {
     const user = await this.authenticate(credentials);
     if (user) await this.store.clearSearches(user.id);
     return user !== null;
+  }
+
+  /**
+   * What the files of the person `credentials` signs in are listed with (library.ts): the rooms they're in,
+   * or only `roomId` when it's given, the canvases there and what they've starred and opened. Null without a
+   * valid session, and "not found" for a room they aren't in.
+   */
+  async library(credentials: Credentials, roomId: RoomId | null): Promise<LibraryShelf | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const { rooms } = await this.store.searcherOf(user.id, null);
+    const roomIds = rooms.flatMap(({ id }) => (roomId === null || id === roomId ? [id] : []));
+    if (roomId !== null && roomIds.length === 0) return "not found";
+    const tabs = new RoomTabStore(this.db);
+    const [canvases, marks] = await Promise.all([tabs.canvasesIn(roomIds), tabs.marksOf(user.id)]);
+    return { userId: user.id, roomIds, canvases, marks };
+  }
+
+  /** Stars a file, or records that it was opened, for the person `credentials` signs in, who must be in its room. */
+  async markFile(credentials: Credentials, mark: FileMark): Promise<FileMarks | "not found" | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const { member } = await this.store.roomAccess(mark.roomId, session.user.id, credentials.client.ip);
+    return member ? new RoomTabStore(this.db).mark(session.user.id, mark, new Date().toISOString()) : "not found";
+  }
+
+  /** Does what `action` asks of room `roomId`'s tabs for the person `credentials` signs in, if they're in it (room-tabs.ts). */
+  async roomTabs(credentials: Credentials, roomId: RoomId, action: TabAction): Promise<TabAnswer | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const { member, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip);
+    if (!member) return "not found";
+    const { id, name } = session.user;
+    return new RoomTabStore(this.db).act(roomId, { id, name }, banned, action, new Date().toISOString());
   }
 
   /**
