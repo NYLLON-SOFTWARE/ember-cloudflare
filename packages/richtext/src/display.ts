@@ -136,6 +136,39 @@ export function displayMarkup(nodes: DisplayNode[], mention: (node: DisplayMenti
   return toHtml(createFragment(nodes.flatMap((node) => treeOf(node, mention))), { escapeAttributeBrackets: true });
 }
 
+/** Whom a quote quotes, and when, as its `<cite>` names them, and the link back to what it quotes. */
+export interface Citation {
+  /** The quoted message's author's name. */
+  author: string;
+  /** When the quoted message was written, as an ISO time, which readers' apps show in their own time zone. */
+  createdAt: string;
+  /** That time as whoever quoted it read it, for anything that shows the text as it was written. */
+  when: string;
+  /** The quoted message's address. */
+  link: string;
+}
+
+/**
+ * The markup of a quote, as Quote writes one in the composer and Forward posts one: `quoted` in a
+ * `<blockquote>`, with each mention as the text `mention` gives for it and without its previews, then a
+ * `<cite>` naming its author, when they wrote it, and linking to it: `Ada · <time>Nov 11, 7:30 PM</time> #`.
+ */
+export function quoteMarkup(quoted: DisplayNode[], { author, createdAt, when, link }: Citation, mention: (node: DisplayMention) => string): string {
+  const text = (value: string): DisplayText => ({ kind: "text", value });
+  const cite: DisplayElement = {
+    kind: "element",
+    name: "cite",
+    attrs: {},
+    children: [
+      text(`${author} · `),
+      { kind: "element", name: "time", attrs: { datetime: createdAt }, children: [text(when)] },
+      text(" "),
+      { kind: "element", name: "a", attrs: { href: link }, children: [text("#")] },
+    ],
+  };
+  return displayMarkup([{ kind: "element", name: "blockquote", attrs: {}, children: quoted }, cite], mention);
+}
+
 function treeOf(node: DisplayNode, mention: (node: DisplayMention) => string): Node[] {
   if (node.kind === "text") return [createText(node.value)];
   if (node.kind === "mention") return [createText(mention(node))];

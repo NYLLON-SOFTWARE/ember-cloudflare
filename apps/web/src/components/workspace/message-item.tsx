@@ -14,7 +14,7 @@ import { BotCards } from "./bot-card";
 import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions-menu";
 import { MessageBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
-import { MessageEditor, type MessageEditorHandle } from "./message-editor";
+import { ForwardDialog } from "./forward-dialog";
 import { UploadCard } from "./upload-card";
 import { AvatarLink, UserAvatar, userTitle } from "./user-avatar";
 
@@ -257,6 +257,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
   // and a bot's cards' can't be.
   const editing = editorOpen && actions !== null && !pending && !message.attachment && !message.cards;
   const [customizing, setCustomizing] = useState(false);
+  // What opened Forward message, while it's open.
+  const [forwarding, setForwarding] = useState<HTMLElement | null>(null);
   const customField = useRef<HTMLInputElement>(null);
   // The Custom reaction form goes as the editor opens, as the editor replaces the whole message.
   if (customizing && (editing || !actions)) setCustomizing(false);
@@ -361,6 +363,16 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
           <div className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
             <UploadCard upload={upload} />
           </div>
+        ) : message.attachment && message.body !== "" ? (
+          // A forwarded file, which shows in its quote.
+          <MessageBody
+            nodes={shown}
+            mentions={message.mentions}
+            roomId={message.roomId}
+            quotedFile={<Attachment file={message.attachment} />}
+            trailing={edited || undefined}
+            className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}
+          />
         ) : message.attachment ? (
           <div dir="auto" className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
             <Attachment file={message.attachment} />
@@ -371,6 +383,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
             <MessageBody
               nodes={shown}
               mentions={message.mentions}
+              roomId={message.roomId}
               emoji={allEmoji}
               trailing={edited || undefined}
               className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}
@@ -423,8 +436,10 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
           }}
           // The form opens with its field focused, or, open already, keeps what's written in it and focuses it.
           onNewBoost={() => (customizing ? customField.current?.focus() : setCustomizing(true))}
+          onForward={setForwarding}
         />
       )}
+      {forwarding && <ForwardDialog message={message} opener={forwarding} onClose={() => setForwarding(null)} />}
     </article>
   );
 });

@@ -85,7 +85,7 @@ export interface Uploader {
  * without a session, 404 when they aren't in the room, and 429 when a ban blocks their IP address.
  * The room tags them as it tags their sockets, so it turns them away as it would turn those away.
  */
-async function uploaderIn(env: Env, credentials: Credentials, roomId: RoomId): Promise<Uploader | Response> {
+export async function uploaderIn(env: Env, credentials: Credentials, roomId: RoomId): Promise<Uploader | Response> {
   const access = await workspace(env).roomAccess(credentials, roomId);
   if (!access) return problem(401, NOT_SIGNED_IN);
   if (!access.member) return problem(404, ROOM_NOT_FOUND);

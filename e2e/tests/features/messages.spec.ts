@@ -739,7 +739,7 @@ test.describe("Quote a message", () => {
     const composer = ada.composer();
     await expect(composer).toBeFocused();
     await expect(composer.locator("blockquote")).toHaveText("Third time's a charm.");
-    await expect(composer.locator("cite")).toHaveText("Grace #");
+    await expect(composer.locator("cite")).toHaveText(/^Grace · \d{1,2}:\d{2}\s?[AP]M #$/);
     await expect(composer).not.toContainText("Something else");
     await expect(ada.message("Third time's a charm.").getByRole("group", { name: "Message actions" })).toBeHidden();
 
@@ -748,7 +748,7 @@ test.describe("Quote a message", () => {
     await ada.page.keyboard.press("Enter");
     const reply = ada.message("Fourth time, then.");
     await expect(reply.locator("blockquote")).toHaveText("Third time's a charm.");
-    await expect(reply.locator("cite")).toHaveText("Grace #");
+    await expect(reply.locator("cite")).toHaveText(/^Grace · \d{1,2}:\d{2}\s?[AP]M #$/);
     await expect(reply.locator("p").last()).toHaveText("Fourth time, then.");
 
     // Its link is the quoted message's permalink, which opens its room.
@@ -770,7 +770,7 @@ test.describe("Quote a message", () => {
     expect((await box(quote)).x).toBe(thread.x + thread.width);
     await quote.tap();
     await expect(ada.composer().locator("blockquote")).toHaveText("Quote me by touch");
-    await expect(ada.composer().locator("cite")).toHaveText("Grace #");
+    await expect(ada.composer().locator("cite")).toHaveText(/^Grace · \d{1,2}:\d{2}\s?[AP]M #$/);
     await expect(actions).toBeHidden();
   });
 });

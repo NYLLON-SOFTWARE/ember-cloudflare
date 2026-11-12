@@ -3,6 +3,7 @@ import {
   MAX_CANVAS_CLIENT_ID_LENGTH,
   MAX_CANVAS_STEPS,
   ASSISTANT_NAME,
+  parseNewForward,
   canBeCustomDomain,
   CUSTOM_DOMAIN_NOT_A_HOST,
   DEFAULT_NAVIGATION_ICONS,
@@ -173,6 +174,28 @@ describe("Send a message", () => {
     expect(read({ visible: "1", protocol: String(ROOM_PROTOCOL) })).toEqual({ visible: true, protocol: ROOM_PROTOCOL });
     expect(read({ visible: "1" })).toEqual({ visible: true, protocol: 1 });
     expect(read({ protocol: "two" })).toEqual({ visible: true, protocol: 1 });
+  });
+});
+
+describe("Forward a message", () => {
+  it("takes the conversation, an optional thread and an optional note, trimmed", () => {
+    expect(parseNewForward({ to: "general", clientMessageId: "c1" })).toEqual({ to: "general", clientMessageId: "c1" });
+    expect(parseNewForward({ to: "general", parentId: "m1", note: "  Look at this\n ", clientMessageId: "c1" })).toEqual({
+      to: "general",
+      parentId: "m1",
+      note: "Look at this",
+      clientMessageId: "c1",
+    });
+    expect(parseNewForward({ to: "general", note: "   ", clientMessageId: "c1" })).toEqual({ to: "general", clientMessageId: "c1" });
+  });
+
+  it("refuses anything else", () => {
+    expect(parseNewForward(null)).toBe("Expected a JSON object");
+    expect(parseNewForward({ to: "Not a room!", clientMessageId: "c1" })).toBe("Pick a conversation to forward it to");
+    expect(parseNewForward({ to: "general" })).toBe("A forward needs an id");
+    expect(parseNewForward({ to: "general", clientMessageId: "c1", parentId: "" })).toBe("That thread doesn't exist");
+    expect(parseNewForward({ to: "general", clientMessageId: "c1", note: 5 })).toBe("A note is text");
+    expect(parseNewForward({ to: "general", clientMessageId: "c1", note: "x".repeat(MAX_MESSAGE_LENGTH + 1) })).toMatch(/up to/);
   });
 });
 

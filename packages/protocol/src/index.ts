@@ -382,6 +382,19 @@ export interface NewDirect {
   userIds: UserId[];
 }
 
+/**
+ * A message to forward, `POST /api/rooms/<room>/messages/<message>/forwards`: into the conversation `to`, in
+ * the thread of its message `parentId` if that's given, after `note`, the forwarder's own words, if any. The
+ * room posts it as the forwarder's message quoting the one forwarded, as Quote quotes one, and answers it.
+ */
+export interface NewForward {
+  to: RoomId;
+  parentId?: string;
+  /** Plain text, its lines kept. */
+  note?: string;
+  clientMessageId: string;
+}
+
 /** What `POST /api/directs` answers: the DM, 201 Created when it's new and 200 OK when the group had one. */
 export interface StartedDirect {
   room: DirectRoom;
@@ -2147,6 +2160,19 @@ export function parseWorkspaceClientFrame(raw: string): WorkspaceClientFrame | n
  */
 export function isRoomId(value: string): boolean {
   return /^[a-z0-9][a-z0-9-]{0,62}$/.test(value);
+}
+
+/** Parses an untrusted `NewForward`, or answers why it's refused. */
+export function parseNewForward(data: unknown): NewForward | string {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
+  const { to, parentId, note, clientMessageId } = data as Record<string, unknown>;
+  if (typeof to !== "string" || !isRoomId(to)) return "Pick a conversation to forward it to";
+  if (!id(clientMessageId)) return "A forward needs an id";
+  if (parentId !== undefined && !id(parentId)) return "That thread doesn't exist";
+  if (note !== undefined && typeof note !== "string") return "A note is text";
+  const written = note?.trim() ?? "";
+  if (isMessageTooLong(written)) return MESSAGE_TOO_LONG;
+  return { to, clientMessageId, ...(parentId === undefined ? {} : { parentId }), ...(written === "" ? {} : { note: written }) };
 }
 
 // Built on first use, so a bundle that never checks an icon leaves the names out.

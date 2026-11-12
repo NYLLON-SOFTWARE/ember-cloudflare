@@ -42,6 +42,7 @@ import { OpenSearchContext, SearchBox, type SearchBoxOptions } from "./search-bo
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
 import { Sidebar, type SidebarPage } from "./sidebar";
 import { WelcomePage } from "./welcome-page";
+import { ConversationsContext } from "./quote-cite";
 
 type RarePages = typeof import("./pages");
 
@@ -325,6 +326,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const favorites = list?.favorites ?? NO_FAVORITES;
   const sharedOrder = list?.sharedOrder ?? NO_ORDER;
   const starred = useMemo(() => new Set(favorites.rooms), [favorites]);
+  // What a quote's cite names conversations by, and Forward message lists.
+  const conversations = useMemo(() => ({ rooms: rooms ?? NO_ROOMS, meId: me.id }), [rooms, me.id]);
   // Not anyone the directory has heard is removed or banned since the list loaded.
   const listedSuggestions = list?.suggestions ?? NO_PEOPLE;
   const suggestions = useMemo(
@@ -1022,7 +1025,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         <SettingsLayout value={settings}>
           <OpenSearchContext value={openSearch}>
             <HuddlesContext value={huddles}>
-              <ProfilePaneContext value={profilePane}>{layout}</ProfilePaneContext>
+              <ProfilePaneContext value={profilePane}>
+                <ConversationsContext value={conversations}>{layout}</ConversationsContext>
+              </ProfilePaneContext>
             </HuddlesContext>
           </OpenSearchContext>
         </SettingsLayout>

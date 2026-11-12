@@ -176,6 +176,14 @@ export interface KeptFile {
   file: StreamedFile;
 }
 
+/** A forward for `ChatRoom.postForward` to post: its markup, the thread it goes in, if any, and the copy of the forwarded file, if any. */
+export interface PostedForward {
+  clientMessageId: string;
+  markup: string;
+  parentId?: string;
+  kept?: KeptFile;
+}
+
 /** How `ChatRoom.create` posts a message: as a bot's reply to a webhook delivery, with a file, or in a thread. */
 interface Posting {
   kind?: "message" | "reply";
@@ -831,6 +839,58 @@ export class ChatRoom extends DurableObject<Env> {
       if (inThread === null) return MESSAGE_GONE;
       const posted: PostedFile = { file: attachedFile(blob, identified), finished: (messageId) => blobs.finished(key, messageId, now, identified) };
       return { message: await this.postFile(store, uploader.user, blob, posted, now, { inThread }), posted: true };
+    });
+  }
+
+  /**
+   * The message `messageId`, for `person` to forward, with the size of its file's preview, if it has one,
+   * or null when the room turns them away, as it does an upload, or no longer has the message.
+   */
+  async forwardable(roomId: RoomId, person: Uploader, messageId: string): Promise<{ message: Message; preview: ImageSize | null } | null> {
+    return this.serially(async () => {
+      if (await this.revocationsFor(roomId).refuse(person.tags, person.authorizedAt)) return null;
+      const message = await this.findUndeleted(this.storeFor(roomId), messageId);
+      if (!message) return null;
+      const blob = message.attachment ? await this.blobsFor(roomId).find(message.attachment.id) : null;
+      return { message, preview: blob?.preview ?? null };
+    });
+  }
+
+  /**
+   * Starts the copy of a forwarded file, named `filename`, of `declaredType`, which R2 is to keep here
+   * for `person`'s forward, as `startBotUpload` starts a bot's file, answering its key, or null when the
+   * room turns them away. The alarm deletes it a day later if the forward never posts it.
+   */
+  async startForwardedFile(roomId: RoomId, person: Uploader, file: Pick<ArrivingFile, "filename" | "declaredType">): Promise<{ key: string } | null> {
+    const startedAt = Date.now();
+    const started = await this.serially(async () => {
+      if (await this.revocationsFor(roomId).refuse(person.tags, person.authorizedAt)) return null;
+      return { key: await this.startArriving(roomId, person.user.id, file, startedAt) };
+    });
+    if (started) await this.wakeAt(roomId, startedAt + UNFINISHED_UPLOAD_KEPT_MS);
+    return started;
+  }
+
+  /**
+   * Posts `person`'s forward, `markup` quoting the message forwarded, as their message, with the copy of
+   * its file R2 keeps here, `kept`, if it had one, in the thread of the message `parentId` if that's
+   * given, as a socket's message.create posts one. Answers the message, why the room keeps nothing of
+   * it, `MESSAGE_GONE` when it has no such thread, or null when the room turns them away, as it does an
+   * upload, or has no such copy.
+   */
+  async postForward(roomId: RoomId, person: Uploader, { clientMessageId, markup, parentId, kept }: PostedForward): Promise<Message | string | null> {
+    return this.serially(async () => {
+      const now = new Date().toISOString();
+      if (await this.revocationsFor(roomId).refuse(person.tags, person.authorizedAt)) return null;
+      const store = this.storeFor(roomId);
+      const inThread = parentId === undefined ? undefined : await this.inThread(store, parentId, false);
+      if (inThread === null) return MESSAGE_GONE;
+      const body = await this.prepare(markup);
+      if (typeof body === "string") return body;
+      if (!kept) return this.create(store, person.user, clientMessageId, body, now, { inThread });
+      const blob = await this.blobsFor(roomId).find(kept.key);
+      if (blob?.uploaderId !== person.user.id) return null;
+      return this.create(store, person.user, clientMessageId, body, now, { inThread, posted: this.streamed(roomId, blob, kept.file, now) });
     });
   }
 

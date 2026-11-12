@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import { FlashProvider } from "@/components/flash";
 import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
-import { timeLabel } from "@/lib/messages";
+import { quotedTimeLabel, timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
 import { MessageItem, type ThreadPlace } from "./message-item";
 
@@ -32,6 +32,9 @@ const message = (overrides: Partial<Message> = {}): Message => {
     ...overrides,
   };
 };
+
+/** The time a quote of `message()` cites, as the reader reads it. */
+const QUOTED_TIME = `<time datetime="2026-10-12T10:00:00.000Z">${quotedTimeLabel(new Date("2026-10-12T10:00:00.000Z"))}</time>`;
 
 const boost = (id: string, booster: User, content: string): Boost => ({ id, messageId: "m1", booster, content, createdAt: "" });
 
@@ -234,7 +237,7 @@ describe("Download and share files", () => {
   it("offers Download in place of Quote among a file message's actions", async () => {
     const { user } = show(fileMessage(), { me: grace });
     await user.click(optionsOn("Q3 report.pdf"));
-    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Download", "Copy link"]);
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Forward message…", "Download", "Copy link"]);
     const download = within(actionBar()).getByRole("link", { name: "Download" });
     expect(download).toHaveAttribute("href", report.downloadUrl);
     expect(download).toHaveClass("ios-pwa:hidden");
@@ -435,7 +438,7 @@ describe("Edit a message", () => {
   it("has Edit and Delete message on the bar without a mouse, which can't open More actions, where a mouse has them, as Slack does", async () => {
     const { user } = show(message({ creator: grace }), { administrator: true });
     await user.click(optionsOn("Hello"));
-    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link", "Edit", "Delete message"]);
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Forward message…", "Quote", "Copy link", "Edit", "Delete message"]);
   });
 
   it("edits in place of the message's text, under its author and time, starting from its text, where Enter saves", async () => {
@@ -548,7 +551,7 @@ describe("Edit a message", () => {
 });
 
 describe("Message action bar", () => {
-  it("opens the actions from Message options, with three quick reactions, More reactions, Reply in thread, Quote and Copy link", async () => {
+  it("opens the actions from Message options, with three quick reactions, More reactions, Reply in thread, Forward message, Quote and Copy link", async () => {
     const { user } = show(message(), { me: grace });
     const options = optionsOn("Hello");
     expect(options).toHaveAttribute("aria-expanded", "false");
@@ -557,7 +560,7 @@ describe("Message action bar", () => {
     await user.click(options);
     expect(options).toHaveAttribute("aria-expanded", "true");
     expect(options).toHaveAttribute("aria-controls", actionBar().id);
-    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link"]);
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Forward message…", "Quote", "Copy link"]);
 
     await user.click(options);
     expect(options).toHaveAttribute("aria-expanded", "false");
@@ -702,7 +705,15 @@ describe("Message action bar", () => {
     withMouse();
     const { article } = show(message(), { me: grace });
     fireEvent.pointerEnter(article, { pointerType: "mouse" });
-    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread"]);
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Forward message…"]);
+  });
+
+  it("opens Forward message from the bar, closing the bar", async () => {
+    const { user } = show(message(), { me: grace });
+    await user.click(optionsOn("Hello"));
+    await user.click(within(actionBar()).getByRole("button", { name: "Forward message…" }));
+    expect(await screen.findByRole("dialog", { name: "Forward message" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
   });
 
   it("names each button in a tooltip the moment the pointer reaches it, and shuts it as the pointer leaves", async () => {
@@ -714,7 +725,7 @@ describe("Message action bar", () => {
       await user.hover(control);
       named.push(screen.getByRole("tooltip").textContent);
     }
-    expect(named).toEqual(["Thumbs up", "Clapping", "Waving hand", "More reactions", "Reply in thread", "More actions"]);
+    expect(named).toEqual(["Thumbs up", "Clapping", "Waving hand", "More reactions", "Reply in thread", "Forward message…", "More actions"]);
     await user.unhover(optionsOn("Hello"));
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 
@@ -789,6 +800,13 @@ describe("More actions on a message", () => {
     const cards = show(cardMessage(), { me: grace, administrator: true });
     await openMoreActions(cards.user, cards.article);
     expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Delete message"]);
+  });
+
+  it("offers neither Edit message nor Delete message on someone else's message to anyone but an administrator", async () => {
+    withMouse();
+    const { article, user } = show(message(), { me: grace });
+    await openMoreActions(user, article);
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link"]);
   });
 
   it("copies the message's text, or its address, turning the item green and leaving the actions open", async () => {
@@ -935,7 +953,7 @@ describe("Quote a message", () => {
     const { editors, user } = show(message({ plainText: "Third time's a charm." }), { me: grace });
     await pressAction(user, "Quote", "Third time's a charm.");
     expect(editors.reply).toHaveBeenCalledWith(
-      `<blockquote><p>Third time's a charm.</p></blockquote><cite>Ada <a href="${location.origin}/rooms/general/@m1">#</a></cite><p><br></p>`,
+      `<blockquote><p>Third time's a charm.</p></blockquote><cite>Ada · ${QUOTED_TIME} <a href="${location.origin}/rooms/general/@m1">#</a></cite><p><br></p>`,
     );
     expect(optionsOn("Third time's a charm.")).toHaveAttribute("aria-expanded", "false");
   });
@@ -951,7 +969,7 @@ describe("Quote a message", () => {
       </PeopleContext>,
     );
     await pressAction(userEvent.setup(), "Quote", "Ada King");
-    expect(editors.reply.mock.lastCall![0]).toMatch(/^<blockquote><p>Thanks Grace Hopper!<\/p><\/blockquote><cite>Ada King <a /);
+    expect(editors.reply.mock.lastCall![0]).toMatch(/^<blockquote><p>Thanks Grace Hopper!<\/p><\/blockquote><cite>Ada King · <time /);
   });
 
   it("quotes from More actions with a mouse, whose bar has Reply in thread in its place", async () => {
@@ -964,7 +982,7 @@ describe("Quote a message", () => {
 
     await user.click(optionsOn("Third time's a charm."));
     await user.click(within(screen.getByRole("group", { name: "More actions" })).getByRole("button", { name: "Quote" }));
-    expect(editors.reply.mock.lastCall![0]).toMatch(/^<blockquote><p>Third time's a charm.<\/p><\/blockquote><cite>Ada <a /);
+    expect(editors.reply.mock.lastCall![0]).toMatch(/^<blockquote><p>Third time's a charm.<\/p><\/blockquote><cite>Ada · <time /);
     expect(optionsOn("Third time's a charm.")).toHaveAttribute("aria-expanded", "false");
   });
 
@@ -1455,7 +1473,7 @@ describe("Bot cards", () => {
   it("quotes a bot's cards' plain text where they're all the message shows, and otherwise its text", async () => {
     const { editors, user } = show(cardMessage(), { me: grace });
     await pressAction(user, "Quote", "Ada");
-    const cite = `<cite>Ada <a href="${location.origin}/rooms/general/@m1">#</a></cite><p><br></p>`;
+    const cite = `<cite>Ada · ${QUOTED_TIME} <a href="${location.origin}/rooms/general/@m1">#</a></cite><p><br></p>`;
     expect(editors.reply).toHaveBeenCalledWith(`<blockquote><p>Deployed 🚀<br>web is live</p></blockquote>${cite}`);
     cleanup();
 

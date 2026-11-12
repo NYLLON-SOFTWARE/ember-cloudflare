@@ -44,6 +44,73 @@ class CiteNode extends Lexical.ElementNode {
 }
 
 /**
+ * The `<time>` in a quote's `<cite>`, which keeps when the quoted message was written, so readers' apps show it in
+ * their own time zone. It holds the time as the person quoting read it, which typing next to it doesn't add to.
+ */
+class TimeNode extends Lexical.ElementNode {
+  __datetime: string;
+
+  static getType() {
+    return "time";
+  }
+
+  static clone(node: TimeNode) {
+    return new TimeNode(node.__datetime, node.__key);
+  }
+
+  constructor(datetime = "", key?: string) {
+    super(key);
+    this.__datetime = datetime;
+  }
+
+  static importJSON(serialized: Record<string, unknown>) {
+    return new TimeNode(typeof serialized.datetime === "string" ? serialized.datetime : "").updateFromJSON(serialized);
+  }
+
+  static importDOM() {
+    return { time: () => ({ conversion: (element: HTMLElement) => ({ node: new TimeNode(element.getAttribute("datetime") ?? "") }), priority: 1 }) };
+  }
+
+  exportJSON() {
+    return { ...super.exportJSON(), type: "time", datetime: this.__datetime };
+  }
+
+  createDOM() {
+    return this.element();
+  }
+
+  updateDOM() {
+    return false;
+  }
+
+  exportDOM() {
+    return { element: this.element() };
+  }
+
+  isInline() {
+    return true;
+  }
+
+  canBeEmpty() {
+    return false;
+  }
+
+  canInsertTextBefore() {
+    return false;
+  }
+
+  canInsertTextAfter() {
+    return false;
+  }
+
+  private element() {
+    const element = document.createElement("time");
+    element.setAttribute("datetime", this.__datetime);
+    return element;
+  }
+}
+
+/**
  * Campfire's CampfireRichTextExtension (app/javascript/lib/rich_text/campfire_extension.js):
  * what Campfire's messages hold beyond what Lexxy writes, which the editor keeps rather than strips.
  */
@@ -51,6 +118,7 @@ class CampfireRichTextExtension extends Extension {
   get allowedElements() {
     return [
       "cite",
+      { tag: "time", attributes: ["datetime"] },
       "figure",
       "figcaption",
       "actiontext-opengraph-embed",
@@ -64,7 +132,7 @@ class CampfireRichTextExtension extends Extension {
   get lexicalExtension() {
     return this.defineExtension({
       name: "campfire/rich-text",
-      nodes: [CiteNode],
+      nodes: [CiteNode, TimeNode],
       register: (editor: LexicalEditor) => {
         const stopQuoting = registerQuoteLines(editor);
         const stopSpacing = registerSpaceAfterBareAt(editor);

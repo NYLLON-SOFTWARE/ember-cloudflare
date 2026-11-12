@@ -48,9 +48,11 @@ import {
   type MemberfulConnection,
   type MemberfulConnectionStart,
   type MemberfulDisconnection,
+  type Message,
   type NewAssistantModel,
   type OfferedModels,
   type NewDirect,
+  type NewForward,
   type NewJoinCode,
   type NewRoom,
   type NewRoomForm,
@@ -847,6 +849,16 @@ export async function createRoom(room: NewRoom): Promise<SharedRoom> {
 /** Opens the DM between this person and the people `userIds` names, starting it if the group has none, and answers it. */
 export async function startDirect(userIds: UserId[]): Promise<DirectRoom> {
   return (await request<StartedDirect>("/api/directs", { method: "POST", body: JSON.stringify({ userIds } satisfies NewDirect) })).room;
+}
+
+/**
+ * Forwards the message `messageId` in `roomId` as `forward` says, answering the message posted. Fails with
+ * a 404 ApiError when either conversation isn't this person's or the message is gone, and a 422 one, saying
+ * why, for a thread that's gone or a forward too long.
+ */
+export async function forwardMessage(roomId: RoomId, messageId: string, forward: NewForward): Promise<Message> {
+  const path = `/api/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}/forwards`;
+  return request<Message>(path, { method: "POST", body: JSON.stringify(forward) });
 }
 
 /** A room's settings. Fails with a 404 ApiError for a room this person isn't in, or a DM. */

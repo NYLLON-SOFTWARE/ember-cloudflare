@@ -131,6 +131,7 @@ import { jsonWithETag } from "./etag";
 import { fileAddressOf, serveFile } from "./files/serving";
 import { pictureFormOf } from "./files/pictures";
 import { NO_STORAGE, shareFile, startUpload, uploadPart, uploadPreview } from "./files/uploads";
+import { forwardMessage } from "./forwards";
 import { CSP_REPORT_PATH, cspReport } from "./csp";
 import { addressRefusal, answerProbe, deployedAddressOf, lookUpDns, originFor, probeOf, reachOf } from "./custom-domain";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
@@ -1266,6 +1267,9 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
     return () => (isRoomId(involvement[1]!) ? setInvolvement(request, env, involvement[1]!) : problem(404, ROOM_NOT_FOUND));
   const membership = pathname.match(/^\/api\/rooms\/([^/]+)\/membership$/);
   if (membership && request.method === "DELETE") return () => (isRoomId(membership[1]!) ? leaveRoom(request, env, membership[1]!) : problem(404, ROOM_NOT_FOUND));
+  const forwards = pathname.match(/^\/api\/rooms\/([^/]+)\/messages\/([^/]+)\/forwards$/);
+  if (forwards && request.method === "POST")
+    return () => (isRoomId(forwards[1]!) ? forwardMessage(request, env, forwards[1]!, forwards[2]!) : problem(404, ROOM_NOT_FOUND));
   const uploads = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads$/);
   if (uploads && request.method === "POST") return () => (isRoomId(uploads[1]!) ? startUpload(request, env, uploads[1]!) : problem(404, ROOM_NOT_FOUND));
   const shared = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads\/shared$/);
