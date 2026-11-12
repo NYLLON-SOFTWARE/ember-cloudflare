@@ -69,13 +69,18 @@ afterEach(() => {
   history.replaceState(null, "", "/");
 });
 
-describe("Workspace layout", () => {
+/**
+ * How long the pages few visits need may take to load: every test starts with none of their modules
+ * (`vi.resetModules`), and Vitest transforms them all afresh, which takes seconds on a busy machine.
+ */
+const PAGES_LOAD_MS = 30_000;
+
+describe("Workspace layout", { timeout: PAGES_LOAD_MS * 2 }, () => {
   it("says Loading… until the pages few visits need have loaded, and then shows each at once", async () => {
     const { show, navigate } = await freshWorkspace();
     show("/searches");
     expect(screen.getByText("Loading…")).toBeInTheDocument();
-    // The pages few visits need load with their first import, which can take a while on a busy machine.
-    expect(await screen.findByRole("heading", { level: 1, name: "Search messages" }, { timeout: 10_000 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Search messages" }, { timeout: PAGES_LOAD_MS })).toBeInTheDocument();
 
     act(() => navigate("/users/me/profile"));
     expect(screen.getByRole("heading", { level: 1, name: "Your profile" })).toBeInTheDocument();
