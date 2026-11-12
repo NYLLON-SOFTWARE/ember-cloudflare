@@ -1057,6 +1057,22 @@ describe("Attach", () => {
     expect(onSendFiles).toHaveBeenCalledTimes(2);
   });
 
+  it("asks again on Send where someone else would now see the file in place of someone it named", async () => {
+    const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/files/f1/plan.pdf", downloadUrl: "/d" };
+    filesInEmber(file, { widens: true, newViewers: 2, names: ["Grace", "Linus"] }, { kind: "closed" });
+    const { user, onSendFiles } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
+    await user.click(await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /plan\.pdf/ }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Attach" }));
+    await screen.findByRole("button", { name: "Remove plan.pdf" });
+
+    filesInEmber(file, { widens: true, newViewers: 2, names: ["Grace", "Mary"] }, { kind: "closed" });
+    await user.click(sendButton());
+    expect(await screen.findByRole("alertdialog")).toHaveAccessibleDescription("Grace and Mary will be able to open this file in #general.");
+    expect(onSendFiles).not.toHaveBeenCalled();
+  });
+
   it("attaches a file from the room it's for without asking, and says so when it can't check who'd see one", async () => {
     const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/files/f1/plan.pdf", downloadUrl: "/d" };
     const fetch = filesInEmber(file, null, { roomId: "r1" });

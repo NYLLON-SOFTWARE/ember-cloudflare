@@ -25,6 +25,16 @@ export interface ShareWidening {
   names: string[];
 }
 
+/**
+ * Whether sharing as `now` would reach anyone the warning didn't name or count as it was answered, `accepted`,
+ * or anyone at all where it wasn't asked: more people, or someone else in place of one it named.
+ */
+export function reachesMore(now: ShareWidening, accepted?: ShareWidening): boolean {
+  if (!now.widens) return false;
+  if (!accepted) return true;
+  return now.newViewers > accepted.newViewers || now.names.some((name) => !accepted.names.includes(name));
+}
+
 /** How many of the people sharing would reach the warning names, beyond which it counts them. */
 export const NAMED_NEW_VIEWERS = 3;
 

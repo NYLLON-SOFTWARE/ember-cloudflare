@@ -49,7 +49,9 @@ describe("Scheduling times", () => {
   });
 
   it("schedules no further ahead than the room allows", () => {
-    expect(latestSendTime(wednesdayNight).getTime() - wednesdayNight.getTime()).toBe(MAX_SCHEDULE_AHEAD_MS);
+    // To any time on the last day, as the picker offers it.
+    const last = new Date(wednesdayNight.getTime() + MAX_SCHEDULE_AHEAD_MS);
+    expect(latestSendTime(wednesdayNight)).toEqual(new Date(last.getFullYear(), last.getMonth(), last.getDate(), 23, 59, 59, 999));
   });
 
   it("reads a custom time from a date field and a time field, refusing a date that doesn't exist", () => {

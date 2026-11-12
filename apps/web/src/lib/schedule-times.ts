@@ -77,8 +77,12 @@ export function shortSendTime(sendAt: number, now: Date): string {
 /** How many days ahead a message can be scheduled, as the room allows. */
 export const SCHEDULE_AHEAD_DAYS = MAX_SCHEDULE_AHEAD_MS / (24 * 60 * 60 * 1000);
 
-/** The last moment a message can be scheduled for from `now`, as the room allows. */
-export const latestSendTime = (now: Date) => new Date(now.getTime() + MAX_SCHEDULE_AHEAD_MS);
+/** The last moment a message can be scheduled for from `now`, as the room allows: the end of the last day. */
+export function latestSendTime(now: Date): Date {
+  const last = new Date(now.getTime() + MAX_SCHEDULE_AHEAD_MS);
+  last.setHours(23, 59, 59, 999);
+  return last;
+}
 
 /** A date as a date field takes it: YYYY-MM-DD, in this browser's time zone. */
 export const dateValue = (at: Date) => `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
