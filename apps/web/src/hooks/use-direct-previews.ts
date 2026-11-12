@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import type { DirectPreview, RoomId, SidebarRoom } from "@ember/protocol";
 import { isSignedOut } from "@/lib/api";
 import { fetchDirectPreviews } from "@/lib/conversations";
@@ -40,6 +40,8 @@ export function useDirectPreviews(rooms: readonly SidebarRoom[] | null, enabled:
   const activity = useMemo(() => (rooms === null ? null : activityOf(rooms)), [rooms]);
   const signedOut = useEffectEvent(onSignedOut);
   const isDirect = useEffectEvent((roomId: unknown) => rooms?.some((room) => room.id === roomId && room.kind === "direct") ?? false);
+  // The first ask goes at once, as the list waits for it; those after wait for the index.
+  const asked = useRef(false);
   useEffect(() => {
     if (!enabled) return;
     const changed = () => setChanges((changes) => changes + 1);
@@ -57,6 +59,8 @@ export function useDirectPreviews(rooms: readonly SidebarRoom[] | null, enabled:
   useEffect(() => {
     if (!enabled || activity === null) return;
     let stopped = false;
+    const delay = asked.current ? PREVIEW_DELAY_MS : 0;
+    asked.current = true;
     const ask = setTimeout(() => {
       fetchDirectPreviews().then(
         ({ previews }) => {
@@ -66,7 +70,7 @@ export function useDirectPreviews(rooms: readonly SidebarRoom[] | null, enabled:
         },
         (error: unknown) => !stopped && isSignedOut(error) && signedOut(),
       );
-    }, PREVIEW_DELAY_MS);
+    }, delay);
     return () => {
       stopped = true;
       clearTimeout(ask);

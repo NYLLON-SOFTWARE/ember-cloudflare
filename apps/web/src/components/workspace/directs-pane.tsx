@@ -291,12 +291,11 @@ function DirectRow({ room, meId, preview, previewKnown, current, unreadId, onCli
       aria-labelledby={nameId}
       aria-describedby={unreadId ? `${unreadId} ${aboutId}` : aboutId}
       onClick={onClick}
-      // The ring is inset, so the list's edges, which the row runs to, don't clip it. A DM with nothing
-      // said in it yet has its name centered beside the avatar, in a row as tall as the avatar and its
-      // padding, once that's known: until its preview comes, a row keeps a faint line for it.
+      // The ring is inset, so the list's edges, which the row runs to, don't clip it. Every row is as tall
+      // as one with a line of message, and a DM with nothing said in it yet has its name centered there.
       className={cn(
-        "group/row flex gap-3 px-[18px] py-3 text-foreground no-underline outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-[current=page]:bg-hover",
-        latest || !previewKnown ? "min-h-[72px] items-start" : "min-h-[60px] items-center",
+        "group/row flex min-h-[72px] gap-3 px-[18px] py-3 text-foreground no-underline outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-[current=page]:bg-hover",
+        latest || !previewKnown ? "items-start" : "items-center",
       )}
     >
       <DirectAvatars members={members} ringClassName="ring-surface group-hover/row:ring-hover group-aria-[current=page]/row:ring-hover" />
@@ -310,7 +309,7 @@ function DirectRow({ room, meId, preview, previewKnown, current, unreadId, onCli
           <time dateTime={at.toISOString()} className="shrink-0 text-[12px] text-muted-foreground">
             {activityLabel(at)}
           </time>
-          {!latest && marker}
+          {!latest && previewKnown && marker}
         </span>
         {/* What screen readers hear after the name: how many are unread, when, and what was said. */}
         <span id={aboutId} className="sr-only">
@@ -319,14 +318,25 @@ function DirectRow({ room, meId, preview, previewKnown, current, unreadId, onCli
         {latest ? (
           // The time keeps the right edge, and how many are unread ends the message's line, as in Slack.
           <span className="flex min-w-0 items-start gap-2">
-            {/* Two lines on phones, as Slack's app shows, and one beside the page, so the rows keep one height. */}
-            <span aria-hidden="true" className={cn("min-w-0 flex-1 line-clamp-2 text-[14px] leading-5 wrap-anywhere md:line-clamp-1", unread ? "text-foreground" : "text-muted-foreground")}>
+            {/* Two lines on phones, as Slack's app shows, always as tall as two, so a row never grows as its
+                message comes, and one beside the page, so the rows keep one height. */}
+            <span aria-hidden="true" className={cn("min-w-0 flex-1 line-clamp-2 text-[14px] leading-5 wrap-anywhere max-md:min-h-10 md:line-clamp-1", unread ? "text-foreground" : "text-muted-foreground")}>
               {previewOf(latest, meId, members.length > 1, nameOf)}
             </span>
             {marker}
           </span>
         ) : (
-          !previewKnown && <span aria-hidden="true" className="mt-1.5 h-3 w-2/3 rounded-full bg-hover" />
+          // Until its message comes, a faint line, two on phones, where its message has two, and its
+          // unread mark at the end of it, where the message's would be.
+          !previewKnown && (
+            <span className="flex min-w-0 items-start gap-2">
+              <span aria-hidden="true" className="flex min-w-0 flex-1 flex-col gap-2 pt-1 max-md:min-h-10">
+                <span className="h-3 w-2/3 rounded-full bg-hover" />
+                <span className="h-3 w-1/2 rounded-full bg-hover md:hidden" />
+              </span>
+              {marker}
+            </span>
+          )
         )}
       </span>
     </a>

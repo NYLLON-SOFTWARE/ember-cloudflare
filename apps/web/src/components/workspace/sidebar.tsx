@@ -293,7 +293,8 @@ export function RoomRow({ room, current, unread, count = room.unreadCount ?? 0, 
           </span>
         </>
       ) : (
-        showsUnread && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full bg-foreground", !huddle && "ml-auto")} />
+        // Muted, as ink is for what mentions you.
+        showsUnread && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full bg-muted-foreground", !huddle && "ml-auto")} />
       )}
     </a>
   );

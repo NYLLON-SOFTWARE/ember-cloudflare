@@ -333,7 +333,7 @@ export function MessageList({ roomName, direct = false, closed = false, invitati
                         roomName
                       ) : closed ? (
                         <>
-                          Welcome to <Lock aria-hidden="true" className="inline size-[0.85em] align-[-0.08em]" />
+                          Welcome to <Lock aria-hidden="true" className="inline size-[1em] align-[-0.125em]" />
                           {roomName}
                         </>
                       ) : (
