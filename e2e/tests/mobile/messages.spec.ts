@@ -86,8 +86,9 @@ test("tapping Message options again closes the actions", async ({ page, room, pa
 
 test("tapping anywhere else closes the actions, so only one message has them open", async ({ page, room, participant }) => {
   const ada = await participant("Ada");
-  // The first message's actions open over the next two, so the last one's button is clear of them.
-  for (const text of ["The first message", "The second", "The third", "The last message"]) await ada.say(text);
+  // The first message's actions open over the next few, three rows of them on the narrowest phone, so the
+  // last one's button is clear of them.
+  for (const text of ["The first message", "The second", "The third", "The fourth", "The fifth", "The last message"]) await ada.say(text);
   await openRoom(page, room);
   // In landscape the first message's button is under the header, so tapping it scrolls the timeline
   // up, and the composer's editor mounting then would resize the timeline, which keeps to its end
