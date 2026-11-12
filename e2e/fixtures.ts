@@ -526,11 +526,11 @@ export const test = base.extend<AppFixtures>({
 export { expect };
 
 /**
- * Answers the app's own dialog that asks `question`, which may be only its start, with its `button`, Cancel
- * or the one that goes ahead, where the browser's `confirm()` once asked. It waits for the dialog to go.
+ * Answers the app's own dialog titled `title`, which may be only its start, with its `button`, Cancel or the
+ * one that goes ahead, where the browser's `confirm()` once asked. It waits for the dialog to go.
  */
-export async function answerConfirm(page: Page, question: string, button: string): Promise<void> {
-  const dialog = page.getByRole("alertdialog", { name: question });
+export async function answerConfirm(page: Page, title: string, button: string): Promise<void> {
+  const dialog = page.getByRole("alertdialog", { name: title });
   await dialog.getByRole("button", { name: button, exact: true }).click();
   await expect(dialog).toBeHidden();
 }

@@ -97,11 +97,11 @@ describe("Sending email", () => {
     const confirm = vi.spyOn(window, "confirm");
     const { user, answered, onStopped } = showCard({ ...NEW_EMAIL, from: "Ember <ember@example.com>" });
     await user.click(stopButton()!);
-    await answerConfirm(user, CONFIRM_STOP_EMAIL, "Cancel");
+    await answerConfirm(user, CONFIRM_STOP_EMAIL.title, "Cancel");
     expect(fetch).not.toHaveBeenCalled();
 
     await user.click(stopButton()!);
-    await answerConfirm(user, CONFIRM_STOP_EMAIL, "Stop sending");
+    await answerConfirm(user, CONFIRM_STOP_EMAIL.title, "Stop sending");
     expect(fetch).toHaveBeenCalledWith("/api/account", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ emailFrom: null }) }));
     expect(stopButton()).toBeDisabled();
     expect(screen.getByRole("button", { name: "Change" })).toBeDisabled();
@@ -116,7 +116,7 @@ describe("Sending email", () => {
     serve(undefined, () => Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }));
     const { user, onStopped, onFailed } = showCard({ ...NEW_EMAIL, from: "Ember <ember@example.com>" });
     await user.click(stopButton()!);
-    await answerConfirm(user, CONFIRM_STOP_EMAIL, "Stop sending");
+    await answerConfirm(user, CONFIRM_STOP_EMAIL.title, "Stop sending");
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, "Only administrators can change the workspace")));
     expect(onStopped).not.toHaveBeenCalled();
     expect(stopButton()).toBeEnabled();

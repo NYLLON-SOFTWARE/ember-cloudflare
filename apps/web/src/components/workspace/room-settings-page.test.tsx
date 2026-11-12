@@ -7,7 +7,7 @@ import { leave, navigate, useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
 import { answerConfirm } from "@/test-confirm";
-import { CONFIRM_DELETE, CONFIRM_LEAVE, RoomSettingsPage } from "./room-settings-page";
+import { RoomSettingsPage } from "./room-settings-page";
 
 const ada = { id: "u1", name: "Ada Lovelace" };
 const grace = { id: "u2", name: "Grace Hopper" };
@@ -390,7 +390,7 @@ describe("Delete a room", () => {
   /** Presses Delete and answers what it asks with Delete, or else Cancel. */
   const pressDelete = async (user: UserEvent, confirm = true) => {
     await user.click(await deleteButton());
-    await answerConfirm(user, CONFIRM_DELETE, confirm ? "Delete" : "Cancel");
+    await answerConfirm(user, "Delete #Design", confirm ? "Delete" : "Cancel");
   };
   const deleted = () => new Response(null, { status: 204 });
 
@@ -473,7 +473,7 @@ describe("Leave a private room", () => {
   /** Presses Leave and answers what it asks with Leave, or else Cancel. */
   const pressLeave = async (user: UserEvent, confirm = true) => {
     await user.click(await leaveButton());
-    await answerConfirm(user, CONFIRM_LEAVE, confirm ? "Leave" : "Cancel");
+    await answerConfirm(user, "Leave Leads", confirm ? "Leave" : "Cancel");
   };
   const asMember: RoomSettings = { ...closedSettings, canAdminister: false };
 
@@ -648,7 +648,7 @@ describe("Unsaved changes guard", () => {
     const { user } = showPage(design);
     await user.type(await roomName(), " team");
     await user.click(screen.getByRole("button", { name: "Delete Design" }));
-    await answerConfirm(user, CONFIRM_DELETE, "Delete");
+    await answerConfirm(user, "Delete #Design", "Delete");
     // Sent, which the page shows before the answer comes, as it would in a browser.
     await waitFor(() => expect(screen.getByRole("button", { name: "Delete Design" })).toBeDisabled());
     await answer(new Response(null, { status: 204 }));
@@ -679,7 +679,10 @@ describe("Parent room", () => {
     expect(screen.getByText(warning)).toBeInTheDocument();
     expect(names()).toEqual(["Everyone in Strata", "Ada Lovelace"]);
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await answerConfirm(user, `${warning} Save anyway?`, "Save");
+    const asked = await screen.findByRole("alertdialog", { name: "Move #Design under Strata" });
+    expect(asked).toHaveAccessibleDescription("This removes Grace Hopper and Linus Torvalds, who aren’t in Strata.");
+    expect(within(asked).getByRole("button", { name: "Move" })).toHaveClass("bg-negative-button");
+    await answerConfirm(user, "Move #Design under Strata", "Move");
     expect(sent()).toEqual({ name: "Design", icon: "", kind: "open", parentId: "strata" });
     expect(confirm).not.toHaveBeenCalled();
   });
@@ -690,7 +693,7 @@ describe("Parent room", () => {
     await roomName();
     await pick(user, "Strata");
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await answerConfirm(user, "Moving this room under Strata removes Grace Hopper and Linus Torvalds, who aren’t in Strata. Save anyway?", "Cancel");
+    await answerConfirm(user, "Move #Design under Strata", "Cancel");
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
   });
 

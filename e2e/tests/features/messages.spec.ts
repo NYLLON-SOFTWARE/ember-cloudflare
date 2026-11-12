@@ -1133,7 +1133,7 @@ test.describe("Delete a message", () => {
     await message.hover();
     await message.getByRole("button", { name: "Message options" }).click();
     await moreActions(message).getByRole("button", { name: "Delete message" }).click();
-    const dialog = administrator.getByRole("alertdialog", { name: "Delete message?" });
+    const dialog = administrator.getByRole("alertdialog", { name: "Delete message" });
     // It shows whose message it is, which isn't the administrator's.
     await expect(dialog).toContainText(grace.name);
     await dialog.getByRole("button", { name: "Delete", exact: true }).click();

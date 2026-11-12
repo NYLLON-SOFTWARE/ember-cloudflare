@@ -8,7 +8,7 @@ import { FlashProvider } from "@/components/flash";
 import { Sheet } from "@/components/ui/sheet";
 import { AccountContext } from "@/hooks/use-account";
 import { answerConfirm } from "@/test-confirm";
-import { BotSettingsPage, CONFIRM_DELETE_BOT, CONFIRM_NEW_KEY, NewBotPage } from "./bot-settings-page";
+import { BotSettingsPage, NewBotPage } from "./bot-settings-page";
 
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 
@@ -350,10 +350,11 @@ describe("Delete a bot", () => {
     expect(remove).toHaveTextContent("Delete bot");
 
     await user.click(remove);
-    await answerConfirm(user, CONFIRM_DELETE_BOT, "Cancel");
+    expect(await screen.findByRole("alertdialog", { name: "Delete Build Bot" })).toHaveAccessibleDescription("This can’t be undone.");
+    await answerConfirm(user, "Delete Build Bot", "Cancel");
     expect(sent()).toEqual([]);
     await user.click(remove);
-    await answerConfirm(user, CONFIRM_DELETE_BOT, "Delete");
+    await answerConfirm(user, "Delete Build Bot", "Delete");
     await waitFor(() => expect(location.pathname).toBe("/account/bots"));
     expect(sent()).toEqual([[`DELETE /api/account/bots/${BOT.id}`, undefined]]);
     expect(confirm).not.toHaveBeenCalled();
@@ -365,7 +366,7 @@ describe("Delete a bot", () => {
     const { onFailed, user } = showSettings();
     await loaded();
     await user.click(screen.getByRole("button", { name: "Delete this chat bot" }));
-    await answerConfirm(user, CONFIRM_DELETE_BOT, "Delete");
+    await answerConfirm(user, "Delete Build Bot", "Delete");
     for (const name of ["Save changes", "Delete this chat bot", "Generate a new key"]) expect(screen.getByRole("button", { name })).toBeDisabled();
 
     fail();
@@ -384,10 +385,11 @@ describe("Generate a new bot key", () => {
     expect(newKey).toHaveTextContent("Generate a new key");
 
     await user.click(newKey);
-    await answerConfirm(user, CONFIRM_NEW_KEY, "Cancel");
+    expect(await screen.findByRole("alertdialog", { name: "Generate a new key" })).toHaveAccessibleDescription("The bot’s current key will stop working.");
+    await answerConfirm(user, "Generate a new key", "Cancel");
     expect(sent()).toEqual([]);
     await user.click(newKey);
-    await answerConfirm(user, CONFIRM_NEW_KEY, "Generate key");
+    await answerConfirm(user, "Generate a new key", "Generate key");
     await waitFor(() => expect(location.pathname).toBe("/account/bots"));
     expect(sent()).toEqual([[`PUT /api/account/bots/${BOT.id}/key`, undefined]]);
     expect(confirm).not.toHaveBeenCalled();

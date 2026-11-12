@@ -402,7 +402,7 @@ test.describe("Ember AI", () => {
     const assistantSwitch = card.getByRole("switch", { name: "Ember AI" });
     await expect(assistantSwitch).toBeChecked();
     await assistantSwitch.click();
-    await answerConfirm(page, "Are you sure you want to turn off Ember AI?", "Turn off");
+    await answerConfirm(page, "Turn off Ember AI", "Turn off");
     await expect(assistantSwitch).not.toBeChecked();
     await expect(card).toContainText("Ember AI adds AI agents");
     await expect(page.getByRole("region", { name: "Agents", exact: true })).toBeHidden();

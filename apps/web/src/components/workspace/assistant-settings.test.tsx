@@ -73,12 +73,12 @@ describe("Ember AI", () => {
     const confirm = vi.spyOn(window, "confirm");
     const { user, onStopped } = showCard(ON);
     await user.click(assistantSwitch());
-    await answerConfirm(user, CONFIRM_STOP_ASSISTANT, "Cancel");
+    await answerConfirm(user, CONFIRM_STOP_ASSISTANT.title, "Cancel");
     expect(fetch).not.toHaveBeenCalled();
     expect(assistantSwitch()).toBeChecked();
 
     await user.click(assistantSwitch());
-    await answerConfirm(user, CONFIRM_STOP_ASSISTANT, "Turn off");
+    await answerConfirm(user, CONFIRM_STOP_ASSISTANT.title, "Turn off");
     expect(fetch).toHaveBeenCalledWith("/api/account/assistant", expect.objectContaining({ method: "DELETE" }));
     expect(assistantSwitch()).not.toBeChecked();
     expect(assistantSwitch()).toBeDisabled();
@@ -93,7 +93,7 @@ describe("Ember AI", () => {
     serve(() => Response.json({ error: "Only administrators can set up Ember AI" }, { status: 403 }));
     const { user, onStopped, onFailed } = showCard(ON);
     await user.click(assistantSwitch());
-    await answerConfirm(user, CONFIRM_STOP_ASSISTANT, "Turn off");
+    await answerConfirm(user, CONFIRM_STOP_ASSISTANT.title, "Turn off");
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, "Only administrators can set up Ember AI")));
     expect(onStopped).not.toHaveBeenCalled();
     expect(assistantSwitch()).toBeChecked();

@@ -989,7 +989,7 @@ describe("Attach", () => {
 
     await user.click(pick);
     // A private room's name follows a lock, and the warning says who'll be able to open the file.
-    const warning = await screen.findByRole("alertdialog", { name: /^Share outside .*design\?$/ });
+    const warning = await screen.findByRole("alertdialog", { name: /^Share outside .*design$/ });
     expect(warning).toHaveAccessibleDescription("Grace and Linus will be able to open this file in #general.");
     expect(fetch).toHaveBeenCalledWith("/api/share-check", expect.objectContaining({ method: "POST", body: JSON.stringify({ sourceRoomId: "r9", targetRoomId: "r1" }) }));
     await user.click(within(warning).getByRole("button", { name: "Cancel" }));

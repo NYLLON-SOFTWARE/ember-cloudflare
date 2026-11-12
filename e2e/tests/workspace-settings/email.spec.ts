@@ -79,7 +79,7 @@ test.describe("Sending email", () => {
 
     // Stop sending email takes the From address away, once it's confirmed.
     await kept.getByRole("button", { name: "Stop sending email" }).click();
-    await answerConfirm(page, "Are you sure you want Ember to stop sending email?", "Stop sending");
+    await answerConfirm(page, "Stop sending email", "Stop sending");
     await expect(kept).toContainText("Ember can't send email yet");
     await page.reload();
     await expect(page.getByRole("region", { name: "Email", exact: true })).toContainText("Ember can't send email yet");

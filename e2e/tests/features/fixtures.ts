@@ -97,7 +97,7 @@ export class Member {
 
   /** The dialog Delete message asks in, while it's open. */
   deleteDialog(): Locator {
-    return this.page.getByRole("alertdialog", { name: "Delete message?" });
+    return this.page.getByRole("alertdialog", { name: "Delete message" });
   }
 
   /** Deletes a message from More actions' Delete message, answering Delete in the dialog that asks first. */

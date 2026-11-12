@@ -42,7 +42,7 @@ function placeName({ label, closed }: SharePlace): ReactNode {
 
 /** The warning's title, for what sharing is called, "Share" or "Forward": outside the room it's from, or the DM. */
 export function shareWarningTitle(source: SharePlace, verb = "Share"): ReactNode {
-  return source.direct ? `${verb} outside your DM with ${source.label}?` : <>{verb} outside {placeName(source)}?</>;
+  return source.direct ? `${verb} outside your DM with ${source.label}` : <>{verb} outside {placeName(source)}</>;
 }
 
 /** What's shared, as the warning says what they'll do with it. */

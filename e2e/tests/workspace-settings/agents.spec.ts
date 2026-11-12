@@ -156,7 +156,7 @@ test.describe("Agents", () => {
     await expect(page.getByRole("checkbox", { name: "general" })).toBeChecked();
 
     await page.getByRole("button", { name: "Delete Scout" }).click();
-    await answerConfirm(page, "Are you sure you want to delete this agent?", "Delete");
+    await answerConfirm(page, "Delete Scout", "Delete");
     await expect(namesIn(card)).toHaveText(["Ember"]);
     // Its page is gone.
     const gone = await page.goto(`/account/agents/${scout.id}/edit`);

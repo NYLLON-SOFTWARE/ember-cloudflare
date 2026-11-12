@@ -88,7 +88,7 @@ describe("Forward outside who can see the original", () => {
     vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 3, names: [] });
     const user = show("secret");
     await forwardTo(user, "general");
-    const warning = await screen.findByRole("alertdialog", { name: /^Forward outside .*secret\?$/ });
+    const warning = await screen.findByRole("alertdialog", { name: /^Forward outside .*secret$/ });
     expect(checkShare).toHaveBeenCalledWith("secret", "general");
     expect(warning).toHaveTextContent(/3 people in #general aren['’]t in .*secret and will be able to see this message\./);
     expect(within(warning).getAllByRole("button").map((button) => button.textContent)).toEqual(["Cancel", "Forward"]);
@@ -102,7 +102,7 @@ describe("Forward outside who can see the original", () => {
     vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 1, names: ["Ana"] });
     const user = show("dm1");
     await forwardTo(user, "general");
-    const warning = await screen.findByRole("alertdialog", { name: "Forward outside your DM with Zan?" });
+    const warning = await screen.findByRole("alertdialog", { name: "Forward outside your DM with Zan" });
     expect(warning).toHaveTextContent("Ana will be able to see this message in #general.");
     await user.click(within(warning).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();

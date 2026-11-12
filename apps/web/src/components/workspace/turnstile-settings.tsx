@@ -16,8 +16,7 @@ import { BUTTON } from "./email-settings";
 // given.
 
 /** What turning Turnstile off asks first, since the limits on each network stand in for its check then. */
-export const CONFIRM_STOP_TURNSTILE =
-  "Are you sure you want to turn off Turnstile? Ember will forget the widget's keys, and limits on each network will stand in for its check until Turnstile is set up again.";
+export const CONFIRM_STOP_TURNSTILE = { title: "Turn off Turnstile", body: "Ember will forget the widget’s keys, and limit each network instead." };
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
@@ -43,7 +42,7 @@ export function TurnstileSettings({ turnstile, onSetUp, onStopped, onFailed }: P
   const secret = turnstile === "secret";
 
   const stop = async () => {
-    if (!(await confirmFirst(CONFIRM_STOP_TURNSTILE, { confirm: "Turn off", destructive: true }))) return;
+    if (!(await confirmFirst(CONFIRM_STOP_TURNSTILE.title, { body: CONFIRM_STOP_TURNSTILE.body, confirm: "Turn off", destructive: true }))) return;
     setStopping(true);
     forgetTurnstileKeys().then(
       (turnstile) => {

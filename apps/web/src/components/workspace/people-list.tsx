@@ -19,7 +19,7 @@ import { AvatarLink } from "./user-avatar";
 // with Delete.
 
 /** What Delete asks before removing someone. */
-export const CONFIRM_REMOVE = "Are you sure you want to permanently remove this person from the account? This can’t be undone.";
+export const confirmRemove = (name: string) => ({ title: `Delete ${name}`, body: "This can’t be undone." });
 
 interface Props {
   people: People;
@@ -68,7 +68,8 @@ export function PeopleList({ people, myId, onChangeRole, onRemove }: Props) {
   };
 
   const remove = async (person: DirectoryUser) => {
-    if (!onRemove || !(await confirmFirst(CONFIRM_REMOVE, { confirm: "Remove", destructive: true }))) return;
+    const { title, body } = confirmRemove(person.name);
+    if (!onRemove || !(await confirmFirst(title, { body, confirm: "Delete", destructive: true }))) return;
     setRemoving((removing) => new Set(removing).add(person.id));
     void onRemove(person).finally(() =>
       setRemoving((removing) => {

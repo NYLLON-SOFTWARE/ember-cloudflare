@@ -25,7 +25,7 @@ import { ApiError } from "@/lib/api";
 import { dateLabel } from "@/lib/messages";
 import { answerConfirm } from "@/test-confirm";
 import { AGENTS_PATH } from "./agent-list";
-import { AGENT_CHANGES, AGENT_EXPLAINED, AgentSettingsPage, cannotSearch, CONFIRM_DELETE_AGENT, INSTRUCTIONS_EXPLAINED, NewAgentPage, tryExplained } from "./agent-page";
+import { AGENT_CHANGES, AGENT_EXPLAINED, AgentSettingsPage, cannotSearch, INSTRUCTIONS_EXPLAINED, NewAgentPage, tryExplained } from "./agent-page";
 import { toolsExplained } from "./agent-tools";
 import { searchingWith } from "./ember-settings";
 import { cautionFor, PLACEHOLDER_MEANINGS } from "./prompt-preview";
@@ -966,10 +966,10 @@ describe("Delete an agent", () => {
     await loaded();
     const remove = screen.getByRole("button", { name: "Delete Recap" });
     await user.click(remove);
-    await answerConfirm(user, CONFIRM_DELETE_AGENT, "Cancel");
+    await answerConfirm(user, "Delete Recap", "Cancel");
     expect(sent()).toEqual([]);
     await user.click(remove);
-    await answerConfirm(user, CONFIRM_DELETE_AGENT, "Delete");
+    await answerConfirm(user, "Delete Recap", "Delete");
     await wentBack();
     expect(sent()).toEqual([[`DELETE /api/account/agents/${RECAP.id}`, undefined]]);
     expect(confirm).not.toHaveBeenCalled();
@@ -981,7 +981,7 @@ describe("Delete an agent", () => {
     const { onFailed, user } = showSettings();
     await loaded();
     await user.click(screen.getByRole("button", { name: "Delete Recap" }));
-    await answerConfirm(user, CONFIRM_DELETE_AGENT, "Delete");
+    await answerConfirm(user, "Delete Recap", "Delete");
     for (const name of ["Save changes", "Delete Recap"]) expect(screen.getByRole("button", { name })).toBeDisabled();
 
     act(() => fail());

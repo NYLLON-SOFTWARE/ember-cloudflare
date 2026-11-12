@@ -72,11 +72,11 @@ test.describe("Remove someone from the workspace", () => {
     await page.reload();
     const row = people.getByRole("listitem").filter({ hasText: name });
     await row.getByRole("button", { name: `Delete ${name}` }).click();
-    await answerConfirm(page, "Are you sure you want to permanently remove this person from the account? This can’t be undone.", "Cancel");
+    await answerConfirm(page, `Delete ${name}`, "Cancel");
     await expect(row.getByRole("button", { name: `Delete ${name}` })).toBeEnabled();
 
     await row.getByRole("button", { name: `Delete ${name}` }).click();
-    await answerConfirm(page, "Are you sure you want to permanently remove this person from the account? This can’t be undone.", "Remove");
+    await answerConfirm(page, `Delete ${name}`, "Delete");
     await expect(row).toHaveCount(0);
     await expect(page.getByRole("alert")).toHaveCount(0);
 
@@ -116,11 +116,11 @@ test.describe("Ban and unban people", () => {
     await page.goto(`/users/${users.find((user) => user.name === name)!.id}`);
     const ban = page.getByRole("button", { name: `Ban ${name}` });
     await ban.click();
-    await answerConfirm(page, "Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses.", "Cancel");
+    await answerConfirm(page, `Ban ${name}`, "Cancel");
     await expect(ban).toBeEnabled();
 
     await ban.click();
-    await answerConfirm(page, "Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses.", "Ban");
+    await answerConfirm(page, `Ban ${name}`, "Ban");
     const unban = page.getByRole("button", { name: "Remove ban" });
     await expect(unban).toBeVisible();
     await expect(page.getByRole("img", { name: "Profile avatar" })).toHaveClass(/opacity-50/);
@@ -134,7 +134,7 @@ test.describe("Ban and unban people", () => {
     await expect(message(room)).toHaveCount(0);
 
     await unban.click();
-    await answerConfirm(page, "Are you sure you want to remove the ban on this user?", "Remove ban");
+    await answerConfirm(page, `Remove ban on ${name}`, "Remove ban");
     await expect(ban).toBeVisible();
     await expect(page.getByRole("img", { name: "Profile avatar" })).not.toHaveClass(/opacity-50/);
     await page.reload();
@@ -172,7 +172,7 @@ test.describe("What a ban blocks", () => {
     const { users } = (await (await page.request.get("/api/users")).json()) as Directory;
     await page.goto(`/users/${users.find((user) => user.name === graceName)!.id}`);
     await page.getByRole("button", { name: `Ban ${graceName}` }).click();
-    await answerConfirm(page, "Are you sure you want to ban this user?", "Ban");
+    await answerConfirm(page, `Ban ${graceName}`, "Ban");
     await expect(page.getByRole("button", { name: "Remove ban" })).toBeVisible();
     await expect(signInHeading(grace)).toBeVisible();
 
@@ -187,7 +187,7 @@ test.describe("What a ban blocks", () => {
     await expect(visitor.getByRole("alert")).toHaveText(SIGN_IN_LIMITED);
 
     await page.getByRole("button", { name: "Remove ban" }).click();
-    await answerConfirm(page, "Are you sure you want to remove the ban on this user?", "Remove ban");
+    await answerConfirm(page, `Remove ban on ${graceName}`, "Remove ban");
     await expect(page.getByRole("button", { name: `Ban ${graceName}` })).toBeVisible();
     await star.click();
     await expect(star).toHaveAttribute("aria-pressed", "true");

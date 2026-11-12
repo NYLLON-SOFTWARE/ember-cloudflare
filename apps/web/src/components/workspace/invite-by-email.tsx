@@ -14,7 +14,7 @@ import { CopyButton, ROUND_BUTTON } from "./link-buttons";
 // the administrator to copy, since the server keeps only their digests. Laid out as the Email card is.
 
 /** What revoking an invitation asks first. */
-export const CONFIRM_REVOKE = "Are you sure you want to revoke this invitation? Its link will stop working.";
+export const confirmRevoke = (emailAddress: string) => ({ title: `Revoke invitation for ${emailAddress}`, body: "Its link will stop working." });
 
 /** The card's buttons, as the Email card's are. */
 const BUTTON = "inline-flex min-h-11 items-center justify-center rounded-[9px] border bg-background px-3.5 py-2.5 font-medium disabled:opacity-50";
@@ -222,6 +222,7 @@ function PendingInvitation({ invitation, link, emails, sending, onSentAgain, onG
   const [confirmFirst, confirmation] = useConfirm();
   const { id, emailAddress, invitedBy, expiresAt, delivery } = invitation;
   const expired = Date.parse(expiresAt) <= Date.now();
+  const revoking = confirmRevoke(emailAddress);
 
   /** Asks the server to `act` on the invitation, then calls `done` with its answer, or `onGone` once it's gone. */
   const ask = <T,>(act: () => Promise<T>, done: (answer: T) => void) => {
@@ -262,7 +263,7 @@ function PendingInvitation({ invitation, link, emails, sending, onSentAgain, onG
         <button
           type="button"
           disabled={busy || sending}
-          onClick={async () => (await confirmFirst(CONFIRM_REVOKE, { confirm: "Revoke", destructive: true })) && ask(() => revokeInvitation(id), () => onGone(id))}
+          onClick={async () => (await confirmFirst(revoking.title, { body: revoking.body, confirm: "Revoke", destructive: true })) && ask(() => revokeInvitation(id), () => onGone(id))}
           aria-label={`Revoke the invitation for ${emailAddress}`}
           className={BUTTON}
         >

@@ -20,11 +20,11 @@ import { PageHeading, Panel, SettingsPage } from "./settings-page";
 // The pages for adding a bot and changing one, which share the bot form and go back to the bots page
 // once they've saved.
 
-/** What Delete bot asks first. */
-export const CONFIRM_DELETE_BOT = "Are you sure you want to permanently remove this bot from the account? This can’t be undone.";
+/** What Delete bot asks first, of the bot called `name`. */
+export const confirmDeleteBot = (name: string) => ({ title: `Delete ${name}`, body: "This can’t be undone." });
 
 /** What Generate a new key asks first. */
-export const CONFIRM_NEW_KEY = "Are you sure you want to change the bot key? All usage of this bot must be updated.";
+export const CONFIRM_NEW_KEY = { title: "Generate a new key", body: "The bot’s current key will stop working." };
 
 /** The bot form's fields as typed: the bot's name, and where its webhook delivers, "" for nowhere. */
 interface Fields {
@@ -141,10 +141,12 @@ export function BotSettingsPage({ botId, onMissing, onFailed }: SettingsProps) {
   }, [botId, onMissing, administratorsOnly]);
 
   const remove = async () => {
-    if (await confirmFirst(CONFIRM_DELETE_BOT, { confirm: "Delete", destructive: true })) send(() => deleteBot(botId));
+    if (!bot) return;
+    const { title, body } = confirmDeleteBot(bot.name);
+    if (await confirmFirst(title, { body, confirm: "Delete", destructive: true })) send(() => deleteBot(botId));
   };
   const newKey = async () => {
-    if (await confirmFirst(CONFIRM_NEW_KEY, { confirm: "Generate key", destructive: true })) send(() => resetBotKey(botId));
+    if (await confirmFirst(CONFIRM_NEW_KEY.title, { body: CONFIRM_NEW_KEY.body, confirm: "Generate key", destructive: true })) send(() => resetBotKey(botId));
   };
   return (
     <SettingsPage back={BOTS_PATH}>
