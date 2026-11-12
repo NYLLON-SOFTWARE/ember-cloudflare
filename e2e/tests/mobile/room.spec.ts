@@ -53,10 +53,11 @@ test("a busy room fits the phone", async ({ page, room, participant, screenIsFin
 
   await openRoom(page, room);
   await expect(page.getByText("🔥🔥🔥")).toBeVisible();
-  // Four faces, then a count for everyone else, though on a phone only screen readers hear who's here.
+  // How many are in the room, which a phone's pill says, and a wider screen's members button; a phone's
+  // screen readers hear who's here too.
   const header = page.getByRole("navigation", { name: "Page" });
-  await expect(header.getByText("7 here now")).toBeAttached();
-  if (!hasPhoneLayout(page)) await expect(header.getByText("+3")).toBeVisible();
+  if (hasPhoneLayout(page)) await expect(header.getByText("7 here now")).toBeAttached();
+  else await expect(header.getByRole("button", { name: /^View members, \d+ members$/ })).toBeVisible();
   // So the faces never squeeze out the room's name, which keeps its first few letters even 320px wide.
   expect((await header.getByRole("heading", { level: 1 }).boundingBox())!.width).toBeGreaterThan(40);
   await screenIsFine({ denseTargets: [REACTION_PILLS] });

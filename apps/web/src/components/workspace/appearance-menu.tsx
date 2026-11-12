@@ -3,6 +3,7 @@ import { CheckCircle } from "@/components/icons/iconoir";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { chooseAppearance, useAppearance } from "@/lib/appearance";
 import { NavigationIcon } from "./navigation-icon";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
 const OPTIONS = [
   { value: "light", label: "Light" },
@@ -19,14 +20,15 @@ const OPTIONS = [
 export function AppearanceMenu({ side = "right" }: { side?: "right" | "bottom" }) {
   const appearance = useAppearance();
   const [open, setOpen] = useState(false);
+  const coarse = useMediaQuery("(pointer: coarse)");
   const button = useRef<HTMLButtonElement>(null);
   const choices = useRef<HTMLFieldSetElement>(null);
   const { label } = OPTIONS.find((option) => option.value === appearance)!;
 
   return (
-    // Below Home's top bar on a phone it covers the conversations, so there it's modal: they take no
-    // taps until it's closed.
-    <Popover open={open} onOpenChange={setOpen} modal={side === "bottom"}>
+    // Below Home's top bar on a phone, or beside the rail on a touch screen, it covers the conversations,
+    // so there it's modal: they take no taps until it's closed, as a tap outside it closes it.
+    <Popover open={open} onOpenChange={setOpen} modal={side === "bottom" || coarse}>
       <PopoverTrigger
         ref={button}
         className="mt-auto flex size-9 shrink-0 items-center justify-center rounded-full border text-muted-foreground hover:bg-hover hover:text-foreground data-[state=open]:bg-hover data-[state=open]:text-foreground touch:size-11"
