@@ -1,14 +1,16 @@
-import { MAX_FILE_SIZE, type ClientFrame, type LinkPreview, type ServerFrame, type ShareWidening, type StoredFile, type User } from "@ember/protocol";
+import { MAX_FILE_SIZE, MAX_SCHEDULE_AHEAD_MS, type ClientFrame, type LinkPreview, type ServerFrame, type ShareWidening, type StoredFile, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
 import type { RoomFrames } from "@/hooks/use-room";
+import { dateValue } from "@/lib/schedule-times";
 import type { Sendable } from "@/lib/uploads";
 import { createRef } from "react";
 import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
+import { UNDO_MS } from "./schedule-send";
 
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
 // and every test starts before its code has loaded.
@@ -430,6 +432,15 @@ describe("Attach files", () => {
     expect(within(archive).getByText("archive.tar.gz")).toHaveClass("truncate");
     expect(archive).toHaveTextContent("GZ · 13 KB");
     expect(screen.getByRole("button", { name: "Remove README" }).closest("li")).toHaveTextContent("File · 1 KB");
+  });
+
+  it("moves focus to the next file's remove button as one's removed, or to the text after the last", async () => {
+    const { user, input } = await showComposer();
+    await user.upload(attachFiles(), [fileOf("a.txt"), fileOf("b.txt")]);
+    await user.click(screen.getByRole("button", { name: "Remove a.txt" }));
+    expect(screen.getByRole("button", { name: "Remove b.txt" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Remove b.txt" }));
+    expect(input).toHaveFocus();
   });
 
   it("takes a file back out when its chip is pressed, letting go of its thumbnail", async () => {
@@ -897,7 +908,7 @@ describe("Attach", () => {
 
   it("attaches a file shared in a room you're in, picked from Files in Ember, to send as a file of its own", async () => {
     const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/rails/active_storage/blobs/f1/plan.pdf", downloadUrl: "/d" };
-    const fetch = filesInEmber(file, { widens: false, newViewers: 0 });
+    const fetch = filesInEmber(file, { widens: false, newViewers: 0, names: [] });
     const { input, user, onSend, onSendFiles } = await showComposer();
     await user.click(screen.getByRole("button", { name: "Attach" }));
     await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
@@ -921,7 +932,7 @@ describe("Attach", () => {
 
   it("warns before attaching a file that would reach people who can't see the room it's from, where Cancel attaches nothing", async () => {
     const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/files/f1/plan.pdf", downloadUrl: "/d" };
-    const fetch = filesInEmber(file, { widens: true, newViewers: 2 }, { kind: "closed" });
+    const fetch = filesInEmber(file, { widens: true, newViewers: 2, names: ["Grace", "Linus"] }, { kind: "closed" });
     const { user } = await showComposer();
     await user.click(screen.getByRole("button", { name: "Attach" }));
     await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
@@ -932,8 +943,9 @@ describe("Attach", () => {
     expect(within(pick).getByRole("img", { name: "Private" })).toBeInTheDocument();
 
     await user.click(pick);
-    const warning = await screen.findByRole("alertdialog", { name: "Share outside #design?" });
-    expect(warning).toHaveAccessibleDescription("2 people in #general can't see the original.");
+    // A private room's name follows a lock, and the warning says who'll be able to open the file.
+    const warning = await screen.findByRole("alertdialog", { name: /^Share outside .*design\?$/ });
+    expect(warning).toHaveAccessibleDescription("Grace and Linus will be able to open this file in #general.");
     expect(fetch).toHaveBeenCalledWith("/api/share-check", expect.objectContaining({ method: "POST", body: JSON.stringify({ sourceRoomId: "r9", targetRoomId: "r1" }) }));
     await user.click(within(warning).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
@@ -948,25 +960,24 @@ describe("Attach", () => {
     expect(chips()).toEqual([]);
 
     await user.click(pick);
-    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Share" }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Attach" }));
+    expect(await screen.findByRole("button", { name: "Remove plan.pdf" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(chips()).toEqual(["Remove plan.pdf"]);
   });
 
-  it("asks again as Share is pressed, showing a new count where the room's people changed", async () => {
+  it("asks again as Attach is pressed, showing a new count where the room's people changed", async () => {
     const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/files/f1/plan.pdf", downloadUrl: "/d" };
-    const fetch = filesInEmber(file, { widens: true, newViewers: 2 }, { kind: "closed" });
+    const fetch = filesInEmber(file, { widens: true, newViewers: 2, names: ["Grace", "Linus"] }, { kind: "closed" });
     const { user } = await showComposer();
     await user.click(screen.getByRole("button", { name: "Attach" }));
     await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
     await user.click(await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /plan\.pdf/ }));
     await screen.findByRole("alertdialog");
 
-    filesInEmber(file, { widens: true, newViewers: 3 }, { kind: "closed" });
-    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Share" }));
-    expect(await screen.findByRole("alertdialog")).toHaveAccessibleDescription("3 people in #general can't see the original.");
-    expect(chips()).toEqual([]);
-    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Share" }));
+    filesInEmber(file, { widens: true, newViewers: 5, names: ["Grace", "Linus", "Mary"] }, { kind: "closed" });
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Attach" }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent("5 people in #general aren't in private design and will be able to open this file.");
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Attach" }));
     expect(await screen.findByRole("button", { name: "Remove plan.pdf" })).toBeInTheDocument();
     expect(fetch).toHaveBeenCalled();
   });
@@ -991,7 +1002,7 @@ describe("Attach", () => {
   });
 
   it("shows an SVG picked from Files in Ember by its icon, as it's served as a download", async () => {
-    filesInEmber({ id: "f3", name: "logo.svg", contentType: "image/svg+xml", byteSize: 1, url: "/files/f3/logo.svg", downloadUrl: "/d" }, { widens: false, newViewers: 0 });
+    filesInEmber({ id: "f3", name: "logo.svg", contentType: "image/svg+xml", byteSize: 1, url: "/files/f3/logo.svg", downloadUrl: "/d" }, { widens: false, newViewers: 0, names: [] });
     const { user } = await showComposer();
     await user.click(screen.getByRole("button", { name: "Attach" }));
     await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
@@ -1003,7 +1014,7 @@ describe("Attach", () => {
 
   it("shows a picture picked from Files in Ember by its preview", async () => {
     const file = { id: "f2", name: "moon.jpg", contentType: "image/jpeg", byteSize: 1, url: "/files/f2/moon.jpg", downloadUrl: "/d", previewUrl: "/previews/f2/moon.webp" };
-    filesInEmber(file, { widens: false, newViewers: 0 });
+    filesInEmber(file, { widens: false, newViewers: 0, names: [] });
     const { user } = await showComposer();
     await user.click(screen.getByRole("button", { name: "Attach" }));
     await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
@@ -1013,6 +1024,17 @@ describe("Attach", () => {
 });
 
 describe("Schedule for later", () => {
+  /** `days` from today, at `hours`:`minutes` in this browser's time zone. */
+  const inDays = (days: number, hours: number, minutes = 0) => {
+    const at = new Date();
+    at.setDate(at.getDate() + days);
+    at.setHours(hours, minutes, 0, 0);
+    return at;
+  };
+  /** A phone: a narrow screen, touched. */
+  const phoneScreen = () =>
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(width < 48rem)" || media === "(pointer: coarse)", media, addEventListener() {}, removeEventListener() {} }));
+
   it("schedules what's written for tomorrow at 9:00 AM, taking it out of the box", async () => {
     const { send, input, user, onSend } = await showScheduling({ roomId: "s1" });
     expect(scheduleMenu()).toBeDisabled();
@@ -1041,23 +1063,48 @@ describe("Schedule for later", () => {
     expect(tool("Code block")).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("opens its menu on the menu itself from a pointer, and on its first time from the keyboard, giving focus back as it closes", async () => {
+    const { input, user } = await showScheduling({ roomId: "s5" });
+    await user.type(input, "Later");
+    await user.click(scheduleMenu());
+    expect(await screen.findByRole("menu", { name: "Schedule message" })).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: /^Tomorrow at 9:00/ })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(input).toHaveFocus();
+
+    scheduleMenu().focus();
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("menuitem", { name: /^Tomorrow at 9:00/ })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(scheduleMenu()).toHaveFocus();
+  });
+
   it("schedules a reply in its thread, and puts back what the room wouldn't schedule, saying why", async () => {
     const { send, hear, input, user } = await showScheduling({ roomId: "s2", threadId: "m1" });
     await user.type(input, "Later");
     await user.click(scheduleMenu());
     await user.click(await screen.findByRole("menuitem", { name: "Custom time" }));
     const dialog = await screen.findByRole("dialog", { name: "Schedule message" });
+    const date = within(dialog).getByLabelText("Date");
+    expect(date).toHaveFocus();
+    expect(date).toHaveAttribute("max", dateValue(new Date(Date.now() + MAX_SCHEDULE_AHEAD_MS)));
     // Date and time fields take a value whole, as their pickers give it.
-    fireEvent.change(within(dialog).getByLabelText("Date"), { target: { value: "2020-01-01" } });
+    fireEvent.change(date, { target: { value: "2020-01-01" } });
     await user.click(within(dialog).getByRole("button", { name: "Schedule message" }));
     expect(within(dialog).getByRole("alert")).toHaveTextContent("Pick a time in the future.");
+    fireEvent.change(date, { target: { value: dateValue(inDays(130, 9)) } });
+    await user.click(within(dialog).getByRole("button", { name: "Schedule message" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Pick a time in the next 120 days.");
+    expect(send).not.toHaveBeenCalled();
 
-    fireEvent.change(within(dialog).getByLabelText("Date"), { target: { value: "2099-03-04" } });
+    fireEvent.change(date, { target: { value: dateValue(inDays(10, 9)) } });
     fireEvent.change(within(dialog).getByLabelText("Time"), { target: { value: "14:30" } });
     await user.click(within(dialog).getByRole("button", { name: "Schedule message" }));
     const frame = send.mock.calls[0]![0] as Extract<ClientFrame, { type: "scheduled.create" }>;
-    expect(frame).toMatchObject({ body: "<p>Later</p>", sendAt: new Date(2099, 2, 4, 14, 30).getTime(), parentId: "m1", alsoSend: false });
+    expect(frame).toMatchObject({ body: "<p>Later</p>", sendAt: inDays(10, 14, 30).getTime(), parentId: "m1", alsoSend: false });
     expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
 
     hear({ type: "error", message: "Pick a time in the next 120 days.", clientMessageId: frame.clientMessageId, failed: "scheduled.create" });
     expect(input).toHaveValue("Later");
@@ -1065,9 +1112,9 @@ describe("Schedule for later", () => {
   });
 
   it("says how many messages are scheduled here, listing them to send now, move or delete", async () => {
-    const { send, hear } = await showScheduling({ roomId: "s3" });
+    const { send, hear, input } = await showScheduling({ roomId: "s3" });
     const user = userEvent.setup();
-    const sendAt = new Date(2099, 0, 5, 9).getTime();
+    const sendAt = inDays(10, 9).getTime();
     hear({
       type: "scheduled",
       messages: [
@@ -1082,22 +1129,112 @@ describe("Schedule for later", () => {
     const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
     const items = within(dialog).getAllByRole("listitem");
     expect(items.map((item) => item.querySelector("p:nth-child(2)")!.textContent)).toEqual(["First", "Second"]);
+    expect(within(items[0]!).getByRole("button", { name: "Send now" })).toHaveFocus();
     await user.click(within(items[0]!).getByRole("button", { name: "Send now" }));
     await user.click(within(items[1]!).getByRole("button", { name: "Delete" }));
     expect(send.mock.calls.map(([frame]) => frame)).toEqual([
       { type: "scheduled.send", id: "a" },
       { type: "scheduled.delete", id: "b" },
     ]);
+    expect(items[1]).toHaveTextContent("Scheduled message deleted");
+    expect(within(items[1]!).getByRole("button", { name: "Undo" })).toHaveFocus();
 
     await user.click(within(items[0]!).getByRole("button", { name: "Edit time" }));
     const moving = await screen.findByRole("dialog", { name: "Edit time" });
     fireEvent.change(within(moving).getByLabelText("Time"), { target: { value: "10:15" } });
     await user.click(within(moving).getByRole("button", { name: "Save" }));
-    expect(send).toHaveBeenLastCalledWith({ type: "scheduled.update", id: "a", sendAt: new Date(2099, 0, 5, 10, 15).getTime() });
+    expect(send).toHaveBeenLastCalledWith({ type: "scheduled.update", id: "a", sendAt: inDays(10, 10, 15).getTime() });
+
+    // Closing the list gives the composer its focus back.
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(input).toHaveFocus();
 
     // Opening the room again says nothing until it hears what's scheduled.
     hear({ type: "welcome", you: { id: "u1", name: "Ada" }, present: [], seq: 0, messages: [], hasMore: false, hasNewer: false, around: null });
     expect(screen.queryByText(/scheduled message/)).not.toBeInTheDocument();
+  });
+
+  it("says when its one message goes as the menu does: tomorrow, or a weekday's name", async () => {
+    const { hear } = await showScheduling({ roomId: "s6" });
+    hear({ type: "scheduled", messages: [{ id: "a", body: "<p>Hi</p>", sendAt: inDays(1, 9).getTime() }] });
+    expect(screen.getByRole("status")).toHaveTextContent(/^1 scheduled message, tomorrow at 9:00/);
+    hear({ type: "scheduled", messages: [{ id: "a", body: "<p>Hi</p>", sendAt: inDays(3, 9).getTime() }] });
+    expect(screen.getByRole("status")).toHaveTextContent(/^1 scheduled message, [A-Z][a-z]+day at 9:00/);
+  });
+
+  it("brings a deleted one back with Undo, in its thread at its time, for 5 seconds", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { send, hear } = await showScheduling({ roomId: "s7", threadId: "m1" });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const sendAt = inDays(2, 9).getTime();
+      const listed = [
+        { id: "a", body: "<p>One</p>", sendAt, parentId: "m1", alsoSend: true },
+        { id: "b", body: "<p>Two</p>", sendAt: sendAt + 1000, parentId: "m1", alsoSend: false },
+      ];
+      hear({ type: "scheduled", messages: listed });
+      await user.click(screen.getByRole("button", { name: "See all" }));
+      await user.click(within(await screen.findByRole("dialog", { name: "Scheduled messages" })).getAllByRole("button", { name: "Delete" })[0]!);
+      hear({ type: "scheduled", messages: listed.slice(1) });
+      await user.click(screen.getByRole("button", { name: "Undo" }));
+      expect(send).toHaveBeenLastCalledWith({ type: "scheduled.create", clientMessageId: expect.any(String) as string, body: "<p>One</p>", sendAt, parentId: "m1", alsoSend: true });
+
+      // The last one goes, and Undo shows over the composer, until its time's up.
+      hear({ type: "scheduled", messages: listed.slice(1) });
+      await user.click(within(screen.getByRole("dialog", { name: "Scheduled messages" })).getByRole("button", { name: "Delete" }));
+      hear({ type: "scheduled", messages: [] });
+      await user.keyboard("{Escape}");
+      expect(screen.getByRole("status")).toHaveTextContent("Scheduled message deleted");
+      expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(UNDO_MS));
+      expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says why one couldn't be sent when it was due, to send again, write in the composer again or delete", async () => {
+    const { send, hear, input, user } = await showScheduling({ roomId: "s8" });
+    const failed = { id: "f", body: "<p>Lost</p>", sendAt: inDays(-1, 9).getTime(), failed: "Its thread was deleted." };
+    hear({ type: "scheduled", messages: [failed] });
+    expect(screen.getByRole("status")).toHaveTextContent("Not sent: Its thread was deleted.");
+
+    await user.click(screen.getByRole("button", { name: "See all" }));
+    let row = within(within(await screen.findByRole("dialog", { name: "Scheduled messages" })).getByRole("listitem"));
+    expect(row.getByText("Not sent:").parentElement).toHaveTextContent("Not sent: Its thread was deleted.");
+    expect(row.queryByRole("button", { name: "Edit time" })).not.toBeInTheDocument();
+    await user.click(row.getByRole("button", { name: "Send now" }));
+    expect(send).toHaveBeenLastCalledWith({ type: "scheduled.send", id: "f" });
+
+    hear({ type: "scheduled", messages: [failed] });
+    row = within(within(screen.getByRole("dialog", { name: "Scheduled messages" })).getByRole("listitem"));
+    await user.click(row.getByRole("button", { name: "Edit" }));
+    expect(send).toHaveBeenLastCalledWith({ type: "scheduled.delete", id: "f" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(input).toHaveValue("Lost");
+    expect(input).toHaveFocus();
+    // Nothing offers to bring back what's written again.
+    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+  });
+
+  it("lists them on a phone as a sheet, offering what can be done with one when it's tapped", async () => {
+    phoneScreen();
+    const { send, hear, user } = await showScheduling({ roomId: "s9" });
+    const sendAt = inDays(3, 9).getTime();
+    hear({ type: "scheduled", messages: [{ id: "a", body: "<p>Morning</p>", sendAt }] });
+    expect(screen.getByRole("status")).toHaveTextContent(/^Scheduled · [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}, 9:00\sAM$/);
+
+    await user.click(screen.getByRole("button", { name: "See all" }));
+    const list = await screen.findByRole("dialog", { name: "Scheduled messages" });
+    expect(within(list).queryByRole("button", { name: "Send now" })).not.toBeInTheDocument();
+    await user.click(within(list).getByRole("button", { name: /^Morning/ }));
+    const sheet = await screen.findByRole("dialog", { name: "Morning" });
+    expect(within(sheet).getAllByRole("button").map((button) => button.textContent)).toEqual(["Send now", "Edit time", "Delete", "Cancel"]);
+    await user.click(within(sheet).getByRole("button", { name: "Delete" }));
+    expect(send).toHaveBeenLastCalledWith({ type: "scheduled.delete", id: "a" });
+    expect(screen.queryByRole("dialog", { name: "Morning" })).not.toBeInTheDocument();
   });
 });
 

@@ -14,13 +14,19 @@ export interface ShareCheck {
 }
 
 /**
- * The answer: whether anyone in the target room can't see the source room, and how many, counted from
- * who's in each, so the app needs no list of either. A room open to everyone widens nothing.
+ * The answer: whether anyone in the target room can't see the source room, how many, counted from who's
+ * in each, and the names of up to `NAMED_NEW_VIEWERS` of them, by name, for the warning to say who'll see it,
+ * who are in the target room, which the asker is in, so nothing about the source room's people. A room open
+ * to everyone widens nothing.
  */
 export interface ShareWidening {
   widens: boolean;
   newViewers: number;
+  names: string[];
 }
+
+/** How many of the people sharing would reach the warning names, beyond which it counts them. */
+export const NAMED_NEW_VIEWERS = 3;
 
 /** Parses an untrusted `ShareCheck`, or returns why it's refused. */
 export function parseShareCheck(data: unknown): ShareCheck | string {

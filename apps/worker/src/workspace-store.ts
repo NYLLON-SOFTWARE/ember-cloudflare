@@ -5,6 +5,7 @@ import {
   MAX_OTHER_ADDRESSES,
   MAX_PUSH_SUBSCRIPTIONS,
   MAX_SHARED_ORDER,
+  NAMED_NEW_VIEWERS,
   NAVIGATION_SLOTS,
   PASSWORD_RESET_CODE_TRIES,
   RECENT_SEARCHES,
@@ -2392,14 +2393,20 @@ const MENTIONABLE_MEMBERS = `SELECT ${DIRECTORY_COLUMNS}
  */
 const OPEN_TO_EVERYONE = `rooms.kind = 'open'`;
 
+/** The people sharing from room ?1 in room ?2 would reach: active people in room ?2 who aren't in room ?1, and aren't bots. */
+const NEW_VIEWERS = `FROM memberships JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.role <> ${BOT}
+    AND NOT EXISTS (SELECT 1 FROM memberships AS seeing WHERE seeing.room_id = ?1 AND seeing.user_id = memberships.user_id)`;
+
 /**
  * Whether room ?1 is open to everyone, and how many active people in room ?2 aren't in ?1, as sharing from
  * ?1 in ?2 would show them what they can't see now. Bots aren't counted.
  */
 const SHARE_WIDENING = `SELECT EXISTS (SELECT 1 FROM rooms WHERE rooms.id = ?1 AND ${OPEN_TO_EVERYONE}) AS source_open,
-  (SELECT count(*) FROM memberships JOIN users ON users.id = memberships.user_id
-    WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.role <> ${BOT}
-      AND NOT EXISTS (SELECT 1 FROM memberships AS seeing WHERE seeing.room_id = ?1 AND seeing.user_id = memberships.user_id)) AS new_viewers`;
+  (SELECT count(*) ${NEW_VIEWERS}) AS new_viewers`;
+
+/** The first `NAMED_NEW_VIEWERS` of them, by name, for the warning to name. */
+const NAMED_NEW_VIEWER_NAMES = `SELECT users.name ${NEW_VIEWERS} ORDER BY lower(users.name), users.id LIMIT ${NAMED_NEW_VIEWERS}`;
 
 /** Whether someone in a room can change it: administrators and the room's creator can. */
 const CAN_ADMINISTER = `(users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id) AS can_administer`;
@@ -3747,7 +3754,9 @@ export class WorkspaceStore {
   async shareWidening(sourceRoomId: RoomId, targetRoomId: RoomId): Promise<ShareWidening> {
     const [row] = await this.db.all<{ source_open: number; new_viewers: number }>(SHARE_WIDENING, sourceRoomId, targetRoomId);
     const newViewers = row!.source_open === 1 ? 0 : row!.new_viewers;
-    return { widens: newViewers > 0, newViewers };
+    if (newViewers === 0) return { widens: false, newViewers, names: [] };
+    const named = await this.db.all<{ name: string }>(NAMED_NEW_VIEWER_NAMES, sourceRoomId, targetRoomId);
+    return { widens: true, newViewers, names: named.map(({ name }) => name) };
   }
 
   /** Everyone, whatever their status, for the people directory. */

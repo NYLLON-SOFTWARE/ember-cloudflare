@@ -107,7 +107,7 @@ export {
   type StoredFile,
   type Upload,
 } from "./files.ts";
-export { parseShareCheck, SHARE_CHECK_PATH, type ShareCheck, type ShareWidening } from "./sharing.ts";
+export { NAMED_NEW_VIEWERS, parseShareCheck, SHARE_CHECK_PATH, type ShareCheck, type ShareWidening } from "./sharing.ts";
 export {
   BOTS_PATH,
   CUSTOM_STYLES_PATH,
@@ -1656,6 +1656,11 @@ export interface ScheduledMessage {
   /** The message whose thread it's a reply in, which `alsoSend` sends to the room too. */
   parentId?: string;
   alsoSend?: boolean;
+  /**
+   * Why the room couldn't post it when it was due, as when its author had left the room or its thread's
+   * message was deleted: it waits, unsent, for its author to send it again, edit or delete it.
+   */
+  failed?: string;
 }
 
 /** How far ahead a message can be scheduled, as Slack allows: 120 days. */

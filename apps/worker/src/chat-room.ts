@@ -122,6 +122,10 @@ const BAD_SEND_TIME = "Pick a time in the next 120 days.";
 const TOO_MANY_SCHEDULED = `You can schedule up to ${MAX_SCHEDULED_MESSAGES} messages in a conversation.`;
 /** Why it changes nothing of a scheduled message that's been sent or deleted. */
 const SCHEDULED_GONE = "That scheduled message has already been sent or deleted.";
+/** Why a scheduled message wasn't posted: its author couldn't post in the room any longer when it was due. */
+export const SCHEDULED_AUTHOR_GONE = "You were no longer in the conversation.";
+/** Why a scheduled reply wasn't posted: its thread's message was deleted. */
+export const SCHEDULED_THREAD_GONE = "Its thread was deleted.";
 
 /** Why the room keeps nothing of a message: it couldn't show it, or there's nothing in it. `MESSAGE_TOO_LONG` says when there's too much. */
 const UNREADABLE = "That message couldn't be saved.";
@@ -1109,6 +1113,14 @@ export class ChatRoom extends DurableObject<Env> {
   ): Promise<void> {
     const scheduled = this.scheduledFor(store.roomId);
     const refuse = (message: string) => this.send(ws, { type: "error", message, failed: frame.type, ...(frame.type === "scheduled.create" && { clientMessageId: frame.clientMessageId }) });
+    // One the app sends again is kept once, or posted once, as message.create's is: the room answers with
+    // what's scheduled.
+    if (
+      frame.type === "scheduled.create" &&
+      ((await scheduled.has(user.id, frame.clientMessageId)) || (await store.storedClientMessageIds(user, [frame.clientMessageId])).length > 0)
+    ) {
+      return this.tellScheduled(store.roomId, user.id);
+    }
     if (frame.type === "scheduled.create" || frame.type === "scheduled.update") {
       const now = Date.now();
       if (frame.sendAt <= now || frame.sendAt > now + MAX_SCHEDULE_AHEAD_MS) return refuse(BAD_SEND_TIME);
@@ -1130,14 +1142,17 @@ export class ChatRoom extends DurableObject<Env> {
         await this.wakeToPostBy(store.roomId, frame.sendAt);
         break;
       }
-      case "scheduled.send":
+      case "scheduled.send": {
+        // Sending one that couldn't be posted tries it again, as its author can post here now.
+        const message = await scheduled.find(frame.id);
+        if (!message || message.authorId !== user.id) return refuse(SCHEDULED_GONE);
+        const refused = await this.postAs(store, user, message);
+        if (refused) refuse(refused);
+        break;
+      }
       case "scheduled.delete": {
         const message = await scheduled.find(frame.id);
         if (!message || message.authorId !== user.id || !(await scheduled.remove(message.id))) return refuse(SCHEDULED_GONE);
-        if (frame.type === "scheduled.send") {
-          const refused = await this.postAs(store, user, message);
-          if (refused) refuse(refused);
-        }
         break;
       }
     }
@@ -1153,14 +1168,21 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Posts `message` as `author`'s, as message.create would have posted it: in its thread, if it's a reply
-   * and its parent is still here. Answers why the room keeps nothing of it, if it doesn't.
+   * Posts scheduled `message` as `author`'s, as message.create would have posted it, in its thread if it's
+   * a reply, taking it from what's scheduled. Answers why the room can't post it, if it can't, marking it
+   * not sent.
    */
   private async postAs(store: MessageStore, author: User, message: DueMessage): Promise<string | null> {
+    const scheduled = this.scheduledFor(store.roomId);
+    const unsent = async (why: string, outOfThread = false) => {
+      await scheduled.fail(message.id, why, outOfThread);
+      return why;
+    };
     const inThread = message.parentId === undefined ? undefined : await this.inThread(store, message.parentId, message.alsoSend === true);
-    if (inThread === null) return MESSAGE_GONE;
+    if (inThread === null) return unsent(SCHEDULED_THREAD_GONE, true);
     const body = await this.prepare(message.body);
-    if (typeof body === "string") return body;
+    if (typeof body === "string") return unsent(body);
+    if (!(await scheduled.remove(message.id))) return null;
     await this.create(store, author, message.clientMessageId, body, new Date().toISOString(), { inThread });
     return null;
   }
@@ -1168,9 +1190,9 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Posts room `roomId`'s scheduled messages that are due, each as its author's if the Workspace says
    * they're still active and in the room, and nothing has revoked their access since, then sets the alarm
-   * for the next. One whose author can't post here any longer is dropped, as is one the room can no longer
-   * keep, as when its thread's message was deleted. When the Workspace can't be asked, the alarm tries
-   * again shortly.
+   * for the next. One whose author can't post here any longer, or that the room can no longer keep, as
+   * when its thread's message was deleted, is marked not sent, saying why, which its author's tabs hear,
+   * and the alarm leaves it. When the Workspace can't be asked, the alarm tries again shortly.
    */
   private async postScheduled(roomId: RoomId): Promise<void> {
     const scheduled = this.scheduledFor(roomId);
@@ -1186,11 +1208,13 @@ export class ChatRoom extends DurableObject<Env> {
           });
         if (access === undefined) return this.serially(() => this.wakeToPostBy(roomId, Date.now() + SCHEDULED_RETRY_MS));
         await this.serially(async () => {
-          if (!(await scheduled.remove(message.id))) return;
+          // Unless its author has sent, moved or deleted it since.
+          const waiting = await scheduled.find(message.id);
+          if (!waiting || waiting.failed !== undefined || waiting.sendAt > Date.now()) return;
           const allowed = access !== null && !(await this.revocationsFor(roomId).refuse([access.user.id], access.authorizedAt));
-          const refused = allowed ? await this.postAs(this.storeFor(roomId), access.user, message) : "the author can no longer post here";
-          if (refused) console.warn(`A scheduled message in room ${roomId} wasn't posted: ${refused}`);
-          await this.tellScheduled(roomId, message.authorId);
+          if (allowed) await this.postAs(this.storeFor(roomId), access.user, waiting);
+          else await scheduled.fail(waiting.id, SCHEDULED_AUTHOR_GONE);
+          await this.tellScheduled(roomId, waiting.authorId);
         });
       }
     } while (due.length === POSTED_AT_ONCE);

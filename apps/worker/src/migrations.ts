@@ -62,6 +62,7 @@ import roomTabs from "../migrations/0061_room_tabs.sql";
 import activity from "../migrations/0065_activity.sql";
 import timeZones from "../migrations/0066_time_zones.sql";
 import scheduledMessages from "../migrations/0070_scheduled_messages.sql";
+import scheduledFailures from "../migrations/0071_scheduled_failures.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -152,6 +153,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0065_activity.sql", scope: "workspace", sql: activity },
   { name: "0066_time_zones.sql", scope: "workspace", sql: timeZones },
   { name: "0070_scheduled_messages.sql", scope: "room", sql: scheduledMessages },
+  { name: "0071_scheduled_failures.sql", scope: "room", sql: scheduledFailures },
 ];
 
 /**

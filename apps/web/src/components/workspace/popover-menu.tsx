@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
@@ -18,11 +18,11 @@ export interface MenuItem {
 const ITEM =
   "flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-start text-sm outline-none select-none hover:bg-accent focus-visible:bg-accent touch:min-h-11 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground";
 
-/** Moves focus to the next item, or the previous, wrapping round, or to the first or last. */
+/** Moves focus to the next item, or the previous, wrapping round, or to the first or last: from the menu itself, the first or the last. */
 function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
   const items = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-menu-item]")];
   const at = items.indexOf(document.activeElement as HTMLElement);
-  const next = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[event.key];
+  const next = { ArrowDown: at + 1, ArrowUp: at === -1 ? items.length - 1 : at - 1, Home: 0, End: items.length - 1 }[event.key];
   if (next === undefined || items.length === 0) return;
   event.preventDefault();
   items[(next + items.length) % items.length]!.focus();
@@ -49,12 +49,15 @@ interface Props {
 
 /**
  * A menu on a popover, as Slack's composer's menus are: its items, or radio items for a choice, which
- * Up and Down Arrow, Home and End move between, and Enter or a click chooses, closing it. Built on the
- * popover the app has already, rather than a dropdown menu of its own.
+ * Up and Down Arrow, Home and End move between, and Enter or a click chooses, closing it. Opened from the
+ * keyboard, its first item has focus; opened with a pointer, the menu itself does, so nothing looks
+ * chosen. Built on the popover the app has already, rather than a dropdown menu of its own.
  */
 export function PopoverMenu({ trigger, label, heading = false, items, more, side = "top", align = "start", onCloseFocus, open: shown, onOpenChange, className }: Props) {
   const [openHere, setOpen] = useState(false);
   const open = shown ?? openHere;
+  // Whether its button was last pressed from the keyboard rather than with a pointer, as a long press is.
+  const byKeyboard = useRef(false);
   const change = (next: boolean) => {
     setOpen(next);
     onOpenChange?.(next);
@@ -79,16 +82,20 @@ export function PopoverMenu({ trigger, label, heading = false, items, more, side
   );
   return (
     <Popover open={open} onOpenChange={change}>
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverTrigger asChild onPointerDown={() => (byKeyboard.current = false)} onKeyDown={() => (byKeyboard.current = true)}>
+        {trigger}
+      </PopoverTrigger>
       <PopoverContent
         side={side}
         align={align}
         role="menu"
         aria-label={label}
+        tabIndex={-1}
         className={cn("w-auto min-w-[8rem] p-1", className)}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
-          (event.currentTarget as HTMLElement).querySelector<HTMLElement>("[data-menu-item]")?.focus();
+          const menu = event.currentTarget as HTMLElement;
+          (byKeyboard.current ? (menu.querySelector<HTMLElement>("[data-menu-item]") ?? menu) : menu).focus();
         }}
         onCloseAutoFocus={(event) => {
           if (!onCloseFocus) return;
