@@ -29,8 +29,9 @@ test.describe("React to a message", () => {
     await react(grace, text, "Thumbs up");
     await expect(reactions(ada, text).getByRole("listitem")).toHaveText(["👍"]);
     await expect(reactions(ada, text).getByRole("img", { name: "Grace boosted 👍" })).toBeVisible();
-    // Only your own reactions do anything.
-    await expect(reactions(ada, text).getByRole("button")).toHaveCount(0);
+    // Only your own reactions do anything; Add reaction is the one button after them.
+    await expect(reactions(ada, text).getByRole("button")).toHaveText([""]);
+    await expect(reactions(ada, text).getByRole("button", { name: "Add reaction" })).toBeVisible();
     await expect(reactions(grace, text).getByRole("button", { name: "👍" })).toBeVisible();
   });
 

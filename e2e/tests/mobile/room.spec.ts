@@ -91,7 +91,7 @@ test("the room's star, and a starred room's row on Home, fit the phone", async (
   if (!hasPhoneLayout(page)) return;
   await page.keyboard.press("Escape");
   await showConversations(page);
-  await expect(page.getByRole("main").getByRole("link", { name: room.name }).getByRole("img", { name: "Favorite" })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("region", { name: "Starred" }).getByRole("link", { name: room.name })).toBeVisible();
   await screenIsFine();
 });
 

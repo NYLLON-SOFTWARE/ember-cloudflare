@@ -174,7 +174,7 @@ const linesOf = (text: Locator) =>
     return new Set([...range.getClientRects()].map((line) => Math.round(line.top))).size;
   });
 
-test("the longest tagline fits the phone under a long name, in a member's settings and the conversations, and a long name in Home's top bar on a phone", async ({
+test("the longest tagline fits the phone under a long name in a member's settings, and a long name over the conversations", async ({
   page,
   room,
   session,
@@ -199,12 +199,11 @@ test("the longest tagline fits the phone under a long name, in a member's settin
     await screenIsFine();
     return;
   }
+  // Wider, the sidebar has the name alone too, wrapping rather than running under its edge.
   const conversations = page.getByRole("complementary", { name: "Conversations" });
-  const tagline = conversations.locator("hgroup > h2 + p");
-  await expect(tagline).toHaveText(LONGEST_TAGLINE);
+  await expect(conversations.getByRole("heading", { level: 2, name: LONG_NAME })).toBeVisible();
+  await expect(conversations.getByText(LONGEST_TAGLINE)).toHaveCount(0);
   await screenIsFine();
-  // A sidebar with room for its full 280px takes it on one line, as the desktop does.
-  if ((await conversations.evaluate((sidebar) => sidebar.getBoundingClientRect().width)) >= 280) expect(await linesOf(tagline)).toBe(1);
 });
 
 test("the Custom styles page fits the phone, its navigation icons first, then a CSS field too big for iOS to zoom in on", async ({ page, screenIsFine }) => {

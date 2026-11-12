@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import { editorField, openRoom, signInAs } from "../../fixtures";
-import { expect, hasPhoneLayout, REACTION_PILLS, test } from "./fixtures";
+import { expect, hasPhoneLayout, REACTION_PILLS, tabBar, test } from "./fixtures";
 
 test.beforeEach(async ({ page, session }) => {
   await signInAs(page, session);
@@ -9,7 +9,15 @@ test.beforeEach(async ({ page, session }) => {
 /** Rests a finger on `target` until `opens` shows, as a long press does, then lifts it. Playwright's touchscreen only taps. */
 async function longPress(target: Locator, opens: Locator) {
   await target.scrollIntoViewIfNeeded();
-  const box = (await target.boundingBox())!;
+  // A finger rests on what's still, as a page that scrolls under it, as one settling after the keyboard
+  // goes does, cancels the press.
+  let box = { x: NaN, y: NaN, width: 0, height: 0 };
+  await expect
+    .poll(async () => {
+      const [before, now] = [box, (box = (await target.boundingBox())!)];
+      return now.x === before.x && now.y === before.y;
+    }, { intervals: [250] })
+    .toBe(true);
   const cdp = await target.page().context().newCDPSession(target.page());
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: box.x + box.width / 2, y: box.y + box.height / 2 }] });
   await expect(opens).toBeVisible();
@@ -183,8 +191,9 @@ test("tapping outside a message's sheet closes it", async ({ page, room, partici
   await openRoom(page, room);
 
   const sheet = await openActions(page, page.getByRole("article").filter({ hasText: "Open and close my sheet" }), "Open and close my sheet");
-  // Above the sheet, over the timeline.
-  await page.touchscreen.tap(page.viewportSize()!.width / 2, 8);
+  // Outside the sheet, over the timeline: above it, or beside it on a phone on its side, where it's as
+  // tall as the screen.
+  await page.touchscreen.tap(8, 8);
   await expect(sheet).toBeHidden();
 });
 
@@ -212,6 +221,8 @@ test("your own messages can be edited on a phone", async ({ page, room, screenIs
   await expect(message.getByText("(edited)")).toBeVisible();
   await expect(message.locator(".message-content")).toContainText("A message to edit\nwith a second line", { useInnerText: true });
 
+  // The tab bar comes back as the keyboard goes, moving the room under a finger that's already down.
+  if (hasPhoneLayout(page)) await expect(tabBar(page)).toBeVisible();
   await message.getByRole("button", { name: "Message options" }).tap();
   await message.getByRole("button", { name: "Edit", exact: true }).tap();
   await message.getByRole("button", { name: "Cancel", exact: true }).tap();

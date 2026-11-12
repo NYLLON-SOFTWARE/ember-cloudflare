@@ -3,13 +3,14 @@ import { MAX_BOOST_LENGTH, REACTIONS, type Boost, type Me, type Message } from "
 import { isAllEmoji } from "@ember/richtext/dom";
 import { ArrowUp, Emoji, Minus, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { pressedAlone } from "@/lib/keyboard";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { safeAreaBoundary } from "@/lib/safe-area";
 import { cn } from "@/lib/utils";
-import { PANEL, ReactionChoices } from "./message-actions-menu";
+import { OVERLAPPING, PANEL, ReactionChoices } from "./message-actions-menu";
 import type { MessageActions } from "./message-item";
 import { AvatarLink, UserAvatar } from "./user-avatar";
 
@@ -82,9 +83,10 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, cus
         {message.boosts.map((boost) => (
           <BoostPill key={boost.id} boost={boost} hint={hint} onDelete={deletable(boost) ? () => remove(boost) : null} />
         ))}
-        {/* Among the reactions, as Slack's is, so it shares their 24px floor for fingertips. */}
+        {/* Among the reactions, as Slack's is, so it shares their 24px floor for fingertips, though not one
+            of them to screen readers. */}
         {actions && !customizing && message.boosts.length > 0 && (
-          <li className="mt-1 flex">
+          <li role="none" className="mt-1 flex">
             {onAddReaction ? (
               <AddReaction onClick={(event) => onAddReaction(event.currentTarget)} />
             ) : (
@@ -133,12 +135,14 @@ function AddReaction(props: ComponentProps<"button">) {
  */
 function ReactionPicker({ onReact, onNewBoost }: { onReact: (emoji: string) => void; onNewBoost: () => void }) {
   const [open, setOpen] = useState(false);
+  // A finger's tap outside it only closes it, so what it covers can't be pressed by mistake.
+  const fingers = !useMediaQuery(OVERLAPPING);
   const choose = (then: () => void) => {
     setOpen(false);
     then();
   };
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={fingers}>
       <PopoverTrigger asChild>
         <AddReaction />
       </PopoverTrigger>

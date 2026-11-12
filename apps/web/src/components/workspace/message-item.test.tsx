@@ -1163,6 +1163,7 @@ describe("React to a message", () => {
   });
 
   it("opens a picker of every reaction alone from Add reaction, after the reactions, focusing the first, and Escape hands focus back", async () => {
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(hover: hover) and (pointer: fine)", media, addEventListener() {}, removeEventListener() {} }));
     const { actions, user } = show(message({ boosts: [boost("b1", grace, "👍")] }));
     const add = reactions().getByRole("button", { name: "Add reaction" });
     await user.click(add);

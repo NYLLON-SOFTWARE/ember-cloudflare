@@ -34,7 +34,7 @@ const CONTROL_ROW = cn(
   "relative [&>span:has(>button)]:contents",
   // What a control says when it fails, such as a star that couldn't be saved, on a line of its own under it.
   // The control covers the row's first 52px, and its note starts below that: 10px padding, 24px label, 12px gap and 6px.
-  "flex-wrap [&_[role=status]]:static [&_[role=status]]:order-last [&_[role=status]]:mt-1.5 [&_[role=status]]:w-full [&_[role=status]]:border-0 [&_[role=status]]:bg-transparent [&_[role=status]]:p-0 [&_[role=status]]:pl-9 [&_[role=status]]:text-negative [&_[role=status]]:shadow-none",
+  "flex-wrap [&_[role=status]:not(.sr-only)]:static [&_[role=status]:not(.sr-only)]:order-last [&_[role=status]:not(.sr-only)]:mt-1.5 [&_[role=status]:not(.sr-only)]:w-full [&_[role=status]:not(.sr-only)]:border-0 [&_[role=status]:not(.sr-only)]:bg-transparent [&_[role=status]:not(.sr-only)]:p-0 [&_[role=status]:not(.sr-only)]:pl-9 [&_[role=status]:not(.sr-only)]:text-negative [&_[role=status]:not(.sr-only)]:shadow-none",
   "[&>button]:absolute [&>button]:inset-x-0 [&>button]:top-0 [&>span>button]:absolute [&>span>button]:inset-x-0 [&>span>button]:top-0",
   "[&_button:first-child]:flex [&_button:first-child]:h-13 [&_button:first-child]:w-full [&_button:first-child]:items-center [&_button:first-child]:justify-start [&_button:first-child]:gap-3",
   "[&_button:first-child]:rounded-xl [&_button:first-child]:px-[18px] [&_button:first-child]:text-base [&_button:first-child]:font-normal [&_button:first-child]:text-muted-foreground [&_button:first-child>svg]:size-5",
