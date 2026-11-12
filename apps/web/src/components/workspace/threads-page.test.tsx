@@ -45,6 +45,9 @@ const busy: ListedThread = {
   count: THREAD_CONTEXT + 2,
 };
 
+/** A card's box to reply in, the composer's, once its editor has loaded. */
+const replyBox = (card: HTMLElement) => within(card).findByRole("textbox", { name: "Write a reply" });
+
 /** The messages a card shows, by their text, in the order it shows them. */
 const shownIn = (card: HTMLElement) =>
   ["Shall we ship it?", ...busy.replies.map(({ plainText }) => plainText), "On it"]
@@ -85,8 +88,7 @@ describe("Threads page", () => {
     expect(shownIn(card)).toEqual(["Shall we ship it?", "Reply 0", "Reply 1", "Reply 2", "Reply 3", "Reply 4"]);
     expect(within(card).getByRole("link", { name: "3 more replies" })).toBeInTheDocument();
 
-    await userEvent.click(within(card).getByRole("button", { name: "Reply" }));
-    await userEvent.type(within(card).getByRole("textbox"), "On it{Enter}");
+    await userEvent.type(await replyBox(card), "On it{Enter}");
     expect(shownIn(card)).toEqual(["Shall we ship it?", "Reply 1", "Reply 2", "Reply 3", "Reply 4", "On it"]);
     expect(within(card).getByRole("link", { name: "4 more replies" })).toBeInTheDocument();
   });
@@ -96,37 +98,34 @@ describe("Threads page", () => {
     const [mentions, following, other] = await screen.findAllByRole("article", { name: "Thread in general" });
     expect(within(mentions!).getByText("Mentions you")).toBeInTheDocument();
     expect(within(following!).getByText("Following")).toBeInTheDocument();
-    // Not on phones, where a card is lean, and its thread has the rest, as does its Reply.
+    // Not on phones, where a card is lean, and its thread has the rest, as it has the composer.
     expect(within(following!).getByText("Following")).toHaveClass("max-md:hidden");
-    expect(within(following!).getByRole("button", { name: "Reply" })).toHaveClass("max-md:hidden");
+    expect((await replyBox(following!)).closest(".max-md\\:hidden")).toBeInTheDocument();
     expect(within(other!).queryByText(/Mentions you|Following/)).toBeNull();
   });
 
-  it("opens a box to reply in only once Reply is pressed, closing it again with Escape while it's empty", async () => {
+  it("replies in the composer, one line of it, which takes no focus as the page shows", async () => {
     showPage({ threads: [thread], next: null });
     const card = await screen.findByRole("article", { name: "Thread in general" });
-    expect(within(card).queryByRole("textbox")).not.toBeInTheDocument();
-    await userEvent.click(within(card).getByRole("button", { name: "Reply" }));
-    expect(within(card).getByRole("textbox", { name: "Reply in thread in general" })).toHaveFocus();
-    await userEvent.keyboard("{Escape}");
-    expect(within(card).queryByRole("textbox")).not.toBeInTheDocument();
+    const box = await replyBox(card);
+    expect(box.closest("[data-compact]")).toBeInTheDocument();
+    expect(box).not.toHaveFocus();
+    expect(within(card).queryByRole("button", { name: "Reply" })).not.toBeInTheDocument();
   });
 
   it("sends a reply written in a card to its thread, showing it at once", async () => {
     showPage({ threads: [thread], next: null });
-    await userEvent.click(await screen.findByRole("button", { name: "Reply" }));
-    const box = screen.getByRole("textbox", { name: "Reply in thread in general" });
+    const box = await replyBox(await screen.findByRole("article", { name: "Thread in general" }));
     await userEvent.type(box, "On it{Enter}");
     expect(handOver).toHaveBeenCalledExactlyOnceWith("general", [expect.objectContaining({ parentId: "p1", plainText: "On it", queued: true, creator: ada })]);
-    expect(box).toHaveValue("");
+    expect(box).toHaveTextContent(/^$/);
     expect(within(screen.getByRole("article", { name: "Thread in general" })).getByText("On it")).toBeInTheDocument();
   });
 
   it("brings the cards up to date as the tab is shown again, with others' replies, its own written there once each", async () => {
     showPage({ threads: [thread], next: null });
     const card = await screen.findByRole("article", { name: "Thread in general" });
-    await userEvent.click(within(card).getByRole("button", { name: "Reply" }));
-    await userEvent.type(within(card).getByRole("textbox"), "On it{Enter}");
+    await userEvent.type(await replyBox(card), "On it{Enter}");
     const mine = vi.mocked(handOver).mock.calls[0]![1][0]!;
 
     // Since: Grace replied, and the reply written here reached the thread.
