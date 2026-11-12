@@ -59,7 +59,7 @@ export function DraftsPage({ me, tab, rooms, onFailed }: Props) {
             </PageLink>
           ))}
         </nav>
-        <section className="min-h-0 flex-1 basis-0 overflow-x-hidden overflow-y-auto overscroll-contain px-[22px] pt-4 pb-[max(18px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] max-md:px-3 max-md:pt-3">
+        <section className="min-h-0 flex-1 basis-0 overflow-x-hidden overflow-y-auto overscroll-contain px-[22px] pt-4 pb-[max(18px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] max-md:px-0 max-md:pt-3">
           {tab === "drafts" ? <Drafts me={me} names={names} /> : <Sent me={me} names={names} onFailed={onFailed} />}
         </section>
       </MainContent>
@@ -203,7 +203,7 @@ function Sent({ me, names, onFailed }: { me: Me; names: SearchNames; onFailed: (
       },
     );
   };
-  if (!page) return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
+  if (!page) return <RowsLoading />;
   if (page.matches.length === 0) return <Nothing title="Nothing sent yet" />;
   return (
     <>
@@ -232,6 +232,24 @@ function Sent({ me, names, onFailed }: { me: Me; names: SearchNames; onFailed: (
         </div>
       )}
     </>
+  );
+}
+
+/** Sent loading: the shapes of a few rows, faint, for screen readers Loading…. */
+function RowsLoading() {
+  return (
+    <div role="status" className="flex flex-col">
+      <span className="sr-only">Loading…</span>
+      {[0, 1, 2].map((row) => (
+        <div key={row} aria-hidden="true" className="flex min-h-[68px] gap-3 px-[18px] py-3 max-md:px-4">
+          <span className="size-9 shrink-0 rounded-[6px] bg-hover" />
+          <span className="flex flex-1 flex-col gap-2 pt-1">
+            <span className="h-3 w-1/3 rounded-full bg-hover" />
+            <span className="h-3 w-3/4 rounded-full bg-hover" />
+          </span>
+        </div>
+      ))}
+    </div>
   );
 }
 

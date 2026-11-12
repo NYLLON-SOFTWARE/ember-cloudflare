@@ -159,6 +159,17 @@ describe("Threads page", () => {
     expect(within(card.querySelector("header")!).queryByText("#")).toBeNull();
   });
 
+  it("shows the shapes of cards while the threads load, and says so to screen readers", () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise(() => {}));
+    render(
+      <Sheet>
+        <ThreadsPage me={ada} rooms={[general]} onFailed={vi.fn()} />
+      </Sheet>,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Loading…");
+    expect(screen.getByRole("status").querySelectorAll(".rounded-xl")).toHaveLength(2);
+  });
+
   it("says when there are no threads", async () => {
     showPage({ threads: [], next: null });
     expect(await screen.findByRole("heading", { name: "No threads yet" })).toBeInTheDocument();

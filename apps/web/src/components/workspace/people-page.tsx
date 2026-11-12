@@ -1,6 +1,5 @@
 import { useContext, useDeferredValue, useMemo, useState } from "react";
 import type { DirectoryUser } from "@ember/protocol";
-import { Search } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { DirectoryLoaded, PeopleContext } from "@/hooks/use-directory";
@@ -8,6 +7,7 @@ import { personPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { byName } from "@/lib/people";
 import { PageHeader } from "./page-header";
+import { SearchField } from "./search-field";
 import { UserAvatar } from "./user-avatar";
 
 /** Whether someone is shown in the directory: a person, not a bot, who hasn't left or been banned. */
@@ -39,17 +39,7 @@ export function PeoplePage() {
       </PageHeader>
       <MainContent className="min-h-0 min-w-0 overflow-y-auto bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-4 px-[22px] pt-5 pb-[max(22px,env(safe-area-inset-bottom))] max-md:px-3">
-          <div className="relative">
-            <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-[18px] -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="search"
-              value={typed}
-              onChange={(event) => setTyped(event.target.value)}
-              placeholder="Search for people"
-              aria-label="Search for people"
-              className="h-10 w-full rounded-[9px] border bg-surface pr-3 pl-10 text-[15px] outline-none placeholder:text-muted-foreground focus-visible:border-ring touch:h-11 max-md:text-base"
-            />
-          </div>
+          <SearchField value={typed} onChange={setTyped} placeholder="Search for people" label="Search for people" />
           {shown.length > 0 ? (
             <ul aria-label="People" className="grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-4 max-md:-mx-3 max-md:flex max-md:flex-col max-md:gap-0">
               {shown.map((person) => (
