@@ -9,15 +9,19 @@ import type { CanvasDoc, CanvasEditing } from "./canvas-schema";
 // missed, which their editor rebases its own over and sends again.
 //
 // The room keeps the document and its latest steps in memory while anyone writes, and saves the document
-// to the Workspace a few seconds after the writing stops, and at least every so often while it goes on,
-// and as the last writer leaves: not once a keystroke. Nothing of it outlives the object but the canvas
-// it saved. A writer whose version the room no longer has the steps after, as after the object restarts,
-// is sent the canvas as it's saved, and merges what they had into it (canvas-merge.ts).
+// to the Workspace and lets it go a few seconds after the writing stops, as well as saving it every so
+// often while the writing goes on, and as the last writer leaves: not once a keystroke. Its alarm does
+// that, not a timer, as a timer keeps the object awake and paid for between keystrokes, where the alarm
+// lets it hibernate. The next change after that loads the canvas from the Workspace again. A writer whose
+// version the room no longer has the steps after, as after the object restarts, is sent the canvas as
+// it's saved, and merges what they had into it (canvas-merge.ts).
 
-/** How long writing has to stop for before the room saves the canvas. */
-const SAVE_AFTER_MS = 2_000;
+/** How long writing has to stop for before the room saves the canvas and lets it go. */
+export const LET_GO_AFTER_MS = 5_000;
 /** The longest the room goes without saving a canvas someone is writing in. */
 const SAVE_AT_LEAST_EVERY_MS = 10_000;
+/** How long the room waits to try again to save a canvas it couldn't. */
+const RETRY_AFTER_MS = 1_000;
 /** How many of a canvas's latest steps the room keeps for writers who are behind. */
 const KEPT_STEPS = 1_000;
 /** How big a document can grow, in ProseMirror's positions, about a character each, well inside `MAX_CANVAS_LENGTH`'s JSON. */
@@ -39,7 +43,8 @@ interface Session {
   saved: number;
   updatedBy: User;
   updatedAt: string;
-  timer: ReturnType<typeof setTimeout> | null;
+  /** When the latest change came. */
+  changedAt: number;
   /** When the first change since the canvas was last saved came. */
   unsavedSince: number | null;
 }
@@ -50,8 +55,8 @@ export interface CanvasRoom {
   /** The open sockets writing canvas `tabId`. */
   writers(tabId: string): WebSocket[];
   send(ws: WebSocket, frame: ServerFrame): void;
-  /** Runs `work` once the room's events before it are done, as each of the room's events is. */
-  serially(work: () => Promise<void>): Promise<void>;
+  /** Sets the room's alarm to ring by `time`, from within one of its events, to call `ring`. */
+  ringBy(time: number): Promise<void>;
   load(tabId: string): Promise<Canvas | null>;
   keep(tabId: string, body: string, version: number, by: User): Promise<boolean>;
   /** Saves over `save.version` when nobody's writing the canvas together. */
@@ -80,7 +85,7 @@ export class CanvasSessions {
     // nothing else; one it can't read starts empty for nobody, and stays as it is.
     const doc = tools.docOf(canvas.body);
     if (!doc) return null;
-    const session: Session = { doc, version: canvas.version, steps: [], saved: canvas.version, updatedBy: canvas.updatedBy, updatedAt: canvas.updatedAt, timer: null, unsavedSince: null };
+    const session: Session = { doc, version: canvas.version, steps: [], saved: canvas.version, updatedBy: canvas.updatedBy, updatedAt: canvas.updatedAt, changedAt: Date.now(), unsavedSince: null };
     this.sessions.set(tabId, session);
     return session;
   }
@@ -135,11 +140,11 @@ export class CanvasSessions {
       return this.room.send(ws, { type: "canvas.state", tabId, canvas: this.canvasOf(session) });
     }
     if (doc.nodeSize > MAX_CANVAS_SIZE) return this.room.send(ws, { type: "canvas.refused", tabId, message: CANVAS_TOO_LONG });
-    this.advance(tabId, session, doc, steps, clientId, user);
+    await this.advance(tabId, session, doc, steps, clientId, user);
   }
 
-  /** Takes canvas `tabId` to `doc`, by `steps` from `clientId`'s editor, telling everyone writing it, and saves it soon. */
-  private advance(tabId: string, session: Session, doc: CanvasDoc, steps: unknown[], clientId: string, by: User): void {
+  /** Takes canvas `tabId` to `doc`, by `steps` from `clientId`'s editor, telling everyone writing it, and has the alarm save it. */
+  private async advance(tabId: string, session: Session, doc: CanvasDoc, steps: unknown[], clientId: string, by: User): Promise<void> {
     const version = session.version;
     session.doc = doc;
     session.version += steps.length;
@@ -149,25 +154,44 @@ export class CanvasSessions {
     session.updatedAt = new Date().toISOString();
     const frame: ServerFrame = { type: "canvas.steps", tabId, version, steps, clientIds: steps.map(() => clientId), updatedBy: by, updatedAt: session.updatedAt };
     for (const writer of this.room.writers(tabId)) this.room.send(writer, frame);
-    this.saveSoon(tabId, session);
+    session.changedAt = Date.now();
+    // The alarm is set once a run of changes starts, and moves on as it rings, rather than once a change.
+    if (session.unsavedSince === null) {
+      session.unsavedSince = session.changedAt;
+      await this.room.ringBy(session.changedAt + LET_GO_AFTER_MS);
+    }
   }
 
-  /** Saves the canvas once writing has stopped a moment, or has gone on a while unsaved. */
-  private saveSoon(tabId: string, session: Session): void {
-    const now = Date.now();
-    session.unsavedSince ??= now;
-    if (session.timer) clearTimeout(session.timer);
-    const wait = Math.max(0, Math.min(SAVE_AFTER_MS, session.unsavedSince + SAVE_AT_LEAST_EVERY_MS - now));
-    session.timer = setTimeout(() => void this.room.serially(() => this.keep(tabId)), wait);
+  /**
+   * Saves each canvas whose writing has stopped a while, or gone on a while unsaved, at `now`, letting go
+   * of those whose writing has stopped, and answers when to ring again, if ever.
+   */
+  async ring(now = Date.now()): Promise<number | null> {
+    let next: number | null = null;
+    for (const [tabId, session] of [...this.sessions]) {
+      const quiet = now - session.changedAt >= LET_GO_AFTER_MS;
+      if (session.unsavedSince !== null && (quiet || now - session.unsavedSince >= SAVE_AT_LEAST_EVERY_MS)) await this.keep(tabId);
+      if (quiet && session.saved === session.version) {
+        this.sessions.delete(tabId);
+        continue;
+      }
+      const quietAt = session.changedAt + LET_GO_AFTER_MS;
+      // A save that failed is tried again a moment later.
+      const due = Math.max(now + RETRY_AFTER_MS, session.unsavedSince === null ? quietAt : Math.min(quietAt, session.unsavedSince + SAVE_AT_LEAST_EVERY_MS));
+      next = Math.min(next ?? due, due);
+    }
+    return next;
+  }
+
+  /** Whether the room holds canvas `tabId` in memory, as people write it. */
+  holds(tabId: string): boolean {
+    return this.sessions.has(tabId);
   }
 
   /** Saves what canvas `tabId` holds to the Workspace, if it holds anything unsaved. */
   private async keep(tabId: string): Promise<void> {
     const session = this.sessions.get(tabId);
-    if (!session) return;
-    if (session.timer) clearTimeout(session.timer);
-    session.timer = null;
-    if (session.saved === session.version) return;
+    if (!session || session.saved === session.version) return;
     const version = session.version;
     const body = JSON.stringify(session.doc.toJSON());
     session.unsavedSince = null;
@@ -177,7 +201,8 @@ export class CanvasSessions {
       session.saved = version;
     } catch (error) {
       console.error("Couldn't keep a canvas", error instanceof Error ? error.message : error);
-      this.saveSoon(tabId, session);
+      // The alarm tries again as it next rings.
+      session.unsavedSince ??= Date.now();
     }
   }
 
@@ -193,7 +218,7 @@ export class CanvasSessions {
     const doc = tools.docOf(save.body);
     if (!doc) return { conflict: this.canvasOf(session) };
     const steps = tools.stepsBetween(session.doc, doc);
-    if (steps.length > 0) this.advance(tabId, session, doc, steps, `whole-${actor.id}`, actor);
+    if (steps.length > 0) await this.advance(tabId, session, doc, steps, `whole-${actor.id}`, actor);
     await this.keep(tabId);
     return { canvas: this.canvasOf(session) };
   }
@@ -208,7 +233,6 @@ export class CanvasSessions {
 
   /** Forgets every canvas, unsaved, as the room is deleted. */
   forget(): void {
-    for (const session of this.sessions.values()) if (session.timer) clearTimeout(session.timer);
     this.sessions.clear();
   }
 }

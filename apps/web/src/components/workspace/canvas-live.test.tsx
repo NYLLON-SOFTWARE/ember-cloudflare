@@ -61,7 +61,8 @@ class FakeRoom {
       roomId: room.id,
       writers: (tabId) => [...this.writing].filter(([socket, writing]) => socket.open && writing === tabId).map(([socket]) => socket as unknown as WebSocket),
       send: (ws, frame) => (ws as unknown as Socket).deliver(frame),
-      serially: (work) => this.serially(work),
+      // No alarm here: the room's tests ring it.
+      ringBy: async () => {},
       load: async () => this.saved,
       keep: async (_tabId, body, version, by) => {
         this.saved = { body, version, updatedBy: by, updatedAt: new Date().toISOString() };
