@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
+import { PHONE_LAYOUT } from "@/hooks/use-phone-layout";
 import type { RoomFrames } from "@/hooks/use-room";
 import { dateValue } from "@/lib/schedule-times";
 import type { Sendable } from "@/lib/uploads";
@@ -451,6 +452,21 @@ describe("Attach files", () => {
     expect(screen.getByRole("button", { name: "Schedule for later" })).toBeDisabled();
     // The chevron's dimming is for a pair with nothing to send.
     expect(send.parentElement).toHaveAttribute("data-sendable");
+  });
+
+  it("offers Upload a file and Files in Ember in an action sheet on phones, which leaves focus where it goes", async () => {
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === PHONE_LAYOUT || media === "(pointer: coarse)", media, addEventListener() {}, removeEventListener() {} }));
+    await import("./pages");
+    const { user } = await showComposer();
+    const click = vi.spyOn(attachFiles(), "click");
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    const sheet = await screen.findByRole("dialog", { name: "Attach" });
+    expect(within(sheet).getAllByRole("button").map((button) => button.textContent)).toEqual(["Upload a file", "Files in Ember"]);
+    await user.click(within(sheet).getByRole("button", { name: "Upload a file" }));
+    expect(click).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(screen.queryByRole("dialog", { name: "Attach" })).not.toBeInTheDocument());
+    expect(screen.getByRole("textbox", { name: "Write a message" })).not.toHaveFocus();
+    vi.unstubAllGlobals();
   });
 
   it("shows the files picked inside the card under the text: a picture's thumbnail, and anything else's icon, name, type and size", async () => {

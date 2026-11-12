@@ -51,3 +51,4 @@ export { DeleteMessageDialog } from "./confirm-dialog";
 export { InvitationCard } from "./invitation-card";
 export { Lightbox } from "../lightbox";
 export { ReactionSheet } from "../mobile/reaction-sheet";
+export { ActionSheet } from "../mobile/action-sheet";
