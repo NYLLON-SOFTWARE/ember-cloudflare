@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useMemo, useRef } from "react";
 import type { Me, Message, Room } from "@ember/protocol";
-import { ArrowLeft, ChatBubbleEmpty, Xmark } from "@/components/icons/iconoir";
+import { ArrowLeft, ChatBubbleEmpty, Lock, Xmark } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { composerEdit, useMessageEditors } from "@/hooks/use-message-editors";
@@ -192,7 +192,14 @@ const ROOM_NAME = "inline-flex max-w-full min-w-0 items-center gap-[5px] text-sm
 function RoomLabel({ room, name }: { room: Room; name: string }) {
   return (
     <>
-      {room.kind === "direct" ? <ChatBubbleEmpty className="size-4 shrink-0" /> : <RoomIcon icon={room.icon} size={16} className="shrink-0 text-[16px] leading-none" />}
+      {room.kind === "direct" ? (
+        <ChatBubbleEmpty className="size-4 shrink-0" />
+      ) : room.kind === "closed" && room.icon === null ? (
+        // A private room without an icon of its own has a lock where an open one has `#`, as its header does.
+        <Lock aria-hidden="true" className="size-4 shrink-0" />
+      ) : (
+        <RoomIcon icon={room.icon} size={16} className="shrink-0 text-[16px] leading-none" />
+      )}
       <span className="truncate">{name}</span>
     </>
   );
