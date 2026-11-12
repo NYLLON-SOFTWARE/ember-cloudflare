@@ -10,8 +10,8 @@ const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };
 
 /** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's. */
-const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect = () => {}, newRelease: string | null = null) => (
-  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} newRelease={newRelease} onNewDirect={onNewDirect} />
+const railAt = (current: RailPage, activity = activityOff, me = ada, newRelease: string | null = null) => (
+  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} newRelease={newRelease} />
 );
 
 afterEach(() => history.replaceState(null, "", "/"));
@@ -32,7 +32,7 @@ describe("Rail", () => {
     ]);
     expect(within(rail).getByRole("link", { name: "Ember home" })).toHaveAttribute("href", "/");
     expect(within(rail).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
-    expect(within(rail).getByRole("link", { name: "DMs" })).toHaveAttribute("href", "/rooms/directs/new");
+    expect(within(rail).getByRole("link", { name: "DMs" })).toHaveAttribute("href", "/dms");
     expect(within(rail).getByRole("link", { name: "Search" })).toHaveAttribute("href", "/searches");
     expect(within(rail).getByRole("link", { name: "Workspace" })).toHaveAttribute("href", "/account/edit");
     expect(within(rail).getByRole("link", { name: "Your profile" })).toHaveAttribute("href", "/users/me/profile");
@@ -59,7 +59,7 @@ describe("Rail", () => {
 
   it("marks Admin with a dot while a newer release of Ember is out, which it says to screen readers", () => {
     const grace = { ...ada, administrator: true };
-    const { rerender } = render(railAt("home", activityOff, grace, () => {}, "0.2"));
+    const { rerender } = render(railAt("home", activityOff, grace, "0.2"));
     const admin = screen.getByRole("link", { name: "Admin" });
     expect(admin).toHaveAccessibleDescription("Ember 0.2 is available");
     const dot = admin.lastElementChild;
@@ -140,25 +140,23 @@ describe("Search box", () => {
   });
 });
 
-describe("New direct message dialog", () => {
-  it("opens New direct message in place from DMs, which a click with a modifier key leaves to the browser", async () => {
-    const onNewDirect = vi.fn();
-    render(railAt("room", activityOff, ada, onNewDirect));
+describe("DMs page", () => {
+  it("opens the DMs page in place from DMs, which a click with a modifier key leaves to the browser", async () => {
+    render(railAt("room"));
     const dms = screen.getByRole("link", { name: "DMs" });
+    expect(fireEvent.click(dms, { ctrlKey: true })).toBe(true);
+    expect(location.pathname).toBe("/");
     await userEvent.click(dms);
-    expect(onNewDirect).toHaveBeenCalledExactlyOnceWith(dms);
-    expect(location.pathname).toBe("/");
-
-    onNewDirect.mockClear();
-    const opened = fireEvent.click(dms, { ctrlKey: true });
-    expect(opened).toBe(true);
-    expect(onNewDirect).not.toHaveBeenCalled();
-    expect(location.pathname).toBe("/");
+    expect(location.pathname).toBe("/dms");
   });
 
-  it("never marks DMs, whose address goes on to the last room visited", () => {
-    render(railAt("room"));
+  it("marks DMs on the DMs page and a DM's, and Home on a room's", () => {
+    const { rerender } = render(railAt("dms"));
+    expect(screen.getByRole("link", { name: "DMs" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Home" })).not.toHaveAttribute("aria-current");
+    rerender(railAt("room"));
     expect(screen.getByRole("link", { name: "DMs" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
   });
 });
 
