@@ -200,8 +200,8 @@ describe("Open a room", () => {
 
   it("says so in the room's place at a room you can't see, once the list, asked again, hasn't got it either, with a way to a room you can", async () => {
     const { user } = showWorkspace("/rooms/secret");
-    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to this room");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("You don't have access to this room");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don’t have access to this room");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("You don’t have access to this room");
     expect(location.pathname).toBe("/rooms/secret");
     expect(roomListRequests()).toBe(2);
     await user.click(screen.getByRole("button", { name: "Go to #general" }));
@@ -226,7 +226,7 @@ describe("Open a room", () => {
     expect(await roomHeading()).toHaveTextContent("general");
     act(() => navigate("/rooms/secret"));
     await waitFor(() => expect(roomListRequests()).toBe(3));
-    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to this room");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don’t have access to this room");
     // A room it has asks nothing.
     await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /random/ }));
     expect(await roomHeading()).toHaveTextContent("random");
@@ -347,7 +347,7 @@ describe("Room addresses", () => {
 
   it("goes from the address for a kind of room you can't see to the room's own, which says so", async () => {
     showWorkspace("/rooms/closeds/secret");
-    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to this room");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don’t have access to this room");
     expect(location.pathname).toBe("/rooms/secret");
   });
 
@@ -359,7 +359,7 @@ describe("Room addresses", () => {
 
   it("reads /rooms/opens as a room's id", async () => {
     showWorkspace("/rooms/opens");
-    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to this room");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don’t have access to this room");
     expect(location.pathname).toBe("/rooms/opens");
   });
 });
@@ -619,7 +619,7 @@ describe("Link to a message", () => {
     expect(location.pathname).toBe("/rooms/random");
 
     act(() => navigate("/rooms/secret/messages/m1"));
-    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to this room");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don’t have access to this room");
     expect(location.pathname).toBe("/rooms/secret/@m1");
   });
 });
@@ -1691,6 +1691,8 @@ describe("Live sidebar updates", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("You no longer have access to #random");
     expect(screen.queryByRole("textbox", { name: "Write a message" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Go to #general" })).toBeInTheDocument();
+    // The bar above names the room still, muted.
+    expect(screen.getByRole("navigation", { name: "Page" })).toHaveTextContent("#random");
   });
 
   it("shows a room said to be gone as it is once the workspace socket brings it back, as when someone is put back in it", async () => {
@@ -2670,7 +2672,7 @@ describe("Huddles", () => {
 
   it("says the room isn't this person's at the huddle's link of a room that isn't", async () => {
     showWorkspace("/rooms/secret/huddle", ada, HUDDLES_ON);
-    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to this room");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don’t have access to this room");
     expect(preview()).not.toBeInTheDocument();
   });
 

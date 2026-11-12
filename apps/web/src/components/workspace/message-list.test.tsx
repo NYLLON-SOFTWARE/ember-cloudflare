@@ -222,6 +222,18 @@ describe("Open a room", () => {
   });
 });
 
+describe("A room gone while it's shown", () => {
+  it("minds nothing the browser tells of the timeline's size or scroll once it's gone, as it can when its room's deleted", () => {
+    const { unmount } = render(list({ messages: messages(1, 3), paged: true }));
+    const log = screen.getByRole("log");
+    layOut(log);
+    // The browser can have seen a resize before the timeline went, and tell of it after.
+    const seen = [...FakeResizeObserver.observers];
+    unmount();
+    expect(() => seen.forEach((observer) => observer.callback())).not.toThrow();
+  });
+});
+
 describe("Empty room", () => {
   it("welcomes people to a room with no messages yet, with nothing more to say", () => {
     render(list({ messages: [] }));

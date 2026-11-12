@@ -27,7 +27,7 @@ export function RoomUnavailable({ room, gone, goTo, me }: Props) {
   const nameOf = useNameOf();
   const named = (room: Room) => (room.kind === "direct" ? roomName(room, me.id, nameOf) : `#${roomName(room, me.id, nameOf)}`);
   const title = !room
-    ? "You don't have access to this room"
+    ? "You don’t have access to this room"
     : gone === "lost access"
       ? `You no longer have access to ${named(room)}`
       : room.kind === "direct"
@@ -36,12 +36,13 @@ export function RoomUnavailable({ room, gone, goTo, me }: Props) {
   useTitle(room && roomName(room, me.id, nameOf));
   return (
     <>
-      <PageHeader />
+      {/* The bar names the room, muted, where it knows which, as the room's own header would. */}
+      <PageHeader>{room && <span className="min-w-0 truncate text-[17px] leading-[1.4] font-[650] text-muted-foreground max-md:text-base">{named(room)}</span>}</PageHeader>
       <MainContent className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         <div className="grid flex-1 place-content-center justify-items-center gap-4 p-6 text-center">
           <div role="alert" className="grid justify-items-center gap-3">
             {gone === "lost access" && <Lock aria-hidden className="size-8 text-muted-foreground" />}
-            <h1 className="text-lg font-semibold wrap-anywhere">{title}</h1>
+            <h1 className="text-lg font-semibold text-balance wrap-anywhere">{title}</h1>
           </div>
           {goTo && (
             <Button type="button" className="touch:h-11" onClick={() => navigate(roomPath(goTo.id))}>
