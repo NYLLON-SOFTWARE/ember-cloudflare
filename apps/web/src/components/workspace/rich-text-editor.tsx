@@ -1,6 +1,6 @@
 import { configure, Extension, Lexical, type ElementNode, type LexicalEditor, type LexicalNode } from "@37signals/lexxy";
 import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, writtenBody } from "@ember/richtext/dom";
-import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
+import { use, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, type Ref } from "react";
 import { HEADING_TAGS, NO_FORMATS, type Block, type Format, type Formats } from "./formatting";
 import { $isolateCaretLine, registerQuoteLines } from "./quote-lines";
 import "./rich-text-editor.css";
@@ -175,6 +175,12 @@ configure({
   global: { attachmentContentTypeNamespace: "campfire", extensions: [CampfireRichTextExtension] },
   default: { toolbar: { attachments: false }, headings: ["h1"] },
 });
+
+/**
+ * Once Lexxy has defined its elements. A `<lexxy-editor>` added before then is empty, and short, until it
+ * is, which moves what's around it, so an editor waits for them as it loads.
+ */
+const elementsDefined = customElements.whenDefined("lexxy-editor");
 
 /**
  * The @ prompt: typing @ lists the people `src` answers with as prompt items, those whose names hold
@@ -523,6 +529,7 @@ export default function RichTextEditor({
   onFormats,
   ref,
 }: Props) {
+  use(elementsDefined);
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<LexxyEditor>(null);
 
@@ -654,8 +661,9 @@ export default function RichTextEditor({
     lexxy.selection.placeCursorAtTheEnd();
   });
 
-  // Built once, as it opens.
-  useEffect(() => {
+  // Built once, as it opens, and before it's painted: a frame without it leaves its place empty, and the
+  // composer shorter for it, which moves the timeline above.
+  useLayoutEffect(() => {
     const lexxy = document.createElement("lexxy-editor") as LexxyEditor;
     lexxy.className = "lexxy-content";
     lexxy.setAttribute("rows", String(rows));
@@ -713,8 +721,9 @@ export default function RichTextEditor({
     };
   }, []);
 
-  // Lexxy copies its label and placeholder to its contenteditable only as it connects.
-  useEffect(() => {
+  // Lexxy copies its label and placeholder to its contenteditable only as it connects, so they're set
+  // again, in the same frame.
+  useLayoutEffect(() => {
     const lexxy = editor.current!;
     for (const element of [lexxy, lexxy.editorContentElement]) {
       element?.setAttribute("aria-label", label);
