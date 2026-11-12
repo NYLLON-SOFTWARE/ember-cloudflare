@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
-import { THREAD_CONTEXT, type ListedThread, type Me, type Message, type Room } from "@ember/protocol";
-import { bodyFromPlainText, writtenBody } from "@ember/richtext/dom";
+import { useEffect, useMemo, useState } from "react";
+import { THREAD_CONTEXT, type ListedThread, type Me, type Message, type Room, type User } from "@ember/protocol";
+import { writtenBody } from "@ember/richtext/dom";
 import { MultiBubble, NavArrowRight } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
@@ -12,9 +12,13 @@ import { isSignedOut } from "@/lib/api";
 import { fetchThreads } from "@/lib/conversations";
 import { timeline } from "@/lib/messages";
 import { handOver } from "@/lib/outbox";
+import { Composer } from "./composer";
 import { MessageItem, type MessageEditors, type ThreadPlace } from "./message-item";
 import { PageHeader } from "./page-header";
 import { RoomMark, useSearchNames, type SearchNames } from "./search-box";
+
+/** Nobody's typing as far as a card knows, which hears nothing of its room. */
+const NO_ONE: User[] = [];
 
 /** Messages here can't be edited, so nothing opens an editor or writes in a composer. */
 const NO_EDITORS: MessageEditors = { open() {}, close() {}, returnFocus() {}, attach() {}, reply() {} };
@@ -182,8 +186,7 @@ function ThreadCard({ thread, me, names }: { thread: ListedThread; me: Me; names
   const mark = markOf(thread);
   // As in a thread's panel: no summary of the thread under its first message, nor Reply in thread.
   const place = useMemo<ThreadPlace>(() => ({ roomName: room && room.kind !== "direct" ? room.name : "", direct: room?.kind === "direct" }), [room]);
-  const reply = (text: string) => {
-    const body = bodyFromPlainText(text);
+  const reply = (body: string) => {
     const { plainText, mentions } = writtenBody(body);
     const message = { ...pendingMessage(crypto.randomUUID(), thread.roomId, me, body, plainText, mentions, new Date().toISOString()), parentId: thread.parent.id, alsoSent: false, queued: true as const };
     handOver(thread.roomId, [message]);
@@ -227,60 +230,28 @@ function ThreadCard({ thread, me, names }: { thread: ListedThread; me: Me; names
           </div>
         ))}
       </div>
-      <ReplyBox onReply={reply} label={`Reply in thread in ${room ? names.roomName(room) : "a room"}`} />
+      {/* The composer, one line of it, as a thread's own has it: Enter sends, and the draft is the thread's.
+          Not on phones, where a card is lean, and its thread has the composer. */}
+      <div className="border-t px-3 py-2 max-md:hidden">
+        <Composer
+          compact
+          roomId={thread.roomId}
+          roomName={room ? names.roomName(room) : ""}
+          direct={room?.kind === "direct"}
+          closed={room?.kind === "closed"}
+          userId={me.id}
+          typing={NO_ONE}
+          disabled={false}
+          threadId={thread.parent.id}
+          onSend={(body) => {
+            reply(body);
+            return true;
+          }}
+          onSendFiles={() => {}}
+          onTyping={() => {}}
+          autoFocus={false}
+        />
+      </div>
     </article>
-  );
-}
-
-/**
- * Reply, under a card's messages, which opens a box to reply in once it's pressed, and closes again with
- * Escape, or once the box is left empty. In the box, Enter sends what's written, and Shift+Enter starts a
- * new line.
- */
-function ReplyBox({ onReply, label }: { onReply: (text: string) => void; label: string }) {
-  const [open, setOpen] = useState(false);
-  const [text, setText] = useState("");
-  const send = () => {
-    if (text.trim() === "") return;
-    onReply(text.trim());
-    setText("");
-  };
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    send();
-  };
-  const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Escape" && text.trim() === "") return setOpen(false);
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
-    event.preventDefault();
-    send();
-  };
-  if (!open)
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="mb-2 ml-[68px] cursor-pointer rounded-md py-1 text-[13px] font-semibold text-muted-foreground hover:text-foreground touch:min-h-11 max-md:hidden"
-      >
-        Reply
-      </button>
-    );
-  return (
-    <form onSubmit={submit} className="flex items-end gap-2 border-t px-4 py-3 max-md:px-3">
-      <textarea
-        autoFocus
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={keyDown}
-        onBlur={(event) => text.trim() === "" && !event.currentTarget.form?.contains(event.relatedTarget) && setOpen(false)}
-        rows={1}
-        placeholder="Reply…"
-        aria-label={label}
-        className="field-sizing-content max-h-40 min-h-9 flex-1 resize-none rounded-lg border bg-surface px-3 py-1.5 text-[15px] leading-[22px] outline-none placeholder:text-muted-foreground focus-visible:border-ring max-md:text-base"
-      />
-      <button type="submit" disabled={text.trim() === ""} className={`${BUTTON} min-h-9 disabled:cursor-default disabled:opacity-50`}>
-        Send
-      </button>
-    </form>
   );
 }
