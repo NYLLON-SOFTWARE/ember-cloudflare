@@ -123,6 +123,35 @@ describe("parsing what clients send", () => {
     expect(parseTabChange({ title: "" })).toBe("A tab needs a name");
   });
 
+  it("takes invisible formatting out of a tab's name, keeping the joiner emoji are made with", () => {
+    expect(parseTabChange({ title: "‮RTL​ zero⁦" })).toEqual({ title: "RTL zero" });
+    expect(parseNewTab({ kind: "folder", title: "Team \u{1F468}‍\u{1F469}‍\u{1F467}" })).toEqual({ kind: "folder", title: "Team \u{1F468}‍\u{1F469}‍\u{1F467}" });
+    expect(parseTabChange({ title: "​‮" })).toBe("A tab needs a name");
+  });
+
+  it("takes a canvas holding only what its editor can show, with safe links", () => {
+    const canvasOf = (...content: object[]) => ({ body: JSON.stringify({ type: "doc", content }), version: 1 });
+    const linked = (href: string) => ({ type: "paragraph", content: [{ type: "text", text: "Go", marks: [{ type: "link", attrs: { href, target: "_blank", rel: null, class: null } }] }] });
+    const written = canvasOf(
+      { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Plan", marks: [{ type: "bold" }] }] },
+      { type: "bulletList", content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "One" }] }] }] },
+      { type: "codeBlock", attrs: { language: null }, content: [{ type: "text", text: "x = 1" }] },
+      { type: "horizontalRule" },
+      linked("https://example.com"),
+      linked("mailto:ada@example.com"),
+      linked("/rooms/general"),
+    );
+    expect(parseCanvasSave(written)).toEqual(written);
+    for (const href of ["javascript:alert(1)", "JavaScript:alert(1)", "java\tscript:alert(1)", " data:text/html,x", "vbscript:x"]) expect(parseCanvasSave(canvasOf(linked(href))), href).toBe("A canvas is a document");
+    expect(parseCanvasSave(canvasOf({ type: "iframe", attrs: { src: "https://example.com" } }))).toBe("A canvas is a document");
+    expect(parseCanvasSave(canvasOf({ type: "image", attrs: { src: "x", onerror: "alert(1)" } }))).toBe("A canvas is a document");
+    expect(parseCanvasSave(canvasOf({ type: "paragraph", content: [{ type: "text", text: "x", marks: [{ type: "highlight" }] }] }))).toBe("A canvas is a document");
+    expect(parseCanvasSave(canvasOf({ type: "paragraph", content: [{ type: "text", text: "" }] }))).toBe("A canvas is a document");
+    let deep: object = { type: "paragraph" };
+    for (let depth = 0; depth < 70; depth++) deep = { type: "blockquote", content: [deep] };
+    expect(parseCanvasSave(canvasOf(deep))).toBe("A canvas is a document");
+  });
+
   it("takes an order of distinct ids, a canvas's document over a version, and marks", () => {
     expect(parseTabOrder({ tabIds: ["a", "b"] })).toEqual(["a", "b"]);
     expect(parseTabOrder({ tabIds: ["a", "a"] })).toBe("Expected the tabs' ids, once each");
@@ -133,6 +162,8 @@ describe("parsing what clients send", () => {
     expect(parseFileMark({ fileId: "f", roomId: "r", starred: false })).toEqual({ fileId: "f", roomId: "r", starred: false });
     expect(parseFileMark({ fileId: "f", roomId: "r", viewed: true })).toEqual({ fileId: "f", roomId: "r", viewed: true });
     expect(parseFileMark({ fileId: "f", roomId: "r" })).toBe("Nothing to mark");
+    expect(parseFileMark({ fileId: "f", roomId: "r", messageId: "m", starred: true })).toEqual({ fileId: "f", roomId: "r", messageId: "m", starred: true });
+    expect(parseFileMark({ fileId: "f", roomId: "r", messageId: 5, starred: true })).toBe("A file's message is an id");
     expect(isWebAddress("http://example.com")).toBe(true);
     expect(isWebAddress("ftp://example.com")).toBe(false);
   });

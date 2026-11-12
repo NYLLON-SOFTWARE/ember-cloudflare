@@ -330,6 +330,11 @@ export class RoomTabStore {
     return rows.map((row) => ({ fileId: row.file_id, starred: row.starred_at !== null, viewedAt: row.viewed_at }));
   }
 
+  /** Whether room `roomId` has a canvas tab `tabId`. */
+  async hasCanvas(roomId: RoomId, tabId: string): Promise<boolean> {
+    return (await this.db.all(CANVAS, roomId, tabId)).length > 0;
+  }
+
   /** Stars or unstars a file for `userId`, or records that they opened it, answering its marks. */
   async mark(userId: UserId, { fileId, roomId, starred, viewed }: FileMark, now: string): Promise<FileMarks> {
     const statements = [

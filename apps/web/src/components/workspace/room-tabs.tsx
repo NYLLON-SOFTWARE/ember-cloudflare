@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent, type WheelEvent } from "react";
 import type { Me } from "@ember/protocol";
 import type { RoomTab, RoomTabKind } from "@ember/protocol/library";
 import { ChatLines, Link, MultiplePages, Plus, type IconoirIconProps } from "@/components/icons/iconoir";
@@ -36,6 +36,8 @@ const MENU_ITEM =
 interface Props {
   room: Room;
   me: Me;
+  /** Whether the room is gone, deleted or no longer this person's, which leaves its messages alone to show. */
+  deleted: boolean;
   /** Says why tabs couldn't load or change, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
@@ -46,7 +48,7 @@ interface Props {
  * and picking one goes to its address. A link tab opens its address in a new browser tab rather than
  * showing in place.
  */
-export function RoomTabs({ room, me, onFailed }: Props) {
+export function RoomTabs({ room, me, deleted, onFailed }: Props) {
   const [tabs, setTabs] = useState<RoomTab[]>([]);
   const shown = useShownTab();
   const [adding, setAdding] = useState<RoomTabKind | null>(null);
@@ -60,12 +62,13 @@ export function RoomTabs({ room, me, onFailed }: Props) {
   const strip = useRef<HTMLDivElement>(null);
 
   const reload = useCallback(() => {
-    fetchTabs(room.id).then(setTabs, onFailed);
-  }, [room.id, onFailed]);
+    if (!deleted) fetchTabs(room.id).then(setTabs, onFailed);
+  }, [room.id, deleted, onFailed]);
   useEffect(reload, [reload]);
 
-  // What the shown tab covers can't be reached until Messages shows again.
-  const covering = shown !== "messages";
+  // What the shown tab covers can't be reached until Messages shows again. A room that's gone shows its
+  // messages, as they were, and nothing else.
+  const covering = !deleted && shown !== "messages";
   useLayoutEffect(() => {
     const wrapper = strip.current?.parentElement;
     if (!wrapper) return;
@@ -81,6 +84,11 @@ export function RoomTabs({ room, me, onFailed }: Props) {
     if (tab.kind !== "link") select(tab.id);
   };
 
+  // A wheel that only scrolls up and down scrolls the tabs sideways.
+  const scrollSideways = (event: WheelEvent<HTMLDivElement>) => {
+    if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) event.currentTarget.scrollLeft += event.deltaY;
+  };
+
   // Arrow keys move along the tabs, as a tablist's do.
   const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
@@ -93,27 +101,31 @@ export function RoomTabs({ room, me, onFailed }: Props) {
 
   return (
     <div className="contents">
-      <div
-        ref={strip}
-        role="tablist"
-        aria-label="Room tabs"
-        onKeyDown={moveFocus}
-        className="flex h-10 flex-none items-end gap-0.5 overflow-x-auto border-b bg-background px-[14px] [scrollbar-width:none] max-md:px-1.5"
-      >
-        <StripTab label="Messages" Icon={ChatLines} selected={shown === "messages"} onSelect={() => select("messages")} />
-        <StripTab label="Files & links" Icon={MultiplePages} selected={shown === "files"} onSelect={() => select("files")} />
-        {tabs.map((tab) =>
-          tab.kind === "link" ? (
-            <a key={tab.id} href={tab.url} target="_blank" rel="noopener noreferrer" title={tab.url} className={TAB}>
-              <Link />
-              <span className="max-w-[16em] truncate">{tab.title}</span>
-            </a>
-          ) : (
-            <StripTab key={tab.id} label={tab.title} Icon={TAB_ICONS[tab.kind]} selected={shown === tab.id} onSelect={() => select(tab.id)} />
-          ),
-        )}
-        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-          <PopoverTrigger title="Add a tab" className="mb-1.5 grid size-7 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground aria-expanded:bg-hover touch:size-11">
+      {/* The tabs scroll sideways, with a mouse's wheel too, while + stays at the end of the strip, in reach. */}
+      <div ref={strip} className="flex h-10 flex-none items-end gap-0.5 border-b bg-background pr-[14px] max-md:pr-1.5">
+        <div
+          role="tablist"
+          aria-label="Room tabs"
+          onKeyDown={moveFocus}
+          onWheel={scrollSideways}
+          className="flex h-full min-w-0 items-end gap-0.5 overflow-x-auto pl-[14px] [scrollbar-width:none] max-md:pl-1.5"
+        >
+          <StripTab label="Messages" Icon={ChatLines} selected={!covering} onSelect={() => select("messages")} />
+          {!deleted && <StripTab label="Files & links" Icon={MultiplePages} selected={shown === "files"} onSelect={() => select("files")} />}
+          {!deleted &&
+            tabs.map((tab) =>
+              tab.kind === "link" ? (
+                <a key={tab.id} href={tab.url} target="_blank" rel="noopener noreferrer" title={tab.url} className={TAB}>
+                  <Link />
+                  <span className="max-w-[16em] truncate">{tab.title}</span>
+                </a>
+              ) : (
+                <StripTab key={tab.id} label={tab.title} Icon={TAB_ICONS[tab.kind]} selected={shown === tab.id} onSelect={() => select(tab.id)} />
+              ),
+            )}
+        </div>
+        <Popover open={menuOpen && !deleted} onOpenChange={setMenuOpen}>
+          <PopoverTrigger hidden={deleted} title="Add a tab" className="mb-1.5 grid size-7 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground aria-expanded:bg-hover touch:size-11">
             <Plus className="size-4" />
             <span className="sr-only">Add a tab</span>
           </PopoverTrigger>

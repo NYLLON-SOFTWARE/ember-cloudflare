@@ -57,10 +57,10 @@ function serve() {
 }
 
 /** The strip over a room's messages, as the room's main content holds it. */
-function renderStrip() {
+function renderStrip(deleted = false) {
   return render(
     <main className="relative">
-      <RoomTabs room={general} me={ada} onFailed={vi.fn()} />
+      <RoomTabs room={general} me={ada} deleted={deleted} onFailed={vi.fn()} />
       <section aria-label="Messages">Timeline</section>
     </main>,
   );
@@ -138,5 +138,24 @@ describe("Room tabs", () => {
     navigate("/rooms/general?tab=files");
     renderStrip();
     expect(screen.getByRole("tab", { name: "Files & links" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("leaves a room that's gone its messages alone, with no tabs to open or add, asking for none", () => {
+    serve();
+    navigate("/rooms/general?tab=files");
+    renderStrip(true);
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Messages"]);
+    expect(screen.getByRole("tab", { name: "Messages" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("tabpanel")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add a tab" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Messages" })).toHaveProperty("inert", false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps + in reach however many tabs there are, outside the tabs that scroll", async () => {
+    serve();
+    renderStrip();
+    await screen.findByRole("tab", { name: "Plans" });
+    expect(screen.getByRole("tablist", { name: "Room tabs" })).not.toContainElement(screen.getByRole("button", { name: "Add a tab" }));
   });
 });

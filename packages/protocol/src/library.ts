@@ -109,9 +109,18 @@ export const roomLibraryPath = (roomId: RoomId) => `/api/rooms/${encodeURICompon
 export interface FileMark {
   fileId: string;
   roomId: RoomId;
+  /** The message holding the file, which the server checks still does; a canvas has none. */
+  messageId?: string;
   starred?: boolean;
   viewed?: true;
 }
+
+/** What names `file` in a mark: it, its room, and for a file, the message holding it. */
+export const fileMarkOf = ({ id, kind, roomId, messageId }: Pick<LibraryFile, "id" | "kind" | "roomId" | "messageId">): Pick<FileMark, "fileId" | "roomId" | "messageId"> => ({
+  fileId: id,
+  roomId,
+  ...(kind === "file" && messageId !== undefined && { messageId }),
+});
 
 /** What marking a file answers: whether it's starred, and when it was last opened. */
 export interface FileMarks {
@@ -122,13 +131,14 @@ export interface FileMarks {
 /** Parses an untrusted `FileMark`, or returns why it's refused. */
 export function parseFileMark(data: unknown): FileMark | string {
   if (!isObject(data)) return "Expected a JSON object";
-  const { fileId, roomId, starred, viewed } = data;
+  const { fileId, roomId, messageId, starred, viewed } = data;
   if (!isId(fileId)) return "A file's id is needed";
   if (!isId(roomId)) return "A file's room is needed";
+  if (messageId !== undefined && !isId(messageId)) return "A file's message is an id";
   if (starred !== undefined && typeof starred !== "boolean") return "Starred is true or false";
   if (viewed !== undefined && viewed !== true) return "Viewed can only be true";
   if (starred === undefined && viewed === undefined) return "Nothing to mark";
-  return { fileId, roomId, ...(starred !== undefined && { starred }), ...(viewed && { viewed }) };
+  return { fileId, roomId, ...(messageId !== undefined && { messageId }), ...(starred !== undefined && { starred }), ...(viewed && { viewed }) };
 }
 
 // Listing: what the Files page and a room's Files & links narrow the library to, and its order.
@@ -328,11 +338,15 @@ function isObject(data: unknown): data is Record<string, unknown> {
 
 const isId = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= MAX_ID_LENGTH;
 
-/** A title, trimmed, or why it's refused. */
+/**
+ * A title, trimmed, without control or invisible formatting characters, such as a right-to-left override
+ * that would turn the tab's name around or a zero-width space, but for the joiner emoji are made with.
+ */
 function titleOf(title: unknown): string | { error: string } {
-  if (typeof title !== "string" || !title.trim()) return { error: "A tab needs a name" };
-  if (title.trim().length > MAX_TAB_TITLE_LENGTH) return { error: `Names are at most ${MAX_TAB_TITLE_LENGTH} characters` };
-  return title.trim();
+  const cleaned = typeof title === "string" ? title.replace(/(?!‍)[\p{Cc}\p{Cf}]/gu, "").trim() : "";
+  if (!cleaned) return { error: "A tab needs a name" };
+  if (cleaned.length > MAX_TAB_TITLE_LENGTH) return { error: `Names are at most ${MAX_TAB_TITLE_LENGTH} characters` };
+  return cleaned;
 }
 
 // Both of the protocol's runtimes have the WHATWG URL parser, which its ES2022 library doesn't declare.
@@ -392,10 +406,44 @@ export function parseTabOrder(data: unknown): string[] | string {
 }
 
 /** Whether `body` is a Tiptap document as JSON: an object of type "doc". */
+// What a canvas's document can hold: the nodes and marks of the editor's StarterKit, and nothing else, as
+// the editor shows a document holding anything else empty, and saving that would lose it.
+const CANVAS_NODES = new Set(["doc", "paragraph", "text", "heading", "bulletList", "orderedList", "listItem", "blockquote", "codeBlock", "horizontalRule", "hardBreak"]);
+const CANVAS_MARKS = new Set(["bold", "italic", "strike", "code", "underline", "link"]);
+/** How deep a document's nodes can nest: lists in quotes in lists, and so on. */
+const MAX_CANVAS_DEPTH = 64;
+/** The schemes a canvas's links can have: never `javascript:` or `data:`. */
+const LINK_SCHEMES = new Set(["http", "https", "mailto", "tel"]);
+
+/** Whether `href` is a link a canvas can hold: a web, mail or phone address, or one relative to the page. */
+function isSafeHref(href: unknown): boolean {
+  if (typeof href !== "string" || href.length > MAX_URL_LENGTH) return false;
+  // Browsers ignore control characters and spaces in a scheme, so `java\tscript:` is `javascript:`.
+  const scheme = /^([^/?#]*?):/.exec(href.replace(/[\u0000- \u007f]/g, ""))?.[1];
+  return scheme === undefined || LINK_SCHEMES.has(scheme.toLowerCase());
+}
+
+/** Whether `attrs` are attributes the editor could have written: plain values, and safe links. */
+function isAttrs(attrs: unknown, type: string): boolean {
+  if (attrs === undefined) return true;
+  if (!isObject(attrs)) return false;
+  if (type === "link" && !isSafeHref(attrs.href)) return false;
+  return Object.values(attrs).every((value) => value === null || typeof value === "number" || typeof value === "boolean" || (typeof value === "string" && value.length <= MAX_URL_LENGTH));
+}
+
+function isCanvasNode(node: unknown, depth: number): boolean {
+  if (!isObject(node) || typeof node.type !== "string" || !CANVAS_NODES.has(node.type) || depth > MAX_CANVAS_DEPTH) return false;
+  if (!isAttrs(node.attrs, node.type)) return false;
+  if (node.type === "text" && (typeof node.text !== "string" || node.text === "")) return false;
+  if (node.marks !== undefined && !(Array.isArray(node.marks) && node.marks.every((mark) => isObject(mark) && typeof mark.type === "string" && CANVAS_MARKS.has(mark.type) && isAttrs(mark.attrs, mark.type)))) return false;
+  return node.content === undefined || (Array.isArray(node.content) && node.content.every((child) => isCanvasNode(child, depth + 1)));
+}
+
+/** Whether `body` is a canvas's document, holding only what the editor can show. */
 function isDocument(body: string): boolean {
   try {
     const doc = JSON.parse(body) as unknown;
-    return isObject(doc) && doc.type === "doc" && (doc.content === undefined || Array.isArray(doc.content));
+    return isObject(doc) && doc.type === "doc" && isCanvasNode(doc, 0);
   } catch {
     return false;
   }

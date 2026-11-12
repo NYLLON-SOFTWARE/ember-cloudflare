@@ -63,15 +63,44 @@ describe("The Files page", () => {
     const file = await upload(ada, room, "Moon landing.jpg", recordedImage("moon-thumb.jpg"));
     await caughtUp(room);
     const fileId = file.attachment.id;
-    expect(await ok<FileMarks>(await asking(ada, "/api/files/marks", "PUT", { fileId, roomId: room, starred: true }))).toEqual({ starred: true, viewedAt: null });
-    const viewed = await ok<FileMarks>(await asking(ada, "/api/files/marks", "PUT", { fileId, roomId: room, viewed: true }));
+    const messageId = file.id;
+    expect(await ok<FileMarks>(await asking(ada, "/api/files/marks", "PUT", { fileId, roomId: room, messageId, starred: true }))).toEqual({ starred: true, viewedAt: null });
+    const viewed = await ok<FileMarks>(await asking(ada, "/api/files/marks", "PUT", { fileId, roomId: room, messageId, viewed: true }));
     expect(viewed).toMatchObject({ starred: true, viewedAt: expect.any(String) });
     expect((await filesOf(ada)).files[0]).toMatchObject({ id: fileId, starred: true, viewedAt: viewed.viewedAt });
     expect((await filesOf(grace)).files[0]).toMatchObject({ id: fileId, starred: false, viewedAt: null });
 
-    expect((await asking(ada, "/api/files/marks", "PUT", { fileId, roomId: closed, starred: true })).status).toBe(404);
+    expect((await asking(ada, "/api/files/marks", "PUT", { fileId, roomId: closed, messageId, starred: true })).status).toBe(404);
     expect((await asking(ada, "/api/files/marks", "PUT", { fileId, roomId: room })).status).toBe(422);
     expect((await api("/api/files")).status).toBe(401);
+  });
+
+  it("marks only a file a message in the room holds, or one of its canvases, keeping nothing for anything else", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("files-marks-junk");
+    const other = await freshRoom("files-marks-junk-other");
+    const file = await upload(ada, room, "Moon landing.jpg", recordedImage("moon-thumb.jpg"));
+    const elsewhere = await upload(ada, other, "Budget.csv", new TextEncoder().encode("a,b\n"), "text/csv");
+    const marking = (mark: object) => asking(ada, "/api/files/marks", "PUT", { starred: true, ...mark });
+    expect((await marking({ fileId: "aaaaaaaaaaaaaaaa", roomId: room })).status).toBe(404);
+    expect((await marking({ fileId: "aaaaaaaaaaaaaaaa", roomId: room, messageId: file.id })).status).toBe(404);
+    expect((await marking({ fileId: elsewhere.attachment.id, roomId: room, messageId: elsewhere.id })).status).toBe(404);
+    expect((await marking({ fileId: file.attachment.id, roomId: "not-a-room", messageId: file.id })).status).toBe(404);
+    expect(await workspaceSql("SELECT file_id FROM file_marks WHERE room_id = ?", room)).toEqual([]);
+
+    const { tab } = await ok<OpenedTab>(await addTab(ada, room, { kind: "canvas", title: "Notes" }));
+    expect((await marking({ fileId: tab.id, roomId: room })).status).toBe(200);
+    expect((await marking({ fileId: tab.id, roomId: other })).status).toBe(404);
+  });
+
+  it("refuses a canvas holding what its editor can't show, or a link that would run script", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("tabs-canvas-checked");
+    const { tab } = await ok<OpenedTab>(await addTab(ada, room, { kind: "canvas", title: "Notes" }));
+    const saving = (content: object[]) => asking(ada, `${roomTabPath(room, tab.id)}/canvas`, "PUT", { body: JSON.stringify({ type: "doc", content }), version: 0 });
+    expect((await saving([{ type: "iframe", attrs: { src: "https://example.com" } }])).status).toBe(422);
+    expect((await saving([{ type: "paragraph", content: [{ type: "text", text: "Go", marks: [{ type: "link", attrs: { href: "javascript:alert(document.cookie)" } }] }] }])).status).toBe(422);
+    expect((await ok<OpenedTab>(await asking(ada, roomTabPath(room, tab.id)))).canvas!.body).toBe(EMPTY_CANVAS);
   });
 });
 
