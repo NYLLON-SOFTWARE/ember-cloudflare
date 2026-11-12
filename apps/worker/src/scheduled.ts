@@ -1,9 +1,13 @@
-import { MAX_SCHEDULED_MESSAGES, type RoomId, type ScheduledMessage, type UserId } from "@ember/protocol";
-import { statement, type Db } from "./db";
+import { MAX_SCHEDULED_MESSAGES, parentTextOf, type RoomId, type ScheduledMessage, type UserId } from "@ember/protocol";
+import { prepareBody } from "@ember/richtext";
+import { statement, type Db, type Statement } from "./db";
+import type { ScheduledChange } from "./scheduled-listings";
 
 // Messages people have scheduled to send later (migrations/0070_scheduled_messages.sql), kept in the
 // room's own SQLite storage or in D1 (see db.ts) until its alarm posts them as their authors' messages,
 // or, when it can't, marks them not sent (0071_scheduled_failures.sql) for their authors to deal with.
+// Each change logs the message's id (0073_scheduled_changes.sql) in the same batch, for the Workspace,
+// which lists everyone's across rooms, to hear of it as it is then.
 
 interface ScheduledRow {
   id: string;
@@ -48,6 +52,16 @@ const FAIL_OUT_OF_THREAD = `UPDATE scheduled_messages SET failed = ?, parent_id 
 const DELETE = `DELETE FROM scheduled_messages WHERE room_id = ? AND id = ? RETURNING id`;
 const DELETE_ALL = `DELETE FROM scheduled_messages WHERE room_id = ?`;
 
+/** Logs that scheduled message ?2 changed, for the Workspace, whether or not the change found it. */
+const LOG_CHANGE = `INSERT INTO scheduled_changes (room_id, scheduled_id) VALUES (?, ?)`;
+/** The oldest changes the Workspace has yet to hear of, each with its message as it is now, if it's still here. */
+const CHANGED = `SELECT scheduled_changes.seq, scheduled_changes.scheduled_id AS id, scheduled_messages.author_id, scheduled_messages.body,
+    scheduled_messages.parent_id, scheduled_messages.send_at, scheduled_messages.failed
+  FROM scheduled_changes LEFT JOIN scheduled_messages ON scheduled_messages.id = scheduled_changes.scheduled_id AND scheduled_messages.room_id = scheduled_changes.room_id
+  WHERE scheduled_changes.room_id = ? ORDER BY scheduled_changes.seq LIMIT ?`;
+const SYNCED = `DELETE FROM scheduled_changes WHERE room_id = ? AND seq <= ?`;
+const FORGET_CHANGES = `DELETE FROM scheduled_changes WHERE room_id = ?`;
+
 /** How many due messages the alarm posts at a time, so a room with many due at once doesn't hold up its other events. */
 export const POSTED_AT_ONCE = 20;
 
@@ -61,6 +75,40 @@ const fromRow = (row: ScheduledRow): DueMessage => ({
   ...(row.failed !== null && { failed: row.failed }),
 });
 
+interface ChangeRow {
+  seq: number;
+  id: string;
+  author_id: UserId | null;
+  body: string | null;
+  parent_id: string | null;
+  send_at: number | null;
+  failed: string | null;
+}
+
+/** A change for the Workspace, with its place in the log. */
+export interface LoggedChange extends ScheduledChange {
+  seq: number;
+}
+
+/** The start of a scheduled message's plain text, which the Workspace lists it by, as a reply shows its parent's. */
+const previewOf = (body: string) => parentTextOf(prepareBody(body, () => undefined)?.plainText ?? "");
+
+const changeOf = (row: ChangeRow): LoggedChange => ({
+  seq: row.seq,
+  id: row.id,
+  listing:
+    row.author_id === null
+      ? null
+      : {
+          id: row.id,
+          userId: row.author_id,
+          sendAt: row.send_at!,
+          preview: previewOf(row.body!),
+          ...(row.parent_id !== null && { parentId: row.parent_id }),
+          ...(row.failed !== null && { failed: row.failed }),
+        },
+});
+
 /** A scheduled message as its author's tabs list it, without what only the room needs. */
 export const listed = ({ authorId: _, clientMessageId: __, ...message }: DueMessage): ScheduledMessage => message;
 
@@ -69,6 +117,12 @@ export class ScheduledMessages {
     private readonly db: Db,
     readonly roomId: RoomId,
   ) {}
+
+  /** Runs `change` to scheduled message `id`, logging it for the Workspace in the same batch, and answers its rows. */
+  private async changing(id: string, change: Statement): Promise<unknown[]> {
+    const [rows] = await this.db.batch([change, statement(LOG_CHANGE, this.roomId, id)]);
+    return rows!;
+  }
 
   /** `authorId`'s scheduled messages here, soonest first. */
   async of(authorId: UserId): Promise<ScheduledMessage[]> {
@@ -92,25 +146,16 @@ export class ScheduledMessages {
    */
   async add(id: string, message: NewScheduled, now: string): Promise<string | null> {
     const { authorId, clientMessageId, body, parentId, alsoSend, sendAt } = message;
-    const rows = await this.db.all<{ id: string }>(
-      INSERT,
+    const rows = await this.changing(
       id,
-      this.roomId,
-      authorId,
-      clientMessageId,
-      body,
-      parentId ?? null,
-      alsoSend ? 1 : 0,
-      sendAt,
-      now,
-      MAX_SCHEDULED_MESSAGES,
+      statement(INSERT, id, this.roomId, authorId, clientMessageId, body, parentId ?? null, alsoSend ? 1 : 0, sendAt, now, MAX_SCHEDULED_MESSAGES),
     );
     return rows.length > 0 ? id : null;
   }
 
   /** Moves `authorId`'s scheduled message `id` to `sendAt`, answering whether they had it. */
   async move(id: string, authorId: UserId, sendAt: number): Promise<boolean> {
-    return (await this.db.all(MOVE, sendAt, this.roomId, id, authorId)).length > 0;
+    return (await this.changing(id, statement(MOVE, sendAt, this.roomId, id, authorId))).length > 0;
   }
 
   /**
@@ -118,12 +163,12 @@ export class ScheduledMessages {
    * here. A reply whose thread is gone becomes the room's, where its author's composer shows it.
    */
   async fail(id: string, why: string, outOfThread = false): Promise<boolean> {
-    return (await this.db.all(outOfThread ? FAIL_OUT_OF_THREAD : FAIL, why, this.roomId, id)).length > 0;
+    return (await this.changing(id, statement(outOfThread ? FAIL_OUT_OF_THREAD : FAIL, why, this.roomId, id))).length > 0;
   }
 
   /** Deletes scheduled message `id`, answering whether it was here, so one posted or deleted already is posted once. */
   async remove(id: string): Promise<boolean> {
-    return (await this.db.all(DELETE, this.roomId, id)).length > 0;
+    return (await this.changing(id, statement(DELETE, this.roomId, id))).length > 0;
   }
 
   /** Up to `limit` messages due by `now`, soonest first, leaving out those that couldn't be posted. */
@@ -137,8 +182,21 @@ export class ScheduledMessages {
     return row?.send_at ?? null;
   }
 
-  /** Forgets every scheduled message here, as deleting the room does. */
+  /** The oldest `limit` changes the Workspace has yet to hear of, oldest first. */
+  async changed(limit: number): Promise<LoggedChange[]> {
+    return (await this.db.all<ChangeRow>(CHANGED, this.roomId, limit)).map(changeOf);
+  }
+
+  /** Forgets the changes up to `seq`, which the Workspace has applied. */
+  async synced(seq: number): Promise<void> {
+    await this.db.run(SYNCED, this.roomId, seq);
+  }
+
+  /**
+   * Forgets every scheduled message here, and the changes the Workspace has yet to hear of, as deleting
+   * the room does, which has the Workspace forget its listings itself.
+   */
   async forget(): Promise<void> {
-    await this.db.batch([statement(DELETE_ALL, this.roomId)]);
+    await this.db.batch([statement(DELETE_ALL, this.roomId), statement(FORGET_CHANGES, this.roomId)]);
   }
 }

@@ -75,6 +75,7 @@ import { ADDRESS_TAG_PREFIX, EVERYONE, SESSION_TAG_PREFIX, type Revocation } fro
 import { addRecorded, readInRoom, recordedRows, recordMessage, type RecordedItems } from "./activity";
 import type { RoomEvent } from "./room-log";
 import { forgettingRoomTabs } from "./room-tabs";
+import { forgettingScheduledListings } from "./scheduled-listings";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
 // storage or in D1 (see db.ts).
@@ -4346,6 +4347,7 @@ export class WorkspaceStore {
       statement(`DELETE FROM rooms WHERE id = ?`, roomId),
       statement(`INSERT INTO deleted_rooms (id, deleted_at) VALUES (?, ?) ON CONFLICT DO NOTHING`, roomId, now),
       ...forgettingRoomTabs(roomId),
+      forgettingScheduledListings(roomId),
     ])) as UserIdRow[][];
     return userIdsOf(members!);
   }

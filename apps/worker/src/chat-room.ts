@@ -297,6 +297,8 @@ interface Couriers {
   index: Courier;
   /** Has R2 delete the files the room has marked deleted. */
   files: Courier;
+  /** Sends the Workspace the scheduled messages changed here, which it lists across rooms. */
+  scheduled: Courier;
 }
 
 /**
@@ -390,6 +392,7 @@ export class ChatRoom extends DurableObject<Env> {
       // And the search index's, which nothing else here sends, and the files to delete.
       if (!couriers.index.checked) couriers.index.deliver();
       if (!couriers.files.checked) couriers.files.deliver();
+      if (!couriers.scheduled.checked) couriers.scheduled.deliver();
       return new Response(null, { status: 101, webSocket: client });
     });
   }
@@ -516,13 +519,13 @@ export class ChatRoom extends DurableObject<Env> {
     // Whatever is left to send after this says when it's due.
     await this.serially(() => this.ctx.storage.delete(LOGS_DUE));
     const couriers = this.couriersFor(roomId);
-    await Promise.all([couriers.workspace.retry(), couriers.index.retry(), couriers.files.retry()]);
+    await Promise.all([couriers.workspace.retry(), couriers.index.retry(), couriers.files.retry(), couriers.scheduled.retry()]);
     // Whatever the couriers came to, so that a call is forgotten in time while a delivery keeps failing.
     const nextLateCall = await this.forgetLateCalls(roomId);
     // Kept until then, so an alarm cut off as it sends, as a deploy can do, sends the rest when it's
     // retried. A courier whose last call failed has set the alarm again, for its next try, which comes
     // sooner for a call that will have waited too long by then.
-    if (couriers.workspace.failing || couriers.index.failing || couriers.files.failing) {
+    if (Object.values(couriers).some((courier) => courier.failing)) {
       if (nextLateCall !== null) await this.wakeAt(roomId, nextLateCall);
       return;
     }
@@ -543,11 +546,11 @@ export class ChatRoom extends DurableObject<Env> {
    * to exist. Until R2 has, the alarm tries again later, since the room's record of its files goes too.
    */
   private async erase(roomId: RoomId): Promise<void> {
-    const { workspace, index, files } = this.couriersFor(roomId);
+    const { workspace, index, files, scheduled } = this.couriersFor(roomId);
     await files.retry();
     if (files.failing) return this.ctx.storage.setAlarm(Date.now() + ERASE_RETRY_MS);
     // A call still out would read its log once the tables are gone, which makes them again.
-    await Promise.all([workspace.settled(), index.settled()]);
+    await Promise.all([workspace.settled(), index.settled(), scheduled.settled()]);
     await this.serially(async () => {
       await this.revocationsFor(roomId).forget();
       await this.ctx.storage.deleteAll();
@@ -1159,8 +1162,12 @@ export class ChatRoom extends DurableObject<Env> {
     await this.tellScheduled(store.roomId, user.id);
   }
 
-  /** Tells each of `userId`'s sockets here what they have scheduled now. */
+  /**
+   * Tells each of `userId`'s sockets here what they have scheduled now, and sends the Workspace, which
+   * lists it beside their other rooms', what's changed.
+   */
   private async tellScheduled(roomId: RoomId, userId: UserId): Promise<void> {
+    this.couriersFor(roomId).scheduled.deliver();
     const sockets = this.roomSockets(userId);
     if (sockets.length === 0) return;
     const frame: ServerFrame = { type: "scheduled", messages: await this.scheduledFor(roomId).of(userId) };
@@ -1462,7 +1469,22 @@ export class ChatRoom extends DurableObject<Env> {
       workspace: new Courier(() => this.sendEvents(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s log to the Workspace`),
       index: new Courier(() => this.sendMessages(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s messages to the search index`, true),
       files: new Courier(() => this.purgeFiles(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s deleted files to R2`, true),
+      scheduled: new Courier(() => this.sendScheduled(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s scheduled messages to the Workspace`),
     });
+  }
+
+  /**
+   * Sends the Workspace the oldest changes to the room's scheduled messages that it hasn't taken, as many
+   * as one call takes, each message as it is now or gone, and forgets them once it has. Answers how many
+   * it sent. A message changed again meanwhile is logged again, so the Workspace hears of that too.
+   */
+  private async sendScheduled(roomId: RoomId): Promise<number> {
+    const scheduled = this.scheduledFor(roomId);
+    const changes = await this.serially(() => scheduled.changed(ENTRIES_PER_CALL));
+    if (changes.length === 0) return 0;
+    await workspace(this.env).scheduledChanged(roomId, changes.map(({ id, listing }) => ({ id, listing })));
+    await this.serially(() => scheduled.synced(changes.at(-1)!.seq));
+    return changes.length;
   }
 
   /**

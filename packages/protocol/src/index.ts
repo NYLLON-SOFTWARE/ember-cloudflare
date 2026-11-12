@@ -1669,6 +1669,28 @@ export const MAX_SCHEDULE_AHEAD_MS = 120 * 24 * 60 * 60 * 1000;
 /** How many messages one person can have waiting in a room. */
 export const MAX_SCHEDULED_MESSAGES = 50;
 
+/** Where the app asks for every message you have waiting, in every room you're still in (`ScheduledList`). */
+export const SCHEDULED_API_PATH = "/api/scheduled";
+
+/** One of your scheduled messages as `SCHEDULED_API_PATH` lists it beside those of your other rooms. */
+export interface ListedScheduledMessage {
+  id: string;
+  roomId: RoomId;
+  /** When the room is to post it, in milliseconds since the epoch. */
+  sendAt: number;
+  /** The start of its plain text, as a reply shows its parent's (`parentTextOf`). */
+  preview: string;
+  /** The message whose thread it's a reply in. */
+  parentId?: string;
+  /** Why the room couldn't post it when it was due, as `ScheduledMessage` says. */
+  failed?: string;
+}
+
+/** `GET /api/scheduled`: your scheduled messages in the rooms you're still in, soonest first. */
+export interface ScheduledList {
+  messages: ListedScheduledMessage[];
+}
+
 /**
  * A page of a room's messages that takes the timeline's place: the newest, or the one around a message.
  */

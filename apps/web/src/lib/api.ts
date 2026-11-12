@@ -94,6 +94,9 @@ import {
   type WorkspaceSettings,
   type YourAssistantChanged,
   type YourAssistantChanges,
+  type ListedScheduledMessage,
+  type ScheduledList,
+  SCHEDULED_API_PATH,
   SHARE_CHECK_PATH,
 } from "@ember/protocol";
 import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTrial, AgentTrialAnswer, NewAgent } from "@ember/protocol/agents";
@@ -912,6 +915,11 @@ export async function fetchLinkPreview(url: string, signal: AbortSignal): Promis
 /** Whether sharing from room `sourceRoomId` in `targetRoomId` would reach people who can't see it now, to warn first. */
 export async function checkShare(sourceRoomId: RoomId, targetRoomId: RoomId): Promise<ShareWidening> {
   return request<ShareWidening>(SHARE_CHECK_PATH, { method: "POST", body: JSON.stringify({ sourceRoomId, targetRoomId }) });
+}
+
+/** Your scheduled messages in every room you're still in, soonest first, for Drafts & sent. */
+export async function fetchScheduled(): Promise<ListedScheduledMessage[]> {
+  return (await request<ScheduledList>(SCHEDULED_API_PATH)).messages;
 }
 
 /**

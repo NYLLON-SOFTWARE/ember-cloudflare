@@ -1,4 +1,4 @@
-import { THREAD_CONTEXT, THREADS_LIMIT, type DirectPreviews, type ListedThread, type ListedThreads, type Message } from "@ember/protocol";
+import { THREAD_CONTEXT, THREADS_LIMIT, type DirectPreviews, type ListedThread, type ListedThreads, type Message, type ScheduledList } from "@ember/protocol";
 import { credentialsOf } from "./auth";
 import type { Env } from "./env";
 import { urlOf } from "./request-url";
@@ -7,7 +7,8 @@ import { indexedMessages } from "./store";
 import { workspace } from "./workspace";
 
 // What the DMs page and the Threads page show, read from the search index, which keeps every room's
-// messages in one place, so neither asks each room.
+// messages in one place, so neither asks each room, and the scheduled messages Drafts & sent lists, which
+// the Workspace keeps a copy of for the same reason.
 
 const notSignedIn = () => Response.json({ error: "Not signed in" }, { status: 401 });
 
@@ -70,3 +71,11 @@ async function messagesById(rows: string[], env: Env): Promise<Map<string, Messa
 
 /** The id of the message a row the index kept is. */
 const idOf = (row: string) => (JSON.parse(row) as { id: string }).id;
+
+/** `GET /api/scheduled`: your scheduled messages in the rooms you're still in, soonest first. */
+export async function listScheduled(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const messages = credentials && (await workspace(env).scheduledMessages(credentials));
+  if (!messages) return notSignedIn();
+  return Response.json({ messages } satisfies ScheduledList, { headers: NO_STORE });
+}
