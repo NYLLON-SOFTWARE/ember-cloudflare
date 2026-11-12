@@ -9,7 +9,7 @@ const starred: Favorites = { rooms: ["general"], version: 1 };
 function renderStar(favorite = false) {
   const [onSaved, onSessionChanged] = [vi.fn(), vi.fn()];
   const view = render(<FavoriteButton roomId="general" favorite={favorite} onSaved={onSaved} onSessionChanged={onSessionChanged} />);
-  return { ...view, onSaved, onSessionChanged, star: screen.getByRole("button", { name: "Favorite room" }) };
+  return { ...view, onSaved, onSessionChanged, star: screen.getByRole("button", { name: "Star room" }) };
 }
 
 /** What the star sent, as the JSON it sent it as. */
@@ -26,7 +26,7 @@ describe("Star rooms", () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ favorites: starred }));
     const { star, onSaved } = renderStar();
     expect(star).toHaveAttribute("aria-pressed", "false");
-    expect(star).toHaveAttribute("title", "Add to favorites");
+    expect(star).toHaveAttribute("title", "Star room");
     expect(star.querySelector("svg")).toHaveClass("size-[18px]", "iconoir-star");
 
     await userEvent.click(star);
@@ -38,10 +38,11 @@ describe("Star rooms", () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ favorites: { rooms: [], version: 2 } }));
     const { star, onSaved } = renderStar(true);
     expect(star).toHaveAttribute("aria-pressed", "true");
-    expect(star).toHaveAttribute("title", "Remove from favorites");
+    expect(star).toHaveAttribute("title", "Unstar room");
     expect(star.querySelector("svg")).toHaveClass("size-[18px]", "iconoir-star-solid");
-    // In the muted color at 65%.
-    expect(star).toHaveClass("text-muted-foreground/65");
+    // Muted, at a contrast UI icons need, and in ink once the room's starred.
+    expect(star).toHaveClass("text-muted-foreground", "aria-pressed:text-foreground");
+    expect(star.className).not.toContain("text-muted-foreground/");
 
     await userEvent.click(star);
     expect(sent()).toEqual([["/api/rooms/general/favorite", "PUT", { favorite: false }]]);
@@ -76,7 +77,7 @@ describe("Star rooms", () => {
 
     await userEvent.click(star);
     const note = screen.getByRole("status");
-    expect(note).toHaveTextContent("Couldn’t save your favorite. Please try again.");
+    expect(note).toHaveTextContent("Couldn’t save your star. Please try again.");
     expect(note).toHaveClass("absolute", "top-full", "left-0", "w-[200px]", "text-[13px]");
     expect(star).toHaveAttribute("aria-pressed", "false");
     expect(star).not.toHaveAttribute("aria-disabled");

@@ -70,6 +70,8 @@ describe("Threads page", () => {
     expect(within(card).getByRole("link", { name: "3 more replies" })).toHaveAttribute("href", "/rooms/general/threads/p1");
     expect(within(card).getByText("Ship it")).toBeInTheDocument();
     expect(within(card).getByRole("link", { name: "Open thread" })).toHaveAttribute("href", "/rooms/general/threads/p1");
+    // 44px square on phones, where it's its arrow alone.
+    expect(within(card).getByRole("link", { name: "Open thread" })).toHaveClass("max-md:min-h-11", "max-md:min-w-11", "touch:min-w-11");
   });
 
   it("shows a thread's first message and its latest replies, THREAD_CONTEXT messages in all, the ones written here among them", async () => {
@@ -78,6 +80,7 @@ describe("Threads page", () => {
     expect(shownIn(card)).toEqual(["Shall we ship it?", "Reply 0", "Reply 1", "Reply 2", "Reply 3", "Reply 4"]);
     expect(within(card).getByRole("link", { name: "3 more replies" })).toBeInTheDocument();
 
+    await userEvent.click(within(card).getByRole("button", { name: "Reply" }));
     await userEvent.type(within(card).getByRole("textbox"), "On it{Enter}");
     expect(shownIn(card)).toEqual(["Shall we ship it?", "Reply 1", "Reply 2", "Reply 3", "Reply 4", "On it"]);
     expect(within(card).getByRole("link", { name: "4 more replies" })).toBeInTheDocument();
@@ -91,9 +94,20 @@ describe("Threads page", () => {
     expect(within(other!).queryByText(/Mentions you|Following/)).toBeNull();
   });
 
+  it("opens a box to reply in only once Reply is pressed, closing it again with Escape while it's empty", async () => {
+    showPage({ threads: [thread], next: null });
+    const card = await screen.findByRole("article", { name: "Thread in general" });
+    expect(within(card).queryByRole("textbox")).not.toBeInTheDocument();
+    await userEvent.click(within(card).getByRole("button", { name: "Reply" }));
+    expect(within(card).getByRole("textbox", { name: "Reply in thread in general" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(within(card).queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
   it("sends a reply written in a card to its thread, showing it at once", async () => {
     showPage({ threads: [thread], next: null });
-    const box = await screen.findByRole("textbox", { name: "Reply in thread in general" });
+    await userEvent.click(await screen.findByRole("button", { name: "Reply" }));
+    const box = screen.getByRole("textbox", { name: "Reply in thread in general" });
     await userEvent.type(box, "On it{Enter}");
     expect(handOver).toHaveBeenCalledExactlyOnceWith("general", [expect.objectContaining({ parentId: "p1", plainText: "On it", queued: true, creator: ada })]);
     expect(box).toHaveValue("");

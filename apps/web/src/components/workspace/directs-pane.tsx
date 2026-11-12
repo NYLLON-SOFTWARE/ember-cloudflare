@@ -1,7 +1,8 @@
-import { useId, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { createContext, useContext, useId, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type { DirectPreview, RoomId, SidebarRoom, User, UserId } from "@ember/protocol";
-import { ChatBubbleEmpty, ChatPlusIn, Search } from "@/components/icons/iconoir";
+import { ChatBubbleEmpty, ChatPlusIn, CheckCircle, Search, Xmark } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
+import { useDirectPreviews } from "@/hooks/use-direct-previews";
 import { useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useMounted } from "@/hooks/use-mounted";
@@ -12,12 +13,12 @@ import { membersShown } from "@/lib/directs";
 import { apart, inDirectOrder, markedUnread, suggestedPeople, type DirectSidebarRoom } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { AgentBadge, useIsWithAgent } from "./agent-badge";
+import { DirectAvatars } from "./direct-avatars";
+import { ListEmptyState } from "./list-empty-state";
 import { opensNewDirect } from "./new-direct-dialog";
 import { PageHeader } from "./page-header";
+import { UnreadsSwitch } from "./unreads-switch";
 import { UserAvatar } from "./user-avatar";
-
-/** How many avatars a group DM's row shows. */
-const MAX_FACES = 4;
 
 /** The drawer layout, 900px wide and below, as workspace.tsx has it, where the list is in the drawer rather than beside the page. */
 const DRAWER_LAYOUT = "(width < 56.3125rem)";
@@ -44,6 +45,15 @@ interface Props {
 }
 
 /**
+ * The DMs page's list, with each DM's latest message and how many are unread, which it asks for while
+ * it's shown (`useDirectPreviews`), so that loads with it. `onSignedOut` hears of a session that's ended.
+ */
+export function DirectsColumn({ onSignedOut, ...props }: Omit<Props, "previews"> & { onSignedOut: () => void }) {
+  const previews = useDirectPreviews(props.loaded ? props.rooms : null, true, onSignedOut);
+  return <DirectsPane {...props} previews={previews} />;
+}
+
+/**
  * The DMs page's list, after Slack's: "Direct messages" over Unreads, which shows only the DMs marked
  * unread, the button that starts a new one, and Find a DM…, which shows only those with someone of that
  * name. Each DM's row has its people's avatars and names, its latest message, "You: …" when it's yours,
@@ -60,7 +70,7 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
   );
   const suggested = useMemo(() => (onlyUnread || typed.trim() !== "" ? [] : suggestedPeople(suggestions, rooms)), [onlyUnread, typed, suggestions, rooms]);
   const unreadId = useId();
-  const unreadsId = useId();
+  const findRef = useRef<HTMLInputElement>(null);
   const mounted = useMounted();
   const [starting, setStarting] = useState<UserId | null>(null);
   // A suggestion starts its DM once the page's guard lets it, from a page with changes to lose.
@@ -82,15 +92,18 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
     onSelect(roomId);
   };
   const empty = loaded && listed.length === 0 && suggested.length === 0;
+  const titled = useContext(DirectsTitleContext);
   return (
     <div className="flex h-full flex-col bg-surface">
-      <div className="flex flex-none flex-col gap-2.5 px-3 pt-4 pb-2.5 max-md:pr-12">
-        <div className="flex min-h-8 items-center gap-2 px-1.5">
-          <h2 className="min-w-0 flex-1 truncate text-[17px] leading-6 font-[650]">Direct messages</h2>
-          <label htmlFor={unreadsId} className="text-[13px] text-muted-foreground">
-            Unreads
-          </label>
-          <UnreadsSwitch id={unreadsId} on={onlyUnread} disabled={unreadOnly} onChange={setUnreadsOn} />
+      <div className="flex flex-none flex-col gap-2.5 px-3 pt-4 pb-2.5">
+        {/* At 900px and below the drawer's close button sits at the end of this row, which keeps clear of it. */}
+        <div className="flex min-h-8 items-center gap-2 px-1.5 max-md:pr-10">
+          <h2 className={cn("min-w-0 flex-1 truncate text-[17px] leading-6 font-[650]", !titled && "sr-only")}>Direct messages</h2>
+          {!titled && <span className="flex-1" />}
+          {/* Beside the page, Unreads is a switch, as Slack's desktop app has it; on phones, chips under Find a DM…. */}
+          <span className="contents max-md:hidden">
+            <UnreadsSwitch on={onlyUnread} disabled={unreadOnly} onChange={setUnreadsOn} />
+          </span>
           <a
             href={NEW_DIRECT_PATH}
             title="New direct message"
@@ -103,15 +116,32 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
         </div>
         <div className="relative">
           <Search aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          {/* The browser's own clear button is drawn in its own blue, so the field draws its own. */}
           <input
+            ref={findRef}
             type="search"
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
             placeholder="Find a DM…"
             aria-label="Find a DM"
-            className="h-8 w-full rounded-lg border bg-background pr-2.5 pl-8 text-[14px] outline-none placeholder:text-muted-foreground focus-visible:border-ring touch:h-11 max-md:text-base"
+            className="h-8 w-full rounded-lg border bg-background pr-8 pl-8 text-[14px] outline-none placeholder:text-muted-foreground focus-visible:border-ring touch:h-11 max-md:text-base [&::-webkit-search-cancel-button]:appearance-none"
           />
+          {typed !== "" && (
+            <button
+              type="button"
+              aria-label="Clear"
+              title="Clear"
+              onClick={() => {
+                setTyped("");
+                findRef.current?.focus();
+              }}
+              className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground touch:size-9"
+            >
+              <Xmark className="size-4" />
+            </button>
+          )}
         </div>
+        <UnreadsChips on={onlyUnread} disabled={unreadOnly} onChange={setUnreadsOn} />
       </div>
       <span id={unreadId} hidden>
         Unread
@@ -119,7 +149,7 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
       <section aria-label="Direct messages" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-[max(16px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable]">
         <ul className="flex flex-col">
           {listed.map((room) => (
-            <li key={room.id} className="border-b last:border-b-0">
+            <li key={room.id}>
               <DirectRow
                 room={room}
                 meId={meId}
@@ -132,28 +162,48 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
           ))}
         </ul>
         {suggested.length > 0 && (
-          <div className="flex flex-col gap-[3px] px-3 pt-3">
-            <h3 className="px-[9px] pb-1 text-xs font-medium text-muted-foreground">Start a conversation</h3>
+          <div className="flex flex-col pt-3">
+            <h3 className="px-[18px] pb-1 text-xs font-medium text-muted-foreground">Start a conversation</h3>
             {suggested.map((person) => (
               <SuggestionRow key={person.id} person={person} starting={person.id === starting} onClick={() => startWith(person)} />
             ))}
           </div>
         )}
-        {empty && (
-          <p className="px-[21px] pt-3 text-[13px] text-muted-foreground">
-            {onlyUnread ? "You’re all caught up. No unread direct messages." : typed.trim() ? "No DMs with anyone by that name." : "No direct messages yet."}
-          </p>
-        )}
+        {empty &&
+          (onlyUnread ? (
+            <ListEmptyState Icon={CheckCircle} title="You’re all caught up" />
+          ) : typed.trim() ? (
+            <ListEmptyState Icon={Search} title="No matches" />
+          ) : (
+            <ListEmptyState Icon={ChatBubbleEmpty} title="No direct messages yet" />
+          ))}
       </section>
     </div>
   );
 }
 
 /**
- * The DMs page with no DM open: beside the list, a chat bubble, faded, saying to pick one, or at 900px
- * and below, where the list is in the drawer, the list itself, `list`.
+ * Whether the DMs list heads itself "Direct messages", which it leaves to screen readers where the page
+ * around it already says so, as a phone's header does.
  */
-export function DirectsHome({ list }: { list: ReactNode }) {
+export const DirectsTitleContext = createContext(true);
+
+/** How many DMs someone has, and how many of them are unread, as the DMs page says with none open. */
+export const directsSummary = (conversations: number, unread: number) =>
+  [`${conversations} ${conversations === 1 ? "conversation" : "conversations"}`, unread > 0 && `${unread} unread`].filter(Boolean).join(" · ");
+
+interface DirectsHomeProps {
+  list: ReactNode;
+  /** How many DMs there are, and how many are unread, or null until the list has come. */
+  counts: { conversations: number; unread: number } | null;
+}
+
+/**
+ * The DMs page with no DM open: beside the list, a faded chat bubble over how many DMs there are and how
+ * many are unread, or at 900px and below, where the list is in the drawer, the list itself, `list`, under
+ * the page's title.
+ */
+export function DirectsHome({ list, counts }: DirectsHomeProps) {
   useTitle("Direct messages");
   const drawerLayout = useMediaQuery(DRAWER_LAYOUT);
   if (drawerLayout)
@@ -162,14 +212,16 @@ export function DirectsHome({ list }: { list: ReactNode }) {
         <PageHeader>
           <h1 className="min-w-0 flex-1 truncate text-base font-[650]">Direct messages</h1>
         </PageHeader>
-        <MainContent className="flex min-h-0 min-w-0 flex-col bg-surface pl-[env(safe-area-inset-left)]">{list}</MainContent>
+        <MainContent className="flex min-h-0 min-w-0 flex-col bg-surface pl-[env(safe-area-inset-left)]">
+          <DirectsTitleContext value={false}>{list}</DirectsTitleContext>
+        </MainContent>
       </>
     );
   return (
-    <MainContent className="col-start-3 row-span-2 grid min-h-0 min-w-0 place-content-center justify-items-center gap-2 bg-background p-6 text-center text-muted-foreground">
-      <ChatBubbleEmpty className="mb-2 h-auto w-24 text-foreground opacity-20" />
-      <h1 className="text-xl font-bold text-foreground">Your direct messages</h1>
-      <p>Pick a conversation from the list, or start a new one.</p>
+    <MainContent className="col-start-3 row-span-2 grid min-h-0 min-w-0 place-content-center justify-items-center gap-3 bg-background p-6 text-center text-[13px] text-muted-foreground">
+      <h1 className="sr-only">Direct messages</h1>
+      <ChatBubbleEmpty aria-hidden="true" className="h-auto w-24 text-foreground opacity-20" />
+      {counts && <p>{directsSummary(counts.conversations, counts.unread)}</p>}
     </MainContent>
   );
 }
@@ -208,17 +260,14 @@ function DirectRow({ room, meId, preview, current, unreadId, onClick }: DirectRo
       aria-labelledby={nameId}
       aria-describedby={unreadId ? `${unreadId} ${aboutId}` : aboutId}
       onClick={onClick}
-      className="flex min-h-[72px] items-start gap-3 px-[18px] py-3 text-foreground no-underline hover:bg-hover aria-[current=page]:bg-hover"
-    >
-      {members.length > 1 ? (
-        <span aria-hidden="true" className="grid size-9 shrink-0 grid-cols-2 place-content-center gap-px">
-          {members.slice(0, MAX_FACES).map((member) => (
-            <UserAvatar key={member.id} user={member} square className="size-[17px] rounded-[4px]" />
-          ))}
-        </span>
-      ) : (
-        members.map((member) => <UserAvatar key={member.id} user={member} square className="size-9" />)
+      // The ring is inset, so the list's edges, which the row runs to, don't clip it. A DM with nothing
+      // said in it yet has its name centered beside the avatar, in a row as tall as the others.
+      className={cn(
+        "group/row flex min-h-[72px] gap-3 px-[18px] py-3 text-foreground no-underline outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-[current=page]:bg-hover",
+        latest ? "items-start" : "items-center",
       )}
+    >
+      <DirectAvatars members={members} ringClassName="ring-surface group-hover/row:ring-hover group-aria-[current=page]/row:ring-hover" />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-baseline gap-2">
           {/* The space after the hidden words starts the visible line, where it doesn't show. */}
@@ -241,7 +290,8 @@ function DirectRow({ room, meId, preview, current, unreadId, onClick }: DirectRo
           {[count > 0 && `${unreadBadge(count)} unread`, activityLabel(at), latest && previewOf(latest, meId, members.length > 1, nameOf)].filter(Boolean).join(", ")}
         </span>
         {latest && (
-          <span aria-hidden="true" className={cn("line-clamp-2 text-[14px] leading-5 wrap-anywhere", unread ? "text-foreground" : "text-muted-foreground")}>
+          // Two lines on phones, as Slack's app shows, and one beside the page, so the rows keep one height.
+          <span aria-hidden="true" className={cn("line-clamp-2 text-[14px] leading-5 wrap-anywhere md:line-clamp-1", unread ? "text-foreground" : "text-muted-foreground")}>
             {previewOf(latest, meId, members.length > 1, nameOf)}
           </span>
         )}
@@ -250,26 +300,26 @@ function DirectRow({ room, meId, preview, current, unreadId, onClick }: DirectRo
   );
 }
 
-/**
- * Unreads' switch, drawn as the switch in ui/switch.tsx draws Campfire's `.switch`, at 11px, but a plain
- * button, so the list, which loads with the app, doesn't bring Radix's switch with it.
- */
-function UnreadsSwitch({ id, on, disabled, onChange }: { id: string; on: boolean; disabled: boolean; onChange: (on: boolean) => void }) {
+interface UnreadsChipsProps {
+  on: boolean;
+  /** Whether it's held on, as Activity holds it. */
+  disabled: boolean;
+  onChange: (on: boolean) => void;
+}
+
+/** All and Unreads, on phones, as chips under Find a DM…, as Slack's app has them, 44px tall for fingers. */
+function UnreadsChips({ on, disabled, onChange }: UnreadsChipsProps) {
+  const chip =
+    "inline-flex min-h-11 cursor-pointer items-center rounded-full border px-4 text-[14px] font-medium text-foreground aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:text-background disabled:cursor-not-allowed";
   return (
-    <button
-      id={id}
-      type="button"
-      role="switch"
-      aria-checked={on}
-      disabled={disabled}
-      onClick={() => onChange(!on)}
-      className="relative inline-flex h-[1.75em] w-[3em] shrink-0 cursor-pointer rounded-[2em] bg-muted-foreground text-[11px] transition duration-150 ease-in-out aria-checked:bg-foreground disabled:cursor-not-allowed [@media(any-hover:hover)]:[&:not(:active):hover]:brightness-[0.7]"
-    >
-      <span
-        aria-hidden="true"
-        className={cn("pointer-events-none absolute bottom-[0.2em] left-[0.2em] block size-[1.35em] rounded-full bg-background transition duration-150 ease-in-out", on && "translate-x-[1.2em]")}
-      />
-    </button>
+    <div role="group" aria-label="Show" className="flex gap-2 px-1.5 md:hidden">
+      <button type="button" aria-pressed={!on} disabled={disabled} onClick={() => onChange(false)} className={chip}>
+        All
+      </button>
+      <button type="button" aria-pressed={on} disabled={disabled} onClick={() => onChange(true)} className={chip}>
+        Unreads
+      </button>
+    </div>
   );
 }
 
@@ -280,7 +330,10 @@ interface SuggestionRowProps {
   onClick: () => void;
 }
 
-/** Someone suggested for a DM: a button with their avatar and name, which starts the DM with them. */
+/**
+ * Someone suggested for a DM: a button with their avatar and name, which starts the DM with them. Its
+ * avatar is centered where a DM's row has its avatar, so its name starts where theirs do.
+ */
 function SuggestionRow({ person, starting, onClick }: SuggestionRowProps) {
   const nameOf = useNameOf();
   return (
@@ -288,9 +341,11 @@ function SuggestionRow({ person, starting, onClick }: SuggestionRowProps) {
       type="button"
       aria-disabled={starting || undefined}
       onClick={onClick}
-      className="flex min-h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg px-[9px] py-[7px] text-start text-sm text-foreground hover:bg-hover aria-disabled:cursor-default touch:min-h-11"
+      className="flex min-h-9 w-full cursor-pointer items-center gap-3 px-[18px] py-[7px] text-start text-sm text-foreground outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-disabled:cursor-default touch:min-h-11"
     >
-      <UserAvatar user={person} square className="size-6" />
+      <span className="flex w-9 shrink-0 justify-center">
+        <UserAvatar user={person} square className="size-6" />
+      </span>
       <span className="min-w-0 flex-1 truncate">
         <span className="sr-only">Start a direct message with</span> {nameOf(person)}
       </span>

@@ -87,8 +87,7 @@ export function ThreadsPage({ me, rooms, onFailed }: Props) {
           ) : loaded.threads.length === 0 ? (
             <div className="grid justify-items-center px-6 pt-[8dvh] pb-6 text-center text-muted-foreground">
               <MultiBubble className="mb-4 h-auto w-16 max-w-[25vw] text-foreground opacity-20" />
-              <h2 className="mb-1.5 text-xl font-bold text-foreground">No threads yet</h2>
-              <p>Threads in your rooms and DMs show up here.</p>
+              <h2 className="text-xl font-bold text-foreground">No threads yet</h2>
             </div>
           ) : (
             <>
@@ -151,7 +150,8 @@ function ThreadCard({ thread, me, names }: { thread: ListedThread; me: Me; names
         {mark && <span className="shrink-0 rounded-md bg-hover px-1.5 py-px text-xs font-medium text-muted-foreground">{mark}</span>}
         <PageLink
           href={threadPath(thread.roomId, thread.parent.id)}
-          className="ml-auto inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[13px] font-medium text-muted-foreground hover:bg-hover hover:text-foreground touch:min-h-11"
+          // 44px square on phones, where it's its arrow alone, and for fingers anywhere.
+          className="ml-auto inline-flex shrink-0 items-center justify-center gap-0.5 rounded-md px-1.5 py-0.5 text-[13px] font-medium text-muted-foreground hover:bg-hover hover:text-foreground touch:min-h-11 touch:min-w-11 max-md:-my-2 max-md:min-h-11 max-md:min-w-11"
         >
           <span className="max-md:sr-only">Open thread</span>
           <NavArrowRight className="size-4" />
@@ -174,8 +174,13 @@ function ThreadCard({ thread, me, names }: { thread: ListedThread; me: Me; names
   );
 }
 
-/** A box to reply in: Enter sends what's written, and Shift+Enter starts a new line. */
+/**
+ * Reply, under a card's messages, which opens a box to reply in once it's pressed, and closes again with
+ * Escape, or once the box is left empty. In the box, Enter sends what's written, and Shift+Enter starts a
+ * new line.
+ */
 function ReplyBox({ onReply, label }: { onReply: (text: string) => void; label: string }) {
+  const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const send = () => {
     if (text.trim() === "") return;
@@ -187,23 +192,36 @@ function ReplyBox({ onReply, label }: { onReply: (text: string) => void; label: 
     send();
   };
   const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Escape" && text.trim() === "") return setOpen(false);
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
     send();
   };
+  if (!open)
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mb-2 ml-[68px] cursor-pointer rounded-md py-1 text-[13px] font-semibold text-muted-foreground hover:text-foreground touch:min-h-11 max-md:ml-[58px]"
+      >
+        Reply
+      </button>
+    );
   return (
     <form onSubmit={submit} className="flex items-end gap-2 border-t px-4 py-3 max-md:px-3">
       <textarea
+        autoFocus
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={keyDown}
+        onBlur={(event) => text.trim() === "" && !event.currentTarget.form?.contains(event.relatedTarget) && setOpen(false)}
         rows={1}
         placeholder="Reply…"
         aria-label={label}
         className="field-sizing-content max-h-40 min-h-9 flex-1 resize-none rounded-lg border bg-surface px-3 py-1.5 text-[15px] leading-[22px] outline-none placeholder:text-muted-foreground focus-visible:border-ring max-md:text-base"
       />
       <button type="submit" disabled={text.trim() === ""} className={`${BUTTON} min-h-9 disabled:cursor-default disabled:opacity-50`}>
-        Reply
+        Send
       </button>
     </form>
   );

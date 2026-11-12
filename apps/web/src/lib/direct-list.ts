@@ -42,8 +42,7 @@ export function previewOf(message: Message, meId: UserId, group: boolean, nameOf
   return group ? `${nameOf(message.creator)}: ${text}` : text;
 }
 
-/** How many unread messages a row's badge shows: up to 9, then "9+". */
-export const unreadBadge = (count: number) => (count > 9 ? "9+" : String(count));
+export { unreadBadge } from "./unread-badge";
 
 /** Whether a DM with `members` is one the DMs page's filter, `typed`, finds: any of their names has it, whatever its case. */
 export function namesMatch(members: User[], typed: string, nameOf: (user: User) => string): boolean {
