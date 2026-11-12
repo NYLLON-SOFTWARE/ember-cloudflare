@@ -112,6 +112,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
       <div className="contents" inert={covered}>
         <RoomHeader
           room={room}
+          me={me}
           name={name}
           present={state.present}
           status={state.status}
