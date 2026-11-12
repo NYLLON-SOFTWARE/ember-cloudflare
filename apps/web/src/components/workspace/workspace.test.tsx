@@ -67,6 +67,8 @@ function serve(responses: Record<string, () => Response | Promise<Response>> = {
   const answers: typeof responses = {
     "GET /api/account": () => Response.json(workspaceSettings),
     "GET /api/users": () => Response.json({ users: [] }),
+    "GET /api/directs": () => Response.json({ previews: [] }),
+    "GET /api/threads": () => Response.json({ threads: [], next: null }),
     ...responses,
   };
   vi.mocked(fetch).mockImplementation(async (input, init) => (answers[`${init?.method ?? "GET"} ${String(input)}`] ?? (() => Response.json(roomList(rooms))))());
@@ -151,8 +153,7 @@ const roomHeading = () => screen.findByRole("heading", { level: 1 });
 /** The rooms in the sidebar, in order. */
 /** The sidebar's rooms by name, with a ★ after each starred one. */
 const sidebarRooms = () =>
-  within(within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("region", { name: "Rooms" }))
-    .getAllByRole("link")
+  within(screen.getByRole("complementary", { name: "Conversations" })).getAllByRole("region", { name: /^(Starred|Rooms)$/ }).flatMap((region) => within(region).getAllByRole("link"))
     .map((link) => link.textContent!.replace(/^#/, "") + (within(link).queryByRole("img", { name: "Favorite" }) ? "★" : ""));
 /** The rail's links for the page shown, if any. */
 const railCurrent = () =>
@@ -611,6 +612,67 @@ describe("Group DMs and DM names", () => {
   });
 });
 
+describe("DMs page", () => {
+  const dmsList = () => screen.getByRole("region", { name: "Direct messages" });
+  /** A message Ada wrote, at noon. */
+  const sentMessage = (id: string, plainText: string): Message => ({ id, clientMessageId: id, roomId: "general", creator: ada, body: `<p>${plainText}</p>`, plainText, mentions: [], createdAt: NOON, updatedAt: NOON, editedAt: null, boosts: [] });
+
+  it("opens from the rail's DMs, beside the list of DMs, and shows a DM picked there beside the list, marking DMs", async () => {
+    vi.stubGlobal("WebSocket", OpenRoomSocket);
+    serve({
+      "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])),
+      "GET /api/directs": () => Response.json({ previews: [{ roomId: "d1", latest: { ...sentMessage("m1", "see you at noon"), roomId: "d1" }, unread: 0 }] }),
+    });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    // Home lists no DMs.
+    expect(screen.queryByRole("link", { name: /^Direct message with / })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "DMs" }));
+    expect(location.pathname).toBe("/dms");
+    expect(screen.getByRole("link", { name: "DMs" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Home" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("heading", { level: 1, name: "Your direct messages" })).toBeInTheDocument();
+    expect(await within(dmsList()).findByText("You: see you at noon")).toBeInTheDocument();
+
+    await user.click(within(dmsList()).getByRole("link", { name: "Direct message with Grace" }));
+    expect(await roomHeading()).toHaveTextContent("Direct message with Grace");
+    expect(location.pathname).toBe("/rooms/d1");
+    expect(within(dmsList()).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "DMs" })).toHaveAttribute("aria-current", "page");
+
+    // Home goes back to the last room it showed, not the DM.
+    await user.click(screen.getByRole("link", { name: "Home" }));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
+    expect(screen.queryByRole("region", { name: "Direct messages" })).not.toBeInTheDocument();
+  });
+
+  it("keeps New direct message at its address, over the last room visited", async () => {
+    showWorkspace("/rooms/directs/new");
+    expect(await screen.findByRole("dialog", { name: "New direct message" })).toBeInTheDocument();
+    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
+  });
+});
+
+describe("Home sidebar pages", () => {
+  it("opens Threads, Drafts & sent and People from Home's links, marking the link and Home", async () => {
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(screen.getByRole("link", { name: "Threads" }));
+    expect(location.pathname).toBe("/threads");
+    expect(await screen.findByRole("heading", { name: "No threads yet" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Threads" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
+
+    await user.click(screen.getByRole("link", { name: "Drafts & sent" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Drafts & sent" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "No drafts" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("link", { name: "People" }));
+    expect(location.pathname).toBe("/people");
+    expect(screen.getByRole("searchbox", { name: "Search for people" })).toBeInTheDocument();
+  });
+});
+
 describe("Delete a direct message", () => {
   it("deletes a DM from the settings its header opens, going home without an alert", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -628,7 +690,8 @@ describe("Delete a direct message", () => {
     expect(await roomHeading()).toHaveTextContent("general");
     expect(location.pathname).toBe("/rooms/general");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "DMs" })).queryAllByRole("link", { name: /^Direct message with / })).toEqual([]);
+    act(() => navigate("/dms"));
+    expect(within(screen.getByRole("region", { name: "Direct messages" })).queryAllByRole("link", { name: /^Direct message with / })).toEqual([]);
   });
 
   it("goes home without an alert when the workspace socket tells of the deletion before it answers", async () => {
@@ -661,8 +724,9 @@ describe("Delete a direct message", () => {
     });
     const { user } = showWorkspace("/rooms/directs/d1/edit");
     await screen.findByRole("button", { name: "Delete Ping" });
+    expect(within(screen.getByRole("region", { name: "Direct messages" })).queryAllByRole("link", { name: /^Direct message with / })).toHaveLength(1);
     await workspaceSends({ type: "room.gone", roomId: "d1" });
-    expect(within(screen.getByRole("region", { name: "DMs" })).queryAllByRole("link", { name: /^Direct message with / })).toEqual([]);
+    expect(within(screen.getByRole("region", { name: "Direct messages" })).queryAllByRole("link", { name: /^Direct message with / })).toEqual([]);
     expect(location.pathname).toBe("/rooms/directs/d1/edit");
 
     await user.click(screen.getByRole("button", { name: "Delete Ping" }));
@@ -686,23 +750,32 @@ describe("New direct message dialog", () => {
   const people: DirectoryUser[] = [ada, withGrace.members[1]!].map(({ id, name }) => ({ id, name, bio: null, role: "member", status: "active", avatarUrl: `/users/${id}/avatar` }));
   const newDirect = () => screen.queryByRole("dialog", { name: "New direct message" });
   const dms = () => within(screen.getByRole("navigation", { name: "Workspace", hidden: true })).getByRole("link", { name: "DMs", hidden: true });
+  /** The DMs page's button that starts a new DM. */
+  const compose = () => screen.getByRole("link", { name: "New direct message" });
+  /** Opens New direct message from the DMs page, which the rail's DMs goes to. */
+  async function openNewDirect(user: ReturnType<typeof userEvent.setup>) {
+    if (!screen.queryByRole("link", { name: "New direct message" })) await user.click(dms());
+    await user.click(compose());
+  }
 
   beforeEach(() => serve({ "GET /api/users": () => Response.json({ users: people }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) }));
 
-  it("opens over the page from the rail's DMs and the sidebar's New direct message, turning Activity off, and closes back on the link", async () => {
+  it("opens over the DMs page from its New direct message, which the rail's DMs goes to, turning Activity off, and closes back on the link", async () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     await user.click(screen.getByRole("button", { name: "Activity" }));
     await user.click(dms());
-    expect(newDirect()).toBeInTheDocument();
-    expect(location.pathname).toBe("/rooms/general");
+    expect(location.pathname).toBe("/dms");
     expect(screen.getByRole("button", { name: "Activity", hidden: true })).toHaveAttribute("aria-pressed", "false");
+    const link = compose();
+    await user.click(link);
+    expect(newDirect()).toBeInTheDocument();
+    expect(location.pathname).toBe("/dms");
     expect(await screen.findByRole("option", { name: "Grace" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
     await waitFor(() => expect(newDirect()).not.toBeInTheDocument());
-    expect(dms()).toHaveFocus();
+    expect(link).toHaveFocus();
 
-    const link = within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "New direct message" });
     await user.click(link);
     expect(newDirect()).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -723,7 +796,8 @@ describe("New direct message dialog", () => {
   });
 
   it("closes the drawer as it opens on a phone, and gives focus to the drawer's toggle once it closes", async () => {
-    const { user } = showWorkspace("/rooms/general");
+    serve({ "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])), "GET /api/users": () => Response.json({ users: people }) });
+    const { user } = showWorkspace("/rooms/d1");
     await roomHeading();
     await user.click(screen.getByRole("button", { name: "Open conversations" }));
     await user.click(within(screen.getByRole("dialog", { name: "Conversations" })).getByRole("link", { name: "New direct message" }));
@@ -738,14 +812,14 @@ describe("New direct message dialog", () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
-    await user.click(dms());
+    await openNewDirect(user);
     await user.click(await screen.findByRole("option", { name: "Grace" }));
     await user.click(screen.getByRole("button", { name: "Start conversation" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Direct message with Grace" })).toBeInTheDocument();
     expect(location.pathname).toBe("/rooms/d1");
     expect(newDirect()).not.toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: ["u2"] }) }));
-    expect(within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
+    expect(within(screen.getByRole("region", { name: "Direct messages" })).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
   });
 
@@ -758,7 +832,7 @@ describe("New direct message dialog", () => {
     });
     const { user } = showWorkspace("/rooms/d1");
     const composer = await screen.findByRole("textbox", { name: "Write a message" });
-    await user.click(dms());
+    await openNewDirect(user);
     await user.click(await screen.findByRole("option", { name: "Grace" }));
     await user.click(screen.getByRole("button", { name: "Start conversation" }));
     await waitFor(() => expect(newDirect()).not.toBeInTheDocument());
@@ -766,46 +840,24 @@ describe("New direct message dialog", () => {
     expect(screen.getByRole("textbox", { name: "Write a message" })).toBe(composer);
     await waitFor(() => expect(composer).toHaveFocus());
   });
-
-  it("asks before leaving a room's unsaved settings for the DM, keeping the people picked to come back to", async () => {
-    serve({
-      "GET /api/users": () => Response.json({ users: people }),
-      "GET /api/rooms/general/settings": () => Response.json(generalSettings),
-      "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
-    });
-    const { user } = showWorkspace("/rooms/opens/general/edit");
-    await user.type(await screen.findByRole("textbox", { name: "Room name" }), "s");
-    await user.click(dms());
-    await user.click(await screen.findByRole("option", { name: "Grace" }));
-    await user.click(screen.getByRole("button", { name: "Start conversation" }));
-    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
-    expect(screen.getByRole("button", { name: "Remove Grace" })).toBeInTheDocument();
-    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === "/api/directs")).toBe(false);
-
-    await user.click(screen.getByRole("button", { name: "Start conversation" }));
-    await user.click(await screen.findByRole("button", { name: "Discard" }));
-    expect(await screen.findByRole("heading", { level: 1, name: "Direct message with Grace" })).toBeInTheDocument();
-    expect(location.pathname).toBe("/rooms/d1");
-  });
 });
 
 describe("Suggested people", () => {
   const grace = withGrace.members[1]!;
-  const suggestion = () => within(screen.getByRole("region", { name: "DMs" })).queryByRole("button", { name: "Start a direct message with Grace" });
+  const suggestion = () => within(screen.getByRole("region", { name: "Direct messages" })).queryByRole("button", { name: "Start a direct message with Grace" });
 
-  it("starts a DM with someone suggested and opens it, listed in the suggestion's place, for its composer to take focus", async () => {
+  it("starts a DM with someone the DMs page suggests and opens it, listed in the suggestion's place, for its composer to take focus", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     serve({
       "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
       "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }),
     });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(suggestion()!);
+    const { user } = showWorkspace("/dms");
+    await user.click(await screen.findByRole("button", { name: "Start a direct message with Grace" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Direct message with Grace" })).toBeInTheDocument();
     expect(location.pathname).toBe("/rooms/d1");
     expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: [grace.id] }) }));
-    expect(within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
+    expect(within(screen.getByRole("region", { name: "Direct messages" })).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
     expect(suggestion()).not.toBeInTheDocument();
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveFocus();
   });
@@ -816,15 +868,15 @@ describe("Suggested people", () => {
       "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
       "POST /api/directs": () => new Promise<Response>((resolve) => (answer = resolve)),
     });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(suggestion()!);
-    await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /random/ }));
-    expect(await roomHeading()).toHaveTextContent("random");
+    const { user } = showWorkspace("/dms");
+    await user.click(await screen.findByRole("button", { name: "Start a direct message with Grace" }));
+    await user.click(screen.getByRole("link", { name: "Home" }));
+    expect(await roomHeading()).toHaveTextContent("general");
 
     await act(async () => answer(Response.json({ room: withGrace }, { status: 201 })));
-    expect(location.pathname).toBe("/rooms/random");
-    expect(within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "Direct message with Grace" })).not.toHaveAttribute("aria-current");
+    expect(location.pathname).toBe("/rooms/general");
+    act(() => navigate("/dms"));
+    expect(within(screen.getByRole("region", { name: "Direct messages" })).getByRole("link", { name: "Direct message with Grace" })).not.toHaveAttribute("aria-current");
     expect(suggestion()).not.toBeInTheDocument();
   });
 
@@ -833,11 +885,10 @@ describe("Suggested people", () => {
       "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [grace] }),
       "POST /api/directs": () => Promise.reject(new TypeError("Failed to fetch")),
     });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(suggestion()!);
+    const { user } = showWorkspace("/dms");
+    await user.click(await screen.findByRole("button", { name: "Start a direct message with Grace" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
-    expect(location.pathname).toBe("/rooms/general");
+    expect(location.pathname).toBe("/dms");
     expect(suggestion()).toBeInTheDocument();
     expect(suggestion()).not.toHaveAttribute("aria-disabled");
   });
@@ -845,7 +896,7 @@ describe("Suggested people", () => {
 
 describe("Remove someone from the workspace", () => {
   const grace: DirectoryUser = { ...withGrace.members[1]!, bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
-  const suggestion = () => within(screen.getByRole("region", { name: "DMs" })).queryByRole("button", { name: "Start a direct message with Grace" });
+  const suggestion = () => within(screen.getByRole("region", { name: "Direct messages" })).queryByRole("button", { name: "Start a direct message with Grace" });
 
   it("suggests nobody the workspace socket says has been removed since the sidebar loaded", async () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
@@ -853,9 +904,8 @@ describe("Remove someone from the workspace", () => {
       "GET /api/sidebar": () => Response.json({ ...roomList(rooms), suggestions: [withGrace.members[1]] }),
       "GET /api/users": () => Response.json({ users: [grace] }),
     });
-    showWorkspace("/rooms/general");
-    await roomHeading();
-    expect(suggestion()).toBeInTheDocument();
+    showWorkspace("/dms");
+    expect(await screen.findByRole("button", { name: "Start a direct message with Grace" })).toBeInTheDocument();
     await workspaceSends({ type: "user.updated", user: { ...grace, status: "deactivated" } });
     expect(suggestion()).not.toBeInTheDocument();
   });
@@ -1158,6 +1208,7 @@ describe("Search box", () => {
     await waitFor(() => expect(searchBox()).not.toBeInTheDocument());
 
     await user.click(screen.getByRole("link", { name: "DMs" }));
+    await user.click(screen.getByRole("link", { name: "New direct message" }));
     expect(fireEvent.keyDown(screen.getByRole("combobox", { name: "Search people" }), { key: "f", ctrlKey: true })).toBe(true);
     expect(searchBox()).not.toBeInTheDocument();
   });
@@ -1284,8 +1335,7 @@ describe("Activity filter", () => {
   const activity = () => screen.getByRole("button", { name: "Activity" });
   // The sidebar's rooms, which workspace settings has a section named for too.
   const sidebarRooms = () =>
-    within(within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("region", { name: "Rooms" }))
-      .getAllByRole("link")
+    within(screen.getByRole("complementary", { name: "Conversations" })).getAllByRole("region", { name: /^(Starred|Rooms)$/ }).flatMap((region) => within(region).getAllByRole("link"))
       .map((link) => link.textContent!.replace(/^#/, "") + (within(link).queryByRole("img", { name: "Favorite" }) ? "★" : ""));
   const roomLink = (name: RegExp) => within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("link", { name });
 
@@ -1616,6 +1666,7 @@ describe("Keyboard shortcuts", () => {
     await waitFor(() => expect(composer).toHaveFocus());
 
     await user.click(screen.getByRole("link", { name: "DMs" }));
+    await user.click(screen.getByRole("link", { name: "New direct message" }));
     expect(fireEvent.keyDown(screen.getByRole("combobox", { name: "Search people" }), { key: "/", ctrlKey: true })).toBe(true);
     expect(shortcuts()).not.toBeInTheDocument();
   });
@@ -1829,7 +1880,7 @@ describe("Conversations drawer on phones", () => {
     await roomHeading();
     await user.click(screen.getByRole("button", { name: "Open conversations" }));
     await user.tab();
-    expect(within(screen.getByRole("dialog")).getByRole("link", { name: /general/ })).toHaveFocus();
+    expect(within(screen.getByRole("dialog")).getByRole("link", { name: "Threads" })).toHaveFocus();
     await user.tab({ shift: true });
     await user.tab({ shift: true });
     expect(within(screen.getByRole("dialog")).getByRole("link", { name: "Your profile" })).toHaveFocus();
@@ -1930,13 +1981,13 @@ describe("Landmarks and names", () => {
     expect(screen.getByRole("main")).toHaveAttribute("id", "main-content");
   });
 
-  it("names the rail, the rooms, the DMs, the messages and the composer", async () => {
+  it("names the rail, the rooms, the Home sidebar's links, the messages and the composer", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     showWorkspace("/rooms/general");
     await roomHeading();
     expect(screen.getByRole("navigation", { name: "Workspace" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Rooms" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "DMs" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Home" })).toBeInTheDocument();
     expect(screen.getByRole("main")).toContainElement(screen.getByRole("log", { name: "Messages in general" }));
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toBeInTheDocument();
   });

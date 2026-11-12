@@ -5,7 +5,6 @@ import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
-import { guardLeaving } from "@/hooks/use-route";
 import { Sidebar } from "./sidebar";
 
 const rooms = [
@@ -17,9 +16,6 @@ const HELP = "Hold a starred room to drag it, or press Alt and the up or down ar
 
 type Props = ComponentProps<typeof Sidebar>;
 
-/** An AI agent, as the people directory lists it. */
-const agent = (id: string, name: string): DirectoryUser => ({ id, name, bio: null, role: "bot", status: "active", avatarUrl: `/users/${id}/avatar`, agent: true });
-
 /** The workspace, as it's set up. */
 const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false };
 
@@ -30,18 +26,15 @@ const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: tru
 function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: readonly DirectoryUser[] = []) {
   const all: Props = {
     workspaceName: "Ember",
-    meId: "u1",
     rooms,
     favorites: unstarred,
     sharedOrder: [],
     huddles: {},
     loaded: true,
-    suggestions: [],
     currentRoomId: null,
+    currentPage: null,
     unreadOnly: false,
     onSelect: vi.fn(),
-    onNewDirect: vi.fn(),
-    onStartDirect: vi.fn(async () => true),
     onStarred: vi.fn(),
     onSessionChanged: vi.fn(),
     ...props,
@@ -58,20 +51,12 @@ function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: read
   return { ...view, ...all, rerender: (changes: Partial<Props>, changed = account) => view.rerender(sidebar(changes, changed)) };
 }
 
-const [ada, grace, linus, alan, edsger, barbara]: User[] = ["Ada", "Grace", "Linus", "Alan", "Edsger", "Barbara"].map((name, i) => ({ id: `u${i + 1}`, name }));
-/** `minutes` past noon, on the day these tests take place. */
-const at = (minutes: number) => new Date(Date.UTC(2026, 9, 15, 12, minutes)).toISOString();
-/** A DM between `members`, as the sidebar lists it to Ada, who's always in it, last active `activeAt`. */
-const direct = (id: string, members: User[], unread = false, activeAt = at(0)): SidebarRoom => ({ id, kind: "direct", members, activeAt, unread, involvement: "everything" });
+const [ada, grace]: User[] = ["Ada", "Grace"].map((name, i) => ({ id: `u${i + 1}`, name }));
+/** A DM between `members`, as the list has it for Ada, who's always in it. */
+const direct = (id: string, members: User[], unread = false): SidebarRoom => ({ id, kind: "direct", members, activeAt: new Date(0).toISOString(), unread, involvement: "everything" });
 
-/** The rows suggesting people to start a DM with, top to bottom. */
-const suggestionRows = () => within(screen.getByRole("region", { name: "DMs" })).queryAllByRole("button", { name: /^Start a direct message with / });
-
-/** The DM rows, top to bottom. */
-const directRows = () => within(screen.getByRole("region", { name: "DMs" })).queryAllByRole("link", { name: /^Direct message with / });
-
-/** The room rows, top to bottom. */
-const rows = () => within(screen.getByRole("region", { name: "Rooms" })).queryAllByRole("link");
+/** The room rows, top to bottom: the starred ones, then the rest. */
+const rows = () => screen.queryAllByRole("region", { name: /^(Starred|Rooms)$/ }).flatMap((region) => within(region).queryAllByRole("link"));
 const listed = () => rows().map((row) => row.textContent);
 const row = (name: string) => rows().find((link) => link.textContent === `#${name}`)!;
 
@@ -157,16 +142,13 @@ describe("Unread rooms", () => {
 describe("Activity filter", () => {
   const marked = [{ ...rooms[0]!, unread: true }, rooms[1]!, { id: "design", name: "design", kind: "open" as const, icon: null, unread: true, involvement: "mentions" as const }];
 
-  it("shows only the rows marked unread, without the people suggested for DMs", () => {
-    const { rerender } = renderSidebar({ rooms: marked, suggestions: [grace!], unreadOnly: true });
+  it("shows only the rows marked unread", () => {
+    const { rerender } = renderSidebar({ rooms: marked, unreadOnly: true });
     expect(listed()).toEqual(["#design", "#general"]);
-    expect(suggestionRows()).toEqual([]);
-    expect(screen.getByRole("heading", { name: "DMs" })).toBeInTheDocument();
-    expect(screen.queryByText("You’re all caught up. No unread conversations.")).not.toBeInTheDocument();
+    expect(screen.queryByText("You’re all caught up. No unread rooms.")).not.toBeInTheDocument();
 
     rerender({ unreadOnly: false });
     expect(listed()).toEqual(["#design", "#general", "#random"]);
-    expect(suggestionRows()).toHaveLength(1);
   });
 
   it("leaves out the room the tab shows, which is never marked", () => {
@@ -177,7 +159,7 @@ describe("Activity filter", () => {
   it("says everything's read when nothing is marked", () => {
     renderSidebar({ currentRoomId: "general", unreadOnly: true });
     expect(listed()).toEqual([]);
-    expect(screen.getByText("You’re all caught up. No unread conversations.")).toHaveClass("text-[13px]", "text-muted-foreground");
+    expect(screen.getByText("You’re all caught up. No unread rooms.")).toHaveClass("text-[13px]", "text-muted-foreground");
   });
 });
 
@@ -578,198 +560,41 @@ describe("Background sidebar reloads keep your place", () => {
   });
 });
 
-describe("Group DMs and DM names", () => {
-  it("names the others in each DM, or you in your DM with yourself, saying whom it's with to screen readers", () => {
-    renderSidebar({ rooms: [...rooms, direct("d1", [ada!, grace!], false, at(3)), direct("d2", [ada!, grace!, linus!], false, at(2)), direct("d3", [ada!], false, at(1))] });
-    expect(directRows().map((row) => [row.textContent, row.getAttribute("href")])).toEqual([
-      ["Direct message with Grace", "/rooms/d1"],
-      ["Direct message with Grace, Linus", "/rooms/d2"],
-      ["Direct message with Ada (you)", "/rooms/d3"],
-    ]);
-    expect(directRows()[1]).toHaveAccessibleName("Direct message with Grace, Linus");
-    expect(listed()).toEqual(["#general", "#random"]);
-  });
-
-  it("shows the other person's avatar at 24px, or up to four of a group's at 14px", () => {
-    renderSidebar({ rooms: [direct("d1", [ada!, grace!], false, at(2)), direct("d2", [ada!, grace!, linus!, alan!, edsger!, barbara!], false, at(1))] });
-    const [one, group] = directRows();
-    expect([...one!.querySelectorAll("img")].map((img) => img.getAttribute("class"))).toEqual([expect.stringContaining("size-6")]);
-    const faces = [...group!.querySelectorAll("img")];
-    expect(faces).toHaveLength(4);
-    for (const face of faces) expect(face).toHaveClass("size-3.5");
-    expect(faces[0]!.parentElement).toHaveAttribute("aria-hidden", "true");
-    expect(faces[0]!.parentElement).toHaveClass("size-6", "grid-cols-2");
-  });
-
-  it("names people as the people directory lists them now, which follows a rename", () => {
-    const renamed: DirectoryUser = { ...grace!, name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
-    render(
-      <PeopleContext value={new Map([[renamed.id, renamed]])}>
-        <Sidebar
-          {...{ workspaceName: "Ember", meId: ada!.id, loaded: true, suggestions: [], favorites: unstarred, sharedOrder: [], huddles: {}, currentRoomId: null, unreadOnly: false }}
-          {...{ onSelect: vi.fn(), onNewDirect: vi.fn(), onStartDirect: vi.fn(), onStarred: vi.fn(), onSessionChanged: vi.fn() }}
-          rooms={[direct("d1", [ada!, grace!])]}
-        />
-      </PeopleContext>,
-    );
-    expect(directRows()[0]).toHaveAccessibleName("Direct message with Grace Hopper");
-  });
-
-  it("badges a DM with @ember alone as an agent's after its name, but not a group DM it's in", () => {
-    const ember: User = { id: "ember", name: "Ember" };
-    renderSidebar({ rooms: [direct("d1", [ada!, ember], false, at(2)), direct("d2", [ada!, ember, grace!], false, at(1))] });
-    const [alone, group] = directRows();
-    expect(alone).toHaveAccessibleName("Direct message with Ember Agent");
-    expect(within(alone!).getByText("Agent")).toHaveAttribute("data-slot", "badge");
-    expect(group).toHaveAccessibleName("Direct message with Ember, Grace");
-  });
-
-  it("badges a DM with any agent alone, as the people directory lists it, but not one with another bot", () => {
-    const recap = agent("u8", "Recap");
-    const bot: DirectoryUser = { id: "u9", name: "Build Bot", bio: null, role: "bot", status: "active", avatarUrl: "/users/u9/avatar" };
-    renderSidebar({ rooms: [direct("d1", [ada!, recap], false, at(2)), direct("d2", [ada!, bot], false, at(1))] }, EMBER, [recap, bot]);
-    const [withAgent, withBot] = directRows();
-    expect(withAgent).toHaveAccessibleName("Direct message with Recap Agent");
-    expect(within(withAgent!).getByText("Agent")).toHaveAttribute("data-slot", "badge");
-    expect(withBot).toHaveAccessibleName("Direct message with Build Bot");
-  });
-});
-
-describe("Conversations sidebar", () => {
-  it("lists DMs under DMs, marks the one you're in, and opens one in place", async () => {
-    const { onSelect } = renderSidebar({ rooms: [direct("d1", [ada!, grace!], false, at(2)), ...rooms, direct("d2", [ada!, linus!], false, at(1))], currentRoomId: "d2" });
-    expect(directRows().map((row) => row.getAttribute("aria-current"))).toEqual([null, "page"]);
-    await userEvent.click(directRows()[0]!);
-    expect(onSelect).toHaveBeenCalledWith("d1");
-    expect(fireEvent.click(directRows()[0]!, { metaKey: true })).toBe(true);
-    expect(onSelect).toHaveBeenCalledOnce();
-  });
-});
-
-describe("Conversations sidebar", () => {
-  it("says it found no conversations once the list has come with nothing in it, nor anyone to suggest", () => {
-    const { rerender } = renderSidebar({ rooms: [], loaded: false });
-    expect(screen.queryByText("No conversations found.")).not.toBeInTheDocument();
-    rerender({ loaded: true });
-    expect(screen.getByText("No conversations found.")).toHaveClass("text-[13px]", "text-muted-foreground");
-    rerender({ suggestions: [grace!] });
-    expect(screen.queryByText("No conversations found.")).not.toBeInTheDocument();
-  });
-});
-
-describe("DM order", () => {
-  it("lists DMs by their latest message, or when they started until one comes, latest first", () => {
-    const listing = (d1: string) => [direct("d1", [ada!, grace!], false, d1), direct("d2", [ada!, linus!], false, at(3)), ...rooms, direct("d3", [ada!, alan!], false, at(2))];
-    const { rerender } = renderSidebar({ rooms: listing(at(1)) });
-    expect(directRows().map((row) => row.getAttribute("href"))).toEqual(["/rooms/d2", "/rooms/d3", "/rooms/d1"]);
-    rerender({ rooms: listing(at(4)) });
-    expect(directRows().map((row) => row.getAttribute("href"))).toEqual(["/rooms/d1", "/rooms/d2", "/rooms/d3"]);
-  });
-});
-
-describe("Suggested people", () => {
-  it("suggests people for DMs after the DMs, by avatar and name, saying to screen readers that it starts one", () => {
-    renderSidebar({ rooms: [...rooms, direct("d1", [ada!, grace!])], suggestions: [linus!, alan!] });
-    expect(suggestionRows().map((row) => row.textContent)).toEqual(["Start a direct message with Linus", "Start a direct message with Alan"]);
-    expect(suggestionRows()[0]).toHaveAccessibleName("Start a direct message with Linus");
-    expect(directRows()[0]!.compareDocumentPosition(suggestionRows()[0]!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect([...suggestionRows()[0]!.querySelectorAll("img")].map((img) => img.getAttribute("class"))).toEqual([expect.stringContaining("size-6")]);
-  });
-
-  it("leaves out the people in your DMs, suggesting one fewer for each, as soon as a DM lists them", () => {
-    const many: User[] = Array.from({ length: 20 }, (_, i) => ({ id: `p${i}`, name: `Person ${i}` }));
-    const { rerender } = renderSidebar({ suggestions: many });
-    expect(suggestionRows()).toHaveLength(19);
-    // Ada and Person 0 are in DMs now, leaving room for 17.
-    rerender({ rooms: [...rooms, direct("d1", [ada!, many[0]!])] });
-    expect(suggestionRows().map((row) => row.textContent)).toEqual(many.slice(1, 18).map(({ name }) => `Start a direct message with ${name}`));
-  });
-
-  it("starts a DM with someone suggested, only once while it starts", async () => {
-    let started = (_: boolean) => {};
-    const onStartDirect = vi.fn(() => new Promise<boolean>((resolve) => (started = resolve)));
-    renderSidebar({ suggestions: [grace!], onStartDirect });
-    const suggestion = suggestionRows()[0]!;
-    await userEvent.click(suggestion);
-    expect(onStartDirect).toHaveBeenCalledExactlyOnceWith(grace);
-    expect(suggestion).toHaveAttribute("aria-disabled", "true");
-    await userEvent.click(suggestion);
-    expect(onStartDirect).toHaveBeenCalledOnce();
-
-    // One that didn't start can be tried again.
-    await act(async () => started(false));
-    expect(suggestion).not.toHaveAttribute("aria-disabled");
-    await userEvent.click(suggestion);
-    expect(onStartDirect).toHaveBeenCalledTimes(2);
-  });
-
-  it("asks before a page with changes to lose is left for the DM, starting it only once the page lets it", async () => {
-    let proceed = () => {};
-    const release = guardLeaving((_, go) => {
-      proceed = () => void go();
-      return true;
-    });
-    try {
-      const { onStartDirect } = renderSidebar({ suggestions: [grace!] });
-      await userEvent.click(suggestionRows()[0]!);
-      expect(onStartDirect).not.toHaveBeenCalled();
-      expect(suggestionRows()[0]).not.toHaveAttribute("aria-disabled");
-      await act(async () => proceed());
-      expect(onStartDirect).toHaveBeenCalledExactlyOnceWith(grace);
-    } finally {
-      release();
-    }
-  });
-});
-
-describe("New direct message dialog", () => {
-  it("opens New direct message in place from the DMs heading's link, which a click with a modifier key leaves to the browser", async () => {
-    const { onNewDirect } = renderSidebar();
-    const link = within(screen.getByRole("region", { name: "DMs" })).getByRole("link", { name: "New direct message" });
-    expect(link).toHaveAttribute("href", "/rooms/directs/new");
-    expect(link).toHaveAttribute("title", "New direct message");
-    await userEvent.click(link);
-    expect(onNewDirect).toHaveBeenCalledExactlyOnceWith(link);
-    expect(fireEvent.click(link, { shiftKey: true })).toBe(true);
-    expect(onNewDirect).toHaveBeenCalledOnce();
-  });
-});
-
-describe("Unread rooms", () => {
-  it("makes an unread DM's row bold, with a dot, and says so to screen readers, unless the tab shows it", () => {
-    const { rerender } = renderSidebar({ rooms: [direct("d1", [ada!, grace!], true, at(2)), direct("d2", [ada!, linus!], false, at(1))] });
-    const [unread, read] = directRows();
-    expect(unread).toHaveClass("font-[650]");
-    expect(unread).toHaveAccessibleDescription("Unread");
-    expect(unread!.lastElementChild).toHaveClass("size-[7px]", "rounded-full", "bg-foreground");
-    expect(read).not.toHaveClass("font-[650]");
-    expect(read).toHaveAccessibleDescription("");
-
-    rerender({ currentRoomId: "d1" });
-    expect(directRows()[0]).not.toHaveClass("font-[650]");
-    expect(directRows()[0]).toHaveAccessibleDescription("");
-  });
-});
-
-describe("Activity filter", () => {
-  it("shows only the DMs marked unread, and says everything's read only once no room or DM is", () => {
-    const { rerender } = renderSidebar({ rooms: [...rooms, direct("d1", [ada!, grace!], true), direct("d2", [ada!, linus!])], unreadOnly: true });
-    expect(listed()).toEqual([]);
-    expect(directRows().map((row) => row.getAttribute("href"))).toEqual(["/rooms/d1"]);
-    expect(screen.queryByText("You’re all caught up. No unread conversations.")).not.toBeInTheDocument();
-
-    rerender({ currentRoomId: "d1" });
-    expect(directRows()).toEqual([]);
-    expect(screen.getByText("You’re all caught up. No unread conversations.")).toBeInTheDocument();
-  });
-});
-
 describe("Hide a room", () => {
-  it("leaves out the rooms and DMs you've hidden, even the one open", () => {
+  it("leaves out the rooms you've hidden, even the one open", () => {
     const hidden = { id: "design", name: "design", kind: "open" as const, icon: null, unread: true, involvement: "invisible" as const };
-    const hiddenDirect: SidebarRoom = { ...direct("d2", [ada!, linus!], true), involvement: "invisible" };
-    renderSidebar({ rooms: [...rooms, hidden, direct("d1", [ada!, grace!]), hiddenDirect], currentRoomId: "design" });
+    renderSidebar({ rooms: [...rooms, hidden], currentRoomId: "design" });
     expect(listed()).toEqual(["#general", "#random"]);
-    expect(directRows().map((row) => row.textContent)).toEqual(["Direct message with Grace"]);
+  });
+});
+
+describe("Home sidebar", () => {
+  it("lists rooms only, never DMs, which the DMs page lists", () => {
+    renderSidebar({ rooms: [...rooms, direct("d1", [ada!, grace!], true)] });
+    expect(listed()).toEqual(["#general", "#random"]);
+    expect(screen.queryByRole("link", { name: /Direct message with/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "DMs" })).not.toBeInTheDocument();
+  });
+
+  it("links to Threads, Drafts & sent and People above the rooms, marking the one shown", () => {
+    const { rerender } = renderSidebar();
+    const links = within(screen.getByRole("navigation", { name: "Home" })).getAllByRole("link");
+    expect(links.map((link) => [link.textContent, link.getAttribute("href"), link.getAttribute("aria-current")])).toEqual([
+      ["Threads", "/threads", null],
+      ["Drafts & sent", "/drafts", null],
+      ["People", "/people", null],
+    ]);
+    expect(links[0]!.compareDocumentPosition(rows()[0]!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    rerender({ currentPage: "drafts" });
+    expect(screen.getByRole("link", { name: "Drafts & sent" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("moves starred rooms under Starred, above Rooms, which lists the rest, and has no Starred without a star", () => {
+    const { rerender } = renderSidebar({ favorites: { rooms: ["random"], version: 1 } });
+    expect(within(screen.getByRole("region", { name: "Starred" })).getAllByRole("link").map((link) => link.textContent)).toEqual(["#random"]);
+    expect(within(screen.getByRole("region", { name: "Rooms" })).getAllByRole("link").map((link) => link.textContent)).toEqual(["#general"]);
+    rerender({ favorites: { rooms: [], version: 2 } });
+    expect(screen.queryByRole("region", { name: "Starred" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Rooms" })).getAllByRole("link")).toHaveLength(2);
   });
 });

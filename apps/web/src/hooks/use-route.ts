@@ -18,6 +18,7 @@ import {
 // lose can hold the app on it by guarding against leaving.
 
 export { BOTS_PATH, CUSTOM_STYLES_PATH, huddlePath, NEW_AGENT_PATH, NEW_APP_PATH, NEW_BOT_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, threadPath, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
+export { DMS_PATH, DRAFTS_PATH, PEOPLE_PATH, SENT_PATH, THREADS_PATH } from "@ember/protocol";
 
 /** Whether a room's form makes it open to everyone or private, as the form's address says. */
 export type Access = RoomAccess;

@@ -2,11 +2,10 @@ import { useContext, type MouseEvent } from "react";
 import type { Me, NavigationSlot } from "@ember/protocol";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
-import { NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
+import { DMS_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
 import { NavigationIcon } from "./navigation-icon";
-import { opensNewDirect } from "./new-direct-dialog";
 import { OpenSearchContext, opensSearch } from "./search-box";
 import { UserAvatar } from "./user-avatar";
 
@@ -75,9 +74,9 @@ function ActivityButton({ on, unread, onToggle }: Activity) {
 /**
  * The page shown, whose links the rail marks: every link to the page's own path (the logo and Home at
  * home, Search on search, whatever's searched for, Admin or Workspace on workspace settings, your avatar
- * on your profile), and Home on a room's page, but none while Activity is on.
+ * on your profile), Home on a room's page, and DMs on the DMs page and a DM's, but none while Activity is on.
  */
-export type RailPage = "home" | "room" | "search" | "workspace" | "profile" | null;
+export type RailPage = "home" | "room" | "dms" | "search" | "workspace" | "profile" | null;
 
 interface Props {
   me: Me;
@@ -87,8 +86,6 @@ interface Props {
   activity: Activity;
   /** The release of Ember out since this one, such as "0.2", which Admin marks for an administrator, or null for none. */
   newRelease: string | null;
-  /** Opens New direct message, which DMs does in place, from the link that opened it. */
-  onNewDirect: (opener: HTMLElement) => void;
 }
 
 /**
@@ -96,7 +93,7 @@ interface Props {
  * else with Iconoir's, as the project's owner chose. Admin has a dot while a newer release of Ember is
  * out, which General, where it goes, tells of.
  */
-export function Rail({ me, workspaceName, current, activity, newRelease, onNewDirect }: Props) {
+export function Rail({ me, workspaceName, current, activity, newRelease }: Props) {
   const { logo } = useAccount();
   const openSearch = useContext(OpenSearchContext);
   const marked = activity.on ? null : current;
@@ -121,8 +118,7 @@ export function Rail({ me, workspaceName, current, activity, newRelease, onNewDi
         )}
       </PageLink>
       <RailLink slot="home" label="Home" href="/" current={marked === "home" || marked === "room"} />
-      {/* Never marked, since its address opens New direct message over the last room visited. */}
-      <RailLink slot="dms" label="DMs" href={NEW_DIRECT_PATH} current={false} onClick={opensNewDirect(onNewDirect)} />
+      <RailLink slot="dms" label="DMs" href={DMS_PATH} current={marked === "dms"} />
       <ActivityButton {...activity} />
       {/* Opens the search box in place, for everything. */}
       <RailLink slot="search" label="Search" href={SEARCHES_PATH} current={marked === "search"} onClick={opensSearch(openSearch)} />

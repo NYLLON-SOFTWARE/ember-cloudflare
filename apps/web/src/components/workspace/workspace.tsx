@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useAccount } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
+import { useDirectPreviews } from "@/hooks/use-direct-previews";
 import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
@@ -16,7 +17,7 @@ import { ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api
 import { hearHuddleEnd, leaveHuddle, muteHuddle } from "@/lib/huddle-store";
 import { whenIdle } from "@/lib/idle";
 import { opensFind, opensShortcuts, togglesHuddle, togglesMute } from "@/lib/keyboard";
-import { lastRoomVisited } from "@/lib/last-room";
+import { lastChannelVisited, lastRoomVisited, rememberLastChannel } from "@/lib/last-room";
 import { takeMemberfulFlash } from "@/lib/memberful";
 import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
@@ -32,7 +33,7 @@ import { Rail, type RailPage } from "./rail";
 import { RoomView, type RoomViewHandle } from "./room-view";
 import { OpenSearchContext, SearchBox, type SearchBoxOptions } from "./search-box";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
-import { Sidebar } from "./sidebar";
+import { Sidebar, type SidebarPage } from "./sidebar";
 import { WelcomePage } from "./welcome-page";
 
 type RarePages = typeof import("./pages");
@@ -71,6 +72,10 @@ const RARE_PAGES = new Set<Route["page"]>([
   "push-subscriptions",
   "person",
   "search",
+  "dms",
+  "people",
+  "drafts",
+  "threads",
 ]);
 
 /**
@@ -83,10 +88,11 @@ export function loadPageAhead(pathname: string): Promise<unknown> {
 
 /**
  * What the rail marks on each page: the logo and Home at home, Home on a room's page and the pages that
- * go on to one, Search on search, Admin or Workspace on every page of community settings (a room's
- * forms, the bot and agent pages and the Custom CSS page among them), your avatar on your profile, and nothing on
- * a DM's settings or your push subscriptions, whose addresses none of its links have, nor on New direct
- * message's, which goes on to the last room visited at once.
+ * go on to one, and on the Home sidebar's pages, DMs on the DMs page and a DM's settings, as on a DM's
+ * own page, Search on search, Admin or Workspace on every page of community settings (a room's forms,
+ * the bot and agent pages and the Custom CSS page among them), your avatar on your profile, and nothing
+ * on your push subscriptions, whose address none of its links have, nor on New direct message's, which
+ * goes on to the last room visited at once.
  */
 const RAIL_PAGES = {
   home: "home",
@@ -97,7 +103,7 @@ const RAIL_PAGES = {
   "new-room": "workspace",
   "room-settings": "workspace",
   "new-direct": null,
-  "direct-settings": null,
+  "direct-settings": "dms",
   "workspace-settings": "workspace",
   "custom-styles": "workspace",
   bots: "workspace",
@@ -111,7 +117,14 @@ const RAIL_PAGES = {
   "push-subscriptions": null,
   person: null,
   search: "search",
+  dms: "dms",
+  people: "home",
+  drafts: "home",
+  threads: "home",
 } as const satisfies Record<Route["page"], RailPage>;
+
+/** The Home sidebar's link each of its pages marks. */
+const SIDEBAR_PAGES: Partial<Record<Route["page"], SidebarPage>> = { people: "people", drafts: "drafts", threads: "threads" };
 
 /** Loads the page shown again, for the Worker to answer it with Campfire's 404 page, as it does for someone nobody is. */
 const showNotFound = () => loadPage(location.pathname);
@@ -198,7 +211,8 @@ function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
 function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
   switch (route.page) {
     case "home": {
-      const room = lastRoomVisited(rooms);
+      // Home lists no DMs, so it goes on to the last room visited that isn't one.
+      const room = lastChannelVisited(rooms);
       return room && { path: roomPath(room.id) };
     }
     case "newest-room":
@@ -611,24 +625,59 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // The app's badge counts what Activity does, as badge_dot_controller.js counts the sidebar's unread rows,
   // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
   useAppBadge(answered ? activity.unread : null);
+  // A DM, and its settings, show beside the DMs page's list, as the DMs page does, and the rail marks DMs
+  // for them; any other page shows beside Home's, which goes back to the last room it showed.
+  const directsShown = route.page === "dms" || route.page === "direct-settings" || room?.kind === "direct";
+  const previews = useDirectPreviews(rooms, directsShown, () => onSessionChanged(null));
+  const channelShown = room && room.kind !== "direct" ? room.id : null;
+  useEffect(() => {
+    if (channelShown !== null) rememberLastChannel(channelShown);
+  }, [channelShown]);
   const rail = (
-    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} newRelease={newRelease} onNewDirect={openNewDirect} />
+    <Rail
+      me={me}
+      workspaceName={workspaceName}
+      current={room?.kind === "direct" ? "dms" : RAIL_PAGES[route.page]}
+      activity={activity}
+      newRelease={newRelease}
+    />
   );
-  const sidebar = (
+  // The DMs page's list loads with the pages few visits need, which load once the rooms have, while the
+  // browser is idle, so it's there by the time DMs is followed; until then its column is blank.
+  const directsPane = (
+    <RarePage
+      show={({ DirectsPane }) => (
+        <DirectsPane
+          meId={me.id}
+          rooms={rooms ?? NO_ROOMS}
+          loaded={rooms !== null}
+          previews={previews}
+          suggestions={suggestions}
+          currentRoomId={currentRoomId}
+          unreadOnly={unreadOnly}
+          onSelect={select}
+          onNewDirect={openNewDirect}
+          onStartDirect={startDirectWith}
+        />
+      )}
+      loading={<div className="h-full bg-surface" />}
+      onFailed={failed}
+    />
+  );
+  const sidebar = directsShown ? (
+    directsPane
+  ) : (
     <Sidebar
       workspaceName={workspaceName}
-      meId={me.id}
       rooms={rooms ?? NO_ROOMS}
       loaded={rooms !== null}
-      suggestions={suggestions}
       favorites={favorites}
       sharedOrder={sharedOrder}
       huddles={huddlesOn ? liveHuddles : NO_HUDDLES}
       currentRoomId={currentRoomId}
+      currentPage={SIDEBAR_PAGES[route.page] ?? null}
       unreadOnly={unreadOnly}
       onSelect={select}
-      onNewDirect={openNewDirect}
-      onStartDirect={startDirectWith}
       onStarred={starredRooms}
       onSessionChanged={onSessionChanged}
     />
@@ -704,6 +753,14 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ PushSubscriptionsPage }) => <PushSubscriptionsPage back={back} onFailed={failed} />);
       case "search":
         return rarePage(({ SearchPage }) => <SearchPage me={me} rooms={rooms ?? NO_ROOMS} back={back} onFailed={failed} />);
+      case "dms":
+        return rarePage(({ DirectsHome }) => <DirectsHome list={directsPane} />);
+      case "people":
+        return rarePage(({ PeoplePage }) => <PeoplePage />);
+      case "drafts":
+        return rarePage(({ DraftsPage }) => <DraftsPage key={route.tab} me={me} tab={route.tab} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
+      case "threads":
+        return rarePage(({ ThreadsPage }) => <ThreadsPage me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
       case "person":
         return rarePage(({ PersonPage }) => (
           <PersonPage
@@ -787,6 +844,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           className={cn(
             "relative grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]",
             settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",
+            // The DMs page's list, which shows each DM's latest message, is wider, as Slack's is.
+            !settings && directsShown && "md:[--spacing-sidebar:340px]",
             // A thread open beside its room, from 1180px wide, which takes 420px of the room's width.
             "min-[1180px]:has-[>[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
           )}
