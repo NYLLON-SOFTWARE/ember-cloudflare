@@ -100,6 +100,18 @@ describe("Room header", () => {
     expect(screen.getByRole("navigation", { name: "Page" })).toHaveTextContent(/^#general/);
     expect(screen.getByRole("heading", { level: 1 })).toHaveAccessibleName("general");
   });
+
+  it("shows a lock before a private room's name in place of `#`, but its own icon when it has one", () => {
+    const secret = { id: "secret", name: "secret", kind: "closed" as const, icon: null };
+    const { rerender } = renderHeader({ room: secret, name: "secret" });
+    const page = screen.getByRole("navigation", { name: "Page" });
+    expect(page).toHaveTextContent(/^secret/);
+    expect(page.querySelector(".iconoir-lock")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 }).previousElementSibling).toHaveClass("iconoir-lock");
+    rerender(<></>);
+    renderHeader({ room: { ...secret, icon: "coffee" }, name: "secret" });
+    expect(screen.getByRole("navigation", { name: "Page" }).querySelector('[data-icon="coffee"]')).toBeInTheDocument();
+  });
 });
 
 describe("Star rooms", () => {

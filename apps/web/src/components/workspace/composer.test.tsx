@@ -12,7 +12,7 @@ import { editorLoaded } from "./editor";
 // and every test starts before its code has loaded.
 vi.mock("./editor", async (importOriginal) => ({ ...(await importOriginal<typeof import("./editor")>()), editorLoaded: vi.fn(() => false) }));
 
-async function showComposer({ typing = [] as User[], disabled = false, roomId = "r1", threadId = undefined as string | undefined, direct = false, autoFocus = true } = {}) {
+async function showComposer({ typing = [] as User[], disabled = false, roomId = "r1", threadId = undefined as string | undefined, direct = false, closed = false, autoFocus = true } = {}) {
   const onSend = vi.fn((_body: string, _alsoSend: boolean) => true);
   const onSendFiles = vi.fn((_files: File[], _alsoSend: boolean) => {});
   const onTyping = vi.fn();
@@ -23,6 +23,7 @@ async function showComposer({ typing = [] as User[], disabled = false, roomId = 
       roomId={roomId}
       roomName="general"
       direct={direct}
+      closed={closed}
       userId="u1"
       typing={typing}
       disabled={disabled}
@@ -52,6 +53,11 @@ afterEach(() => {
 });
 
 describe("Composer", () => {
+  it("names a private room without a `#` in its placeholder, as its lock in the header shows it", async () => {
+    const { input } = await showComposer({ closed: true });
+    expect(input).toHaveAttribute("placeholder", "Message general");
+  });
+
   it("has the text box on top, with Attach files, Formatting options and Send below", async () => {
     const { input } = await showComposer();
     expect(input).toHaveAttribute("placeholder", "Message #general");

@@ -215,6 +215,8 @@ interface Props {
   roomName: string;
   /** Whether the room is a DM, whose name goes without a `#`. */
   direct?: boolean;
+  /** Whether the room is private, whose name goes without a `#` too, as its lock in the header says. */
+  closed?: boolean;
   /** Who's writing, whose drafts are their own. */
   userId: string;
   typing: User[];
@@ -256,7 +258,7 @@ export interface ComposerHandle {
  * Files picked, pasted or dropped wait above the card to go with the next message. What's written is
  * kept as a draft until it's sent. A thread's has Also send to the room before Send.
  */
-export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, threadId, onSend, onSendFiles, onTyping, onEditLastMessage, autoFocus = true, ref }: Props) {
+export function Composer({ roomId, roomName, direct = false, closed = false, userId, typing, disabled, deferEditor = false, threadId, onSend, onSendFiles, onTyping, onEditLastMessage, autoFocus = true, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const form = useRef<HTMLFormElement>(null);
   const [toolbarOpen, setToolbarOpen] = useState(false);
@@ -277,7 +279,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   const wasBlank = useRef(!draft);
   // Whether Quote wrote what the editor opens with, before it showed, so it takes focus as Quote has it do.
   const replied = useRef(false);
-  const placeholder = threadId !== undefined ? "Reply…" : `Message ${direct ? "" : "#"}${roomName}`;
+  const placeholder = threadId !== undefined ? "Reply…" : `Message ${direct || closed ? "" : "#"}${roomName}`;
 
   // What's written changed, to `body`, or to nothing: the room hears whether you're typing, and it's kept.
   const wrote = (body: string | null) => {
