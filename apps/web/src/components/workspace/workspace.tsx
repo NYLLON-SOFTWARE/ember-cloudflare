@@ -9,6 +9,7 @@ import { useAccount } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
 import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useDraftCount } from "@/hooks/use-draft-count";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
@@ -652,6 +653,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     return { conversations: apart(rooms).directs.length, unread: unread.length, messages: unread.reduce((sum, r) => sum + (r.unreadCount ?? 1), 0) };
   }, [rooms, currentRoomId]);
   const draftCount = useDraftCount(me.id);
+  // In the drawer layout the DMs page shows its list in the page itself, so the sidebar, hidden there,
+  // doesn't draw it a second time.
+  const directsInPage = useMediaQuery(DRAWER_LAYOUT) && route.page === "dms" && route.roomId === undefined;
   const rail = (
     <Rail
       me={me}
@@ -877,7 +881,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             {rail}
             {!settings && (
               <aside aria-label="Conversations" className="min-h-0 overflow-hidden border-r">
-                {sidebar}
+                {!directsInPage && sidebar}
               </aside>
             )}
           </div>

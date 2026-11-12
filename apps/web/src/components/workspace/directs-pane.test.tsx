@@ -61,6 +61,8 @@ function renderPane(props: Partial<Props> = {}, people: readonly DirectoryUser[]
 const list = () => screen.getByRole("region", { name: "Direct messages" });
 /** The DM rows, top to bottom. */
 const directRows = () => within(list()).queryAllByRole("link", { name: /^Direct message with / });
+/** Unreads beside the page, the first of the buttons so named, before the phones' chips. */
+const unreadsChip = () => screen.getAllByRole("button", { name: "Unreads" })[0]!;
 /** The rows suggesting people to start a DM with, top to bottom. */
 const suggestionRows = () => within(list()).queryAllByRole("button", { name: /^Start a direct message with / });
 
@@ -70,10 +72,9 @@ describe("DMs page", () => {
   it("heads the list with Direct messages, Unreads, New direct message and Find a DM…", () => {
     renderPane();
     expect(screen.getByRole("heading", { level: 2, name: "Direct messages" })).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Unreads" })).not.toBeChecked();
-    // The 14px switch, after a semibold label in ink, as Activity's.
-    expect(screen.getByRole("switch", { name: "Unreads" })).toHaveClass("text-[14px]");
-    expect(screen.getByText("Unreads", { selector: "label" })).toHaveClass("text-[13px]", "font-semibold", "text-foreground");
+    // A chip that says itself whether it's on, filled while it is, as Activity's.
+    expect(unreadsChip()).toHaveAttribute("aria-pressed", "false");
+    expect(unreadsChip()).toHaveClass("rounded-full", "border", "text-[13px]", "font-semibold", "aria-pressed:bg-foreground");
     expect(screen.getByRole("link", { name: "New direct message" })).toHaveAttribute("href", "/rooms/directs/new");
     expect(screen.getByRole("searchbox", { name: "Find a DM" })).toHaveAttribute("placeholder", "Find a DM…");
   });
@@ -176,14 +177,14 @@ describe("DMs page", () => {
   it("shows only the DMs marked unread with Unreads, or Activity, on", async () => {
     const rooms = [direct("d1", [ada!, grace!], true, at(2)), direct("d2", [ada!, linus!], false, at(1))];
     const { rerender } = renderPane({ rooms, suggestions: [alan!] });
-    await userEvent.click(screen.getByRole("switch", { name: "Unreads" }));
+    await userEvent.click(unreadsChip());
     expect(directRows().map((row) => row.getAttribute("href"))).toEqual(["/dms/d1"]);
     expect(suggestionRows()).toEqual([]);
-    await userEvent.click(screen.getByRole("switch", { name: "Unreads" }));
+    await userEvent.click(unreadsChip());
     expect(directRows()).toHaveLength(2);
 
     rerender({ unreadOnly: true });
-    expect(screen.getByRole("switch", { name: "Unreads" })).toBeChecked();
+    expect(unreadsChip()).toHaveAttribute("aria-pressed", "true");
     expect(directRows()).toHaveLength(1);
     rerender({ unreadOnly: true, currentRoomId: "d1" });
     expect(screen.getByRole("heading", { level: 3, name: "You’re all caught up" })).toBeInTheDocument();
@@ -241,18 +242,18 @@ describe("DMs page", () => {
 });
 
 describe("DMs page, minimally", () => {
-  it("offers All and Unreads as chips on phones, 44px tall, which show the same as the switch beside the page", async () => {
+  it("offers All and Unreads as chips on phones, 44px tall, which show the same as the chip beside the page", async () => {
     renderPane({ rooms: [direct("d1", [ada!, grace!], true, at(2)), direct("d2", [ada!, linus!], false, at(1))] });
     const chips = screen.getByRole("group", { name: "Show" });
     expect(chips).toHaveClass("md:hidden");
-    expect(screen.getByRole("switch", { name: "Unreads" }).closest(".max-md\\:hidden")).toBeInTheDocument();
+    expect(unreadsChip().closest(".max-md\\:hidden")).toBeInTheDocument();
     const [all, unreads] = within(chips).getAllByRole("button");
     expect(all).toHaveAccessibleName("All");
     expect(all).toHaveAttribute("aria-pressed", "true");
     expect(unreads).toHaveClass("min-h-11");
     await userEvent.click(unreads!);
     expect(unreads).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("switch", { name: "Unreads" })).toBeChecked();
+    expect(unreadsChip()).toHaveAttribute("aria-pressed", "true");
     expect(directRows()).toHaveLength(1);
     await userEvent.click(all!);
     expect(directRows()).toHaveLength(2);
@@ -290,12 +291,41 @@ describe("DMs page, minimally", () => {
   });
 
   it("centers a DM's name beside its avatar while nothing's been said in it, in a 60px row with no empty line", () => {
-    renderPane({ rooms: [direct("d1", [ada!, grace!], false, at(2)), direct("d2", [ada!, linus!], false, at(1))], previews: new Map([["d1", { roomId: "d1", latest: message("d1", grace!, "hi"), unread: 0 }]]) });
+    const previews = new Map<string, DirectPreview>([
+      ["d1", { roomId: "d1", latest: message("d1", grace!, "hi"), unread: 0 }],
+      ["d2", { roomId: "d2", latest: null, unread: 0 }],
+    ]);
+    renderPane({ rooms: [direct("d1", [ada!, grace!], false, at(2)), direct("d2", [ada!, linus!], false, at(1))], previews });
     const [said, quiet] = directRows();
     expect(said).toHaveClass("items-start", "min-h-[72px]");
     expect(quiet).toHaveClass("items-center", "min-h-[60px]");
     expect(quiet).not.toHaveClass("min-h-[72px]");
     expect(quiet!.querySelector(".line-clamp-2")).toBeNull();
+  });
+
+  it("keeps a row as tall as one with a message, with a faint line for it, until its preview comes, so the list doesn't jump", () => {
+    const { rerender } = renderPane({ rooms: [direct("d1", [ada!, grace!])] });
+    const [row] = directRows();
+    expect(row).toHaveClass("items-start", "min-h-[72px]");
+    expect(row!.querySelector(".bg-hover.rounded-full")).toHaveAttribute("aria-hidden", "true");
+    rerender({ previews: new Map([["d1", { roomId: "d1", latest: null, unread: 0 }]]) });
+    expect(directRows()[0]).toHaveClass("min-h-[60px]");
+    expect(directRows()[0]!.querySelector(".bg-hover.rounded-full")).toBeNull();
+  });
+
+  it("keeps the time at the row's right edge, and ends the message's line with how many are unread", () => {
+    renderPane({ rooms: [direct("d1", [ada!, grace!], true)], previews: new Map([["d1", { roomId: "d1", latest: message("d1", grace!, "ping"), unread: 3 }]]) });
+    const [row] = directRows();
+    expect(row!.querySelector("time")!.parentElement!.lastElementChild).toBe(row!.querySelector("time"));
+    const pill = within(row!).getByText("3");
+    expect(pill.previousElementSibling).toHaveTextContent("ping");
+  });
+
+  it("says a search found nothing before it says everything's read", async () => {
+    renderPane({ rooms: [direct("d1", [ada!, grace!], true)], unreadOnly: true });
+    await userEvent.type(screen.getByRole("searchbox", { name: "Find a DM" }), "nobody");
+    expect(screen.getByRole("heading", { level: 3, name: "No matches" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "You’re all caught up" })).not.toBeInTheDocument();
   });
 
   it("draws no rules between DMs, and ends the list clear of a phone's tab bar and compose button", () => {

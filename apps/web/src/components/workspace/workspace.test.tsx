@@ -617,6 +617,15 @@ describe("DMs page", () => {
   /** A message Ada wrote, at noon. */
   const sentMessage = (id: string, plainText: string): Message => ({ id, clientMessageId: id, roomId: "general", creator: ada, body: `<p>${plainText}</p>`, plainText, mentions: [], createdAt: NOON, updatedAt: NOON, editedAt: null, boosts: [] });
 
+  it("lists the DMs once in the drawer layout, in the page, where the sidebar's hidden", async () => {
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(width < 56.3125rem)", media, addEventListener() {}, removeEventListener() {} }));
+    serve({ "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])) });
+    showWorkspace("/dms");
+    expect(await screen.findByRole("link", { name: "Direct message with Grace" })).toBeInTheDocument();
+    expect(screen.getAllByRole("region", { name: "Direct messages" })).toHaveLength(1);
+    expect(screen.getByRole("region", { name: "Direct messages" }).closest("aside")).toBeNull();
+  });
+
   it("opens from the rail's DMs, beside the list of DMs, and shows a DM picked there beside the list, marking DMs", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     serve({
