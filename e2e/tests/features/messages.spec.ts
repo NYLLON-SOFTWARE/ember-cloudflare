@@ -329,9 +329,9 @@ test.describe("Message action bar", () => {
     const bounds = await box(bar(first));
     const row = await box(first);
     const pane = await box(ada.timeline());
-    // Three quick reactions, More reactions, Reply in thread, Forward message and Add to to-dos, then Message
-    // options: Edit is in More actions.
-    expect(bounds).toMatchObject({ width: 266, height: 42 });
+    // Three quick reactions, More reactions, Reply in thread, Forward message, Add to to-dos and Save, then
+    // Message options: Edit is in More actions.
+    expect(bounds).toMatchObject({ width: 298, height: 42 });
     expect(pane.x + pane.width - bounds.x - bounds.width).toBe(16);
     expect(row.y - bounds.y).toBe(17);
     // Message options is the bar's last button, and the bar overlaps the row rather than floating above it.
@@ -442,11 +442,10 @@ test.describe("Message action bar", () => {
     await more.click();
     await expect(tray).toBeVisible();
     await expect(more).toHaveAttribute("aria-expanded", "true");
-    await expect(tray).toContainText("More reactions");
     expect(Math.abs((await box(quick)).y - quickBefore.y)).toBeLessThan(1);
     expect((await box(tray)).y).toBeGreaterThan(quickBefore.y);
-    // The tray opens at its first reaction, as Reply in thread follows More reactions on the bar.
-    await expect(tray.getByRole("button", { name: "Muscle" })).toBeFocused();
+    // The tray is the emoji picker, which opens at its search, as Reply in thread follows More reactions on the bar.
+    await expect(tray.getByRole("searchbox", { name: "Search emoji" })).toBeFocused();
     // The click shut the tooltip that named More reactions as the pointer reached it, which takes Escape until it has faded.
     await expect(ada.page.getByRole("tooltip")).toHaveCount(0);
     await ada.page.keyboard.press("Escape");
@@ -765,7 +764,7 @@ test.describe("Quote a message", () => {
     await expect(ada.message("Third time's a charm.").first()).toBeVisible();
   });
 
-  test("quotes from the bar on touch screens, where Quote follows Reply in thread, Forward message and Add to to-dos", async ({ members, participant }) => {
+  test("quotes from the bar on touch screens, where Quote follows Reply in thread, Forward message, Add to to-dos and Save", async ({ members, participant }) => {
     await (await participant("Grace")).say("Quote me by touch");
     const ada = await members.signIn("Ada", { context: phone });
     const message = ada.message("Quote me by touch");
@@ -773,7 +772,7 @@ test.describe("Quote a message", () => {
     const actions = message.getByRole("group", { name: "Message actions" });
     const thread = await box(actions.getByRole("link", { name: "Reply in thread" }));
     const quote = actions.getByRole("button", { name: "Quote" });
-    expect((await box(quote)).x).toBe(thread.x + 3 * thread.width);
+    expect((await box(quote)).x).toBe(thread.x + 4 * thread.width);
     await quote.tap();
     await expect(ada.composer().locator("blockquote")).toHaveText("Quote me by touch");
     await expect(ada.composer().locator("cite")).toHaveText(/^Grace · \d{1,2}:\d{2}\s?[AP]M #$/);
