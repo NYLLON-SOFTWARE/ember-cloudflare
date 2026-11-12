@@ -108,8 +108,7 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
     <div className="flex h-full flex-col bg-surface">
       <div className="flex flex-none flex-col gap-2.5 px-3 pt-4 pb-2.5">
         {/* At 900px and below the drawer's close button sits at the end of this row, which keeps clear of it.
-            Where the page titles itself, phones have no row for the title, and New direct message ends the
-            chips' row instead. */}
+            Where the page titles itself and has a New direct message of its own, phones have neither here. */}
         <div className={cn("flex min-h-8 items-center gap-2 px-1.5 max-md:pr-10", !titled && "max-md:hidden")}>
           <h2 className={cn("min-w-0 flex-1 truncate text-[17px] leading-6 font-[650]", !titled && "sr-only")}>Direct messages</h2>
           {/* Beside the page, Unreads is a switch, as Slack's desktop app has it; on phones, chips under Find a DM…. */}
@@ -145,9 +144,7 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
             </button>
           )}
         </div>
-        <UnreadsChips on={onlyUnread} disabled={unreadOnly} onChange={setUnreadsOn}>
-          {!titled && compose}
-        </UnreadsChips>
+        <UnreadsChips on={onlyUnread} disabled={unreadOnly} onChange={setUnreadsOn} />
       </div>
       <span id={unreadId} hidden>
         Unread
@@ -189,8 +186,9 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
 }
 
 /**
- * Whether the DMs list heads itself "Direct messages", which it leaves to screen readers where the page
- * around it already says so, as a phone's header does.
+ * Whether the DMs list heads itself "Direct messages", with New direct message beside it, or leaves both
+ * to the page around it on phones, as a phone's header and its compose button have them, keeping only the
+ * title, for screen readers.
  */
 export const DirectsTitleContext = createContext(true);
 
@@ -200,6 +198,8 @@ export const directsSummary = (conversations: number, unread: number) =>
 
 interface DirectsHomeProps {
   list: ReactNode;
+  /** Opens New direct message, from the button that opened it, which the page's header has on phones. */
+  onNewDirect: (opener: HTMLElement) => void;
   /** How many DMs there are, and how many are unread, or null until the list has come. */
   counts: { conversations: number; unread: number } | null;
 }
@@ -207,9 +207,9 @@ interface DirectsHomeProps {
 /**
  * The DMs page with no DM open: beside the list, a faded chat bubble over how many DMs there are and how
  * many are unread, or at 900px and below, where the list is in the drawer, the list itself, `list`, under
- * the page's title.
+ * the page's title and New direct message.
  */
-export function DirectsHome({ list, counts }: DirectsHomeProps) {
+export function DirectsHome({ list, counts, onNewDirect }: DirectsHomeProps) {
   useTitle("Direct messages");
   const drawerLayout = useMediaQuery(DRAWER_LAYOUT);
   if (drawerLayout)
@@ -217,6 +217,15 @@ export function DirectsHome({ list, counts }: DirectsHomeProps) {
       <>
         <PageHeader>
           <h1 className="min-w-0 flex-1 truncate text-base font-[650]">Direct messages</h1>
+          <a
+            href={NEW_DIRECT_PATH}
+            title="New direct message"
+            aria-label="New direct message"
+            onClick={opensNewDirect(onNewDirect)}
+            className="flex size-11 shrink-0 items-center justify-center rounded-lg text-foreground hover:bg-hover"
+          >
+            <ChatPlusIn className="size-5" />
+          </a>
         </PageHeader>
         <MainContent className="flex min-h-0 min-w-0 flex-col bg-surface pl-[env(safe-area-inset-left)]">
           <DirectsTitleContext value={false}>{list}</DirectsTitleContext>
@@ -311,25 +320,20 @@ interface UnreadsChipsProps {
   /** Whether it's held on, as Activity holds it. */
   disabled: boolean;
   onChange: (on: boolean) => void;
-  /** What ends their row, if anything. */
-  children?: ReactNode;
 }
 
 /** All and Unreads, on phones, as chips under Find a DM…, as Slack's app has them, 44px tall for fingers. */
-function UnreadsChips({ on, disabled, onChange, children }: UnreadsChipsProps) {
+function UnreadsChips({ on, disabled, onChange }: UnreadsChipsProps) {
   const chip =
     "inline-flex min-h-11 cursor-pointer items-center rounded-full border px-4 text-[14px] font-medium text-foreground aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:text-background disabled:cursor-not-allowed";
   return (
-    <div className="flex items-center gap-2 px-1.5 md:hidden">
-      <div role="group" aria-label="Show" className="flex gap-2">
-        <button type="button" aria-pressed={!on} disabled={disabled} onClick={() => onChange(false)} className={chip}>
-          All
-        </button>
-        <button type="button" aria-pressed={on} disabled={disabled} onClick={() => onChange(true)} className={chip}>
-          Unreads
-        </button>
-      </div>
-      {children}
+    <div role="group" aria-label="Show" className="flex gap-2 px-1.5 md:hidden">
+      <button type="button" aria-pressed={!on} disabled={disabled} onClick={() => onChange(false)} className={chip}>
+        All
+      </button>
+      <button type="button" aria-pressed={on} disabled={disabled} onClick={() => onChange(true)} className={chip}>
+        Unreads
+      </button>
     </div>
   );
 }

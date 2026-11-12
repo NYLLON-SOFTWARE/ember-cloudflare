@@ -3,9 +3,10 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext } from "@/hooks/use-directory";
 import { guardLeaving } from "@/hooks/use-route";
-import { DirectsPane, DirectsTitleContext, directsSummary } from "./directs-pane";
+import { DirectsHome, DirectsPane, DirectsTitleContext, directsSummary } from "./directs-pane";
 
 type Props = ComponentProps<typeof DirectsPane>;
 
@@ -243,7 +244,7 @@ describe("DMs page, minimally", () => {
   it("offers All and Unreads as chips on phones, 44px tall, which show the same as the switch beside the page", async () => {
     renderPane({ rooms: [direct("d1", [ada!, grace!], true, at(2)), direct("d2", [ada!, linus!], false, at(1))] });
     const chips = screen.getByRole("group", { name: "Show" });
-    expect(chips.parentElement).toHaveClass("md:hidden");
+    expect(chips).toHaveClass("md:hidden");
     expect(screen.getByRole("switch", { name: "Unreads" }).closest(".max-md\\:hidden")).toBeInTheDocument();
     const [all, unreads] = within(chips).getAllByRole("button");
     expect(all).toHaveAccessibleName("All");
@@ -264,9 +265,28 @@ describe("DMs page, minimally", () => {
       </DirectsTitleContext>,
     );
     expect(screen.getByRole("heading", { level: 2, name: "Direct messages" })).toHaveClass("sr-only");
-    // On phones its row goes, and New direct message ends the chips' row.
+    // On phones its row goes, New direct message with it, which the page has of its own.
     expect(screen.getByRole("heading", { level: 2, name: "Direct messages" }).parentElement).toHaveClass("max-md:hidden");
-    expect(within(screen.getByRole("group", { name: "Show" }).parentElement!).getByRole("link", { name: "New direct message" })).toBeInTheDocument();
+    const row = screen.getByRole("heading", { level: 2, name: "Direct messages" }).parentElement!;
+    expect(within(row).getByRole("link", { name: "New direct message" })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "New direct message" })).toHaveLength(1);
+  });
+
+  it("titles the DMs page on phones once, in its header, with New direct message beside the title", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ media: query, matches: query.includes("56.3125rem"), addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList);
+    const onNewDirect = vi.fn();
+    const pane = <DirectsPane meId={ada!.id} rooms={[]} loaded previews={new Map()} suggestions={[]} currentRoomId={null} unreadOnly={false} onSelect={vi.fn()} onNewDirect={vi.fn()} onStartDirect={vi.fn(async () => true)} />;
+    render(
+      <Sheet>
+        <DirectsHome list={pane} counts={null} onNewDirect={onNewDirect} />
+      </Sheet>,
+    );
+    const title = screen.getByRole("heading", { level: 1, name: "Direct messages" });
+    // The list's own title and New direct message go on phones.
+    expect(screen.getByRole("heading", { level: 2, name: "Direct messages" }).parentElement).toHaveClass("max-md:hidden");
+    const compose = within(title.parentElement!).getByRole("link", { name: "New direct message" });
+    await userEvent.click(compose);
+    expect(onNewDirect).toHaveBeenCalledExactlyOnceWith(compose);
   });
 
   it("centers a DM's name beside its avatar while nothing's been said in it, in a 60px row with no empty line", () => {

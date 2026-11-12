@@ -796,7 +796,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       // The DMs page, with a DM picked there shown as a room's page shows it.
       case "dms":
       default:
-        if (route.page === "dms" && route.roomId === undefined) return rarePage(({ DirectsHome }) => <DirectsHome list={directsPane} counts={directCounts} />);
+        if (route.page === "dms" && route.roomId === undefined) return rarePage(({ DirectsHome }) => <DirectsHome list={directsPane} counts={directCounts} onNewDirect={openNewDirect} />);
         if (direct)
           return rarePage(({ DirectSettingsPage }) => (
             <DirectSettingsPage key={direct.id} room={direct} me={me} back={back} askForRoom={askForRoom} onMissing={missing} onFailed={failed} />
