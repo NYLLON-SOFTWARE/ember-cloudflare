@@ -113,9 +113,9 @@ import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import type { RoomEvent } from "./room-log";
+import { RoomTabStore, type KeptTab, type LibraryShelf, type TabAction, type TabAnswer } from "./room-tabs";
+import type { Canvas, CanvasSave, FileMark, FileMarks } from "@ember/protocol/library";
 import type { PickedTool } from "./apps/tools";
-import { RoomTabStore, type LibraryShelf, type TabAction, type TabAnswer } from "./room-tabs";
-import type { FileMark, FileMarks } from "@ember/protocol/library";
 import { seal, unseal } from "./sealed";
 import { isToken } from "./secrets";
 import { SessionCache } from "./session-cache";
@@ -3843,6 +3843,37 @@ export class Workspace extends DurableObject<Env> {
     if (!member) return "not found";
     const { id, name } = session.user;
     return new RoomTabStore(this.db).act(roomId, { id, name }, banned, action, new Date().toISOString());
+  }
+
+  /**
+   * Whom `credentials` signs in, with the canvas, if they can change room `roomId`'s canvas `tabId`: they're
+   * in the room, and no ban blocks their address. Their save then goes through the room's object, where
+   * people may be writing the canvas together (canvas-sessions.ts).
+   */
+  async canvasWriter(credentials: Credentials, roomId: RoomId, tabId: string): Promise<{ actor: User; tab: KeptTab } | "forbidden" | "not found" | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const { member, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip);
+    if (!member) return "not found";
+    const actor = { id: session.user.id, name: session.user.name };
+    const opened = await new RoomTabStore(this.db).act(roomId, actor, banned, { act: "open", tabId }, new Date().toISOString());
+    if (typeof opened !== "object" || !("tab" in opened) || opened.tab.kind !== "canvas") return "not found";
+    return banned ? "forbidden" : { actor, tab: opened.tab };
+  }
+
+  /** Room `roomId`'s canvas `tabId`, for the room's object, which people write it together through. */
+  async roomCanvas(roomId: RoomId, tabId: string): Promise<Canvas | null> {
+    return new RoomTabStore(this.db).canvas(roomId, tabId);
+  }
+
+  /** Saves room `roomId`'s canvas over `save.version`, for the room's object, as a writer `canvasWriter` let through asked. */
+  async saveRoomCanvas(roomId: RoomId, tabId: string, actor: User, save: CanvasSave): Promise<TabAnswer> {
+    return new RoomTabStore(this.db).act(roomId, actor, false, { act: "save", tabId, save }, new Date().toISOString());
+  }
+
+  /** Keeps what people writing room `roomId`'s canvas together left it at, for the room's object, unless it's kept a later version. */
+  async keepRoomCanvas(roomId: RoomId, tabId: string, body: string, version: number, by: User): Promise<boolean> {
+    return new RoomTabStore(this.db).keepCanvas(roomId, tabId, body, version, by, new Date().toISOString());
   }
 
   /**

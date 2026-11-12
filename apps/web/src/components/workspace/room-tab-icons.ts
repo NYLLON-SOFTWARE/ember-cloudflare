@@ -1,6 +1,7 @@
-import { lazy, type ComponentType } from "react";
+import { createContext, lazy, type ComponentType } from "react";
 import type { RoomTabKind } from "@ember/protocol/library";
 import { EmptyPage, Folder, Link, PageEdit, type IconoirIconProps } from "@/components/icons/iconoir";
+import type { RoomFrames } from "@/hooks/use-room";
 
 /** The tab shown over a room: Messages, Files & links, or one the members added, by its id. */
 export type ShownTab = "messages" | "files" | string;
@@ -15,3 +16,9 @@ export const TAB_ICONS: Record<RoomTabKind, ComponentType<IconoirIconProps>> = {
  * two share out of the app's script.
  */
 export const CanvasEditor = lazy(() => import("./canvas-editor").then(({ CanvasEditor }) => ({ default: CanvasEditor })));
+
+/**
+ * The room's socket, which the room's view shares with what it shows besides the timeline, for a canvas
+ * to be written together over, or null where there's none.
+ */
+export const RoomFramesContext = createContext<RoomFrames | null>(null);

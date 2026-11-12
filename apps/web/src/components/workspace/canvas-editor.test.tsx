@@ -2,7 +2,7 @@ import type { Me, Room, User } from "@ember/protocol";
 import { parseCanvasSave, type Canvas, type OpenedTab } from "@ember/protocol/library";
 import type { Editor } from "@tiptap/core";
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CanvasEditor } from "./canvas-editor";
 
 const maya: Me = { id: "maya", name: "Maya", administrator: false };
@@ -32,7 +32,12 @@ const saves = () =>
 
 const renderCanvas = (body: string) => render(<CanvasEditor room={room} me={maya} opened={opened(body)} onSaved={vi.fn()} onFailed={vi.fn()} />);
 
-afterEach(() => vi.restoreAllMocks());
+beforeEach(() => localStorage.clear());
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  localStorage.clear();
+});
 
 describe("Canvas", () => {
   it("keeps what you typed when someone else saved first, saving the two merged over theirs", async () => {
@@ -82,6 +87,32 @@ describe("Canvas", () => {
     expect(url).toBe("/api/rooms/design/tabs/t1/canvas");
     expect(init).toMatchObject({ method: "PUT", keepalive: true });
     expect(saves()[0]).toEqual({ body: doc(paragraph("intro"), paragraph("RELOAD-FAST")), version: 1 });
+  });
+
+  it("merges what it had unsaved as the page went into the canvas as it next opens, and saves it, as that save may have been refused", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      if (init?.method === "PUT") return Response.json({ error: "changed", canvas: canvas(doc(paragraph("intro"), paragraph("SAM SAVED FIRST")), 2, sam) }, { status: 409 });
+      return Response.json(opened(doc()));
+    });
+    const { unmount } = renderCanvas(doc(paragraph("intro")));
+    typeAtEnd("RELOAD-FAST");
+    window.dispatchEvent(new Event("pagehide"));
+    unmount();
+    // The save the canvas sends as it closes is refused too, and kept with the rest.
+    await waitFor(() => expect(saves()).toHaveLength(2));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Sam's save came first, so the one the page sent was refused; the canvas opens as he left it.
+    vi.mocked(fetch).mockImplementation(async (_url, init) => {
+      const sent = JSON.parse(String(init?.body ?? "{}")) as { body: string; version: number };
+      return Response.json({ ...opened(sent.body), canvas: canvas(sent.body, sent.version + 1) });
+    });
+    vi.mocked(fetch).mockClear();
+    render(<CanvasEditor room={room} me={maya} opened={{ ...opened(doc(paragraph("intro"), paragraph("SAM SAVED FIRST"))), canvas: canvas(doc(paragraph("intro"), paragraph("SAM SAVED FIRST")), 2, sam) }} onSaved={vi.fn()} onFailed={vi.fn()} />);
+    expect(editorOf().getText()).toMatch(/^intro\n+SAM SAVED FIRST\n+RELOAD-FAST$/);
+    await waitFor(() => expect(saves()).toHaveLength(1), { timeout: 5000 });
+    expect(saves()[0]).toEqual({ body: JSON.stringify(editorOf().getJSON()), version: 2 });
+    expect(localStorage.getItem("ember:canvas-unsaved:t1")).toBeNull();
   });
 
   it("writes only what the server takes as a canvas, whatever the toolbar makes", () => {

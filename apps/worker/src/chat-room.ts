@@ -24,6 +24,7 @@ import {
   type UserId,
 } from "@ember/protocol";
 import { parseHuddleSocketParams } from "@ember/protocol/huddles";
+import type { CanvasSave } from "@ember/protocol/library";
 import { prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
 import {
   AGENT_NOTES,
@@ -46,6 +47,7 @@ import { roomSearch } from "./assistant/room-search";
 import { appTool, callCard, callDecisionOf, CALL_OUTCOMES, givenAs, givenTools, type GivenTool } from "./apps/tools";
 import { CALL_WAITS_MS, fits, WaitingCalls, type WaitingCall } from "./apps/waiting-calls";
 import { JobQueue } from "./at-once";
+import { CanvasSessions, type CanvasAnswer } from "./canvas-sessions";
 import { actingButton, clickPayload } from "./bots/clicks";
 import { payloadOf, slackMessage, type SlackMessage } from "./bots/slack";
 import { postClick, postWebhook, WebhookError, webhookPayload, type ClickAnswer, type Reply } from "./bots/webhooks";
@@ -82,6 +84,8 @@ interface Attachment extends Viewing {
   banned?: true;
   /** Set while the tab is typing, from its typing.start until its typing.stop or message, so closing it stops only typing it did. */
   typing?: true;
+  /** The canvas tab the tab is writing together with others, from its canvas.join until its canvas.leave (canvas-sessions.ts). */
+  canvas?: string;
 }
 
 export const USER_HEADER = "X-Ember-User";
@@ -118,8 +122,10 @@ const OUTDATED = "Ember has been updated. Reload the page to keep chatting.";
  * of the 429 the Worker answers such a request with.
  */
 const BANNED = "Request failed (429)";
+/** Why the room takes no steps to a canvas from a socket that isn't writing it. */
+const NOT_WRITING = "Open the canvas again to keep writing.";
 /** The frames that change something, which a banned address's sockets can't send. */
-const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete", "card.click"]);
+const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete", "canvas.steps", "card.click"]);
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
 
@@ -301,6 +307,8 @@ export class ChatRoom extends DurableObject<Env> {
   private readonly seenBy = new Map<string, UserId[]>();
   /** The room's huddle, whose sockets it keeps beside the room's own. */
   private readonly huddle: Huddle;
+  /** The canvases people are writing together, made once one is. */
+  private canvases: CanvasSessions | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -425,6 +433,7 @@ export class ChatRoom extends DurableObject<Env> {
    */
   private async destroy(roomId: RoomId, code: CloseCode): Promise<void> {
     this.huddle.end(code, true);
+    this.canvases?.forget();
     for (const socket of this.roomSockets()) this.close(socket, code);
     while (await this.storeFor(roomId).deleteMessages(MESSAGES_DELETED_AT_ONCE));
     await this.logFor(roomId).forget();
@@ -978,9 +987,53 @@ export class ChatRoom extends DurableObject<Env> {
         this.ctx.waitUntil(this.deliverClick(store.roomId, ws, user, frame));
         return;
       }
+      case "canvas.join": {
+        const { canvas: previous, ...attachment } = ws.deserializeAttachment() as Attachment;
+        ws.serializeAttachment({ ...attachment, canvas: frame.tabId } satisfies Attachment);
+        if (previous !== undefined && previous !== frame.tabId) await this.canvasesFor(store.roomId).left(previous);
+        if (!(await this.canvasesFor(store.roomId).join(ws, frame.tabId, frame.version))) ws.serializeAttachment(attachment satisfies Attachment);
+        return;
+      }
+      case "canvas.steps": {
+        // Only a socket writing the canvas changes it, as the one that hears what others change.
+        if ((ws.deserializeAttachment() as Attachment).canvas !== frame.tabId) return this.send(ws, { type: "canvas.refused", tabId: frame.tabId, message: NOT_WRITING });
+        return this.canvasesFor(store.roomId).apply(ws, user, frame.tabId, frame.version, frame.clientId, frame.steps);
+      }
+      case "canvas.leave": {
+        const { canvas, ...attachment } = ws.deserializeAttachment() as Attachment;
+        if (canvas !== frame.tabId) return;
+        ws.serializeAttachment(attachment satisfies Attachment);
+        return this.canvasesFor(store.roomId).left(canvas);
+      }
       case "ping":
         return this.send(ws, { type: "pong" });
     }
+  }
+
+  /** The canvases of room `roomId` that people write together over its sockets. */
+  private canvasesFor(roomId: RoomId): CanvasSessions {
+    this.canvases ??= new CanvasSessions({
+      roomId,
+      writers: (tabId) => this.roomSockets().filter((socket) => socket.readyState === WebSocket.OPEN && (socket.deserializeAttachment() as Attachment).canvas === tabId),
+      send: (ws, frame) => this.send(ws, frame),
+      serially: (work) => this.serially(work),
+      load: (tabId) => workspace(this.env).roomCanvas(roomId, tabId),
+      keep: (tabId, body, version, by) => workspace(this.env).keepRoomCanvas(roomId, tabId, body, version, by),
+      save: async (tabId, actor, save) => {
+        const answer = await workspace(this.env).saveRoomCanvas(roomId, tabId, actor, save);
+        if (typeof answer === "object" && "conflict" in answer) return { conflict: answer.conflict };
+        return typeof answer === "object" && "canvas" in answer && answer.canvas ? { canvas: answer.canvas } : "not found";
+      },
+    });
+    return this.canvases;
+  }
+
+  /**
+   * Saves canvas `tabId` sent whole over `save.version` by `actor`, whom the Workspace has let write it, as a
+   * page going away sends one: through what people writing it together have, if anyone is.
+   */
+  async saveCanvas(roomId: RoomId, tabId: string, actor: User, save: CanvasSave): Promise<CanvasAnswer> {
+    return this.serially(() => this.canvasesFor(roomId).saveWhole(tabId, actor, save));
   }
 
   /**
@@ -1878,9 +1931,11 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /** Lets everyone know a socket has closed, unless the room closed it for a revocation and said so already. */
-  private leave(ws: WebSocket): void {
-    const { user, revoked, typing } = ws.deserializeAttachment() as Attachment;
+  private async leave(ws: WebSocket): Promise<void> {
+    const { user, roomId, revoked, typing, canvas } = ws.deserializeAttachment() as Attachment;
     if (!revoked) this.depart(user, ws, typing === true);
+    // The canvas it was writing is saved once nobody else is.
+    if (canvas !== undefined) await this.canvasesFor(roomId).left(canvas, ws);
   }
 
   /**

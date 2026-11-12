@@ -69,6 +69,11 @@ export function useRoomTabs(room: Room, deleted: boolean, onFailed: (error: unkn
     if (!deleted) fetchTabs(room.id).then(setTabs, onFailed);
   }, [room.id, deleted, onFailed]);
   useEffect(reload, [reload]);
+  // A room that's gone has no tabs, so its address names none.
+  const gone = deleted && addressed !== "messages";
+  useEffect(() => {
+    if (gone) navigate(addressShowing("messages"), { replace: true });
+  }, [gone]);
   return {
     tabs: deleted ? [] : tabs,
     shown: deleted ? "messages" : addressed,

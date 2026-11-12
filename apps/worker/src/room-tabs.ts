@@ -155,6 +155,14 @@ const SAVE_CANVAS = `UPDATE room_tabs SET body = ?1, version = version + 1, upda
   WHERE room_id = ?5 AND id = ?6 AND kind = 'canvas' AND version = ?7
   RETURNING body, version, updated_at, updater_id, updater_name`;
 
+/**
+ * Keeps what people writing a canvas together left it at, as the room's object has it, at its version:
+ * one past the version of each change they made, so it only ever goes over an older one.
+ */
+const KEEP_CANVAS = `UPDATE room_tabs SET body = ?1, version = ?2, updater_id = ?3, updater_name = ?4, updated_at = ?5
+  WHERE room_id = ?6 AND id = ?7 AND kind = 'canvas' AND version < ?2
+  RETURNING id`;
+
 const FOLDER_ITEMS = `SELECT id, title, target, creator_id, creator_name, created_at FROM room_tab_items WHERE tab_id = ? ORDER BY created_at, id`;
 
 /** Adds a file or link to a folder of the room's, unless it holds `MAX_FOLDER_ITEMS` already. */
@@ -328,6 +336,17 @@ export class RoomTabStore {
   async marksOf(userId: UserId): Promise<FileMarkRow[]> {
     const rows = await this.db.all<{ file_id: string; starred_at: string | null; viewed_at: string | null }>(MARKS_OF, userId);
     return rows.map((row) => ({ fileId: row.file_id, starred: row.starred_at !== null, viewedAt: row.viewed_at }));
+  }
+
+  /** Room `roomId`'s canvas `tabId` as it's saved, or null where the room has no such canvas. */
+  async canvas(roomId: RoomId, tabId: string): Promise<Canvas | null> {
+    const [row] = await this.db.all<CanvasRow>(CANVAS, roomId, tabId);
+    return row ? canvasOf(row) : null;
+  }
+
+  /** Keeps `body` as canvas `tabId` at `version`, by `by`, unless it's saved at that version or a later one already. */
+  async keepCanvas(roomId: RoomId, tabId: string, body: string, version: number, by: User, now: string): Promise<boolean> {
+    return (await this.db.all(KEEP_CANVAS, body, version, by.id, by.name, now, roomId, tabId)).length > 0;
   }
 
   /** Whether room `roomId` has a canvas tab `tabId`. */

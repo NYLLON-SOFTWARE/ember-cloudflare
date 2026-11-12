@@ -58,6 +58,12 @@ function serve() {
 
 const failed = vi.fn();
 
+/**
+ * How long the panels and dialogs, which load with the pages few visits need, may take the first time: Vitest
+ * transforms them afresh for each file, which takes seconds on a busy machine.
+ */
+const PAGES_LOAD_MS = 30_000;
+
 /** The strip, with the tabs a room's view keeps for it. */
 function Strip({ deleted }: { deleted: boolean }) {
   const state = useRoomTabs(general, deleted, failed);
@@ -79,7 +85,7 @@ afterEach(() => {
   navigate("/");
 });
 
-describe("Room tabs", () => {
+describe("Room tabs", { timeout: PAGES_LOAD_MS * 2 }, () => {
   it("shows Messages, Files & links and the room's own tabs, a link opening in a new tab", async () => {
     serve();
     renderStrip();
@@ -96,8 +102,8 @@ describe("Room tabs", () => {
     renderStrip();
     await userEvent.click(screen.getByRole("tab", { name: "Files & links" }));
     const panel = await screen.findByRole("tabpanel", { name: "Files & links" });
-    // The panels load with the pages few visits need, which take a while the first time.
-    expect(await within(panel).findByRole("link", { name: "Budget.csv" }, { timeout: 10_000 })).toBeInTheDocument();
+    // The panels load with the pages few visits need, which take a while the first time (PAGES_LOAD_MS).
+    expect(await within(panel).findByRole("link", { name: "Budget.csv" }, { timeout: PAGES_LOAD_MS })).toBeInTheDocument();
     expect(within(panel).getByRole("link", { name: "Maps" })).toHaveAttribute("href", "https://example.org/maps");
     expect(screen.getByRole("region", { name: "Messages", hidden: true })).toHaveProperty("inert", true);
 
@@ -115,7 +121,7 @@ describe("Room tabs", () => {
     await screen.findByRole("tab", { name: "Plans" });
     await userEvent.click(screen.getByRole("button", { name: "Add a tab" }));
     await userEvent.click(screen.getByRole("button", { name: "Folder" }));
-    const dialog = await screen.findByRole("dialog", { name: "Add a folder" });
+    const dialog = await screen.findByRole("dialog", { name: "Add a folder" }, { timeout: PAGES_LOAD_MS });
     await userEvent.type(within(dialog).getByRole("textbox", { name: "Name" }), "Roadmap");
     await userEvent.click(within(dialog).getByRole("button", { name: "Add" }));
     expect(await screen.findByRole("tab", { name: "Roadmap" })).toHaveAttribute("aria-selected", "true");
@@ -158,6 +164,7 @@ describe("Room tabs", () => {
     expect(screen.queryByRole("button", { name: "Add a tab" })).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Messages" })).toHaveProperty("inert", false);
     expect(fetch).not.toHaveBeenCalled();
+    expect(location.pathname + location.search).toBe("/rooms/general");
   });
 
   it("keeps + in reach however many tabs there are, outside the tabs that scroll", async () => {

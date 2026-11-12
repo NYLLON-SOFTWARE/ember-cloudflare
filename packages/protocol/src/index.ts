@@ -7,6 +7,7 @@ import type { AssistantSettings, YourAssistant } from "./assistant.ts";
 import { isActionId, isActionValue, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
 import type { HuddlesSettings, LiveHuddle } from "./huddles.ts";
+import type { Canvas } from "./library.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
 import { MAX_PUSH_ENDPOINT_LENGTH } from "./push.ts";
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
@@ -1592,6 +1593,20 @@ export type ClientFrame =
    * makes up.
    */
   | { type: "card.click"; clickId: string; messageId: string; actionId: string; blockId?: string; value?: string }
+  /**
+   * Starts writing a canvas tab of the room's together with whoever else is, in place of any canvas the
+   * socket wrote before: from `version`, where the tab's editor has one, which the room answers with the
+   * steps since, if it has them, or else the canvas as it is now (`canvas.state`).
+   */
+  | { type: "canvas.join"; tabId: string; version?: number }
+  /**
+   * ProseMirror steps, as JSON, that the editor `clientId` made over the canvas at `version`, up to
+   * `MAX_CANVAS_STEPS`. The room applies them, and sends them to everyone writing the canvas, the sender
+   * too, or, over an older version, sends the sender the steps it missed, for its editor to rebase its own over.
+   */
+  | { type: "canvas.steps"; tabId: string; version: number; clientId: string; steps: unknown[] }
+  /** Stops writing the canvas, as its tab closes. */
+  | { type: "canvas.leave"; tabId: string }
   | { type: "ping" };
 
 /**
@@ -1663,6 +1678,16 @@ export type ServerFrame =
    * `clientMessageIds` the messages it was about, or `clickId` the click.
    */
   | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"] }
+  /** A canvas as it is now, for a writer whose version the room has no steps after. */
+  | { type: "canvas.state"; tabId: string; canvas: Canvas }
+  /**
+   * Steps someone made to a canvas over `version`, each by the editor `clientIds` names at its index, in
+   * the order the room applied them: to everyone writing it, as they're made, and to a writer who's behind,
+   * the ones they missed.
+   */
+  | { type: "canvas.steps"; tabId: string; version: number; steps: unknown[]; clientIds: string[]; updatedBy: User; updatedAt: string }
+  /** Why the room took none of a writer's steps, or can't let them write the canvas, which may be gone. */
+  | { type: "canvas.refused"; tabId: string; message: string }
   | { type: "pong" };
 
 /**
@@ -1892,6 +1917,17 @@ const text = (v: unknown, max: number): string | null => {
 };
 
 /** The JSON object `raw` holds, or null if it holds anything else. */
+/** The most steps one `canvas.steps` frame carries: an editor sends what it has every tenth of a second or so. */
+export const MAX_CANVAS_STEPS = 500;
+/** How long the id an editor names itself by on a canvas can be. */
+export const MAX_CANVAS_CLIENT_ID_LENGTH = 64;
+
+const canvasVersion = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+const canvasClientId = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= MAX_CANVAS_CLIENT_ID_LENGTH;
+/** Whether `v` could be a frame's steps: objects, which the room parses as steps, at least one, up to `MAX_CANVAS_STEPS`. */
+const canvasSteps = (v: unknown): v is unknown[] =>
+  Array.isArray(v) && v.length > 0 && v.length <= MAX_CANVAS_STEPS && v.every((step) => typeof step === "object" && step !== null && !Array.isArray(step));
+
 function parseObject(raw: string): Record<string, unknown> | null {
   try {
     const data: unknown = JSON.parse(raw);
@@ -1951,6 +1987,14 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       const { blockId, value } = f;
       return { type: f.type, clickId: f.clickId, messageId: f.messageId, actionId: f.actionId, ...(blockId !== undefined && { blockId }), ...(value !== undefined && { value }) };
     }
+    case "canvas.join":
+      return id(f.tabId) && (f.version === undefined || canvasVersion(f.version)) ? { type: f.type, tabId: f.tabId, ...(f.version !== undefined && { version: f.version }) } : null;
+    case "canvas.steps":
+      return id(f.tabId) && canvasVersion(f.version) && canvasClientId(f.clientId) && canvasSteps(f.steps)
+        ? { type: f.type, tabId: f.tabId, version: f.version, clientId: f.clientId, steps: f.steps }
+        : null;
+    case "canvas.leave":
+      return id(f.tabId) ? { type: f.type, tabId: f.tabId } : null;
     case "typing.start":
     case "typing.stop":
     case "ping":
