@@ -10,9 +10,20 @@ export interface TreeRowOptions {
   label: string;
   /** Whether the row shows the room unread: a collapsed parent shows its sub-rooms' too. */
   unread: boolean;
+  /**
+   * How many unread messages the row counts in place of its own: a collapsed parent's and its sub-rooms',
+   * up to `UNREAD_COUNT_CAP`, and otherwise none, which leaves the row its own.
+   */
+  count?: number;
   /** Classes the row adds: a sub-room's indent, or the room a parent's arrow takes at its end. */
   className?: string;
 }
+
+/** The most a row counts, which it shows as "9+", as the server caps each room's count. */
+export const UNREAD_COUNT_CAP = 10;
+
+/** A room as the tree reads it: with how many unread messages it counts, where the sidebar says. */
+type Counted = SharedRoom & { unreadCount?: number };
 
 /**
  * Which parents' sub-rooms this browser keeps collapsed in the sidebar, remembered across visits, and
@@ -31,7 +42,7 @@ export function useCollapsedRooms() {
   return { collapsed, toggle };
 }
 
-interface Props<T extends SharedRoom> {
+interface Props<T extends Counted> {
   branch: RoomBranch<T>;
   /** The parent's name as its row shows it, which a room of its own whose parent isn't listed shows with its parent's. */
   label: string;
@@ -51,16 +62,19 @@ interface Props<T extends SharedRoom> {
  * parent's name opens its room, as any row's does. Collapsed, the parent shows unread while any of its
  * sub-rooms is, and the sub-room the tab shows stays under it.
  */
-export function RoomTreeRow<T extends SharedRoom>({ branch, label, row, isUnread, currentRoomId, collapsed, onToggle }: Props<T>) {
+export function RoomTreeRow<T extends Counted>({ branch, label, row, isUnread, currentRoomId, collapsed, onToggle }: Props<T>) {
   const groupId = useId();
   const { room, subRooms } = branch;
   if (subRooms.length === 0) return row(room, { label, unread: isUnread(room) });
   const shown = collapsed ? subRooms.filter((sub) => sub.id === currentRoomId) : subRooms;
   const unread = isUnread(room) || (collapsed && subRooms.some(isUnread));
+  // Collapsed, the parent counts what its unread sub-rooms count too.
+  const counted = [room, ...subRooms].filter(isUnread).reduce((sum, r) => sum + (r.unreadCount ?? 0), 0);
+  const count = collapsed && counted > 0 ? Math.min(counted, UNREAD_COUNT_CAP) : undefined;
   return (
     <>
       <div className="group/tree relative">
-        {row(room, { label, unread, className: "pr-10 touch:pr-12" })}
+        {row(room, { label, unread, ...(count !== undefined && { count }), className: "pr-10 touch:pr-12" })}
         <button
           type="button"
           aria-expanded={!collapsed}
