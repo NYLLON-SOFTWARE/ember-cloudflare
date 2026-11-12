@@ -1,12 +1,16 @@
 import type { Me } from "@ember/protocol";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { chooseAppearance } from "@/lib/appearance";
+import { loadRarePages } from "../workspace/rare-pages";
 import { NewReleaseContext, YouButton } from "./you-sheet";
 
 const ada: Me = { id: "u1", name: "Ada Lovelace", administrator: true };
 const grace: Me = { id: "u2", name: "Grace Hopper", administrator: false };
+
+// The sheet loads with the pages.
+beforeAll(() => loadRarePages(), 120_000);
 
 afterEach(() => {
   history.replaceState(null, "", "/");

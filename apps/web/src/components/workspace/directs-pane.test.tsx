@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext } from "@/hooks/use-directory";
 import { guardLeaving } from "@/hooks/use-route";
-import { DirectsHome, DirectsPane, DirectsTitleContext, directsSummary } from "./directs-pane";
+import { DirectsHome, DirectsPane, directsSummary } from "./directs-pane";
+import { DirectsTitleContext } from "./directs-title";
 
 type Props = ComponentProps<typeof DirectsPane>;
 

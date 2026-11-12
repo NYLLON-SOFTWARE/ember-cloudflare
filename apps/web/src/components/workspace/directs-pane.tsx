@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useContext, useEffect, useId, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import type { DirectPreview, RoomId, SidebarRoom, User, UserId } from "@ember/protocol";
 import { ChatBubbleEmpty, ChatPlusIn, CheckCircle, Search } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
@@ -21,6 +21,7 @@ import { PageHeader } from "./page-header";
 import { SearchField } from "./search-field";
 import { UnreadsSwitch } from "./unreads-switch";
 import { UserAvatar } from "./user-avatar";
+import { DirectsTitleContext } from "./directs-title";
 
 /** The drawer layout, 900px wide and below, as workspace.tsx has it, where the list is in the drawer rather than beside the page. */
 const DRAWER_LAYOUT = "(width < 56.3125rem)";
@@ -167,12 +168,6 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
   );
 }
 
-/**
- * Whether the DMs list heads itself "Direct messages", with New direct message beside it, or leaves both
- * to the page around it on phones, as a phone's header and its compose button have them, keeping only the
- * title, for screen readers.
- */
-export const DirectsTitleContext = createContext(true);
 
 /** How many DMs someone has, and how many of them are unread, as the DMs page says with none open. */
 export const directsSummary = (conversations: number, unread: number) =>

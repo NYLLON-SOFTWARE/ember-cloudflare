@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { useNameOf } from "@/hooks/use-directory";
 import { timeLabel } from "@/lib/messages";
 import { cn } from "@/lib/utils";
-import { DIALOG, DIALOG_BACKDROP, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";
+import { DIALOG, DIALOG_BACKDROP, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./dialog-styles";
 import { UserAvatar } from "./user-avatar";
 
 interface Props {

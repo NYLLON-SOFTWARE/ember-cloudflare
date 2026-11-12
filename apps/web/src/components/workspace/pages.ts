@@ -37,9 +37,11 @@ export { MembersDialog } from "./members-dialog";
 export { MessageEditor } from "./message-editor";
 export { NewDirectDialog } from "./new-direct-dialog";
 export { NotificationHelp } from "./notification-help";
+export { NotificationSetup } from "./notification-setup";
 export { ProfilePanel } from "./profile-panel";
 export { SearchBox } from "./search-dialog";
 export { TimeDialog } from "./time-dialog";
+export { ScheduledList } from "./scheduled-list";
 // The pages before a workspace but for signing in (signed-out-page.tsx).
 export { EmailSignUpPage } from "../email-sign-up-page";
 export { InvitationPage } from "../invitation-page";
@@ -52,3 +54,6 @@ export { InvitationCard } from "./invitation-card";
 export { Lightbox } from "../lightbox";
 export { ReactionSheet } from "../mobile/reaction-sheet";
 export { ActionSheet } from "../mobile/action-sheet";
+export { RoomDetailsSheet } from "../mobile/room-details-sheet";
+export { MessageSheets } from "../mobile/message-sheets";
+export { YouSheet } from "../mobile/you-sheet-content";

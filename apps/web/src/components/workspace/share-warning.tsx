@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { checkShare } from "@/lib/api";
 import { toSentence } from "@/lib/directs";
 import { cn } from "@/lib/utils";
-import { DIALOG, DIALOG_BACKDROP, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";
+import { DIALOG, DIALOG_BACKDROP, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./dialog-styles";
 
 // The warning before sharing what's in one room in another that reaches people who can't see the first,
 // as Slack's is: Files in Ember asks it, and Forward can.
