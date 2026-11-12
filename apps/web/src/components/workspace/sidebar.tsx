@@ -106,7 +106,7 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
     onSelect(roomId);
   };
   // A room's row, which a parent's and its sub-rooms' are too (`RoomTreeRow`).
-  const row = (room: SharedSidebarRoom, { label, unread, className }: TreeRowOptions) => (
+  const row = (room: SharedSidebarRoom, { label, unread, count, mentioned, className }: TreeRowOptions) => (
     <RoomRow
       key={room.id}
       room={room}
@@ -114,6 +114,9 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
       className={className}
       current={room.id === currentRoomId}
       unread={unread}
+      count={count}
+      mentioned={mentioned}
+      mentioned={mentioned}
       starred={starred.has(room.id)}
       moving={room.id === moving}
       huddle={huddles[room.id]}
