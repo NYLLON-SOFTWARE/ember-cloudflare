@@ -870,7 +870,7 @@ describe("More actions on a message", () => {
     const { actions, article, editors, user } = show(message({ creator: grace }), { administrator: true });
     await openMoreActions(user, article);
     await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "Delete message?" });
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete message" });
     expect(dialog).toHaveTextContent("Grace");
     expect(dialog).toHaveTextContent("Hello");
     expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();

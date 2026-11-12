@@ -134,7 +134,7 @@ test.describe("Ways to join", () => {
 
     const membersOnly = page.getByRole("switch", { name: "Members only", exact: true });
     await membersOnly.click();
-    await answerConfirm(page, "Are you sure only Memberful's members should sign in?", "Turn on");
+    await answerConfirm(page, "Turn on Members only", "Turn on");
     await expect(membersOnly).toBeChecked();
     await expect(link).toBeDisabled();
     await expect(page.getByRole("textbox", { name: "Share to invite more people" })).toHaveCount(0);

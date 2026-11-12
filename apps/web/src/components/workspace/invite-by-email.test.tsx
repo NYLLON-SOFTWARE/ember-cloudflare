@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import { dateLabel } from "@/lib/messages";
 import { answerConfirm } from "@/test-confirm";
-import { CONFIRM_REVOKE, InviteByEmail } from "./invite-by-email";
+import { InviteByEmail } from "./invite-by-email";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const LINK = "https://ember.test/join/invitation#token=";
@@ -246,11 +246,12 @@ describe("Invite people by email", () => {
       const { user } = showCard({ invitations: [invitation("ann@example.com"), invitation("bob@example.com")] });
       const revoke = () => within(rowFor("ann@example.com")).getByRole("button", { name: "Revoke the invitation for ann@example.com" });
       await user.click(revoke());
-      await answerConfirm(user, CONFIRM_REVOKE, "Cancel");
+      expect(await screen.findByRole("alertdialog", { name: "Revoke invitation for ann@example.com" })).toHaveAccessibleDescription("Its link will stop working.");
+      await answerConfirm(user, "Revoke invitation for ann@example.com", "Cancel");
       expect(fetch).not.toHaveBeenCalled();
 
       await user.click(revoke());
-      await answerConfirm(user, CONFIRM_REVOKE, "Revoke");
+      await answerConfirm(user, "Revoke invitation for ann@example.com", "Revoke");
       await waitFor(() => expect(rows()).toHaveLength(1));
       expect(rows()[0]).toHaveTextContent("bob@example.com");
       expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/invitations/id-ann%40example.com", expect.objectContaining({ method: "DELETE" }));
@@ -265,7 +266,7 @@ describe("Invite people by email", () => {
       expect(onFailed).not.toHaveBeenCalled();
 
       await user.click(within(rowFor("bob@example.com")).getByRole("button", { name: "Revoke the invitation for bob@example.com" }));
-      await answerConfirm(user, CONFIRM_REVOKE, "Revoke");
+      await answerConfirm(user, "Revoke invitation for bob@example.com", "Revoke");
       await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(401, "Not signed in")));
       expect(rows()).toHaveLength(1);
       expect(within(rowFor("bob@example.com")).getByRole("button", { name: "Revoke the invitation for bob@example.com" })).toBeEnabled();

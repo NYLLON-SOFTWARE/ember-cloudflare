@@ -179,7 +179,7 @@ test.describe("Leave a private room", () => {
     await ada.page.goto(`/rooms/closeds/${leads.id}/edit`);
 
     await ada.page.getByRole("button", { name: `Leave ${leads.name}` }).click();
-    await answerConfirm(ada.page, "Are you sure you want to leave this room? Only someone in it who can change it can add you back.", "Leave");
+    await answerConfirm(ada.page, `Leave ${leads.name}`, "Leave");
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: leads.name })).toHaveCount(0);
     await expect(ada.page.getByRole("alert")).toHaveCount(0);
@@ -219,12 +219,12 @@ test.describe("Delete a room", () => {
     const remove = ada.page.getByRole("button", { name: `Delete ${design.name}` });
     // Saying no keeps the room.
     await remove.click();
-    await answerConfirm(ada.page, "Are you sure you want to delete this room and all messages in it? This can’t be undone.", "Cancel");
+    await answerConfirm(ada.page, `Delete #${design.name}`, "Cancel");
     await expect(remove).toBeEnabled();
     expect(await canSee(request, ada.session, design.id)).toBe(true);
 
     await remove.click();
-    await answerConfirm(ada.page, "Are you sure you want to delete this room and all messages in it? This can’t be undone.", "Delete");
+    await answerConfirm(ada.page, `Delete #${design.name}`, "Delete");
     // Home, which is the room they were in before its settings.
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: design.name })).toHaveCount(0);

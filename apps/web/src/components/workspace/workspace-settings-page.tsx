@@ -38,6 +38,7 @@ import { AgentList } from "./agent-list";
 import { AppList } from "./app-list";
 import { AssistantSettings } from "./assistant-settings";
 import { AssistantSetup } from "./assistant-setup";
+import { useConfirm } from "./confirm-dialog";
 import { CustomDomainSettings } from "./custom-domain-settings";
 import { EmberVersion } from "./ember-version";
 import { EmailSettings, sendsEmail } from "./email-settings";
@@ -54,6 +55,9 @@ import { CHANGES_SAVED, PageHeading, Panel, SECTION_HEADING, SettingsPage, TITLE
 import { TurnstileSettings } from "./turnstile-settings";
 import { TurnstileSetup } from "./turnstile-setup";
 import { HowPeopleJoin, WaysToJoin } from "./ways-to-join";
+
+/** What Regenerate join link asks first. */
+export const CONFIRM_REGENERATE = { title: "Regenerate join link", body: "The current link will stop working." };
 
 interface Props {
   me: Me;
@@ -137,6 +141,7 @@ export function WorkspaceSettingsPage({
   const [pickedLogo, setPickedLogo] = useState<string | null>(null);
   const [savingLogo, setSavingLogo] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [confirmFirst, confirmation] = useConfirm();
   // Where the Hide translation buttons switch was moved to, until Save changes saves it with the name.
   const [hidingTranslations, setHidingTranslations] = useState<boolean | null>(null);
   // Where Must be admin to create new rooms was moved to, while that's saved.
@@ -313,8 +318,10 @@ export function WorkspaceSettingsPage({
   /** Shows huddles as Set up huddles, or turning them off, changes them, which only workspace settings shows. */
   const showHuddles = (huddles: WorkspaceSettings["huddles"]) => setSettings((settings) => settings && { ...settings, huddles });
 
-  // Regenerate join link: no confirmation first, and no notice after.
-  const regenerate = () => {
+  // Regenerate join link: asks first, as the link it had stops working for good, and no notice after.
+  const regenerate = async () => {
+    const { title, body } = CONFIRM_REGENERATE;
+    if (!(await confirmFirst(title, { body, confirm: "Regenerate", destructive: true }))) return;
     setRegenerating(true);
     regenerateJoinCode().then(
       (joinCode) => {
@@ -597,6 +604,7 @@ export function WorkspaceSettingsPage({
             <p className="text-muted-foreground">Community admins manage the AI assistant.</p>
           ))}
       </Panel>
+      {confirmation}
       <Panel id="huddles-settings" hidden={section !== "huddles-settings"} aria-labelledby="huddles-settings-heading" className="flex flex-col gap-6">
         <PageHeading id="huddles-settings-heading" title="Huddles" className={SECTION_HEADING}>
           {HUDDLE_CHAT_TITLE} in your rooms.

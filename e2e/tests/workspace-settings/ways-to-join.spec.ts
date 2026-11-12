@@ -35,7 +35,7 @@ test.describe("Sign up without a link", () => {
     const open = page.getByRole("switch", { name: "Open" });
     await expect(open).not.toBeChecked();
     await open.click();
-    await answerConfirm(page, "Are you sure you want to let anyone create an account?", "Turn on");
+    await answerConfirm(page, "Turn on Open", "Turn on");
     await expect(open).toBeChecked();
     await expect(page.getByRole("textbox", { name: "Share so anyone can sign up" })).toHaveValue(`${baseURL}/join`);
     await expect(page.getByRole("switch", { name: "Join link" })).toBeDisabled();

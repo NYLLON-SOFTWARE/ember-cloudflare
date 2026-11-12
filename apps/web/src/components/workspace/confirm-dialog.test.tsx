@@ -4,16 +4,16 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useConfirm } from "./confirm-dialog";
 
-const QUESTION = "Are you sure you want to delete this?";
+const TITLE = "Delete Design";
 
-/** A button that asks `QUESTION` with `options`, then shows the answer and does `after`, or goes as it asks, if it `removes` itself. */
+/** A button that asks, titled `TITLE`, with `options`, then shows the answer and does `after`, or goes as it asks, if it `removes` itself. */
 function Asker({ options, removes = false, after }: { options?: Parameters<ReturnType<typeof useConfirm>[0]>[1]; removes?: boolean; after?: () => void }) {
   const [ask, dialog] = useConfirm();
   const [answer, setAnswer] = useState<boolean | null>(null);
   const [shown, setShown] = useState(true);
   const go = async () => {
     if (removes) setShown(false);
-    const yes = await ask(QUESTION, options);
+    const yes = await ask(TITLE, options);
     setAnswer(yes);
     after?.();
   };
@@ -31,12 +31,12 @@ function Asker({ options, removes = false, after }: { options?: Parameters<Retur
   );
 }
 
-const asked = () => screen.findByRole("alertdialog", { name: QUESTION });
+const asked = () => screen.findByRole("alertdialog", { name: TITLE });
 
 describe("useConfirm", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("asks in the app's own dialog, titled with the question alone, with Cancel focused, and says yes once it's confirmed", async () => {
+  it("asks in the app's own dialog, titled alone, with Cancel focused, and says yes once it's confirmed", async () => {
     const confirm = vi.spyOn(window, "confirm");
     const user = userEvent.setup();
     render(<Asker options={{ confirm: "Delete", destructive: true }} />);
@@ -50,6 +50,13 @@ describe("useConfirm", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("true");
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("says what going ahead does under the title, when it's told", async () => {
+    const user = userEvent.setup();
+    render(<Asker options={{ body: "This can’t be undone.", confirm: "Delete", destructive: true }} />);
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(await asked()).toHaveAccessibleDescription("This can’t be undone.");
   });
 
   it("goes ahead with OK, not red, unless it's told otherwise", async () => {

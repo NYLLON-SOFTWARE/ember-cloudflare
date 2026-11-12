@@ -21,9 +21,9 @@ import { Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
 import { UserAvatar } from "./user-avatar";
 
-/** What Ban and Remove ban ask first. */
-export const CONFIRM_BAN = "Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses.";
-export const CONFIRM_UNBAN = "Are you sure you want to remove the ban on this user?";
+/** What Ban and Remove ban ask first, of the person called `name`. */
+export const confirmBan = (name: string) => ({ title: `Ban ${name}`, body: "They’ll be signed out, their messages deleted and their IP addresses blocked." });
+export const confirmUnban = (name: string) => `Remove ban on ${name}`;
 
 interface Props {
   userId: UserId;
@@ -115,7 +115,10 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
   const toggleBan = async () => {
     if (!person || banning) return;
     const banned = person.status === "banned";
-    const sure = await (banned ? confirmFirst(CONFIRM_UNBAN, { confirm: "Remove ban" }) : confirmFirst(CONFIRM_BAN, { confirm: "Ban", destructive: true }));
+    const ban = confirmBan(person.name);
+    const sure = await (banned
+      ? confirmFirst(confirmUnban(person.name), { confirm: "Remove ban" })
+      : confirmFirst(ban.title, { body: ban.body, confirm: "Ban", destructive: true }));
     if (!sure) return;
     const asked = listedNow.current;
     setBanning(true);

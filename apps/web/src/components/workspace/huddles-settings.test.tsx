@@ -72,12 +72,12 @@ describe("Set up huddles", () => {
     const confirm = vi.spyOn(window, "confirm");
     const { user, onStopped } = showCard({ appId: APP_ID });
     await user.click(huddlesSwitch());
-    await answerConfirm(user, CONFIRM_STOP_HUDDLES, "Cancel");
+    await answerConfirm(user, CONFIRM_STOP_HUDDLES.title, "Cancel");
     expect(fetch).not.toHaveBeenCalled();
     expect(huddlesSwitch()).toBeChecked();
 
     await user.click(huddlesSwitch());
-    await answerConfirm(user, CONFIRM_STOP_HUDDLES, "Turn off");
+    await answerConfirm(user, CONFIRM_STOP_HUDDLES.title, "Turn off");
     expect(fetch).toHaveBeenCalledWith("/api/account/huddles", expect.objectContaining({ method: "DELETE" }));
     expect(huddlesSwitch()).not.toBeChecked();
     expect(huddlesSwitch()).toBeDisabled();
@@ -92,7 +92,7 @@ describe("Set up huddles", () => {
     serve(() => Response.json({ error: HUDDLES_FORBIDDEN }, { status: 403 }));
     const { user, onStopped, onFailed } = showCard({ appId: APP_ID });
     await user.click(huddlesSwitch());
-    await answerConfirm(user, CONFIRM_STOP_HUDDLES, "Turn off");
+    await answerConfirm(user, CONFIRM_STOP_HUDDLES.title, "Turn off");
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, HUDDLES_FORBIDDEN)));
     expect(onStopped).not.toHaveBeenCalled();
     expect(huddlesSwitch()).toBeChecked();

@@ -71,6 +71,10 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
   // Save found a field the form won't accept, which the browser points at once the dialog has closed.
   const invalid = useRef(false);
   const saveButton = useRef<HTMLButtonElement>(null);
+  // What had focus as it asked, the link that was followed, say, which keeping editing hands focus back to.
+  const opener = useRef<Element | null>(null);
+  // Whether it closed to keep editing, where the page stays, rather than to leave it.
+  const kept = useRef(false);
   const mounted = useMounted();
 
   useEffect(() => {
@@ -84,6 +88,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
       // The page's own dialogs, such as its icon pickers, are native ones, which would stay above this
       // one and keep it from being answered. They close first.
       for (const dialog of document.querySelectorAll<HTMLDialogElement>("dialog[open]")) dialog.close();
+      opener.current = document.activeElement;
       setAsking(true);
       return true;
     });
@@ -103,6 +108,7 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
   const keepEditing = () => {
     if (saving) return;
     proceed.current = null;
+    kept.current = true;
     setAsking(false);
   };
 
@@ -153,11 +159,16 @@ export function UnsavedChanges<T>({ changed, stays, onSave, onStayAfterSave, for
           saveButton.current?.focus();
         }}
         onInteractOutside={(event) => event.preventDefault()}
+        // Radix would focus the trigger a dialog opens from, which this one hasn't, leaving focus on the page's body.
         onCloseAutoFocus={(event) => {
-          if (!invalid.current) return;
-          invalid.current = false;
           event.preventDefault();
-          form?.current?.reportValidity();
+          const back = kept.current ? opener.current : null;
+          kept.current = false;
+          opener.current = null;
+          if (invalid.current) {
+            invalid.current = false;
+            form?.current?.reportValidity();
+          } else if (back instanceof HTMLElement && back.isConnected) back.focus();
         }}
         className={DIALOG}
       >

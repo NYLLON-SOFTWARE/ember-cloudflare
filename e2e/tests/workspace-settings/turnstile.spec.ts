@@ -98,7 +98,7 @@ test.describe("Check that people are people with Cloudflare Turnstile", () => {
     const turnstileSwitch = turnstile.getByRole("switch", { name: "Turnstile" });
     await expect(turnstileSwitch).toBeChecked();
     await turnstileSwitch.click();
-    await answerConfirm(page, "Are you sure you want to turn off Turnstile?", "Turn off");
+    await answerConfirm(page, "Turn off Turnstile", "Turn off");
     await expect(turnstileSwitch).not.toBeChecked();
     await expect(turnstileSwitch).toBeEnabled();
     await expect(page.getByRole("region", { name: "Open", exact: true })).toContainText("Setting up Turnstile lifts these limits.");

@@ -186,10 +186,10 @@ test.describe("Recent searches", () => {
 
     const clear = recent.getByRole("button", { name: "Clear recent searches" });
     await clear.click();
-    await answerConfirm(ada.page, "Are you sure you want to clear your recent searches?", "Cancel");
+    await answerConfirm(ada.page, "Clear recent searches", "Cancel");
     await expect(recent.getByRole("link")).toHaveCount(2);
     await clear.click();
-    await answerConfirm(ada.page, "Are you sure you want to clear your recent searches?", "Clear");
+    await answerConfirm(ada.page, "Clear recent searches", "Clear");
     await expect(ada.page).toHaveURL("/searches");
     await expect(recent).toBeHidden();
     await ada.page.reload();

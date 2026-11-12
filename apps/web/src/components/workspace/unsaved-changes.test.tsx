@@ -82,6 +82,21 @@ describe("Unsaved changes guard", () => {
     expect(location.pathname).toBe(SETTINGS_PATH);
   });
 
+  it.each([
+    ["the close button", (user: ReturnType<typeof userEvent.setup>) => user.click(button("Keep editing"))],
+    ["Escape", (user: ReturnType<typeof userEvent.setup>) => user.keyboard("{Escape}")],
+  ])("hands focus back to the link that was followed on %s", async (_, keepEditing) => {
+    const { user } = showForm();
+    render(<a href="/">Home</a>);
+    const home = screen.getByRole("link", { name: "Home" });
+    act(() => home.focus());
+    goTo("/");
+    await screen.findByRole("dialog", { name: "Unsaved Changes" });
+    await keepEditing(user);
+    await waitFor(() => expect(asking()).not.toBeInTheDocument());
+    expect(home).toHaveFocus();
+  });
+
   it("discards the changes and goes on, asking no more", async () => {
     const { user } = showForm();
     goTo("/rooms/general");

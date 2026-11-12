@@ -7,7 +7,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { guardLeaving, navigate } from "@/hooks/use-route";
 import { answerConfirm } from "@/test-confirm";
-import { CONFIRM_BAN, CONFIRM_UNBAN, PersonPage } from "./person-page";
+import { PersonPage } from "./person-page";
 
 const ada: Me = { id: "u1", name: "Ada Lovelace", administrator: false };
 const grace: Person = { id: "u2", name: "Grace Hopper", bio: "Wrote the first compiler", role: "member", status: "active", avatarUrl: "/users/t2/avatar?v=1" };
@@ -481,11 +481,14 @@ describe("Ban and unban people", () => {
     const { onPersonChanged, onFailed, user } = showPage(grace, { me: administrator, people: new Map([[grace.id, grace]]) });
     await heading();
     await user.click(banButton()!);
-    await answerConfirm(user, CONFIRM_BAN, "Cancel");
+    expect(await screen.findByRole("alertdialog", { name: "Ban Grace Hopper" })).toHaveAccessibleDescription(
+      "They’ll be signed out, their messages deleted and their IP addresses blocked.",
+    );
+    await answerConfirm(user, "Ban Grace Hopper", "Cancel");
     expect(fetch).toHaveBeenCalledOnce();
 
     await user.click(banButton()!);
-    await answerConfirm(user, CONFIRM_BAN, "Ban");
+    await answerConfirm(user, "Ban Grace Hopper", "Ban");
     await waitFor(() => expect(onPersonChanged).toHaveBeenCalledExactlyOnceWith(banned));
     expect(fetch).toHaveBeenCalledWith("/api/users/u2/ban", expect.objectContaining({ method: "POST" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
@@ -503,7 +506,7 @@ describe("Ban and unban people", () => {
     const { onPersonChanged, user } = showPage(grace, { me: administrator });
     await heading();
     await user.click(unbanButton()!);
-    await answerConfirm(user, CONFIRM_UNBAN, "Remove ban");
+    await answerConfirm(user, "Remove ban on Grace Hopper", "Remove ban");
     await waitFor(() => expect(onPersonChanged).toHaveBeenCalledExactlyOnceWith(active));
     expect(fetch).toHaveBeenCalledWith("/api/users/u2/ban", expect.objectContaining({ method: "DELETE" }));
     expect(confirm).not.toHaveBeenCalled();
@@ -520,7 +523,7 @@ describe("Ban and unban people", () => {
     await heading();
     const button = banButton()!;
     await user.click(button);
-    await answerConfirm(user, CONFIRM_BAN, "Ban");
+    await answerConfirm(user, "Ban Grace Hopper", "Ban");
     await waitFor(() => expect(button).toHaveAttribute("aria-disabled", "true"));
     await user.click(button);
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
@@ -542,7 +545,7 @@ describe("Ban and unban people", () => {
     const { onPersonChanged, reloadPeople, list, user } = showPage(grace, { me: administrator, people: new Map([[grace.id, grace]]) });
     await heading();
     await user.click(banButton()!);
-    await answerConfirm(user, CONFIRM_BAN, "Ban");
+    await answerConfirm(user, "Ban Grace Hopper", "Ban");
     // The workspace socket says she's banned before the answer does, from this ban.
     list(new Map([[grace.id, banned]]));
     await act(async () => answer(banned));
@@ -553,7 +556,7 @@ describe("Ban and unban people", () => {
     // When it disagrees, as when another administrator banned her again once this lifted it, it can't
     // tell which is newer.
     await user.click(unbanButton()!);
-    await answerConfirm(user, CONFIRM_UNBAN, "Remove ban");
+    await answerConfirm(user, "Remove ban on Grace Hopper", "Remove ban");
     list(new Map([[grace.id, { ...banned, avatarUrl: "/users/t2/avatar?v=4" }]]));
     await act(async () => answer(active));
     await waitFor(() => expect(reloadPeople).toHaveBeenCalledOnce());
@@ -570,7 +573,7 @@ describe("Ban and unban people", () => {
     const { onPersonChanged, reloadPeople, user } = showPage(grace, { me: administrator, people: new Map([[grace.id, grace]]) });
     await heading();
     await user.click(banButton()!);
-    await answerConfirm(user, CONFIRM_BAN, "Ban");
+    await answerConfirm(user, "Ban Grace Hopper", "Ban");
     // Gone before the answer, as when you open another page, while the directory may since have heard
     // she was banned and then let back in.
     cleanup();

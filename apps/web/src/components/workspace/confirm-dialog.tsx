@@ -60,33 +60,36 @@ export function ConfirmDialog({ title, children, confirm, destructive = false, o
 }
 
 interface Question {
+  /** A line under the title, only for what going ahead does that the title doesn't say: "This can’t be undone." */
+  body?: string;
   /** What the button that goes ahead says, OK unless it's given. */
   confirm?: string;
   /** Red, for what can't be undone. */
   destructive?: boolean;
 }
 
-interface Asking extends Required<Question> {
-  question: string;
+interface Asking extends Required<Omit<Question, "body">>, Pick<Question, "body"> {
+  title: string;
   answer: (yes: boolean) => void;
   closed: () => void;
 }
 
 /**
- * `confirm()` as the app's own dialog: `ask` shows `question` as its title and says whether the button that
- * goes ahead was pressed, or Cancel, Escape or the backdrop, once the dialog has gone. Focus is back where
- * it was when it asked, if that's still there, before the answer comes, so what the asker does next with
- * focus wins. The asker renders `dialog`.
+ * `confirm()` as the app's own dialog: `ask` titles it with `title`, as Slack does, the verb and what it's
+ * done to, "Delete #design", and says whether the button that goes ahead was pressed, or Cancel, Escape
+ * or the backdrop, once the dialog has gone. Focus is back where it was when it asked, if that's still
+ * there, before the answer comes, so what the asker does next with focus wins. The asker renders `dialog`.
  */
-export function useConfirm(): [ask: (question: string, options?: Question) => Promise<boolean>, dialog: ReactNode] {
+export function useConfirm(): [ask: (title: string, options?: Question) => Promise<boolean>, dialog: ReactNode] {
   const [asking, setAsking] = useState<Asking | null>(null);
   const ask = useCallback(
-    (question: string, { confirm = "OK", destructive = false }: Question = {}) =>
+    (title: string, { body, confirm = "OK", destructive = false }: Question = {}) =>
       new Promise<boolean>((resolve) => {
         const opener = document.activeElement;
         let yes = false;
         setAsking({
-          question,
+          title,
+          body,
           confirm,
           destructive,
           answer: (answer) => {
@@ -103,13 +106,15 @@ export function useConfirm(): [ask: (question: string, options?: Question) => Pr
   );
   const dialog = asking && (
     <ConfirmDialog
-      title={asking.question}
+      title={asking.title}
       confirm={asking.confirm}
       destructive={asking.destructive}
       onConfirm={() => asking.answer(true)}
       onCancel={() => asking.answer(false)}
       onClosed={asking.closed}
-    />
+    >
+      {asking.body}
+    </ConfirmDialog>
   );
   return [ask, dialog];
 }
@@ -118,7 +123,7 @@ export function useConfirm(): [ask: (question: string, options?: Question) => Pr
 export function DeleteMessageDialog({ message, onDelete, onCancel, onClosed }: { message: Message; onDelete: () => void; onCancel: () => void; onClosed?: () => void }) {
   const nameOf = useNameOf();
   return (
-    <ConfirmDialog title="Delete message?" confirm="Delete" destructive onConfirm={onDelete} onCancel={onCancel} onClosed={onClosed}>
+    <ConfirmDialog title="Delete message" confirm="Delete" destructive onConfirm={onDelete} onCancel={onCancel} onClosed={onClosed}>
       <div className="flex gap-2.5 rounded-[10px] border p-3 text-left text-message-ink">
         <UserAvatar user={message.creator} square className="size-9 shrink-0" />
         <div className="min-w-0">

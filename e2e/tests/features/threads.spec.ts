@@ -85,7 +85,7 @@ test.describe("Delete a message with replies", () => {
     await message.hover();
     await message.getByRole("button", { name: "Message options" }).click();
     await message.getByRole("group", { name: "More actions" }).getByRole("button", { name: "Delete message" }).click();
-    await administrator.getByRole("alertdialog", { name: "Delete message?" }).getByRole("button", { name: "Delete", exact: true }).click();
+    await administrator.getByRole("alertdialog", { name: "Delete message" }).getByRole("button", { name: "Delete", exact: true }).click();
 
     const deleted = inRoom(ada, "This message was deleted.");
     await expect(repliesTo(deleted, 1)).toBeVisible();

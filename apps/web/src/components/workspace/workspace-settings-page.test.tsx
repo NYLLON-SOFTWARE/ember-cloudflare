@@ -52,7 +52,6 @@ import {
 import { AGENTS_ANSWER, ASSISTANT_EXPLAINED, CONFIRM_STOP_ASSISTANT } from "./assistant-settings";
 import { CONFIRM_STOP_EMAIL } from "./email-settings";
 import { CONFIRM_STOP_HUDDLES } from "./huddles-settings";
-import { CONFIRM_REMOVE } from "./people-list";
 import { workspaceSectionPath, type WorkspaceSection } from "./settings-navigation";
 import { CHANGES_SAVED } from "./settings-page";
 import { CONFIRM_STOP_TURNSTILE } from "./turnstile-settings";
@@ -1226,7 +1225,7 @@ describe("Sign in with Memberful", () => {
     );
 
     await user.click(membersOnly);
-    await answerConfirm(user, CONFIRM_MEMBERS_ONLY, "Turn on");
+    await answerConfirm(user, CONFIRM_MEMBERS_ONLY.title, "Turn on");
     expect(membersOnly).toBeChecked();
     await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, memberfulJoin: true, memberfulSignIn: true }));
     expect(saved()).toEqual([{ settings: { memberfulSignIn: true } }]);
@@ -1246,7 +1245,7 @@ describe("Sign in with Memberful", () => {
     await memberfulSwitch();
     const membersOnly = membersOnlySwitch()!;
     await user.click(membersOnly);
-    await answerConfirm(user, CONFIRM_MEMBERS_ONLY, "Cancel");
+    await answerConfirm(user, CONFIRM_MEMBERS_ONLY.title, "Cancel");
     expect(membersOnly).not.toBeChecked();
     expect(saved()).toEqual([]);
   });
@@ -1295,7 +1294,7 @@ describe("Sign in with Memberful", () => {
 
     // Were turning Memberful off saved before turning Members only on, Members only would turn it back on.
     await user.click(membersOnly);
-    await answerConfirm(user, CONFIRM_MEMBERS_ONLY, "Turn on");
+    await answerConfirm(user, CONFIRM_MEMBERS_ONLY.title, "Turn on");
     expect(membersOnly).toBeChecked();
     expect(on).toBeDisabled();
     await act(async () => answer(Response.json({ account: { ...withKeys.account, memberfulJoin: true, memberfulSignIn: true } })));
@@ -1392,7 +1391,7 @@ describe("Ways to join", () => {
     const { onAccountChanged, user } = showPage();
     const open = await way("Open");
     await user.click(open);
-    await answerConfirm(user, CONFIRM_OPEN, "Turn on");
+    await answerConfirm(user, CONFIRM_OPEN.title, "Turn on");
     expect(open).toBeChecked();
     await waitFor(() => expect(onAccountChanged).toHaveBeenLastCalledWith({ ...asAdministrator.account, openSignUp: true }));
     expect(saved()).toEqual([{ settings: { openSignUp: true } }]);
@@ -1415,7 +1414,7 @@ describe("Ways to join", () => {
     const { user } = showPage();
     const open = await way("Open");
     await user.click(open);
-    await answerConfirm(user, CONFIRM_OPEN, "Cancel");
+    await answerConfirm(user, CONFIRM_OPEN.title, "Cancel");
     expect(open).not.toBeChecked();
     expect(saved()).toEqual([]);
   });
@@ -1454,7 +1453,7 @@ describe("Ways to join", () => {
     const { onFailed, user } = showPage();
     const open = await way("Open");
     await user.click(open);
-    await answerConfirm(user, CONFIRM_OPEN, "Turn on");
+    await answerConfirm(user, CONFIRM_OPEN.title, "Turn on");
     await user.click(open);
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(open).toBeChecked();
@@ -1547,7 +1546,7 @@ describe("Ways to join", () => {
 
     const open = await way("Open");
     await user.click(open);
-    await answerConfirm(user, CONFIRM_OPEN, "Turn on");
+    await answerConfirm(user, CONFIRM_OPEN.title, "Turn on");
     await waitFor(async () => expect(await way("Memberful")).toBeDisabled());
     expect(saved()).toEqual([{ settings: { joinLink: true } }, { settings: { openSignUp: true } }]);
     const memberful = await way("Memberful");
@@ -1885,7 +1884,7 @@ describe("Sending email", () => {
     const { user } = showPage();
     const email = await screen.findByRole("region", { name: "Email" });
     await user.click(within(email).getByRole("button", { name: "Stop sending email" }));
-    await answerConfirm(user, CONFIRM_STOP_EMAIL, "Stop sending");
+    await answerConfirm(user, CONFIRM_STOP_EMAIL.title, "Stop sending");
     expect(await within(email).findByRole("button", { name: "Set up email" })).toBeInTheDocument();
     expect(saved()).toEqual([{ emailFrom: null }]);
     expect(email).toHaveTextContent("Ember can't send email yet, so it can't email invitations, the links people at your email domains join with, or codes to reset a forgotten password.");
@@ -1941,7 +1940,7 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
     const { user } = showPage();
     const turnstile = await screen.findByRole("region", { name: "Turnstile" });
     await user.click(within(turnstile).getByRole("switch", { name: "Turnstile" }));
-    await answerConfirm(user, CONFIRM_STOP_TURNSTILE, "Turn off");
+    await answerConfirm(user, CONFIRM_STOP_TURNSTILE.title, "Turn off");
     await waitFor(() => expect(within(turnstile).queryByRole("button", { name: "Change keys" })).not.toBeInTheDocument());
     expect(within(turnstile).getByRole("switch", { name: "Turnstile" })).not.toBeChecked();
     expect(within(turnstile).getByRole("switch", { name: "Turnstile" })).toBeEnabled();
@@ -2027,7 +2026,7 @@ describe("Ember AI", () => {
     expect(card).toHaveTextContent(AGENTS_ANSWER);
     expect(agentsCard()).toBeInTheDocument();
     await user.click(within(card).getByRole("switch", { name: "Ember AI" }));
-    await answerConfirm(user, CONFIRM_STOP_ASSISTANT, "Turn off");
+    await answerConfirm(user, CONFIRM_STOP_ASSISTANT.title, "Turn off");
     await waitFor(() => expect(within(card).queryByRole("button", { name: "Change" })).not.toBeInTheDocument());
     expect(within(card).getByRole("switch", { name: "Ember AI" })).not.toBeChecked();
     expect(card).toHaveTextContent(ASSISTANT_EXPLAINED);
@@ -2090,7 +2089,7 @@ describe("Set up huddles", () => {
     const card = await huddlesCard();
     expect(card).toHaveTextContent(`Huddles run through the Realtime SFU app ${APP.appId} in your Cloudflare account.`);
     await user.click(within(card).getByRole("switch", { name: "Audio and video chat" }));
-    await answerConfirm(user, CONFIRM_STOP_HUDDLES, "Turn off");
+    await answerConfirm(user, CONFIRM_STOP_HUDDLES.title, "Turn off");
     await waitFor(() => expect(within(card).queryByRole("button", { name: "Change keys" })).not.toBeInTheDocument());
     expect(within(card).getByRole("switch", { name: "Audio and video chat" })).not.toBeChecked();
     expect(within(card).getByRole("switch", { name: "Audio and video chat" })).toBeEnabled();
@@ -2186,13 +2185,28 @@ describe("Join link", () => {
 describe("Regenerate the join link", () => {
   showingSection("membership-settings");
 
-  it("lets an administrator regenerate the link at once, with no notice", async () => {
+  it("lets an administrator regenerate the link once they confirm, with no notice", async () => {
     const { onJoinCodeChanged, user } = showPage();
     await user.click(await screen.findByRole("button", { name: "Regenerate join link" }));
+    const asked = await screen.findByRole("alertdialog", { name: "Regenerate join link" });
+    expect(asked).toHaveAccessibleDescription("The current link will stop working.");
+    expect(within(asked).getByRole("button", { name: "Regenerate" })).toHaveClass("bg-negative-button");
+    await answerConfirm(user, "Regenerate join link", "Regenerate");
     await waitFor(async () => expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${NEW_JOIN_CODE}`));
     expect(fetch).toHaveBeenCalledWith("/api/account/join_code", expect.objectContaining({ method: "POST" }));
     expect(onJoinCodeChanged).toHaveBeenLastCalledWith(NEW_JOIN_CODE);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps the link unless they confirm, handing focus back to Regenerate join link", async () => {
+    const { onJoinCodeChanged, user } = showPage();
+    const regenerate = await screen.findByRole("button", { name: "Regenerate join link" });
+    await user.click(regenerate);
+    await answerConfirm(user, "Regenerate join link", "Cancel");
+    await waitFor(() => expect(regenerate).toHaveFocus());
+    expect(fetch).not.toHaveBeenCalledWith("/api/account/join_code", expect.anything());
+    expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${JOIN_CODE}`);
+    expect(onJoinCodeChanged).toHaveBeenCalledOnce();
   });
 
   it("can't regenerate it again until the last is answered", async () => {
@@ -2201,7 +2215,8 @@ describe("Regenerate the join link", () => {
     const { user } = showPage();
     const regenerate = await screen.findByRole("button", { name: "Regenerate join link" });
     await user.click(regenerate);
-    expect(regenerate).toBeDisabled();
+    await answerConfirm(user, "Regenerate join link", "Regenerate");
+    await waitFor(() => expect(regenerate).toBeDisabled());
     answer(Response.json({ joinCode: NEW_JOIN_CODE }));
     await waitFor(() => expect(regenerate).toBeEnabled());
   });
@@ -2210,6 +2225,7 @@ describe("Regenerate the join link", () => {
     serve(asAdministrator, { regenerated: () => Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }) });
     const { onFailed, onJoinCodeChanged, user } = showPage();
     await user.click(await screen.findByRole("button", { name: "Regenerate join link" }));
+    await answerConfirm(user, "Regenerate join link", "Regenerate");
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(expect.objectContaining({ status: 403 })));
     expect(await joinLink()).toHaveValue(`http://localhost:3000/join/${JOIN_CODE}`);
     expect(screen.getByRole("button", { name: "Regenerate join link" })).toBeEnabled();
@@ -2867,10 +2883,10 @@ const removals = () =>
     .mocked(fetch)
     .mock.calls.filter(([, init]) => init?.method === "DELETE")
     .map(([input]) => String(input).split("/").at(-1));
-/** Presses Delete on `name`'s row and answers what it asks with Remove, or else Cancel. */
+/** Presses Delete on `name`'s row and answers what it asks with Delete, or else Cancel. */
 async function pressRemove(user: UserEvent, name: string, confirm = true) {
   await user.click((await deleteOf(name))!);
-  await answerConfirm(user, CONFIRM_REMOVE, confirm ? "Remove" : "Cancel");
+  await answerConfirm(user, `Delete ${name}`, confirm ? "Delete" : "Cancel");
 }
 
 describe("Remove someone from the workspace", () => {
@@ -2919,7 +2935,7 @@ describe("Remove someone from the workspace", () => {
     const { user } = showPage();
     const remove = (await deleteOf("linus Torvalds"))!;
     await user.click(remove);
-    await answerConfirm(user, CONFIRM_REMOVE, "Remove");
+    await answerConfirm(user, "Delete linus Torvalds", "Delete");
     await waitFor(() => expect(remove).toBeDisabled());
     await user.click(remove);
     expect(removals()).toEqual(["u3"]);

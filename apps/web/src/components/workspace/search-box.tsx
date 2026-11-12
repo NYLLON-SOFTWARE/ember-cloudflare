@@ -39,8 +39,8 @@ export type OpenSearch = (options: SearchBoxOptions) => void;
 /** Opens the search box, for the rail, a room's header and the results page. */
 export const OpenSearchContext = createContext<OpenSearch>(() => {});
 
-/** What the box and the results page ask before they clear your recent searches. */
-export const CONFIRM_CLEAR_SEARCHES = "Are you sure you want to clear your recent searches?";
+/** The title of what the box and the results page ask before they clear your recent searches. */
+export const CONFIRM_CLEAR_SEARCHES = "Clear recent searches";
 
 /**
  * A link's click that opens the search box in place, as Search does in the rail and a room's header,

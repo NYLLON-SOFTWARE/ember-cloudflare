@@ -126,7 +126,7 @@ test.describe("Invite people by email", () => {
     await expect(pending.first()).toHaveText(new RegExp(`^${hal}Emailed · `));
 
     await card.getByRole("button", { name: `Revoke the invitation for ${ida}` }).click();
-    await answerConfirm(page, "Are you sure you want to revoke this invitation?", "Revoke");
+    await answerConfirm(page, `Revoke invitation for ${ida}`, "Revoke");
     await expect(pending).toHaveText([new RegExp(`^${hal}`)]);
     expect(await works(request, idasLink!)).toBe(false);
   });

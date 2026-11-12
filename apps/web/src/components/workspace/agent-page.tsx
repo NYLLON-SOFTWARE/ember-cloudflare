@@ -82,8 +82,8 @@ export const INSTRUCTIONS_EXPLAINED =
 /** What leaving the page with changes asks. */
 export const AGENT_CHANGES = "You’ve made changes to this agent. Save them before you leave, or discard them to keep things as they were.";
 
-/** What Delete agent asks first. */
-export const CONFIRM_DELETE_AGENT = "Are you sure you want to delete this agent? It leaves every room for good, though its answers stay. This can’t be undone.";
+/** What Delete agent asks first, of the agent called `name`. */
+export const confirmDeleteAgent = (name: string) => ({ title: `Delete ${name}`, body: "It leaves every room for good, though its answers stay." });
 
 /** What Try it says of itself, of the agent called `name`. */
 export const tryExplained = (name: string) => `Ask ${name} something, as it's set up above, before you save. Nobody else sees what it says.`;
@@ -454,7 +454,9 @@ function AgentForm({ me, saved, setup, rooms, onFailed }: FormProps) {
   };
 
   const remove = async () => {
-    if (saved && (await confirmFirst(CONFIRM_DELETE_AGENT, { confirm: "Delete", destructive: true }))) run("deleting", () => deleteAgent(saved.id));
+    if (!saved) return;
+    const { title, body } = confirmDeleteAgent(saved.name);
+    if (await confirmFirst(title, { body, confirm: "Delete", destructive: true })) run("deleting", () => deleteAgent(saved.id));
   };
 
   const refused = (field: AgentField) => (refusal?.field === field ? true : undefined);

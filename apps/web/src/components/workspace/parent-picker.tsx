@@ -23,9 +23,14 @@ export interface ParentField {
 /** The parent `parentId` names among `choices`, if it's one of them. */
 export const parentChoice = (choices: ParentChoice[], parentId: RoomId | null) => choices.find((choice) => choice.id === parentId) ?? null;
 
-/** What saving a room under `parent` would take from the people `leaving` names, for the form and its confirmation. */
-export const leavingWarning = (parent: string, leaving: string[]) =>
-  `Moving this room under ${parent} removes ${toSentence(leaving)}, who ${leaving.length === 1 ? "isn’t" : "aren’t"} in ${parent}.`;
+/** The people `leaving` names, as not in `parent`. */
+const notIn = (parent: string, leaving: string[]) => `${toSentence(leaving)}, who ${leaving.length === 1 ? "isn’t" : "aren’t"} in ${parent}`;
+
+/** What saving a room under `parent` would take from the people `leaving` names, as the form says it. */
+export const leavingWarning = (parent: string, leaving: string[]) => `Moving this room under ${parent} removes ${notIn(parent, leaving)}.`;
+
+/** The same, as the confirmation titled with the move says it. */
+export const leavingLine = (parent: string, leaving: string[]) => `This removes ${notIn(parent, leaving)}.`;
 
 /** The value the radio group gives None, a room of its own. */
 const NONE = "";

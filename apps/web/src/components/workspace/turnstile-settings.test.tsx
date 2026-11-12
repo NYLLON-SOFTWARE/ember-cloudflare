@@ -77,12 +77,12 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
     const confirm = vi.spyOn(window, "confirm");
     const { user, onStopped } = showCard("saved");
     await user.click(turnstileSwitch());
-    await answerConfirm(user, CONFIRM_STOP_TURNSTILE, "Cancel");
+    await answerConfirm(user, CONFIRM_STOP_TURNSTILE.title, "Cancel");
     expect(fetch).not.toHaveBeenCalled();
     expect(turnstileSwitch()).toBeChecked();
 
     await user.click(turnstileSwitch());
-    await answerConfirm(user, CONFIRM_STOP_TURNSTILE, "Turn off");
+    await answerConfirm(user, CONFIRM_STOP_TURNSTILE.title, "Turn off");
     expect(fetch).toHaveBeenCalledWith("/api/account/turnstile_keys", expect.objectContaining({ method: "DELETE" }));
     expect(turnstileSwitch()).not.toBeChecked();
     expect(turnstileSwitch()).toBeDisabled();
@@ -97,7 +97,7 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
     serve(() => Response.json({ error: "Only administrators can change the workspace" }, { status: 403 }));
     const { user, onStopped, onFailed } = showCard("saved");
     await user.click(turnstileSwitch());
-    await answerConfirm(user, CONFIRM_STOP_TURNSTILE, "Turn off");
+    await answerConfirm(user, CONFIRM_STOP_TURNSTILE.title, "Turn off");
     await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(403, "Only administrators can change the workspace")));
     expect(onStopped).not.toHaveBeenCalled();
     expect(turnstileSwitch()).toBeChecked();

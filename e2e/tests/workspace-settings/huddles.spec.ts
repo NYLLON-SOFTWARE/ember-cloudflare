@@ -98,7 +98,7 @@ test.describe("Set up huddles", () => {
     const huddlesSwitch = huddles.getByRole("switch", { name: "Audio and video chat" });
     await expect(huddlesSwitch).toBeChecked();
     await huddlesSwitch.click();
-    await answerConfirm(page, "Are you sure you want to turn off huddles?", "Turn off");
+    await answerConfirm(page, "Turn off huddles", "Turn off");
     await expect(huddlesSwitch).not.toBeChecked();
     await expect(huddlesSwitch).toBeEnabled();
     await expect(huddles.getByRole("button", { name: "Change keys" })).toHaveCount(0);

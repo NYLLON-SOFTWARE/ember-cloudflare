@@ -1,5 +1,5 @@
 import { expect, test } from "../../fixtures";
-import { signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { answerConfirm, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 
 test.describe("Regenerate the join link", () => {
   test("the administrator regenerates the join link, and only the new one joins", async ({ page, browser, baseURL }) => {
@@ -10,8 +10,12 @@ test.describe("Regenerate the join link", () => {
     await expect(link).toHaveValue(/\/join\//);
     const old = await link.inputValue();
 
-    // At once, with nothing to confirm and nothing said after.
+    // Once confirmed, as the old link stops working, and with nothing said after.
     await page.getByRole("button", { name: "Regenerate join link" }).click();
+    await answerConfirm(page, "Regenerate join link", "Cancel");
+    await expect(link).toHaveValue(old);
+    await page.getByRole("button", { name: "Regenerate join link" }).click();
+    await answerConfirm(page, "Regenerate join link", "Regenerate");
     await expect(link).not.toHaveValue(old);
     const regenerated = await link.inputValue();
     expect(regenerated).toMatch(new RegExp(`^${baseURL}/join/[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){2}$`));
