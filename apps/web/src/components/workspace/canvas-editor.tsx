@@ -26,10 +26,11 @@ const MERGED = "emberCanvasMerged";
 
 type Status = "saved" | "saving" | "unsaved" | "too long" | "failed" | "unreadable";
 
+// Saved, and saving soon, are how a canvas is as you write, so they say nothing.
 const STATUS_LABELS: Record<Status, string> = {
-  saved: "Saved",
+  saved: "",
   saving: "Saving…",
-  unsaved: "Unsaved changes",
+  unsaved: "",
   "too long": "Too long to save",
   failed: "Couldn’t save. Retrying when you type.",
   unreadable: "This canvas holds something Ember can’t show, so it can’t be edited here.",

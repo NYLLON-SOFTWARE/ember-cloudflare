@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent, type WheelEvent } from "react";
+import { createContext, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type Dispatch, type KeyboardEvent, type SetStateAction, type WheelEvent } from "react";
 import type { Me } from "@ember/protocol";
 import type { RoomTab, RoomTabKind } from "@ember/protocol/library";
 import { ChatLines, Link, MultiplePages, Plus, type IconoirIconProps } from "@/components/icons/iconoir";
@@ -33,11 +33,68 @@ const TAB =
 const MENU_ITEM =
   "flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-start text-sm outline-none hover:bg-hover focus-visible:bg-hover touch:min-h-11";
 
+/**
+ * A room's tabs, which shows, and what changes them: what the strip draws, and what a phone's tab sheet
+ * can draw in its place. A room's view makes it, with `useRoomTabs`, and gives it to both, the sheet
+ * through `RoomTabsContext`.
+ */
+export interface RoomTabsState {
+  /** The tabs the room's members added, in order. */
+  tabs: RoomTab[];
+  /** The tab shown: Messages, Files & links, or one of `tabs`, by id. Always Messages in a room that's gone. */
+  shown: ShownTab;
+  /** Shows a tab, going to its address. A link tab isn't shown, but opens its address in a new browser tab. */
+  show: (tab: ShownTab) => void;
+  /** Opens the dialog that adds a tab of `kind`. */
+  add: (kind: RoomTabKind) => void;
+  /** Opens Edit tabs, while there are tabs to edit. */
+  edit: () => void;
+  /** Whether the room is gone, which leaves it no tabs to show or add. */
+  deleted: boolean;
+  adding: RoomTabKind | null;
+  editing: boolean;
+  /** For the strip's dialogs: closing them, and what they change. */
+  closeDialogs: () => void;
+  setTabs: Dispatch<SetStateAction<RoomTab[]>>;
+  reload: () => void;
+}
+
+/** The tabs of room `room`, as its view keeps them; `deleted` says whether the room is gone. */
+export function useRoomTabs(room: Room, deleted: boolean, onFailed: (error: unknown) => void): RoomTabsState {
+  const [tabs, setTabs] = useState<RoomTab[]>([]);
+  const addressed = useShownTab();
+  const [adding, setAdding] = useState<RoomTabKind | null>(null);
+  const [editing, setEditing] = useState(false);
+  const reload = useCallback(() => {
+    if (!deleted) fetchTabs(room.id).then(setTabs, onFailed);
+  }, [room.id, deleted, onFailed]);
+  useEffect(reload, [reload]);
+  return {
+    tabs: deleted ? [] : tabs,
+    shown: deleted ? "messages" : addressed,
+    show: (tab) => navigate(addressShowing(tab)),
+    add: setAdding,
+    edit: () => setEditing(true),
+    deleted,
+    adding: deleted ? null : adding,
+    editing: !deleted && editing,
+    closeDialogs: () => {
+      setAdding(null);
+      setEditing(false);
+    },
+    setTabs,
+    reload,
+  };
+}
+
+/** The tabs of the room shown, for a phone's tab sheet, or null outside a room. */
+export const RoomTabsContext = createContext<RoomTabsState | null>(null);
+
 interface Props {
   room: Room;
   me: Me;
-  /** Whether the room is gone, deleted or no longer this person's, which leaves its messages alone to show. */
-  deleted: boolean;
+  /** The room's tabs, from `useRoomTabs`. */
+  state: RoomTabsState;
   /** Says why tabs couldn't load or change, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
 }
@@ -48,11 +105,8 @@ interface Props {
  * and picking one goes to its address. A link tab opens its address in a new browser tab rather than
  * showing in place.
  */
-export function RoomTabs({ room, me, deleted, onFailed }: Props) {
-  const [tabs, setTabs] = useState<RoomTab[]>([]);
-  const shown = useShownTab();
-  const [adding, setAdding] = useState<RoomTabKind | null>(null);
-  const [editing, setEditing] = useState(false);
+export function RoomTabs({ room, me, state, onFailed }: Props) {
+  const { tabs, shown, deleted, adding, editing, setTabs, reload } = state;
   const [menuOpen, setMenuOpen] = useState(false);
   /** Closes the + menu, then does what was picked in it. */
   const pick = (act: () => void) => {
@@ -61,14 +115,9 @@ export function RoomTabs({ room, me, deleted, onFailed }: Props) {
   };
   const strip = useRef<HTMLDivElement>(null);
 
-  const reload = useCallback(() => {
-    if (!deleted) fetchTabs(room.id).then(setTabs, onFailed);
-  }, [room.id, deleted, onFailed]);
-  useEffect(reload, [reload]);
-
   // What the shown tab covers can't be reached until Messages shows again. A room that's gone shows its
   // messages, as they were, and nothing else.
-  const covering = !deleted && shown !== "messages";
+  const covering = shown !== "messages";
   useLayoutEffect(() => {
     const wrapper = strip.current?.parentElement;
     if (!wrapper) return;
@@ -76,7 +125,7 @@ export function RoomTabs({ room, me, deleted, onFailed }: Props) {
   }, [covering]);
 
   const custom = tabs.find((tab) => tab.id === shown);
-  const select = (tab: ShownTab) => navigate(addressShowing(tab));
+  const select = state.show;
   /** Shows Messages in place of a tab that's gone, as if it had never been. */
   const leaveGoneTab = () => navigate(addressShowing("messages"), { replace: true });
   const added = (tab: RoomTab) => {
@@ -133,7 +182,7 @@ export function RoomTabs({ room, me, deleted, onFailed }: Props) {
             {ADDABLE.map(({ kind, label }) => {
               const Icon = TAB_ICONS[kind];
               return (
-                <button key={kind} type="button" onClick={() => pick(() => setAdding(kind))} className={MENU_ITEM}>
+                <button key={kind} type="button" onClick={() => pick(() => state.add(kind))} className={MENU_ITEM}>
                   <Icon className="size-4" />
                   {label}
                 </button>
@@ -142,7 +191,7 @@ export function RoomTabs({ room, me, deleted, onFailed }: Props) {
             {tabs.length > 0 && (
               <>
                 <hr className="-mx-1 my-1 border-t" />
-                <button type="button" onClick={() => pick(() => setEditing(true))} className={MENU_ITEM}>
+                <button type="button" onClick={() => pick(state.edit)} className={MENU_ITEM}>
                   Edit tabs
                 </button>
               </>
@@ -175,7 +224,7 @@ export function RoomTabs({ room, me, deleted, onFailed }: Props) {
       )}
       {adding && (
         <Suspense fallback={null}>
-          <AddTabDialog room={room} me={me} kind={adding} onClose={() => setAdding(null)} onAdded={added} onFailed={onFailed} />
+          <AddTabDialog room={room} me={me} kind={adding} onClose={state.closeDialogs} onAdded={added} onFailed={onFailed} />
         </Suspense>
       )}
       {editing && (
@@ -183,7 +232,7 @@ export function RoomTabs({ room, me, deleted, onFailed }: Props) {
           <EditTabsDialog
             room={room}
             tabs={tabs}
-            onClose={() => setEditing(false)}
+            onClose={state.closeDialogs}
             onSaved={(next) => {
               setTabs(next);
               if (shown !== "messages" && shown !== "files" && !next.some((tab) => tab.id === shown)) leaveGoneTab();

@@ -55,7 +55,7 @@ describe("Members", () => {
     const rows = within(within(dialog).getByRole("list", { name: "Members" })).getAllByRole("link");
     expect(rows.map((row) => row.textContent)).toEqual(["Ada Lovelace (you)Analytical engines", "Grace Hopper, here nowCompilers"]);
     expect(rows[1]).toHaveAttribute("href", "/users/grace");
-    expect(within(dialog).getByText("Members 2")).toBeInTheDocument();
+    expect(dialog).toHaveAccessibleDescription("2 members");
     expect(within(dialog).queryByRole("button", { name: "Add people" })).not.toBeInTheDocument();
   });
 
@@ -71,12 +71,61 @@ describe("Members", () => {
     history.replaceState(null, "", "/");
   });
 
-  it("finds people by name", async () => {
+  it("gives focus back to the button as Escape or × closes it", async () => {
+    serve(settings(false));
+    renderButton(plans);
+    const button = await screen.findByRole("button", { name: /View members, 2/ });
+    await userEvent.click(button);
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(button).toHaveFocus());
+    await userEvent.click(button);
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(button).toHaveFocus());
+  });
+
+  it("finds people by each of the words typed, in any order", async () => {
     serve(settings(false));
     renderButton(plans);
     await userEvent.click(await screen.findByRole("button", { name: /View members, 2/ }));
-    await userEvent.type(screen.getByRole("searchbox", { name: "Find people" }), "grace");
+    await userEvent.type(screen.getByRole("searchbox", { name: "Find people" }), "hopper grace");
     expect(within(screen.getByRole("list", { name: "Members" })).getAllByRole("link").map((row) => row.textContent)).toEqual(["Grace Hopper, here nowCompilers"]);
+    await userEvent.type(screen.getByRole("searchbox", { name: "Find people" }), " x");
+    expect(screen.getByText("No matches")).toBeInTheDocument();
+  });
+
+  it("goes along the people with the arrow keys, and opens the only one found with Enter", async () => {
+    serve(settings(false));
+    renderButton(plans);
+    await userEvent.click(await screen.findByRole("button", { name: /View members, 2/ }));
+    const search = screen.getByRole("searchbox", { name: "Find people" });
+    const [you, grace] = within(screen.getByRole("list", { name: "Members" })).getAllByRole("link");
+    search.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(you).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+    expect(grace).toHaveFocus();
+    await userEvent.keyboard("{ArrowUp}{ArrowUp}");
+    expect(search).toHaveFocus();
+    await userEvent.type(search, "grace{Enter}");
+    expect(location.pathname).toBe("/users/grace");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    history.replaceState(null, "", "/");
+  });
+
+  it("marks bots, after the people", async () => {
+    const bot = { id: "deploy", name: "Deploy Bot" };
+    const withBot = new Map(people).set(bot.id, { ...listed(bot), role: "bot" });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      Response.json({ ...settings(false), people: [{ ...ada, member: true }, { ...bot, member: true }, { ...grace, member: true }] }),
+    );
+    render(
+      <PeopleContext value={withBot}>
+        <MembersButton room={plans} me={ada} present={[]} onFailed={vi.fn()} />
+      </PeopleContext>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: /View members, 3/ }));
+    const rows = within(screen.getByRole("list", { name: "Members" })).getAllByRole("link");
+    expect(rows.map((row) => row.textContent)).toEqual(["Ada Lovelace (you)Analytical engines", "Grace HopperCompilers", "Deploy Bot Bot"]);
   });
 
   it("adds people to a private room for whoever can change it, as its settings save its members", async () => {
@@ -87,7 +136,7 @@ describe("Members", () => {
     await userEvent.click(screen.getByRole("checkbox", { name: "Linus Torvalds" }));
     await userEvent.click(screen.getByRole("button", { name: "Add" }));
     expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/rooms/plans", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ kind: "closed", memberIds: ["ada", "grace", "linus"] }) }));
-    await waitFor(() => expect(screen.getByText("Members 3")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("dialog")).toHaveAccessibleDescription("3 members"));
     await userEvent.keyboard("{Escape}");
     expect(screen.getByRole("button", { name: "View members, 3 members" })).toBeInTheDocument();
   });
