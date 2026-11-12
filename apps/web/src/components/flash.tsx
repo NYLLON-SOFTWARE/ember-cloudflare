@@ -1,10 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
-import { CheckCircle, WarningTriangle } from "@/components/icons/iconoir";
+import { CheckCircle, WarningTriangle, Xmark } from "@/components/icons/iconoir";
 import { takeFlashFromLastPage, type FlashMessage } from "@/lib/flash";
 import { cn } from "@/lib/utils";
 
+/** What a flash offers to do, which keeps it showing until it's done or dismissed. */
+export interface FlashAction {
+  label: string;
+  onClick: () => void;
+}
+
 /** Flashes a message over the page, in place of any still showing. */
-export type Flasher = (kind: FlashMessage["kind"], text: string) => void;
+export type Flasher = (kind: FlashMessage["kind"], text: string, action?: FlashAction) => void;
 
 const FlashContext = createContext<Flasher | null>(null);
 
@@ -15,8 +21,8 @@ const FlashContext = createContext<Flasher | null>(null);
  */
 export function FlashProvider({ workspace = false, children }: { workspace?: boolean; children: ReactNode }) {
   // Keyed, so the same message twice fades in again.
-  const [shown, setShown] = useState<(FlashMessage & { key: number }) | null>(null);
-  const flash = useCallback<Flasher>((kind, text) => setShown((current) => ({ kind, text, key: (current?.key ?? 0) + 1 })), []);
+  const [shown, setShown] = useState<(FlashMessage & { action?: FlashAction; key: number }) | null>(null);
+  const flash = useCallback<Flasher>((kind, text, action) => setShown((current) => ({ kind, text, action, key: (current?.key ?? 0) + 1 })), []);
 
   // What the page before a full page load left to flash.
   useEffect(() => {
@@ -44,9 +50,6 @@ export function FlashProvider({ workspace = false, children }: { workspace?: boo
 export const useOptionalFlash = (): Flasher | null => useContext(FlashContext);
 
 /** Flashes messages over the page, from inside a `FlashProvider`. */
-/** The flash, where there is one: none in a part of the app shown on its own, as in its tests. */
-export const useFlashIfAny = (): Flasher | null => useContext(FlashContext);
-
 export function useFlash(): Flasher {
   const flash = useContext(FlashContext);
   if (!flash) throw new Error("useFlash needs a FlashProvider around it");
@@ -63,11 +66,12 @@ export function useFlash(): Flasher {
  *   screen's width, as its flash.css centers it from the middle, and so wraps early on a phone;
  * - keeps 12px below the header, and centered on the page, where they make room for a notch.
  */
-function Flash({ message: { kind, text }, workspace, onDone }: { message: FlashMessage; workspace: boolean; onDone: () => void }) {
+function Flash({ message: { kind, text, action }, workspace, onDone }: { message: FlashMessage & { action?: FlashAction }; workspace: boolean; onDone: () => void }) {
   const Sign = kind === "alert" ? WarningTriangle : CheckCircle;
   return (
     <div
-      onAnimationEnd={onDone}
+      // One that offers to do something stays until it's done or dismissed.
+      onAnimationEnd={action ? undefined : onDone}
       // z-30: over the page, under menus and dialogs, and under the drawer on a phone, which is a modal
       // dialog here.
       className={cn(
@@ -80,12 +84,23 @@ function Flash({ message: { kind, text }, workspace, onDone }: { message: FlashM
         role="alert"
         aria-atomic="true"
         className={cn(
-          "flex min-h-12 min-w-12 animate-flash items-center justify-center gap-2.5 rounded-[10px] p-3 text-center text-white shadow-[0_8px_24px_#00000012] motion-reduce:animate-flash-still",
+          "flex min-h-12 min-w-12 items-center justify-center gap-2.5 rounded-[10px] p-3 text-center text-white shadow-[0_8px_24px_#00000012]",
+          action ? "pointer-events-auto" : "animate-flash motion-reduce:animate-flash-still",
           kind === "alert" ? "bg-negative" : "bg-positive",
         )}
       >
         <Sign className="size-6 flex-none" />
         {text === "✓" ? <span className="sr-only">Changes saved</span> : <span>{text}</span>}
+        {action && (
+          <>
+            <button type="button" onClick={action.onClick} className="min-h-11 cursor-pointer rounded-[8px] bg-white/20 px-3 font-semibold hover:bg-white/30">
+              {action.label}
+            </button>
+            <button type="button" aria-label="Dismiss" onClick={onDone} className="grid size-11 flex-none cursor-pointer place-items-center rounded-[8px] hover:bg-white/20">
+              <Xmark className="size-5" />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
