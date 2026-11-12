@@ -92,7 +92,23 @@ describe("Sub-rooms in the sidebar", () => {
 });
 
 describe("A collapsed parent's unread count", () => {
-  type Counted = SharedRoom & { unread: boolean; unreadCount?: number };
+  it("shows in the sidebar's pill the parent's and its sub-rooms' counts, or the dot when none are counted", async () => {
+    const counts = [{ ...strata, unread: true, unreadCount: 2 }, ...subRooms.map((sub) => (sub.unread ? { ...sub, unreadCount: 8 } : sub))];
+    renderSidebar({ rooms: [general, ...counts] });
+    await userEvent.click(toggle());
+    expect(within(roomsRegion()).getByRole("link", { name: /Strata/ })).toHaveAccessibleDescription(/^9\+ unread/);
+    expect(within(roomsRegion()).getByRole("link", { name: /Strata/ })).toHaveTextContent("9+");
+  });
+
+  it("keeps the dot on a collapsed parent whose unread sub-rooms count nothing", async () => {
+    renderSidebar();
+    await userEvent.click(toggle());
+    const parent = within(roomsRegion()).getByRole("link", { name: /Strata/ });
+    expect(parent).toHaveAccessibleDescription(/^Unread/);
+    expect(parent).not.toHaveTextContent(/\d/);
+  });
+
+  type Counted = SharedRoom & { unread: boolean; unreadCount?: number; unreadMentioned?: boolean };
   const counted = (room: Counted, unreadCount: number): Counted => ({ ...room, unread: true, unreadCount });
   /** The options the tree gives each room's row, by room. */
   function optionsOf(parent: Counted, subs: Counted[], collapsed: boolean) {
@@ -125,5 +141,15 @@ describe("A collapsed parent's unread count", () => {
     expect(optionsOf(counted(strata, 2), [counted(subRooms[0]!, 3)], false).get("strata")).not.toHaveProperty("count");
     expect(optionsOf(strata, [subRooms[1]!], true).get("strata")).toMatchObject({ unread: true });
     expect(optionsOf(strata, [subRooms[1]!], true).get("strata")).not.toHaveProperty("count");
+  });
+
+  it("says a collapsed parent is mentioned where it or an unread sub-room is, and leaves an expanded one its own", () => {
+    const mentioning = { ...counted(subRooms[0]!, 3), unreadMentioned: true };
+    expect(optionsOf(counted(strata, 2), [mentioning], true).get("strata")).toMatchObject({ count: 5, mentioned: true });
+    expect(optionsOf({ ...counted(strata, 2), unreadMentioned: true }, [counted(subRooms[0]!, 3)], true).get("strata")).toMatchObject({ mentioned: true });
+    expect(optionsOf(counted(strata, 2), [counted(subRooms[0]!, 3)], true).get("strata")).toMatchObject({ mentioned: false });
+    // Inventory, not marked unread, mentions no one the sidebar shows.
+    expect(optionsOf(counted(strata, 2), [{ ...subRooms[2]!, unreadCount: 4, unreadMentioned: true }], true).get("strata")).toMatchObject({ mentioned: false });
+    expect(optionsOf(counted(strata, 2), [mentioning], false).get("strata")).not.toHaveProperty("mentioned");
   });
 });
