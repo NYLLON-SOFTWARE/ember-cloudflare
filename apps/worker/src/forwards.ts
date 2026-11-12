@@ -1,5 +1,5 @@
 import { parseNewForward, threadPath, type Message, type RoomId } from "@ember/protocol";
-import { bodyFromPlainText, displayBody, quoteMarkup, type DisplayNode } from "@ember/richtext";
+import { bodyFromPlainText, quoteMarkup } from "@ember/richtext";
 import { credentialsOf } from "./auth";
 import { jsonBodyOf } from "./bodies";
 import { MESSAGE_GONE, type ChatRoom, type KeptFile } from "./chat-room";
@@ -8,6 +8,7 @@ import { objectKey, previewKey } from "./files/blobs";
 import type { ImageSize } from "./files/images";
 import { storeArriving } from "./files/streamed";
 import { NO_STORAGE, uploaderIn, type Uploader } from "./files/uploads";
+import { mentionedName, quotedNodes, quotedText } from "./forward-quotes";
 import { sortableId } from "./ids";
 
 // Forward message, as Slack's is: someone posts a message they can see into another conversation they're
@@ -37,23 +38,15 @@ function permalinkOf({ roomId, id, parentId }: Message, origin: string): string 
   return new URL(path, origin).href;
 }
 
-/** Whether there's text outside link previews, where a mention is the name it shows. */
-const hasText = (nodes: DisplayNode[]): boolean =>
-  nodes.some((node) => node.kind === "mention" || (node.kind === "text" ? node.value.trim() !== "" : node.kind === "element" && hasText(node.children)));
-
 /**
  * What a forward of `original` from the site `origin` posts: `note`, if there is one, then a quote of
  * what `original` shows, without its link previews and with each mention as the bare name it had, as
- * Quote quotes one, citing its author, when they wrote it and linking to it. A message that shows no text,
- * only link previews or a bot's cards, is quoted by its plain text, and a file message by its file's
- * name, under which its file shows.
+ * Quote quotes one, citing its author, when they wrote it and linking to it (forward-quotes.ts).
  */
 export function forwardMarkup(original: Message, note: string | undefined, origin: string, host: string): string {
-  const shown = original.attachment ? [] : displayBody(original.body, original.plainText, host);
-  const quoted: DisplayNode[] = hasText(shown) ? shown : [{ kind: "element", name: "p", attrs: {}, children: [{ kind: "text", value: original.plainText }] }];
   const citation = { author: original.creator.name, createdAt: original.createdAt, when: `${whenFormat.format(new Date(original.createdAt))} UTC`, link: permalinkOf(original, origin) };
-  const nameOf = (userId: string) => original.mentions.find((person) => person.id === userId)?.name ?? "☒";
-  return (note === undefined ? "" : bodyFromPlainText(note)) + quoteMarkup(quoted, citation, ({ userId }) => nameOf(userId));
+  const nameOf = mentionedName(original);
+  return (note === undefined ? "" : bodyFromPlainText(note)) + quoteMarkup(quotedNodes(original, host), citation, ({ userId }) => nameOf(userId));
 }
 
 /**
@@ -62,7 +55,7 @@ export function forwardMarkup(original: Message, note: string | undefined, origi
  * quote's time and link show only in the conversation, which shows the time in the reader's time zone.
  */
 export function forwardPlainText(original: Message, note: string | undefined): string {
-  return note === undefined ? (original.attachment?.name ?? original.plainText) : `${note} — forwarded from ${original.creator.name}`;
+  return note === undefined ? quotedText(original) : `${note} — forwarded from ${original.creator.name}`;
 }
 
 /**
