@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { ATTACH_BUTTON, ICON_BUTTON, SEND_HALF } from "./composer-buttons";
 import { PopoverMenu } from "./popover-menu";
 import { ScheduleMenu } from "./schedule-send";
-import { DIALOG_BACKDROP } from "./unsaved-changes";
+import { DIALOG_BACKDROP } from "./dialog-styles";
 
 // The buttons of the composer's bottom row, each a piece of its own, so a layout can place them as it
 // needs: +, Aa, Emoji, @ and Send with its schedule menu. Each keeps focus in the text, so a phone's
