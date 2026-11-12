@@ -17,7 +17,7 @@ const railAt = (current: RailPage, activity = activityOff, me = ada, newRelease:
 afterEach(() => history.replaceState(null, "", "/"));
 
 describe("Rail", () => {
-  it("puts Home, DMs, Activity, Files, Search, Workspace, appearance and your profile on the rail", () => {
+  it("puts Home, DMs, Activity, Files, To-dos, Search, Workspace, appearance and your profile on the rail", () => {
     render(railAt("home"));
     const rail = screen.getByRole("navigation", { name: "Workspace" });
     expect([...rail.querySelectorAll("a, button")].map((item) => item.getAttribute("aria-label") ?? item.textContent)).toEqual([
@@ -26,6 +26,7 @@ describe("Rail", () => {
       "DMs",
       "Activity",
       "Files",
+      "To-dos",
       "Search",
       "Workspace",
       "Appearance: System",
@@ -35,6 +36,7 @@ describe("Rail", () => {
     expect(within(rail).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
     expect(within(rail).getByRole("link", { name: "DMs" })).toHaveAttribute("href", "/dms");
     expect(within(rail).getByRole("link", { name: "Files" })).toHaveAttribute("href", "/files");
+    expect(within(rail).getByRole("link", { name: "To-dos" })).toHaveAttribute("href", "/todos");
     expect(within(rail).getByRole("link", { name: "Search" })).toHaveAttribute("href", "/searches");
     expect(within(rail).getByRole("link", { name: "Workspace" })).toHaveAttribute("href", "/account/edit");
     expect(within(rail).getByRole("link", { name: "Your profile" })).toHaveAttribute("href", "/users/me/profile");
@@ -116,6 +118,7 @@ describe("Rail", () => {
       DMs: "iconoir-multi-bubble",
       Activity: "iconoir-bell",
       Files: "iconoir-multiple-pages",
+      "To-dos": "iconoir-check-circle",
       Search: "iconoir-search",
       Workspace: "iconoir-box",
       "Appearance: System": "iconoir-computer",

@@ -27,6 +27,7 @@ import {
   MEMBERFUL_WEBHOOK_PATH,
   NAME_RESERVED,
   NO_EMAIL_DOMAINS,
+  NOTE_FILES_PATH,
   PASSWORD_RESET_PATH,
   PASSWORD_WITH_MEMBERFUL,
   isPasswordTooLong,
@@ -181,6 +182,7 @@ import { RECOVERY_PATH, resetPassword } from "./recovery";
 import { releaseCheck } from "./releases";
 import { urlOf } from "./request-url";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
+import { changeSaved, clearSaved, keepSaved, listSaved, savedMarks, showSaved, uploadNoteFile } from "./saved";
 import { clearSearches, recordSearch, searchMessages } from "./searches";
 import { directPreviews, listedThreads, listScheduled } from "./conversations";
 import { libraryAction } from "./library";
@@ -1285,6 +1287,15 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/searches" && request.method === "GET") return () => searchMessages(request, env);
   if (pathname === "/api/searches" && request.method === "POST") return () => recordSearch(request, env);
   if (pathname === "/api/searches" && request.method === "DELETE") return () => clearSearches(request, env);
+  if (pathname === "/api/saved" && request.method === "GET") return () => listSaved(request, env);
+  if (pathname === "/api/saved" && request.method === "POST") return () => keepSaved(request, env);
+  if (pathname === "/api/saved/marks" && request.method === "GET") return () => savedMarks(request, env);
+  if (pathname === NOTE_FILES_PATH && request.method === "POST") return () => uploadNoteFile(request, env);
+  // Items' ids are sortable ids, which never need percent-encoding, so an encoded segment names none.
+  const savedItem = pathname.match(/^\/api\/saved\/([0-9a-z]+)$/);
+  if (savedItem && request.method === "GET") return () => showSaved(request, env, savedItem[1]!);
+  if (savedItem && request.method === "PATCH") return () => changeSaved(request, env, savedItem[1]!);
+  if (savedItem && request.method === "DELETE") return () => clearSaved(request, env, savedItem[1]!);
   if (pathname === "/api/push-subscriptions" && request.method === "GET") return () => listPushSubscriptions(request, env);
   if (pathname === "/api/push-subscriptions" && request.method === "POST") return () => savePushSubscription(request, env);
   const pushSubscription = pathname.match(/^\/api\/push-subscriptions\/([^/]+)$/);
