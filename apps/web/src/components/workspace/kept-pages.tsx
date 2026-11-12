@@ -75,8 +75,8 @@ const NO_EDITORS: MessageEditors = { open() {}, close() {}, returnFocus() {}, at
 
 /** What each list calls itself, and one of its items. */
 const NAMES = {
-  todo: { title: "To-dos", item: "To-do", empty: "Nothing to do. Add a to-do, or add a message to your to-dos from its actions.", select: "Select a to-do to view details." },
-  saved: { title: "Saved", item: "Saved item", empty: "Nothing saved yet. Save a message or a file from its actions.", select: "Select an item to view it." },
+  todo: { title: "To-dos", item: "To-do", empty: "No to-dos", select: "Select a to-do to view details." },
+  saved: { title: "Saved", item: "Saved item", empty: "Nothing saved", select: "Select an item to view it." },
 } as const satisfies Record<SavedList, Record<string, string>>;
 
 const TOOLBAR_BUTTON =
@@ -254,7 +254,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
         {items === null ? (
           <p className="p-6 text-center text-muted-foreground">Loading…</p>
         ) : shown.length === 0 ? (
-          <p className="p-6 text-center text-muted-foreground">{filter === "all" ? names.empty : "Nothing matches this filter."}</p>
+          <p className="p-6 text-center text-muted-foreground">{filter === "all" ? names.empty : "Nothing matches"}</p>
         ) : list === "todo" ? (
           <>
             <Section title="In progress" count={inProgress.length}>
@@ -426,7 +426,10 @@ function KeptRow({ item, list, selected, origin, me, actions }: { item: SavedIte
         aria-current={selected ? "true" : undefined}
         className="min-w-0 flex-1 cursor-pointer text-left after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-foreground"
       >
-        <span className={cn("block truncate text-[15px]", gone && "text-muted-foreground italic", done && "text-muted-foreground line-through")}>{summaryOf(item)}</span>
+        <span className={cn("block truncate text-[15px]", gone && "text-muted-foreground italic", done && "text-muted-foreground line-through")}>
+          {done && <span className="sr-only">Completed: </span>}
+          {summaryOf(item)}
+        </span>
         <span className="block truncate text-[13px] text-muted-foreground">
           {file && item.message && (
             <>
@@ -437,15 +440,20 @@ function KeptRow({ item, list, selected, origin, me, actions }: { item: SavedIte
           <time dateTime={date} title={dateTimeLabel(new Date(date))}>
             {dateLabel(new Date(date))}
           </time>
-          {item.remindAt && (
+          {item.remindAt && !done && (
             <>
               {" · "}
-              <Clock className="inline size-3.5 align-[-2px]" /> {dateTimeLabel(new Date(item.remindAt))}
+              {item.reminded ? (
+                <span className="text-negative">Overdue</span>
+              ) : (
+                <>
+                  <Clock className="inline size-3.5 align-[-2px]" /> {dateTimeLabel(new Date(item.remindAt))}
+                </>
+              )}
             </>
           )}
         </span>
       </button>
-      {list === "todo" && done && <CheckCircleSolid aria-label="Completed" className="relative size-5 shrink-0 self-center text-positive" />}
       <RowActionBar item={item} list={list} actions={actions} />
     </li>
   );
@@ -601,7 +609,7 @@ function ItemDetail({ item, me, origin, actions, onChanged, onFailed }: ItemDeta
       {item.kind === "note" ? (
         <NoteEditor item={item} onSaved={onChanged} onFailed={onFailed} />
       ) : item.unavailable ? (
-        <p className="text-muted-foreground">This message is in a conversation you can no longer see.</p>
+        <p className="text-muted-foreground">This message is unavailable.</p>
       ) : !item.message ? (
         <p className="text-muted-foreground italic">This message was deleted.</p>
       ) : (
@@ -617,10 +625,6 @@ function ItemDetail({ item, me, origin, actions, onChanged, onFailed }: ItemDeta
       )}
       {item.list === "todo" && (
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className={TOOLBAR_BUTTON} onClick={() => actions.complete(item)}>
-            {item.completedAt === null ? <CheckCircle className="size-4" /> : <CheckCircleSolid className="size-4" />}
-            {item.completedAt === null ? "Mark completed" : "Mark in progress"}
-          </button>
           <ReminderMenu item={item} onRemind={(at) => actions.remind(item, at)}>
             <DropdownMenuTrigger className={TOOLBAR_BUTTON}>
               <Clock className="size-4" />

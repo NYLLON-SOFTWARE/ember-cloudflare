@@ -616,7 +616,7 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
 /** What an item's row says it is. */
 function preview(item: ActivityItem): string {
   if (item.kind === "invitation") return "Added you";
-  if (item.kind === "reminder") return `Reminder: ${item.preview || "a message you added to your to-dos"}`;
+  if (item.kind === "reminder") return `Reminder: ${item.preview || "a message"}`;
   if (item.kind === "reaction") return `Reacted ${item.content ?? ""} to “${item.preview}”`;
   return item.preview || "(a file)";
 }

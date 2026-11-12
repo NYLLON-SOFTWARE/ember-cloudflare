@@ -29,6 +29,8 @@ export interface StoredSavedItem {
   files: KeptNoteFile[];
   completedAt: string | null;
   remindAt: number | null;
+  /** Whether its reminder has gone off. */
+  reminded: boolean;
   createdAt: string;
   updatedAt: string;
   available: boolean;
@@ -80,6 +82,7 @@ interface SavedRow {
   files: string | null;
   completed_at: string | null;
   remind_at: number | null;
+  reminded_at: number | null;
   created_at: string;
   updated_at: string;
   available: number;
@@ -87,7 +90,7 @@ interface SavedRow {
 
 /** The item's columns, with whether its person is in its message's room, which a note always is. */
 const ITEM_COLUMNS = `saved_items.id, saved_items.list, saved_items.kind, saved_items.room_id, saved_items.message_id, saved_items.body,
-  saved_items.plain_text, saved_items.files, saved_items.completed_at, saved_items.remind_at, saved_items.created_at, saved_items.updated_at,
+  saved_items.plain_text, saved_items.files, saved_items.completed_at, saved_items.remind_at, saved_items.reminded_at, saved_items.created_at, saved_items.updated_at,
   (saved_items.room_id IS NULL OR EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = saved_items.room_id AND memberships.user_id = saved_items.user_id)) AS available`;
 
 /** Person ?1's items in list ?2, newest first, ?3 at most. */
@@ -102,8 +105,13 @@ const ITEM_OF_MESSAGE = `SELECT ${ITEM_COLUMNS} FROM saved_items WHERE user_id =
 /** The messages person ?1 keeps in either list, ?2 at most, oldest first. */
 const MARKS = `SELECT id, list, message_id FROM saved_items WHERE user_id = ?1 AND message_id IS NOT NULL ORDER BY created_at, id LIMIT ?2`;
 
-/** How many of person ?1's to-dos are in progress. */
-const OPEN_TODOS = `SELECT count(*) AS open FROM saved_items WHERE user_id = ?1 AND list = 'todo' AND completed_at IS NULL`;
+/**
+ * How many of person ?1's to-dos are in progress, and of those, how many are overdue, their reminders gone
+ * off, and how many items they've saved.
+ */
+const COUNTS = `SELECT (SELECT count(*) FROM saved_items WHERE user_id = ?1 AND list = 'todo' AND completed_at IS NULL) AS open,
+  (SELECT count(*) FROM saved_items WHERE user_id = ?1 AND list = 'todo' AND completed_at IS NULL AND reminded_at IS NOT NULL) AS overdue,
+  (SELECT count(*) FROM saved_items WHERE user_id = ?1 AND list = 'saved') AS saved`;
 
 /** Whether person ?1 is in room ?2, and how many items they keep in list ?3. */
 const ROOM_AND_COUNT = `SELECT EXISTS (SELECT 1 FROM memberships WHERE room_id = ?2 AND user_id = ?1) AS member,
@@ -130,21 +138,22 @@ const MOVE = `UPDATE saved_items SET list = ?3, updated_at = ?4
     AND (SELECT count(*) FROM saved_items WHERE user_id = ?1 AND list = ?3) < ?5`;
 
 const COMPLETE = `UPDATE saved_items SET completed_at = ?3, updated_at = ?4 WHERE id = ?2 AND user_id = ?1`;
-const REMIND = `UPDATE saved_items SET remind_at = ?3, updated_at = ?4 WHERE id = ?2 AND user_id = ?1`;
+const REMIND = `UPDATE saved_items SET remind_at = ?3, reminded_at = NULL, updated_at = ?4 WHERE id = ?2 AND user_id = ?1`;
 const REWRITE_NOTE = `UPDATE saved_items SET body = ?3, plain_text = ?4, updated_at = ?5 WHERE id = ?2 AND user_id = ?1 AND kind = 'note'`;
 const REFILE_NOTE = `UPDATE saved_items SET files = ?3, updated_at = ?4 WHERE id = ?2 AND user_id = ?1 AND kind = 'note'`;
 
 /** Forgets person ?1's item ?2, answering its files. */
 const CLEAR = `DELETE FROM saved_items WHERE id = ?2 AND user_id = ?1 RETURNING files`;
 
-/** The reminders due at ?1, ?2 at most, the earliest first. */
-const DUE_REMINDERS = `SELECT id, user_id, list, kind, room_id, message_id, plain_text FROM saved_items WHERE remind_at <= ?1 ORDER BY remind_at LIMIT ?2`;
+/** The reminders yet to go off that are due at ?1, ?2 at most, the earliest first. */
+const DUE_REMINDERS = `SELECT id, user_id, list, kind, room_id, message_id, plain_text FROM saved_items
+  WHERE remind_at <= ?1 AND remind_at IS NOT NULL AND reminded_at IS NULL ORDER BY remind_at LIMIT ?2`;
 
-/** Clears the reminders of items ?1, a JSON list, that were due at ?2, leaving any set again since for later. */
-const SETTLE_REMINDERS = `UPDATE saved_items SET remind_at = NULL WHERE id IN (SELECT value FROM json_each(?1)) AND remind_at <= ?2`;
+/** Records that the reminders of items ?1, a JSON list, due at ?2, went off then, leaving any set again since for later. */
+const SETTLE_REMINDERS = `UPDATE saved_items SET reminded_at = ?2 WHERE id IN (SELECT value FROM json_each(?1)) AND remind_at <= ?2 AND reminded_at IS NULL`;
 
-/** When the next reminder is due. */
-export const NEXT_REMINDER_DUE = `SELECT min(remind_at) FROM saved_items`;
+/** When the next reminder yet to go off is due. */
+export const NEXT_REMINDER_DUE = `SELECT min(remind_at) FROM saved_items WHERE remind_at IS NOT NULL AND reminded_at IS NULL`;
 
 /**
  * Person ?1's push subscriptions, if they're active, for a reminder, with the count each sets the badge
@@ -176,6 +185,7 @@ const itemOf = (row: SavedRow): StoredSavedItem => ({
   files: filesOf(row.files),
   completedAt: row.completed_at,
   remindAt: row.remind_at,
+  reminded: row.reminded_at !== null,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
   available: row.available === 1,
@@ -200,13 +210,18 @@ export class SavedStore {
     return row ? itemOf(row) : null;
   }
 
-  /** The messages someone keeps, in either list, and how many of their to-dos are in progress. */
+  /** The messages someone keeps, in either list, and how many to-dos and saved items they have. */
   async marks(userId: UserId): Promise<SavedMarks> {
-    const [rows, [open]] = (await this.db.batch([statement(MARKS, userId, 2 * MAX_SAVED_ITEMS), statement(OPEN_TODOS, userId)])) as [
+    const [rows, [counts]] = (await this.db.batch([statement(MARKS, userId, 2 * MAX_SAVED_ITEMS), statement(COUNTS, userId)])) as [
       Array<{ id: string; list: SavedList; message_id: string }>,
-      Array<{ open: number }>,
+      Array<{ open: number; overdue: number; saved: number }>,
     ];
-    return { marks: rows.map((row) => ({ id: row.id, list: row.list, messageId: row.message_id })), openTodos: open?.open ?? 0 };
+    return {
+      marks: rows.map((row) => ({ id: row.id, list: row.list, messageId: row.message_id })),
+      openTodos: counts?.open ?? 0,
+      overdueTodos: counts?.overdue ?? 0,
+      savedItems: counts?.saved ?? 0,
+    };
   }
 
   /**
@@ -272,7 +287,7 @@ export class SavedStore {
     return rows.map((row) => ({ id: row.id, userId: row.user_id, list: row.list, kind: row.kind, roomId: row.room_id, messageId: row.message_id, plainText: row.plain_text }));
   }
 
-  /** Clears the reminders of `ids` that were due at `now`. */
+  /** Records that the reminders of `ids` due at `now` went off. */
   async settleReminders(ids: string[], now: number): Promise<void> {
     if (ids.length > 0) await this.db.run(SETTLE_REMINDERS, JSON.stringify(ids), now);
   }

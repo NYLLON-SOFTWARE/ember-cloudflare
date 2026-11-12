@@ -35,8 +35,9 @@ async function marksOf(session: Session): Promise<SavedMark[]> {
   return ((await (await api("/api/saved/marks", as(session))).json()) as SavedMarks).marks;
 }
 
-async function openTodosOf(session: Session): Promise<number> {
-  return ((await (await api("/api/saved/marks", as(session))).json()) as SavedMarks).openTodos;
+async function countsOf(session: Session): Promise<Omit<SavedMarks, "marks">> {
+  const { marks: _, ...counts } = (await (await api("/api/saved/marks", as(session))).json()) as SavedMarks;
+  return counts;
 }
 
 /** Posts `text` in `room` as `session`, answering the message. */
@@ -161,8 +162,12 @@ describe("Keeping messages", () => {
     const gracesTab = await openWorkspaceSocket(grace);
 
     const item = await kept(ada, { list: "saved", roomId: room, messageId: message.id });
-    expect(await tab.next()).toEqual({ type: "saved.changed", marks: [{ id: item.id, list: "saved", messageId: message.id }], openTodos: 0 } satisfies WorkspaceServerFrame);
-    expect(await gracesTab.answers()).toBe(true);
+    expect(await tab.next()).toEqual({ type: "saved.changed", marks: [{ id: item.id, list: "saved", messageId: message.id }], openTodos: 0, overdueTodos: 0, savedItems: 1 } satisfies WorkspaceServerFrame);
+    // Grace hears of Ada's message in their room, and of nothing Ada keeps.
+    gracesTab.send(JSON.stringify({ type: "ping", nonce: crypto.randomUUID() }));
+    const heard: string[] = [];
+    for (let frame = await gracesTab.next(); frame.type !== "pong"; frame = await gracesTab.next()) heard.push(frame.type);
+    expect(heard).not.toContain("saved.changed");
   });
 });
 
@@ -173,9 +178,9 @@ describe("To-dos of your own", () => {
     expect(note).toMatchObject({ list: "todo", kind: "note", plainText: "Call Grace", files: [] });
     expect(note.body).toContain("<strong>Grace</strong>");
 
-    expect(await openTodosOf(ada)).toBe(1);
+    expect(await countsOf(ada)).toEqual({ openTodos: 1, overdueTodos: 0, savedItems: 0 });
     expect((await changed(ada, note.id, { completed: true })).completedAt).not.toBeNull();
-    expect(await openTodosOf(ada)).toBe(0);
+    expect(await countsOf(ada)).toEqual({ openTodos: 0, overdueTodos: 0, savedItems: 0 });
     expect((await changed(ada, note.id, { completed: false, body: "<p>Call Lin</p>" })).plainText).toBe("Call Lin");
     expect((await change(ada, note.id, { list: "saved" })).status).toBe(422);
     expect(await marksOf(ada)).toEqual([]);
@@ -245,8 +250,15 @@ describe("Reminders", () => {
     expect(pushed).toEqual([endpoint]);
     const added = await tab.next();
     expect(added).toMatchObject({ type: "activity.added", items: [{ kind: "reminder", roomId: "", messageId: null, actorId: ada.user.id, preview: "Stand-up", content: note.id, read: false }] });
-    expect(await tab.next()).toEqual({ type: "saved.changed", marks: [], openTodos: 1 });
-    expect((await listOf(ada, "todo"))[0]!.remindAt).toBeNull();
+    expect(await tab.next()).toEqual({ type: "saved.changed", marks: [], openTodos: 1, overdueTodos: 1, savedItems: 0 });
+    // It keeps its time, gone off, and is overdue until it's completed or given another reminder.
+    expect((await listOf(ada, "todo"))[0]).toMatchObject({ remindAt: expect.any(String), reminded: true });
+    expect(pushed).toEqual([endpoint]);
+    await runDurableObjectAlarm(workspaceStub());
+    expect(pushed).toEqual([endpoint]);
+    const later = new Date(Date.now() + 120_000).toISOString();
+    expect(await changed(ada, note.id, { remindAt: later })).not.toHaveProperty("reminded");
+    expect((await countsOf(ada)).overdueTodos).toBe(0);
     const activity = (await (await api("/api/activity", as(ada))).json()) as ActivityPage;
     expect(activity.items.map(({ kind, content }) => [kind, content])).toEqual([["reminder", note.id]]);
   });

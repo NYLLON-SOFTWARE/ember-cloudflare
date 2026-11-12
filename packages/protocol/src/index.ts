@@ -7,7 +7,7 @@ import type { AgentProfile } from "./agents.ts";
 import type { AssistantSettings, YourAssistant } from "./assistant.ts";
 import { isActionId, isActionValue, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
-import type { SavedMark } from "./saved.ts";
+import type { SavedMarks } from "./saved.ts";
 import type { HuddlesSettings, LiveHuddle } from "./huddles.ts";
 import type { Canvas } from "./library.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
@@ -1904,10 +1904,10 @@ export type WorkspaceServerFrame =
   | { type: "activity.updated"; items: ActivityItem[] }
   /**
    * They've changed their To-dos or Saved, in this tab or another, or a reminder of theirs has gone off:
-   * the messages kept in their lists now, so each message's actions say Add or Remove, and how many of
-   * their to-dos are in progress, for To-dos' badge, and the lists' pages load again.
+   * the messages kept in their lists now, so each message's actions say Add or Remove, and their lists'
+   * counts, and the lists' pages load again.
    */
-  | { type: "saved.changed"; marks: SavedMark[]; openTodos: number }
+  | ({ type: "saved.changed" } & SavedMarks)
   | { type: "error"; message: string }
   | { type: "pong" };
 

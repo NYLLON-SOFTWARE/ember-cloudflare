@@ -4069,9 +4069,9 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Pushes the reminders due now, up to `DELIVERIES_PER_RUN`, to their people's browsers, and clears
-   * them, so each goes off once, whether or not a push could be sent: a reminder isn't worth trying again
-   * hours late. Each person's tabs hear of it, so the item's reminder goes from their lists.
+   * Pushes the reminders due now, up to `DELIVERIES_PER_RUN`, to their people's browsers, and records
+   * that they went off, so each goes off once, whether or not a push could be sent: a reminder isn't worth trying again
+   * hours late. Each person's tabs hear of it, so the to-do shows as overdue.
    */
   private async deliverReminders(): Promise<void> {
     const now = Date.now();

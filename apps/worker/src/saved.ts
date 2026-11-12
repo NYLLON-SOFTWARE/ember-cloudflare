@@ -85,6 +85,7 @@ async function shownItem(env: Env, item: StoredSavedItem, messages: Map<string, 
     kind: item.kind,
     completedAt: item.completedAt,
     remindAt: item.remindAt === null ? null : new Date(item.remindAt).toISOString(),
+    ...(item.reminded && { reminded: true }),
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };

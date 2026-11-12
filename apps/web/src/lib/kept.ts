@@ -41,7 +41,7 @@ export function shows(filter: KeptFilter, item: SavedItem): boolean {
     case "notes":
       return item.kind === "note";
     case "reminders":
-      return item.remindAt !== null;
+      return item.remindAt !== null && item.completedAt === null;
   }
 }
 
@@ -61,7 +61,7 @@ export function sorted(items: SavedItem[], sort: KeptSort): SavedItem[] {
 /** What a row says of where its message is: "#general", "Thread in #general", "DM with Ada and Grace", or nothing. */
 export function originOf(item: SavedItem, rooms: ReadonlyMap<string, Room>, meId: UserId, nameOf: (user: User) => string): string {
   if (item.kind === "note") return "";
-  if (item.unavailable) return "A conversation you can no longer see";
+  if (item.unavailable) return "";
   const room = item.roomId === undefined ? undefined : rooms.get(item.roomId);
   if (!room) return "";
   const place = room.kind === "direct" ? `DM with ${toSentence(membersShown(room, meId).map(nameOf)) || "yourself"}` : `#${room.name}`;

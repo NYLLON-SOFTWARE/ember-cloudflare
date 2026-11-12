@@ -40,9 +40,9 @@ describe("originOf", () => {
     expect(originOf(item({ roomId: "general", message: message({ parentId: "p" }) }), rooms, "me", nameOf)).toBe("Thread in #general");
   });
 
-  it("says nothing of a note, and that an unavailable item's room can't be seen", () => {
+  it("says nothing of a note, nor of an unavailable item's room, which its summary says it is", () => {
     expect(originOf(item({ kind: "note" }), rooms, "me", nameOf)).toBe("");
-    expect(originOf(item({ roomId: "gone", unavailable: true }), rooms, "me", nameOf)).toBe("A conversation you can no longer see");
+    expect(originOf(item({ roomId: "gone", unavailable: true }), rooms, "me", nameOf)).toBe("");
   });
 });
 
