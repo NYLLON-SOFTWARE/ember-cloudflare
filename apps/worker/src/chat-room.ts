@@ -6,7 +6,7 @@ import {
   isMessageTooLong,
   MAX_BOOST_LENGTH,
   MAX_MESSAGE_HTML_LENGTH,
-  MAX_SCHEDULE_AHEAD_MS,
+  latestScheduleTime,
   MAX_SCHEDULED_MESSAGES,
   MESSAGE_TOO_LONG,
   parseClientFrame,
@@ -1300,7 +1300,7 @@ export class ChatRoom extends DurableObject<Env> {
     }
     if (frame.type === "scheduled.create" || frame.type === "scheduled.update") {
       const now = Date.now();
-      if (frame.sendAt <= now || frame.sendAt > now + MAX_SCHEDULE_AHEAD_MS) return refuse(BAD_SEND_TIME);
+      if (frame.sendAt <= now || frame.sendAt > latestScheduleTime(now)) return refuse(BAD_SEND_TIME);
     }
     switch (frame.type) {
       case "scheduled.create": {

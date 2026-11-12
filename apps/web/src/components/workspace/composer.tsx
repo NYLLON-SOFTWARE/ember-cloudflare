@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { flushSync } from "react-dom";
-import { isWebImage, MAX_FILE_SIZE, type Message, type ShareWidening, type User } from "@ember/protocol";
+import { isWebImage, MAX_FILE_SIZE, reachesMore, type Message, type ShareWidening, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
 import { ArrowUp, Lock, Page, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
@@ -461,15 +461,15 @@ export function Composer({
     onSave(body);
   };
 
-  // A file from Files in Ember that would now reach more people than when it was attached, as the room it
+  // A file from Files in Ember that would now reach people it wasn't attached knowing about, as the room it
   // was in, or this one, changed since, while the warning asks again.
   const [sendWarning, setSendWarning] = useState<{ shared: EmberFile; widening: ShareWidening } | null>(null);
-  // Asks again, as files from Files in Ember go, who'd see each anew, and warns again where that's more than
-  // it was attached knowing. A check that can't be made doesn't hold them up, as the room checks access too.
+  // Asks again, as files from Files in Ember go, who'd see each anew, and warns again where that's anyone
+  // it wasn't attached knowing about. A check that can't be made doesn't hold them up, as the room checks access too.
   const checkThenSubmit = async (shared: EmberFile[]) => {
     for (const file of shared) {
       const now = await checkShare(file.roomId, roomId).catch(() => null);
-      if (now?.widens && now.newViewers > (file.accepted ?? 0)) return setSendWarning({ shared: file, widening: now });
+      if (now && reachesMore(now, file.accepted)) return setSendWarning({ shared: file, widening: now });
     }
     submit(true);
   };

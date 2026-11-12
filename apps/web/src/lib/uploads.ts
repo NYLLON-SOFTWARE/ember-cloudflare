@@ -1,4 +1,4 @@
-import { FILE_TOO_LARGE, MAX_FILE_SIZE, sharedFilesPath, uploadPartPath, uploadPreviewPath, uploadsPath, type Message, type RoomId, type StoredFile, type Upload } from "@ember/protocol";
+import { FILE_TOO_LARGE, MAX_FILE_SIZE, sharedFilesPath, uploadPartPath, uploadPreviewPath, uploadsPath, type Message, type RoomId, type ShareWidening, type StoredFile, type Upload } from "@ember/protocol";
 import { previewOf } from "./previews";
 
 // Uploading a file as a message of its own, as Campfire's FileUploader does, but in parts that R2 puts
@@ -121,9 +121,9 @@ export async function uploadFile(roomId: RoomId, file: File, clientMessageId: st
 export interface EmberFile {
   roomId: RoomId;
   file: StoredFile;
-  /** Where it was, as the share warning names it, and how many it was attached knowing would see it anew. */
+  /** Where it was, as the share warning names it, and who it was attached knowing would see it anew. */
   source?: { label: string; direct: boolean; closed?: boolean };
-  accepted?: number;
+  accepted?: ShareWidening;
 }
 
 /** A file to send as a message of its own: one from the computer, or one already in Ember. */

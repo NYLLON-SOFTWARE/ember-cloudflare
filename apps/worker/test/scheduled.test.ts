@@ -1,4 +1,4 @@
-import { MAX_SCHEDULE_AHEAD_MS, type RoomId } from "@ember/protocol";
+import { latestScheduleTime, type RoomId } from "@ember/protocol";
 import { runDurableObjectAlarm } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { MESSAGE_GONE, SCHEDULED_AUTHOR_GONE, SCHEDULED_THREAD_GONE } from "../src/chat-room";
@@ -111,7 +111,7 @@ describe("Scheduled messages", () => {
   it("refuses a time that's passed or too far ahead, a body the room can't keep, and a reply to a message it doesn't have", async () => {
     const room = await freshRoom("scheduled-refusals");
     const ada = await connect(room, "Ada");
-    for (const sendAt of [Date.now() - 1000, Date.now() + MAX_SCHEDULE_AHEAD_MS + HOUR]) {
+    for (const sendAt of [Date.now() - 1000, latestScheduleTime(Date.now()) + HOUR]) {
       ada.send({ type: "scheduled.create", clientMessageId: "c1", body: "<p>Hi</p>", sendAt });
       expect(await ada.next("error")).toEqual({ type: "error", message: "Pick a time in the next 120 days.", clientMessageId: "c1", failed: "scheduled.create" });
     }

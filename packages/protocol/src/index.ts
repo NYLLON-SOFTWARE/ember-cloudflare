@@ -110,7 +110,7 @@ export {
   type StoredFile,
   type Upload,
 } from "./files.ts";
-export { NAMED_NEW_VIEWERS, parseShareCheck, SHARE_CHECK_PATH, type ShareCheck, type ShareWidening } from "./sharing.ts";
+export { NAMED_NEW_VIEWERS, parseShareCheck, reachesMore, SHARE_CHECK_PATH, type ShareCheck, type ShareWidening } from "./sharing.ts";
 export {
   BOTS_PATH,
   CUSTOM_STYLES_PATH,
@@ -1722,8 +1722,14 @@ export interface ScheduledMessage {
   failed?: string;
 }
 
-/** How far ahead a message can be scheduled, as Slack allows: 120 days. */
+/** How far ahead a message can be scheduled, as Slack allows: 120 days, to any time on the last of them. */
 export const MAX_SCHEDULE_AHEAD_MS = 120 * 24 * 60 * 60 * 1000;
+
+/**
+ * The latest a room takes a message scheduled at `now` for: a day past the 120, as the room doesn't know the
+ * sender's time zone, and the last day ends within a day of that moment wherever they are.
+ */
+export const latestScheduleTime = (now: number) => now + MAX_SCHEDULE_AHEAD_MS + 24 * 60 * 60 * 1000;
 
 /** How many messages one person can have waiting in a room. */
 export const MAX_SCHEDULED_MESSAGES = 50;
