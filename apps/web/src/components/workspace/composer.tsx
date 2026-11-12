@@ -81,12 +81,19 @@ function keepDraft(key: string, body: string | null) {
 
 /**
  * What the composer shows while the editor loads: its placeholder, as Lexxy draws it, as tall as the
- * editor will be (rich-text-editor.css: 40px, or 30px below 900px wide, and the 4px under the text), so
- * the composer doesn't move as the editor loads.
+ * editor will be (rich-text-editor.css: 40px, or 30px at 900px wide and below, and the 4px under the
+ * text, less the card's padding it reaches up into, which under the toolbar it doesn't), so the composer,
+ * and a message centred above it, don't move as the editor loads.
  */
-function LoadingEditor({ placeholder }: { placeholder: string }) {
+function LoadingEditor({ placeholder, toolbar }: { placeholder: string; toolbar: boolean }) {
   return (
-    <p aria-hidden="true" className="min-h-11 truncate text-[15px] leading-[22px] opacity-66 max-md:min-h-[34px] touch:text-[16px]">
+    <p
+      aria-hidden="true"
+      className={cn(
+        "truncate text-[15px] leading-[22px] opacity-66 touch:text-[16px]",
+        toolbar ? "min-h-14 max-[56.3125rem]:min-h-11" : "min-h-11 max-[56.3125rem]:min-h-[34px]",
+      )}
+    >
       {placeholder}
     </p>
   );
@@ -577,7 +584,7 @@ export function Composer({
             (placeholderToolbar ? <div aria-hidden="true" className="h-[34px] shrink-0 touch:h-[50px]" /> : toolbar())}
           {/* The editor takes the card's padding and fills this, all the card above the buttons (rich-text-editor.css). */}
           <div className="flex min-w-0 flex-1 flex-col">
-            <Suspense fallback={<LoadingEditor placeholder={placeholder} />}>
+            <Suspense fallback={<LoadingEditor placeholder={placeholder} toolbar={toolbarShown && !compact} />}>
               {editorShown ? (
                 <RichTextEditor
                   ref={editor}
@@ -599,7 +606,7 @@ export function Composer({
                   onLinkPasted={previewLink}
                 />
               ) : (
-                <LoadingEditor placeholder={placeholder} />
+                <LoadingEditor placeholder={placeholder} toolbar={toolbarShown && !compact} />
               )}
             </Suspense>
           </div>
