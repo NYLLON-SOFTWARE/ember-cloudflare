@@ -1,11 +1,15 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { REACTIONS } from "@ember/protocol";
-import { Emoji, Laptop, Page, Plus } from "@/components/icons/iconoir";
+import { ArrowUp, AtSign, Emoji, Laptop, Page, Plus } from "@/components/icons/iconoir";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ATTACH_BUTTON, ICON_BUTTON } from "./composer-buttons";
+import { cn } from "@/lib/utils";
+import { ATTACH_BUTTON, ICON_BUTTON, SEND_HALF } from "./composer-buttons";
 import { PopoverMenu } from "./popover-menu";
+import { ScheduleMenu } from "./schedule-send";
 
-// The composer's + menu and its Emoji picker.
+// The buttons of the composer's bottom row, each a piece of its own, so a layout can place them as it
+// needs: +, Aa, Emoji, @ and Send with its schedule menu. Each keeps focus in the text, so a phone's
+// keyboard stays up, and is a fingertip's 44px on touch screens.
 
 /** +, Slack's attach menu: Upload from your computer, which opens the browser's file picker, and Files in Ember. */
 export function AttachMenu({ disabled, onUpload, onFilesInEmber, onReturnFocus }: { disabled: boolean; onUpload: () => void; onFilesInEmber: () => void; onReturnFocus: () => void }) {
@@ -67,5 +71,92 @@ export function EmojiButton({ disabled, onPick, onReturnFocus }: { disabled: boo
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** Aa, which shows and hides the formatting toolbar, as Slack's does. */
+export function FormattingToggle({ disabled, shown, onToggle }: { disabled: boolean; shown: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      title={shown ? "Hide formatting" : "Show formatting"}
+      aria-pressed={shown}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onToggle}
+      className={cn(ICON_BUTTON, "text-[15px] leading-none font-semibold underline underline-offset-2")}
+    >
+      <span aria-hidden="true">Aa</span>
+      <span className="sr-only">Formatting</span>
+    </button>
+  );
+}
+
+/** @, which writes an @ at the cursor, opening the list of people to mention. */
+export function MentionButton({ disabled, onMention }: { disabled: boolean; onMention: () => void }) {
+  return (
+    <button type="button" disabled={disabled} title="Mention someone" onMouseDown={(event) => event.preventDefault()} onClick={onMention} className={ICON_BUTTON}>
+      <AtSign className="size-[18px]" />
+      <span className="sr-only">Mention someone</span>
+    </button>
+  );
+}
+
+/** How long Send is held to open Schedule message instead of sending, as a long press on a phone does. */
+export const LONG_PRESS_MS = 500;
+
+interface SendButtonProps {
+  disabled: boolean;
+  /** Whether there's nothing to schedule: nothing written, or files picked, which go at once. */
+  cannotSchedule: boolean;
+  /** Schedules what's written for `at`. */
+  onSchedule: (at: Date) => void;
+}
+
+/**
+ * Send, as Slack's: the arrow, which submits the composer's form, and the chevron beside it, which opens
+ * Schedule message. Holding the arrow down opens Schedule message too, rather than sending, and keeps the
+ * phone's own long-press menu away.
+ */
+export function SendButton({ disabled, cannotSchedule, onSchedule }: SendButtonProps) {
+  const [scheduling, setScheduling] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Whether the press that's ending was long, so its click doesn't send too.
+  const pressedLong = useRef(false);
+  const stopTimer = () => clearTimeout(timer.current);
+  useEffect(() => stopTimer, []);
+  return (
+    <div className="ml-auto flex shrink-0 items-center overflow-hidden rounded-[8px]">
+      <button
+        type="submit"
+        disabled={disabled}
+        title="Send message"
+        // Keep focus in the editor, so a phone's keyboard stays up between messages.
+        onMouseDown={(event) => event.preventDefault()}
+        onPointerDown={(event) => {
+          pressedLong.current = false;
+          if (cannotSchedule || event.button !== 0) return;
+          timer.current = setTimeout(() => {
+            pressedLong.current = true;
+            setScheduling(true);
+          }, LONG_PRESS_MS);
+        }}
+        onPointerUp={stopTimer}
+        onPointerLeave={stopTimer}
+        onPointerCancel={stopTimer}
+        onContextMenu={(event) => event.preventDefault()}
+        onClick={(event) => {
+          if (!pressedLong.current) return;
+          pressedLong.current = false;
+          event.preventDefault();
+        }}
+        className={cn(SEND_HALF, "w-9 touch:w-11")}
+      >
+        <ArrowUp className="size-[18px]" />
+        <span className="sr-only">Send Message</span>
+      </button>
+      <span aria-hidden="true" className="h-8 w-px bg-background/30 touch:h-11" />
+      <ScheduleMenu disabled={disabled || cannotSchedule} onSchedule={onSchedule} open={scheduling} onOpenChange={setScheduling} />
+    </div>
   );
 }

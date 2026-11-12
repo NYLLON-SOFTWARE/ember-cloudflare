@@ -933,3 +933,48 @@ describe("Schedule for later", () => {
     expect(screen.queryByText(/scheduled message/)).not.toBeInTheDocument();
   });
 });
+
+describe("Layouts of the composer", () => {
+  it("hides the toolbar until Aa shows it when its layout asks, and places the layout's own buttons after @", async () => {
+    render(
+      <Composer
+        roomId="l1"
+        roomName="general"
+        userId="u1"
+        typing={[]}
+        disabled={false}
+        toolbarByDefault={false}
+        extraButtons={<button type="button">Shortcuts</button>}
+        onSend={() => true}
+        onSendFiles={() => {}}
+        onTyping={() => {}}
+      />,
+    );
+    await screen.findByRole("textbox", { name: "Write a message" });
+    expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
+    const buttons = [...document.querySelectorAll("form button")].map((button) => button.textContent);
+    expect(buttons.indexOf("Shortcuts")).toBe(buttons.indexOf("Mention someone") + 1);
+
+    await userEvent.setup().click(formattingOptions());
+    expect(screen.getByRole("toolbar", { name: "Formatting" })).toBeInTheDocument();
+  });
+
+  it("opens Schedule message when Send is held down, rather than sending", async () => {
+    const { send, input, user, onSend } = await showScheduling({ roomId: "l2" });
+    await user.type(input, "Later");
+    fireEvent.pointerDown(sendButton(), { button: 0 });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 600)));
+    fireEvent.pointerUp(sendButton());
+    fireEvent.click(sendButton());
+    expect(onSend).not.toHaveBeenCalled();
+    expect(await screen.findByRole("menu", { name: "Schedule message" })).toBeInTheDocument();
+    await user.click(screen.getByRole("menuitem", { name: /^Tomorrow at 9:00/ }));
+    expect(send).toHaveBeenCalledOnce();
+    expect(input).toHaveValue("");
+
+    // A short press sends, as ever.
+    await user.type(input, "Now");
+    await user.click(sendButton());
+    expect(onSend).toHaveBeenCalledOnce();
+  });
+});

@@ -13,13 +13,16 @@ interface ScheduleMenuProps {
   disabled: boolean;
   /** Schedules what's written for `at`. */
   onSchedule: (at: Date) => void;
+  /** Whether its menu is open, when something besides the chevron opens it, as a long press on Send does. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 /**
  * Send's chevron, as Slack's, beside the arrow that sends now: Schedule message, which offers tomorrow and
  * Monday at 9:00 AM, and a custom time.
  */
-export function ScheduleMenu({ disabled, onSchedule }: ScheduleMenuProps) {
+export function ScheduleMenu({ disabled, onSchedule, open, onOpenChange }: ScheduleMenuProps) {
   const [now, setNow] = useState(() => new Date());
   const [custom, setCustom] = useState(false);
   return (
@@ -29,7 +32,11 @@ export function ScheduleMenu({ disabled, onSchedule }: ScheduleMenuProps) {
         heading
         align="end"
         className="min-w-56"
-        onOpenChange={(open) => open && setNow(new Date())}
+        open={open}
+        onOpenChange={(opened) => {
+          if (opened) setNow(new Date());
+          onOpenChange?.(opened);
+        }}
         trigger={
           <button type="button" disabled={disabled} title="Schedule for later" onMouseDown={(event) => event.preventDefault()} className={SCHEDULE_HALF}>
             <NavArrowDown className="size-3.5" />
