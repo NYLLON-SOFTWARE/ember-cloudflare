@@ -8,6 +8,7 @@ import { objectKey, previewKey } from "./files/blobs";
 import type { ImageSize } from "./files/images";
 import { storeArriving } from "./files/streamed";
 import { NO_STORAGE, uploaderIn, type Uploader } from "./files/uploads";
+import { sortableId } from "./ids";
 
 // Forward message, as Slack's is: someone posts a message they can see into another conversation they're
 // in, or a thread there, after a note of their own, as a quote of it, as Quote writes one. The Worker builds
@@ -56,10 +57,21 @@ export function forwardMarkup(original: Message, note: string | undefined, origi
 }
 
 /**
+ * What Activity, search and pushes read of a forward of `original`: its note and whose message it forwards,
+ * "See this — forwarded from Ada", or without a note, what it quotes, its text or its file's name. The
+ * quote's time and link show only in the conversation, which shows the time in the reader's time zone.
+ */
+export function forwardPlainText(original: Message, note: string | undefined): string {
+  return note === undefined ? (original.attachment?.name ?? original.plainText) : `${note} — forwarded from ${original.creator.name}`;
+}
+
+/**
  * `POST /api/rooms/<room>/messages/<message>/forwards`, a `NewForward`: posts the message into the
- * conversation it names, as the forwarder's message quoting it, answering 201 with the message posted. It
- * answers 404 unless they're in both conversations and the message is still there, and 422 for a thread
- * that isn't, or a forward the room won't keep, such as one too long.
+ * conversation it names, as the forwarder's message quoting it, answering 201 with the message posted, or
+ * 200 with the one a forward with the same id posted already, as a forward sent again whose answer was lost
+ * finds it. It answers 404 unless they're in both conversations and the message is still there, and 422 for
+ * a thread that isn't, or a note too long. The original's room records the forward first, so that deleting
+ * the original takes what the forward quotes away, however this request ends.
  */
 export async function forwardMessage(request: Request, env: Env, roomId: RoomId, messageSegment: string): Promise<Response> {
   const messageId = decoded(messageSegment);
@@ -72,11 +84,16 @@ export async function forwardMessage(request: Request, env: Env, roomId: RoomId,
   if (typeof forward === "string") return problem(422, forward);
   const to = await uploaderIn(env, credentials, forward.to);
   if (to instanceof Response) return to;
-  const found = await env.CHAT_ROOM.getByName(roomId).forwardable(roomId, from, messageId);
+  const destination = env.CHAT_ROOM.getByName(forward.to);
+  const sent = await destination.sentAlready(forward.to, to, forward.clientMessageId);
+  if (sent) return Response.json(sent, { status: 200 });
+  const source = env.CHAT_ROOM.getByName(roomId);
+  const found = await source.forwardable(roomId, from, messageId);
   if (!found) return problem(404, MESSAGE_NOT_FOUND);
   const { message } = found;
+  const id = sortableId();
+  if (!(await source.recordForward(roomId, from, messageId, forward.to, id))) return problem(404, MESSAGE_NOT_FOUND);
 
-  const destination = env.CHAT_ROOM.getByName(forward.to);
   let kept: KeptFile | undefined;
   if (message.attachment) {
     if (!env.FILES) return problem(503, NO_STORAGE);
@@ -86,14 +103,15 @@ export async function forwardMessage(request: Request, env: Env, roomId: RoomId,
   }
   const url = new URL(request.url);
   const markup = forwardMarkup(message, forward.note, url.origin, url.hostname);
-  const posted = await destination.postForward(forward.to, to, { clientMessageId: forward.clientMessageId, markup, parentId: forward.parentId, kept });
-  if (typeof posted !== "object" || posted === null) {
-    // The copy of a file that isn't posted goes from R2 at once; the room's alarm forgets its upload.
-    if (kept) await env.FILES!.delete([objectKey(kept.key), previewKey(kept.key)]);
-    if (posted === null) return problem(404, MESSAGE_NOT_FOUND);
-    return problem(422, posted === MESSAGE_GONE ? "That thread no longer exists" : posted);
-  }
-  return Response.json(posted, { status: 201 });
+  const plainText = forwardPlainText(message, forward.note);
+  const posted = await destination.postForward(forward.to, to, { id, clientMessageId: forward.clientMessageId, markup, plainText, parentId: forward.parentId, kept });
+  const postedHere = typeof posted === "object" && posted !== null && posted.id === id;
+  // The copy of a file that isn't posted goes from R2 at once, as when a forward sent at the same time
+  // posted first; the room's alarm forgets its upload.
+  if (kept && !postedHere) await env.FILES!.delete([objectKey(kept.key), previewKey(kept.key)]);
+  if (posted === null) return problem(404, MESSAGE_NOT_FOUND);
+  if (typeof posted === "string") return problem(422, posted === MESSAGE_GONE ? "That thread no longer exists" : posted);
+  return Response.json(posted, { status: postedHere ? 201 : 200 });
 }
 
 /**

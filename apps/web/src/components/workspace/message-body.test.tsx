@@ -380,6 +380,16 @@ describe("Quotes' cites", () => {
     expect(within(fromDirect).getByRole("link", { name: "DM with Zan" })).toBeInTheDocument();
   });
 
+  it("names a sub-room after its parent", () => {
+    const backend = { id: "backend", kind: "open" as const, name: "Backend", icon: null, parent: { id: "portside", name: "Portside" } };
+    const { container } = render(
+      <ConversationsContext value={{ rooms: [...rooms, backend], meId: ada.id }}>
+        <MessageBody nodes={shown(cite("/rooms/backend/@m1"))} mentions={[]} roomId="dm1" />
+      </ConversationsContext>,
+    );
+    expect(within(container.querySelector("cite")!).getByRole("link", { name: "#Portside – Backend" })).toBeInTheDocument();
+  });
+
   it("names no conversation the reader isn't in, nor links to it", () => {
     const fromElsewhere = showIn("portside", cite("/rooms/secret/@m1"));
     expect(fromElsewhere.textContent).toMatch(/· another conversation$/);

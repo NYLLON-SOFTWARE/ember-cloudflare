@@ -29,7 +29,7 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 `SEARCH_MIGRATIONS`.
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
-`message_deletions`, `blobs`, `waiting_calls`, `scheduled_messages` and `scheduled_changes` (the scheduled messages changed since the Workspace last heard), the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
+`message_deletions`, `blobs`, `waiting_calls`, `scheduled_messages`, `scheduled_changes` (the scheduled messages changed since the Workspace last heard) and `forwards` (each forward of their messages, which their deletion takes the quote out of), the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
 `bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`,
 `memberships`, `favorites`, `activity`, `scheduled_listings` (a copy of everyone's scheduled messages across rooms, which the rooms send as they change, for Drafts & sent), `pending_revocations`, `pending_purges`, `pending_reindexes`,

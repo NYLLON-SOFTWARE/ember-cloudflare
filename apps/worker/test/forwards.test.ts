@@ -1,10 +1,11 @@
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { env } from "cloudflare:test";
-import type { Message, NewForward, RoomId } from "@ember/protocol";
-import { describe, expect, it } from "vitest";
+import { MAX_MESSAGE_LENGTH, searchQuery, type ActivityPage, type Message, type NewForward, type RoomId, type SearchResults } from "@ember/protocol";
+import { describe, expect, it, vi } from "vitest";
+import { ORIGINAL_DELETED } from "../src/chat-room";
 import type { Env } from "../src/env";
 import { objectKey } from "../src/files/blobs";
-import { api, connect, createRoom, direct, freshRoom, origin, post, recordedImage, signIn, upload, type Session } from "./support";
+import { api, connect, createRoom, direct, freshRoom, origin, post, recordedImage, roomSql, signIn, upload, type Session } from "./support";
 
 /** Forwards `messageId` from `room` as `session`, answering how the Worker answered. */
 const forward = (session: Session, room: RoomId, messageId: string, newForward: Omit<NewForward, "clientMessageId"> & { clientMessageId?: string }) =>
@@ -108,3 +109,111 @@ describe("Forward a message", () => {
     expect(download.status).toBe(200);
   });
 });
+
+/** What `session` finds searching for `q`. */
+async function found(session: Session, q: string): Promise<Message[]> {
+  const response = await api(`/api/searches?${searchQuery({ q })}`, { headers: { Cookie: session.cookie } });
+  expect(response.status).toBe(200);
+  return ((await response.json()) as SearchResults).matches.map(({ message }) => message);
+}
+
+/** What `session`'s Activity previews. */
+async function previews(session: Session): Promise<string[]> {
+  return ((await (await api("/api/activity", { headers: { Cookie: session.cookie } })).json()) as ActivityPage).items.map((item) => item.preview);
+}
+
+describe("What a forward reads as outside its conversation", () => {
+  it("reads as its note and whose message it forwards, or what it quotes, without the quote's time or link", async () => {
+    const room = await freshRoom("forward-plain-text");
+    const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
+    const original = await post(await connect(room, adaSession), "<p>Lunch at noon?</p>");
+    const dm = await direct(adaSession, graceSession);
+    expect((await forwarded(adaSession, room, original.id, { to: dm.id, note: "See this" })).plainText).toBe("See this — forwarded from Ada");
+    const bare = await forwarded(adaSession, room, original.id, { to: dm.id });
+    expect(bare.plainText).toBe("Lunch at noon?");
+    expect(bare.plainText).not.toMatch(/UTC|#/);
+  });
+});
+
+describe("A forward sent again", () => {
+  it("posts once, answering the forward it posted for the same id", async () => {
+    const room = await freshRoom("forward-again");
+    const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
+    const original = await post(await connect(room, adaSession), "Once");
+    const dm = await direct(adaSession, graceSession);
+    const first = await forwarded(adaSession, room, original.id, { to: dm.id, clientMessageId: "f1" });
+    const again = await forward(adaSession, room, original.id, { to: dm.id, clientMessageId: "f1" });
+    expect(again.status).toBe(200);
+    expect(((await again.json()) as Message).id).toBe(first.id);
+    expect((await connect(dm.id, graceSession)).welcome.messages.map((message) => message.id)).toEqual([first.id]);
+  });
+
+  it("takes a note as long as a message, whatever the quote's length", async () => {
+    const room = await freshRoom("forward-long");
+    const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
+    const original = await post(await connect(room, adaSession), `<p>${"x".repeat(MAX_MESSAGE_LENGTH - 10)}</p>`);
+    const dm = await direct(adaSession, graceSession);
+    await forwarded(adaSession, room, original.id, { to: dm.id, note: "y".repeat(MAX_MESSAGE_LENGTH) });
+    expect((await forward(adaSession, room, original.id, { to: dm.id, note: "y".repeat(MAX_MESSAGE_LENGTH + 1) })).status).toBe(422);
+  });
+});
+
+describe("Forwards follow their originals", () => {
+  it("take what they quote of a private room's message away once it's deleted, keeping the note, in the room, search and Activity", async () => {
+    const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
+    const secret = (await createRoom("Secret", { closedTo: [adaSession.user.id], as: adaSession })).id;
+    const ada = await connect(secret, adaSession);
+    const original = await post(ada, "<p>The aardvark plan</p>");
+    const dm = await direct(adaSession, graceSession);
+    const grace = await connect(dm.id, graceSession);
+    const noted = await forwarded(adaSession, secret, original.id, { to: dm.id, note: "Look" });
+    const bare = await forwarded(adaSession, secret, original.id, { to: dm.id });
+    await vi.waitFor(async () => expect((await found(graceSession, "aardvark")).map((message) => message.id)).toEqual([bare.id]), { timeout: 10_000 });
+
+    ada.send({ type: "message.delete", messageId: original.id });
+    const updated = new Map<string, Message>();
+    while (updated.size < 2) {
+      const { message } = await grace.next("message.updated");
+      updated.set(message.id, message);
+    }
+    expect(updated.get(noted.id)).toMatchObject({ body: `<p>Look</p><blockquote><p>${ORIGINAL_DELETED}</p></blockquote>`, editedAt: null });
+    expect(updated.get(bare.id)!.body).toBe(`<blockquote><p>${ORIGINAL_DELETED}</p></blockquote>`);
+    for (const message of updated.values()) expect(message.plainText).not.toContain("aardvark");
+    expect((await connect(dm.id, graceSession)).welcome.messages.map((message) => message.body)).toEqual([...updated.values()].map((message) => message.body));
+    await vi.waitFor(async () => expect(await found(graceSession, "aardvark")).toEqual([]), { timeout: 10_000 });
+    await vi.waitFor(async () => expect((await previews(graceSession)).join(" ")).not.toContain("aardvark"), { timeout: 10_000 });
+    // The original's room forgets them once their room has heard.
+    await vi.waitFor(async () => expect(await roomSql(secret, "SELECT forward_id FROM forwards WHERE room_id = ?", secret)).toEqual([]), { timeout: 10_000 });
+  });
+
+  it("delete a forwarded file's copy once its original is deleted", async () => {
+    const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
+    const secret = (await createRoom("Secret files", { closedTo: [adaSession.user.id], as: adaSession })).id;
+    const ada = await connect(secret, adaSession);
+    const original = await upload(adaSession, secret, "moon.jpg", recordedImage("moon-thumb.jpg"));
+    const dm = await direct(adaSession, graceSession);
+    const grace = await connect(dm.id, graceSession);
+    const copy = (await forwarded(adaSession, secret, original.id, { to: dm.id })).attachment!;
+
+    ada.send({ type: "message.delete", messageId: original.id });
+    const { message } = await grace.next("message.updated");
+    expect(message.attachment).toBeUndefined();
+    await vi.waitFor(async () => expect(await (env as unknown as Env).FILES!.get(objectKey(copy.id))).toBeNull(), { timeout: 10_000 });
+  });
+
+  it("leave a forward deleted before its original as it is", async () => {
+    const room = await freshRoom("forward-gone-first");
+    const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
+    const ada = await connect(room, adaSession);
+    const original = await post(ada, "Soon gone");
+    const dm = await direct(adaSession, graceSession);
+    const inDm = await connect(dm.id, adaSession);
+    const forwardedOnce = await forwarded(adaSession, room, original.id, { to: dm.id });
+    inDm.send({ type: "message.delete", messageId: forwardedOnce.id });
+    await inDm.next("message.deleted");
+    ada.send({ type: "message.delete", messageId: original.id });
+    await vi.waitFor(async () => expect(await roomSql(room, "SELECT forward_id FROM forwards WHERE room_id = ?", room)).toEqual([]), { timeout: 10_000 });
+    expect((await connect(dm.id, graceSession)).welcome.messages).toEqual([]);
+  });
+});
+
