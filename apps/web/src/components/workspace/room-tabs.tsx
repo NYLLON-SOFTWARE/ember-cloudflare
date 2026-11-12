@@ -29,6 +29,16 @@ const ADDABLE: Array<{ kind: RoomTabKind; label: string }> = [
 const TAB =
   "relative inline-flex h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-md px-2.5 text-[14px] font-medium text-muted-foreground hover:text-foreground aria-selected:text-foreground aria-selected:after:absolute aria-selected:after:inset-x-1.5 aria-selected:after:bottom-0 aria-selected:after:h-0.5 aria-selected:after:rounded-full aria-selected:after:bg-foreground touch:min-h-11 [&>svg]:size-4 [&>svg]:shrink-0";
 
+/** Which ends of the strip have tabs past them. */
+type Overflow = "none" | "before" | "after" | "both";
+
+const OVERFLOW_FADES: Record<Overflow, string> = {
+  none: "",
+  before: "[mask-image:linear-gradient(to_right,transparent,#000_32px)]",
+  after: "[mask-image:linear-gradient(to_left,transparent,#000_32px)]",
+  both: "[mask-image:linear-gradient(to_right,transparent,#000_32px,#000_calc(100%-32px),transparent)]",
+};
+
 /** An item in the + menu, as a dropdown menu's items look. */
 const MENU_ITEM =
   "flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-start text-sm outline-none hover:bg-hover focus-visible:bg-hover touch:min-h-11";
@@ -119,6 +129,24 @@ export function RoomTabs({ room, me, state, onFailed }: Props) {
     act();
   };
   const strip = useRef<HTMLDivElement>(null);
+  // Tabs past either end of the strip fade out there, so it shows there's more to scroll to.
+  const list = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState<Overflow>("none");
+  const measure = useCallback(() => {
+    const element = list.current;
+    if (!element) return;
+    const before = element.scrollLeft > 1;
+    const after = element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+    setOverflow(before && after ? "both" : before ? "before" : after ? "after" : "none");
+  }, []);
+  useLayoutEffect(() => {
+    measure();
+    const element = list.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [measure, tabs]);
 
   // What the shown tab covers can't be reached until Messages shows again. A room that's gone shows its
   // messages, as they were, and nothing else.
@@ -158,11 +186,13 @@ export function RoomTabs({ room, me, state, onFailed }: Props) {
       {/* The tabs scroll sideways, with a mouse's wheel too, while + stays at the end of the strip, in reach. */}
       <div ref={strip} className="flex h-10 flex-none items-end gap-0.5 border-b bg-background pr-[14px] max-md:pr-1.5">
         <div
+          ref={list}
           role="tablist"
           aria-label="Room tabs"
           onKeyDown={moveFocus}
           onWheel={scrollSideways}
-          className="flex h-full min-w-0 items-end gap-0.5 overflow-x-auto pl-[14px] [scrollbar-width:none] max-md:pl-1.5"
+          onScroll={measure}
+          className={cn("flex h-full min-w-0 items-end gap-0.5 overflow-x-auto pl-[14px] [scrollbar-width:none] max-md:pl-1.5", OVERFLOW_FADES[overflow])}
         >
           <StripTab label="Messages" Icon={ChatLines} selected={!covering} onSelect={() => select("messages")} />
           {!deleted && <StripTab label="Files & links" Icon={MultiplePages} selected={shown === "files"} onSelect={() => select("files")} />}
