@@ -652,11 +652,12 @@ export class ChatRoom extends DurableObject<Env> {
       const now = new Date().toISOString();
       if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return NOT_FOUND;
       const store = this.storeFor(roomId);
-      if (!(await this.findUndeleted(store, messageId))) return NOT_FOUND;
+      const message = await this.findUndeleted(store, messageId);
+      if (!message) return NOT_FOUND;
       const trimmed = content.trim();
       if (trimmed === "") return BLANK;
       if (trimmed.length > MAX_BOOST_LENGTH) return BOOST_TOO_LONG;
-      return this.addBoost(store, messageId, bot, trimmed, now);
+      return this.addBoost(store, message, bot, trimmed, now);
     });
   }
 
@@ -931,7 +932,7 @@ export class ChatRoom extends DurableObject<Env> {
         if (!message) return this.refuse(ws, "That message no longer exists");
         // A person adds each reaction once, so one they've already added is a repeated click.
         if (message.boosts.some((b) => b.booster.id === user.id && b.content === frame.content)) return;
-        await this.addBoost(store, frame.messageId, user, frame.content, now);
+        await this.addBoost(store, message, user, frame.content, now);
         return;
       }
       case "boost.delete": {
@@ -1120,16 +1121,24 @@ export class ChatRoom extends DurableObject<Env> {
    * everyone in the room and sending the search index its log, and has R2 delete its file, if it has one.
    */
   private async deleteMessage(store: MessageStore, message: Message): Promise<void> {
-    this.broadcastDeletion(await store.delete([message.id]));
+    const deletion = await store.delete([message.id]);
+    this.broadcastDeletion(deletion);
+    // What people's Activity says of it goes with it, even when it keeps its place for its thread.
+    for (const messageId of new Set([message.id, ...deletion.deletedIds])) this.ctx.waitUntil(workspace(this.env).messageDeleted(store.roomId, messageId).catch(() => {}));
     const couriers = this.couriersFor(store.roomId);
     couriers.index.deliver();
     if (message.attachment) couriers.files.deliver();
   }
 
-  /** Adds `user`'s boost of `content` to the message `messageId`, telling everyone in the room, and answers it. */
-  private async addBoost(store: MessageStore, messageId: string, user: User, content: string, now: string): Promise<Boost> {
-    const { boost, seq } = await store.addBoost(sortableId(), messageId, user, content, now);
+  /**
+   * Adds `user`'s boost of `content` to `message`, telling everyone in the room, and the message's author
+   * in their Activity, and answers it.
+   */
+  private async addBoost(store: MessageStore, message: Message, user: User, content: string, now: string): Promise<Boost> {
+    const { boost, seq } = await store.addBoost(sortableId(), message.id, user, content, now);
     this.broadcast({ type: "boost.created", boost, seq });
+    const reacted = workspace(this.env).reacted(store.roomId, message.id, message.creator.id, user.id, content, message.plainText, now);
+    this.ctx.waitUntil(reacted.catch(() => {}));
     // Search results show a message's boosts, so the index takes it again.
     this.couriersFor(store.roomId).index.deliver();
     return boost;
@@ -1139,6 +1148,7 @@ export class ChatRoom extends DurableObject<Env> {
   private async removeBoost(store: MessageStore, boost: Boost): Promise<void> {
     const seq = await store.removeBoost(boost);
     this.broadcast({ type: "boost.deleted", boostId: boost.id, messageId: boost.messageId, seq });
+    this.ctx.waitUntil(workspace(this.env).unreacted(boost.messageId, boost.booster.id, boost.content).catch(() => {}));
     this.couriersFor(store.roomId).index.deliver();
   }
 

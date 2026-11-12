@@ -2,7 +2,7 @@ import { useContext, type MouseEvent } from "react";
 import type { Me, NavigationSlot } from "@ember/protocol";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
-import { DMS_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
+import { ACTIVITY_PATH, DMS_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { unreadBadge } from "@/lib/unread-badge";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
@@ -53,27 +53,23 @@ function RailLink({ slot, label, href, current, notice, unread = 0, onClick }: R
   );
 }
 
-/** The Activity filter: whether it's on, and how many conversations are unread. */
+/** Activity, as the rail shows it: how many of its items are unread. */
 export interface Activity {
-  on: boolean;
   unread: number;
-  onToggle: () => void;
 }
 
 /**
- * Activity, which shows only unread conversations while it's pressed, with how many there are in an ink
- * pill at its corner, hidden at none. The count is said to screen readers as a description, so the
- * button's name stays "Activity".
+ * Activity, the page of what's happened to you, with how many of its items are unread in an ink pill at
+ * its corner, hidden at none, "99+" past 99. The count is said to screen readers as a description, so the
+ * link's name stays "Activity".
  */
-function ActivityButton({ on, unread, onToggle }: Activity) {
+function ActivityLink({ unread, current }: Activity & { current: boolean }) {
   return (
-    <button
-      type="button"
-      aria-pressed={on}
+    <PageLink
+      href={ACTIVITY_PATH}
+      aria-current={current ? "page" : undefined}
       aria-description={unread > 0 ? `${unreadBadge(unread)} unread` : undefined}
-      title="Show unread conversations"
-      onClick={onToggle}
-      className={cn(RAIL_LINK, "aria-pressed:bg-hover aria-pressed:text-foreground")}
+      className={RAIL_LINK}
     >
       <NavigationIcon slot="activity" size={22} className="size-[22px]" />
       <span>Activity</span>
@@ -82,19 +78,20 @@ function ActivityButton({ on, unread, onToggle }: Activity) {
           aria-hidden="true"
           className={COUNT_BADGE}
         >
-          {unreadBadge(unread)}
+          {unread > 99 ? "99+" : unread}
         </span>
       )}
-    </button>
+    </PageLink>
   );
 }
 
 /**
  * The page shown, whose links the rail marks: every link to the page's own path (the logo and Home at
- * home, Search on search, whatever's searched for, Admin or Workspace on workspace settings, your avatar
- * on your profile), Home on a room's page, and DMs on the DMs page and a DM's, but none while Activity is on.
+ * home, Activity on Activity, Search on search, whatever's searched for, Admin or Workspace on workspace
+ * settings, your avatar on your profile), Home on a room's page, DMs on the DMs page and a DM's, and
+ * Files on the Files page.
  */
-export type RailPage = "home" | "room" | "dms" | "search" | "workspace" | "profile" | "files" | null;
+export type RailPage = "home" | "room" | "dms" | "activity" | "search" | "workspace" | "profile" | "files" | null;
 
 interface Props {
   me: Me;
@@ -116,7 +113,7 @@ interface Props {
 export function Rail({ me, workspaceName, current, activity, directsUnread, newRelease }: Props) {
   const { logo } = useAccount();
   const openSearch = useContext(OpenSearchContext);
-  const marked = activity.on ? null : current;
+  const marked = current;
   return (
     // Scrolls when a short screen (a phone in landscape) can't fit it all; widens by the notch's inset.
     <nav
@@ -139,7 +136,7 @@ export function Rail({ me, workspaceName, current, activity, directsUnread, newR
       </PageLink>
       <RailLink slot="home" label="Home" href="/" current={marked === "home" || marked === "room"} />
       <RailLink slot="dms" label="DMs" href={DMS_PATH} current={marked === "dms"} unread={directsUnread} />
-      <ActivityButton {...activity} />
+      <ActivityLink unread={activity.unread} current={marked === "activity"} />
       <FilesRailLink current={marked === "files"} className={RAIL_LINK} />
       {/* Opens the search box in place, for everything. */}
       <RailLink slot="search" label="Search" href={SEARCHES_PATH} current={marked === "search"} onClick={opensSearch(openSearch)} />

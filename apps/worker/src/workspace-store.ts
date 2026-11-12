@@ -11,6 +11,7 @@ import {
   SUGGESTED_PEOPLE,
   UNREAD_COUNT_CAP,
   emailDomainOf,
+  mentionsEveryone,
   isHost,
   isRoomIcon,
   mailboxOf,
@@ -69,6 +70,7 @@ import { statement, type Db, type Statement } from "./db";
 import type { StoredPicture } from "./files/pictures";
 import { messagePayload, type PushPayload } from "./push/payload";
 import { ADDRESS_TAG_PREFIX, EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
+import { addRecorded, readInRoom, recordedRows, recordMessage, type RecordedItems } from "./activity";
 import type { RoomEvent } from "./room-log";
 import { forgettingRoomTabs } from "./room-tabs";
 
@@ -549,6 +551,39 @@ export interface AppliedEvents {
   webhooks: MessageWebhook[];
   /** The new messages @ember and the agents are to answer, oldest first, each agent mentioned once. */
   asks: AssistantAsk[];
+  /** What the events did to people's Activity. */
+  activity: AppliedActivity;
+}
+
+/** The items new messages added to people's Activity, and those opening a room read, by whose they are. */
+export interface AppliedActivity {
+  added: RecordedItems;
+  read: Map<UserId, number[]>;
+}
+
+/**
+ * What `event` does to people's Activity: a new message records items for whom it's about, unless it
+ * has been deleted since, and opening the room reads its mentions and DMs. A statement that matches
+ * nothing stands in for a deleted message's, so every event has one.
+ */
+function activityOf(roomId: RoomId, event: RoomEvent, viewers: string): Statement {
+  const { seq, userId, at, message } = event;
+  if (!isNewMessage(event)) return readInRoom(userId, roomId, at, seq);
+  if (!message) return statement(`SELECT NULL AS id WHERE 0`);
+  return recordMessage({
+    seq,
+    roomId,
+    messageId: message.id,
+    authorId: userId,
+    parentId: message.parentId ?? null,
+    plainText: message.plainText,
+    at,
+    mentionIds: message.mentionIds,
+    everyone: mentionsEveryone(message.plainText),
+    followerIds: message.followerIds ?? [],
+    inRoom: !event.threadOnly,
+    viewerIds: viewers,
+  });
 }
 
 /**
@@ -3597,7 +3632,8 @@ export class WorkspaceStore {
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it, nor is
       // @ember's answer, which is a reply too.
       const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq)) - 1 : null;
-      return { event, marks, counts, mentioned, pushes, bots };
+      const activity = statements.push(activityOf(roomId, event, seeing)) - 1;
+      return { event, marks, counts, mentioned, pushes, bots, activity };
     });
     const told = statements.length;
     statements.push(...(message ? [statement(TOLD_OF_DIRECT_MESSAGE, roomId, message.seq), statement(APPLIED_WITH_MESSAGE, last, roomId, messageAt!)] : [statement(APPLIED, last, roomId)]));
@@ -3622,7 +3658,12 @@ export class WorkspaceStore {
     const webhooks = deliveries.flatMap(({ answers, ...delivery }) => (answers ? [] : [delivery]));
     const asks = deliveries.flatMap(({ answers, ...ask }) => (answers ? [ask] : []));
     const toldIds = message ? userIdsOf(results[told] as UserIdRow[]) : [];
-    return { marks, counts, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks, asks };
+    const activity: AppliedActivity = { added: new Map(), read: new Map() };
+    for (const { event, activity: at } of applied) {
+      if (!isNewMessage(event)) activity.read.set(event.userId, [...(activity.read.get(event.userId) ?? []), ...(results[at] as Array<{ id: number }>).map((row) => row.id)]);
+      else addRecorded(activity.added, recordedRows(results[at]!));
+    }
+    return { marks, counts, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks, asks, activity };
   }
 
   /** Whether push subscription `id` is still saved, for someone active. */
@@ -3993,6 +4034,17 @@ export class WorkspaceStore {
   }
 
   /** Someone with their email address, whatever their status, or null if nobody has id `userId`. */
+  /** The time zone someone's browser last said it's in, or null. */
+  async timeZoneOf(userId: UserId): Promise<string | null> {
+    const [row] = await this.db.all<{ time_zone: string | null }>(`SELECT time_zone FROM users WHERE id = ?`, userId);
+    return row?.time_zone ?? null;
+  }
+
+  /** Saves the time zone someone's browser says it's in, when it's changed. */
+  async setTimeZone(userId: UserId, timeZone: string): Promise<void> {
+    await this.db.run(`UPDATE users SET time_zone = ?2 WHERE id = ?1 AND time_zone IS NOT ?2`, userId, timeZone);
+  }
+
   async personWithProfile(userId: UserId): Promise<ProfileEntry | null> {
     const [row] = await this.db.all<DirectoryRow & { email_address: string | null }>(PERSON_WITH_PROFILE, userId);
     return row ? { ...directoryEntry(row), emailAddress: row.email_address } : null;

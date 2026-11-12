@@ -7,6 +7,8 @@ import {
   WORKSPACE_PRELOADS,
   type Account,
   type AccountChanges,
+  type ActivityMarks,
+  type ActivityPage,
   type AssistantChanged,
   type AssistantChanges,
   type AssistantForgotten,
@@ -940,7 +942,23 @@ export function socketUrl(path: string): string {
 export const roomSocketUrl = (roomId: string, params: RoomSocketParams) => socketUrl(`/api/rooms/${encodeURIComponent(roomId)}/socket${roomSocketQuery(params)}`);
 
 /** The address of a tab's workspace socket, which carries what changes outside the room it shows. */
-export const workspaceSocketUrl = () => socketUrl("/api/socket");
+export const workspaceSocketUrl = () => socketUrl(`/api/socket${timeZoneQuery()}`);
+
+/** The time zone this browser is in, for the local time others see on your profile, as the workspace socket's query. */
+function timeZoneQuery(): string {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return zone ? `?tz=${encodeURIComponent(zone)}` : "";
+}
+
+/** A page of your Activity, newest first: the newest, or the one older than item `before`. */
+export async function fetchActivity(before: number | null = null): Promise<ActivityPage> {
+  return request<ActivityPage>(`/api/activity${before === null ? "" : `?before=${before}`}`);
+}
+
+/** Marks items of your Activity read or unread, or all of them read. */
+export async function markActivity(marks: ActivityMarks): Promise<void> {
+  await request("/api/activity/marks", { method: "POST", body: JSON.stringify(marks) });
+}
 
 /** Forgets the session earlier versions of the app kept in localStorage, which nothing reads now. */
 export function forgetStoredSession(): void {

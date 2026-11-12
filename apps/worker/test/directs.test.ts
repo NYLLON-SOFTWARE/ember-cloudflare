@@ -192,7 +192,11 @@ describe("DM order", () => {
     const message = await post(await connect(room.id, ada, { visible: true }), "Hello, Grace");
     const active = { type: "room.active", roomId: room.id, at: message.createdAt };
     expect(await heard(adasTab, room.id)).toEqual([active]);
-    expect(await heard(gracesTab, room.id)).toEqual([{ type: "room.unread", roomId: room.id, at: expect.any(String), count: 1 }, active]);
+    expect(await heard(gracesTab, room.id)).toEqual([
+      { type: "room.unread", roomId: room.id, at: expect.any(String), count: 1 },
+      active,
+      { type: "activity.added", items: [expect.objectContaining({ kind: "direct", messageId: message.id })] },
+    ]);
     expect(await heard(linussTab, room.id)).toEqual([]);
     for (const member of [ada, grace]) expect((await directsOf(member)).map((listed) => listed.activeAt)).toEqual([message.createdAt]);
   });

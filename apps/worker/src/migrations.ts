@@ -59,6 +59,8 @@ import unreadMentions from "../migrations/0056_unread_mentions.sql";
 import waitingCalls from "../migrations/0057_waiting_calls.sql";
 import fileMarks from "../migrations/0060_file_marks.sql";
 import roomTabs from "../migrations/0061_room_tabs.sql";
+import activity from "../migrations/0065_activity.sql";
+import timeZones from "../migrations/0066_time_zones.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -146,6 +148,8 @@ export const MIGRATIONS: Migration[] = [
   { name: "0057_waiting_calls.sql", scope: "room", sql: waitingCalls },
   { name: "0060_file_marks.sql", scope: "workspace", sql: fileMarks },
   { name: "0061_room_tabs.sql", scope: "workspace", sql: roomTabs },
+  { name: "0065_activity.sql", scope: "workspace", sql: activity },
+  { name: "0066_time_zones.sql", scope: "workspace", sql: timeZones },
 ];
 
 /**

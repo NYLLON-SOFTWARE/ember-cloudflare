@@ -206,3 +206,11 @@ describe("Search page", () => {
     for (const path of ["/searches/", "/searches/clear", "/search"]) expect(workspacePageOf(path), path).toBeNull();
   });
 });
+
+describe("Activity page", () => {
+  it("shows Activity at `/activity`, and nothing under it", () => {
+    expect(workspacePageOf("/activity")).toEqual({ page: "activity" });
+    expect(isAppPage("/activity")).toBe(true);
+    for (const path of ["/activity/", "/activity/1", "/activities"]) expect(workspacePageOf(path), path).toBeNull();
+  });
+});

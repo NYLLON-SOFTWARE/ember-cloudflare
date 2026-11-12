@@ -1,6 +1,7 @@
 import {
   AVATAR_PATH,
   CloseCode,
+  type ActivityPage,
   CURRENT_PASSWORD_NEEDED,
   CURRENT_PASSWORD_WRONG,
   EMAIL_DOMAIN_NEEDS_EMAIL,
@@ -32,6 +33,8 @@ import {
   parseCustomDomainCheck,
   parseCustomStyles,
   parseFavoriteOrder,
+  parseActivityCursor,
+  parseActivityMarks,
   parseInvolvementChange,
   parseMemberfulDisconnection,
   parseSharedOrder,
@@ -828,7 +831,8 @@ async function showPerson(request: Request, env: Env, userId: UserId): Promise<R
   if (found === "not found") return problem(404, "Not found");
   const [shown] = await directoryOf([found.person], env.SESSION_SECRET);
   const transferId = found.transfer ? await newTransferId(found.transfer, env.SESSION_SECRET, Date.now()) : undefined;
-  return json({ person: shown!, transferId, ...(found.agent && { agent: found.agent }) } satisfies PersonAnswer, { headers: { "Cache-Control": "no-store" } });
+  const person = { ...shown!, ...(found.timeZone && { timeZone: found.timeZone }) };
+  return json({ person, transferId, ...(found.agent && { agent: found.agent }) } satisfies PersonAnswer, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**
@@ -974,6 +978,26 @@ async function setFavorite(request: Request, env: Env, roomId: string): Promise<
   if (!favorites) return problem(401, "Not signed in");
   if (favorites === "forbidden") return problem(403, "You can't star that room");
   return json({ favorites } satisfies { favorites: Favorites });
+}
+
+/**
+ * A page of the signed-in person's Activity, newest first, older than the item `?before=` names, or the
+ * newest. No cache keeps it, as none keeps the sidebar.
+ */
+async function activityPage(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const before = parseActivityCursor(new URL(request.url).searchParams.get("before"));
+  const page = credentials && (await workspace(env).activityPage(credentials, before));
+  return page ? json(page satisfies ActivityPage, { headers: { "Cache-Control": "no-store" } }) : problem(401, "Not signed in");
+}
+
+/** Marks items of the signed-in person's Activity read or unread, answering 204, or 422 for marks it can't read. */
+async function markActivity(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const marks = parseActivityMarks(await jsonBodyOf(request));
+  if (typeof marks === "string") return problem(422, marks);
+  return (await workspace(env).markActivity(credentials, marks)) ? new Response(null, { status: 204 }) : problem(401, "Not signed in");
 }
 
 /**
@@ -1146,6 +1170,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   const botKey = pathname.match(/^\/api\/account\/bots\/([^/]+)\/key$/);
   if (botKey && request.method === "PUT") return () => resetBotKey(request, env, botKey[1]!);
   if (pathname === "/api/sidebar" && request.method === "GET") return () => sidebar(request, env);
+  if (pathname === "/api/activity" && request.method === "GET") return () => activityPage(request, env);
+  if (pathname === "/api/activity/marks" && request.method === "POST") return () => markActivity(request, env);
   if (pathname === "/api/sidebar/invitation" && request.method === "DELETE") return () => dismissInvitation(request, env);
   if (pathname === "/api/users" && request.method === "GET") return () => directory(request, env);
   if (pathname === "/api/autocompletable/users" && request.method === "GET") return () => mentionable(request, env);

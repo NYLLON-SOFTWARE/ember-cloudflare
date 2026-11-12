@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { ASSISTANT_ID, searchOfQuery, startingInvolvement, type Account, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User } from "@ember/protocol";
+import { ASSISTANT_ID, searchOfQuery, startingInvolvement, type Account, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User, type UserId } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Xmark } from "@/components/icons/iconoir";
 import { MainContent, SkipLink } from "@/components/main-content";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useAccount } from "@/hooks/use-account";
+import { useActivity } from "@/hooks/use-activity";
 import { useAppBadge } from "@/hooks/use-app-badge";
 import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useDraftCount } from "@/hooks/use-draft-count";
@@ -24,11 +25,13 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { apart, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { afterNavigating, dmPath, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, type Route } from "@/hooks/use-route";
+import { dmPath, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, type Route } from "@/hooks/use-route";
+import { ActivityPage } from "./activity-page";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
 import { NewDirectDialog } from "./new-direct-dialog";
+import { opensProfile, ProfilePaneContext, ProfilePanel, type ProfilePane } from "./profile-pane";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
 import { RoomView, type RoomViewHandle } from "./room-view";
@@ -124,6 +127,7 @@ const RAIL_PAGES = {
   drafts: "home",
   threads: "home",
   files: "files",
+  activity: "activity",
 } as const satisfies Record<Route["page"], RailPage>;
 
 /** The Home sidebar's link each of its pages marks. */
@@ -293,14 +297,14 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
-  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone);
+  // Activity, which the workspace socket keeps current on every page, for the rail's count and its page.
+  const activityFailed = useRef<(error: unknown) => void>(() => {});
+  const activityFeed = useActivity(useCallback((error: unknown) => activityFailed.current(error), []));
+  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, activityFeed.heard);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
   const [newDirect, setNewDirect] = useState<{ opener: HTMLElement | null } | null>(null);
-  // Activity's filter, which lives as long as the page: other pages keep it on, and loading the page
-  // again starts with it off.
-  const [unreadOnly, setUnreadOnly] = useState(false);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
   const drawerRail = useRef<HTMLDivElement>(null);
   const roomView = useRef<RoomViewHandle>(null);
@@ -332,12 +336,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     return () => drawerLayout.removeEventListener("change", close);
   }, []);
 
-  // Another page starts with the drawer closed, but the one Activity goes to from the drawer on a page
-  // of community settings, which keeps it open on the conversations it filters.
-  const keepDrawer = useRef(false);
-  useEffect(() => {
-    if (!keepDrawer.current) setDrawerOpen(false);
-  }, [route]);
+  // Another page starts with the drawer closed.
+  useEffect(() => setDrawerOpen(false), [route]);
 
   // The pages few visits need load once the rooms have, while the browser is idle, so that going to one
   // doesn't wait for them. If they fail to, the first page that needs them tries again.
@@ -401,6 +401,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     },
     [flash, onSessionChanged, mounted],
   );
+  useLayoutEffect(() => {
+    activityFailed.current = failed;
+  }, [failed]);
   const redirect = useCallback(
     ({ path, alert }: Redirect) => {
       navigate(path, { replace: true });
@@ -502,10 +505,6 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   useLayoutEffect(() => {
     if (goingOn) redirect(goingOn);
   }, [goingOn, redirect]);
-  // The page Activity keeps the drawer open for is the one home goes on to, if it goes on.
-  useEffect(() => {
-    if (!goingOn) keepDrawer.current = false;
-  }, [route, goingOn]);
 
   // The room the page shows: a room's page's, or the DM open beside the DMs page's list.
   const shownRoomId = route.page === "room" ? route.roomId : route.page === "dms" ? (route.roomId ?? null) : null;
@@ -556,29 +555,20 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     const link = (event.target as Element).closest("a[href]");
     if (link instanceof HTMLAnchorElement && link.pathname === location.pathname) setDrawerOpen(false);
   };
-  // Following a link in the rail or the sidebar turns Activity off once the app goes there, so keeping
-  // unsaved changes, which holds it here, keeps Activity on. One the browser opens somewhere else leaves
-  // this page as it was, as it leaves the drawer.
-  const showAllForLink = (event: MouseEvent) => {
-    if (event.defaultPrevented && (event.target as Element).closest("a[href]")) afterNavigating(() => setUnreadOnly(false));
-  };
   const currentRoomId = room?.id ?? null;
-  const activity = {
-    on: unreadOnly,
-    unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length,
-    onToggle: () => {
-      // A page of community settings has no conversations to show, so Activity goes home to them, once
-      // unsaved changes let it. Pressed in the drawer, it keeps the drawer open, as it is when
-      // Activity's pressed on any other page.
-      if (!settings) return setUnreadOnly((on) => !on);
-      const inDrawer = drawerOpen;
-      navigate("/");
-      afterNavigating(() => {
-        setUnreadOnly((on) => !on);
-        keepDrawer.current = inDrawer;
-      });
-    },
-  };
+  const unreadConversations = (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length;
+
+  // Someone's profile, open beside the room or Activity's conversation, until another page shows.
+  const [profileOpen, setProfileOpen] = useState<{ userId: UserId; route: Route } | null>(null);
+  const profilePane: ProfilePane | null =
+    route.page === "room" || route.page === "activity"
+      ? {
+          userId: profileOpen?.route === route ? profileOpen.userId : null,
+          open: (userId) => setProfileOpen({ userId, route }),
+          close: () => setProfileOpen(null),
+          startDirect: startDirectWith,
+        }
+      : null;
   // Cmd+F or Ctrl+F opens the search box, as it opens Slack's: in the room shown, or with the search the
   // results page shows, or for everything. In a dialog, the search box among them, the key is the browser's.
   const findPressed = useEffectEvent((event: KeyboardEvent) => {
@@ -636,9 +626,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     if (huddleLinked) followHuddleLink(huddleLinked);
   }, [huddleLinked]);
 
-  // The app's badge counts what Activity does, as badge_dot_controller.js counts the sidebar's unread rows,
-  // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
-  useAppBadge(answered ? activity.unread : null);
+  // The app's badge counts the unread conversations, as badge_dot_controller.js counts the sidebar's unread
+  // rows, once the server's list has come: the empty one a failed first load leaves knows nothing of
+  // what's unread. The rail's Activity counts Activity's unread items.
+  useAppBadge(answered ? unreadConversations : null);
   // A DM, and its settings, show beside the DMs page's list, as the DMs page does, and the rail marks DMs
   // for them; any other page shows beside Home's, which goes back to the last room it showed.
   const directsShown = route.page === "dms" || route.page === "direct-settings" || room?.kind === "direct";
@@ -663,7 +654,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       me={me}
       workspaceName={workspaceName}
       current={room?.kind === "direct" ? "dms" : RAIL_PAGES[route.page]}
-      activity={activity}
+      activity={{ unread: activityFeed.feed.unread }}
       directsUnread={directCounts?.messages ?? 0}
       newRelease={newRelease}
     />
@@ -680,7 +671,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           onSignedOut={() => onSessionChanged(null)}
           suggestions={suggestions}
           currentRoomId={currentRoomId}
-          unreadOnly={unreadOnly}
+          unreadOnly={false}
           onSelect={selectDirect}
           onNewDirect={openNewDirect}
           onStartDirect={(person) => startDirectWith(person, dmPath)}
@@ -704,7 +695,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       currentRoomId={currentRoomId}
       currentPage={SIDEBAR_PAGES[route.page] ?? null}
       draftCount={draftCount}
-      unreadOnly={unreadOnly}
+      unreadOnly={false}
       onSelect={select}
       onStarred={starredRooms}
       onSessionChanged={onSessionChanged}
@@ -792,6 +783,41 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ DraftsPage }) => <DraftsPage key={route.tab} me={me} tab={route.tab} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
       case "threads":
         return rarePage(({ ThreadsPage }) => <ThreadsPage me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
+      case "activity":
+        if (!rooms) return LOADING;
+        return (
+          <ActivityPage
+            me={me}
+            rooms={rooms}
+            activity={activityFeed}
+            renderRoom={(place, panes) => {
+              const shown = rooms.find((r) => r.id === place.roomId);
+              return (
+                shown && (
+                  <RoomView
+                    key={`${shown.id}/${place.itemId}`}
+                    room={shown}
+                    messageId={place.messageId}
+                    threadId={place.threadId}
+                    replyId={place.replyId}
+                    invitation={invitation?.roomId === shown.id ? invitation : null}
+                    onDismissInvitation={dismissCard}
+                    me={me}
+                    favorite={starred.has(shown.id)}
+                    gone={false}
+                    onStarred={starredRooms}
+                    involvement={shown.involvement}
+                    askForRoom={askForRoom}
+                    onSessionChanged={onSessionChanged}
+                    onFailed={failed}
+                    onGone={(gone) => unlistRoom(gone.id)}
+                    panes={panes}
+                  />
+                )
+              );
+            }}
+          />
+        );
       case "person":
         return rarePage(({ PersonPage }) => (
           <PersonPage
@@ -880,14 +906,18 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",
             // The DMs page's list, which shows each DM's latest message, is wider, as Slack's is.
             !settings && directsShown && "md:[--spacing-sidebar:340px]",
-            // A thread open beside its room, from 1180px wide, which takes 420px of the room's width.
-            "min-[1180px]:has-[>[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
+            // A thread or a profile open beside its room, from 1180px wide, which takes 420px of the room's
+            // width until it's resized; a profile covers the thread, which keeps its place for when it closes.
+            "min-[1180px]:has-[>[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_var(--side-width,420px)]",
+            "[&:has(>[data-profile])>[data-thread]:not([data-profile])]:hidden",
           )}
+          onClickCapture={(event) => opensProfile(profilePane, event)}
         >
           <SkipLink />
-          <div className="contents max-md:hidden [&>*]:row-span-2" onClick={showAllForLink}>
+          <div className="contents max-md:hidden [&>*]:row-span-2">
             {rail}
-            {!settings && (
+            {/* Activity's feed takes the conversations' place. */}
+            {!settings && route.page !== "activity" && (
               <aside aria-label="Conversations" className="min-h-0 overflow-hidden border-r">
                 {filesNav ?? (!directsInPage && sidebar)}
               </aside>
@@ -908,10 +938,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               const focused = document.activeElement;
               if (focused && focused !== document.body) event.preventDefault();
             }}
-            onClick={(event) => {
-              closeForLinkHere(event);
-              showAllForLink(event);
-            }}
+            onClick={closeForLinkHere}
             className="flex w-auto max-w-[calc(100dvw-16px)] flex-row gap-0 border-0 bg-surface p-0 shadow-none sm:max-w-[calc(100dvw-16px)] md:hidden"
           >
             <SheetTitle className="sr-only">{settings ? "Navigation" : "Conversations"}</SheetTitle>
@@ -936,6 +963,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           </SheetContent>
 
           {page()}
+          {room && profilePane?.userId && <ProfilePanel key={profilePane.userId} userId={profilePane.userId} me={me} pane={profilePane} placement="column" />}
           <MovedNotice />
           {newDirect && (
             <NewDirectDialog
@@ -977,7 +1005,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       <DirectoryLoaded value={directory.loaded}>
         <SettingsLayout value={settings}>
           <OpenSearchContext value={openSearch}>
-            <HuddlesContext value={huddles}>{layout}</HuddlesContext>
+            <HuddlesContext value={huddles}>
+              <ProfilePaneContext value={profilePane}>{layout}</ProfilePaneContext>
+            </HuddlesContext>
           </OpenSearchContext>
         </SettingsLayout>
       </DirectoryLoaded>

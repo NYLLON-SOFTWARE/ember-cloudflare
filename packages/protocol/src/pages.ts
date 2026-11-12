@@ -1,3 +1,4 @@
+import { ACTIVITY_PATH } from "./activity.ts";
 import type { RoomId, RoomKind, UserId } from "./index.ts";
 
 // The app's pages, at Campfire's addresses where it has the page. The app's router reads a path with
@@ -73,7 +74,9 @@ export type WorkspacePage =
   /** The threads you follow, at `/threads`, latest active first, each with a box to reply in. */
   | { page: "threads" }
   /** The workspace's files, at `/files`, its canvases at `/files/canvases`, or the files you've starred at `/files/starred`. */
-  | { page: "files"; place: FilesPlace };
+  | { page: "files"; place: FilesPlace }
+  /** Activity, at `/activity`: mentions, DMs, thread replies, reactions and invitations, newest first. */
+  | { page: "activity" };
 
 /** Which of the workspace's files the Files page lists. */
 export type FilesPlace = "all" | "canvases" | "starred";
@@ -164,6 +167,7 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (pathname === SEARCHES_PATH) return { page: "search" };
   const files = pathname.match(/^\/files(?:\/(canvases|starred))?$/);
   if (files) return { page: "files", place: (files[1] as FilesPlace | undefined) ?? "all" };
+  if (pathname === ACTIVITY_PATH) return { page: "activity" };
   if (/^\/users\/[^/]+\/profile$/.test(pathname)) return { page: "profile" };
   if (/^\/users\/[^/]+\/push_subscriptions$/.test(pathname)) return { page: "push-subscriptions" };
   const person = pathname.match(/^\/users\/([^/]+)$/);

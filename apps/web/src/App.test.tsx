@@ -76,7 +76,7 @@ class WorkspaceSocket extends QuietSocket {
 
   constructor(url: string) {
     super();
-    if (url.endsWith("/api/socket")) WorkspaceSocket.all.push(this);
+    if (new URL(url).pathname === "/api/socket") WorkspaceSocket.all.push(this);
   }
 
   receive(frame: object) {
@@ -187,6 +187,7 @@ function serve({
       return Response.json({ huddles: { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId } });
     }
     if (route === "GET /api/users") return Response.json({ users: [] });
+    if (route === "GET /api/activity") return Response.json({ items: [], unread: 0, more: false });
     if (route === "GET /api/users/me/profile") return Response.json({ profile: { name: me.name, emailAddress: null, bio: null } });
     if (route === "PATCH /api/account") {
       const { name = account.name, tagline = account.tagline, settings, customDomain = account.customDomain } = JSON.parse(String(init?.body)) as AccountChanges;

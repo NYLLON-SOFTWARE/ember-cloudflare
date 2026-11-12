@@ -2,6 +2,7 @@
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
 
+import type { ActivityItem } from "./activity.ts";
 import type { AgentProfile } from "./agents.ts";
 import type { AssistantSettings, YourAssistant } from "./assistant.ts";
 import { isActionId, isActionValue, type Card } from "./cards.ts";
@@ -150,6 +151,21 @@ export {
 export { TRANSLATIONS, type TranslationKey } from "./translations.ts";
 export { dmPath, DMS_PATH, DRAFTS_PATH, PEOPLE_PATH, SENT_PATH, THREADS_PATH } from "./pages.ts";
 export { THREAD_CONTEXT, THREADS_LIMIT, type DirectPreview, type DirectPreviews, type ListedThread, type ListedThreads } from "./conversations.ts";
+export {
+  ACTIVITY_KINDS,
+  ACTIVITY_PAGE_SIZE,
+  ACTIVITY_PATH,
+  ACTIVITY_PREVIEW_LENGTH,
+  MAX_ACTIVITY_MARKS,
+  mentionsEveryone,
+  parseActivityCursor,
+  parseActivityMarks,
+  previewOf,
+  type ActivityItem,
+  type ActivityKind,
+  type ActivityMarks,
+  type ActivityPage,
+} from "./activity.ts";
 export {
   hasFilters,
   hasWords,
@@ -891,6 +907,8 @@ export interface ChangedPerson {
 export interface Person extends DirectoryUser {
   /** Their email address, or null when they have none, which only administrators are told. */
   emailAddress?: string | null;
+  /** The IANA time zone their browser last said it's in, for their local time, or null before it has. */
+  timeZone?: string | null;
 }
 
 /** What `GET /api/users/<id>` answers: anyone, whatever their status. */
@@ -1746,8 +1764,17 @@ export type WorkspaceServerFrame =
   | { type: "rooms.reordered" }
   /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */
   | { type: "account.updated"; account: Account }
+  /** New items in their Activity, oldest first. Sent only to the person whose they are. */
+  | { type: "activity.added"; items: ActivityItem[] }
+  /** Items of their Activity marked read or unread, in this tab or another, or with `ids` null, every item marked read. */
+  | { type: "activity.marked"; ids: number[] | null; read: boolean }
+  /** Items gone from their Activity, as a reaction taken back or a message deleted takes them. */
+  | { type: "activity.removed"; ids: number[] }
   | { type: "error"; message: string }
   | { type: "pong" };
+
+/** What the workspace socket says of someone's Activity. */
+export type ActivityFrame = Extract<WorkspaceServerFrame, { type: "activity.added" | "activity.marked" | "activity.removed" }>;
 
 /**
  * The revision of the room protocol the app speaks, which its room sockets' addresses name. The room

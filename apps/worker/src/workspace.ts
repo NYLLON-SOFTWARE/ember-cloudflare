@@ -4,6 +4,8 @@ import {
   ASSISTANT_NAME,
   CANT_SEND_EMAIL,
   CloseCode,
+  type ActivityMarks,
+  type ActivityPage,
   domainOfEmailAddress,
   EMAILS_PER_ADDRESS,
   EMAIL_LINKS_PER_NETWORK,
@@ -112,6 +114,7 @@ import { memberfulApiOf, membershipsOf, namelessMember, type MemberfulMember } f
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
+import { ActivityStore, type RecordedItems, type RemovedItems } from "./activity";
 import type { RoomEvent } from "./room-log";
 import { RoomTabStore, type KeptTab, type LibraryShelf, type TabAction, type TabAnswer } from "./room-tabs";
 import type { Canvas, CanvasSave, FileMark, FileMarks } from "@ember/protocol/library";
@@ -500,6 +503,8 @@ export interface ShownPerson {
   transfer: Transfer | null;
   /** What the page tells everyone of an agent an administrator made, or null for anyone else. */
   agent: AgentProfile | null;
+  /** The time zone their browser last said it's in, or null. */
+  timeZone: string | null;
 }
 
 /**
@@ -789,6 +794,8 @@ const shownApp = ({ id, name, url, sealedToken, serverName, tools, toolsLeftOut,
 export class Workspace extends DurableObject<Env> {
   private readonly db: Db;
   private readonly store: WorkspaceStore;
+  /** Everyone's Activity, beside their memberships. */
+  private readonly activity: ActivityStore;
   private readonly sessions = new SessionCache<StoredSession>(CACHED_SESSIONS);
   /**
    * The account once it exists. Renaming it and regenerating its join code keep this current, and
@@ -839,6 +846,7 @@ export class Workspace extends DurableObject<Env> {
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'));
     this.db = openDb(env, ctx.storage, "workspace");
     this.store = new WorkspaceStore(this.db);
+    this.activity = new ActivityStore(this.db);
     // The outbox can hold revocations with no alarm set for them: the Workspace can stop after saving a
     // change but before setting the alarm, and an alarm that keeps failing is given up. So it looks
     // whenever it starts, before answering anything. A failure is only logged; the next change that
@@ -875,6 +883,10 @@ export class Workspace extends DurableObject<Env> {
     const [current, account] = await Promise.all([this.session(credentials), this.account()]);
     if (current) send(server, { type: "welcome", you: meOf(current), account: account ?? ACCOUNT_BEFORE_SETUP });
     else server.close(CloseCode.Reconnect, CLOSE_REASONS[CloseCode.Reconnect]);
+    // The time zone the tab's browser is in, for the local time others see on their profile, saved once
+    // the socket is in, and only when it's changed.
+    const timeZone = timeZoneOf(new URL(request.url).searchParams.get("tz"));
+    if (current && timeZone) this.ctx.waitUntil(this.store.setTimeZone(current.user.id, timeZone).catch(() => {}));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -2687,8 +2699,10 @@ export class Workspace extends DurableObject<Env> {
     if (!user) return null;
     if (!(await this.mayCreateRoomsAs(user.id))) return "forbidden";
     const created: SharedRoom = { id: sortableId(), kind: room.kind, name: room.name, icon: room.icon || null };
-    const memberIds = await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, new Date().toISOString());
+    const at = new Date().toISOString();
+    const memberIds = await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, at);
     this.tell(memberIds, { type: "room.saved", room: created });
+    if (room.kind === "closed") this.tellOfActivity(await this.activity.recordInvitations(created.id, user.id, memberIds, at));
     return created;
   }
 
@@ -2745,15 +2759,19 @@ export class Workspace extends DurableObject<Env> {
   async person(credentials: Credentials, userId: UserId): Promise<ShownPerson | "not found" | null> {
     const session = await this.session(credentials);
     if (!session) return null;
-    const [person, administrator] = await Promise.all([this.store.personWithProfile(userId), this.store.isAdministrator(session.user.id)]);
+    const [person, administrator, timeZone] = await Promise.all([
+      this.store.personWithProfile(userId),
+      this.store.isAdministrator(session.user.id),
+      this.store.timeZoneOf(userId),
+    ]);
     if (!person) return "not found";
     const agent = person.agent ? await this.store.agentProfile(userId) : null;
     if (administrator) {
       const transferable = person.status === "active" && person.role !== "bot";
-      return { person, transfer: transferable ? { userId: person.id, sessionId: session.id } : null, agent };
+      return { person, transfer: transferable ? { userId: person.id, sessionId: session.id } : null, agent, timeZone };
     }
     const { emailAddress, ...listed } = person;
-    return { person: listed, transfer: null, agent };
+    return { person: listed, transfer: null, agent, timeZone };
   }
 
   /**
@@ -3664,6 +3682,8 @@ export class Workspace extends DurableObject<Env> {
       // The shared order their sidebars have leaves out the rooms they weren't in, so they load it
       // again.
       if (saved.ranked) this.tell(saved.addedIds, { type: "rooms.reordered" });
+      // Whoever it puts in a private room finds it in their Activity, as Slack's invitations are.
+      if (changed.kind === "closed") this.tellOfActivity(await this.activity.recordInvitations(roomId, user.id, saved.addedIds, new Date(now).toISOString()));
       return changed;
     });
   }
@@ -3748,6 +3768,52 @@ export class Workspace extends DurableObject<Env> {
     });
   }
 
+  /** Tells each person of the items added to their Activity. */
+  private tellOfActivity(added: RecordedItems): void {
+    for (const [userId, items] of added) this.tell([userId], { type: "activity.added", items });
+  }
+
+  /** Tells each person of the items gone from their Activity. */
+  private tellOfRemovedActivity(removed: RemovedItems): void {
+    for (const [userId, ids] of removed) this.tell([userId], { type: "activity.removed", ids });
+  }
+
+  /** A page of the Activity of the person `credentials` signs in, older than item `before`, or the newest, or null without a valid session. */
+  async activityPage(credentials: Credentials, before: number | null): Promise<ActivityPage | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.activity.page(user.id, before);
+  }
+
+  /**
+   * Marks items of the Activity of the person `credentials` signs in read or unread, as `marks` says,
+   * telling their tabs, answering false without a valid session.
+   */
+  async markActivity(credentials: Credentials, marks: ActivityMarks): Promise<boolean> {
+    const user = await this.authenticate(credentials);
+    if (!user) return false;
+    const ids = await this.activity.mark(user.id, marks, new Date().toISOString());
+    if (ids === null || ids.length > 0) this.tell([user.id], { type: "activity.marked", ids, read: marks.read });
+    return true;
+  }
+
+  /**
+   * Records `reactorId`'s reaction, `content`, to message `messageId` in room `roomId`, which `authorId`
+   * wrote and whose text starts `plainText`, in its author's Activity, as the room asks once it's saved.
+   */
+  async reacted(roomId: RoomId, messageId: string, authorId: UserId, reactorId: UserId, content: string, plainText: string, at: string): Promise<void> {
+    this.tellOfActivity(await this.activity.recordReaction(roomId, messageId, authorId, reactorId, content, plainText, at));
+  }
+
+  /** Takes back the item a reaction recorded, as the room asks once the reaction is removed. */
+  async unreacted(messageId: string, reactorId: UserId, content: string): Promise<void> {
+    this.tellOfRemovedActivity(await this.activity.removeReaction(messageId, reactorId, content));
+  }
+
+  /** Takes out of everyone's Activity the items about message `messageId` in room `roomId`, as the room asks once it's deleted. */
+  async messageDeleted(roomId: RoomId, messageId: string): Promise<void> {
+    this.tellOfRemovedActivity(await this.activity.removeMessage(roomId, messageId));
+  }
+
   /**
    * Applies the events room `roomId` sends from its log, in order, with `viewerIds`, who is viewing the
    * room as it sends them: a new message marks the room unread for its members who aren't, and someone
@@ -3761,7 +3827,7 @@ export class Workspace extends DurableObject<Env> {
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<RoomEventDeliveries> {
     if (events.length === 0) return { pushes: [], webhooks: [], asks: [] };
     const { on: pushing } = await webPush(this.env);
-    const { marks, counts, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env));
+    const { marks, counts, active, pushes, webhooks, asks, activity } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env));
     // Someone whose mark changed hears of it with their count, if a message counted, and someone already
     // marked hears of their count as it changes.
     for (const [userId, at] of marks) {
@@ -3770,6 +3836,8 @@ export class Workspace extends DurableObject<Env> {
     }
     for (const [userId, { at, count, mentioned }] of counts) if (!marks.has(userId)) this.tell([userId], { type: "room.unread", roomId, at, count, ...(mentioned && { mentioned: true }) });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
+    this.tellOfActivity(activity.added);
+    for (const [userId, ids] of activity.read) if (ids.length > 0) this.tell([userId], { type: "activity.marked", ids, read: true });
     return { pushes, webhooks, asks };
   }
 
@@ -4383,3 +4451,13 @@ export class Workspace extends DurableObject<Env> {
 }
 
 export const workspace = (env: Env) => env.WORKSPACE.getByName("workspace");
+
+/** The IANA time zone a tab says its browser is in, or null for none, or one the runtime doesn't know. */
+export function timeZoneOf(zone: string | null): string | null {
+  if (!zone || zone.length > 64) return null;
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: zone }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}

@@ -148,9 +148,10 @@ describe("Connection sign-in and revocation", () => {
 
 describe("One live connection per tab outside the open room", () => {
   it("opens the workspace socket on the page's own host, over wss on https pages", () => {
-    expect(workspaceSocketUrl()).toBe("ws://localhost:3000/api/socket");
+    const zone = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    expect(workspaceSocketUrl()).toBe(`ws://localhost:3000/api/socket?tz=${zone}`);
     vi.stubGlobal("location", new URL("https://ember.example/rooms/general"));
-    expect(workspaceSocketUrl()).toBe("wss://ember.example/api/socket");
+    expect(workspaceSocketUrl()).toBe(`wss://ember.example/api/socket?tz=${zone}`);
     vi.unstubAllGlobals();
   });
 });

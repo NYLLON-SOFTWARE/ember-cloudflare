@@ -113,35 +113,29 @@ test.describe("Unread rooms", () => {
   });
 });
 
-test.describe("Activity filter", () => {
-  test("counts the rooms marked unread, shows only them while it's on, and a room's link turns it off", async ({ members, rooms }) => {
+test.describe("Activity", () => {
+  test("counts what's happened to you on the rail, lists it on its own page, and opens it beside the feed", async ({ members, rooms }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
-    const activity = grace.page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Activity" });
-    const rows = grace.page.getByRole("region", { name: "Rooms" }).getByRole("link");
-    const caughtUp = grace.page.getByText("You’re all caught up. No unread rooms.");
-    await expect(activity).toHaveAttribute("title", "Show unread conversations");
+    const activity = grace.page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Activity" });
 
-    await activity.click();
-    await expect(activity).toHaveAttribute("aria-pressed", "true");
-    await expect(rows).toHaveCount(0);
-    await expect(caughtUp).toBeVisible();
-    // The rail marks no page while it's on.
-    await expect(grace.page.getByRole("navigation", { name: "Workspace" }).locator("[aria-current]")).toHaveCount(0);
-
-    await ada.send("Lunch?");
+    await ada.send("@channel Lunch?");
     await expect(activity).toHaveAccessibleDescription("1 unread");
     await expect(activity.getByText("1", { exact: true })).toHaveCSS("height", "17px");
-    await expect(rows).toHaveText(["#general"]);
-    await expect(caughtUp).toBeHidden();
 
-    await rows.first().click();
-    await expect(grace.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
-    await expect(activity).toHaveAttribute("aria-pressed", "false");
-    // The room shown counts as read, so the pill goes.
+    await activity.click();
+    await expect(grace.page).toHaveURL(/\/activity$/);
+    await expect(activity).toHaveAttribute("aria-current", "page");
+    const feed = grace.page.getByRole("list", { name: "Activity items" });
+    await expect(feed.getByText("Mention in #general")).toBeVisible();
+
+    await feed.getByRole("button", { name: /@channel Lunch\?/ }).click();
+    await expect(grace.page.getByRole("heading", { level: 1, name: "general" })).toBeVisible();
+    await expect(grace.page).toHaveURL(/\/activity$/);
+    // Opening it reads it, which leaves it in the feed.
     await expect(activity).not.toHaveAttribute("aria-description");
-    await expect(activity.getByText("1", { exact: true })).toBeHidden();
-    await expect(rows).toHaveText(["#general", "#random"]);
+    await expect(feed.getByText("Mention in #general")).toBeVisible();
+    await expect(grace.page.getByRole("separator", { name: "Resize activity" })).toBeVisible();
   });
 });
 

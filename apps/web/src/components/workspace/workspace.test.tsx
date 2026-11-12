@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
+import { CloseCode, startingInvolvement, type Account, type ActivityItem, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import type { AgentSettings } from "@ember/protocol/agents";
 import { THINKING_LEVELS, type AssistantSettings } from "@ember/protocol/assistant";
 import { FlashProvider } from "@/components/flash";
@@ -60,8 +60,8 @@ const workspaceSettings: WorkspaceSettings = {
 
 /**
  * Answers each request as `responses` says, by its method and path, such as "POST /api/rooms", with
- * the workspace's settings for "GET /api/account", nobody for "GET /api/users", and the room list for
- * anything else.
+ * the workspace's settings for "GET /api/account", nobody for "GET /api/users", no Activity for
+ * "GET /api/activity", and the room list for anything else.
  */
 function serve(responses: Record<string, () => Response | Promise<Response>> = {}) {
   const answers: typeof responses = {
@@ -69,6 +69,7 @@ function serve(responses: Record<string, () => Response | Promise<Response>> = {
     "GET /api/users": () => Response.json({ users: [] }),
     "GET /api/directs": () => Response.json({ previews: [] }),
     "GET /api/threads": () => Response.json({ threads: [], next: null }),
+    "GET /api/activity": () => Response.json({ items: [], unread: 0, more: false }),
     ...responses,
   };
   vi.mocked(fetch).mockImplementation(async (input, init) => (answers[`${init?.method ?? "GET"} ${String(input)}`] ?? (() => Response.json(roomList(rooms))))());
@@ -802,13 +803,11 @@ describe("New direct message dialog", () => {
 
   beforeEach(() => serve({ "GET /api/users": () => Response.json({ users: people }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) }));
 
-  it("opens over the DMs page from its New direct message, which the rail's DMs goes to, turning Activity off, and closes back on the link", async () => {
+  it("opens over the DMs page from its New direct message, which the rail's DMs goes to, and closes back on the link", async () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
-    await user.click(screen.getByRole("button", { name: "Activity" }));
     await user.click(dms());
     expect(location.pathname).toBe("/dms");
-    expect(screen.getByRole("button", { name: "Activity", hidden: true })).toHaveAttribute("aria-pressed", "false");
     const link = compose();
     await user.click(link);
     expect(newDirect()).toBeInTheDocument();
@@ -1368,155 +1367,126 @@ describe("Someone's profile page", () => {
   });
 });
 
-describe("Activity filter", () => {
-  const marked: SidebarRoom[] = [
-    { ...rooms[0]!, unread: true, involvement: "mentions" },
-    { ...rooms[1]!, unread: true, involvement: "mentions" },
-    { id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" },
-  ];
-  const activity = () => screen.getByRole("button", { name: "Activity" });
-  // The sidebar's rooms, which workspace settings has a section named for too.
-  const sidebarRooms = () =>
-    within(screen.getByRole("complementary", { name: "Conversations" })).getAllByRole("region", { name: /^(Starred|Rooms)$/ }).flatMap((region) => within(region).queryAllByRole("link").map((link) => [link, region] as const))
-      .map(([link, region]) => link.textContent!.replace(/^#/, "") + (within(region).queryByRole("button", { name: "Starred" }) ? "★" : ""));
-  const roomLink = (name: RegExp) => within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("link", { name });
+describe("Activity", () => {
+  const item = (id: number, fields: Partial<ActivityItem> = {}): ActivityItem => ({
+    id,
+    kind: "mention",
+    roomId: "random",
+    messageId: `m${id}`,
+    parentId: null,
+    actorId: "u2",
+    preview: `Look at this ${id}`,
+    content: null,
+    at: NOON,
+    read: false,
+    ...fields,
+  });
+  const activityLink = () => within(screen.getByRole("navigation", { name: "Workspace" })).getByRole("link", { name: "Activity" });
+  const feed = () => screen.getByRole("list", { name: "Activity items" });
+  const grace: DirectoryUser = { id: "u2", name: "Grace", bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
+  const serveActivity = (items: ActivityItem[]) =>
+    serve({
+      "GET /api/users": () => Response.json({ users: [grace] }),
+      "GET /api/activity": () => Response.json({ items, unread: items.filter((i) => !i.read).length, more: false }),
+      "POST /api/activity/marks": () => new Response(null, { status: 204 }),
+    });
 
-  /** A workspace socket that welcomes Ada, then says random has been marked unread for her. */
-  class MarkingSocket extends QuietSocket {
-    onopen: (() => void) | null = null;
-    onmessage: ((event: { data: string }) => void) | null = null;
-    constructor(url: string) {
-      super();
-      if (!url.includes("/api/socket")) return;
-      setTimeout(() => {
-        this.onopen?.();
-        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada }) });
-        this.onmessage?.({ data: JSON.stringify({ type: "room.unread", roomId: "random", at: NOON }) });
-      });
-    }
-  }
-
-  it("counts the conversations marked unread but the one shown, and shows only them while it's on", async () => {
-    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)) });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await waitFor(() => expect(activity()).toHaveAccessibleDescription("1 unread"));
-    await user.click(activity());
-    expect(activity()).toHaveAttribute("aria-pressed", "true");
-    expect(sidebarRooms()).toEqual(["random"]);
-    expect(railCurrent()).toEqual([]);
-
-    await user.click(activity());
-    expect(activity()).toHaveAttribute("aria-pressed", "false");
-    expect(sidebarRooms()).toEqual(["Design", "general", "random"]);
-    expect(railCurrent()).toEqual(["Home"]);
+  it("shows Activity at its address, in the conversations' place, marking it on the rail", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(2), item(1, { kind: "direct", roomId: withGrace.id, read: true })]);
+    showWorkspace("/activity");
+    expect(await screen.findByRole("heading", { level: 1, name: "Activity" })).toBeInTheDocument();
+    await waitFor(() => expect(within(feed()).getAllByRole("button", { name: /Look at this/ })).toHaveLength(2));
+    expect(within(feed()).getByText("Mention in #random")).toBeInTheDocument();
+    expect(within(feed()).getByText("Direct message")).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Conversations" })).not.toBeInTheDocument();
+    // Its pill counts the unread item, which the description says.
+    expect(railCurrent()).toEqual(["Activity1"]);
+    expect(activityLink()).toHaveAccessibleDescription("1 unread");
   });
 
-  it("counts a room as it's marked", async () => {
-    vi.stubGlobal("WebSocket", MarkingSocket);
+  it("counts unread items on the rail as the workspace socket adds and marks them, on any page", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([]);
     showWorkspace("/rooms/general");
     await roomHeading();
-    await waitFor(() => expect(activity()).toHaveAccessibleDescription("1 unread"));
+    await workspaceSends({ type: "activity.added", items: [item(1), item(2)] });
+    expect(activityLink()).toHaveAccessibleDescription("2 unread");
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "activity.marked", ids: [1], read: true }) }));
+    expect(activityLink()).toHaveAccessibleDescription("1 unread");
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "activity.marked", ids: null, read: true }) }));
+    expect(activityLink()).not.toHaveAttribute("aria-description");
   });
 
-  it("turns off when you follow a rail or sidebar link, and stays on through other navigation", async () => {
-    serve({
-      "GET /api/sidebar": () => Response.json(roomList(marked)),
-      "GET /api/searches?q=": () => Response.json({ search: null, matches: [], next: null, rooms: [], recent: [] }),
-    });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(activity());
-    act(() => navigate("/account/edit"));
-    expect(await communitySettings()).toBeInTheDocument();
-    expect(activity()).toHaveAttribute("aria-pressed", "true");
-    act(() => navigate("/searches"));
-    expect(await screen.findByRole("heading", { name: "Find a conversation" })).toBeInTheDocument();
-    // With no room shown, general counts too.
-    expect(sidebarRooms()).toEqual(["general", "random"]);
+  it("filters by tab, unread and search, and marks items read and unread", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(3, { kind: "thread", preview: "a reply", parentId: "m0" }), item(2, { read: true }), item(1, { kind: "direct", roomId: withGrace.id, preview: "lunch?" })]);
+    const { user } = showWorkspace("/activity");
+    const previews = () => within(feed()).queryAllByRole("button", { name: /^Grace/ }).map((row) => row.textContent);
+    await waitFor(() => expect(previews()).toHaveLength(3));
 
-    await user.click(roomLink(/random/));
-    expect(await roomHeading()).toHaveTextContent("random");
-    expect(activity()).toHaveAttribute("aria-pressed", "false");
+    await user.click(screen.getByRole("button", { name: "Threads" }));
+    expect(previews()).toEqual([expect.stringContaining("a reply")]);
+    await user.click(screen.getByRole("button", { name: "All" }));
+    await user.click(screen.getByRole("switch"));
+    expect(previews()).toHaveLength(2);
+    await user.click(screen.getByRole("switch"));
+    await user.click(screen.getByRole("button", { name: "Search activity" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search activity" }), "lunch");
+    expect(previews()).toEqual([expect.stringContaining("lunch?")]);
 
-    await user.click(activity());
-    await user.click(screen.getByRole("link", { name: "Workspace" }));
-    expect(activity()).toHaveAttribute("aria-pressed", "false");
+    await user.click(within(feed()).getByRole("button", { name: "Mark read: Grace" }));
+    expect(fetch).toHaveBeenCalledWith("/api/activity/marks", expect.objectContaining({ method: "POST", body: JSON.stringify({ ids: [1], read: true }) }));
+    expect(within(feed()).getByRole("button", { name: "Mark unread: Grace" })).toBeInTheDocument();
   });
 
-  it("stays on when a link opens somewhere else", async () => {
-    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)) });
+  it("opens an item's room beside the feed at its message, reading the item", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(1)]);
+    const { user } = showWorkspace("/activity");
+    await user.click(await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ }));
+    expect(await screen.findByRole("heading", { level: 1, name: "random" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/activity");
+    expect(fetch).toHaveBeenCalledWith("/api/activity/marks", expect.objectContaining({ body: JSON.stringify({ ids: [1], read: true }) }));
+    expect(screen.getAllByRole("separator", { name: "Resize activity" })).toHaveLength(1);
+  });
+});
+
+describe("Profile pane", () => {
+  /** A link to someone's page in the room shown, as a message's avatar is. */
+  const personLink = (userId: string) => {
+    const link = document.createElement("a");
+    link.href = `/users/${userId}`;
+    link.textContent = "Grace";
+    screen.getByRole("main").append(link);
+    return link;
+  };
+
+  it("opens someone's profile beside the room from a link to their page, and closes it", async () => {
+    serve({ "GET /api/users/u2": () => Response.json({ person: { id: "u2", name: "Grace", bio: "Wrote the first compiler", role: "member", status: "active", avatarUrl: "/users/u2/avatar", timeZone: "America/New_York" } }) });
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
-    await user.click(activity());
-    for (const init of [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }]) {
-      // Keeps jsdom, which can't open a tab, from following the link once the page has had the click.
-      document.addEventListener("click", (event) => event.preventDefault(), { once: true });
-      fireEvent.click(roomLink(/random/), init);
-    }
-    expect(activity()).toHaveAttribute("aria-pressed", "true");
+    await user.click(personLink("u2"));
+    const profile = screen.getByRole("complementary", { name: "Profile" });
     expect(location.pathname).toBe("/rooms/general");
+    expect(await within(profile).findByRole("heading", { name: "Grace" })).toBeInTheDocument();
+    expect(within(profile).getByText("Wrote the first compiler")).toBeInTheDocument();
+    expect(within(profile).getByText(/local time$/)).toBeInTheDocument();
+    expect(within(profile).getByRole("button", { name: "Message" })).toBeInTheDocument();
+    expect(within(profile).getByRole("link", { name: "View full profile" })).toHaveAttribute("href", "/users/u2");
+    await user.click(within(profile).getByRole("button", { name: "Close profile" }));
+    expect(screen.queryByRole("complementary", { name: "Profile" })).not.toBeInTheDocument();
   });
 
-  it("stays on while unsaved changes keep you on the page, and turns off once they let you go", async () => {
-    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)), "GET /api/rooms/general/settings": () => Response.json(generalSettings) });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(activity());
-    const changeSettings = async () => {
-      act(() => navigate("/rooms/opens/general/edit"));
-      await user.type(await screen.findByRole("textbox", { name: "Room name" }), "s");
-    };
-    await changeSettings();
-
-    await user.click(screen.getByRole("link", { name: "Workspace" }));
-    await user.click(await screen.findByRole("button", { name: "Keep editing" }));
-    expect(location.pathname).toBe("/rooms/opens/general/edit");
-    expect(activity()).toHaveAttribute("aria-pressed", "true");
-    // Going elsewhere afterwards some other way leaves it on.
-    await user.click(screen.getByRole("link", { name: "Go Back" }));
-    await user.click(await screen.findByRole("button", { name: "Discard" }));
-    expect(await screen.findByRole("heading", { level: 2, name: "Room order and permissions" })).toBeInTheDocument();
-    expect(activity()).toHaveAttribute("aria-pressed", "true");
-
-    await changeSettings();
-    await user.click(screen.getByRole("link", { name: "Home" }));
-    await user.click(await screen.findByRole("button", { name: "Discard" }));
-    expect(await roomHeading()).toHaveTextContent("general");
-    expect(activity()).toHaveAttribute("aria-pressed", "false");
-  });
-
-  it("keeps the drawer open on a phone, turning on or off, and filters the drawer's rooms", async () => {
-    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)) });
-    const { user } = showWorkspace("/rooms/general");
-    await roomHeading();
-    await user.click(screen.getByRole("button", { name: "Open conversations" }));
-    const drawer = screen.getByRole("dialog", { name: "Conversations" });
-    await user.click(within(drawer).getByRole("button", { name: "Activity" }));
-    expect(screen.getByRole("dialog", { name: "Conversations" })).toBe(drawer);
-    expect(within(drawer).getAllByRole("link", { name: /random|general|Design/ }).map((link) => link.textContent)).toEqual(["#random"]);
-    await user.click(within(drawer).getByRole("button", { name: "Activity" }));
-    expect(screen.getByRole("dialog", { name: "Conversations" })).toBe(drawer);
-    expect(within(drawer).getByRole("button", { name: "Activity" })).toHaveAttribute("aria-pressed", "false");
-  });
-
-  it("keeps the drawer open on a phone as Activity, pressed there on community settings' pages, goes home, filtering its conversations", async () => {
-    serve({ "GET /api/sidebar": () => Response.json(roomList(marked)) });
+  it("follows a link to someone's page on a page with no pane for it", async () => {
     const { user } = showWorkspace("/account/edit");
     await communitySettings();
-    await user.click(screen.getByRole("button", { name: "Open navigation", expanded: false }));
-    await user.click(within(screen.getByRole("dialog", { name: "Navigation" })).getByRole("button", { name: "Activity" }));
-    // Home goes on to the last room, which shows under the drawer.
-    await waitFor(() => expect(location.pathname).toMatch(/^\/rooms\/\w+$/));
-    const drawer = await screen.findByRole("dialog", { name: "Conversations" });
-    expect(within(drawer).getByRole("button", { name: "Activity" })).toHaveAttribute("aria-pressed", "true");
-    // The room home went on to is read, so Activity leaves it out.
-    const unread = within(drawer).getAllByRole("link", { name: /random|general|Design/ });
-    expect(unread).toHaveLength(1);
-
-    // Going on to another page closes it, as ever.
-    await user.click(unread[0]!);
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const link = document.createElement("a");
+    link.href = "/users/u2";
+    link.textContent = "Grace";
+    document.body.querySelector("main")!.append(link);
+    await user.click(link);
+    expect(screen.queryByRole("complementary", { name: "Profile" })).not.toBeInTheDocument();
   });
 });
 
@@ -2073,8 +2043,6 @@ describe("Notification levels", () => {
 });
 
 describe("Hide a room", () => {
-  const activity = () => screen.getByRole("button", { name: "Activity" });
-
   it("takes the room shown out of the sidebar once its bell hides it, keeping it open, and puts it back once it's shown again", async () => {
     const listed: SidebarRoom[] = [
       { ...rooms[0]!, unread: false, involvement: "nothing" },
@@ -2098,16 +2066,17 @@ describe("Hide a room", () => {
     await waitFor(() => expect(sidebarRooms()).toEqual(["general", "random"]));
   });
 
-  it("leaves the rooms you've hidden out of Activity's count", async () => {
+  it("leaves the rooms you've hidden out of the app's badge", async () => {
     const listed: SidebarRoom[] = [
       { ...rooms[0]!, unread: false, involvement: "mentions" },
       { ...rooms[1]!, unread: true, involvement: "invisible" },
     ];
     serve({ "GET /api/sidebar": () => Response.json(roomList(listed)) });
+    const badges = badgeTheApp();
     showWorkspace("/rooms/general");
     await roomHeading();
     expect(sidebarRooms()).toEqual(["general"]);
-    expect(activity()).not.toHaveAccessibleDescription(/\d unread/);
+    await waitFor(() => expect(badges).toEqual(["cleared"]));
   });
 });
 
@@ -2384,16 +2353,6 @@ describe("Community settings page", () => {
   });
 });
 
-describe("Activity filter", () => {
-  it("goes home from community settings' pages with Activity, which turns on there, as they've no conversations to show", async () => {
-    const { user } = showWorkspace("/account/edit");
-    await communitySettings();
-    await user.click(screen.getByRole("button", { name: "Activity" }));
-    expect(await roomHeading()).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Activity" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("complementary", { name: "Conversations" })).toBeInTheDocument();
-  });
-});
 
 describe("Conversations drawer on phones", () => {
   it("holds the rail alone on community settings' pages, named for navigation, focusing its first link as it opens", async () => {

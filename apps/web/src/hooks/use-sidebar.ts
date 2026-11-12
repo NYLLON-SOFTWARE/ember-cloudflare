@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useReducer, useRef, useState } from "react";
-import { CloseCode, parseServerFrame, type Account, type DirectoryUser, type Me, type RoomId, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
+import { CloseCode, parseServerFrame, type ActivityFrame, type Account, type DirectoryUser, type Me, type RoomId, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
 import { NO_ROOM_LIST, roomListReducer, type RoomAnswer } from "@/lib/room-list";
@@ -81,7 +81,8 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * say. The people `directory` loads again each time the sidebar does by itself, and hears whoever the
  * socket says has changed. `onAccountChanged` hears the workspace as the socket says it is, each time
  * it connects and whenever an administrator changes it. `onGone` hears of each room the socket says is
- * gone as it leaves the list.
+ * gone as it leaves the list. `onActivity` hears what the socket says of the person's Activity, and null
+ * each time it connects, for Activity to load again.
  */
 export function useSidebar(
   me: Me,
@@ -89,6 +90,7 @@ export function useSidebar(
   directory: Directory = NO_DIRECTORY,
   onAccountChanged: (account: Account) => void = () => {},
   onGone: (roomId: RoomId) => void = () => {},
+  onActivity: (frame: ActivityFrame | null) => void = () => {},
 ) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
   // Whether a list the server sent has come, rather than only the empty one a failed first load leaves.
@@ -116,6 +118,7 @@ export function useSidebar(
   // A failed load leaves the avatars as they are until the next.
   const reloadPeople = useEffectEvent(() => void directory.reload().catch(() => {}));
   const gone = useEffectEvent(onGone);
+  const activity = useEffectEvent(onActivity);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
   // Whether `user`, active now, is someone the directory lists as removed, banned or suspended, rather
   // than someone new, whom it doesn't list yet.
@@ -175,6 +178,8 @@ export function useSidebar(
           workspace.connected();
           if (!toldOf.you) signsIn(frame.you);
           if (!toldOf.account) accountChanged(frame.account);
+          // Activity loads again too, with whatever came while the socket was away.
+          activity(null);
           return reload();
         case "room.saved":
           heardOf(frame.room.id);
@@ -213,6 +218,10 @@ export function useSidebar(
         case "account.updated":
           toldOf.account = true;
           return accountChanged(frame.account);
+        case "activity.added":
+        case "activity.marked":
+        case "activity.removed":
+          return activity(frame);
       }
     };
 
