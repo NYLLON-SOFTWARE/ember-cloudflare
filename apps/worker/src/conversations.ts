@@ -1,8 +1,8 @@
-import { THREAD_CONTEXT, THREADS_LIMIT, type DirectPreviews, type FollowedThread, type FollowedThreads, type Message } from "@ember/protocol";
+import { THREAD_CONTEXT, THREADS_LIMIT, type DirectPreviews, type ListedThread, type ListedThreads, type Message } from "@ember/protocol";
 import { credentialsOf } from "./auth";
 import type { Env } from "./env";
 import { urlOf } from "./request-url";
-import { numberAt, searchIndex, type ThreadMessageRow } from "./search-index";
+import { numberAt, searchIndex, type ThreadMarks, type ThreadMessageRow } from "./search-index";
 import { indexedMessages } from "./store";
 import { workspace } from "./workspace";
 
@@ -30,32 +30,35 @@ export async function directPreviews(request: Request, env: Env): Promise<Respon
 }
 
 /**
- * `GET /api/threads?cursor=`: a page of the threads you follow, the ones you started, wrote in, or were
- * mentioned in, in the rooms you're in, latest active first, each with its first message and its latest
- * replies, and the cursor of the page after, if there is one.
+ * `GET /api/threads?cursor=`: a page of the threads in the rooms and DMs you're in, latest active first,
+ * each with its first message and its latest replies, whether you follow it and whether it mentions you,
+ * and the cursor of the page after, if there is one.
  */
-export async function followedThreads(request: Request, env: Env): Promise<Response> {
+export async function listedThreads(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const me = credentials && (await workspace(env).searcher(credentials, null));
   if (!me) return notSignedIn();
   const cursor = Number(urlOf(request).searchParams.get("cursor") ?? Number.NaN);
   const after = Number.isSafeInteger(cursor) ? cursor : null;
   const roomIds = me.rooms.map(({ id }) => id);
-  const { rows, threadIds, next } = await searchIndex(env).followedThreads(me.userId, roomIds, after, THREADS_LIMIT, THREAD_CONTEXT);
+  const { rows, threads: marks, next } = await searchIndex(env).listedThreads(me.userId, roomIds, after, THREADS_LIMIT, THREAD_CONTEXT);
   const messages = await messagesById(rows.flatMap(({ message }) => message ?? []), env);
-  const threads = threadsOf(threadIds, rows, messages);
-  return Response.json({ threads, next } satisfies FollowedThreads, { headers: NO_STORE });
+  const threads = threadsOf(marks, rows, messages);
+  return Response.json({ threads, next } satisfies ListedThreads, { headers: NO_STORE });
 }
 
-/** The threads `threadIds` names, in order, from their messages' rows, leaving out any whose first message the index hasn't kept. */
-export function threadsOf(threadIds: string[], rows: ThreadMessageRow[], messages: Map<string, Message>): FollowedThread[] {
+/**
+ * The threads `marks` names, in order, from their messages' rows, leaving out any whose first message
+ * the index hasn't kept, each with its latest replies, so its card shows `THREAD_CONTEXT` messages at most.
+ */
+export function threadsOf(marks: ThreadMarks[], rows: ThreadMessageRow[], messages: Map<string, Message>): ListedThread[] {
   const byThread = Map.groupBy(rows, ({ threadId }) => threadId);
-  return threadIds.flatMap((threadId) => {
+  return marks.flatMap(({ threadId, following, mentioned }) => {
     const inThread = byThread.get(threadId) ?? [];
     const parent = messages.get(threadId);
     if (!parent || inThread.length === 0) return [];
     const replies = inThread.flatMap(({ messageId }) => (messageId === threadId ? [] : (messages.get(messageId) ?? [])));
-    return [{ roomId: inThread[0]!.roomId, parent, replies: replies.slice(-THREAD_CONTEXT), count: inThread[0]!.total - 1 }];
+    return [{ roomId: inThread[0]!.roomId, parent, replies: replies.slice(-(THREAD_CONTEXT - 1)), count: inThread[0]!.total - 1, following: following === 1, mentioned: mentioned === 1 }];
   });
 }
 

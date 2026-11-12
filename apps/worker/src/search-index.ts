@@ -226,28 +226,39 @@ const DIRECT_PREVIEWS = `SELECT json_extract(rooms.value, '$.id') AS roomId,
       LIMIT ${MOST_UNREAD})) AS unread
   FROM json_each(?1) AS rooms`;
 
-/** A thread someone follows, by its first message's id, and the number of its latest message. */
-export type FollowedRow = {
+/** A thread, by its first message's id, and the number of its latest message. */
+export type ThreadRow = {
   threadId: string;
   latest: number;
 };
 
 /**
- * The threads ?1 follows in the rooms the JSON array ?2 lists, latest active first: the ones they wrote
- * in, or started, and the ones a message mentions them in, a page more than `limit` at most, and only
- * those last active before ?3 for a page after the first.
+ * The threads in the rooms the JSON array ?1 lists, latest active first, a page more than `limit` at
+ * most, and only those last active before ?2 for a page after the first: each is the message in a thread
+ * that's its thread's latest. It walks `index_search_messages_in_threads_on_id` from the newest message
+ * in a thread, which `+room_id` keeps SQLite from trading for the rooms' index and a sort of all their
+ * messages, and stops once it has the page.
  */
-function followedStatement(limit: number, after: boolean): string {
-  return `SELECT thread_id AS threadId, max(id) AS latest FROM search_messages
-    WHERE thread_id IN (
-        SELECT thread_id FROM search_messages WHERE creator_id = ?1 AND thread_id IS NOT NULL
-        UNION
-        SELECT theirs.thread_id FROM search_mentions JOIN search_messages AS theirs ON theirs.id = search_mentions.id
-          WHERE search_mentions.user_id = ?1 AND theirs.thread_id IS NOT NULL)
-      AND room_id IN (SELECT value FROM json_each(?2))
-    GROUP BY thread_id${after ? " HAVING max(id) < ?3" : ""}
-    ORDER BY latest DESC LIMIT ${limit + 1}`;
+function threadsStatement(limit: number, after: boolean): string {
+  return `SELECT thread_id AS threadId, id AS latest FROM search_messages AS messages
+    WHERE thread_id IS NOT NULL AND +room_id IN (SELECT value FROM json_each(?1))${after ? " AND id < ?2" : ""}
+      AND id = (SELECT max(id) FROM search_messages AS others WHERE others.thread_id = messages.thread_id)
+    ORDER BY id DESC LIMIT ${limit + 1}`;
 }
+
+/** Whether someone follows a thread `THREAD_MARKS` reads, by writing in it, and whether it mentions them. */
+export type ThreadMarks = {
+  threadId: string;
+  following: number;
+  mentioned: number;
+};
+
+/** For each thread the JSON array ?1 lists, whether ?2 wrote in it, its first message included, and whether a message in it mentions them. */
+const THREAD_MARKS = `SELECT threads.value AS threadId,
+    EXISTS (SELECT 1 FROM search_messages WHERE thread_id = threads.value AND creator_id = ?2) AS following,
+    EXISTS (SELECT 1 FROM search_messages AS theirs JOIN search_mentions ON search_mentions.id = theirs.id AND search_mentions.user_id = ?2
+      WHERE theirs.thread_id = threads.value) AS mentioned
+  FROM json_each(?1) AS threads`;
 
 /** A message of a thread `threadMessages` reads, as JSON, and how many messages the thread has, its first among them. */
 export type ThreadMessageRow = {
@@ -259,8 +270,8 @@ export type ThreadMessageRow = {
 };
 
 /**
- * The first message of each thread the JSON array ?1 lists, and its latest `context` replies, oldest
- * first, each with how many messages its thread has in all.
+ * The first message of each thread the JSON array ?1 lists, and its latest replies, oldest first, so
+ * there are `context` at most, the first among them, each with how many messages its thread has in all.
  */
 function threadMessagesStatement(context: number): string {
   return `SELECT threadId, roomId, messageId, message, total FROM (
@@ -268,7 +279,7 @@ function threadMessagesStatement(context: number): string {
         row_number() OVER (PARTITION BY thread_id ORDER BY id DESC) AS place,
         count(*) OVER (PARTITION BY thread_id) AS total
       FROM search_messages WHERE thread_id IN (SELECT value FROM json_each(?1)))
-    WHERE place <= ${context} OR messageId = threadId
+    WHERE place < ${context} OR messageId = threadId
     ORDER BY id`;
 }
 
@@ -399,20 +410,19 @@ export class SearchIndex extends DurableObject<Env> {
   }
 
   /**
-   * A page of the threads `userId` follows in `roomIds`, latest active first, up to `limit`, after the
-   * one last active at `after`, if given: each thread's messages, its first and latest `context` replies,
-   * the threads in order, and the number its page ends at when there are more.
+   * A page of the threads in `roomIds`, latest active first, up to `limit`, after the one last active at
+   * `after`, if given: each thread's messages, its first and its latest replies, `context` in all, the
+   * threads in order, whether `userId` wrote in each and is mentioned in it, and the number its page ends
+   * at when there are more.
    */
-  followedThreads(userId: UserId, roomIds: RoomId[], after: number | null, limit: number, context: number): { rows: ThreadMessageRow[]; threadIds: string[]; next: number | null } {
-    const followed =
-      after === null
-        ? this.sql.exec<FollowedRow>(followedStatement(limit, false), userId, JSON.stringify(roomIds))
-        : this.sql.exec<FollowedRow>(followedStatement(limit, true), userId, JSON.stringify(roomIds), after);
-    const threads = followed.toArray();
-    const page = threads.slice(0, limit);
-    const threadIds = page.map(({ threadId }) => threadId);
-    const rows = this.sql.exec<ThreadMessageRow>(threadMessagesStatement(context), JSON.stringify(threadIds)).toArray();
-    return { rows, threadIds, next: threads.length > limit ? page.at(-1)!.latest : null };
+  listedThreads(userId: UserId, roomIds: RoomId[], after: number | null, limit: number, context: number): { rows: ThreadMessageRow[]; threads: ThreadMarks[]; next: number | null } {
+    const rooms = JSON.stringify(roomIds);
+    const found = (after === null ? this.sql.exec<ThreadRow>(threadsStatement(limit, false), rooms) : this.sql.exec<ThreadRow>(threadsStatement(limit, true), rooms, after)).toArray();
+    const page = found.slice(0, limit);
+    const threadIds = JSON.stringify(page.map(({ threadId }) => threadId));
+    const rows = this.sql.exec<ThreadMessageRow>(threadMessagesStatement(context), threadIds).toArray();
+    const threads = this.sql.exec<ThreadMarks>(THREAD_MARKS, threadIds, userId).toArray();
+    return { rows, threads, next: found.length > limit ? page.at(-1)!.latest : null };
   }
 }
 

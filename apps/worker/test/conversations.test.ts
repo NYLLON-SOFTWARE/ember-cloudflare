@@ -1,4 +1,4 @@
-import { THREAD_CONTEXT, THREADS_LIMIT, type DirectPreviews, type FollowedThreads, type Message, type RoomId, type User } from "@ember/protocol";
+import { THREAD_CONTEXT, THREADS_LIMIT, type DirectPreviews, type ListedThreads, type Message, type RoomId, type User } from "@ember/protocol";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { beforeEach, describe, expect, it } from "vitest";
 import { api, connect, direct, freshDeploy, freshRoom, post, roomSql, signIn, type Session, type Socket } from "./support";
@@ -65,8 +65,8 @@ describe("DM previews", () => {
   });
 });
 
-describe("Followed threads", () => {
-  it("lists the threads you started, wrote in, or were mentioned in, latest active first, in rooms you're in", async () => {
+describe("Threads", () => {
+  it("lists every thread in the rooms and DMs you're in, latest active first, marking the ones you follow or are mentioned in", async () => {
     const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
     const room = await freshRoom("threads");
     const [adaIn, graceIn] = [await connect(room, ada), await connect(room, grace)];
@@ -78,16 +78,32 @@ describe("Followed threads", () => {
     await reply(graceIn, mentioned, `<p>what does ${mention(ada.user)} think?</p>`);
     const elsewhere = await post(graceIn, "<p>not Ada's</p>");
     await reply(graceIn, elsewhere, "<p>nothing to do with her</p>");
-    await caughtUp(room);
+    const withAda = await direct(grace, ada);
+    const graceWithAda = await connect(withAda.id, grace);
+    const inDirect = await post(graceWithAda, "<p>between us</p>");
+    await reply(graceWithAda, inDirect, "<p>still between us</p>");
+    const withLinus = await direct(grace, linus);
+    const graceWithLinus = await connect(withLinus.id, grace);
+    const notAdas = await post(graceWithLinus, "<p>Ada isn't in this DM</p>");
+    await reply(graceWithLinus, notAdas, "<p>so she can't see it</p>");
+    await Promise.all([caughtUp(room), caughtUp(withAda.id), caughtUp(withLinus.id)]);
 
-    const { threads, next } = await asked<FollowedThreads>(ada, "/api/threads");
-    expect(threads.map(({ parent }) => parent.id)).toEqual([mentioned.id, joined.id, started.id]);
-    expect(threads[0]).toMatchObject({ roomId: room, count: 1, replies: [expect.objectContaining({ plainText: expect.stringContaining("think") })] });
+    const { threads, next } = await asked<ListedThreads>(ada, "/api/threads");
+    expect(threads.map(({ parent }) => parent.id)).toEqual([inDirect.id, elsewhere.id, mentioned.id, joined.id, started.id]);
+    expect(threads.map(({ following, mentioned }) => ({ following, mentioned }))).toEqual([
+      { following: false, mentioned: false },
+      { following: false, mentioned: false },
+      { following: false, mentioned: true },
+      { following: true, mentioned: false },
+      { following: true, mentioned: false },
+    ]);
+    expect(threads[0]).toMatchObject({ roomId: withAda.id, count: 1 });
+    expect(threads[2]).toMatchObject({ roomId: room, count: 1, replies: [expect.objectContaining({ plainText: expect.stringContaining("think") })] });
     expect(next).toBeNull();
-    expect((await asked<FollowedThreads>(linus, "/api/threads")).threads).toEqual([]);
+    expect((await asked<ListedThreads>(linus, "/api/threads")).threads.map(({ parent }) => parent.id)).toEqual([notAdas.id, elsewhere.id, mentioned.id, joined.id, started.id]);
   });
 
-  it("shows a thread's first message and its latest replies, oldest first, and pages through the threads", async () => {
+  it("shows a thread's first message and its latest replies, oldest first, as many as a card shows in all, and pages through the threads", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("busy-threads");
     const adaIn = await connect(room, ada);
@@ -97,17 +113,20 @@ describe("Followed threads", () => {
       parents.push(parent);
       await reply(adaIn, parent, `<p>reply ${i}</p>`);
     }
+    // The oldest thread is the latest active once it has more replies.
     const long = parents[0]!;
     const replies: Message[] = [];
     for (let i = 0; i < THREAD_CONTEXT + 2; i++) replies.push(await reply(adaIn, long, `<p>more ${i}</p>`));
     await caughtUp(room);
 
-    const first = await asked<FollowedThreads>(ada, "/api/threads");
+    const first = await asked<ListedThreads>(ada, "/api/threads");
     expect(first.threads).toHaveLength(THREADS_LIMIT);
     expect(first.threads[0]).toMatchObject({ count: THREAD_CONTEXT + 3, parent: expect.objectContaining({ id: long.id }) });
-    expect(first.threads[0]!.replies.map(({ id }) => id)).toEqual(replies.slice(-THREAD_CONTEXT).map(({ id }) => id));
+    // Its first message and its latest replies come to THREAD_CONTEXT in all.
+    expect(first.threads[0]!.replies.map(({ id }) => id)).toEqual(replies.slice(-(THREAD_CONTEXT - 1)).map(({ id }) => id));
+    expect(first.threads[1]!.replies).toHaveLength(1);
     expect(first.next).not.toBeNull();
-    const second = await asked<FollowedThreads>(ada, `/api/threads?cursor=${first.next}`);
+    const second = await asked<ListedThreads>(ada, `/api/threads?cursor=${first.next}`);
     expect(second.threads.map(({ parent }) => parent.id)).toEqual([parents[1]!.id]);
     expect(second.next).toBeNull();
   });
