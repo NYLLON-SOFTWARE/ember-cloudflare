@@ -55,20 +55,25 @@ test.describe("Light, dark or system appearance", () => {
     await expect(ada.page.getByRole("link", { name: "Workspace" })).toBeFocused();
   });
 
-  test("fits a phone, where Escape closes it before the drawer it's in", async ({ members }) => {
+  test("fits a phone, in the You sheet, which Escape closes, handing focus back to You", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 320, height: 740 } } });
-    await ada.page.getByRole("button", { name: "Open conversations" }).click();
-    await appearanceButton(ada.page).click();
-    const menu = appearanceMenu(ada.page);
-    await expect(menu).toBeVisible();
-    const box = (await menu.boundingBox())!;
+    // A phone's rooms open over Home, whose top bar has You.
+    await ada.page.getByRole("navigation", { name: "Page" }).getByRole("link", { name: "Back" }).click();
+    const you = ada.page.getByRole("button", { name: "You", exact: true });
+    await you.click();
+    const sheet = ada.page.getByRole("dialog", { name: ada.name });
+    const choices = sheet.getByRole("group", { name: "Appearance" });
+    await expect(choices).toBeVisible();
+    const box = (await choices.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(320);
+    await choices.getByText("Dark", { exact: true }).click();
+    await expect(choices.getByRole("radio", { name: "Dark" })).toBeChecked();
+    expect(await isDark(ada.page)).toBe(true);
 
     await ada.page.keyboard.press("Escape");
-    await expect(menu).toBeHidden();
-    await expect(appearanceButton(ada.page)).toBeFocused();
-    await expect(ada.page.getByRole("button", { name: "Close conversations" })).toBeVisible();
+    await expect(sheet).toBeHidden();
+    await expect(you).toBeFocused();
   });
 
   test("switches to Dark and keeps it, applied before the app has even loaded", async ({ members }) => {

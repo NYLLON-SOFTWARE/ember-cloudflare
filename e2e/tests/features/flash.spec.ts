@@ -21,10 +21,11 @@ test.describe("Saved notices", () => {
       await ada.page.goto("/rooms/opens/nowhere/edit");
       const alert = ada.page.getByRole("alert");
       await expect(alert).toHaveText("Room not found or inaccessible");
-      await ada.connected();
+      // The page goes home: to the room on a wider screen, and to Home's list on a phone.
+      if (width > 768) await ada.connected();
 
       const flash = await hold(alert);
-      // The page goes home, to the room, whose main content starts below the header.
+      // Over the main content, which starts below the header.
       const main = (await ada.page.getByRole("main").boundingBox())!;
       expect(Math.abs(flash.x + flash.width / 2 - (main.x + main.width / 2)), `centered at ${width}px`).toBeLessThan(1);
       expect(flash.y, `12px below the header at ${width}px`).toBeCloseTo(main.y + 12, 0);

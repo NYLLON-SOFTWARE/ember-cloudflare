@@ -4,6 +4,8 @@ import { administratorOn, editorField, ROOM_SOCKET } from "../../fixtures";
 import { expect, test, type Member } from "./fixtures";
 
 const phone = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true };
+/** A touch screen too wide for a phone's layout, where messages keep Message options and its bar: a phone's open a long press's sheet (mobile/messages.spec). */
+const tablet = { viewport: { width: 1024, height: 768 }, hasTouch: true, isMobile: true };
 
 const box = async (locator: Locator) => {
   const rect = await locator.boundingBox();
@@ -536,15 +538,15 @@ test.describe("Message action bar", () => {
     expect(tray.y).toBeGreaterThanOrEqual((await box(ada.timeline())).y);
   });
 
-  test("opens the bar beside a 44px Message options button on touch screens, inside the timeline at 390 and 320 wide", async ({ members, participant }) => {
+  test("opens the bar beside a 44px Message options button on touch screens, inside the timeline at 1024 and 901 wide", async ({ members, participant }) => {
     const grace = await participant("Grace");
     for (let i = 1; i <= 12; i++) await grace.say(`Earlier message ${i}`);
     await grace.say("Tap for options");
-    const ada = await members.signIn("Ada", { context: { ...phone, colorScheme: "dark" } });
+    const ada = await members.signIn("Ada", { context: { ...tablet, colorScheme: "dark" } });
     const message = ada.message("Tap for options");
     const options = message.getByRole("button", { name: "Message options" });
-    for (const width of [390, 320]) {
-      await ada.page.setViewportSize({ width, height: width === 320 ? 620 : 844 });
+    for (const width of [1024, 901]) {
+      await ada.page.setViewportSize({ width, height: 768 });
       await ada.timeline().evaluate((log) => (log.scrollTop = log.scrollHeight));
       expect(await box(options)).toMatchObject({ width: 44, height: 44 });
       await options.tap();
@@ -566,48 +568,21 @@ test.describe("Message action bar", () => {
     }
   });
 
-  test("lays the bar out in rows of four on touch screens where a row of its buttons doesn't fit", async ({ members }) => {
-    const ada = await members.signIn("Ada", { context: { ...phone, viewport: { width: 320, height: 620 } } });
-    // On a phone, Enter starts a new line, so Send Message sends it.
-    await ada.composer().fill("Seven actions on a narrow phone");
-    await ada.page.getByRole("button", { name: "Send Message" }).tap();
-    const message = ada.message("Seven actions on a narrow phone");
-    await expect(message).not.toHaveAttribute("aria-busy");
-    const options = message.getByRole("button", { name: "Message options" });
-    await options.tap();
-    // The reactions go in the first row, and Reply in thread starts the second, then Forward message, Add to
-    // to-dos and Quote, then Copy link starts the third, with your own message's Edit and Delete message, which a
-    // mouse finds in More actions.
-    const first = await box(bar(message).getByRole("button", { name: "Thumbs up" }));
-    const more = await box(bar(message).getByRole("button", { name: "More reactions" }));
-    const thread = await box(bar(message).getByRole("link", { name: "Reply in thread" }));
-    const quote = await box(bar(message).getByRole("button", { name: "Quote" }));
-    const copy = await box(bar(message).getByRole("button", { name: "Copy link" }));
-    await expect(bar(message).getByRole("button", { name: "Edit" })).toBeVisible();
-    await expect(bar(message).getByRole("button", { name: "Delete message" })).toBeVisible();
-    expect(more).toMatchObject({ x: first.x + 3 * 44, y: first.y });
-    expect(thread).toMatchObject({ x: first.x, y: first.y + 44 });
-    expect(quote).toMatchObject({ x: first.x + 3 * 44, y: thread.y });
-    expect(copy).toMatchObject({ x: first.x, y: thread.y + 44 });
-    // Lined up with Message options' right edge, as far as the timeline lets it.
-    const trigger = await box(options);
-    expect(more.x + more.width + 5).toBe(Math.min(trigger.x + trigger.width, 320 - 8));
-  });
-
   test("opens the bar below Message options on touch screens where there's room", async ({ members, participant }) => {
     await (await participant("Grace")).say("Room below me");
-    const ada = await members.signIn("Ada", { context: phone });
+    const ada = await members.signIn("Ada", { context: tablet });
     const options = ada.message("Room below me").getByRole("button", { name: "Message options" });
     await options.tap();
     const trigger = await box(options);
     const bounds = await box(bar(ada.message("Room below me")));
     expect(bounds.y).toBe(trigger.y + trigger.height + 6);
-    expect(bounds.x + bounds.width).toBe(Math.min(trigger.x + trigger.width, 390 - 8));
+    expect(bounds.x + bounds.width).toBe(Math.min(trigger.x + trigger.width, 1024 - 8));
   });
 
   test("opens the bar to the left of Message options on a phone held sideways, with room neither below nor above", async ({ members, participant }) => {
     await (await participant("Grace")).say("Held sideways");
-    const ada = await members.signIn("Ada", { context: { ...phone, viewport: { width: 874, height: 352 } } });
+    // The widest phone's, as only a phone wider than the phone layout has the bar.
+    const ada = await members.signIn("Ada", { context: { ...phone, viewport: { width: 956, height: 440 } } });
     const message = ada.message("Held sideways");
     const options = message.getByRole("button", { name: "Message options" });
     await options.tap();
@@ -624,7 +599,7 @@ test.describe("Message action bar", () => {
 
   test("closes the bar on touch screens with a second tap, a tap elsewhere or a reaction", async ({ members, participant }) => {
     await (await participant("Grace")).say("Tap me twice");
-    const ada = await members.signIn("Ada", { context: phone });
+    const ada = await members.signIn("Ada", { context: tablet });
     const message = ada.message("Tap me twice");
     const options = message.getByRole("button", { name: "Message options" });
 
@@ -783,7 +758,7 @@ test.describe("Quote a message", () => {
 
   test("quotes from the bar on touch screens, where Quote follows Reply in thread, Forward message, Add to to-dos and Save", async ({ members, participant }) => {
     await (await participant("Grace")).say("Quote me by touch");
-    const ada = await members.signIn("Ada", { context: phone });
+    const ada = await members.signIn("Ada", { context: tablet });
     const message = ada.message("Quote me by touch");
     await message.getByRole("button", { name: "Message options" }).tap();
     const actions = message.getByRole("group", { name: "Message actions" });
