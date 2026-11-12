@@ -3894,14 +3894,6 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Has everyone's Activity items about message `messageId` in room `roomId` show what it says now,
-   * `plainText`, as the room asks once a forward's original is deleted, which takes what it quoted away.
-   */
-  async messageRetold(roomId: RoomId, messageId: string, plainText: string): Promise<void> {
-    await this.activity.retellMessage(roomId, messageId, plainText);
-  }
-
-  /**
    * Applies the events room `roomId` sends from its log, in order, with `viewerIds`, who is viewing the
    * room as it sends them: a new message marks the room unread for its members who aren't, and someone
    * opening it clears their mark. Each event is applied once, however often it's sent. Whoever's mark

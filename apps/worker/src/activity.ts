@@ -169,7 +169,6 @@ const EDIT_MESSAGE = `UPDATE activity SET preview = ?3 WHERE message_id = ?1 AND
 
 /** Removes every item about message ?1 in room ?2, answering them. */
 const REMOVE_MESSAGE = `DELETE FROM activity WHERE message_id = ?1 AND room_id = ?2 RETURNING user_id, id`;
-const RETELL_MESSAGE = `UPDATE activity SET preview = ?3 WHERE message_id = ?1 AND room_id = ?2`;
 
 /** Records ?2 adding the active people a JSON list ?3 names, but bots and themselves, to private room ?1, as of ?4. */
 const RECORD_INVITATIONS = `INSERT INTO activity (user_id, kind, room_id, actor_id, created_at)
@@ -223,11 +222,6 @@ export class ActivityStore {
 
   async removeMessage(roomId: RoomId, messageId: string): Promise<RemovedItems> {
     return removedItems(await this.db.all(REMOVE_MESSAGE, messageId, roomId));
-  }
-
-  /** Has the items about a message show the start of `plainText`, what it says now. */
-  async retellMessage(roomId: RoomId, messageId: string, plainText: string): Promise<void> {
-    await this.db.run(RETELL_MESSAGE, messageId, roomId, previewOf(plainText));
   }
 
   async recordInvitations(roomId: RoomId, actorId: UserId, userIds: UserId[], at: string): Promise<RecordedItems> {

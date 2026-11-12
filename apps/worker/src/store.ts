@@ -86,6 +86,22 @@ export interface OrphanedForward {
   forwardId: string;
 }
 
+/** A forward whose original here changed since its room last heard, as of `changedAt`. */
+export interface ChangedForward extends OrphanedForward {
+  messageId: string;
+  changedAt: string;
+}
+
+const CHANGED_FORWARDS = `SELECT to_room_id AS toRoomId, forward_id AS forwardId, message_id AS messageId, changed_at AS changedAt FROM forwards
+  WHERE room_id = ? AND changed_at IS NOT NULL AND orphaned_at IS NULL ORDER BY changed_at LIMIT ?`;
+
+/**
+ * What marks the forwards of message `messageId` changed, at `now`, for the batch that changes it, so the
+ * room tells each forward's room what it quotes now (migrations/0081_forward_changes.sql).
+ */
+const changingForwardsOf = (roomId: RoomId, messageId: string, now: string): Statement =>
+  statement(`UPDATE forwards SET changed_at = ? WHERE room_id = ? AND message_id = ? AND orphaned_at IS NULL`, now, roomId, messageId);
+
 const ORPHANED_FORWARDS = `SELECT to_room_id AS toRoomId, forward_id AS forwardId FROM forwards
   WHERE room_id = ? AND orphaned_at IS NOT NULL ORDER BY orphaned_at LIMIT ?`;
 
@@ -607,8 +623,9 @@ export class MessageStore {
   /**
    * Replaces a message's text, which marks it edited, and its cards with `body`'s, or takes them away,
    * since what's sent in its place is the whole message, logging it for the search index, and its
-   * thread's replies if what they show of it changes, and answers the message as it is now with the
-   * change's number, as the methods below that change a message answer theirs.
+   * thread's replies if what they show of it changes, and its forwards for the room to retell
+   * (`changingForwardsOf`), and answers the message as it is now with the change's number, as the
+   * methods below that change a message answer theirs.
    */
   async updateBody(message: Message, body: StoredBody, now: string): Promise<{ message: Message; seq: number }> {
     const seq = await this.change((seq) => [
@@ -624,6 +641,7 @@ export class MessageStore {
         this.roomId,
         message.id,
       ),
+      changingForwardsOf(this.roomId, message.id, now),
       logIndexing(this.roomId, message.id),
       ...logIndexingRepliesTo(this.roomId, message, body.plainText),
     ]);
@@ -639,30 +657,34 @@ export class MessageStore {
   }
 
   /**
-   * Takes what forward `message` quotes away, its original having been deleted: its text becomes `body`, and
-   * its plain text `body`'s, and its copy of the original's file goes, marked deleted for the room to purge.
-   * It isn't marked edited, as its forwarder changed nothing. The search index and its thread's replies
-   * hear, as for an edit.
+   * Has forward `message` quote what its original says now, `body`, as its original changed, or was deleted,
+   * when `body` says so and `keepFile` is false: its plain text becomes `body`'s, and without `keepFile` its
+   * copy of the original's file goes, marked deleted for the room to purge. It isn't marked edited, as its
+   * forwarder changed nothing. The search index, its thread's replies and its own forwards hear, as for an
+   * edit, so a forward of it follows it in turn.
    */
-  async orphanForward(message: Message, body: PreparedBody, now: string): Promise<{ message: Message; seq: number }> {
+  async retellForward(message: Message, body: PreparedBody, keepFile: boolean, now: string): Promise<{ message: Message; seq: number }> {
+    const dropsFile = message.attachment !== undefined && !keepFile;
     const seq = await this.change((seq) => [
       // First, while the message still names the file it had.
-      ...(message.attachment ? [deletingFilesOf(this.roomId, JSON.stringify([message.id]), now)] : []),
+      ...(dropsFile ? [deletingFilesOf(this.roomId, JSON.stringify([message.id]), now)] : []),
       statement(
-        `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, attachment = NULL, updated_at = ?, change_seq = ? WHERE room_id = ? AND id = ?`,
+        `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, attachment = CASE WHEN ? THEN NULL ELSE attachment END, updated_at = ?, change_seq = ? WHERE room_id = ? AND id = ?`,
         body.html,
         body.plainText,
         JSON.stringify(body.mentions),
+        dropsFile ? 1 : 0,
         now,
         seq,
         this.roomId,
         message.id,
       ),
+      changingForwardsOf(this.roomId, message.id, now),
       logIndexing(this.roomId, message.id),
       ...logIndexingRepliesTo(this.roomId, message, body.plainText),
     ]);
-    const { attachment: _, ...rest } = message;
-    return { message: { ...rest, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now }, seq };
+    const { attachment, ...rest } = message;
+    return { message: { ...rest, ...(!dropsFile && attachment && { attachment }), body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now }, seq };
   }
 
   /** Records that `messageId` here was forwarded as message `forwardId` in room `toRoomId`, at `now`. */
@@ -687,6 +709,22 @@ export class MessageStore {
     await this.db.run(`DELETE FROM forwards WHERE room_id = ? AND to_room_id = ? AND forward_id = ?`, this.roomId, toRoomId, forwardId);
   }
 
+  /** Up to `limit` forwards whose originals here have changed since their rooms last heard, the oldest change first. */
+  async changedForwards(limit: number): Promise<ChangedForward[]> {
+    return this.db.all<ChangedForward>(CHANGED_FORWARDS, this.roomId, limit);
+  }
+
+  /** Clears forward `forwardId`'s mark, which its room has heard of, unless its original changed again since `changedAt`. */
+  async retoldForward({ toRoomId, forwardId, changedAt }: ChangedForward): Promise<void> {
+    await this.db.run(
+      `UPDATE forwards SET changed_at = NULL WHERE room_id = ? AND to_room_id = ? AND forward_id = ? AND changed_at = ?`,
+      this.roomId,
+      toRoomId,
+      forwardId,
+      changedAt,
+    );
+  }
+
   /**
    * Gives `message` the file `posted` brings, in place of any it had, or takes its file away with null,
    * as a bot's edit does, marking it edited, as a change to its text does, and the file it had deleted,
@@ -699,6 +737,7 @@ export class MessageStore {
     const seq = await this.change((seq) => [
       // First, while the message still names the file it had.
       deletingFilesOf(this.roomId, JSON.stringify([message.id]), now),
+      changingForwardsOf(this.roomId, message.id, now),
       statement(
         `UPDATE messages SET attachment = ?, plain_text = ?, updated_at = ?, edited_at = ?, change_seq = ? WHERE room_id = ? AND id = ?`,
         posted ? JSON.stringify(posted.file) : null,

@@ -61,6 +61,7 @@ import { attachedFile, Blobs, objectKey, previewKey, type Identified, type RoomB
 import type { ImageSize } from "./files/images";
 import { storeArriving, withPreview, type ArrivingFile, type StreamedFile } from "./files/streamed";
 import { NO_STORAGE, type Uploader } from "./files/uploads";
+import { quotedMarkup, quotedText } from "./forward-quotes";
 import { Huddle, HUDDLE_CHECK_MS, HUDDLE_TAG } from "./huddles/room";
 import { base36, sortableId } from "./ids";
 import { sendPushes } from "./push/delivery";
@@ -188,6 +189,16 @@ export interface PostedForward {
   plainText: string;
   parentId?: string;
   kept?: KeptFile;
+}
+
+/** What a forward quotes of its original now, which `ChatRoom.originChanged` puts in place of what it quoted. */
+export interface Retelling {
+  /** The markup of what it quotes, which goes in its quote (forward-quotes.ts). */
+  quoted: string;
+  /** What it reads as outside its conversation when it has no note. */
+  plainText: string;
+  /** Whether the original still has a file, without which the forward's copy goes too. */
+  hasFile: boolean;
 }
 
 /** What a forward quotes once its original has been deleted, in place of the quote. */
@@ -953,14 +964,48 @@ export class ChatRoom extends DurableObject<Env> {
       const quoteAt = message.body.indexOf("<blockquote");
       const note = quoteAt === -1 ? message.body : message.body.slice(0, quoteAt);
       const body = this.prepareAnyLength(`${note}<blockquote><p>${ORIGINAL_DELETED}</p></blockquote>`);
-      if (!body) return;
-      const { message: orphaned, seq } = await store.orphanForward(message, body, new Date().toISOString());
-      this.broadcast({ type: "message.updated", message: orphaned, seq });
-      const couriers = this.couriersFor(roomId);
-      couriers.index.deliver();
-      if (message.attachment) couriers.files.deliver();
-      this.ctx.waitUntil(workspace(this.env).messageRetold(roomId, forwardId, body.plainText).catch(() => {}));
+      if (body) await this.retell(store, message, body, false);
     });
+  }
+
+  /**
+   * Has forward `forwardId` here quote what its original says now, `retelling`, as Slack's forwards follow
+   * their originals' edits, keeping its note, its cite and, while the original has one, its copy of the
+   * original's file. Its plain text follows the quote where it has no note to read as. A forward that's
+   * gone, or quotes a deleted original already, stays as it is.
+   */
+  async originChanged(roomId: RoomId, forwardId: string, { quoted, plainText, hasFile }: Retelling): Promise<void> {
+    await this.serially(async () => {
+      if (await this.isDeleted()) return;
+      const store = this.storeFor(roomId);
+      const message = await this.findUndeleted(store, forwardId);
+      if (!message) return;
+      // The note, then the quote, then its cite, which comes last: a quote's own quotes come before it.
+      const quoteAt = message.body.indexOf("<blockquote");
+      const citeAt = message.body.lastIndexOf("<cite");
+      if (quoteAt === -1 || citeAt < quoteAt) return;
+      const note = message.body.slice(0, quoteAt);
+      const prepared = this.prepareAnyLength(`${note}<blockquote>${quoted}</blockquote>${message.body.slice(citeAt)}`);
+      if (!prepared) return;
+      const body = { ...prepared, plainText: note.trim() === "" ? plainText : message.plainText };
+      if (body.html === message.body && body.plainText === message.plainText && (hasFile || !message.attachment)) return;
+      await this.retell(store, message, body, hasFile);
+    });
+  }
+
+  /**
+   * Has forward `message` quote what `body` does, keeping its copy of the original's file if `keepFile`,
+   * telling everyone in the room, the search index and people's Activity, and the rooms of its own forwards,
+   * which follow it.
+   */
+  private async retell(store: MessageStore, message: Message, body: PreparedBody, keepFile: boolean): Promise<void> {
+    const { message: retold, seq } = await store.retellForward(message, body, keepFile, new Date().toISOString());
+    this.broadcast({ type: "message.updated", message: retold, seq });
+    const couriers = this.couriersFor(store.roomId);
+    couriers.index.deliver();
+    couriers.forwards.deliver();
+    if (message.attachment && !retold.attachment) couriers.files.deliver();
+    this.ctx.waitUntil(workspace(this.env).messageEdited(store.roomId, message.id, body.plainText).catch(() => {}));
   }
 
   /**
@@ -1418,6 +1463,7 @@ export class ChatRoom extends DurableObject<Env> {
     this.broadcast({ type: "message.updated", message: attached, seq });
     const couriers = this.couriersFor(store.roomId);
     couriers.index.deliver();
+    couriers.forwards.deliver();
     if (message.attachment) couriers.files.deliver();
     return attached;
   }
@@ -1433,7 +1479,10 @@ export class ChatRoom extends DurableObject<Env> {
     this.broadcast({ type: "message.updated", message: edited, seq });
     // People's Activity says what it says now, so nothing edited out of it stays there.
     this.ctx.waitUntil(workspace(this.env).messageEdited(store.roomId, edited.id, edited.plainText).catch(() => {}));
-    this.couriersFor(store.roomId).index.deliver();
+    const couriers = this.couriersFor(store.roomId);
+    couriers.index.deliver();
+    // Its forwards follow it.
+    couriers.forwards.deliver();
     return edited;
   }
 
@@ -1614,18 +1663,40 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Tells the rooms of up to a call's worth of forwards whose originals here were deleted, each of which
-   * takes what its forward quotes away (`originDeleted`), forgetting each once its room has heard, and
-   * answers how many it told. One whose room can't be reached stays for the next try.
+   * takes what its forward quotes away (`originDeleted`), forgetting each once its room has heard, and of
+   * up to a call's worth whose originals changed, each of which quotes what its original says now
+   * (`originChanged`), clearing each mark once its room has heard, and answers how many it told. One whose
+   * room can't be reached stays for the next try.
    */
   private async tellForwards(roomId: RoomId): Promise<number> {
-    const orphaned = await this.serially(() => this.storeFor(roomId).orphanedForwards(ENTRIES_PER_CALL));
-    const told = await Promise.allSettled(orphaned.map(({ toRoomId, forwardId }) => this.env.CHAT_ROOM.getByName(toRoomId).originDeleted(toRoomId, forwardId)));
-    const heard = orphaned.filter((_, index) => told[index]!.status === "fulfilled");
+    const store = () => this.storeFor(roomId);
+    const [orphaned, changed] = await this.serially(() => Promise.all([store().orphanedForwards(ENTRIES_PER_CALL), store().changedForwards(ENTRIES_PER_CALL)]));
+    const originals = new Map<string, Message | null>();
     await this.serially(async () => {
-      for (const forward of heard) await this.storeFor(roomId).forgetForward(forward);
+      for (const { messageId } of changed) if (!originals.has(messageId)) originals.set(messageId, await this.findUndeleted(store(), messageId));
     });
-    if (heard.length < orphaned.length) throw new Error(`${orphaned.length - heard.length} forwards' rooms couldn't hear`);
-    return orphaned.length;
+    const room = (toRoomId: RoomId) => this.env.CHAT_ROOM.getByName(toRoomId);
+    const [toldOrphaned, toldChanged] = await Promise.all([
+      Promise.allSettled(orphaned.map(({ toRoomId, forwardId }) => room(toRoomId).originDeleted(toRoomId, forwardId))),
+      Promise.allSettled(
+        changed.map(({ toRoomId, forwardId, messageId }) => {
+          const original = originals.get(messageId);
+          // One deleted since is marked orphaned, which tells its forwards' rooms itself.
+          if (!original) return Promise.resolve();
+          return room(toRoomId).originChanged(toRoomId, forwardId, { quoted: quotedMarkup(original, ""), plainText: quotedText(original), hasFile: original.attachment !== undefined });
+        }),
+      ),
+    ]);
+    const heard = <T,>(rows: T[], told: PromiseSettledResult<unknown>[]) => rows.filter((_, index) => told[index]!.status === "fulfilled");
+    const heardOrphaned = heard(orphaned, toldOrphaned);
+    const heardChanged = heard(changed, toldChanged);
+    await this.serially(async () => {
+      for (const forward of heardOrphaned) await store().forgetForward(forward);
+      for (const forward of heardChanged) await store().retoldForward(forward);
+    });
+    const unheard = orphaned.length + changed.length - heardOrphaned.length - heardChanged.length;
+    if (unheard > 0) throw new Error(`${unheard} forwards' rooms couldn't hear`);
+    return Math.max(orphaned.length, changed.length);
   }
 
   /**

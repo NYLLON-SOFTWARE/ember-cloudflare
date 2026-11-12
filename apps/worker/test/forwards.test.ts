@@ -217,3 +217,59 @@ describe("Forwards follow their originals", () => {
   });
 });
 
+
+describe("Forwards of forwards", () => {
+  it("take a deleted private original's text out of every forward down the chain, in the room and search", async () => {
+    const [mayaSession, leoSession, samSession] = await Promise.all([signIn("Maya"), signIn("Leo"), signIn("Sam")]);
+    const secret = (await createRoom("Private chain", { closedTo: [mayaSession.user.id], as: mayaSession })).id;
+    const open = await freshRoom("forward-chain");
+    const maya = await connect(secret, mayaSession);
+    const original = await post(maya, "<p>The pangolin password</p>");
+    const b = await forwarded(mayaSession, secret, original.id, { to: open });
+    const dm = await direct(leoSession, samSession);
+    const sam = await connect(dm.id, samSession);
+    const c = await forwarded(leoSession, open, b.id, { to: dm.id });
+    expect(c.body).toContain("pangolin");
+    // Sam is in the open room too, so he finds B as well as C.
+    await vi.waitFor(async () => expect((await found(samSession, "pangolin")).map((message) => message.id).sort()).toEqual([b.id, c.id].sort()), { timeout: 10_000 });
+
+    maya.send({ type: "message.delete", messageId: original.id });
+    const { message: retold } = await sam.next("message.updated");
+    expect(retold.id).toBe(c.id);
+    expect(retold.body).not.toContain("pangolin");
+    expect(retold.body).toContain(ORIGINAL_DELETED);
+    expect(retold.plainText).not.toContain("pangolin");
+    expect((await connect(dm.id, samSession)).welcome.messages[0]!.body).not.toContain("pangolin");
+    await vi.waitFor(async () => expect(await found(samSession, "pangolin")).toEqual([]), { timeout: 10_000 });
+  });
+});
+
+describe("Forwards follow edits", () => {
+  it("quote what their original says now, down the chain, keeping their notes", async () => {
+    const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
+    const room = await freshRoom("forward-edits");
+    const ada = await connect(room, adaSession);
+    const original = await post(ada, "<p>Lunch at noon</p>");
+    const dm = await direct(adaSession, graceSession);
+    const grace = await connect(dm.id, graceSession);
+    const noted = await forwarded(adaSession, room, original.id, { to: dm.id, note: "FYI" });
+    const bare = await forwarded(adaSession, room, original.id, { to: dm.id });
+    const again = await forwarded(adaSession, dm.id, bare.id, { to: room });
+
+    ada.send({ type: "message.update", messageId: original.id, body: "<p>Lunch at one</p>" });
+    const updated = new Map<string, Message>();
+    while (updated.size < 2) {
+      const { message } = await grace.next("message.updated");
+      updated.set(message.id, message);
+    }
+    expect(updated.get(noted.id)).toMatchObject({ plainText: "FYI — forwarded from Ada", editedAt: null });
+    expect(updated.get(noted.id)!.body).toMatch(/^<p>FYI<\/p><blockquote><p>Lunch at one<\/p><\/blockquote><cite>Ada · /);
+    expect(updated.get(bare.id)).toMatchObject({ plainText: "Lunch at one" });
+    // The forward of a forward follows the forward it quotes.
+    await vi.waitFor(async () => {
+      const shown = (await connect(room, adaSession)).welcome.messages.find((message) => message.id === again.id)!;
+      expect(shown.body).toContain("Lunch at one");
+      expect(shown.body).not.toContain("Lunch at noon");
+    }, { timeout: 10_000 });
+  });
+});
