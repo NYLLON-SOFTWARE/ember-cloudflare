@@ -41,7 +41,7 @@ import { opensProfile, PROFILE_PARAM, ProfilePaneContext, type ProfilePane } fro
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
 import { RoomView, type RoomPanes, type RoomViewHandle } from "./room-view";
-import { OpenSearchContext, type SearchBoxOptions } from "./search-box";
+import { OpenSearchContext, type SearchBoxOptions } from "./open-search";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
 import { Sidebar, type SidebarPage } from "./sidebar";
 import { WelcomePage } from "./welcome-page";

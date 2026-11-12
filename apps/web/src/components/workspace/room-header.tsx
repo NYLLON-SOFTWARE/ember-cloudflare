@@ -13,7 +13,7 @@ import { FavoriteButton } from "./favorite-button";
 import { HuddleButton } from "./huddle-button";
 import { NotificationBell } from "./notification-bell";
 import { HEADER_BUTTON, PageHeader } from "./page-header";
-import { OpenSearchContext, opensSearch } from "./search-box";
+import { OpenSearchContext, opensSearch } from "./open-search";
 import { MembersButton } from "./room-members";
 import { SubRoomTitle } from "./sub-room-title";
 import { DirectAvatar, personOfDirect } from "../mobile/direct-person";

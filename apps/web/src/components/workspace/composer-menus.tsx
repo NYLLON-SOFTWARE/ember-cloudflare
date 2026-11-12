@@ -1,79 +1,19 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
-import { useSheetColumns } from "@/components/emoji-columns";
-import { ArrowUp, AtSign, Attachment, CheckCircle, Emoji, Laptop, Page, Plus } from "@/components/icons/iconoir";
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { ArrowUp, AtSign, CheckCircle, Emoji, Laptop, Page, Plus } from "@/components/icons/iconoir";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { cn } from "@/lib/utils";
 import { ATTACH_BUTTON, ICON_BUTTON, SEND_HALF } from "./composer-buttons";
 import { PopoverMenu } from "./popover-menu";
-import { preloadRarePages, RarePage } from "./rare-pages";
 import { ScheduleMenu } from "./schedule-send";
+import { preloadRarePages, RarePage, useOpenedRarePage } from "./rare-pages";
 
 // The buttons of the composer's bottom row, each a piece of its own, so a layout can place them as it
 // needs: +, Aa, Emoji, @ and Send with its schedule menu. Each keeps focus in the text, so a phone's
 // keyboard stays up, and is a fingertip's 44px on touch screens.
 
-/**
- * +, Slack's attach menu: Upload from your computer, which opens the browser's file picker, and Files in
- * Ember. On phones it's an action sheet, as Slack iOS's is, saying Upload a file.
- */
+/** +, Slack's attach menu: Upload from your computer, which opens the browser's file picker, and Files in Ember. */
 export function AttachMenu({ disabled, onUpload, onFilesInEmber, onReturnFocus }: { disabled: boolean; onUpload: () => void; onFilesInEmber: () => void; onReturnFocus: () => void }) {
-  const phone = usePhoneLayout();
-  const [open, setOpen] = useState(false);
-  const [opened, failed] = [open, () => setOpen(false)] as const;
-  // Whether one of its actions was chosen, which goes on from there, so the text doesn't take focus back,
-  // raising the keyboard over the file picker or Files in Ember.
-  const chose = useRef(false);
-  if (phone) {
-    const choosing = (then: () => void) => () => {
-      chose.current = true;
-      then();
-    };
-    return (
-      <>
-        <button
-          type="button"
-          disabled={disabled}
-          title="Attach"
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          data-state={open ? "open" : "closed"}
-          onMouseDown={(event) => event.preventDefault()}
-          onPointerDown={preloadRarePages}
-          onClick={() => {
-            chose.current = false;
-            setOpen(true);
-          }}
-          className={ATTACH_BUTTON}
-        >
-          <Plus className="size-[18px]" />
-          <span className="sr-only">Attach</span>
-        </button>
-        {opened && (
-          <RarePage
-            show={({ ActionSheet }) => (
-              <ActionSheet
-                open={open}
-                onOpenChange={setOpen}
-                title="Attach"
-                titleHidden
-                onCloseAutoFocus={(event) => {
-                  event.preventDefault();
-                  if (!chose.current) onReturnFocus();
-                }}
-                actions={[
-                  { label: "Upload a file", icon: <Attachment className="size-5" />, onSelect: choosing(onUpload) },
-                  { label: "Files in Ember", icon: <Page className="size-5" />, onSelect: choosing(onFilesInEmber) },
-                ]}
-              />
-            )}
-            loading={null}
-            onFailed={failed}
-          />
-        )}
-      </>
-    );
-  }
   return (
     <PopoverMenu
       label="Attach"
@@ -93,8 +33,20 @@ export function AttachMenu({ disabled, onUpload, onFilesInEmber, onReturnFocus }
   );
 }
 
-// The picker and its emoji come with the pages few visits need, loaded while the browser is idle, or as it
-// first opens. A chunk of their own would split the app's script (see oneAppScript in vite.config.ts).
+// The picker and its emoji, which come with the pages few visits need, loaded while the browser is idle, or as
+// it first opens. A chunk of their own would split the app's script (see oneAppScript in vite.config.ts).
+const EmojiPicker = lazy(async () => ({ default: (await import("./pages")).EmojiPicker }));
+
+/** The sheet's gutters, 16px on each side, which the picker's own 8px are half of. */
+const SHEET_GUTTERS = 32;
+
+/** How many 44px emoji a row of the phone's sheet holds, within its gutters. */
+const sheetColumns = () => Math.max(1, Math.floor((window.innerWidth - SHEET_GUTTERS) / 44));
+
+function subscribeToResizes(resized: () => void) {
+  window.addEventListener("resize", resized);
+  return () => window.removeEventListener("resize", resized);
+}
 
 /**
  * Emoji, which opens the emoji picker to write one at the cursor: a popover, or on phones a sheet from the
@@ -102,12 +54,11 @@ export function AttachMenu({ disabled, onUpload, onFilesInEmber, onReturnFocus }
  */
 export function EmojiButton({ disabled = false, onPick, onReturnFocus }: { disabled?: boolean; onPick: (emoji: string) => void; onReturnFocus: () => void }) {
   const [open, setOpen] = useState(false);
-  // Shut, saying so, where its code couldn't load.
-  const [opened, failed] = [open, () => setOpen(false)] as const;
   const phone = usePhoneLayout();
-  const columns = useSheetColumns();
-  const button = (props: ComponentProps<"button">) => (
-    <button type="button" disabled={disabled} title="Emoji" onMouseDown={(event) => event.preventDefault()} className={ICON_BUTTON} {...props}>
+  const columns = useSyncExternalStore(subscribeToResizes, sheetColumns);
+  const [sheetOpened, sheetFailed] = useOpenedRarePage(phone && open, () => setOpen(false));
+  const button = (
+    <button type="button" disabled={disabled} title="Emoji" onMouseDown={(event) => event.preventDefault()} className={ICON_BUTTON}>
       <Emoji className="size-[18px]" />
       <span className="sr-only">Emoji</span>
     </button>
@@ -116,20 +67,42 @@ export function EmojiButton({ disabled = false, onPick, onReturnFocus }: { disab
     event.preventDefault();
     onReturnFocus();
   };
-  const pick = (emoji: string) => {
-    setOpen(false);
-    onPick(emoji);
-  };
+  const picker = (props: { columns?: number; autoFocus?: boolean; className?: string }) => (
+    <Suspense fallback={<div className={props.className ?? "h-[22rem] w-[19rem] touch:w-[23rem]"} />}>
+      <EmojiPicker
+        {...props}
+        onPick={(emoji) => {
+          setOpen(false);
+          onPick(emoji);
+        }}
+        onClose={() => setOpen(false)}
+      />
+    </Suspense>
+  );
 
   if (phone) {
     return (
       <>
-        {button({ "aria-haspopup": "dialog", "aria-expanded": open, onPointerDown: preloadRarePages, onClick: () => setOpen(true) })}
-        {opened && open && (
+        <button
+          type="button"
+          disabled={disabled}
+          title="Emoji"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          onMouseDown={(event) => event.preventDefault()}
+          onPointerDown={preloadRarePages}
+          onClick={() => setOpen(true)}
+          className={ICON_BUTTON}
+        >
+          <Emoji className="size-[18px]" />
+          <span className="sr-only">Emoji</span>
+        </button>
+        {/* The sheet loads with the pages, as the picker does. */}
+        {sheetOpened && (
           <RarePage
-            show={({ EmojiSheet }) => <EmojiSheet columns={columns} onPick={pick} onClose={() => setOpen(false)} onReturnFocus={onReturnFocus} />}
+            show={({ EmojiSheet }) => <EmojiSheet open={open} onOpenChange={setOpen} onCloseAutoFocus={returnFocus} picker={picker({ columns, autoFocus: false, className: "h-[min(22rem,calc(100dvh-4rem))] w-full" })} />}
             loading={null}
-            onFailed={failed}
+            onFailed={sheetFailed}
           />
         )}
       </>
@@ -138,15 +111,9 @@ export function EmojiButton({ disabled = false, onPick, onReturnFocus }: { disab
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>{button({})}</PopoverTrigger>
+      <PopoverTrigger asChild>{button}</PopoverTrigger>
       <PopoverContent side="top" align="start" className="w-auto max-w-[calc(100vw-1rem)] p-0" onCloseAutoFocus={returnFocus}>
-        {opened && (
-          <RarePage
-            show={({ EmojiPicker }) => <EmojiPicker onPick={pick} onClose={() => setOpen(false)} />}
-            loading={<div className="h-[22rem] w-[19rem] touch:w-[23rem]" />}
-            onFailed={failed}
-          />
-        )}
+        {picker({})}
       </PopoverContent>
     </Popover>
   );
