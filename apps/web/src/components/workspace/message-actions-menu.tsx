@@ -105,7 +105,7 @@ export interface MessageActionsHandle {
 
 /**
  * The message actions: Message options, which opens a bar of three quick reactions, More reactions, whose
- * tray holds the other reactions and New boost, Reply in thread, Forward message, a file message's Download, and Edit, in the
+ * tray holds the emoji picker and New boost, Reply in thread, Forward message, a file message's Download, and Edit, in the
  * order Slack's bar has them. With a mouse, hovering the message opens the bar too, laid over the message's
  * top edge at the timeline's right, with Message options pinned as its last button, and each button names
  * itself in a tooltip as the pointer reaches it. On touch screens it opens beside Message options, with
@@ -200,7 +200,8 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   };
 
   // Delete message asks first, in the app's own dialog. The composer takes focus as the message goes, or
-  // Message options does where the deletion can't be sent, or the dialog's cancelled.
+  // the message's row does where the deletion can't be sent, or the dialog's cancelled, rather than Message
+  // options, which shows only while the pointer's over the message.
   const [deleting, setDeleting] = useState(false);
   const confirmed = useRef(false);
   const deleteMessage = () => {
@@ -211,12 +212,13 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   const closedDialog = () => {
     const sent = confirmed.current && onDelete();
     confirmed.current = false;
-    if (!sent) trigger.current?.focus({ preventScroll: true });
+    if (!sent && row.current) focusRow(row.current);
   };
 
+  // With a mouse, the picker's search, or else its first emoji, so a touch screen's keyboard stays down.
   const focusFirstReaction = () => {
     focusingTray.current = false;
-    tray.current?.querySelector("button")?.focus({ preventScroll: true });
+    tray.current?.querySelector<HTMLElement>(overlapping ? "input" : "button[data-emoji]")?.focus({ preventScroll: true });
   };
 
   const focusFirstAction = () => {
@@ -225,8 +227,8 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   };
 
   // The tray and More actions open in the same place, under the bar, so one shuts as the other opens. The
-  // tray's first reaction takes focus as it opens, as More actions' first item does, since Tab from More
-  // reactions reaches the rest of the bar first.
+  // tray's picker takes focus as it opens, as More actions' first item does, since Tab from More reactions
+  // reaches the rest of the bar first.
   const toggleTray = () => {
     focusingTray.current = !trayOpen;
     setActionsOpen(false);
@@ -334,7 +336,11 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     document.addEventListener("click", (event) => clickedElsewhere(event), options);
     container.current!.addEventListener("focusout", (event) => focusLeft(event), options);
     document.addEventListener("keydown", (event) => keyDown(event), options);
-    document.addEventListener("scroll", () => moved(), { ...options, capture: true, passive: true });
+    // Scrolling the tray's emoji moves nothing.
+    const scrolled = (event: Event) => {
+      if (!menu.current?.contains(event.target as Node)) moved();
+    };
+    document.addEventListener("scroll", scrolled, { ...options, capture: true, passive: true });
     window.addEventListener("resize", () => moved(), options);
     window.visualViewport?.addEventListener("resize", () => moved(), options);
     const resized = new ResizeObserver(() => moved());
@@ -494,10 +500,21 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             role="group"
             aria-label="More reactions"
             hidden={!trayOpen}
-            className={cn(PANEL, "w-max max-w-full justify-self-end overflow-y-auto overscroll-contain p-2 group-data-[panel-above]/menu:-order-1")}
+            className={cn(PANEL, "flex w-max max-w-full flex-col justify-self-end overflow-hidden group-data-[panel-above]/menu:-order-1")}
           >
-            <span className="mx-[3px] mb-[5px] block text-[11px] leading-normal font-medium text-muted-foreground">More reactions</span>
-            <ReactionChoices reactions={REACTIONS.slice(QUICK_REACTION_COUNT)} onReact={react} onNewBoost={newBoost} />
+            {/* The emoji picker, which loads with the pages few visits need, opens afresh each time. */}
+            {trayOpen && (
+              <RarePage
+                show={({ EmojiPicker }) => <EmojiPicker onPick={react} autoFocus={overlapping} className="min-h-0" />}
+                loading={<div className="h-[22rem] w-[19rem] touch:w-[23rem]" />}
+              />
+            )}
+            <div className="flex-none border-t border-message-border p-1">
+              <button type="button" className={ITEM} onClick={newBoost}>
+                <ChatPlusIn />
+                New boost
+              </button>
+            </div>
           </div>
           <div
             ref={actionsPanel}
@@ -606,10 +623,7 @@ function KeepButton({ list, kept, onKeep }: { list: SavedList; kept: SavedList |
   );
 }
 
-/**
- * Reactions to choose from, then New boost, which opens the Custom reaction form: the bar's tray of more
- * reactions, and the picker a message's Add reaction opens with a mouse.
- */
+/** Reactions to choose from, then New boost, which opens the Custom reaction form: the picker a message's Add reaction opens with a mouse. */
 export function ReactionChoices({ reactions, onReact, onNewBoost }: { reactions: readonly (readonly [string, string])[]; onReact: (emoji: string) => void; onNewBoost: () => void }) {
   return (
     <div className="flex flex-wrap">
@@ -703,6 +717,13 @@ export const messageAddress = (message: Message) => new URL(permalinkOf(message)
 /** Copies the message's address, as Copy link does. */
 function copyLink(event: MouseEvent<HTMLButtonElement>, message: Message) {
   return copyWithSuccess(event.currentTarget, messageAddress(message));
+}
+
+/** Focuses the message's row, which takes focus only until it loses it, so a click on its text doesn't focus it. */
+function focusRow(row: HTMLElement) {
+  row.tabIndex = -1;
+  row.addEventListener("blur", () => row.removeAttribute("tabindex"), { once: true });
+  row.focus({ preventScroll: true });
 }
 
 /** The top of the highest of `row`'s Copy code buttons between `left` and `right`, or Infinity. */

@@ -1,4 +1,5 @@
-import { memo, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { flushSync } from "react-dom";
 import { REACTIONS } from "@ember/protocol";
 import { EMOJI_CATEGORIES, type PickerEmoji } from "@ember/protocol/emoji";
 import { Search } from "@/components/icons/iconoir";
@@ -102,6 +103,9 @@ export function EmojiPicker({ onPick, onClose, columns = 8, autoFocus = true, cl
   const [frequent, setFrequent] = useState(savedFrequent);
   // The emoji the keyboard last moved to, which Tab reaches; until it moves, the first.
   const [roving, setRoving] = useState<string | null>(null);
+  // The category Tab reaches, one stop for them all, which the arrows move between.
+  const [categoryStop, setCategoryStop] = useState(0);
+  const categoryBar = useRef<HTMLDivElement>(null);
 
   const sections = useMemo<Section[]>(() => {
     if (search.trim()) return [{ emoji: searchEmoji(search).map(([emoji]) => emoji) }];
@@ -123,6 +127,26 @@ export function EmojiPicker({ onPick, onClose, columns = 8, autoFocus = true, cl
     setSearch(value);
     setRoving(null);
     if (grid.current) grid.current.scrollTop = 0;
+  };
+
+  // A category's button scrolls its emoji to the top, out of a search if need be, and Tab then reaches its first.
+  const jump = (category: number) => {
+    const index = category + 1;
+    if (search) flushSync(() => find(""));
+    const section = grid.current?.querySelectorAll<HTMLElement>("[data-section]")[index];
+    if (grid.current && section) grid.current.scrollTop = section.offsetTop;
+    setRoving(keyOf(index, CATEGORIES[category]!.emoji[0]!));
+    setCategoryStop(category);
+  };
+
+  const categoryKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const last = CATEGORIES.length - 1;
+    const to = { ArrowLeft: categoryStop - 1, ArrowRight: categoryStop + 1, Home: 0, End: last }[event.key];
+    if (to === undefined) return;
+    event.preventDefault();
+    const category = Math.max(0, Math.min(last, to));
+    setCategoryStop(category);
+    categoryBar.current?.querySelectorAll("button")[category]?.focus();
   };
 
   const buttons = () => [...(grid.current?.querySelectorAll<HTMLButtonElement>("button[data-emoji]") ?? [])];
@@ -184,10 +208,11 @@ export function EmojiPicker({ onPick, onClose, columns = 8, autoFocus = true, cl
       onKeyDown={(event) => {
         if (event.key === "Escape" && onClose) onClose();
       }}
-      className={cn("flex h-[22rem] flex-col", className)}
+      // Its sections' sticky names take whatever holds it as their background, a popover's or a sheet's.
+      className={cn("flex h-[22rem] flex-col bg-inherit", className)}
     >
       {/* A label, so a tap anywhere on it reaches the field. */}
-      <label className="m-2 flex flex-none cursor-text items-center gap-2 rounded-[7px] border px-2.5 py-1.5 focus-within:border-foreground focus-within:ring-1 focus-within:ring-foreground touch:min-h-11">
+      <label className="m-2 mb-1 flex flex-none cursor-text items-center gap-2 rounded-[7px] border px-2.5 py-1.5 focus-within:border-foreground focus-within:ring-1 focus-within:ring-foreground touch:min-h-11">
         <Search className="size-4 flex-none text-muted-foreground" />
         <input
           ref={searchBox}
@@ -200,9 +225,24 @@ export function EmojiPicker({ onPick, onClose, columns = 8, autoFocus = true, cl
           data-ember-preserve-selection
           onChange={(event) => find(event.target.value)}
           onKeyDown={searchKeyDown}
-          className="w-full min-w-0 bg-transparent p-0 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none touch:text-base"
+          className="w-full min-w-0 bg-transparent p-0 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none touch:text-base [&::-webkit-search-cancel-button]:appearance-none"
         />
       </label>
+      <div ref={categoryBar} role="toolbar" aria-label="Categories" onKeyDown={categoryKeyDown} className="flex flex-none px-2">
+        {CATEGORIES.map(({ label, emoji }, category) => (
+          <button
+            key={label}
+            type="button"
+            aria-label={label}
+            title={label}
+            tabIndex={category === categoryStop ? 0 : -1}
+            onClick={() => jump(category)}
+            className="flex h-8 min-w-0 flex-1 cursor-pointer items-center justify-center rounded-[6px] text-lg leading-none hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground touch:h-11"
+          >
+            {emoji[0]}
+          </button>
+        ))}
+      </div>
       <div
         ref={grid}
         role="group"
@@ -212,11 +252,15 @@ export function EmojiPicker({ onPick, onClose, columns = 8, autoFocus = true, cl
           const emoji = (event.target as Element).closest<HTMLButtonElement>("button[data-emoji]")?.dataset.emoji;
           if (emoji) pick(emoji);
         }}
-        className="min-h-0 flex-auto overflow-y-auto overscroll-contain px-2 pb-2 [scrollbar-gutter:stable]"
+        className="relative min-h-0 flex-auto overflow-y-auto overscroll-contain bg-inherit px-2 pb-2 [scrollbar-gutter:stable]"
       >
-        {sections.map((section, index) => (
-          <EmojiSection key={section.label ?? "search"} section={section} index={index} labelId={`${id}_${index}`} columns={columns} tabStop={tabStop?.startsWith(`${index}:`) ? tabStop : null} />
-        ))}
+        {/* As wide as its rows whatever's shown, so a search finding little or nothing doesn't narrow it. */}
+        <div style={{ "--columns": columns } as CSSProperties} className="min-w-[calc(var(--columns)*2.25rem)] bg-inherit touch:min-w-[calc(var(--columns)*2.75rem)]">
+          {sections.map((section, index) => (
+            <EmojiSection key={section.label ?? "search"} section={section} index={index} labelId={`${id}_${index}`} columns={columns} tabStop={tabStop?.startsWith(`${index}:`) ? tabStop : null} />
+          ))}
+          {first === -1 && <p className="py-6 text-center text-sm text-muted-foreground">No emoji match</p>}
+        </div>
       </div>
     </div>
   );
@@ -238,9 +282,9 @@ interface EmojiSectionProps {
  */
 const EmojiSection = memo(function EmojiSection({ section, index, labelId, columns, tabStop }: EmojiSectionProps) {
   return (
-    <div data-section role={section.label ? "group" : undefined} aria-labelledby={section.label ? labelId : undefined}>
+    <div data-section role={section.label ? "group" : undefined} aria-labelledby={section.label ? labelId : undefined} className="bg-inherit">
       {section.label && (
-        <div id={labelId} className="sticky top-0 z-10 bg-popover py-1.5 text-xs font-semibold text-muted-foreground">
+        <div id={labelId} className="sticky top-0 z-10 bg-inherit py-1.5 text-xs font-semibold text-muted-foreground">
           {section.label}
         </div>
       )}

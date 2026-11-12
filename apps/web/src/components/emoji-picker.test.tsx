@@ -1,10 +1,12 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { PHONE_LAYOUT } from "@/hooks/use-phone-layout";
 import { EmojiButton } from "./workspace/composer-menus";
 import { EmojiPicker } from "./emoji-picker";
 
 afterEach(() => vi.restoreAllMocks());
+afterEach(() => vi.unstubAllGlobals());
 
 function showPicker() {
   const onPick = vi.fn();
@@ -29,6 +31,8 @@ describe("Emoji picker", () => {
     expect(searchBox()).toHaveFocus();
     expect(searchBox()).toHaveAttribute("type", "search");
     expect(searchBox()).toHaveAttribute("placeholder", "Search emoji");
+    // The browser's own clear button stays hidden.
+    expect(searchBox()).toHaveClass("[&::-webkit-search-cancel-button]:appearance-none");
     expect(emojiIn("Frequently used")).toEqual(["👍", "👏", "👋", "💪", "❤️", "😂", "🎉", "🔥"]);
     expect(screen.getByRole("group", { name: "Smileys & People" })).toBeInTheDocument();
     expect([...grid().querySelectorAll('[role="group"]')].map((group) => document.getElementById(group.getAttribute("aria-labelledby")!)?.textContent)).toEqual([
@@ -67,6 +71,7 @@ describe("Emoji picker", () => {
     await user.clear(searchBox());
     await user.type(searchBox(), "zzzzz");
     expect(shown()).toEqual([]);
+    expect(screen.getByText("No emoji match")).toBeInTheDocument();
 
     await user.clear(searchBox());
     expect(emojiIn("Frequently used")[0]).toBe("👍");
@@ -111,9 +116,11 @@ describe("Emoji picker", () => {
     expect(document.activeElement?.textContent).toBe("😄");
     await user.keyboard("{ArrowLeft}{ArrowUp}");
     expect(emoji("👏")).toHaveFocus();
-    // Tab leaves the grid, and comes back to the emoji it left.
+    // Tab leaves the grid, and comes back to the emoji it left, after the categories' one stop.
     await user.keyboard("{ArrowUp}");
     expect(searchBox()).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Smileys & People" })).toHaveFocus();
     await user.tab();
     expect(emoji("👏")).toHaveFocus();
     await user.keyboard("{Enter}");
@@ -141,6 +148,46 @@ describe("Emoji picker", () => {
     expect(onPick).toHaveBeenCalledExactlyOnceWith("🎉");
   });
 
+  it("keeps the width of its rows whatever a search finds", async () => {
+    const { user } = showPicker();
+    const rows = grid().firstElementChild as HTMLElement;
+    expect(rows).toHaveClass("min-w-[calc(var(--columns)*2.25rem)]", "touch:min-w-[calc(var(--columns)*2.75rem)]");
+    expect(rows.style.getPropertyValue("--columns")).toBe("8");
+    await user.type(searchBox(), "zzzzz");
+    expect(grid().firstElementChild).toBe(rows);
+  });
+
+  it("jumps to a category from its first emoji, out of a search, and Tab then reaches the category's first", async () => {
+    const { user } = showPicker();
+    const categories = screen.getByRole("toolbar", { name: "Categories" });
+    expect(buttonsIn(categories).map((button) => [button.getAttribute("aria-label"), button.textContent])).toEqual([
+      ["Smileys & People", "😀"],
+      ["Animals & Nature", "🐵"],
+      ["Food & Drink", "🍇"],
+      ["Activities", "🎃"],
+      ["Travel & Places", "🌍"],
+      ["Objects", "👓"],
+      ["Symbols", "🏧"],
+      ["Flags", "🏁"],
+    ]);
+    await user.type(searchBox(), "tada");
+    await user.click(within(categories).getByRole("button", { name: "Flags" }));
+    expect(searchBox()).toHaveValue("");
+    expect(emojiIn("Frequently used")[0]).toBe("👍");
+    await user.tab();
+    expect(document.activeElement?.textContent).toBe("🏁");
+
+    // From the keyboard: one stop for the categories, which the arrows move between.
+    await user.click(searchBox());
+    await user.tab();
+    expect(within(categories).getByRole("button", { name: "Flags" })).toHaveFocus();
+    await user.keyboard("{Home}{ArrowRight}");
+    expect(within(categories).getByRole("button", { name: "Animals & Nature" })).toHaveFocus();
+    await user.keyboard("{Enter}");
+    await user.tab();
+    expect(document.activeElement?.textContent).toBe("🐵");
+  });
+
   it("closes on Escape", async () => {
     const { onClose, user } = showPicker();
     await user.keyboard("{Escape}");
@@ -149,6 +196,15 @@ describe("Emoji picker", () => {
 });
 
 describe("Emoji button", () => {
+  // The picker loads with the pages few visits need, which take a while to import in a test.
+  beforeAll(() => import("./workspace/pages"), 120_000);
+
+  /** A phone `width` wide, whose layout the page uses. */
+  const phone = (width: number) => {
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === PHONE_LAYOUT, media, addEventListener() {}, removeEventListener() {} }));
+    vi.stubGlobal("innerWidth", width);
+  };
+
   it("opens the picker, writes the emoji picked, and gives the text its focus back", async () => {
     const onPick = vi.fn();
     const onReturnFocus = vi.fn();
@@ -160,5 +216,27 @@ describe("Emoji button", () => {
     expect(onPick).toHaveBeenCalledExactlyOnceWith("🎉");
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
     expect(onReturnFocus).toHaveBeenCalled();
+  });
+
+  it("opens a sheet on phones, as many 44px emoji to a row as fit within its gutters, keeping the keyboard down", async () => {
+    phone(320);
+    const onPick = vi.fn();
+    const onReturnFocus = vi.fn();
+    const user = userEvent.setup();
+    render(<EmojiButton onPick={onPick} onReturnFocus={onReturnFocus} />);
+    await user.click(screen.getByRole("button", { name: "Emoji" }));
+    const sheet = await screen.findByRole("dialog", { name: "Emoji" });
+    await waitFor(() => expect(within(sheet).getByLabelText("Search emoji")).toBeInTheDocument());
+    expect(sheet).toHaveFocus();
+    expect(sheet).toHaveClass("bottom-0", "w-full", "px-2");
+    expect(grid().querySelector<HTMLElement>(".grid")!.style.gridTemplateColumns).toBe("repeat(6, 1fr)");
+    await user.click(emoji("🎉"));
+    expect(onPick).toHaveBeenCalledExactlyOnceWith("🎉");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(onReturnFocus).toHaveBeenCalled();
+
+    vi.stubGlobal("innerWidth", 375);
+    await user.click(screen.getByRole("button", { name: "Emoji" }));
+    await waitFor(() => expect(grid().querySelector<HTMLElement>(".grid")!.style.gridTemplateColumns).toBe("repeat(7, 1fr)"));
   });
 });
