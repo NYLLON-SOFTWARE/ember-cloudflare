@@ -1,20 +1,11 @@
-import { Fragment, useEffect, useEffectEvent, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
-import { MoreHoriz, NavArrowDown } from "@/components/icons/iconoir";
+import { Fragment, useEffect, useEffectEvent, useId, useState, type KeyboardEvent } from "react";
+import { NavArrowDown } from "@/components/icons/iconoir";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { appleKeyboard } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
-import { TEXT_BUTTON } from "./composer-buttons";
+import { TEXT_BUTTON, TOOL, TOOL_ICON } from "./composer-buttons";
 import { BLOCKS, isActive, isDisabled, linkAddress, TOOL_GROUPS, type Block, type Format, type Formats, type Tool } from "./formatting";
 import { PopoverMenu } from "./popover-menu";
-
-/**
- * A toolbar button, as Slack's: a 28px square, or a fingertip's 44px on touch screens, that's tinted while
- * its format is on at the cursor and faded while it can't be used there. It keeps focus in the text, so a
- * phone's keyboard stays up.
- */
-const TOOL =
-  "flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[5px] text-muted-foreground touch:size-11 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground aria-pressed:bg-hover aria-pressed:text-foreground disabled:pointer-events-none disabled:opacity-35";
-const TOOL_ICON = "composer-tool-icon size-[18px]";
 
 /** Iconoir's icon for each button, painted from its file (rich-text-editor.css). */
 function ToolIcon({ tool }: { tool: Tool }) {
@@ -38,10 +29,7 @@ interface Props {
   onLinkOpenChange: (open: boolean) => void;
   /** Gives the text focus back, as a menu of the toolbar's closes. */
   onReturnFocus: () => void;
-  /**
-   * Its tools, in groups, all of them unless a layout shows fewer, as a phone does. All of them fold what
-   * doesn't fit into ⋯ from the end; fewer scroll sideways.
-   */
+  /** Its tools, in groups, all of them unless a layout shows fewer, as a phone does. */
   groups?: typeof TOOL_GROUPS;
   className?: string;
 }
@@ -50,181 +38,68 @@ interface Props {
  * Slack's formatting toolbar, over the text: Bold, Italic, Underline, Strikethrough and the paragraph
  * style, then Link and the lists, then Blockquote, Code, Code block and Divider, each group ruled off
  * from the next. Each shows whether its format is on at the cursor, and inside code only the button
- * that turns the code off works. Where they don't all fit, as in a narrow pane, those from the end fold
- * into ⋯, More formatting.
+ * that turns the code off works. It scrolls sideways where it doesn't fit.
  */
 export function ComposerToolbar({ formats, disabled = false, onFormat, onBlock, onLink, linkDraft, linkOpen, onLinkOpenChange, onReturnFocus, groups = TOOL_GROUPS, className }: Props) {
-  const bar = useRef<HTMLDivElement>(null);
-  const more = useRef<HTMLButtonElement>(null);
-  const tools = groups.flat();
-  const shown = useShownTools(bar, groups === TOOL_GROUPS ? tools.length : Infinity);
-  const showing = tools.slice(0, shown);
-  const folded = tools.slice(shown);
   // One stop for Tab, as a toolbar is: the button last focused, or the first that works where that can't,
   // and the arrow keys, Home and End move between them.
-  const [current, setCurrent] = useState<Tool | "more">("bold");
+  const [current, setCurrent] = useState<Tool>("bold");
   const works = (tool: Tool) => !disabled && !isDisabled(tool, formats);
-  const usable = (tool: Tool | "more") => (tool === "more" ? folded.length > 0 && !disabled : showing.some((each) => each.tool === tool) && works(tool));
-  const tabbable = usable(current) ? current : (showing.find(({ tool }) => works(tool))?.tool ?? (usable("more") ? "more" : undefined));
-  let from = 0;
+  const tabbable = works(current) ? current : groups.flat().find(({ tool }) => works(tool))?.tool;
   return (
     <div
-      ref={bar}
       role="toolbar"
       aria-label="Formatting"
       aria-orientation="horizontal"
       onKeyDown={moveAlong}
       className={cn("-mx-1 flex min-w-0 items-center gap-0.5 overflow-x-auto pb-1.5 [scrollbar-width:none]", className)}
     >
-      {groups.map((group, index) => {
-        const first = from;
-        from += group.length;
-        if (first >= shown) return null;
-        return (
-          <Fragment key={index}>
-            {index > 0 && <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />}
-            {group.slice(0, shown - first).map(({ tool, label, keys }, place) => {
-              const title = keys ? `${label} (${keysOf(keys)})` : label;
-              const common = {
-                disabled: !works(tool),
-                title,
-                "aria-label": label,
-                tabIndex: tool === tabbable ? 0 : -1,
-                onFocus: () => setCurrent(tool),
-                "data-tool": tool,
-                "data-at": first + place,
-              };
-              if (tool === "block") return <BlockMenu key={tool} block={formats.block} {...common} onBlock={onBlock} onReturnFocus={onReturnFocus} />;
-              if (tool === "link") {
-                return (
-                  <LinkField
-                    key={tool}
-                    {...common}
-                    linked={formats.link}
-                    open={linkOpen}
-                    onOpenChange={onLinkOpenChange}
-                    onLink={onLink}
-                    draft={linkDraft}
-                    onReturnFocus={onReturnFocus}
-                  />
-                );
-              }
+      {groups.map((group, index) => (
+        <Fragment key={index}>
+          {index > 0 && <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />}
+          {group.map(({ tool, label, keys }) => {
+            const title = keys ? `${label} (${keysOf(keys)})` : label;
+            const common = {
+              disabled: !works(tool),
+              title,
+              "aria-label": label,
+              tabIndex: tool === tabbable ? 0 : -1,
+              onFocus: () => setCurrent(tool),
+              "data-tool": tool,
+            };
+            if (tool === "block") return <BlockMenu key={tool} block={formats.block} {...common} onBlock={onBlock} onReturnFocus={onReturnFocus} />;
+            if (tool === "link") {
               return (
-                <button
+                <LinkField
                   key={tool}
-                  type="button"
                   {...common}
-                  aria-pressed={isActive(tool, formats)}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => onFormat(tool)}
-                  className={TOOL}
-                >
-                  <ToolIcon tool={tool} />
-                </button>
+                  linked={formats.link}
+                  open={linkOpen}
+                  onOpenChange={onLinkOpenChange}
+                  onLink={onLink}
+                  draft={linkDraft}
+                  onReturnFocus={onReturnFocus}
+                />
               );
-            })}
-          </Fragment>
-        );
-      })}
-      {folded.length > 0 && (
-        <>
-          <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />
-          <PopoverMenu
-            label="More formatting"
-            onCloseFocus={onReturnFocus}
-            trigger={
+            }
+            return (
               <button
-                ref={more}
+                key={tool}
                 type="button"
-                title="More formatting"
-                aria-label="More formatting"
-                disabled={disabled}
-                tabIndex={tabbable === "more" ? 0 : -1}
-                onFocus={() => setCurrent("more")}
+                {...common}
+                aria-pressed={isActive(tool, formats)}
                 onMouseDown={(event) => event.preventDefault()}
-                data-tool="more"
+                onClick={() => onFormat(tool)}
                 className={TOOL}
               >
-                <MoreHoriz className="size-[18px]" />
+                <ToolIcon tool={tool} />
               </button>
-            }
-            items={folded.map(({ tool, label, keys }) => ({
-              label: (
-                <>
-                  {label}
-                  {keys && <span className="ml-auto pl-6 text-[12px] text-muted-foreground">{keysOf(keys)}</span>}
-                </>
-              ),
-              name: label,
-              icon: <ToolIcon tool={tool} />,
-              pressed: isActive(tool, formats),
-              disabled: !works(tool),
-              onSelect: () => (tool === "link" ? onLinkOpenChange(true) : onFormat(tool as Format)),
-            }))}
-          />
-        </>
-      )}
-      {/* While Link is folded into ⋯, its field opens over ⋯, from there or from Ctrl or Cmd+K. */}
-      {folded.some(({ tool }) => tool === "link") && (
-        <LinkField
-          anchor={more}
-          disabled={!works("link")}
-          title="Link"
-          aria-label="Link"
-          tabIndex={-1}
-          onFocus={() => {}}
-          data-tool="link"
-          data-at={-1}
-          linked={formats.link}
-          open={linkOpen}
-          onOpenChange={onLinkOpenChange}
-          onLink={onLink}
-          draft={linkDraft}
-          onReturnFocus={onReturnFocus}
-        />
-      )}
+            );
+          })}
+        </Fragment>
+      ))}
     </div>
   );
-}
-
-/**
- * How many of the toolbar's `count` tools show in `bar`: all of them where they fit, or else as many as
- * fit before ⋯, never fewer than its first group, past which it scrolls. Each tool's right edge is kept
- * from when it last showed, as those after it going doesn't move it. A `count` of Infinity shows them
- * all, for a layout that scrolls them.
- */
-function useShownTools(bar: RefObject<HTMLDivElement | null>, count: number): number {
-  const [shown, setShown] = useState(count);
-  const ends = useRef<number[]>([]);
-  const fit = useEffectEvent(() => {
-    const element = bar.current;
-    if (!element || !Number.isFinite(count) || element.clientWidth === 0) return;
-    const left = element.getBoundingClientRect().left - element.scrollLeft;
-    for (const tool of element.querySelectorAll<HTMLElement>("[data-at]")) {
-      const at = Number(tool.dataset.at);
-      if (at >= 0) ends.current[at] = tool.getBoundingClientRect().right - left;
-    }
-    const edges = ends.current;
-    if (edges.filter((edge) => edge !== undefined).length < count) return;
-    const room = element.clientWidth + 0.5;
-    if (edges[count - 1]! <= room) return setShown(count);
-    // ⋯ takes a tool's step past the rule before it, which is what a group's first tool takes more than the step.
-    const step = edges[1]! - edges[0]!;
-    const firstGroup = TOOL_GROUPS[0]!.length;
-    const rule = edges[firstGroup]! - edges[firstGroup - 1]! - step;
-    let fitting = count - 1;
-    while (fitting > firstGroup && edges[fitting - 1]! + rule + step > room) fitting--;
-    setShown(fitting);
-  });
-  useLayoutEffect(() => fit());
-  useLayoutEffect(() => {
-    const element = bar.current;
-    if (!element || !Number.isFinite(count)) return;
-    const watching = new ResizeObserver(() => fit());
-    watching.observe(element);
-    return () => watching.disconnect();
-  }, [bar, count]);
-  return Math.min(shown, count);
 }
 
 /** Moves focus to the toolbar's next button that works, or the one before it, or its first or last, as the arrow keys, Home and End do. */
@@ -245,8 +120,6 @@ interface ToolButton {
   tabIndex: number;
   onFocus: () => void;
   "data-tool": Tool;
-  /** Its place in the toolbar, by which it's measured, or -1 for one that isn't in it. */
-  "data-at": number;
 }
 
 interface BlockMenuProps extends ToolButton {
@@ -278,8 +151,6 @@ function BlockMenu({ block, onBlock, onReturnFocus, ...button }: BlockMenuProps)
 }
 
 interface LinkFieldProps extends ToolButton {
-  /** What it opens over in place of its own button, as ⋯ is while Link is folded into it. */
-  anchor?: RefObject<HTMLButtonElement | null>;
   linked: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -298,7 +169,7 @@ const LABEL = "mb-1 block text-[13px] font-semibold";
  * already, unlinks it. An address without a scheme gets https://, and one that isn't a web, mail or phone
  * address is refused.
  */
-function LinkField({ anchor, linked, open, onOpenChange, onLink, draft, onReturnFocus, ...button }: LinkFieldProps) {
+function LinkField({ linked, open, onOpenChange, onLink, draft, onReturnFocus, ...button }: LinkFieldProps) {
   const [text, setText] = useState("");
   const [address, setAddress] = useState("");
   const [refused, setRefused] = useState(false);
@@ -326,23 +197,19 @@ function LinkField({ anchor, linked, open, onOpenChange, onLink, draft, onReturn
   };
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
-      {anchor ? (
-        <PopoverAnchor virtualRef={anchor as RefObject<HTMLButtonElement>} />
-      ) : (
-        <PopoverAnchor asChild>
-          <button
-            type="button"
-            {...button}
-            aria-pressed={linked}
-            aria-expanded={open}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => onOpenChange(!open)}
-            className={TOOL}
-          >
-            <ToolIcon tool="link" />
-          </button>
-        </PopoverAnchor>
-      )}
+      <PopoverAnchor asChild>
+        <button
+          type="button"
+          {...button}
+          aria-pressed={linked}
+          aria-expanded={open}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onOpenChange(!open)}
+          className={TOOL}
+        >
+          <ToolIcon tool="link" />
+        </button>
+      </PopoverAnchor>
       <PopoverContent
         side="top"
         align="start"

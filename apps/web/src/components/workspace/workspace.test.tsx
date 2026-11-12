@@ -208,6 +208,32 @@ describe("Open a room", () => {
     expect(location.pathname).toBe("/rooms/general");
   });
 
+  it("keeps one socket to the room as its tabs, their panels and its members open and close (D5)", async () => {
+    const opened: string[] = [];
+    vi.stubGlobal(
+      "WebSocket",
+      class extends OpenRoomSocket {
+        constructor(url: string) {
+          super(url);
+          if (url.includes("/api/rooms/random/")) opened.push(url);
+        }
+      },
+    );
+    serve({ "GET /api/rooms/random/library": () => Response.json({ files: [], links: [] }), "GET /api/rooms/random/tabs": () => Response.json({ tabs: [] }) });
+    const user = userEvent.setup();
+    showWorkspace("/rooms/random");
+    expect(await screen.findByRole("textbox", { name: "Write a message" })).toBeInTheDocument();
+    for (let round = 0; round < 2; round++) {
+      await user.click(screen.getByRole("tab", { name: "Files & links" }));
+      await screen.findByRole("tabpanel", { name: "Files & links" }, { timeout: 5000 });
+      await user.click(screen.getByRole("tab", { name: "Messages" }));
+      await user.click(screen.getByRole("button", { name: /^View members/ }));
+      await user.keyboard("{Escape}");
+    }
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(opened).toHaveLength(1);
+  });
+
   it("opens a room made since the list came, which the list asked again has", async () => {
     const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
     const lists = [roomList(rooms), roomList([...rooms, design])];
@@ -575,6 +601,7 @@ describe("Link to a message", () => {
 
   it("leaves the room's messages where they are as another of its tabs shows, and Messages again", async () => {
     vi.stubGlobal("WebSocket", RoomSocket);
+    serve({ "GET /api/rooms/general/library": () => Response.json({ files: [], links: [] }) });
     showWorkspace("/rooms/general");
     await roomHeading();
     const room = RoomSocket.last!;

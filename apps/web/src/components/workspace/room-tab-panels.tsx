@@ -167,6 +167,9 @@ function merged(files: LibraryFile[], links: LibraryLink[], sort: FileSort): Ent
  * Files & links, after Slack's: a search, All, Files, Media and Links, the kinds of file, the order and Filter by,
  * then the room's newest photos and videos, then everything that passes, a row each.
  */
+/** Whether a file shows in the photo grid: a picture or video that's stored. */
+const inGrid = (file: LibraryFile) => isMedia(file.type) && file.file !== undefined;
+
 function FilesAndLinks({ room, me, onFailed }: { room: Room; me: Me; onFailed: (error: unknown) => void }) {
   const [library, setLibrary] = useState<Library | null>(null);
   const [shelf, setShelf] = useState<Shelf>("all");
@@ -193,13 +196,15 @@ function FilesAndLinks({ room, me, onFailed }: { room: Room; me: Me; onFailed: (
   };
   const opened = (file: LibraryFile) => void markFile({ ...fileMarkOf(file), viewed: true }).catch(() => {});
 
+  // Photos and videos show once, in the grid, as Slack's do, and every other file and link in rows below it.
+  const listed = useMemo(() => (library && shelf !== "links" ? listFiles(library.files, filters, sort, me.id) : []), [library, shelf, filters, sort, me.id]);
+  const media = useMemo(() => (shelf === "all" || shelf === "media" ? listed.filter(inGrid) : []), [listed, shelf]);
   const shown = useMemo(() => {
     if (!library) return null;
-    const files = shelf === "links" ? [] : listFiles(library.files, filters, sort, me.id).filter((file) => (shelf === "media" ? isMedia(file.type) : shelf === "files" ? !isMedia(file.type) : true));
+    const files = shelf === "media" ? [] : listed.filter((file) => !inGrid(file));
     const links = shelf === "all" || shelf === "links" ? listLinks(library.links, filters, sort, me.id) : [];
     return merged(files, links, sort);
-  }, [library, shelf, filters, sort, me.id]);
-  const media = useMemo(() => (library ? library.files.filter((file) => isMedia(file.type) && file.file).slice(0, 6) : []), [library]);
+  }, [library, listed, shelf, filters, sort, me.id]);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -252,7 +257,7 @@ function FilesAndLinks({ room, me, onFailed }: { room: Room; me: Me; onFailed: (
             </ul>
           </section>
         )}
-        {shown === null ? null : shown.length === 0 ? (
+        {shown === null || (shown.length === 0 && media.length > 0) ? null : shown.length === 0 ? (
           <NothingHere title={library!.files.length + library!.links.length === 0 ? "No files or links" : "No matches"} />
         ) : (
           <ul aria-label="Files and links" className="flex flex-col">

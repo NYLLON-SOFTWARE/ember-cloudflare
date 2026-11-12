@@ -37,6 +37,19 @@ const library: Library = {
       starred: false,
       viewedAt: null,
     },
+    {
+      id: "k3",
+      kind: "file",
+      name: "Moon.jpg",
+      type: "images",
+      roomId: "general",
+      owner: ada,
+      createdAt: "2026-11-08T10:00:00.000Z",
+      messageId: "m3",
+      file: { id: "k3", name: "Moon.jpg", contentType: "image/jpeg", byteSize: 10, url: "/files/k3/s/Moon.jpg", downloadUrl: "/files/k3/s/Moon.jpg?disposition=attachment" },
+      starred: false,
+      viewedAt: null,
+    },
   ],
   links: [{ id: "m2:0", url: "https://example.org/maps", title: "Maps", roomId: "general", messageId: "m2", owner: ada, createdAt: "2026-11-09T10:00:00.000Z" }],
 };
@@ -106,6 +119,10 @@ describe("Room tabs", { timeout: PAGES_LOAD_MS * 2 }, () => {
     expect(await within(panel).findByRole("link", { name: "Budget.csv" }, { timeout: PAGES_LOAD_MS })).toBeInTheDocument();
     expect(within(panel).getByRole("link", { name: "Maps" })).toHaveAttribute("href", "https://example.org/maps");
     expect(screen.getByRole("region", { name: "Messages", hidden: true })).toHaveProperty("inert", true);
+    // A picture shows once, in the grid, and not among the rows.
+    expect(within(panel).getAllByRole("link", { name: /Moon\.jpg/ })).toHaveLength(1);
+    expect(within(within(panel).getByRole("region", { name: "Photos and videos" })).getByRole("img", { name: "Moon.jpg" })).toBeInTheDocument();
+    expect(within(within(panel).getByRole("list", { name: "Files and links" })).queryByText("Moon.jpg")).not.toBeInTheDocument();
 
     await userEvent.click(within(panel).getByRole("button", { name: "Links" }));
     await waitFor(() => expect(within(panel).queryByRole("link", { name: "Budget.csv" })).not.toBeInTheDocument());
