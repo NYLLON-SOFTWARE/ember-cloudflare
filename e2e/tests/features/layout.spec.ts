@@ -352,6 +352,7 @@ test.describe("Empty room", () => {
   test("welcomes people to a room nobody has written in", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await expect(ada.page.getByRole("heading", { name: "Welcome to #general" })).toBeVisible();
-    await expect(ada.page.getByText("This is the very beginning of the room. Say hello!")).toBeVisible();
+    // Its heading alone: the line under it is for a sub-room's parent, with no filler in its place.
+    await expect(ada.page.getByText("This is the very beginning of the room. Say hello!")).toHaveCount(0);
   });
 });
