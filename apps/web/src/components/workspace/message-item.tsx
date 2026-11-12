@@ -89,6 +89,9 @@ function shownBody(body: string, plainText: string): DisplayNode[] | null {
   }
 }
 
+/** Whether a message's text quotes another, as a forward's does, whose file shows in the quote. */
+const quotes = (nodes: DisplayNode[]) => nodes.some((node) => node.kind === "element" && node.name === "blockquote");
+
 /**
  * What shows in place of a message whose text can't be shown, with no author, time, actions or
  * reactions. As `.message--failed.center` does, it centers the message, whose avatar's column stays
@@ -363,8 +366,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
           <div className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
             <UploadCard upload={upload} />
           </div>
-        ) : message.attachment && message.body !== "" ? (
-          // A forwarded file, which shows in its quote.
+        ) : message.attachment && quotes(shown) ? (
+          // A forwarded file, which shows in its quote. A bot's file shows in place of its text, below.
           <MessageBody
             nodes={shown}
             mentions={message.mentions}

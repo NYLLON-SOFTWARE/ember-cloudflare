@@ -184,6 +184,17 @@ describe("Image, video and file previews", () => {
     }
   });
 
+  it("shows the file a bot gives its message of text in place of the text, and a forwarded file in its quote", () => {
+    const { article } = show(fileMessage({ body: "<p>Build log</p>", plainText: "Build log" }));
+    expect(within(article).getByRole("link", { name: "Download Q3 report.pdf" })).toBeInTheDocument();
+    expect(within(article).queryByText("Build log")).not.toBeInTheDocument();
+    cleanup();
+
+    const forward = show(fileMessage({ body: "<p>See this</p><blockquote><p>Q3 report.pdf</p></blockquote>", plainText: "See this" }));
+    expect(within(forward.article).getByText("See this")).toBeInTheDocument();
+    expect(forward.article.querySelector("blockquote")).toContainElement(within(forward.article).getByRole("link", { name: "Download Q3 report.pdf" }));
+  });
+
   it("shows a picture message's thumbnail and a video message's player in place of its text", async () => {
     const moon: StoredFile = { ...report, name: "moon.jpg", contentType: "image/jpeg", width: 640, height: 480, previewUrl: "/previews/k1/s1/moon.jpg" };
     for (const threaded of [false, true]) {
