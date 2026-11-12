@@ -636,7 +636,7 @@ describe("DMs page", () => {
 
     await user.click(within(dmsList()).getByRole("link", { name: "Direct message with Grace" }));
     expect(await roomHeading()).toHaveTextContent("Direct message with Grace");
-    expect(location.pathname).toBe("/rooms/d1");
+    expect(location.pathname).toBe("/dms/d1");
     expect(within(dmsList()).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "DMs" })).toHaveAttribute("aria-current", "page");
 
@@ -644,6 +644,22 @@ describe("DMs page", () => {
     await user.click(screen.getByRole("link", { name: "Home" }));
     await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
     expect(screen.queryByRole("region", { name: "Direct messages" })).not.toBeInTheDocument();
+  });
+
+  it("shows a DM at its address on the DMs page, a room that isn't a DM at its own, and goes home from one that isn't yours", async () => {
+    serve({ "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])) });
+    showWorkspace("/dms/d1");
+    expect(await roomHeading()).toHaveTextContent("Direct message with Grace");
+    expect(within(dmsList()).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("href", "/dms/d1");
+    expect(within(dmsList()).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "DMs" })).toHaveAttribute("aria-current", "page");
+
+    act(() => navigate("/dms/random"));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/random"));
+    act(() => navigate("/dms/d9"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    // Home, which goes back to the last room it showed.
+    await waitFor(() => expect(location.pathname).toBe("/rooms/random"));
   });
 
   it("keeps New direct message at its address, over the last room visited", async () => {
@@ -855,7 +871,7 @@ describe("Suggested people", () => {
     const { user } = showWorkspace("/dms");
     await user.click(await screen.findByRole("button", { name: "Start a direct message with Grace" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Direct message with Grace" })).toBeInTheDocument();
-    expect(location.pathname).toBe("/rooms/d1");
+    expect(location.pathname).toBe("/dms/d1");
     expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: [grace.id] }) }));
     expect(within(screen.getByRole("region", { name: "Direct messages" })).getByRole("link", { name: "Direct message with Grace" })).toHaveAttribute("aria-current", "page");
     expect(suggestion()).not.toBeInTheDocument();

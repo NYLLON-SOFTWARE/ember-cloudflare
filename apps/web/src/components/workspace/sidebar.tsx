@@ -4,12 +4,12 @@ import { EditPencil, Group, Headset, MultiBubble, StarSolid, type IconoirIconPro
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
-import { PeopleContext } from "@/hooks/use-directory";
 import { DRAFTS_PATH, PEOPLE_PATH, roomPath, THREADS_PATH } from "@/hooks/use-route";
 import { useStarOrder } from "@/hooks/use-star-order";
 import { apart, inSidebarOrder, markedUnread, type SharedSidebarRoom } from "@/lib/room-list";
-import { inItsHuddle } from "@/lib/huddle-people";
 import { cn } from "@/lib/utils";
+import { PeopleContext } from "@/hooks/use-directory";
+import { inItsHuddle } from "@/lib/huddle-people";
 import { UserAvatar } from "./user-avatar";
 
 /** A row of the list, a link's or a room's. */
@@ -35,7 +35,7 @@ const MAX_HUDDLE_FACES = 2;
 interface Props {
   /** The workspace's name, which heads the list. */
   workspaceName: string;
-  /** Who the list is for, whom a huddle's mark calls you. */
+  /** Who the list is for, whom a huddle's words call you. */
   meId: UserId;
   /** Someone's rooms and DMs, in any order, of which the list shows the rooms. */
   rooms: SidebarRoom[];
@@ -66,7 +66,7 @@ interface Props {
  * under Rooms, the ones the shared order ranks first, in its order, then by name. A starred room's row
  * ends with a star, with no grip, as the project's owner chose: held, the row can be dragged among the
  * other starred rows, or moved with Alt and an arrow (`useStarOrder`). A room marked unread is bold with a
- * dot at the end of its row, and a room with a huddle going on ends its row with who's in it. With Activity on, only those rows show, and with none it says everything's
+ * dot at the end of its row. With Activity on, only those rows show, and with none it says everything's
  * read; with it off and nothing to list, it says it found nothing.
  */
 export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedOrder, huddles, currentRoomId, currentPage, unreadOnly, onSelect, onStarred, onSessionChanged }: Props) {
@@ -85,49 +85,27 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
   const empty = loaded && listed.length === 0;
   const helpId = useId();
   const unreadId = useId();
-  const huddleId = useId();
   // A row followed in place shows its room here, and one opened elsewhere, as in a new tab, leaves this page be.
   const select = (event: MouseEvent, roomId: RoomId) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey) return;
     event.preventDefault();
     onSelect(roomId);
   };
-  const row = (room: SharedSidebarRoom) => {
-    const unread = markedUnread(room, currentRoomId);
-    const star = starred.has(room.id);
-    const huddle = huddles[room.id];
-    // The words for who's in the room's huddle, which come with its mark.
-    const inHuddleId = `${huddleId}-${room.id}`;
-    return (
-      <a
-        key={room.id}
-        data-room-id={room.id}
-        href={roomPath(room.id)}
-        draggable={false}
-        aria-current={room.id === currentRoomId ? "page" : undefined}
-        // Every row says how the stars are reordered, a marked one says it's unread, which the eye sees
-        // by its weight and dot, and one with a huddle says who's in it, which the eye sees by its mark.
-        aria-describedby={[huddle && inHuddleId, unread && unreadId, helpId].filter(Boolean).join(" ")}
-        aria-keyshortcuts={star ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
-        onClick={(event) => select(event, room.id)}
-        className={cn(
-          ROW,
-          "[-webkit-touch-callout:none]",
-          unread && "font-[650]",
-          star && "cursor-grab",
-          room.id === moving && "relative z-[1] cursor-grabbing bg-background! shadow-[0_4px_14px_var(--color-drag-shadow)] outline outline-muted-foreground",
-        )}
-      >
-        <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
-        <span className="truncate">{room.name}</span>
-        {/* The huddle's mark, the dot and the star sit together at the row's end, pushed there by one auto
-            margin. The star's muted at 65%. */}
-        {huddle && <HuddleMark huddle={huddle} meId={meId} wordsId={inHuddleId} className="ml-auto" />}
-        {unread && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full bg-foreground", !huddle && "ml-auto")} />}
-        {star && <StarSolid aria-label="Favorite" className={cn("size-3.5 shrink-0 text-muted-foreground/65", !huddle && !unread && "ml-auto")} />}
-      </a>
-    );
-  };
+  const row = (room: SharedSidebarRoom) => (
+    <RoomRow
+      key={room.id}
+      room={room}
+      current={room.id === currentRoomId}
+      unread={markedUnread(room, currentRoomId)}
+      starred={starred.has(room.id)}
+      moving={room.id === moving}
+      huddle={huddles[room.id]}
+      meId={meId}
+      unreadId={unreadId}
+      helpId={helpId}
+      onClick={(event) => select(event, room.id)}
+    />
+  );
   return (
     <div ref={scrollerRef} className="flex h-full flex-col gap-3.5 overflow-y-auto overflow-x-hidden bg-surface px-3 pt-5 pb-[max(20px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] narrow:px-2 max-md:gap-4 max-md:px-2.5 max-md:pt-4 max-md:pb-[max(16px,env(safe-area-inset-bottom))]">
       {/* The workspace's heading, as an hgroup, HTML's element for a heading and its tagline. At 900px and
@@ -176,6 +154,63 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
       </section>
       {empty && <p className="px-[9px] text-[13px] text-muted-foreground">{unreadOnly ? "You’re all caught up. No unread rooms." : "No rooms found."}</p>}
     </div>
+  );
+}
+
+interface RoomRowProps {
+  room: SharedSidebarRoom;
+  /** Whether it's the room the tab shows. */
+  current: boolean;
+  /** Whether it's marked unread, which makes it bold, with a dot. */
+  unread: boolean;
+  /** Whether it's starred, which ends it with a star and lets it be held and dragged among the stars. */
+  starred: boolean;
+  /** Whether it's the starred row being dragged. */
+  moving: boolean;
+  /** The huddle going on in it, if one is, which ends its row with who's in it. */
+  huddle?: LiveHuddle;
+  /** Who the list is for, whom the huddle's words call you. */
+  meId: UserId;
+  /** The elements saying a row is unread, and how the stars are reordered, which describe it to screen readers. */
+  unreadId: string;
+  helpId: string;
+  onClick: (event: MouseEvent) => void;
+}
+
+/**
+ * A room's row, in Starred or Rooms: its icon and name, then its unread dot and star. It carries
+ * `data-room-id`, by which `useStarOrder` drags it.
+ */
+export function RoomRow({ room, current, unread, starred, moving, huddle, meId, unreadId, helpId, onClick }: RoomRowProps) {
+  // The words for who's in the room's huddle, which come with its mark.
+  const huddleId = useId();
+  return (
+    <a
+      data-room-id={room.id}
+      href={roomPath(room.id)}
+      draggable={false}
+      aria-current={current ? "page" : undefined}
+      // Every row says how the stars are reordered, and a marked one says it's unread, which the eye
+      // sees by its weight and dot.
+      aria-describedby={[huddle && huddleId, unread ? `${unreadId} ${helpId}` : helpId].filter(Boolean).join(" ")}
+      aria-keyshortcuts={starred ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
+      onClick={onClick}
+      className={cn(
+        ROW,
+        "[-webkit-touch-callout:none]",
+        unread && "font-[650]",
+        starred && "cursor-grab",
+        moving && "relative z-[1] cursor-grabbing bg-background! shadow-[0_4px_14px_var(--color-drag-shadow)] outline outline-muted-foreground",
+      )}
+    >
+      <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
+      <span className="truncate">{room.name}</span>
+      {huddle && <HuddleMark huddle={huddle} meId={meId} wordsId={huddleId} className="ml-auto" />}
+      {/* The dot and star sit together at the row's end, pushed there by one auto margin. The star's
+          muted at 65%. */}
+      {unread && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full bg-foreground", !huddle && "ml-auto")} />}
+      {starred && <StarSolid aria-label="Favorite" className={cn("size-3.5 shrink-0 text-muted-foreground/65", !unread && "ml-auto")} />}
+    </a>
   );
 }
 

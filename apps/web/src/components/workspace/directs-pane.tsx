@@ -5,7 +5,7 @@ import { MainContent } from "@/components/main-content";
 import { useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useMounted } from "@/hooks/use-mounted";
-import { leave, NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
+import { dmPath, leave, NEW_DIRECT_PATH } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { activityLabel, namesMatch, previewOf, unreadBadge } from "@/lib/direct-list";
 import { membersShown } from "@/lib/directs";
@@ -203,7 +203,7 @@ function DirectRow({ room, meId, preview, current, unreadId, onClick }: DirectRo
   const aboutId = useId();
   return (
     <a
-      href={roomPath(room.id)}
+      href={dmPath(room.id)}
       aria-current={current ? "page" : undefined}
       aria-labelledby={nameId}
       aria-describedby={unreadId ? `${unreadId} ${aboutId}` : aboutId}

@@ -77,7 +77,7 @@ describe("DMs page", () => {
   it("lists only DMs, latest active first, naming the others in each, or you in your DM with yourself", () => {
     renderPane({ rooms: [general, direct("d2", [ada!, grace!, linus!], false, at(2)), direct("d1", [ada!, grace!], false, at(3)), direct("d3", [ada!], false, at(1))] });
     expect(directRows()).toHaveLength(3);
-    expect(directRows().map((row) => row.getAttribute("href"))).toEqual(["/rooms/d1", "/rooms/d2", "/rooms/d3"]);
+    expect(directRows().map((row) => row.getAttribute("href"))).toEqual(["/dms/d1", "/dms/d2", "/dms/d3"]);
     expect(directRows()[0]).toHaveAccessibleName("Direct message with Grace");
     expect(directRows()[1]).toHaveAccessibleName("Direct message with Grace, Linus");
     expect(directRows()[2]).toHaveAccessibleName("Direct message with Ada (you)");
@@ -150,7 +150,7 @@ describe("DMs page", () => {
     const rooms = [direct("d1", [ada!, grace!], true, at(2)), direct("d2", [ada!, linus!], false, at(1))];
     const { rerender } = renderPane({ rooms, suggestions: [alan!] });
     await userEvent.click(screen.getByRole("switch", { name: "Unreads" }));
-    expect(directRows().map((row) => row.getAttribute("href"))).toEqual(["/rooms/d1"]);
+    expect(directRows().map((row) => row.getAttribute("href"))).toEqual(["/dms/d1"]);
     expect(suggestionRows()).toEqual([]);
     await userEvent.click(screen.getByRole("switch", { name: "Unreads" }));
     expect(directRows()).toHaveLength(2);
@@ -165,7 +165,7 @@ describe("DMs page", () => {
   it("finds DMs by anyone's name in them, whatever its case", async () => {
     renderPane({ rooms: [direct("d1", [ada!, grace!], false, at(2)), direct("d2", [ada!, linus!, grace!], false, at(1)), direct("d3", [ada!, alan!])] });
     await userEvent.type(screen.getByRole("searchbox", { name: "Find a DM" }), "GRA");
-    expect(directRows().map((row) => row.getAttribute("href"))).toEqual(["/rooms/d1", "/rooms/d2"]);
+    expect(directRows().map((row) => row.getAttribute("href"))).toEqual(["/dms/d1", "/dms/d2"]);
     await userEvent.clear(screen.getByRole("searchbox", { name: "Find a DM" }));
     await userEvent.type(screen.getByRole("searchbox", { name: "Find a DM" }), "nobody");
     expect(directRows()).toEqual([]);
@@ -175,7 +175,7 @@ describe("DMs page", () => {
   it("leaves out the DMs you've hidden", () => {
     const hidden: SidebarRoom = { ...direct("d2", [ada!, linus!], true), involvement: "invisible" };
     renderPane({ rooms: [direct("d1", [ada!, grace!]), hidden] });
-    expect(directRows().map((row) => row.getAttribute("href"))).toEqual(["/rooms/d1"]);
+    expect(directRows().map((row) => row.getAttribute("href"))).toEqual(["/dms/d1"]);
   });
 
   it("opens New direct message in place, which a click with a modifier key leaves to the browser", async () => {

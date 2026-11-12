@@ -23,7 +23,7 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, type Route } from "@/hooks/use-route";
+import { afterNavigating, dmPath, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, type Route } from "@/hooks/use-route";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
@@ -193,6 +193,7 @@ const reasonFor = (error: unknown) => (error instanceof ApiError ? error.message
  */
 function namedRoomId(route: Route): RoomId | null {
   if (route.page === "room-of-kind") return route.kind !== "direct" ? route.roomId : null;
+  if (route.page === "dms") return route.roomId ?? null;
   return route.page === "room" || route.page === "room-settings" || route.page === "direct-settings" ? route.roomId : null;
 }
 
@@ -226,6 +227,12 @@ function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
     }
     case "room":
       return rooms.some((r) => r.id === route.roomId) ? null : ROOM_NOT_FOUND;
+    // A DM beside the DMs page's list: a room that isn't a DM goes on to its own address.
+    case "dms": {
+      if (route.roomId === undefined) return null;
+      const room = rooms.find((r) => r.id === route.roomId);
+      return !room ? ROOM_NOT_FOUND : room.kind === "direct" ? null : { path: roomPath(room.id) };
+    }
     case "message":
       // Without looking, as the permalink checks the room.
       return { path: route.messageId ? messagePath(route.roomId, route.messageId) : roomPath(route.roomId) };
@@ -497,7 +504,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     if (!goingOn) keepDrawer.current = false;
   }, [route, goingOn]);
 
-  const room = route.page !== "room" || goingOn ? null : (goneRoom ?? rooms?.find((r) => r.id === route.roomId) ?? null);
+  // The room the page shows: a room's page's, or the DM open beside the DMs page's list.
+  const shownRoomId = route.page === "room" ? route.roomId : route.page === "dms" ? (route.roomId ?? null) : null;
+  const room = shownRoomId === null || goingOn ? null : (goneRoom ?? rooms?.find((r) => r.id === shownRoomId) ?? null);
   // When the room shown was marked unread as of as it opened, for its timeline's New line, kept while it
   // stays open, though opening it reads it. Coming back to it with nothing new draws none.
   const [opened, setOpened] = useState<{ roomId: RoomId | null; newSince: string | null }>({ roomId: null, newSince: null });
@@ -516,9 +525,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const lastRoom = rooms && lastRoomVisited(rooms);
   const back = lastRoom ? roomPath(lastRoom.id) : "/";
   const select = (roomId: string) => navigate(roomPath(roomId));
+  // The DMs page's list opens a DM beside it, at its address there.
+  const selectDirect = (roomId: string) => navigate(dmPath(roomId));
   // A suggestion, or the button on someone's page, starts the DM with its person, or opens the one they
-  // have, and goes there, listing it as the server answers.
-  const startDirectWith = async (person: User) => {
+  // have, and goes there, listing it as the server answers: to its own address, or the DMs page's.
+  const startDirectWith = async (person: User, pathOf: (roomId: RoomId) => string = roomPath) => {
     const answered = askForRoom();
     const mark = pageMark();
     try {
@@ -526,7 +537,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       answered({ type: "saved", room });
       // A page the person has gone to meanwhile stays.
       if (!mounted.current || pageMark() !== mark) return false;
-      navigate(roomPath(room.id));
+      navigate(pathOf(room.id));
       return true;
     } catch (error) {
       failed(error);
@@ -655,9 +666,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           suggestions={suggestions}
           currentRoomId={currentRoomId}
           unreadOnly={unreadOnly}
-          onSelect={select}
+          onSelect={selectDirect}
           onNewDirect={openNewDirect}
-          onStartDirect={startDirectWith}
+          onStartDirect={(person) => startDirectWith(person, dmPath)}
         />
       )}
       loading={<div className="h-full bg-surface" />}
@@ -753,8 +764,6 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ PushSubscriptionsPage }) => <PushSubscriptionsPage back={back} onFailed={failed} />);
       case "search":
         return rarePage(({ SearchPage }) => <SearchPage me={me} rooms={rooms ?? NO_ROOMS} back={back} onFailed={failed} />);
-      case "dms":
-        return rarePage(({ DirectsHome }) => <DirectsHome list={directsPane} />);
       case "people":
         return rarePage(({ PeoplePage }) => <PeoplePage />);
       case "drafts":
@@ -774,7 +783,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             onFailed={failed}
           />
         ));
+      // The DMs page, with a DM picked there shown as a room's page shows it.
+      case "dms":
       default:
+        if (route.page === "dms" && route.roomId === undefined) return rarePage(({ DirectsHome }) => <DirectsHome list={directsPane} />);
         if (direct)
           return rarePage(({ DirectSettingsPage }) => (
             <DirectSettingsPage key={direct.id} room={direct} me={me} back={back} askForRoom={askForRoom} onMissing={missing} onFailed={failed} />

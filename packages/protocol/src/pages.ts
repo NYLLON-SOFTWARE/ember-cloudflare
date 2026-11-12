@@ -64,8 +64,8 @@ export type WorkspacePage =
   | { page: "person"; userId: UserId }
   /** Search, at `/searches`, whose query string holds what's searched for. */
   | { page: "search" }
-  /** Your DMs, at `/dms`, latest active first, to open one beside them. */
-  | { page: "dms" }
+  /** Your DMs, at `/dms`, latest active first, with the one picked open beside them at `/dms/<id>`. */
+  | { page: "dms"; roomId?: RoomId }
   /** Everyone in the workspace, at `/people`, to find someone by name. */
   | { page: "people" }
   /** What you've written and not sent, at `/drafts`, or what you've sent lately, at `/drafts/sent`. */
@@ -92,6 +92,9 @@ export const PEOPLE_PATH = "/people";
 export const DRAFTS_PATH = "/drafts";
 export const SENT_PATH = "/drafts/sent";
 export const THREADS_PATH = "/threads";
+
+/** A DM open beside the DMs page's list. */
+export const dmPath = (roomId: RoomId) => `${DMS_PATH}/${encodeURIComponent(roomId)}`;
 
 /** The pages the rail's DMs and the Home sidebar's links open, whose addresses name nothing more. */
 const LIST_PAGES = new Map<string, WorkspacePage>([
@@ -131,6 +134,9 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (pathname === NEW_DIRECT_PATH) return { page: "new-direct" };
   const list = LIST_PAGES.get(pathname);
   if (list) return { ...list };
+  const dm = pathname.match(/^\/dms\/([^/]+)$/);
+  const dmRoomId = dm && decoded(dm[1]!);
+  if (dmRoomId) return { page: "dms", roomId: dmRoomId };
   if (pathname === WORKSPACE_SETTINGS_PATH) return { page: "workspace-settings" };
   if (pathname === CUSTOM_STYLES_PATH) return { page: "custom-styles" };
   if (pathname === BOTS_PATH) return { page: "bots" };
