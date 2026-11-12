@@ -5,7 +5,7 @@ import { useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useMessageEditors } from "@/hooks/use-message-editors";
 import { useRoom } from "@/hooks/use-room";
-import { useVisit } from "@/hooks/use-route";
+import { useQuery, useVisit } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import type { Room } from "@/lib/api";
 import { roomName } from "@/lib/directs";
@@ -79,16 +79,18 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   // in it, or the room's own link, goes there, or to the newest, even when it's the page shown. One
   // followed while the room is away goes there once the room lets the page in again. Opening a thread,
   // even at a permalink, whose address the thread's takes the place of, going to one of its replies, or
-  // closing it leaves the room's messages as they are.
+  // closing it leaves the room's messages as they are. So does going from one of the room's tabs to another.
   const visit = useVisit();
-  const visited = useRef({ messageId, visit, threadId });
+  const tab = new URLSearchParams(useQuery()).get("tab");
+  const visited = useRef({ messageId, visit, threadId, tab });
   const goTo = useEffectEvent((messageId: string | null) => jump(messageId));
   useEffect(() => {
     const last = visited.current;
     if (last.messageId === messageId && last.visit === visit) return;
     const inThread = threadId !== undefined || (last.threadId !== undefined && last.messageId === messageId);
-    if (inThread || goTo(messageId ?? null)) visited.current = { messageId, visit, threadId };
-  }, [messageId, visit, threadId, state.connections]);
+    const toTab = last.tab !== tab && last.messageId === messageId;
+    if (inThread || toTab || goTo(messageId ?? null)) visited.current = { messageId, visit, threadId, tab };
+  }, [messageId, visit, threadId, tab, state.connections]);
   const typingUsers = Object.values(state.typing)
     .map((t) => t.user)
     .filter((u) => u.id !== me.id);

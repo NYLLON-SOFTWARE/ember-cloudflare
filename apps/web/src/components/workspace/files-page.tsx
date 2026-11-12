@@ -77,6 +77,7 @@ export function FilesPage({ me, place, rooms, onFailed }: Props) {
             rooms={rooms}
             names={names}
             onApply={({ from, in: inRoom, date }) => setFilters({ ...filters, from, in: inRoom, date })}
+            onClear={() => setFilters({ ...NO_FILE_FILTERS, q: filters.q })}
           />
           {shown === null ? (
             failed ? (

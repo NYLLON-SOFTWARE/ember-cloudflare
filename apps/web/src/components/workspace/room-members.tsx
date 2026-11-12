@@ -1,4 +1,4 @@
-import { useContext, useEffect, useId, useMemo, useState } from "react";
+import { useContext, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 import type { Me, RoomPerson, RoomSettings, User } from "@ember/protocol";
 import { ArrowLeft, ChatBubbleEmpty, Search as SearchIcon, User as UserIcon, UserPlus } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
@@ -49,6 +49,7 @@ function membersOf(room: Room, settings: RoomSettings | null): Members | null {
 export function MembersButton({ room, me, present, onFailed }: Props) {
   const [settings, setSettings] = useState<RoomSettings | null>(null);
   const [open, setOpen] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
   const shared = room.kind !== "direct";
   // A room's people come with its settings, asked for when it opens and each time the dialog does.
   const [asked, setAsked] = useState(0);
@@ -67,6 +68,7 @@ export function MembersButton({ room, me, present, onFailed }: Props) {
   return (
     <>
       <button
+        ref={button}
         type="button"
         title="View members"
         aria-label={count === undefined ? "View members" : `View members, ${count} ${count === 1 ? "member" : "members"}`}
@@ -85,6 +87,7 @@ export function MembersButton({ room, me, present, onFailed }: Props) {
           me={me}
           present={present}
           members={members}
+          opener={button}
           onClose={() => setOpen(false)}
           onAdded={setSettings}
           onFailed={onFailed}
@@ -99,6 +102,8 @@ interface DialogProps {
   me: Me;
   present: User[];
   members: Members | null;
+  /** The button that opened it, which gets focus back as it closes. */
+  opener: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
   onAdded: (settings: RoomSettings) => void;
   onFailed: (error: unknown) => void;
@@ -107,7 +112,7 @@ interface DialogProps {
 /** A row, 44px tall at least for fingers. */
 const ROW = "flex min-h-11 items-center gap-3 rounded-lg px-2 py-1.5 text-start hover:bg-hover";
 
-function MembersDialog({ room, me, present, members, onClose, onAdded, onFailed }: DialogProps) {
+function MembersDialog({ room, me, present, members, opener, onClose, onAdded, onFailed }: DialogProps) {
   const nameOf = useNameOf();
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
@@ -115,6 +120,10 @@ function MembersDialog({ room, me, present, members, onClose, onAdded, onFailed 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          opener.current?.focus({ preventScroll: true });
+        }}
         className={cn(
           "flex max-h-[min(640px,calc(100dvh-4rem))] flex-col gap-0 p-0 sm:max-w-[560px]",
           // A phone's is the whole screen.
@@ -155,7 +164,7 @@ function MembersDialog({ room, me, present, members, onClose, onAdded, onFailed 
                   Add people
                 </button>
               )}
-              {members ? <PeopleList people={members.people} me={me} present={present} q={q} /> : <p className="p-3 text-sm text-muted-foreground">Loading…</p>}
+              {members ? <PeopleList people={members.people} me={me} present={present} q={q} onPicked={onClose} /> :<p className="p-3 text-sm text-muted-foreground">Loading…</p>}
             </div>
           </>
         )}
@@ -191,7 +200,11 @@ function usePeopleFound(people: User[], meId: string, q: string): User[] {
   }, [people, meId, q, nameOf]);
 }
 
-function PeopleList({ people, me, present, q }: { people: User[]; me: Me; present: User[]; q: string }) {
+/**
+ * The people in the room, each going to their profile, which closes the dialog: focus goes back to the
+ * button that opened it as the profile opens beside the room, or in the page's place.
+ */
+function PeopleList({ people, me, present, q, onPicked }: { people: User[]; me: Me; present: User[]; q: string; onPicked: () => void }) {
   const directory = useContext(PeopleContext);
   const nameOf = useNameOf();
   const here = useMemo(() => new Set(present.map(({ id }) => id)), [present]);
@@ -203,7 +216,7 @@ function PeopleList({ people, me, present, q }: { people: User[]; me: Me; presen
         const bio = directory.get(person.id)?.bio;
         return (
           <li key={person.id}>
-            <PageLink href={personPath(person.id)} className={ROW}>
+            <PageLink href={personPath(person.id)} onClick={onPicked} className={ROW}>
               <span className="relative shrink-0">
                 <UserAvatar user={person} className="size-9" />
                 {here.has(person.id) && <span aria-hidden className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-background bg-positive" />}

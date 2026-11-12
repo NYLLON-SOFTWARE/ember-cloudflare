@@ -130,4 +130,29 @@ describe("Files page", () => {
     await userEvent.keyboard("{Escape}");
     expect(rows()).toEqual(["Moon landing.jpg"]);
   });
+
+  it("takes every filter off with Clear filters, Types and whose files included, leaving the search", async () => {
+    serve();
+    renderPage();
+    await waitFor(() => expect(rows()).toHaveLength(3));
+    await userEvent.click(screen.getByRole("button", { name: "File types: all" }));
+    await userEvent.click(screen.getByRole("menuitemcheckbox", { name: "Images" }));
+    await userEvent.click(screen.getByRole("menuitemcheckbox", { name: "Spreadsheets" }));
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByRole("button", { name: "Shared with you" }));
+    await userEvent.click(screen.getByRole("button", { name: "Filters" }));
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Date" }), "today");
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search files" }), "a");
+    expect(screen.getByRole("button", { name: "Filters, 1 on" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Filters, 1 on" }));
+    await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "File types: all" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("searchbox", { name: "Search files" })).toHaveValue("a");
+    expect(rows()).toEqual(["Moon landing.jpg", "Launch notes"]);
+  });
 });
