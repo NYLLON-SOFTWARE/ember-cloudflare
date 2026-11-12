@@ -36,8 +36,8 @@ import { NewDirectDialog } from "./new-direct-dialog";
 import { opensProfile, PROFILE_PARAM, ProfilePaneContext, ProfilePanel, type ProfilePane } from "./profile-pane";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
+import { RoomView, type RoomPanes, type RoomViewHandle } from "./room-view";
 import { RoomUnavailable } from "./room-unavailable";
-import { RoomView, type RoomViewHandle } from "./room-view";
 import { OpenSearchContext, SearchBox, type SearchBoxOptions } from "./search-box";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
 import { Sidebar, type SidebarPage } from "./sidebar";
@@ -733,6 +733,36 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const rarePage = (show: (pages: RarePages) => ReactNode) => (
     <RarePage key={route.page} show={show} loading={settings ? SETTINGS_LOADING : LOADING} onFailed={failed} />
   );
+  /**
+   * The room `place` names, in a pane of a page that opens conversations beside its list, as Activity and
+   * Saved do, its thread put in another by `panes`; `key` tells one opening from another.
+   */
+  const roomPane = (rooms: SidebarRoom[], place: { roomId: RoomId; messageId?: string; threadId?: string; replyId?: string }, key: string, panes: RoomPanes) => {
+    const shown = rooms.find((r) => r.id === place.roomId);
+    return (
+      shown && (
+        <RoomView
+          key={`${shown.id}/${key}`}
+          room={shown}
+          messageId={place.messageId}
+          threadId={place.threadId}
+          replyId={place.replyId}
+          invitation={invitation?.roomId === shown.id ? invitation : null}
+          onDismissInvitation={dismissCard}
+          me={me}
+          favorite={starred.has(shown.id)}
+          gone={false}
+          onStarred={starredRooms}
+          involvement={shown.involvement}
+          askForRoom={askForRoom}
+          onSessionChanged={onSessionChanged}
+          onFailed={failed}
+          onGone={(gone) => unlistRoom(gone.id)}
+          panes={panes}
+        />
+      )
+    );
+  };
   const page = () => {
     switch (route.page) {
       case "new-room":
@@ -812,37 +842,21 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             place={route.roomId === undefined ? null : { roomId: route.roomId, messageId: route.messageId, threadId: route.threadId, replyId: route.replyId }}
             rooms={rooms}
             activity={activityFeed}
-            renderRoom={(place, panes) => {
-              const shown = rooms.find((r) => r.id === place.roomId);
-              return (
-                shown && (
-                  <RoomView
-                    key={shown.id}
-                    room={shown}
-                    messageId={place.messageId}
-                    threadId={place.threadId}
-                    replyId={place.replyId}
-                    invitation={invitation?.roomId === shown.id ? invitation : null}
-                    onDismissInvitation={dismissCard}
-                    me={me}
-                    favorite={starred.has(shown.id)}
-                    onStarred={starredRooms}
-                    involvement={shown.involvement}
-                    askForRoom={askForRoom}
-                    onSessionChanged={onSessionChanged}
-                    onFailed={failed}
-                    onGone={(gone) => unlistRoom(gone.id)}
-                    panes={panes}
-                  />
-                )
-              );
-            }}
+            renderRoom={(place, panes) => roomPane(rooms, place, "activity", panes)}
           />
         );
       case "todos":
         return rarePage(({ TodosPage }) => <TodosPage itemId={route.itemId} me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
       case "saved":
-        return rarePage(({ SavedPage }) => <SavedPage itemId={route.itemId} me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
+        return rarePage(({ SavedPage }) => (
+          <SavedPage
+            itemId={route.itemId}
+            me={me}
+            rooms={rooms ?? NO_ROOMS}
+            onFailed={failed}
+            renderRoom={(place, panes) => roomPane(rooms ?? NO_ROOMS, place, `saved/${route.itemId}`, panes)}
+          />
+        ));
       case "person":
         return rarePage(({ PersonPage }) => (
           <PersonPage
@@ -943,8 +957,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           <SkipLink />
           <div className="contents max-md:hidden [&>*]:row-span-2">
             {rail}
-            {/* Activity's feed takes the conversations' place. */}
-            {!settings && route.page !== "activity" && (
+            {/* Activity's feed and To-dos' list take the conversations' place. */}
+            {!settings && route.page !== "activity" && route.page !== "todos" && (
               <aside aria-label="Conversations" className="min-h-0 overflow-hidden border-r">
                 {filesNav ?? (!directsInPage && sidebar)}
               </aside>

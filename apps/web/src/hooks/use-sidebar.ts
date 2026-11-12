@@ -228,7 +228,7 @@ export function useSidebar(
         case "activity.updated":
           return activity(frame);
         case "saved.changed":
-          return heardSaved(frame.marks);
+          return heardSaved(frame);
       }
     };
 

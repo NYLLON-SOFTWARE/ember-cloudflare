@@ -659,17 +659,20 @@ describe("Home sidebar", () => {
     expect(drafts).not.toHaveAttribute("aria-description");
   });
 
-  it("links to Threads, Drafts & sent and People above the rooms, marking the one shown", () => {
+  it("links to Threads, Drafts & sent, Saved and People above the rooms, marking the one shown", () => {
     const { rerender } = renderSidebar();
     const links = within(screen.getByRole("navigation", { name: "Home" })).getAllByRole("link");
     expect(links.map((link) => [link.textContent, link.getAttribute("href"), link.getAttribute("aria-current")])).toEqual([
       ["Threads", "/threads", null],
       ["Drafts & sent", "/drafts", null],
+      ["Saved", "/saved", null],
       ["People", "/people", null],
     ]);
     expect(links[0]!.compareDocumentPosition(rows()[0]!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     rerender({ currentPage: "drafts" });
     expect(screen.getByRole("link", { name: "Drafts & sent" })).toHaveAttribute("aria-current", "page");
+    rerender({ currentPage: "saved" });
+    expect(screen.getByRole("link", { name: "Saved" })).toHaveAttribute("aria-current", "page");
   });
 
   it("moves starred rooms under Starred, above Rooms, which lists the rest, and has no Starred without a star", () => {

@@ -1128,7 +1128,7 @@ describe("To-dos and Saved", () => {
   it("takes a message out of Saved from More actions, as every tab hears it's there", async () => {
     withMouse();
     const clear = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
-    act(() => heardSaved([{ id: "i2", list: "saved", messageId: "m1" }]));
+    act(() => heardSaved({ marks: [{ id: "i2", list: "saved", messageId: "m1" }], openTodos: 0 }));
     const { article, user } = show(message());
     fireEvent.pointerEnter(article, { pointerType: "mouse" });
     await user.click(within(article).getByRole("button", { name: "Message options" }));

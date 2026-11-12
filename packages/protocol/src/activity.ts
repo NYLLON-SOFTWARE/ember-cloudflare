@@ -8,9 +8,11 @@ import type { RoomId, UserId } from "./index.ts";
 /**
  * What an item is about: a message that mentions you, by name or with @channel, @here or @everyone, a
  * message in a DM of yours, a reply in a thread you follow, a reaction to a message of yours, or someone
- * adding you to a private room.
+ * adding you to a private room, or one of your to-dos reminding you, as you asked it to: its `content` is the
+ * to-do's id, and its room and message the message it keeps, or for a to-do of your own, no room ("") and
+ * no message.
  */
-export const ACTIVITY_KINDS = ["mention", "direct", "thread", "reaction", "invitation"] as const;
+export const ACTIVITY_KINDS = ["mention", "direct", "thread", "reaction", "invitation", "reminder"] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 /** Something that happened to you. */

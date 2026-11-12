@@ -133,15 +133,15 @@ export const readInRoom = (userId: UserId, roomId: RoomId, at: string, seq: numb
 
 /**
  * A page of ?1's items, newest first, older than item ?2, one more than a page holds, to tell whether
- * there are more. Only those in rooms they're still in.
+ * there are more. Only those in rooms they're still in, or in none, as a note's reminder is.
  */
 const PAGE = `SELECT ${COLUMNS} FROM activity
-  WHERE user_id = ?1 AND id < ?2 AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = activity.room_id AND memberships.user_id = ?1)
+  WHERE user_id = ?1 AND id < ?2 AND (activity.room_id = '' OR EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = activity.room_id AND memberships.user_id = ?1))
   ORDER BY id DESC LIMIT ${ACTIVITY_PAGE_SIZE + 1}`;
 
-/** How many of ?1's items are unread, in rooms they're still in. */
+/** How many of ?1's items are unread, in rooms they're still in, or in none, as a note's reminder is. */
 const UNREAD = `SELECT count(*) AS unread FROM activity
-  WHERE user_id = ?1 AND read_at IS NULL AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = activity.room_id AND memberships.user_id = ?1)`;
+  WHERE user_id = ?1 AND read_at IS NULL AND (activity.room_id = '' OR EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = activity.room_id AND memberships.user_id = ?1))`;
 
 /** Marks ?1's items that a JSON list ?2 names read as of ?3, or unread when ?3 is null, answering those it changed. */
 const MARK = `UPDATE activity SET read_at = ?3
@@ -175,6 +175,24 @@ const RECORD_INVITATIONS = `INSERT INTO activity (user_id, kind, room_id, actor_
   SELECT users.id, 'invitation', ?1, ?2, ?4 FROM users
   WHERE users.id IN (SELECT value FROM json_each(?3)) AND users.id <> ?2 AND users.status = ${ACTIVE} AND users.role <> ${BOT}
   RETURNING user_id, ${COLUMNS}`;
+
+/**
+ * Records a reminder for ?1 of their to-do ?7, about message ?3 in room ?2, a reply to ?4, whose text
+ * starts ?5, or of a note of their own, with no room ('') or message, as of ?6. They remind themselves.
+ */
+const RECORD_REMINDER = `INSERT INTO activity (user_id, kind, room_id, message_id, parent_id, actor_id, preview, content, created_at)
+  VALUES (?1, 'reminder', ?2, ?3, ?4, ?1, ?5, ?7, ?6)
+  RETURNING user_id, ${COLUMNS}`;
+
+/** A to-do's reminder, as Activity records it. */
+export interface RecordedReminder {
+  userId: UserId;
+  savedId: string;
+  roomId: RoomId | null;
+  messageId: string | null;
+  parentId: string | null;
+  text: string;
+}
 
 /** Removed items, by whose they were. */
 export type RemovedItems = Map<UserId, number[]>;
@@ -222,6 +240,15 @@ export class ActivityStore {
 
   async removeMessage(roomId: RoomId, messageId: string): Promise<RemovedItems> {
     return removedItems(await this.db.all(REMOVE_MESSAGE, messageId, roomId));
+  }
+
+  /** Records `reminders`, each in its person's Activity, as of `at`. */
+  async recordReminders(reminders: RecordedReminder[], at: string): Promise<RecordedItems> {
+    if (reminders.length === 0) return new Map();
+    const rows = await this.db.batch(
+      reminders.map(({ userId, savedId, roomId, messageId, parentId, text }) => statement(RECORD_REMINDER, userId, roomId ?? "", messageId, parentId, previewOf(text), at, savedId)),
+    );
+    return recordedItems(rows.flat() as RecordedRow[]);
   }
 
   async recordInvitations(roomId: RoomId, actorId: UserId, userIds: UserId[], at: string): Promise<RecordedItems> {

@@ -1,10 +1,10 @@
-import { useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
-import { workspacePageOf, type ActivityItem, type Me, type RoomId, type SidebarRoom, type UserId } from "@ember/protocol";
+import { savedPath, workspacePageOf, type ActivityItem, type Me, type RoomId, type SidebarRoom, type UserId } from "@ember/protocol";
 import {
   ArrowLeft,
   AtSign,
   ChatBubbleEmpty,
   CheckCircle,
+  Clock,
   Emoji,
   EyeClosed,
   FilterList,
@@ -21,6 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { activityPath, navigate, personPath, returnTo } from "@/hooks/use-route";
+import { navigate } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import type { ActivityState } from "@/hooks/use-activity";
 import { ALL_ACTIVITY, filterCount, shows, type ActivityFilter, type ActivityFilterKind, type ActivityNames, type ActivityTab } from "@/lib/activity-feed";
@@ -72,6 +73,7 @@ const FILTERS: Array<{ kind: ActivityFilterKind; label: string }> = [
   { kind: "thread", label: "Threads" },
   { kind: "reaction", label: "Reactions" },
   { kind: "invitation", label: "Invitations" },
+  { kind: "reminder", label: "Reminders" },
   { kind: "apps", label: "Apps" },
 ];
 
@@ -98,6 +100,11 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
 
   // The panes open are the address's, so a reload keeps them, and Back closes the one opened last.
   const open = (item: ActivityItem) => {
+    // A reminder opens its to-do, wherever its message is.
+    if (item.kind === "reminder") {
+      if (!item.read) mark([item.id], true);
+      return navigate(savedPath("todo", item.content ?? undefined));
+    }
     navigate(activityPath(placeOf(item)));
     if (!item.read) mark([item.id], true);
   };
@@ -454,6 +461,7 @@ const KINDS: Record<ActivityItem["kind"], { icon: typeof AtSign; word: string }>
   thread: { icon: MessageText, word: "Thread reply" },
   reaction: { icon: Emoji, word: "Reaction" },
   invitation: { icon: UserPlus, word: "Invitation" },
+  reminder: { icon: Clock, word: "Reminder" },
 };
 
 interface RowProps {
@@ -608,6 +616,7 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
 /** What an item's row says it is. */
 function preview(item: ActivityItem): string {
   if (item.kind === "invitation") return "Added you";
+  if (item.kind === "reminder") return `Reminder: ${item.preview || "a message you added to your to-dos"}`;
   if (item.kind === "reaction") return `Reacted ${item.content ?? ""} to “${item.preview}”`;
   return item.preview || "(a file)";
 }

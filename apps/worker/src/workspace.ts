@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   type ListedScheduledMessage,
   type SavedList,
-  type SavedMark,
+  type SavedMarks,
   ASSISTANT_ID,
   ASSISTANT_NAME,
   CANT_SEND_EMAIL,
@@ -119,7 +119,8 @@ import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
 import { ScheduledListings, type ScheduledChange } from "./scheduled-listings";
 import { sendPushes } from "./push/delivery";
 import { reminderPayload } from "./push/payload";
-import { SavedStore, type KeepRefusal, type KeptNoteFile, type MessageToKeep, type NoteToKeep, type StoredSavedChange, type StoredSavedItem } from "./saved-store";
+import { messagesOf } from "./kept-messages";
+import { SavedStore, type DueReminder, type KeepRefusal, type KeptNoteFile, type MessageToKeep, type NoteToKeep, type StoredSavedChange, type StoredSavedItem } from "./saved-store";
 import { memberfulApiOf, membershipsOf, namelessMember, type MemberfulMember } from "./memberful-api";
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
@@ -3982,8 +3983,8 @@ export class Workspace extends DurableObject<Env> {
     return user && ((await this.saved.item(user.id, id)) ?? "missing");
   }
 
-  /** The messages the person keeps in either list, or null without a valid session. */
-  async savedMarks(credentials: Credentials): Promise<SavedMark[] | null> {
+  /** The messages the person keeps in either list, and how many of their to-dos are open, or null without a valid session. */
+  async savedMarks(credentials: Credentials): Promise<SavedMarks | null> {
     const user = await this.authenticate(credentials);
     return user && this.saved.marks(user.id);
   }
@@ -4044,9 +4045,27 @@ export class Workspace extends DurableObject<Env> {
     return files;
   }
 
+  /**
+   * Puts each reminder in its person's Activity, with the start of its to-do's text, or of the message it
+   * keeps as its room has it now, and tells them. A failure is only logged: the push still goes.
+   */
+  private async recordReminders(due: DueReminder[]): Promise<void> {
+    try {
+      const refs = due.flatMap(({ roomId, messageId }) => (roomId !== null && messageId !== null ? [{ roomId, messageId }] : []));
+      const messages = await messagesOf(this.env, refs);
+      const reminders = due.map(({ id, userId, roomId, messageId, plainText }) => {
+        const message = messageId === null ? undefined : messages.get(messageId);
+        return { userId, savedId: id, roomId, messageId, parentId: message?.parentId ?? null, text: plainText ?? message?.plainText ?? "" };
+      });
+      this.tellOfActivity(await this.activity.recordReminders(reminders, new Date().toISOString()));
+    } catch (error) {
+      console.error("Could not put reminders in Activity", error);
+    }
+  }
+
   /** Tells every tab of `userId`'s what they keep now, so their lists load again. */
   private async savedChanged(userId: UserId): Promise<void> {
-    this.tell([userId], { type: "saved.changed", marks: await this.saved.marks(userId) });
+    this.tell([userId], { type: "saved.changed", ...(await this.saved.marks(userId)) });
   }
 
   /**
@@ -4060,6 +4079,7 @@ export class Workspace extends DurableObject<Env> {
     if (due.length === 0) return;
     await this.saved.settleReminders(due.map(({ id }) => id), now);
     const byPerson = Map.groupBy(due, ({ userId }) => userId);
+    await this.recordReminders(due);
     try {
       const pushes = [];
       for (const [userId, reminders] of byPerson) {

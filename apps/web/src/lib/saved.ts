@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { NewSavedItem, SavedItem, SavedList, SavedMark } from "@ember/protocol";
+import type { NewSavedItem, SavedItem, SavedList, SavedMark, SavedMarks } from "@ember/protocol";
 import { ApiError } from "./api";
 
 // To-dos and Saved: the requests that read and change your lists, and what you keep, which each
@@ -23,13 +23,14 @@ export async function clearItem(id: string): Promise<void> {
   if (!response.ok) await dataOf(response);
 }
 
-/** What you keep, by message, and a count of the changes heard, which lists' pages load again on. */
+/** What you keep, by message, how many to-dos are open, and a count of the changes heard, which lists' pages load again on. */
 interface SavedState {
   marks: Map<string, SavedMark>;
+  openTodos: number;
   version: number;
 }
 
-let state: SavedState = { marks: new Map(), version: 0 };
+let state: SavedState = { marks: new Map(), openTodos: 0, version: 0 };
 const listeners = new Set<() => void>();
 
 function publish(next: SavedState) {
@@ -38,19 +39,18 @@ function publish(next: SavedState) {
 }
 
 /** Takes what the Workspace says you keep now, from this tab or another. */
-export function heardSaved(marks: SavedMark[]): void {
-  publish({ marks: new Map(marks.map((mark) => [mark.messageId, mark])), version: state.version + 1 });
+export function heardSaved({ marks, openTodos }: SavedMarks): void {
+  publish({ marks: new Map(marks.map((mark) => [mark.messageId, mark])), openTodos, version: state.version + 1 });
 }
 
 /** Loads what you keep afresh, as a workspace socket that has just connected may have missed a change. */
 export async function reloadSaved(): Promise<void> {
-  const { marks } = await dataOf<{ marks: SavedMark[] }>(await fetch("/api/saved/marks"));
-  heardSaved(marks);
+  heardSaved(await dataOf<SavedMarks>(await fetch("/api/saved/marks")));
 }
 
 /** Forgets what the last person signed in kept. */
 export function forgetSaved(): void {
-  publish({ marks: new Map(), version: state.version + 1 });
+  publish({ marks: new Map(), openTodos: 0, version: state.version + 1 });
 }
 
 const subscribe = (listener: () => void) => {
@@ -61,6 +61,11 @@ const subscribe = (listener: () => void) => {
 /** Where `messageId` is kept, if it is. */
 export function useSavedMark(messageId: string): SavedMark | undefined {
   return useSyncExternalStore(subscribe, () => state.marks.get(messageId));
+}
+
+/** How many of your to-dos are in progress, for To-dos' badge. */
+export function useOpenTodos(): number {
+  return useSyncExternalStore(subscribe, () => state.openTodos);
 }
 
 /** How many times what you keep has changed, which a list's page loads again on. */
