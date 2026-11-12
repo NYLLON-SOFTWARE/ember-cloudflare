@@ -27,6 +27,7 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "membership_catch_ups",
     "membership_checks",
     "memberships",
+    "note_uploads",
     "outside_clients",
     "outside_connections",
     "outside_spent_tokens",

@@ -52,7 +52,7 @@ import { isSignedOut } from "@/lib/api";
 import { dateOf, FILTER_LABELS, FILTERS, localInputValue, originOf, reminderChoices, shows, sorted, SORT_LABELS, SORTS, summaryOf, type KeptFilter, type KeptSort } from "@/lib/kept";
 import { dateLabel, dateTimeLabel } from "@/lib/messages";
 import { clearItem, keepItem, useSavedVersion } from "@/lib/saved";
-import { changeItem, fetchSavedList, uploadNoteFile } from "@/lib/saved-lists";
+import { changeItem, fetchSavedItem, fetchSavedList, uploadNoteFile } from "@/lib/saved-lists";
 import { cn } from "@/lib/utils";
 import { Attachment } from "./attachment";
 import { ATTACH_BUTTON } from "./composer-buttons";
@@ -178,6 +178,20 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
     };
   }, [list, version, onFailed]);
 
+  // An item's address in the other list, as a link from before it moved, goes on to its own.
+  const missing = itemId !== undefined && items !== null && !items.some((item) => item.id === itemId);
+  useEffect(() => {
+    if (!missing || itemId === undefined) return;
+    let current = true;
+    fetchSavedItem(itemId).then(
+      (item) => current && item.list !== list && navigate(savedPath(item.list, item.id), { replace: true }),
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
+  }, [missing, itemId, list]);
+
   const roomsById = useMemo(() => new Map(rooms.map((room) => [room.id, room])), [rooms]);
   const shown = useMemo(() => (items ? sorted(items.filter((item) => shows(filter, item)), sort) : []), [items, filter, sort]);
   const selected = itemId === undefined ? null : (items?.find((item) => item.id === itemId) ?? null);
@@ -281,7 +295,8 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
   ) : place && renderRoom ? (
     <div className="flex h-full min-h-0 flex-col border-l bg-background" onClickCapture={(event) => openThreadForLink(event, place, setThread)}>
       {/* Where the list doesn't show beside it, as on a phone, a way back to it. */}
-      {(phone || hiddenPanes > 0) && (
+      {/* Phones' back stack is the mobile layout's (`onPaneStack`), as Activity's is. */}
+      {hiddenPanes > 0 && !phone && (
         <button type="button" onClick={closeDetail} className="flex min-h-11 shrink-0 items-center gap-2 border-b px-4 pt-[env(safe-area-inset-top)] text-sm font-semibold hover:bg-hover">
           <ArrowLeft className="size-[18px]" />
           {names.title}
@@ -669,9 +684,13 @@ function NoteEditor({ item, onSaved, onFailed }: { item?: SavedItem; onSaved: (i
     }
   };
 
+  // Saving waits for files still uploading, as Add does, and saves once at a time, however often it's pressed.
+  const savingNow = useRef(false);
   const save = async () => {
+    if (savingNow.current || uploading > 0) return;
     const body = editor.current?.value() ?? "";
     if ((editor.current?.isBlank() ?? true) && files.length === 0) return editor.current?.focus();
+    savingNow.current = true;
     setSaving(true);
     try {
       const fileIds = files.map(({ id }) => id);
@@ -680,13 +699,16 @@ function NoteEditor({ item, onSaved, onFailed }: { item?: SavedItem; onSaved: (i
     } catch (error) {
       if (!isSignedOut(error) || mounted.current) onFailed(error);
     } finally {
+      savingNow.current = false;
       if (mounted.current) setSaving(false);
     }
   };
 
   return (
     <form
-      className="grid gap-3"
+      // The composer's styles: its text 16px on phones and touch screens, so iOS doesn't zoom in on it.
+      className="composer grid gap-3"
+      data-toolbar=""
       onSubmit={(event) => {
         event.preventDefault();
         void save();

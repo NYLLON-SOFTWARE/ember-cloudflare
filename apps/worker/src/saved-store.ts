@@ -64,8 +64,12 @@ export interface StoredSavedChange {
 export interface DueReminder {
   id: string;
   userId: UserId;
-  list: SavedList;
   kind: SavedKind;
+  /**
+   * Whether it still reminds anyone: a to-do in progress, whose person can still see its message's room. Any
+   * other goes by unsaid, since a reminder about a room you've left would tell you what's said there.
+   */
+  live: boolean;
   roomId: RoomId | null;
   messageId: string | null;
   plainText: string | null;
@@ -125,20 +129,27 @@ const KEEP_MESSAGE = `INSERT INTO saved_items (id, user_id, list, kind, room_id,
   SELECT ?1, ?2, ?3, ?6, ?4, ?5, ?7, ?7
   WHERE EXISTS (SELECT 1 FROM memberships WHERE room_id = ?4 AND user_id = ?2)
     AND (SELECT count(*) FROM saved_items WHERE user_id = ?2 AND list = ?3) < ?8
-  ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL DO UPDATE SET list = excluded.list, updated_at = excluded.updated_at`;
+  ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL DO UPDATE SET list = excluded.list, updated_at = excluded.updated_at,
+    remind_at = CASE WHEN excluded.list = 'saved' THEN NULL ELSE saved_items.remind_at END,
+    reminded_at = CASE WHEN excluded.list = 'saved' THEN NULL ELSE saved_items.reminded_at END`;
 
 /** Keeps a note for person ?2 in To-dos as item ?1, while the list has room for it. */
 const KEEP_NOTE = `INSERT INTO saved_items (id, user_id, list, kind, body, plain_text, files, remind_at, created_at, updated_at)
   SELECT ?1, ?2, 'todo', 'note', ?3, ?4, ?5, ?6, ?7, ?7
   WHERE (SELECT count(*) FROM saved_items WHERE user_id = ?2 AND list = 'todo') < ?8`;
 
-/** Moves person ?1's item ?2 to list ?3 at ?4, as long as that list has room for it, which a note's never does in Saved. */
-const MOVE = `UPDATE saved_items SET list = ?3, updated_at = ?4
+/**
+ * Moves person ?1's item ?2 to list ?3 at ?4, as long as that list has room for it, which a note's never does
+ * in Saved, which keeps no reminder.
+ */
+const MOVE = `UPDATE saved_items SET list = ?3, updated_at = ?4,
+    remind_at = CASE WHEN ?3 = 'saved' THEN NULL ELSE remind_at END, reminded_at = CASE WHEN ?3 = 'saved' THEN NULL ELSE reminded_at END
   WHERE id = ?2 AND user_id = ?1 AND list <> ?3 AND (kind <> 'note' OR ?3 = 'todo')
     AND (SELECT count(*) FROM saved_items WHERE user_id = ?1 AND list = ?3) < ?5`;
 
 const COMPLETE = `UPDATE saved_items SET completed_at = ?3, updated_at = ?4 WHERE id = ?2 AND user_id = ?1`;
-const REMIND = `UPDATE saved_items SET remind_at = ?3, reminded_at = NULL, updated_at = ?4 WHERE id = ?2 AND user_id = ?1`;
+/** Saved has no reminders, so only a to-do takes one. */
+const REMIND = `UPDATE saved_items SET remind_at = ?3, reminded_at = NULL, updated_at = ?4 WHERE id = ?2 AND user_id = ?1 AND list = 'todo'`;
 const REWRITE_NOTE = `UPDATE saved_items SET body = ?3, plain_text = ?4, updated_at = ?5 WHERE id = ?2 AND user_id = ?1 AND kind = 'note'`;
 const REFILE_NOTE = `UPDATE saved_items SET files = ?3, updated_at = ?4 WHERE id = ?2 AND user_id = ?1 AND kind = 'note'`;
 
@@ -146,11 +157,39 @@ const REFILE_NOTE = `UPDATE saved_items SET files = ?3, updated_at = ?4 WHERE id
 const CLEAR = `DELETE FROM saved_items WHERE id = ?2 AND user_id = ?1 RETURNING files`;
 
 /** The reminders yet to go off that are due at ?1, ?2 at most, the earliest first. */
-const DUE_REMINDERS = `SELECT id, user_id, list, kind, room_id, message_id, plain_text FROM saved_items
+const DUE_REMINDERS = `SELECT id, user_id, kind, room_id, message_id, plain_text,
+    (list = 'todo' AND completed_at IS NULL
+      AND (room_id IS NULL OR EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = saved_items.room_id AND memberships.user_id = saved_items.user_id))) AS live
+  FROM saved_items
   WHERE remind_at <= ?1 AND remind_at IS NOT NULL AND reminded_at IS NULL ORDER BY remind_at LIMIT ?2`;
 
 /** Records that the reminders of items ?1, a JSON list, due at ?2, went off then, leaving any set again since for later. */
 const SETTLE_REMINDERS = `UPDATE saved_items SET reminded_at = ?2 WHERE id IN (SELECT value FROM json_each(?1)) AND remind_at <= ?2 AND reminded_at IS NULL`;
+
+/** Takes back the reminders of items ?1, a JSON list, due at ?2, that went by unsaid, leaving any set again since. */
+const DROP_REMINDERS = `UPDATE saved_items SET remind_at = NULL WHERE id IN (SELECT value FROM json_each(?1)) AND remind_at <= ?2 AND reminded_at IS NULL`;
+
+/** How long a file sent for a note waits for one before it's deleted. */
+export const NOTE_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** The most files each person may have waiting for a note. */
+export const MAX_WAITING_NOTE_UPLOADS = 20;
+
+/** Records file ?2 as person ?1's, waiting for a note, as of ?3, while they have fewer than ?4 waiting. */
+const START_UPLOAD = `INSERT INTO note_uploads (key, user_id, created_at)
+  SELECT ?2, ?1, ?3 WHERE (SELECT count(*) FROM note_uploads WHERE user_id = ?1) < ?4 RETURNING key`;
+
+/** Takes person ?1's waiting files of ?2, a JSON list, for a note, answering those it took. */
+const CLAIM_UPLOADS = `DELETE FROM note_uploads WHERE user_id = ?1 AND key IN (SELECT value FROM json_each(?2)) RETURNING key`;
+
+/** Puts files ?2, a JSON list, back as person ?1's waiting, as of ?3, as a note that took them failed. */
+const RELEASE_UPLOADS = `INSERT INTO note_uploads (key, user_id, created_at) SELECT value, ?1, ?3 FROM json_each(?2) WHERE true ON CONFLICT (key) DO NOTHING`;
+
+/** Forgets the files waiting since ?1 or before, ?2 at most, answering them, for R2 to delete. */
+const STALE_UPLOADS = `DELETE FROM note_uploads WHERE key IN (SELECT key FROM note_uploads WHERE created_at <= ?1 ORDER BY created_at LIMIT ?2) RETURNING key`;
+
+/** When the oldest file waiting for a note is due to be deleted. */
+export const NEXT_UPLOAD_DUE = `SELECT min(created_at) + ${NOTE_UPLOAD_TTL_MS} FROM note_uploads`;
 
 /** When the next reminder yet to go off is due. */
 export const NEXT_REMINDER_DUE = `SELECT min(remind_at) FROM saved_items WHERE remind_at IS NOT NULL AND reminded_at IS NULL`;
@@ -279,17 +318,43 @@ export class SavedStore {
 
   /** The reminders due at `now`, `limit` at most. */
   async dueReminders(now: number, limit: number): Promise<DueReminder[]> {
-    const rows = await this.db.all<{ id: string; user_id: string; list: SavedList; kind: SavedKind; room_id: string | null; message_id: string | null; plain_text: string | null }>(
+    const rows = await this.db.all<{ id: string; user_id: string; kind: SavedKind; room_id: string | null; message_id: string | null; plain_text: string | null; live: number }>(
       DUE_REMINDERS,
       now,
       limit,
     );
-    return rows.map((row) => ({ id: row.id, userId: row.user_id, list: row.list, kind: row.kind, roomId: row.room_id, messageId: row.message_id, plainText: row.plain_text }));
+    return rows.map((row) => ({ id: row.id, userId: row.user_id, kind: row.kind, live: row.live === 1, roomId: row.room_id, messageId: row.message_id, plainText: row.plain_text }));
+  }
+
+  /** Takes back the reminders of `ids`, due at `now`, that went by unsaid, so their to-dos aren't overdue. */
+  async dropReminders(ids: string[], now: number): Promise<void> {
+    if (ids.length > 0) await this.db.run(DROP_REMINDERS, JSON.stringify(ids), now);
   }
 
   /** Records that the reminders of `ids` due at `now` went off. */
   async settleReminders(ids: string[], now: number): Promise<void> {
     if (ids.length > 0) await this.db.run(SETTLE_REMINDERS, JSON.stringify(ids), now);
+  }
+
+  /** Records file `key` as `userId`'s, waiting for a note, answering false when they have too many waiting. */
+  async startUpload(userId: UserId, key: string, now: number): Promise<boolean> {
+    return (await this.db.all(START_UPLOAD, userId, key, now, MAX_WAITING_NOTE_UPLOADS)).length > 0;
+  }
+
+  /** Takes `userId`'s waiting files of `keys` for a note, answering those it took. */
+  async claimUploads(userId: UserId, keys: string[]): Promise<string[]> {
+    if (keys.length === 0) return [];
+    return (await this.db.all<{ key: string }>(CLAIM_UPLOADS, userId, JSON.stringify(keys))).map(({ key }) => key);
+  }
+
+  /** Puts `keys` back as `userId`'s waiting files. */
+  async releaseUploads(userId: UserId, keys: string[], now: number): Promise<void> {
+    if (keys.length > 0) await this.db.run(RELEASE_UPLOADS, userId, JSON.stringify(keys), now);
+  }
+
+  /** Forgets up to `limit` files that have waited for a note since `before`, answering them. */
+  async staleUploads(before: number, limit: number): Promise<string[]> {
+    return (await this.db.all<{ key: string }>(STALE_UPLOADS, before, limit)).map(({ key }) => key);
   }
 
   /** Where someone's reminder is pushed: their push subscriptions, while they're active. */

@@ -48,6 +48,36 @@ async function said(room: string, session: Session, text: string) {
   return message;
 }
 
+
+/** Sends `text` as a file for a note, as `session`, answering how the Worker answered. */
+const sendNoteFile = (session: Session, name: string, text: string) =>
+  api(`${NOTE_FILES_PATH}?name=${name}`, { method: "POST", headers: { Cookie: session.cookie, "Content-Type": "text/plain" }, body: text });
+
+/** Makes `id`'s reminder due now and runs the Workspace's alarm, answering where pushes went. */
+async function remindNow(id: string): Promise<string[]> {
+  const pushed: string[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    pushed.push(input instanceof Request ? input.url : String(input));
+    return new Response(null, { status: 201 });
+  });
+  await workspaceSql("UPDATE saved_items SET remind_at = ? WHERE id = ?", Date.now() - 1, id);
+  await runDurableObjectAlarm(workspaceStub());
+  vi.restoreAllMocks();
+  return pushed;
+}
+
+/** Subscribes `session` to pushes, answering the endpoint. */
+async function subscribe(session: Session, label: string): Promise<string> {
+  const { p256dh, auth } = await pushBrowser();
+  const endpoint = `https://fcm.googleapis.com/fcm/send/${label}`;
+  await api("/api/push-subscriptions", { method: "POST", ...as(session), body: JSON.stringify({ endpoint, p256dhKey: p256dh, authKey: auth }) });
+  return endpoint;
+}
+
+const activityOf = async (session: Session) => ((await (await api("/api/activity", as(session))).json()) as ActivityPage).items;
+
+const inAMinute = () => new Date(Date.now() + 60_000).toISOString();
+
 beforeEach(freshDeploy);
 
 afterEach(() => {
@@ -172,6 +202,37 @@ describe("Keeping messages", () => {
 });
 
 describe("To-dos of your own", () => {
+  it("gives a file to one note only, and deletes those no note takes within a day", async () => {
+    const ada = await signIn("Ada");
+    const file = (await (await sendNoteFile(ada, "a.txt", "aaa")).json()) as NoteFile;
+    await kept(ada, { list: "todo", body: "", fileIds: [file.id] });
+    expect((await keep(ada, { list: "todo", body: "", fileIds: [file.id] })).status).toBe(422);
+
+    const unused = (await (await sendNoteFile(ada, "b.txt", "bbb")).json()) as NoteFile;
+    await workspaceSql("UPDATE note_uploads SET created_at = ?", Date.now() - 25 * 60 * 60 * 1000);
+    await runDurableObjectAlarm(workspaceStub());
+    expect((await api(unused.url)).status).toBe(404);
+    expect((await api(file.url)).status).toBe(200);
+  });
+
+  it("takes so many files waiting for notes, and puts a file back when its note can't be kept", async () => {
+    const ada = await signIn("Ada");
+    for (let n = 0; n < 20; n++) expect((await sendNoteFile(ada, `f${n}.txt`, "x")).status).toBe(201);
+    expect((await sendNoteFile(ada, "more.txt", "x")).status).toBe(429);
+
+    const [{ key }] = (await workspaceSql("SELECT key FROM note_uploads LIMIT 1")) as [{ key: string }];
+    expect((await keep(ada, { list: "todo", body: "<p>x</p>", fileIds: [key], remindAt: "2000-01-01T00:00:00.000Z" })).status).toBe(422);
+    expect((await keep(ada, { list: "todo", body: "", fileIds: [key] })).status).toBe(201);
+  });
+
+  it("refuses a note of nothing a reader could see, made or changed so", async () => {
+    const ada = await signIn("Ada");
+    expect((await keep(ada, { list: "todo", body: "<p>\u200B\u200B</p>" })).status).toBe(422);
+    const note = await kept(ada, { list: "todo", body: "<p>Keep me</p>" });
+    expect((await change(ada, note.id, { body: "<p> </p>" })).status).toBe(422);
+    expect((await listOf(ada, "todo"))[0]!.plainText).toBe("Keep me");
+  });
+
   it("keeps a note with its text, completes it and reopens it", async () => {
     const ada = await signIn("Ada");
     const note = await kept(ada, { list: "todo", body: "<p>Call <strong>Grace</strong></p>" });
@@ -210,6 +271,56 @@ describe("To-dos of your own", () => {
 });
 
 describe("Reminders", () => {
+  it("says nothing of a room its person has been taken out of, and takes the reminder back", async () => {
+    const [ada, leo] = [await signIn("Ada"), await signIn("Leo")];
+    await subscribe(leo, "leo");
+    const { id: room } = await createRoom("Board", { closedTo: [ada.user.id, leo.user.id], as: ada });
+    const message = await said(room, ada, "Secret plans");
+    const item = await kept(leo, { list: "todo", roomId: room, messageId: message.id });
+    await changed(leo, item.id, { remindAt: inAMinute() });
+    const tab = await openWorkspaceSocket(leo);
+    await workspaceSql("DELETE FROM memberships WHERE room_id = ? AND user_id = ?", room, leo.user.id);
+
+    expect(await remindNow(item.id)).toEqual([]);
+    const heard: WorkspaceServerFrame[] = [];
+    tab.send(JSON.stringify({ type: "ping", nonce: crypto.randomUUID() }));
+    for (let frame = await tab.next(); frame.type !== "pong"; frame = await tab.next()) heard.push(frame);
+    expect(heard.map(({ type }) => type)).not.toContain("activity.added");
+    expect(JSON.stringify(heard)).not.toContain("Secret plans");
+    expect(await activityOf(leo)).toEqual([]);
+    expect((await countsOf(leo)).overdueTodos).toBe(0);
+  });
+
+  it("doesn't remind of a completed to-do, nor of a deleted message", async () => {
+    const ada = await signIn("Ada");
+    await subscribe(ada, "ada");
+    const done = await kept(ada, { list: "todo", body: "<p>Done already</p>" });
+    await changed(ada, done.id, { remindAt: inAMinute(), completed: true });
+    expect(await remindNow(done.id)).toEqual([]);
+
+    const room = await freshRoom("Design");
+    const client = await connect(room, ada);
+    const message = await post(client, "<p>Gone soon</p>");
+    const item = await kept(ada, { list: "todo", roomId: room, messageId: message.id });
+    await changed(ada, item.id, { remindAt: inAMinute() });
+    client.send({ type: "message.delete", messageId: message.id });
+    await client.next("message.deleted");
+    client.ws.close();
+    expect(await remindNow(item.id)).toEqual([]);
+    expect(await activityOf(ada)).toEqual([]);
+    expect((await listOf(ada, "todo")).map(({ remindAt }) => remindAt)).toEqual([null, null]);
+  });
+
+  it("takes a to-do's reminder away as it moves to Saved, which takes none", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("Design");
+    const message = await said(room, ada, "Later");
+    const item = await kept(ada, { list: "todo", roomId: room, messageId: message.id });
+    await changed(ada, item.id, { remindAt: inAMinute() });
+    expect((await changed(ada, item.id, { list: "saved" })).remindAt).toBeNull();
+    expect((await changed(ada, item.id, { remindAt: inAMinute() })).remindAt).toBeNull();
+  });
+
   it("reminds of a message with its text, in its room", async () => {
     const ada = await signIn("Ada");
     const room = await freshRoom("Design");
