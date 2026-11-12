@@ -4020,10 +4020,9 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Changes the person's item `id`, answering it as it is then, "missing" when they have none, "full"
-   * when the list it's to move to has no room, "note" for a note it would move to Saved, or null without a
-   * valid session.
+   * when the list it's to move to has no room, or null without a valid session.
    */
-  async changeSavedItem(credentials: Credentials, id: string, change: StoredSavedChange): Promise<StoredSavedItem | "missing" | "full" | "note" | null> {
+  async changeSavedItem(credentials: Credentials, id: string, change: StoredSavedChange): Promise<StoredSavedItem | "missing" | "full" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const changed = await this.saved.change(user.id, id, change, new Date().toISOString());

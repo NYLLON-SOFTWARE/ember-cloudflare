@@ -4,7 +4,7 @@ import { MAX_ID_LENGTH } from "./pages.ts";
 
 // To-dos and Saved, Slack's two lists of things someone keeps for later: the same kind of item in either
 // list, so an item moves between them. Each is one person's, and nobody else hears of it. An item keeps a
-// message, a file message's file, or, in To-dos only, a note of its own with its own text and files. An
+// message, a file message's file, or a note of its own with its own text and files, made in To-dos. An
 // item that keeps a message shows it as the room has it now: edited, deleted, or unavailable once its
 // person can no longer see the room.
 
@@ -12,7 +12,7 @@ import { MAX_ID_LENGTH } from "./pages.ts";
 export const SAVED_LISTS = ["todo", "saved"] as const;
 export type SavedList = (typeof SAVED_LISTS)[number];
 
-/** What an item keeps: a message, a file message's file, or a note of its own, which only To-dos hold. */
+/** What an item keeps: a message, a file message's file, or a note of its own, which To-dos makes and Saved may keep. */
 export type SavedKind = "message" | "file" | "note";
 
 /** The most items each list holds, so a list loads in one answer. */
@@ -133,7 +133,7 @@ export function parseNewSavedItem(data: unknown): NewSavedItem | string {
     if (!isId(roomId) || !isId(messageId)) return "Keep a message by its room and id";
     return { list, roomId, messageId };
   }
-  if (list !== "todo") return "Only To-dos holds notes of your own";
+  if (list !== "todo") return "Add notes of your own to To-dos";
   if (typeof body !== "string" || body.length > MAX_NOTE_HTML_LENGTH) return "A to-do's text is too long";
   const files = fileIds === undefined ? [] : fileIdsOf(fileIds);
   if (!files) return `A to-do carries up to ${MAX_NOTE_FILES} files`;

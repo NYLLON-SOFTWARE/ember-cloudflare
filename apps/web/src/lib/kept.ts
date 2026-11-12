@@ -111,3 +111,30 @@ export function localInputValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
+
+/** What people call files of each type, by the types' starts or whole names. */
+const TYPE_LABELS: Array<[RegExp, string]> = [
+  [/^text\/plain$/, "Text"],
+  [/^text\/csv$/, "CSV"],
+  [/^text\/markdown$/, "Markdown"],
+  [/^text\/html$/, "HTML"],
+  [/^application\/pdf$/, "PDF"],
+  [/^application\/json$/, "JSON"],
+  [/^application\/(zip|x-zip-compressed)$/, "ZIP"],
+  [/^image\/svg\+xml$/, "SVG"],
+  [/^image\/gif$/, "GIF"],
+  [/^image\//, "Image"],
+  [/^video\//, "Video"],
+  [/^audio\//, "Audio"],
+  [/(msword|wordprocessingml)/, "Word document"],
+  [/(ms-excel|spreadsheetml)/, "Spreadsheet"],
+  [/(ms-powerpoint|presentationml)/, "Presentation"],
+];
+
+/** A file's type as a person reads it: "Text", "PDF", "Image", or else its name's extension, or "File". */
+export function fileTypeLabel({ contentType, name }: { contentType: string; name: string }): string {
+  const known = TYPE_LABELS.find(([type]) => type.test(contentType));
+  if (known) return known[1];
+  const extension = /\.([a-z0-9]{1,8})$/i.exec(name)?.[1];
+  return extension ? extension.toUpperCase() : "File";
+}

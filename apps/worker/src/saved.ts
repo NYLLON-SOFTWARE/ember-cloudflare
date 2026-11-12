@@ -45,7 +45,6 @@ const MESSAGE_NOT_FOUND = "Message not found or inaccessible";
 const NO_STORAGE = "Ember isn't set up to store files";
 const FILE_NOT_FOUND = "That file isn't one of yours";
 const EMPTY_NOTE = "Write something or add a file";
-const NOTES_STAY = "Only To-dos holds notes of your own";
 const TOO_MANY_WAITING = "Add the files you've sent to a to-do, or wait a day, before sending more.";
 
 const isList = (value: string | null): value is SavedList => SAVED_LISTS.includes(value as SavedList);
@@ -282,7 +281,6 @@ export async function changeSaved(request: Request, env: Env, id: string): Promi
   if (!changed) return problem(401, NOT_SIGNED_IN);
   if (changed === "missing") return problem(404, ITEM_NOT_FOUND);
   if (changed === "full") return problem(422, SAVED_LIST_FULL);
-  if (changed === "note") return problem(422, NOTES_STAY);
   await forgetFiles(env, dropped);
   return Response.json((await shownItems(env, [changed]))[0]);
 }

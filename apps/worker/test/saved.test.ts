@@ -243,7 +243,10 @@ describe("To-dos of your own", () => {
     expect((await changed(ada, note.id, { completed: true })).completedAt).not.toBeNull();
     expect(await countsOf(ada)).toEqual({ openTodos: 0, overdueTodos: 0, savedItems: 0 });
     expect((await changed(ada, note.id, { completed: false, body: "<p>Call Lin</p>" })).plainText).toBe("Call Lin");
-    expect((await change(ada, note.id, { list: "saved" })).status).toBe(422);
+    // A note moves to Saved, and back, as a message does.
+    expect((await changed(ada, note.id, { list: "saved" })).list).toBe("saved");
+    expect((await listOf(ada, "saved")).map(({ kind }) => kind)).toEqual(["note"]);
+    expect((await changed(ada, note.id, { list: "todo" })).list).toBe("todo");
     expect(await marksOf(ada)).toEqual([]);
   });
 

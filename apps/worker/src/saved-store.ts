@@ -139,12 +139,11 @@ const KEEP_NOTE = `INSERT INTO saved_items (id, user_id, list, kind, body, plain
   WHERE (SELECT count(*) FROM saved_items WHERE user_id = ?2 AND list = 'todo') < ?8`;
 
 /**
- * Moves person ?1's item ?2 to list ?3 at ?4, as long as that list has room for it, which a note's never does
- * in Saved, which keeps no reminder.
+ * Moves person ?1's item ?2 to list ?3 at ?4, as long as that list has room for it. Saved keeps no reminder.
  */
 const MOVE = `UPDATE saved_items SET list = ?3, updated_at = ?4,
     remind_at = CASE WHEN ?3 = 'saved' THEN NULL ELSE remind_at END, reminded_at = CASE WHEN ?3 = 'saved' THEN NULL ELSE reminded_at END
-  WHERE id = ?2 AND user_id = ?1 AND list <> ?3 AND (kind <> 'note' OR ?3 = 'todo')
+  WHERE id = ?2 AND user_id = ?1 AND list <> ?3
     AND (SELECT count(*) FROM saved_items WHERE user_id = ?1 AND list = ?3) < ?5`;
 
 const COMPLETE = `UPDATE saved_items SET completed_at = ?3, updated_at = ?4 WHERE id = ?2 AND user_id = ?1`;
@@ -287,16 +286,10 @@ export class SavedStore {
   }
 
   /**
-   * Changes someone's item `id`, answering it as it is then, null if they have none, "note" for a note
-   * that's to move to Saved, which takes none, or "full" when the list it's to move to has no room for it,
-   * having changed nothing.
+   * Changes someone's item `id`, answering it as it is then, null if they have none, or "full" when the
+   * list it's to move to has no room for it, having changed nothing.
    */
-  async change(userId: UserId, id: string, change: StoredSavedChange, now: string): Promise<StoredSavedItem | "full" | "note" | null> {
-    if (change.list === "saved") {
-      const before = await this.item(userId, id);
-      if (!before) return null;
-      if (before.kind === "note") return "note";
-    }
+  async change(userId: UserId, id: string, change: StoredSavedChange, now: string): Promise<StoredSavedItem | "full" | null> {
     const changes = [
       ...(change.completedAt !== undefined ? [statement(COMPLETE, userId, id, change.completedAt, now)] : []),
       ...(change.remindAt !== undefined ? [statement(REMIND, userId, id, change.remindAt, now)] : []),

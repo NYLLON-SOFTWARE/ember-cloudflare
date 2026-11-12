@@ -44,12 +44,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useNameOf } from "@/hooks/use-directory";
-import { useMediaQuery } from "@/hooks/use-media-query";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, permalinkOf } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { isSignedOut } from "@/lib/api";
-import { dateOf, FILTER_LABELS, FILTERS, localInputValue, originOf, reminderChoices, shows, sorted, SORT_LABELS, SORTS, summaryOf, type KeptFilter, type KeptSort } from "@/lib/kept";
+import { dateOf, fileTypeLabel, FILTER_LABELS, FILTERS, localInputValue, originOf, reminderChoices, shows, sorted, SORT_LABELS, SORTS, summaryOf, type KeptFilter, type KeptSort } from "@/lib/kept";
 import { dateLabel, dateTimeLabel } from "@/lib/messages";
 import { clearItem, keepItem, useSavedVersion } from "@/lib/saved";
 import { changeItem, fetchSavedItem, fetchSavedList, uploadNoteFile } from "@/lib/saved-lists";
@@ -63,7 +63,8 @@ import { RichTextEditor, type RichTextEditorHandle } from "./editor";
 import { MessageItem, type MessageEditors } from "./message-item";
 import { HEADER_TEXT_BUTTON, PageHeader } from "./page-header";
 import type { RoomPanes } from "./room-view";
-import { ONE_PANE, SplitPanes, type Pane, type PaneStack } from "./split-panes";
+import { SplitPanes, type Pane, type PaneStack } from "./split-panes";
+import { ROUND_BUTTON } from "../mobile/back-button";
 import { UserAvatar } from "./user-avatar";
 
 // To-dos and Saved, after Slack's: a list of what you keep, filtered and sorted, beside the item you've
@@ -80,7 +81,7 @@ const NAMES = {
 } as const satisfies Record<SavedList, Record<string, string>>;
 
 const TOOLBAR_BUTTON =
-  "inline-flex min-h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap hover:bg-hover touch:min-h-11 aria-expanded:bg-hover";
+  "inline-flex min-h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium whitespace-nowrap hover:bg-hover touch:min-h-11 touch:min-w-11 aria-expanded:bg-hover";
 
 const ROW_ACTION =
   "grid size-7 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-foreground [&_svg]:size-4";
@@ -152,6 +153,8 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
   const [filter, setFilter] = useState<KeptFilter>("all");
   const [sort, setSort] = useState<KeptSort>("newest");
   const [creating, setCreating] = useState(false);
+  // The note Edit opened, whose text takes focus.
+  const [editing, setEditing] = useState<string | null>(null);
   const [viewing, setViewing] = useState<StoredFile | null>(null);
   // A thread opened from a saved message's conversation, in the pane beside it, and that pane.
   // A saved reply opens with its thread, until that's closed.
@@ -220,6 +223,11 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
       }
       navigate(savedPath(list, item.id));
     },
+    edit: (item) => {
+      // A note opens with the cursor in its text, ready to change it.
+      if (item.kind === "note") setEditing(item.id);
+      actions.open(item);
+    },
   };
 
   const startNew = () => {
@@ -244,21 +252,25 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
   const inProgress = shown.filter((item) => item.completedAt === null);
   const completed = shown.filter((item) => item.completedAt !== null);
 
+  const phone = usePhoneLayout();
   const header = (
     <>
-      <h1 className="min-w-0 flex-1 truncate text-[17px] leading-[1.4] font-[650] max-md:text-base">{names.title}</h1>
-      {list === "todo" && (
-        <button type="button" className={cn(HEADER_TEXT_BUTTON, "border-border")} onClick={startNew}>
-          <CheckCircle className="size-4" />
-          Add To-do
+      <h1 className="min-w-0 flex-1 truncate text-[17px] leading-[1.4] font-[650] max-md:text-center max-md:font-bold">{names.title}</h1>
+      {list === "todo" ? (
+        <button type="button" aria-label="Add To-do" className={cn(HEADER_TEXT_BUTTON, "border-border max-md:size-11 max-md:rounded-full max-md:p-0")} onClick={startNew}>
+          {phone ? <Plus className="size-[22px]" /> : <CheckCircle className="size-4" />}
+          {!phone && "Add To-do"}
         </button>
+      ) : (
+        // Balances Back, so the title sits in the middle of a phone's bar.
+        phone && <span aria-hidden="true" className="w-11 shrink-0" />
       )}
     </>
   );
   const listPane = (
     <section aria-label={names.title} className="flex h-full min-h-0 min-w-0 flex-col bg-background">
-      {/* On phones the page's own header, with the drawer's button, stands over the list instead. */}
-      <div className="flex min-h-header items-center gap-3 border-b px-[22px] py-2.5 max-md:hidden">{header}</div>
+      {/* On phones the page's own top bar, with Back, stands over the list instead. */}
+      {!phone && <div className="flex min-h-header items-center gap-3 border-b px-[22px] py-2.5">{header}</div>}
       <div className="flex items-center gap-2 border-b px-4 py-2">
         <FilterMenu list={list} filter={filter} onFilter={setFilter} />
         <span className="flex-1" />
@@ -285,7 +297,6 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
     </section>
   );
 
-  const phone = useMediaQuery(ONE_PANE);
   // A saved message opens where it is, in its conversation, as Slack's do; anything else opens its details.
   const place = list === "saved" && selected?.message && renderRoom ? placeOfMessage(selected.message, thread) : null;
   const detail = creating ? (
@@ -306,7 +317,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
     </div>
   ) : selected ? (
     <Detail title={names.item} onClose={closeDetail}>
-      <ItemDetail key={selected.id} item={selected} me={me} origin={originOf(selected, roomsById, me.id, nameOf)} actions={actions} onChanged={replaced} onFailed={failed} />
+      <ItemDetail key={selected.id} item={selected} focus={editing === selected.id} me={me} origin={originOf(selected, roomsById, me.id, nameOf)} actions={actions} onChanged={replaced} onFailed={failed} />
     </Detail>
   ) : itemId !== undefined && items !== null ? (
     <Detail title={names.item} onClose={closeDetail}>
@@ -329,9 +340,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
 
   return (
     <>
-      <div className={cn("hidden", !detailOpen && "max-md:contents")}>
-        <PageHeader>{header}</PageHeader>
-      </div>
+      {phone && !detailOpen && <PageHeader back="/">{header}</PageHeader>}
       <SplitPanes
         layoutKey={list === "todo" ? "todos" : "saved"}
         panes={panes}
@@ -414,6 +423,8 @@ interface RowActions {
   remind: (item: SavedItem, at: Date | null) => void;
   clear: (item: SavedItem) => void;
   open: (item: SavedItem) => void;
+  /** Opens it to change it: a note with the cursor in its text. */
+  edit: (item: SavedItem) => void;
 }
 
 /** Who a row shows: the message's author, or you for a note of your own. */
@@ -451,7 +462,7 @@ function KeptRow({ item, list, selected, origin, me, actions }: { item: SavedIte
         <span className="block truncate text-[13px] text-muted-foreground">
           {file && item.message && (
             <>
-              {nameOf(item.message.creator)} · {file.contentType.split("/").at(-1)?.toUpperCase()} ·{" "}
+              {nameOf(item.message.creator)} · {fileTypeLabel(file)} ·{" "}
             </>
           )}
           {origin && <>{origin} · </>}
@@ -483,9 +494,10 @@ function KeptRow({ item, list, selected, origin, me, actions }: { item: SavedIte
  * they're in the menu its ⋯ opens.
  */
 function RowActionBar({ item, list, actions }: { item: SavedItem; list: SavedList; actions: RowActions }) {
+  // Whether its menu shows Custom…'s time to pick, in place of its items.
+  const [custom, setCustom] = useState(false);
   const done = item.completedAt !== null;
   const moveLabel = list === "todo" ? "Move to Saved" : "Move to To-dos";
-  const movable = !(list === "todo" && item.kind === "note");
   return (
     <>
       <div className="absolute top-1/2 right-3 z-1 hidden -translate-y-1/2 items-center gap-0.5 rounded-lg border bg-background p-0.5 shadow-sm group-focus-within/row:flex group-hover/row:flex touch:hidden!">
@@ -495,7 +507,7 @@ function RowActionBar({ item, list, actions }: { item: SavedItem; list: SavedLis
           </button>
         )}
         {list === "todo" && (
-          <button type="button" title="Edit" aria-label="Edit" className={ROW_ACTION} onClick={() => actions.open(item)}>
+          <button type="button" title="Edit" aria-label="Edit" className={ROW_ACTION} onClick={() => actions.edit(item)}>
             <Edit />
           </button>
         )}
@@ -506,23 +518,25 @@ function RowActionBar({ item, list, actions }: { item: SavedItem; list: SavedLis
             </DropdownMenuTrigger>
           </ReminderMenu>
         )}
-        {movable && (
-          <button type="button" title={moveLabel} aria-label={moveLabel} className={ROW_ACTION} onClick={() => actions.move(item)}>
-            {list === "todo" ? <Bookmark /> : <CheckCircle />}
-          </button>
-        )}
+        <button type="button" title={moveLabel} aria-label={moveLabel} className={ROW_ACTION} onClick={() => actions.move(item)}>
+          {list === "todo" ? <Bookmark /> : <CheckCircle />}
+        </button>
         <button type="button" title="Clear" aria-label="Clear" className={ROW_ACTION} onClick={() => actions.clear(item)}>
           <Trash />
         </button>
       </div>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={(open) => !open && setCustom(false)}>
         <DropdownMenuTrigger aria-label="Item actions" className={cn(ROW_ACTION, "relative z-1 hidden size-11 shrink-0 self-center touch:grid")}>
           <MoreHoriz />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          {custom ? (
+            <CustomReminder onRemind={(at) => actions.remind(item, at)} />
+          ) : (
+          <>
           {list === "todo" && <DropdownMenuItem onSelect={() => actions.complete(item)}>{done ? "Mark in progress" : "Mark completed"}</DropdownMenuItem>}
-          {list === "todo" && <DropdownMenuItem onSelect={() => actions.open(item)}>Edit</DropdownMenuItem>}
-          {movable && <DropdownMenuItem onSelect={() => actions.move(item)}>{moveLabel}</DropdownMenuItem>}
+          {list === "todo" && <DropdownMenuItem onSelect={() => actions.edit(item)}>Edit</DropdownMenuItem>}
+          <DropdownMenuItem onSelect={() => actions.move(item)}>{moveLabel}</DropdownMenuItem>
           {list === "todo" && (
             <>
               <DropdownMenuSeparator />
@@ -531,6 +545,14 @@ function RowActionBar({ item, list, actions }: { item: SavedItem; list: SavedLis
                   Remind me {label.charAt(0).toLowerCase() + label.slice(1)}
                 </DropdownMenuItem>
               ))}
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setCustom(true);
+                }}
+              >
+                Custom…
+              </DropdownMenuItem>
               {item.remindAt && <DropdownMenuItem onSelect={() => actions.remind(item, null)}>Remove reminder</DropdownMenuItem>}
             </>
           )}
@@ -538,6 +560,8 @@ function RowActionBar({ item, list, actions }: { item: SavedItem; list: SavedLis
           <DropdownMenuItem variant="destructive" onSelect={() => actions.clear(item)}>
             Clear
           </DropdownMenuItem>
+          </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </>
@@ -552,22 +576,7 @@ function ReminderMenu({ item, onRemind, children }: { item: SavedItem; onRemind:
       {children}
       <DropdownMenuContent align="end" className="min-w-56">
         {custom ? (
-          <form
-            className="grid gap-2 p-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const value = new FormData(event.currentTarget).get("at");
-              if (typeof value === "string" && value) onRemind(new Date(value));
-            }}
-          >
-            <label className="grid gap-1 text-[13px]">
-              Remind me at
-              <input name="at" type="datetime-local" required defaultValue={localInputValue(new Date(Date.now() + 3_600_000))} className="rounded-md border bg-background px-2 py-1 text-base" />
-            </label>
-            <button type="submit" className="rounded-md bg-foreground px-3 py-1.5 text-sm font-medium text-background">
-              Set reminder
-            </button>
-          </form>
+          <CustomReminder onRemind={onRemind} />
         ) : (
           <>
             {reminderChoices(new Date()).map(({ label, at }) => (
@@ -596,15 +605,47 @@ function ReminderMenu({ item, onRemind, children }: { item: SavedItem; onRemind:
   );
 }
 
-/** The pane beside the list: its title and ×, over what's open. */
+/** A time of your own for a reminder, in a menu, for Custom…. */
+function CustomReminder({ onRemind }: { onRemind: (at: Date) => void }) {
+  return (
+    <form
+      className="grid gap-2 p-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const value = new FormData(event.currentTarget).get("at");
+        if (typeof value === "string" && value) onRemind(new Date(value));
+      }}
+    >
+      <label className="grid gap-1 text-[13px]">
+        Remind me at
+        <input name="at" type="datetime-local" required defaultValue={localInputValue(new Date(Date.now() + 3_600_000))} className="rounded-md border bg-background px-2 py-1 text-base" />
+      </label>
+      <button type="submit" className="rounded-md bg-foreground px-3 py-1.5 text-sm font-medium text-background">
+        Set reminder
+      </button>
+    </form>
+  );
+}
+
+/** The pane beside the list: its title and ×, over what's open, or on a phone, where it covers the list, Back and its title. */
 function Detail({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const phone = usePhoneLayout();
   return (
     <MainContent className="flex h-full min-h-0 flex-col border-l bg-background">
-      <div className="flex min-h-header items-center gap-2 border-b px-5 max-md:min-h-14 max-md:pt-[env(safe-area-inset-top)]">
-        <h2 className="flex-1 text-[17px] font-[650]">{title}</h2>
-        <button type="button" aria-label="Close" onClick={onClose} className="grid size-9 cursor-pointer place-items-center rounded-lg hover:bg-hover touch:size-11">
-          <Xmark className="size-5" />
-        </button>
+      <div className="flex min-h-header items-center gap-2 border-b px-5 max-md:min-h-14 max-md:px-2 max-md:pt-[env(safe-area-inset-top)]">
+        {phone && (
+          <button type="button" aria-label="Back" title="Back" onClick={onClose} className={ROUND_BUTTON}>
+            <ArrowLeft className="size-[22px]" />
+          </button>
+        )}
+        <h2 className="flex-1 text-[17px] font-[650] max-md:text-center">{title}</h2>
+        {phone ? (
+          <span aria-hidden="true" className="w-11 shrink-0" />
+        ) : (
+          <button type="button" aria-label="Close" onClick={onClose} className="grid size-9 cursor-pointer place-items-center rounded-lg hover:bg-hover touch:size-11">
+            <Xmark className="size-5" />
+          </button>
+        )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">{children}</div>
     </MainContent>
@@ -613,6 +654,8 @@ function Detail({ title, onClose, children }: { title: string; onClose: () => vo
 
 interface ItemDetailProps {
   item: SavedItem;
+  /** Whether a note takes focus, as Edit opened it. */
+  focus: boolean;
   me: Me;
   origin: string;
   actions: RowActions;
@@ -621,11 +664,11 @@ interface ItemDetailProps {
 }
 
 /** An item opened beside its list: a note to edit, or the message it keeps, with its reminder and status. */
-function ItemDetail({ item, me, origin, actions, onChanged, onFailed }: ItemDetailProps) {
+function ItemDetail({ item, focus, me, origin, actions, onChanged, onFailed }: ItemDetailProps) {
   return (
     <div className="grid gap-4">
       {item.kind === "note" ? (
-        <NoteEditor item={item} onSaved={onChanged} onFailed={onFailed} />
+        <NoteEditor item={item} autoFocus={focus} onSaved={onChanged} onFailed={onFailed} />
       ) : item.unavailable ? (
         <p className="text-muted-foreground">This message is unavailable.</p>
       ) : !item.message ? (
@@ -659,7 +702,7 @@ function ItemDetail({ item, me, origin, actions, onChanged, onFailed }: ItemDeta
  * A note of your own, new or kept, in the message editor, with its files, which upload as they're
  * chosen, and Add or Save changes.
  */
-function NoteEditor({ item, onSaved, onFailed }: { item?: SavedItem; onSaved: (item: SavedItem) => void; onFailed: (error: unknown) => void }) {
+function NoteEditor({ item, autoFocus = false, onSaved, onFailed }: { item?: SavedItem; autoFocus?: boolean; onSaved: (item: SavedItem) => void; onFailed: (error: unknown) => void }) {
   const editor = useRef<RichTextEditorHandle>(null);
   const picker = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<NoteFile[]>(item?.files ?? []);
@@ -735,7 +778,7 @@ function NoteEditor({ item, onSaved, onFailed }: { item?: SavedItem; onSaved: (i
               rows={2}
               initialValue={item?.body ?? ""}
               mentionsFrom="/api/autocompletable/users"
-              autoFocus={item === undefined}
+              autoFocus={item === undefined || autoFocus}
               toolbar={false}
               onFormats={setFormats}
               onKeyDown={(event) => {
