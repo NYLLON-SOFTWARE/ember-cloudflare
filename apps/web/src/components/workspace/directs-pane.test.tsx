@@ -243,7 +243,7 @@ describe("DMs page, minimally", () => {
   it("offers All and Unreads as chips on phones, 44px tall, which show the same as the switch beside the page", async () => {
     renderPane({ rooms: [direct("d1", [ada!, grace!], true, at(2)), direct("d2", [ada!, linus!], false, at(1))] });
     const chips = screen.getByRole("group", { name: "Show" });
-    expect(chips).toHaveClass("md:hidden");
+    expect(chips.parentElement).toHaveClass("md:hidden");
     expect(screen.getByRole("switch", { name: "Unreads" }).closest(".max-md\\:hidden")).toBeInTheDocument();
     const [all, unreads] = within(chips).getAllByRole("button");
     expect(all).toHaveAccessibleName("All");
@@ -264,6 +264,9 @@ describe("DMs page, minimally", () => {
       </DirectsTitleContext>,
     );
     expect(screen.getByRole("heading", { level: 2, name: "Direct messages" })).toHaveClass("sr-only");
+    // On phones its row goes, and New direct message ends the chips' row.
+    expect(screen.getByRole("heading", { level: 2, name: "Direct messages" }).parentElement).toHaveClass("max-md:hidden");
+    expect(within(screen.getByRole("group", { name: "Show" }).parentElement!).getByRole("link", { name: "New direct message" })).toBeInTheDocument();
   });
 
   it("centers a DM's name beside its avatar while nothing's been said in it, in a 60px row with no empty line", () => {
