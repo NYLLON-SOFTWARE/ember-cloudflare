@@ -63,7 +63,15 @@ export type WorkspacePage =
   /** Someone's page, at `/users/<id>`, whatever their status. */
   | { page: "person"; userId: UserId }
   /** Search, at `/searches`, whose query string holds what's searched for. */
-  | { page: "search" };
+  | { page: "search" }
+  /** Your DMs, at `/dms`, latest active first, to open one beside them. */
+  | { page: "dms" }
+  /** Everyone in the workspace, at `/people`, to find someone by name. */
+  | { page: "people" }
+  /** What you've written and not sent, at `/drafts`, or what you've sent lately, at `/drafts/sent`. */
+  | { page: "drafts"; tab: "drafts" | "sent" }
+  /** The threads you follow, at `/threads`, latest active first, each with a box to reply in. */
+  | { page: "threads" };
 
 /** Rails' names for each kind of room's controller. */
 export const KIND_SEGMENTS = { open: "opens", closed: "closeds", direct: "directs" } as const satisfies Record<RoomKind, string>;
@@ -79,6 +87,20 @@ export const NEW_DIRECT_PATH = "/rooms/directs/new";
 export const PROFILE_PATH = "/users/me/profile";
 export const PUSH_SUBSCRIPTIONS_PATH = "/users/me/push_subscriptions";
 export const SEARCHES_PATH = "/searches";
+export const DMS_PATH = "/dms";
+export const PEOPLE_PATH = "/people";
+export const DRAFTS_PATH = "/drafts";
+export const SENT_PATH = "/drafts/sent";
+export const THREADS_PATH = "/threads";
+
+/** The pages the rail's DMs and the Home sidebar's links open, whose addresses name nothing more. */
+const LIST_PAGES = new Map<string, WorkspacePage>([
+  [DMS_PATH, { page: "dms" }],
+  [PEOPLE_PATH, { page: "people" }],
+  [DRAFTS_PATH, { page: "drafts", tab: "drafts" }],
+  [SENT_PATH, { page: "drafts", tab: "sent" }],
+  [THREADS_PATH, { page: "threads" }],
+]);
 
 /**
  * A message's thread, which opens beside its room, or a reply's permalink there, which opens the thread at
@@ -107,6 +129,8 @@ const kindOf = (segment: string): RoomKind => (segment === KIND_SEGMENTS.direct 
 export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (pathname === "/") return { page: "home" };
   if (pathname === NEW_DIRECT_PATH) return { page: "new-direct" };
+  const list = LIST_PAGES.get(pathname);
+  if (list) return { ...list };
   if (pathname === WORKSPACE_SETTINGS_PATH) return { page: "workspace-settings" };
   if (pathname === CUSTOM_STYLES_PATH) return { page: "custom-styles" };
   if (pathname === BOTS_PATH) return { page: "bots" };
