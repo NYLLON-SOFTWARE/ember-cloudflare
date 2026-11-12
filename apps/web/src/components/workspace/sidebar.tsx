@@ -119,7 +119,7 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
       {/* The workspace's name alone, without its tagline, which says nothing the list needs. At 900px and
           below the drawer's close button sits at the end of its row. A long name wraps rather than running
           under the sidebar's edge. */}
-      <h2 className="flex min-h-7 items-center gap-2 px-1.5 text-[17px] leading-6 font-[650] wrap-anywhere max-md:pr-10">{workspaceName}</h2>
+      <h2 className="flex min-h-7 items-center gap-2 px-[9px] text-[17px] leading-6 font-[650] wrap-anywhere max-md:pr-10">{workspaceName}</h2>
 
       <nav aria-label="Home" className="flex flex-col gap-[3px]">
         {LINKS.map(({ page, label, href, Icon }) => {

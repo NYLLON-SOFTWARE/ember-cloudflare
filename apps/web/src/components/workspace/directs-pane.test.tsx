@@ -266,17 +266,19 @@ describe("DMs page, minimally", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Direct messages" })).toHaveClass("sr-only");
   });
 
-  it("centers a DM's name beside its avatar while nothing's been said in it, with no empty line under it", () => {
+  it("centers a DM's name beside its avatar while nothing's been said in it, in a 60px row with no empty line", () => {
     renderPane({ rooms: [direct("d1", [ada!, grace!], false, at(2)), direct("d2", [ada!, linus!], false, at(1))], previews: new Map([["d1", { roomId: "d1", latest: message("d1", grace!, "hi"), unread: 0 }]]) });
     const [said, quiet] = directRows();
     expect(said).toHaveClass("items-start", "min-h-[72px]");
-    expect(quiet).toHaveClass("items-center", "min-h-[72px]");
+    expect(quiet).toHaveClass("items-center", "min-h-[60px]");
+    expect(quiet).not.toHaveClass("min-h-[72px]");
     expect(quiet!.querySelector(".line-clamp-2")).toBeNull();
   });
 
-  it("draws no rules between DMs", () => {
+  it("draws no rules between DMs, and ends the list clear of a phone's tab bar and compose button", () => {
     renderPane({ rooms: [direct("d1", [ada!, grace!], false, at(2)), direct("d2", [ada!, linus!], false, at(1))] });
     for (const row of directRows()) expect(row.closest("li")).not.toHaveClass("border-b");
+    expect(list()).toHaveClass("max-md:pb-[calc(112px+env(safe-area-inset-bottom))]");
   });
 
   it("starts a suggestion's name where a DM's name starts, its avatar centered where theirs is", () => {
