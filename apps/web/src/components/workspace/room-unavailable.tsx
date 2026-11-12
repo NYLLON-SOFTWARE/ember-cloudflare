@@ -37,7 +37,7 @@ export function RoomUnavailable({ room, gone, goTo, me }: Props) {
   return (
     <>
       {/* The bar names the room, muted, where it knows which, as the room's own header would. */}
-      <PageHeader>{room && <span className="min-w-0 truncate text-[17px] leading-[1.4] font-[650] text-muted-foreground max-md:text-base">{named(room)}</span>}</PageHeader>
+      <PageHeader back="/">{room && <span className="min-w-0 truncate text-[17px] leading-[1.4] font-[650] text-muted-foreground max-md:text-base">{named(room)}</span>}</PageHeader>
       <MainContent className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         <div className="grid flex-1 place-content-center justify-items-center gap-4 p-6 text-center">
           <div role="alert" className="grid justify-items-center gap-3">
