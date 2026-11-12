@@ -478,9 +478,11 @@ describe("Unread counts", () => {
     expect(await heard(linsTab, room)).toEqual([unread(room, plain.createdAt)]);
     expect(await countOf(hopper, room)).toBeUndefined();
 
-    await post(ada, `<p>${mention(hopper)} and ${mention(lin)}, a look?</p>`);
-    expect(await heard(hoppersTab, room)).toEqual([{ type: "room.unread", roomId: room, at: plain.createdAt, count: 1, mentioned: true }]);
-    expect(await heard(linsTab, room)).toEqual([{ type: "room.unread", roomId: room, at: plain.createdAt, count: 1, mentioned: true }]);
+    const mentioning = await post(ada, `<p>${mention(hopper)} and ${mention(lin)}, a look?</p>`);
+    // The mention is in each one's Activity too.
+    const mentioned = { type: "activity.added", items: [expect.objectContaining({ kind: "mention", messageId: mentioning.id })] };
+    expect(await heard(hoppersTab, room)).toEqual([{ type: "room.unread", roomId: room, at: plain.createdAt, count: 1, mentioned: true }, mentioned]);
+    expect(await heard(linsTab, room)).toEqual([{ type: "room.unread", roomId: room, at: plain.createdAt, count: 1, mentioned: true }, mentioned]);
     expect(await countOf(lin, room)).toBe(1);
   });
 
