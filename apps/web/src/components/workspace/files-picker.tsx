@@ -67,14 +67,15 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
   const picked = useRef<HTMLElement | null>(null);
   const fieldId = useId();
 
-  const send = ({ roomId, file }: SharedFile) => onPick({ roomId, file });
+  const send = ({ roomId, file, roomLabel, direct, closed }: SharedFile, accepted = 0) =>
+    onPick({ roomId, file, source: { label: roomLabel, direct, closed }, accepted });
   // Asked again as Attach is pressed, as who's in the room may have changed while the warning was open: a new
   // count shows in the warning, to attach on, and none at all, or the same, attaches.
   const share = async ({ shared, widening }: { shared: SharedFile; widening: ShareWidening }) => {
     const now = await shareWidening(shared.roomId, roomId).catch(() => undefined);
     if (now?.widens && now.newViewers !== widening.newViewers) return setWarning({ shared, widening: now });
     setWarning(null);
-    send(shared);
+    send(shared, now?.newViewers ?? widening.newViewers);
   };
   // Warns first, as Slack does, where the file would reach anyone who can't see the room it was shared in.
   const pick = async (shared: SharedFile) => {

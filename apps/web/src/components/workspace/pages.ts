@@ -30,6 +30,7 @@ export { EmojiPicker } from "@/components/emoji-picker";
 export { ActivityPage } from "./activity-page";
 export { ForwardDialog } from "./forward-dialog";
 export { FilesPicker } from "./files-picker";
+export { ShareWarning } from "./share-warning";
 export { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
 export { MembersDialog } from "./members-dialog";
 export { NewDirectDialog } from "./new-direct-dialog";
