@@ -1,7 +1,7 @@
 import { SIGN_IN_LIMITED, type Directory } from "@ember/protocol";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
-import { ADMINISTRATOR, editorField, newAddress, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { ADMINISTRATOR, answerConfirm, editorField, newAddress, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { join } from "./fixtures";
 
 /** The sign-in page's heading, which names the workspace, which another test here may have renamed. */
@@ -71,18 +71,12 @@ test.describe("Remove someone from the workspace", () => {
 
     await page.reload();
     const row = people.getByRole("listitem").filter({ hasText: name });
-    page.once("dialog", (dialog) => void dialog.dismiss());
     await row.getByRole("button", { name: `Delete ${name}` }).click();
+    await answerConfirm(page, "Are you sure you want to permanently remove this person from the account? This can’t be undone.", "Cancel");
     await expect(row.getByRole("button", { name: `Delete ${name}` })).toBeEnabled();
 
-    const asked = new Promise<string>((resolve) =>
-      page.once("dialog", (dialog) => {
-        resolve(dialog.message());
-        void dialog.accept();
-      }),
-    );
     await row.getByRole("button", { name: `Delete ${name}` }).click();
-    expect(await asked).toBe("Are you sure you want to permanently remove this person from the account? This can’t be undone.");
+    await answerConfirm(page, "Are you sure you want to permanently remove this person from the account? This can’t be undone.", "Remove");
     await expect(row).toHaveCount(0);
     await expect(page.getByRole("alert")).toHaveCount(0);
 
@@ -121,18 +115,12 @@ test.describe("Ban and unban people", () => {
     const { users } = (await (await page.request.get("/api/users")).json()) as Directory;
     await page.goto(`/users/${users.find((user) => user.name === name)!.id}`);
     const ban = page.getByRole("button", { name: `Ban ${name}` });
-    page.once("dialog", (dialog) => void dialog.dismiss());
     await ban.click();
+    await answerConfirm(page, "Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses.", "Cancel");
     await expect(ban).toBeEnabled();
 
-    const asked = new Promise<string>((resolve) =>
-      page.once("dialog", (dialog) => {
-        resolve(dialog.message());
-        void dialog.accept();
-      }),
-    );
     await ban.click();
-    expect(await asked).toBe("Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses.");
+    await answerConfirm(page, "Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses.", "Ban");
     const unban = page.getByRole("button", { name: "Remove ban" });
     await expect(unban).toBeVisible();
     await expect(page.getByRole("img", { name: "Profile avatar" })).toHaveClass(/opacity-50/);
@@ -145,14 +133,8 @@ test.describe("Ban and unban people", () => {
     await expect(room.getByRole("log")).not.toHaveAttribute("aria-busy");
     await expect(message(room)).toHaveCount(0);
 
-    const unasked = new Promise<string>((resolve) =>
-      page.once("dialog", (dialog) => {
-        resolve(dialog.message());
-        void dialog.accept();
-      }),
-    );
     await unban.click();
-    expect(await unasked).toBe("Are you sure you want to remove the ban on this user?");
+    await answerConfirm(page, "Are you sure you want to remove the ban on this user?", "Remove ban");
     await expect(ban).toBeVisible();
     await expect(page.getByRole("img", { name: "Profile avatar" })).not.toHaveClass(/opacity-50/);
     await page.reload();
@@ -189,8 +171,8 @@ test.describe("What a ban blocks", () => {
 
     const { users } = (await (await page.request.get("/api/users")).json()) as Directory;
     await page.goto(`/users/${users.find((user) => user.name === graceName)!.id}`);
-    page.once("dialog", (dialog) => void dialog.accept());
     await page.getByRole("button", { name: `Ban ${graceName}` }).click();
+    await answerConfirm(page, "Are you sure you want to ban this user?", "Ban");
     await expect(page.getByRole("button", { name: "Remove ban" })).toBeVisible();
     await expect(signInHeading(grace)).toBeVisible();
 
@@ -204,8 +186,8 @@ test.describe("What a ban blocks", () => {
     // As if they'd tried too often.
     await expect(visitor.getByRole("alert")).toHaveText(SIGN_IN_LIMITED);
 
-    page.once("dialog", (dialog) => void dialog.accept());
     await page.getByRole("button", { name: "Remove ban" }).click();
+    await answerConfirm(page, "Are you sure you want to remove the ban on this user?", "Remove ban");
     await expect(page.getByRole("button", { name: `Ban ${graceName}` })).toBeVisible();
     await star.click();
     await expect(star).toHaveAttribute("aria-pressed", "true");

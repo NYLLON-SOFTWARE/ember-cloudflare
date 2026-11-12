@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { PhoneProfile } from "../mobile/profile";
 import { LocalTime } from "./profile-panel";
 import { AgentBadge, isAgent } from "./agent-badge";
+import { useConfirm } from "./confirm-dialog";
 import { HEADER_BUTTON } from "./page-header";
 import { isMissing } from "./room-settings-page";
 import { Panel, SettingsPage } from "./settings-page";
@@ -76,6 +77,7 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
   const back = useBackPath();
   const phone = usePhoneLayout();
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
   useTitle(person?.name ?? null);
 
   // Again once you become an administrator or stop being one, which decides whether it's told their
@@ -110,10 +112,11 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
   // a load has said they changed while the answer was on its way, the answer may be older than that, so
   // it's left out, and the directory loads again unless it has what it says. A page that has gone
   // stopped hearing what the directory has, so then the directory loads again.
-  const toggleBan = () => {
+  const toggleBan = async () => {
     if (!person || banning) return;
     const banned = person.status === "banned";
-    if (!confirm(banned ? CONFIRM_UNBAN : CONFIRM_BAN)) return;
+    const sure = await (banned ? confirmFirst(CONFIRM_UNBAN, { confirm: "Remove ban" }) : confirmFirst(CONFIRM_BAN, { confirm: "Ban", destructive: true }));
+    if (!sure) return;
     const asked = listedNow.current;
     setBanning(true);
     (banned ? unbanPerson : banPerson)(person.id)
@@ -217,6 +220,7 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
           )}
         </>
       )}
+      {confirmation}
     </div>
   );
 

@@ -1,5 +1,5 @@
 import type { Sidebar } from "@ember/protocol";
-import { cookieHeader } from "../../fixtures";
+import { answerConfirm, cookieHeader } from "../../fixtures";
 import { expect, startDirect, test, unique, type Member } from "./fixtures";
 
 /** The DMs page's list, which shows on the DMs page, beside a DM and beside a DM's settings. */
@@ -106,19 +106,13 @@ test.describe("Delete a direct message", () => {
     await settingsLink(grace).click();
     const remove = grace.page.getByRole("button", { name: "Delete DM" });
     // Saying no keeps it.
-    grace.page.once("dialog", (dialog) => void dialog.dismiss());
     await remove.click();
+    await answerConfirm(grace.page, "Are you sure you want to delete this ping and all messages in it? This can’t be undone.", "Cancel");
     await expect(remove).toBeEnabled();
     await expect(grace.page).toHaveURL(new RegExp(`/rooms/directs/${roomId}/edit$`));
 
-    const asked = new Promise<string>((resolve) =>
-      grace.page.once("dialog", (dialog) => {
-        resolve(dialog.message());
-        void dialog.accept();
-      }),
-    );
     await remove.click();
-    expect(await asked).toBe("Delete DM");
+    await answerConfirm(grace.page, "Are you sure you want to delete this ping and all messages in it? This can’t be undone.", "Delete");
     // Home, which is the last room shown that isn't a DM.
     await expect(grace.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(grace.page.getByRole("alert")).toHaveCount(0);
@@ -144,8 +138,8 @@ test.describe("Delete a direct message", () => {
       await route.fulfill({ response });
     });
     const remove = grace.page.getByRole("button", { name: "Delete DM" });
-    grace.page.once("dialog", (dialog) => void dialog.accept());
     await remove.click();
+    await answerConfirm(grace.page, "Are you sure you want to delete this ping", "Delete");
 
     // The DMs list beside the settings loses it.
     await expect(directRow(grace, [ada])).toHaveCount(0);

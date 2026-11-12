@@ -23,6 +23,7 @@ import { clearSearches, fetchSearch, isSignedOut, recordSearch } from "@/lib/api
 import { opensFind } from "@/lib/keyboard";
 import { FLAG_LABELS, keepAnswer, modifierTyped, withoutFlag, withoutFromMe, withTypedFilters, type TypedModifier } from "@/lib/search";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "./confirm-dialog";
 import { returnFocus } from "./dialog-openers";
 import { UserAvatar } from "./user-avatar";
 import {
@@ -88,6 +89,7 @@ export function SearchBox({ opener, search: start, sort = "newest", roomId, me, 
   const names = useSearchNames(me, rooms);
   const people = useContext(PeopleContext);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
   const listId = useId();
   const field = useRef<HTMLInputElement>(null);
   const here = useMemo(() => (roomId ? (rooms.find((room) => room.id === roomId) ?? null) : null), [rooms, roomId]);
@@ -212,8 +214,8 @@ export function SearchBox({ opener, search: start, sort = "newest", roomId, me, 
   };
 
   // Asked first, and then gone from the list.
-  const clear = () => {
-    if (!confirm(CONFIRM_CLEAR_SEARCHES)) return;
+  const clear = async () => {
+    if (!(await confirmFirst(CONFIRM_CLEAR_SEARCHES, { confirm: "Clear", destructive: true }))) return;
     clearSearches().then(
       () => mounted.current && setRecent([]),
       (error: unknown) => (mounted.current || isSignedOut(error)) && onFailed(error),
@@ -433,6 +435,7 @@ export function SearchBox({ opener, search: start, sort = "newest", roomId, me, 
             Close
           </span>
         </footer>
+        {confirmation}
       </DialogContent>
     </Dialog>
   );

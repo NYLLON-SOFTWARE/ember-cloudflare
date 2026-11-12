@@ -7,6 +7,7 @@ import { useTitle } from "@/hooks/use-title";
 import { deleteRoom, isSignedOut } from "@/lib/api";
 import { membersShown, roomName } from "@/lib/directs";
 import type { RoomAnswer } from "@/lib/room-list";
+import { useConfirm } from "./confirm-dialog";
 import { DeleteButton, isMissing } from "./room-settings-page";
 import { Panel, SettingsPage } from "./settings-page";
 import { AvatarLink } from "./user-avatar";
@@ -36,11 +37,12 @@ export function DirectSettingsPage({ room, me, back, askForRoom, onMissing, onFa
   const nameOf = useNameOf();
   const [busy, setBusy] = useState(false);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
   const title = `Edit settings for ${roomName(room, me.id, nameOf)}`;
   useTitle(title);
 
-  const remove = () => {
-    if (!confirm(CONFIRM_DELETE_DIRECT)) return;
+  const remove = async () => {
+    if (!(await confirmFirst(CONFIRM_DELETE_DIRECT, { confirm: "Delete", destructive: true }))) return;
     setBusy(true);
     const answered = askForRoom();
     deleteRoom(room.id).then(
@@ -72,6 +74,7 @@ export function DirectSettingsPage({ room, me, back, askForRoom, onMissing, onFa
         </section>
         <DeleteButton label="Delete DM" text="Delete DM" disabled={busy} onClick={remove} />
       </Panel>
+      {confirmation}
     </SettingsPage>
   );
 }

@@ -8,6 +8,7 @@ import { LogOut, Trash } from "@/components/icons/iconoir";
 import { ApiError, changeRoom, deleteRoom, fetchRoomSettings, isSignedOut, leaveRoom } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
 import { leavingFor, peopleIn } from "@/lib/sub-rooms";
+import { useConfirm } from "./confirm-dialog";
 import { leavingWarning, parentChoice } from "./parent-picker";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
 import { workspaceSectionPath } from "./settings-navigation";
@@ -17,10 +18,10 @@ import { UnsavedChanges } from "./unsaved-changes";
 /** Whether `error` says the room isn't there for this person. */
 export const isMissing = (error: unknown) => error instanceof ApiError && error.status === 404;
 
-/** What Delete asks first, in the browser's own dialog. */
+/** What Delete asks first. */
 export const CONFIRM_DELETE = "Are you sure you want to delete this room and all messages in it? This can’t be undone.";
 
-/** What Leave asks first, in the browser's own dialog. */
+/** What Leave asks first. */
 export const CONFIRM_LEAVE = "Are you sure you want to leave this room? Only someone in it who can change it can add you back.";
 
 const membersOf = (settings: RoomSettings) => new Set(settings.people.flatMap((person) => (person.member ? [person.id] : [])));
@@ -80,6 +81,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   const [opened, setOpened] = useState(access);
   const roomForm = useRef<HTMLFormElement>(null);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
   useTitle(settings && `Edit settings for ${subRoomName(settings.room)}`);
 
   useEffect(() => {
@@ -146,8 +148,8 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
     });
   };
 
-  const save = () => {
-    if (leavingNames.length > 0 && parent && !confirm(`${leavingWarning(parent.name, leavingNames)} Save anyway?`)) return;
+  const save = async () => {
+    if (leavingNames.length > 0 && parent && !(await confirmFirst(`${leavingWarning(parent.name, leavingNames)} Save anyway?`, { confirm: "Save" }))) return;
     setBusy(true);
     send().then((left) => {
       if (!mounted.current) return;
@@ -157,9 +159,9 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
     }, failed);
   };
 
-  /** Once `question` is confirmed, has `go` take the room from this person, then from the sidebar. */
-  const goOnceConfirmed = (question: string, go: (roomId: RoomId) => Promise<void>) => {
-    if (!confirm(question)) return;
+  /** Once `question` is confirmed with `confirm`, has `go` take the room from this person, then from the sidebar. */
+  const goOnceConfirmed = async (question: string, confirm: string, go: (roomId: RoomId) => Promise<void>) => {
+    if (!(await confirmFirst(question, { confirm, destructive: true }))) return;
     setBusy(true);
     const answered = askForRoom();
     go(roomId).then(() => {
@@ -229,7 +231,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
       </Panel>
       {settings && !settings.canAdminister && settings.room.kind === "closed" && (
         <Panel>
-          <Button type="button" variant="outline" disabled={busy} onClick={() => goOnceConfirmed(CONFIRM_LEAVE, leaveRoom)} className="max-w-full touch:h-11">
+          <Button type="button" variant="outline" disabled={busy} onClick={() => goOnceConfirmed(CONFIRM_LEAVE, "Leave", leaveRoom)} className="max-w-full touch:h-11">
             <LogOut className="size-[1.3em] shrink-0" />
             <span className="truncate">Leave {settings.room.name}</span>
           </Button>
@@ -237,10 +239,11 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
       )}
       {settings?.canAdminister && (
         <Panel>
-          <DeleteButton label={`Delete ${settings.room.name}`} text={settings.room.name} disabled={busy} onClick={() => goOnceConfirmed(CONFIRM_DELETE, deleteRoom)} />
+          <DeleteButton label={`Delete ${settings.room.name}`} text={settings.room.name} disabled={busy} onClick={() => goOnceConfirmed(CONFIRM_DELETE, "Delete", deleteRoom)} />
         </Panel>
       )}
       <UnsavedChanges changed={changed} stays={stays} onSave={send} form={roomForm} />
+      {confirmation}
     </SettingsPage>
   );
 }
