@@ -1,8 +1,8 @@
 import { useContext, useEffect, useEffectEvent, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { workspacePageOf, type Message, type Room } from "@ember/protocol";
-import { Hashtag, Lock, MessageText, Search, Xmark } from "@/components/icons/iconoir";
+import { workspacePageOf, type Message, type Room, type ShareWidening } from "@ember/protocol";
+import { Xmark } from "@/components/icons/iconoir";
 import { useFlash } from "@/components/flash";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, forwardMessage, isSignedOut } from "@/lib/api";
@@ -10,10 +10,13 @@ import { roomName } from "@/lib/directs";
 import { cn } from "@/lib/utils";
 import { returnFocus } from "./new-direct-dialog";
 import { ConversationsContext } from "./quote-cite";
+import { ShareWarning, shareWidening, type SharePlace } from "./share-warning";
 
 // Forward message, as Slack's is: pick a conversation you're in, or a thread in one by pasting a link to a
 // message, add a note if you like, and the message goes there quoted, as Quote quotes one, naming where it's
-// from. It lists the rooms the sidebar already has, so it searches as you type.
+// from. It lists the rooms the sidebar already has, so it searches as you type. Where the conversation picked
+// reaches people who can't see the original, it asks first (share-warning.tsx). It shows only what forwarding
+// needs: the field, the conversations, the note, what's forwarded, and why something didn't work.
 
 /** Campfire's `.btn`. */
 const BUTTON = "inline-flex cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-[1.1em] py-[0.5em] font-medium text-foreground";
@@ -83,6 +86,8 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  // How many people the conversation picked would show the message to who can't see it now, while that's asked.
+  const [widening, setWidening] = useState<ShareWidening | null>(null);
 
   const rooms = conversations?.rooms ?? [];
   const meId = conversations?.meId ?? "";
@@ -144,41 +149,60 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
     }
   };
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!picked || sending) return;
+  /** Where a conversation is, as the warning names it: "#design", or a DM's people. */
+  const place = (room: Room): SharePlace => ({ label: named(room), direct: room.kind === "direct" });
+
+  const failed = (error: unknown) => {
+    if (isSignedOut(error)) flash("alert", "You’ve been signed out.");
+    if (!mounted.current) return;
+    setSending(false);
+    setFailure(error instanceof ApiError && error.status === 422 ? error.message : "Couldn’t forward the message. Please try again.");
+  };
+
+  const forward = async (to: Destination) => {
     setSending(true);
     setFailure(null);
     try {
-      await forwardMessage(message.roomId, message.id, { to: picked.room.id, parentId: picked.parentId, note, clientMessageId: crypto.randomUUID() });
-      flash("notice", picked.parentId ? `Message forwarded to a thread in ${picked.name.replace(/^Thread in /, "")}` : `Message forwarded to ${picked.name}`);
+      await forwardMessage(message.roomId, message.id, { to: to.room.id, parentId: to.parentId, note, clientMessageId: crypto.randomUUID() });
+      flash("notice", to.parentId ? `Message forwarded to a thread in ${named(to.room)}` : `Message forwarded to ${to.name}`);
       if (mounted.current) {
         setSending(false);
         setOpen(false);
       }
     } catch (error) {
-      if (isSignedOut(error)) flash("alert", "You’ve been signed out.");
-      if (!mounted.current) return;
-      setSending(false);
-      setFailure(error instanceof ApiError && error.status === 422 ? error.message : "Couldn’t forward the message. Please try again.");
+      failed(error);
     }
   };
 
-  const status = sending
-    ? "Forwarding…"
-    : (failure ??
-      (picked
-        ? null
-        : linked
-          ? "Forward it into the thread this link is in."
-          : options.length > 0
-            ? "Choose a conversation, or paste a link to a message to forward it into its thread."
-            : "No conversations found. Try another name."));
+  // Forward asks first where the conversation reaches people who can't see the original.
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!picked || sending) return;
+    setSending(true);
+    setFailure(null);
+    let check: Awaited<ReturnType<typeof shareWidening>>;
+    try {
+      check = await shareWidening(message.roomId, picked.room.id);
+    } catch (error) {
+      return failed(error);
+    }
+    if (!mounted.current) return;
+    if (check?.widens) {
+      setSending(false);
+      setWidening(check);
+      return;
+    }
+    await forward(picked);
+  };
+
+  const status = sending ? "Forwarding…" : (failure ?? (!picked && options.length === 0 ? "No conversations found." : null));
+  const source = conversations?.rooms.find((room) => room.id === message.roomId);
 
   return (
     <Dialog open={open} onOpenChange={(open) => open || close()}>
       <DialogContent
         showCloseButton={false}
+        aria-describedby={undefined}
         overlayClassName="bg-dialog-backdrop backdrop-blur-[3px]"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
@@ -195,19 +219,10 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
         )}
       >
         <form onSubmit={(event) => void submit(event)}>
-          <header className="flex items-start justify-between gap-4 px-6 pt-6 pb-5 upto-500px:px-4 upto-500px:py-5">
-            <div>
-              <DialogTitle className="mb-1.5 text-[20px] leading-[1.3] font-bold">Forward message</DialogTitle>
-              <DialogDescription className="text-[13px] leading-normal">Share it in a conversation you’re in, or in a thread there.</DialogDescription>
-            </div>
-            <button type="button" aria-label="Close" onClick={close} className="grid size-9 flex-none cursor-pointer place-items-center rounded-[9px] touch:size-11">
-              <Xmark className="size-5" />
-            </button>
-          </header>
+          <DialogTitle className="px-6 pt-6 pb-5 text-[20px] leading-[1.3] font-bold upto-500px:px-4 upto-500px:py-5">Forward message</DialogTitle>
 
           {picked ? (
-            <div className="mx-6 flex min-h-[46px] items-center gap-2 upto-500px:mx-4">
-              <span className="text-sm text-muted-foreground">To</span>
+            <div className="mx-6 flex min-h-[46px] items-center upto-500px:mx-4">
               <button
                 type="button"
                 aria-label={`Remove ${picked.name}`}
@@ -220,7 +235,6 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
             </div>
           ) : (
             <label className="mx-6 flex min-h-[46px] cursor-text items-center gap-2.5 rounded-[10px] border px-3 py-2.5 focus-within:border-muted-foreground focus-within:ring-1 focus-within:ring-muted-foreground upto-500px:mx-4">
-              <Search className="size-[19px] flex-[0_0_19px] text-muted-foreground" />
               <span className="sr-only">Search conversations</span>
               <input
                 ref={search}
@@ -257,7 +271,6 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
                     onClick={() => pick(option)}
                     className="flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-[9px] px-2 py-2 text-start text-foreground hover:bg-hover aria-selected:bg-hover"
                   >
-                    <DestinationIcon destination={option} />
                     <span className="min-w-0 wrap-anywhere">{option.name}</span>
                   </button>
                 ))}
@@ -275,7 +288,7 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
               <textarea
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
-                placeholder="Add a message, if you like"
+                placeholder="Add a message"
                 rows={2}
                 className="block w-full resize-y rounded-[10px] border bg-transparent px-3 py-2.5 text-[15px] text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-muted-foreground focus-visible:ring-1 focus-visible:ring-muted-foreground touch:text-base"
               />
@@ -300,15 +313,24 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
             </button>
           </footer>
         </form>
+        {widening !== null && picked && (
+          <ShareWarning
+            source={source ? place(source) : { label: "this conversation", direct: false }}
+            target={place(picked.room)}
+            widening={widening}
+            subject="message"
+            confirm="Forward"
+            action="Forward"
+            onShare={() => {
+              setWidening(null);
+              void forward(picked);
+            }}
+            onCancel={() => setWidening(null)}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );
-}
-
-/** A conversation's mark in the list: `#` for an open room, a lock for a private one, a bubble for a DM or thread. */
-function DestinationIcon({ destination: { room, parentId } }: { destination: Destination }) {
-  const Icon = parentId !== undefined || room.kind === "direct" ? MessageText : room.kind === "closed" ? Lock : Hashtag;
-  return <Icon className="size-[18px] flex-none text-muted-foreground" />;
 }
 
 /** What's being forwarded, as its quote will show it: its author and the start of its text, or its file's name. */

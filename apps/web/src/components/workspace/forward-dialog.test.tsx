@@ -1,6 +1,13 @@
-import type { Room } from "@ember/protocol";
-import { describe, expect, it } from "vitest";
-import { matching, threadOfLink, type Destination } from "./forward-dialog";
+import type { Message, Room } from "@ember/protocol";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { FlashProvider } from "@/components/flash";
+import { checkShare, forwardMessage } from "@/lib/api";
+import { ForwardDialog, matching, threadOfLink, type Destination } from "./forward-dialog";
+import { ConversationsContext } from "./quote-cite";
+
+vi.mock("@/lib/api", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/api")>()), checkShare: vi.fn(), forwardMessage: vi.fn() }));
 
 const portside: Room = { id: "portside", kind: "open", name: "Portside", icon: null };
 const general: Room = { id: "general", kind: "open", name: "general", icon: null };
@@ -22,5 +29,77 @@ describe("Forward message's destinations", () => {
     expect(threadOfLink(`${location.origin}/rooms/portside`, rooms)).toBeNull();
     expect(threadOfLink("portside", rooms)).toBeNull();
     expect(threadOfLink("https://elsewhere.example/rooms/portside/@m1", rooms)).toBeNull();
+  });
+});
+
+describe("Forward outside who can see the original", () => {
+  const me = { id: "ada", name: "Ada" };
+  const zan = { id: "zan", name: "Zan" };
+  const secret: Room = { id: "secret", kind: "closed", name: "secret", icon: null };
+  const direct: Room = { id: "dm1", kind: "direct", members: [me, zan], activeAt: "2026-11-11T00:00:00Z" };
+  const original = (roomId: string): Message => ({
+    id: "m1",
+    clientMessageId: "c1",
+    roomId,
+    creator: zan,
+    body: "<p>Between us</p>",
+    plainText: "Between us",
+    mentions: [],
+    createdAt: "2026-11-11T19:30:00Z",
+    updatedAt: "2026-11-11T19:30:00Z",
+    editedAt: null,
+    boosts: [],
+  });
+
+  function show(roomId: string) {
+    render(
+      <FlashProvider>
+        <ConversationsContext value={{ rooms: [secret, direct, general], meId: me.id }}>
+          <ForwardDialog message={original(roomId)} opener={null} onClose={() => {}} />
+        </ConversationsContext>
+      </FlashProvider>,
+    );
+    return userEvent.setup();
+  }
+
+  async function forwardTo(user: ReturnType<typeof userEvent.setup>, name: string) {
+    await user.click(screen.getByRole("option", { name }));
+    await user.click(screen.getByRole("button", { name: "Forward" }));
+  }
+
+  afterEach(() => vi.mocked(forwardMessage).mockReset());
+
+  it("asks first where the conversation picked has people who can't see the original, and forwards once you say so", async () => {
+    vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 3 });
+    const user = show("secret");
+    await forwardTo(user, "#general");
+    const warning = await screen.findByRole("alertdialog", { name: "Forward outside #secret?" });
+    expect(checkShare).toHaveBeenCalledWith("secret", "general");
+    expect(warning).toHaveTextContent("3 people in #general can't see the original.");
+    expect(within(warning).getAllByRole("button").map((button) => button.textContent)).toEqual(["Cancel", "Forward"]);
+    expect(forwardMessage).not.toHaveBeenCalled();
+
+    await user.click(within(warning).getByRole("button", { name: "Forward" }));
+    expect(forwardMessage).toHaveBeenCalledWith("secret", "m1", expect.objectContaining({ to: "general" }));
+  });
+
+  it("forwards nothing on Cancel, leaving Forward message open", async () => {
+    vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 1 });
+    const user = show("dm1");
+    await forwardTo(user, "#general");
+    const warning = await screen.findByRole("alertdialog", { name: "Forward outside your DM with Zan?" });
+    expect(warning).toHaveTextContent("1 person in #general can't see the original.");
+    await user.click(within(warning).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Forward message" })).toBeInTheDocument();
+    expect(forwardMessage).not.toHaveBeenCalled();
+  });
+
+  it("forwards without asking where everyone there can see the original", async () => {
+    vi.mocked(checkShare).mockResolvedValue({ widens: false, newViewers: 0 });
+    const user = show("secret");
+    await forwardTo(user, "#general");
+    await waitFor(() => expect(forwardMessage).toHaveBeenCalled());
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 });
