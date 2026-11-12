@@ -45,8 +45,8 @@ import { toggleKept, useSavedMark } from "@/lib/saved";
 import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { COPY_CODE } from "./code-block";
-import { DeleteMessageDialog } from "./confirm-dialog";
 import { UNKNOWN_PERSON } from "./message-body";
+import { RarePage } from "./rare-pages";
 
 /** With a mouse, the bar overlaps its message. */
 export const OVERLAPPING = "(hover: hover) and (pointer: fine)";
@@ -550,14 +550,19 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
         </div>
       )}
       {deleting && (
-        <DeleteMessageDialog
-          message={message}
-          onDelete={() => {
-            confirmed.current = true;
-            setDeleting(false);
-          }}
-          onCancel={() => setDeleting(false)}
-          onClosed={closedDialog}
+        <RarePage
+          show={({ DeleteMessageDialog }) => (
+            <DeleteMessageDialog
+              message={message}
+              onDelete={() => {
+                confirmed.current = true;
+                setDeleting(false);
+              }}
+              onCancel={() => setDeleting(false)}
+              onClosed={closedDialog}
+            />
+          )}
+          loading={null}
         />
       )}
     </div>

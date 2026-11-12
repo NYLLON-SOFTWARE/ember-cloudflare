@@ -43,3 +43,6 @@ export { InvitationPage } from "../invitation-page";
 export { JoinPage } from "../join-page";
 export { PasswordResetPage } from "../password-reset-page";
 export { SetupPage } from "../setup-page";
+export { DeleteMessageDialog } from "./confirm-dialog";
+export { InvitationCard } from "./invitation-card";
+export { Lightbox } from "../lightbox";

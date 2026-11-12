@@ -8,8 +8,8 @@ import { dropTarget } from "@/lib/drop-target";
 import { dateLabel, dateTimeLabel, timeline } from "@/lib/messages";
 import type { Focus, RoomState } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
-import { InvitationCard } from "./invitation-card";
 import { MessageItem, type MessageActions, type MessageEditors, type ThreadPlace } from "./message-item";
+import { RarePage } from "./rare-pages";
 
 /**
  * How near the end of the room's messages a reader can be and still be at it, which keeps them there as
@@ -334,7 +334,10 @@ export function MessageList({ roomName, direct = false, closed = false, parentNa
                 <div ref={top} aria-hidden className="h-px" />
                 {state.loadingOlder && <p className="py-2 text-center text-xs text-muted-foreground">Loading earlier messages…</p>}
 
-                {welcomeCard && <InvitationCard joinCode={invitation.joinCode} onDismiss={onDismissInvitation} />}
+                {welcomeCard && (
+                  // Only a new workspace's administrators see it, so it loads with the pages few visits need.
+                  <RarePage show={({ InvitationCard }) => <InvitationCard joinCode={invitation.joinCode} onDismiss={onDismissInvitation} />} loading={null} />
+                )}
 
                 {!thread && state.status === "open" && items.length === 0 && !state.hasMore && !state.hasNewer && !welcomeCard && (
                   <div className="p-6 text-center text-muted-foreground">

@@ -1,10 +1,10 @@
 import { isPreviewableSize, isWebImage, MAX_PREVIEW_SIZE, PREVIEW_MAX_HEIGHT, PREVIEW_MAX_WIDTH, type StoredFile } from "@ember/protocol";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { Lightbox } from "@/components/lightbox";
 import type { Size } from "@/lib/previews";
 import { svgDataUrl } from "@/lib/svg-preview";
 import { cn } from "@/lib/utils";
 import { FileCard } from "./file-card";
+import { RarePage } from "./rare-pages";
 
 /**
  * A file message's file:
@@ -69,7 +69,10 @@ function PicturePreview({ file, src }: { file: StoredFile; src: string }) {
         />
       </a>
       {viewing && (
-        <Lightbox src={showsItself(file) ? file.url : src} alt={file.name} downloadUrl={file.downloadUrl} onClose={() => setViewing(false)} />
+        <RarePage
+          show={({ Lightbox }) => <Lightbox src={showsItself(file) ? file.url : src} alt={file.name} downloadUrl={file.downloadUrl} onClose={() => setViewing(false)} />}
+          loading={null}
+        />
       )}
     </>
   );
