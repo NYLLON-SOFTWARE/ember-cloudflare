@@ -796,7 +796,8 @@ test("copies a code block from its corner, keeping its line breaks", async ({ me
   await ada.page.keyboard.press("ControlOrMeta+v");
   await expect(ada.composer()).toContainText("console.log(greeting);");
   await ada.page.setViewportSize(phone.viewport);
-  await ada.page.getByRole("heading", { level: 1 }).hover();
+  // Away from the block: a phone's header is a button over its heading.
+  await ada.timeline().hover({ position: { x: 4, y: 4 } });
   await expect(copy).toHaveCSS("opacity", "1");
   await expect(copy).toHaveCSS("width", "44px");
 });
