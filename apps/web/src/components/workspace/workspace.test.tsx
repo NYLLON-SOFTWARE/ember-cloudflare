@@ -1616,6 +1616,20 @@ describe("Profile pane", () => {
     expect(screen.queryByRole("complementary", { name: "Profile" })).not.toBeInTheDocument();
   });
 
+  it("opens someone's profile beside the People page from their card, keeping the directory", async () => {
+    const grace = { id: "u2", name: "Grace", bio: "Wrote the first compiler", role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
+    serve({ "GET /api/users": () => Response.json({ users: [grace] }), "GET /api/users/u2": () => Response.json({ person: grace }) });
+    const { user } = showWorkspace("/people");
+    const people = await screen.findByRole("list", { name: "People" });
+    await user.click(await within(people).findByRole("link", { name: /Grace/ }));
+    const profile = screen.getByRole("complementary", { name: "Profile" });
+    expect(location.pathname + location.search).toBe("/people?profile=u2");
+    expect(await within(profile).findByRole("heading", { name: "Grace" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "People" })).toBeInTheDocument();
+    await user.click(within(profile).getByRole("button", { name: "Close profile" }));
+    await waitFor(() => expect(location.pathname + location.search).toBe("/people"));
+  });
+
   it("follows a link to someone's page on a page with no pane for it", async () => {
     const { user } = showWorkspace("/account/edit");
     await communitySettings();
