@@ -15,6 +15,11 @@ export interface TreeRowOptions {
    * up to `UNREAD_COUNT_CAP`, and otherwise none, which leaves the row its own.
    */
   count?: number;
+  /**
+   * Whether a message the row counts mentions you, which draws its pill strong: a collapsed parent's when
+   * it or a sub-room's does, and otherwise none, which leaves the row its own.
+   */
+  mentioned?: boolean;
   /** Classes the row adds: a sub-room's indent, or the room a parent's arrow takes at its end. */
   className?: string;
 }
@@ -22,8 +27,8 @@ export interface TreeRowOptions {
 /** The most a row counts, which it shows as "9+", as the server caps each room's count. */
 export const UNREAD_COUNT_CAP = 10;
 
-/** A room as the tree reads it: with how many unread messages it counts, where the sidebar says. */
-type Counted = SharedRoom & { unreadCount?: number };
+/** A room as the tree reads it: with how many unread messages it counts, and whether one mentions you, where the sidebar says. */
+type Counted = SharedRoom & { unreadCount?: number; unreadMentioned?: boolean };
 
 /**
  * Which parents' sub-rooms this browser keeps collapsed in the sidebar, remembered across visits, and
@@ -68,13 +73,15 @@ export function RoomTreeRow<T extends Counted>({ branch, label, row, isUnread, c
   if (subRooms.length === 0) return row(room, { label, unread: isUnread(room) });
   const shown = collapsed ? subRooms.filter((sub) => sub.id === currentRoomId) : subRooms;
   const unread = isUnread(room) || (collapsed && subRooms.some(isUnread));
-  // Collapsed, the parent counts what its unread sub-rooms count too.
-  const counted = [room, ...subRooms].filter(isUnread).reduce((sum, r) => sum + (r.unreadCount ?? 0), 0);
+  // Collapsed, the parent counts what its unread sub-rooms count too, and is mentioned where one of them is.
+  const unreadRooms = [room, ...subRooms].filter(isUnread);
+  const counted = unreadRooms.reduce((sum, r) => sum + (r.unreadCount ?? 0), 0);
   const count = collapsed && counted > 0 ? Math.min(counted, UNREAD_COUNT_CAP) : undefined;
+  const mentioned = count !== undefined && unreadRooms.some((r) => r.unreadMentioned);
   return (
     <>
       <div className="group/tree relative">
-        {row(room, { label, unread, ...(count !== undefined && { count }), className: "pr-10 touch:pr-12" })}
+        {row(room, { label, unread, ...(count !== undefined && { count, mentioned }), className: "pr-10 touch:pr-12" })}
         <button
           type="button"
           aria-expanded={!collapsed}
