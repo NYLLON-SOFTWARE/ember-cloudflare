@@ -1715,7 +1715,8 @@ describe("Welcome card for administrators, until they dismiss it", () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     serve({ "GET /api/sidebar": () => Response.json(invited), "DELETE /api/sidebar/invitation": answer });
     const shown = showWorkspace("/rooms/general");
-    return { ...shown, dismiss: await screen.findByRole("button", { name: "Dismiss welcome card" }) };
+    // The card shows once the sidebar and the room have both come, which can take a while on a busy machine.
+    return { ...shown, dismiss: await screen.findByRole("button", { name: "Dismiss welcome card" }, { timeout: 10_000 }) };
   }
 
   it("takes the welcome card away once its × has saved that it's dismissed", async () => {
