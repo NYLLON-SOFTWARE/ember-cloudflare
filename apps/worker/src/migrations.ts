@@ -56,6 +56,7 @@ import apps from "../migrations/0055_apps.sql";
 import agentTools from "../migrations/0056_agent_tools.sql";
 import waitingCalls from "../migrations/0057_waiting_calls.sql";
 import unreadCounts from "../migrations/0055_unread_counts.sql";
+import unreadMentions from "../migrations/0056_unread_mentions.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -140,6 +141,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0056_agent_tools.sql", scope: "workspace", sql: agentTools },
   { name: "0057_waiting_calls.sql", scope: "room", sql: waitingCalls },
   { name: "0055_unread_counts.sql", scope: "workspace", sql: unreadCounts },
+  { name: "0056_unread_mentions.sql", scope: "workspace", sql: unreadMentions },
 ];
 
 /**

@@ -132,7 +132,7 @@ describe("Unread rooms", () => {
     expect(general).toHaveAccessibleDescription(`3 unread ${HELP}`);
     expect(general!.lastElementChild).toHaveTextContent(/^3$/);
     expect(general!.lastElementChild).toHaveAttribute("aria-hidden", "true");
-    expect(general!.lastElementChild).toHaveClass("ml-auto", "rounded-full", "bg-foreground", "text-background");
+    expect(general!.lastElementChild).toHaveClass("ml-auto", "rounded-full", "bg-muted-foreground/25", "text-foreground");
     expect(general!.querySelector(".size-\\[7px\\]")).toBeNull();
     expect(random!.lastElementChild).toHaveTextContent(/^9\+$/);
     expect(random).toHaveAccessibleDescription(`9+ unread ${HELP}`);
@@ -140,6 +140,14 @@ describe("Unread rooms", () => {
     // The room the tab shows is never marked, whatever it counted.
     rerender({ currentRoomId: "general" });
     expect(row("general").querySelector(".rounded-full")).toBeNull();
+  });
+
+  it("draws the pill strong, in ink, where a message it counts mentions you, and says so", () => {
+    renderSidebar({ rooms: [{ ...rooms[0]!, unread: true, unreadCount: 2, unreadMentioned: true }, rooms[1]!] });
+    const [general] = rows();
+    expect(general!.lastElementChild).toHaveClass("bg-foreground", "text-background");
+    expect(general!.lastElementChild).not.toHaveClass("bg-muted-foreground/25");
+    expect(general).toHaveAccessibleDescription(`2 unread, mentioning you ${HELP}`);
   });
 
   it("makes an unread room's row bold, with a dot, and says so to screen readers", () => {

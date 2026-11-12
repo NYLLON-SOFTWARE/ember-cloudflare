@@ -479,9 +479,34 @@ describe("Unread counts", () => {
     expect(await countOf(hopper, room)).toBeUndefined();
 
     await post(ada, `<p>${mention(hopper)} and ${mention(lin)}, a look?</p>`);
-    expect(await heard(hoppersTab, room)).toEqual([{ type: "room.unread", roomId: room, at: plain.createdAt, count: 1 }]);
-    expect(await heard(linsTab, room)).toEqual([{ type: "room.unread", roomId: room, at: plain.createdAt, count: 1 }]);
+    expect(await heard(hoppersTab, room)).toEqual([{ type: "room.unread", roomId: room, at: plain.createdAt, count: 1, mentioned: true }]);
+    expect(await heard(linsTab, room)).toEqual([{ type: "room.unread", roomId: room, at: plain.createdAt, count: 1, mentioned: true }]);
     expect(await countOf(lin, room)).toBe(1);
+  });
+
+  it("says a room mentions someone once a message it counts does, past the cap too, until they read it", async () => {
+    const room = await freshRoom("mentioning");
+    const ada = await connect(room, "Ada", { visible: true });
+    const hopper = await signIn("Hopper");
+    expect((await involve(room, hopper, "everything")).status).toBe(200);
+    const tab = await openWorkspaceSocket(hopper);
+    const mentionedOf = async () => ((await (await api("/api/sidebar", { headers: { Cookie: hopper.cookie } })).json()) as Sidebar).rooms.find(({ id }) => id === room)?.unreadMentioned;
+
+    for (let i = 0; i < UNREAD_COUNT_CAP; i++) await post(ada, `plain ${i}`);
+    expect((await heard(tab, room)).some((frame) => "mentioned" in frame)).toBe(false);
+    expect(await mentionedOf()).toBeUndefined();
+    // Past the cap, a mention still says so, with the count as it is.
+    await post(ada, `<p>${mention(hopper)} over here</p>`);
+    expect(await heard(tab, room)).toEqual([{ type: "room.unread", roomId: room, at: expect.any(String), count: UNREAD_COUNT_CAP, mentioned: true }]);
+    expect(await mentionedOf()).toBe(true);
+    // Once a room mentions him, another mention says nothing more.
+    await post(ada, `<p>${mention(hopper)} again</p>`);
+    expect(await heard(tab, room)).toEqual([]);
+
+    const reading = await connect(room, hopper, { visible: true });
+    await settle(reading);
+    expect(await heard(tab, room)).toEqual([read(room)]);
+    expect(await mentionedOf()).toBeUndefined();
   });
 
   it("counts nothing for its author, nor for a reply sent only to its thread", async () => {

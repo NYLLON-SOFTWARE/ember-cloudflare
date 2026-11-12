@@ -216,6 +216,11 @@ interface RoomRowProps {
    * its own count by default, and a folded parent's its sub-rooms' too.
    */
   count?: number;
+  /**
+   * Whether a message it counts mentions you, which draws its pill strong, in ink, as Slack sets mentions
+   * apart, rather than muted: its own by default, and a folded parent's its sub-rooms' too.
+   */
+  mentioned?: boolean;
   /** Whether it's starred, which ends it with a star and lets it be held and dragged among the stars. */
   starred: boolean;
   /** Whether it's the starred row being dragged. */
@@ -235,7 +240,7 @@ interface RoomRowProps {
  * Slack counts them, up to "9+", or a dot where none are counted. It carries `data-room-id`, by which
  * `useStarOrder` drags it.
  */
-export function RoomRow({ room, current, unread, count = room.unreadCount ?? 0, starred, moving, huddle, meId, unreadId, helpId, onClick }: RoomRowProps) {
+export function RoomRow({ room, current, unread, count = room.unreadCount ?? 0, mentioned = room.unreadMentioned ?? false, starred, moving, huddle, meId, unreadId, helpId, onClick }: RoomRowProps) {
   // The words for who's in the room's huddle, which come with its mark.
   const huddleId = useId();
   const countId = useId();
@@ -271,11 +276,14 @@ export function RoomRow({ room, current, unread, count = room.unreadCount ?? 0, 
       {counted ? (
         <>
           <span id={countId} hidden>
-            {unreadBadge(count)} unread
+            {unreadBadge(count)} unread{mentioned ? ", mentioning you" : ""}
           </span>
           <span
             aria-hidden="true"
-            className={cn("inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-foreground px-1.5 text-[11px] leading-none font-semibold text-background", !huddle && "ml-auto")}
+            className={cn(
+              "ml-auto inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold",
+              mentioned ? "bg-foreground text-background" : "bg-muted-foreground/25 text-foreground",
+            )}
           >
             {unreadBadge(count)}
           </span>

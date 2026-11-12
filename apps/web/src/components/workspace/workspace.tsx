@@ -643,11 +643,13 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   useEffect(() => {
     if (channelShown !== null) rememberLastChannel(channelShown);
   }, [channelShown]);
-  // How many DMs there are, but the hidden ones, and how many are unread, which DMs on the rail counts.
+  // How many DMs there are, but the hidden ones, how many are unread, and how many unread messages they
+  // have, as far as each counts them, or one for a DM marked unread without a count, which DMs on the rail
+  // counts, as Slack's does.
   const directCounts = useMemo(() => {
     if (rooms === null) return null;
-    const { directs } = apart(rooms);
-    return { conversations: directs.length, unread: directs.filter((r) => markedUnread(r, currentRoomId)).length };
+    const unread = apart(rooms).directs.filter((r) => markedUnread(r, currentRoomId));
+    return { conversations: apart(rooms).directs.length, unread: unread.length, messages: unread.reduce((sum, r) => sum + (r.unreadCount ?? 1), 0) };
   }, [rooms, currentRoomId]);
   const draftCount = useDraftCount(me.id);
   const rail = (
@@ -656,7 +658,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       workspaceName={workspaceName}
       current={room?.kind === "direct" ? "dms" : RAIL_PAGES[route.page]}
       activity={activity}
-      directsUnread={directCounts?.unread ?? 0}
+      directsUnread={directCounts?.messages ?? 0}
       newRelease={newRelease}
     />
   );

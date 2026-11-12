@@ -278,9 +278,9 @@ export const startingInvolvement = (room: Room): Involvement => (room.kind === "
  * it's marked, and their level in it. A room they've hidden is listed too, since they can still open it,
  * but their sidebar leaves it out. `unreadCount` is how many messages have come since it was marked
  * unread, up to `UNREAD_COUNT_CAP`, counting only those that mention them where they follow the room at
- * @mentions or not at all; it's left out at none.
+ * @mentions or not at all; it's left out at none. `unreadMentioned` says one of them mentions them.
  */
-export type SidebarRoom = Room & { unread: boolean; unreadSince?: string; unreadCount?: number; involvement: Involvement };
+export type SidebarRoom = Room & { unread: boolean; unreadSince?: string; unreadCount?: number; unreadMentioned?: boolean; involvement: Involvement };
 
 /** The most unread messages a sidebar room's count goes to, after which it says "9+", so nothing has to count them all. */
 export const UNREAD_COUNT_CAP = 10;
@@ -1676,10 +1676,11 @@ export type WorkspaceServerFrame =
   | { type: "welcome"; you: Me; account: Account }
   /**
    * A room of theirs has a message they haven't seen, which marks it unread, as of `at`, when that message
-   * came, with how many messages have come since, up to `UNREAD_COUNT_CAP` (`SidebarRoom.unreadCount`).
+   * came, with how many messages have come since, up to `UNREAD_COUNT_CAP` (`SidebarRoom.unreadCount`), and
+   * whether one of them mentions them (`SidebarRoom.unreadMentioned`).
    * Sent only to the person marked, as their mark changes, and again as each message it counts comes.
    */
-  | { type: "room.unread"; roomId: RoomId; at: string; count?: number }
+  | { type: "room.unread"; roomId: RoomId; at: string; count?: number; mentioned?: boolean }
   /** They've read a room marked unread, in this tab or another. */
   | { type: "room.read"; roomId: RoomId }
   /**

@@ -3763,10 +3763,10 @@ export class Workspace extends DurableObject<Env> {
     // Someone whose mark changed hears of it with their count, if a message counted, and someone already
     // marked hears of their count as it changes.
     for (const [userId, at] of marks) {
-      const count = counts.get(userId)?.count;
-      this.tell([userId], at === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, at, ...(count !== undefined && { count }) });
+      const counted = counts.get(userId);
+      this.tell([userId], at === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, at, ...(counted && { count: counted.count, ...(counted.mentioned && { mentioned: true }) }) });
     }
-    for (const [userId, { at, count }] of counts) if (!marks.has(userId)) this.tell([userId], { type: "room.unread", roomId, at, count });
+    for (const [userId, { at, count, mentioned }] of counts) if (!marks.has(userId)) this.tell([userId], { type: "room.unread", roomId, at, count, ...(mentioned && { mentioned: true }) });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
     return { pushes, webhooks, asks };
   }
