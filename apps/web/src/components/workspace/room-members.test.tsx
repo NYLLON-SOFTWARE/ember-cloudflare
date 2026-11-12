@@ -1,9 +1,13 @@
 import type { DirectoryUser, Me, Room, RoomSettings, SharedRoom } from "@ember/protocol";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { MembersButton, MembersPage } from "./room-members";
+import { loadRarePages } from "./rare-pages";
+
+// What opens here loads with the pages few visits need, which take a while to import in a test.
+beforeAll(() => loadRarePages(), 120_000);
 
 const ada: Me = { id: "ada", name: "Ada Lovelace", administrator: false };
 const grace = { id: "grace", name: "Grace Hopper" };

@@ -1,12 +1,13 @@
 import type { Account, Room } from "@ember/protocol";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { PushProvider } from "@/hooks/use-push";
 import { isPushOn, savePushAgain, subscribeToPushEnding, turnOnPush, type PushNotice } from "@/lib/push";
 import { CHROME_MAC } from "@/test-platforms";
 import { FEEDBACK_MS, INVOLVEMENT_NOT_SAVED, NotificationBell } from "./notification-bell";
+import { loadRarePages } from "./rare-pages";
 
 vi.mock("@/lib/push", () => ({
   isPushOn: vi.fn(async () => false),
@@ -14,6 +15,9 @@ vi.mock("@/lib/push", () => ({
   turnOnPush: vi.fn(async () => null),
   subscribeToPushEnding: vi.fn(() => () => {}),
 }));
+
+// What opens here loads with the pages few visits need, which take a while to import in a test.
+beforeAll(() => loadRarePages(), 120_000);
 
 const KEY = "BP79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eDf3t3c29rZ2NfW1dTT0tHQz87NzMvKycjHxsXEw8LBwL8";
 const general: Room = { id: "general", name: "general", kind: "open", icon: null };
@@ -110,7 +114,7 @@ describe("Turn on notifications", () => {
     const dialog = await screen.findByRole("dialog", { name: "Notification setup" });
     expect(screen.getByRole("heading", { name: "Notifications are blocked" })).toBeInTheDocument();
     expect(within(dialog).getByRole("status")).toHaveTextContent("Allow notifications for this site in your browser settings, then try again.");
-    expect(screen.getByText("Check your Chrome settings")).toBeVisible();
+    expect(await screen.findByText("Check your Chrome settings")).toBeVisible();
     expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
     expect(enableButton()).not.toHaveAttribute("aria-busy");
 
@@ -123,7 +127,7 @@ describe("Turn on notifications", () => {
     const user = renderBell();
     await user.click(enableButton());
     expect(await screen.findByRole("heading", { name: "Notifications aren’t configured" })).toBeInTheDocument();
-    expect(screen.getByText("Check your Chrome settings")).not.toBeVisible();
+    expect(screen.queryByText("Check your Chrome settings")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Close" }));
     await user.click(enableButton());

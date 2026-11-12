@@ -3,7 +3,7 @@ import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
-import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
 import { LONG_PRESS_MS } from "@/components/mobile/use-long-press";
 import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
@@ -13,6 +13,10 @@ import { quotedTimeLabel, timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
 import { forgetSaved, heardSaved } from "@/lib/saved";
 import { MessageItem, type ThreadPlace } from "./message-item";
+import { loadRarePages } from "./rare-pages";
+
+// What opens here loads with the pages few visits need, which take a while to import in a test.
+beforeAll(() => loadRarePages(), 120_000);
 
 const ada: User = { id: "u1", name: "Ada" };
 const grace: User = { id: "u2", name: "Grace" };
