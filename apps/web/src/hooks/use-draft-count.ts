@@ -1,20 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { UserId } from "@ember/protocol";
-import { draftCountOf } from "@/lib/draft-keys";
-import { useVisit } from "./use-route";
+import { draftCountOf, DRAFTS_CHANGED } from "@/lib/draft-keys";
 
 /**
- * How many drafts `userId` has in this browser, for Drafts & sent to count: counted again whenever the
- * app goes to a page, as leaving a room keeps what was written there, and whenever another tab changes one.
+ * How many drafts `userId` has in this browser, for Drafts & sent to count, counted again as the composer
+ * keeps or forgets one in this tab and as another tab changes one. It changes only when the count does,
+ * so typing re-renders nothing.
  */
 export function useDraftCount(userId: UserId): number {
-  const visit = useVisit();
-  const [changes, setChanges] = useState(0);
+  const [count, setCount] = useState(() => draftCountOf(userId));
   useEffect(() => {
-    const changed = () => setChanges((changes) => changes + 1);
-    window.addEventListener("storage", changed);
-    return () => window.removeEventListener("storage", changed);
-  }, []);
-  // Counted again on every visit and change, which storage itself doesn't tell of.
-  return useMemo(() => draftCountOf(userId), [userId, visit, changes]);
+    const recount = () => setCount(draftCountOf(userId));
+    recount();
+    window.addEventListener(DRAFTS_CHANGED, recount);
+    window.addEventListener("storage", recount);
+    return () => {
+      window.removeEventListener(DRAFTS_CHANGED, recount);
+      window.removeEventListener("storage", recount);
+    };
+  }, [userId]);
+  return count;
 }

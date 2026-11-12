@@ -7,6 +7,7 @@ import { useNameOf } from "@/hooks/use-directory";
 import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { dropTarget } from "@/lib/drop-target";
 import { hasTouchKeyboard, opensLink, pressedAlone, sendsMessage } from "@/lib/keyboard";
+import { tellDraftsChanged } from "@/lib/draft-keys";
 import { tooLargeToAttach } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
@@ -63,6 +64,8 @@ function keepDraft(key: string, body: string | null) {
   try {
     if (body === null) localStorage.removeItem(key);
     else localStorage.setItem(key, body);
+    // For Drafts & sent's count, which storage tells only other tabs of.
+    tellDraftsChanged();
   } catch {
     // Not kept, then.
   }
