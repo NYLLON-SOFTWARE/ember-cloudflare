@@ -192,6 +192,86 @@ const LATEST_NUMBERS = `SELECT firsts.value AS first, (SELECT max(id) FROM searc
 /** The first number a message of the millisecond of `createdAt` can have. */
 const firstNumber = (createdAt: string) => Date.parse(createdAt) * PER_MILLISECOND;
 
+/** The number of the first message the index could have taken at `createdAt` or later. */
+export const numberAt = firstNumber;
+
+/** A DM whose latest message `directPreviews` reads, and the number its unread messages start from, or null when it's read. */
+export interface DirectToPreview {
+  id: RoomId;
+  since: number | null;
+}
+
+/** A DM's latest message the index has kept, as JSON, or null, and how many unread, up to `MOST_UNREAD`. */
+export type IndexedPreview = {
+  roomId: RoomId;
+  message: string | null;
+  unread: number;
+};
+
+/** The most unread messages a DM's preview counts. */
+export const MOST_UNREAD = 100;
+
+/**
+ * For each DM the JSON array ?1 lists, as `DirectToPreview`s: its latest message, not counting replies
+ * in threads, and how many messages someone other than ?2 wrote there from its `since` on, not counting
+ * them either. A room's messages are found by `index_search_messages_on_room_id_and_id`.
+ */
+const DIRECT_PREVIEWS = `SELECT json_extract(rooms.value, '$.id') AS roomId,
+    (SELECT message FROM search_messages
+      WHERE room_id = json_extract(rooms.value, '$.id') AND (thread_id IS NULL OR thread_id = message_id)
+      ORDER BY id DESC LIMIT 1) AS message,
+    (SELECT count(*) FROM (SELECT 1 FROM search_messages
+      WHERE room_id = json_extract(rooms.value, '$.id') AND id >= json_extract(rooms.value, '$.since')
+        AND creator_id IS NOT ?2 AND (thread_id IS NULL OR thread_id = message_id)
+      LIMIT ${MOST_UNREAD})) AS unread
+  FROM json_each(?1) AS rooms`;
+
+/** A thread someone follows, by its first message's id, and the number of its latest message. */
+export type FollowedRow = {
+  threadId: string;
+  latest: number;
+};
+
+/**
+ * The threads ?1 follows in the rooms the JSON array ?2 lists, latest active first: the ones they wrote
+ * in, or started, and the ones a message mentions them in, a page more than `limit` at most, and only
+ * those last active before ?3 for a page after the first.
+ */
+function followedStatement(limit: number, after: boolean): string {
+  return `SELECT thread_id AS threadId, max(id) AS latest FROM search_messages
+    WHERE thread_id IN (
+        SELECT thread_id FROM search_messages WHERE creator_id = ?1 AND thread_id IS NOT NULL
+        UNION
+        SELECT theirs.thread_id FROM search_mentions JOIN search_messages AS theirs ON theirs.id = search_mentions.id
+          WHERE search_mentions.user_id = ?1 AND theirs.thread_id IS NOT NULL)
+      AND room_id IN (SELECT value FROM json_each(?2))
+    GROUP BY thread_id${after ? " HAVING max(id) < ?3" : ""}
+    ORDER BY latest DESC LIMIT ${limit + 1}`;
+}
+
+/** A message of a thread `threadMessages` reads, as JSON, and how many messages the thread has, its first among them. */
+export type ThreadMessageRow = {
+  threadId: string;
+  roomId: RoomId;
+  messageId: string;
+  message: string | null;
+  total: number;
+};
+
+/**
+ * The first message of each thread the JSON array ?1 lists, and its latest `context` replies, oldest
+ * first, each with how many messages its thread has in all.
+ */
+function threadMessagesStatement(context: number): string {
+  return `SELECT threadId, roomId, messageId, message, total FROM (
+      SELECT thread_id AS threadId, room_id AS roomId, message_id AS messageId, message, id,
+        row_number() OVER (PARTITION BY thread_id ORDER BY id DESC) AS place,
+        count(*) OVER (PARTITION BY thread_id) AS total
+      FROM search_messages WHERE thread_id IN (SELECT value FROM json_each(?1)))
+    WHERE place <= ${context} OR messageId = threadId
+    ORDER BY id`;
+}
+
 const byTime = (a: IndexedMessage, b: IndexedMessage) => firstNumber(a.createdAt) - firstNumber(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /**
@@ -311,6 +391,28 @@ export class SearchIndex extends DurableObject<Env> {
       hits: page.map((hit) => ({ ...hit, message: rows.get(hit.number)?.message ?? null, words: wordsMarked(rows.get(hit.number)?.marked ?? null) })),
       next: hits.length > SEARCH_LIMIT ? page.at(-1)!.number : null,
     };
+  }
+
+  /** Each of `directs`' latest message, and how many messages others than `userId` have written there since it was marked unread. */
+  directPreviews(directs: DirectToPreview[], userId: UserId): IndexedPreview[] {
+    return this.sql.exec<IndexedPreview>(DIRECT_PREVIEWS, JSON.stringify(directs), userId).toArray();
+  }
+
+  /**
+   * A page of the threads `userId` follows in `roomIds`, latest active first, up to `limit`, after the
+   * one last active at `after`, if given: each thread's messages, its first and latest `context` replies,
+   * the threads in order, and the number its page ends at when there are more.
+   */
+  followedThreads(userId: UserId, roomIds: RoomId[], after: number | null, limit: number, context: number): { rows: ThreadMessageRow[]; threadIds: string[]; next: number | null } {
+    const followed =
+      after === null
+        ? this.sql.exec<FollowedRow>(followedStatement(limit, false), userId, JSON.stringify(roomIds))
+        : this.sql.exec<FollowedRow>(followedStatement(limit, true), userId, JSON.stringify(roomIds), after);
+    const threads = followed.toArray();
+    const page = threads.slice(0, limit);
+    const threadIds = page.map(({ threadId }) => threadId);
+    const rows = this.sql.exec<ThreadMessageRow>(threadMessagesStatement(context), JSON.stringify(threadIds)).toArray();
+    return { rows, threadIds, next: threads.length > limit ? page.at(-1)!.latest : null };
   }
 }
 

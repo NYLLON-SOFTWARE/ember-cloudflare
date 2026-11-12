@@ -33,6 +33,20 @@ describe("New direct message dialog", () => {
   });
 });
 
+describe("DMs page and the Home sidebar's pages", () => {
+  it("shows each at its address", () => {
+    expect(workspacePageOf("/dms")).toEqual({ page: "dms" });
+    expect(workspacePageOf("/people")).toEqual({ page: "people" });
+    expect(workspacePageOf("/drafts")).toEqual({ page: "drafts", tab: "drafts" });
+    expect(workspacePageOf("/drafts/sent")).toEqual({ page: "drafts", tab: "sent" });
+    expect(workspacePageOf("/threads")).toEqual({ page: "threads" });
+  });
+
+  it("names nothing past their addresses", () => {
+    for (const path of ["/dms/", "/dms/extra", "/people/1", "/drafts/", "/drafts/other", "/threads/1", "/constructor", "/toString"]) expect(isAppPage(path), path).toBe(false);
+  });
+});
+
 describe("Group DMs and DM names", () => {
   it("shows a DM's settings at its address", () => {
     expect(workspacePageOf("/rooms/directs/ada-grace/edit")).toEqual({ page: "direct-settings", roomId: "ada-grace" });
