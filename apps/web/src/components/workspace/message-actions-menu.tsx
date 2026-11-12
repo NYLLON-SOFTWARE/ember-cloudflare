@@ -47,7 +47,7 @@ import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { COPY_CODE } from "./code-block";
 import { UNKNOWN_PERSON } from "./message-body";
-import { RarePage } from "./rare-pages";
+import { RarePage, useOpenedRarePage } from "./rare-pages";
 
 /** With a mouse, the bar overlaps its message. */
 export const OVERLAPPING = "(hover: hover) and (pointer: fine)";
@@ -230,9 +230,31 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   // tray's picker takes focus as it opens, as More actions' first item does, since Tab from More reactions
   // reaches the rest of the bar first.
   const toggleTray = () => {
+    if (!trayOpen && !overlapping && trayTooShort()) {
+      close();
+      setReactionSheetOpen(true);
+      return;
+    }
     focusingTray.current = !trayOpen;
     setActionsOpen(false);
     setTrayOpen(!trayOpen);
+  };
+
+  // On a touch screen whose timeline can't hold the bar and enough of the tray to use, as a phone's held
+  // sideways, More reactions opens the reactions sheet a phone's Add reaction does instead, over everything.
+  const [reactionSheetOpen, setReactionSheetOpen] = useState(false);
+  const [reactionSheetShown, reactionSheetFailed] = useOpenedRarePage(reactionSheetOpen, () => setReactionSheetOpen(false));
+  const trayTooShort = () => {
+    const timeline = row.current?.closest('[role="log"]')?.getBoundingClientRect();
+    if (!timeline?.height) return false;
+    const screen = window.visualViewport?.height || window.innerHeight;
+    const height = Math.min(timeline.bottom, screen) - Math.max(timeline.top, 0) - 16;
+    return height - (bar.current?.getBoundingClientRect().height ?? 0) - 6 < MIN_SHORT_PANEL_HEIGHT;
+  };
+  // Focus goes back to Message options, unless what was picked, as New boost's form, took it.
+  const reactionSheetClosed = (event: Event) => {
+    event.preventDefault();
+    if (document.activeElement === document.body || document.activeElement === null) trigger.current?.focus({ preventScroll: true });
   };
 
   // Opening More actions keeps the bar open.
@@ -568,6 +590,15 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
           </div>
         </div>
       )}
+      {reactionSheetShown && (
+        <RarePage
+          show={({ ReactionSheet }) => (
+            <ReactionSheet open={reactionSheetOpen} onOpenChange={setReactionSheetOpen} onCloseAutoFocus={reactionSheetClosed} onReact={onReact} onNewBoost={onNewBoost} />
+          )}
+          loading={null}
+          onFailed={reactionSheetFailed}
+        />
+      )}
       {deleting && (
         <RarePage
           show={({ DeleteMessageDialog }) => (
@@ -726,6 +757,12 @@ function copyLink(event: MouseEvent<HTMLButtonElement>, message: Message) {
  * options rather than beside it: the picker's search, its categories, two rows of emoji and New boost.
  */
 const MIN_PANEL_HEIGHT = 5 * 44 + 16;
+
+/**
+ * The least of the tray a touch screen's timeline must have room for beside the bar, or More reactions
+ * opens a sheet instead: the search, the categories and a row of emoji.
+ */
+const MIN_SHORT_PANEL_HEIGHT = 3 * 44 + 8;
 
 /** The top of the highest of `row`'s Copy code buttons between `left` and `right`, or Infinity. */
 function copyCodeTop(row: HTMLElement, left: number, right: number): number {
