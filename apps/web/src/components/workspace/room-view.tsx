@@ -16,6 +16,7 @@ import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
 import { MessageList } from "./message-list";
 import { RoomHeader } from "./room-header";
 import { RoomNotice } from "./room-notice";
+import { RoomFramesContext } from "./room-tab-icons";
 import { RoomTabs, RoomTabsContext, useRoomTabs } from "./room-tabs";
 import { ThreadPanel } from "./thread-panel";
 
@@ -111,84 +112,86 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
 
   return (
     <RoomTabsContext value={tabs}>
-      {/* The room's header and messages, placed in the page's grid as if they were its own. */}
-      <div className="contents" inert={covered}>
-        <RoomHeader
-          room={room}
-          me={me}
-          name={name}
-          present={state.present}
-          status={state.status}
-          offline={state.offline}
-          favorite={favorite}
-          onStarred={onStarred}
-          involvement={involvement}
-          askForRoom={askForRoom}
-          onSessionChanged={onSessionChanged}
-          onFailed={onFailed}
-        />
-        {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
-        <MainContent className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
-          <RoomTabs room={room} me={me} state={tabs} onFailed={onFailed} />
-          <RoomNotice notice={state.notice} onDismiss={dismissNotice} />
-          <MessageList
-            roomName={name}
-            direct={direct}
-            closed={room.kind === "closed"}
-            invitation={invitation}
-            onDismissInvitation={onDismissInvitation}
-            state={state}
+      <RoomFramesContext value={frames}>
+        {/* The room's header and messages, placed in the page's grid as if they were its own. */}
+        <div className="contents" inert={covered}>
+          <RoomHeader
+            room={room}
             me={me}
-            actions={deleted ? null : messageActions}
-            editing={editing}
-            editors={editors}
-            onLoadOlder={loadOlder}
-            onLoadNewer={loadNewer}
-            onJumpToNewest={() => jump(null)}
-            onDropFiles={(files) => composer.current?.addFiles(files)}
-            openThread={threadId}
-            newSince={newSince}
+            name={name}
+            present={state.present}
+            status={state.status}
+            offline={state.offline}
+            favorite={favorite}
+            onStarred={onStarred}
+            involvement={involvement}
+            askForRoom={askForRoom}
+            onSessionChanged={onSessionChanged}
+            onFailed={onFailed}
           />
-          {deleted ? (
-            <RoomDeleted />
-          ) : (
-            <Composer
-              ref={composer}
-              roomId={room.id}
+          {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
+          <MainContent className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
+            <RoomTabs room={room} me={me} state={tabs} onFailed={onFailed} />
+            <RoomNotice notice={state.notice} onDismiss={dismissNotice} />
+            <MessageList
               roomName={name}
               direct={direct}
               closed={room.kind === "closed"}
-              userId={me.id}
-              typing={typingUsers}
-              disabled={state.offline}
-              // Only while the room's first messages are on their way, not once it's been out of reach a while.
-              deferEditor={state.status === "connecting" && !state.offline}
-              // The thread open beside the room takes focus as it opens.
-              autoFocus={threadId === undefined}
-              onSend={postMessage}
-              onSendFiles={postFiles}
-              onTyping={typing}
-              onEditLastMessage={editLastMessage}
+              invitation={invitation}
+              onDismissInvitation={onDismissInvitation}
+              state={state}
+              me={me}
+              actions={deleted ? null : messageActions}
+              editing={editing}
+              editors={editors}
+              onLoadOlder={loadOlder}
+              onLoadNewer={loadNewer}
+              onJumpToNewest={() => jump(null)}
+              onDropFiles={(files) => composer.current?.addFiles(files)}
+              openThread={threadId}
+              newSince={newSince}
             />
-          )}
-        </MainContent>
-      </div>
-      {threadId !== undefined && (
-        <ThreadPanel
-          key={threadId}
-          room={room}
-          name={name}
-          me={me}
-          parentId={threadId}
-          replyId={replyId}
-          frames={frames}
-          status={state.status}
-          offline={state.offline}
-          deleted={deleted}
-          roomNotice={covered ? state.notice : null}
-          onDismissRoomNotice={dismissNotice}
-        />
-      )}
+            {deleted ? (
+              <RoomDeleted />
+            ) : (
+              <Composer
+                ref={composer}
+                roomId={room.id}
+                roomName={name}
+                direct={direct}
+                closed={room.kind === "closed"}
+                userId={me.id}
+                typing={typingUsers}
+                disabled={state.offline}
+                // Only while the room's first messages are on their way, not once it's been out of reach a while.
+                deferEditor={state.status === "connecting" && !state.offline}
+                // The thread open beside the room takes focus as it opens.
+                autoFocus={threadId === undefined}
+                onSend={postMessage}
+                onSendFiles={postFiles}
+                onTyping={typing}
+                onEditLastMessage={editLastMessage}
+              />
+            )}
+          </MainContent>
+        </div>
+        {threadId !== undefined && (
+          <ThreadPanel
+            key={threadId}
+            room={room}
+            name={name}
+            me={me}
+            parentId={threadId}
+            replyId={replyId}
+            frames={frames}
+            status={state.status}
+            offline={state.offline}
+            deleted={deleted}
+            roomNotice={covered ? state.notice : null}
+            onDismissRoomNotice={dismissNotice}
+          />
+        )}
+      </RoomFramesContext>
     </RoomTabsContext>
   );
 }

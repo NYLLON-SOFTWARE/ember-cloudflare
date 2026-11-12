@@ -1,6 +1,6 @@
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import type { Me } from "@ember/protocol";
-import { MAX_CANVAS_LENGTH, type OpenedTab } from "@ember/protocol/library";
+import { CANVAS_TOO_LONG, MAX_CANVAS_LENGTH, type OpenedTab } from "@ember/protocol/library";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { useNameOf } from "@/hooks/use-directory";
@@ -9,28 +9,31 @@ import { mergeCanvas } from "@/lib/canvas-merge";
 import { CanvasConflict, openTab, saveCanvas, saveCanvasOnLeaving } from "@/lib/library";
 import { dateTimeLabel } from "@/lib/messages";
 import { cn } from "@/lib/utils";
+import { FROM_ROOM, MERGED, showDocument, useLiveCanvas } from "./canvas-live";
+import { RoomFramesContext } from "./room-tab-icons";
 
 // A canvas: a document a room's members write together, with Tiptap's StarterKit, through Tiptap's core rather than
-// its React package, whose CommonJS dependencies would have Rolldown move React out of the app's script. It saves a second after
-// typing stops, over the version it was opened at; a save over an older version is refused, with the one
-// saved since, and the canvas merges that into what's here (canvas-merge.ts), then saves the two together.
-// While nothing's waiting to save, it looks for others' saves every so often, and merges them in the same way.
-// Nothing written here is ever replaced by someone else's: where you both changed the same part, both stay.
+// its React package, whose CommonJS dependencies would have Rolldown move React out of the app's script. In a
+// room, it's written together over the room's socket, each change going to everyone writing it as it's made
+// (canvas-live.ts). Without the socket, it saves a second after typing stops, over the version it was opened
+// at; a save over an older version is refused, with the one saved since, and the canvas merges that into
+// what's here (canvas-merge.ts), then saves the two together. While nothing's waiting to save, it looks for
+// others' saves every so often, and merges them in the same way. Nothing written here is ever replaced by
+// someone else's: where you both changed the same part, both stay.
 
 /** How long typing has to stop for before the canvas saves. */
 const SAVE_AFTER_MS = 1000;
 /** How often an open canvas looks for others' saves. */
 const REFRESH_MS = 10_000;
-/** Marks the transactions that merge others' saves in, which aren't this person's typing. */
-const MERGED = "emberCanvasMerged";
 
-type Status = "saved" | "saving" | "unsaved" | "too long" | "failed" | "unreadable";
+type Status = "saved" | "saving" | "unsaved" | "offline" | "too long" | "failed" | "unreadable";
 
 // Saved, and saving soon, are how a canvas is as you write, so they say nothing.
 const STATUS_LABELS: Record<Status, string> = {
   saved: "",
   saving: "Saving…",
   unsaved: "",
+  offline: "Offline",
   "too long": "Too long to save",
   failed: "Couldn’t save. Retrying when you type.",
   unreadable: "This canvas holds something Ember can’t show, so it can’t be edited here.",
@@ -57,21 +60,34 @@ interface Props {
 const bodyOf = (editor: Editor) => JSON.stringify(editor.getJSON());
 
 /**
- * Shows `body` in `editor`, changing only what differs, outside its undo history: Undo can't take back
- * someone else's writing, nor bring back what the merge already holds.
+ * What a canvas had unsaved as its page went, which this browser keeps until the canvas next opens, in
+ * case the room never had it: what it was written over, and what was written.
  */
-function showMerged(editor: Editor, body: string) {
-  const { state } = editor;
-  const next = editor.schema.nodeFromJSON(JSON.parse(body));
-  const start = state.doc.content.findDiffStart(next.content);
-  if (start === null) return;
-  let { a: endHere, b: endThere } = state.doc.content.findDiffEnd(next.content)!;
-  const overlap = start - Math.min(endHere, endThere);
-  if (overlap > 0) {
-    endHere += overlap;
-    endThere += overlap;
+interface Unsaved {
+  base: string;
+  body: string;
+}
+
+const unsavedKey = (tabId: string) => `ember:canvas-unsaved:${tabId}`;
+
+function keepUnsaved(tabId: string, unsaved: Unsaved): void {
+  try {
+    localStorage.setItem(unsavedKey(tabId), JSON.stringify(unsaved));
+  } catch {
+    // Kept nowhere, as in a private window: the save sent as the page went is all there is.
   }
-  editor.view.dispatch(state.tr.replace(start, endHere, next.slice(start, endThere)).setMeta("addToHistory", false).setMeta(MERGED, true));
+}
+
+/** What canvas `tabId` had unsaved as its page last went, taken out of what the browser keeps. */
+function takeUnsaved(tabId: string): Unsaved | null {
+  try {
+    const kept = localStorage.getItem(unsavedKey(tabId));
+    localStorage.removeItem(unsavedKey(tabId));
+    const unsaved = kept === null ? null : (JSON.parse(kept) as Partial<Unsaved> | null);
+    return typeof unsaved?.base === "string" && typeof unsaved.body === "string" ? { base: unsaved.base, body: unsaved.body } : null;
+  } catch {
+    return null;
+  }
 }
 
 export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
@@ -88,6 +104,20 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
 
   const host = useRef<HTMLDivElement>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
+  // In a room, written together over its socket; a canvas that can't be edited here, never.
+  const roomFrames = useContext(RoomFramesContext);
+  const frames = status === "unreadable" ? null : roomFrames;
+  const live = frames !== null;
+  // Before the editor's own, so that what's left goes before the editor does as the canvas closes.
+  const together = useLiveCanvas({
+    editor,
+    frames,
+    tabId: opened.tab.id,
+    version: canvas.version,
+    onEdited: setLastSaved,
+    onMerged: (conflicts) => setMerged(conflicts > 0 ? "both kept" : "merged"),
+    onRefused: (message) => setStatus(message === CANVAS_TOO_LONG ? "too long" : "failed"),
+  });
   // Made once, in the element it edits, when the canvas opens. A canvas holding what the editor can't
   // show would open empty, and saving that would lose it, so it opens read-only.
   useEffect(() => {
@@ -99,7 +129,7 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
       enableContentCheck: true,
       onContentError: () => void (unreadable = true),
       editorProps: { attributes: { "aria-label": opened.tab.title, class: "outline-none" } },
-      onUpdate: ({ transaction }) => changed(transaction.getMeta(MERGED) === true),
+      onUpdate: ({ transaction }) => changed(transaction.getMeta(MERGED) === true || transaction.getMeta(FROM_ROOM) === true),
     });
     if (unreadable) {
       made.setEditable(false);
@@ -108,6 +138,22 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
     setEditor(made);
     return () => made.destroy();
   }, []);
+
+  // What this canvas had unsaved as its page last went is merged into the canvas as it is now, and saved
+  // with it, as the save the page sent then may have been refused, or never arrived.
+  useEffect(() => {
+    if (!editor || status === "unreadable") return;
+    const unsaved = takeUnsaved(opened.tab.id);
+    if (!unsaved) return;
+    const now = bodyOf(editor);
+    const merge = mergeCanvas(unsaved.base, unsaved.body, now);
+    if (merge.body === now) return;
+    showDocument(editor, merge.body, MERGED);
+    setMerged(merge.conflicts > 0 ? "both kept" : "merged");
+    if (live) return;
+    setStatus("unsaved");
+    schedule();
+  }, [editor]);
 
   /** Merges in a version someone else saved, keeping whatever's here that isn't saved yet. */
   const takeIn = (theirs: OpenedTab["canvas"] & {}) => {
@@ -118,7 +164,7 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
     saved.current = theirs.body;
     setLastSaved({ by: theirs.updatedBy, at: theirs.updatedAt, version: theirs.version });
     if (merge.body === mine) return;
-    showMerged(editor, merge.body);
+    showDocument(editor, merge.body, MERGED);
     if (mine !== theirs.body && merge.body !== theirs.body) setMerged(merge.conflicts > 0 ? "both kept" : "merged");
   };
 
@@ -144,6 +190,8 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
       setLastSaved({ by: answer.canvas!.updatedBy, at: answer.canvas!.updatedAt, version: answer.canvas!.version });
       onSaved(answer);
     } catch (error) {
+      // A canvas closed since keeps what it couldn't save in this browser, to merge in as it next opens.
+      if (editor.isDestroyed) return keepUnsaved(opened.tab.id, { base: saved.current, body });
       if (error instanceof CanvasConflict) takeIn(error.canvas);
       else {
         more = false;
@@ -154,13 +202,16 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
       saving.current = false;
     }
     // Saves what was typed while this one was on its way, or the merge.
-    if (!more) return;
+    if (!more || editor.isDestroyed) return;
     if (bodyOf(editor) === saved.current) setStatus("saved");
     else if (!timer.current) void save();
   });
 
-  const changed = useEffectEvent((byMerge: boolean) => {
-    if (!byMerge) setMerged(null);
+  const changed = useEffectEvent((notTyped: boolean) => {
+    if (notTyped) return;
+    setMerged(null);
+    // Written together, each change goes to the room as it's made.
+    if (live) return;
     setStatus("unsaved");
     schedule();
   });
@@ -179,17 +230,31 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
   // And as the page goes: a reload, or the tab closing. Hidden, it saves at once; going away, it sends what's
   // unsaved in a request that outlives the page, and while something's still to save the browser asks first.
   const hidden = useEffectEvent(() => {
-    if (document.visibilityState !== "hidden" || !timer.current) return;
+    if (document.visibilityState !== "hidden") return;
+    if (live) return void together.flush();
+    if (!timer.current) return;
     clearTimeout(timer.current);
     void save();
   });
   const leaving = useEffectEvent(() => {
     if (!editor || status === "unreadable") return;
+    // Written together, what's waiting goes over the socket, and whole too, in case the socket goes first:
+    // the room takes whichever comes first, and refuses the other, as it's over a version it's past.
+    // This browser keeps it too, for the canvas to merge in as it next opens.
     const body = bodyOf(editor);
-    if (body !== saved.current && body.length <= MAX_CANVAS_LENGTH) saveCanvasOnLeaving(room.id, opened.tab.id, body, version.current);
+    if (live) {
+      const confirmed = together.flush();
+      if (!together.pending()) return;
+      saveCanvasOnLeaving(room.id, opened.tab.id, body, confirmed);
+      keepUnsaved(opened.tab.id, { base: together.confirmed() ?? canvas.body, body });
+      return;
+    }
+    if (body === saved.current) return;
+    if (body.length <= MAX_CANVAS_LENGTH) saveCanvasOnLeaving(room.id, opened.tab.id, body, version.current);
+    keepUnsaved(opened.tab.id, { base: saved.current, body });
   });
   const unsavedOnLeaving = useEffectEvent((event: BeforeUnloadEvent) => {
-    if (timer.current || saving.current) event.preventDefault();
+    if (live ? together.pending() : timer.current || saving.current) event.preventDefault();
   });
   useEffect(() => {
     const whenHidden = () => hidden();
@@ -207,7 +272,7 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
 
   // Others' saves, while nothing here waits to be saved.
   const refresh = useEffectEvent(async () => {
-    if (timer.current || saving.current || document.hidden || status === "unreadable") return;
+    if (live || timer.current || saving.current || document.hidden || status === "unreadable") return;
     const latest = await openTab(room.id, opened.tab.id).catch(() => null);
     if (!latest?.canvas || latest.canvas.version <= version.current || timer.current || saving.current) return;
     takeIn(latest.canvas);
@@ -230,7 +295,7 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
               </span>
             )}
             <span role="status" className={cn(status === "failed" || status === "too long" || status === "unreadable" ? "text-destructive" : undefined)}>
-              {STATUS_LABELS[status]}
+              {STATUS_LABELS[together.offline && status === "saved" ? "offline" : status]}
             </span>
             {merged && (
               <span role="alert" className={cn(merged === "both kept" ? "font-medium text-destructive" : undefined)}>

@@ -258,7 +258,27 @@ async function tabsRequest(request: Request, env: Env, roomId: RoomId, action: (
   return actOnTabs(env, credentials, roomId, parsed);
 }
 
-const orParsed = <T>(parsed: T | string, action: (value: T) => TabAction): TabAction | string => (typeof parsed === "string" ? parsed : action(parsed));
+/**
+ * `PUT /api/rooms/<id>/tabs/<tabId>/canvas`, a `CanvasSave`: a canvas sent whole, over the version it was
+ * changed from, as an editor without the room's socket, or a page going away, sends it. It goes through
+ * the room's object, as people may be writing the canvas together there (canvas-sessions.ts).
+ */
+async function saveCanvas(request: Request, env: Env, roomId: RoomId, tabId: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, NOT_SIGNED_IN);
+  const save = parseCanvasSave(await jsonBodyOf(request));
+  if (typeof save === "string") return problem(422, save);
+  const writer = await workspace(env).canvasWriter(credentials, roomId, tabId);
+  if (!writer) return problem(401, NOT_SIGNED_IN);
+  if (writer === "not found") return problem(404, TAB_NOT_FOUND);
+  if (writer === "forbidden") return problem(403, "You can't change this room's tabs");
+  const answer = await env.CHAT_ROOM.getByName(roomId).saveCanvas(roomId, tabId, writer.actor, save);
+  if (answer === "not found") return problem(404, TAB_NOT_FOUND);
+  if ("conflict" in answer) return Response.json({ error: CANVAS_CHANGED, canvas: answer.conflict satisfies Canvas }, { status: 409 });
+  return json({ tab: await shownTab(writer.tab, await signer(env)), canvas: answer.canvas } satisfies OpenedTab);
+}
+
+const orParsed =<T>(parsed: T | string, action: (value: T) => TabAction): TabAction | string => (typeof parsed === "string" ? parsed : action(parsed));
 
 /** A path segment as text, or null for a malformed escape. */
 function decoded(segment: string): string | null {
@@ -292,8 +312,7 @@ export function libraryAction(request: Request, env: Env, pathname: string): (()
     if (method === "DELETE") return () => tabsRequest(request, env, roomId, () => ({ act: "remove", tabId }), false);
     return null;
   }
-  if (part === "canvas" && itemId === undefined && method === "PUT")
-    return () => tabsRequest(request, env, roomId, (body) => orParsed(parseCanvasSave(body), (save) => ({ act: "save", tabId, save })));
+  if (part === "canvas" && itemId === undefined && method === "PUT") return () => saveCanvas(request, env, roomId, tabId);
   if (part === "items" && itemId === undefined && method === "POST") return () => addTo(request, env, roomId, tabId);
   if (part === "items" && itemId !== undefined && method === "DELETE")
     return () => tabsRequest(request, env, roomId, () => ({ act: "remove-item", tabId, itemId }), false);

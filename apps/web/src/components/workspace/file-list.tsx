@@ -93,7 +93,6 @@ export function TypesMenu({ types, onChange }: { types: FileType[]; onChange: (t
   return (
     <DropdownMenu>
       <DropdownMenuTrigger aria-label={`File types: ${types.length === 0 ? "all" : label}`} className={cn(PILL, types.length > 0 && PILL_ON)}>
-        <FilterList />
         <span>{label}</span>
         <NavArrowDown />
       </DropdownMenuTrigger>

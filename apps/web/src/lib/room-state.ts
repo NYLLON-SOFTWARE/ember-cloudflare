@@ -481,6 +481,10 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     case "thread.opened":
     case "thread.history":
     case "card.clicked":
+    // A canvas's, which its editor keeps (canvas-live.ts).
+    case "canvas.state":
+    case "canvas.steps":
+    case "canvas.refused":
     case "pong":
       return state;
   }
