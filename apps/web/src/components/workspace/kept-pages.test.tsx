@@ -62,17 +62,17 @@ function showPage(Page: typeof TodosPage, items: SavedItem[], itemId?: string, e
 }
 
 describe("To-dos", () => {
-  it("lists to-dos in progress and completed, each with where its message is and when", async () => {
+  it("lists to-dos in progress and completed, each with who wrote its message, where, and when, across the page until one opens", async () => {
     showPage(TodosPage, [item("a", { message: message("m-a", "Ship the deck") }), item("b", { message: message("m-b", "Reply to Lin", "p1"), completedAt: "2026-11-02T00:00:00.000Z" }), item("c", { kind: "note", roomId: undefined, messageId: undefined, body: "<p>Call Grace</p>", plainText: "Call Grace", files: [] })]);
     const inProgress = await screen.findByRole("button", { name: /^In progress\s*\d/ });
     expect(inProgress).toHaveTextContent("In progress2");
     expect(screen.getByRole("button", { name: /^Completed\s*\d/ })).toHaveTextContent("Completed1");
     expect(screen.getByText("Ship the deck")).toBeInTheDocument();
-    expect(screen.getByText(/^#general/)).toBeInTheDocument();
+    expect(screen.getByText(/^\S.* · #general ·$/)).toBeInTheDocument();
     expect(screen.getByText(/Thread in #general/)).toBeInTheDocument();
     expect(screen.getByText("Call Grace")).toBeInTheDocument();
     expect(screen.getByText(/Reply to Lin/)).toHaveClass("line-through");
-    expect(screen.getByRole("main", { name: "To-do" })).toHaveTextContent("");
+    expect(screen.queryByRole("main")).not.toBeInTheDocument();
   });
 
   it("marks a to-do completed from its row, moving it to Completed", async () => {
@@ -98,13 +98,13 @@ describe("To-dos", () => {
 });
 
 describe("Saved", () => {
-  it("offers only Move to To-dos and Clear on a row, and moves one out of Saved", async () => {
+  it("offers only Move to To-dos and Remove from saved on a row, and moves one out of Saved", async () => {
     showPage(SavedPage, [item("a", { list: "saved", message: message("m-a", "Good read") })]);
     const row = (await screen.findByText("Good read")).closest("li")!;
     const bar = within(row);
     expect(bar.queryByRole("button", { name: "Mark completed" })).not.toBeInTheDocument();
     expect(bar.queryByRole("button", { name: "Add reminder" })).not.toBeInTheDocument();
-    expect(bar.getByRole("button", { name: "Clear" })).toBeInTheDocument();
+    expect(bar.getByRole("button", { name: "Remove from saved" })).toBeInTheDocument();
     await userEvent.click(bar.getByRole("button", { name: "Move to To-dos" }));
     expect(await screen.findByText("Nothing saved")).toBeInTheDocument();
   });
@@ -120,7 +120,7 @@ describe("Either list", () => {
   it("takes an item another tab cleared first as cleared, saying nothing", async () => {
     const fetch = showPage(SavedPage, [item("a", { list: "saved", message: message("m-a", "Gone twice") })]);
     const row = (await screen.findByText("Gone twice")).closest("li")!;
-    await userEvent.click(within(row).getByRole("button", { name: "Clear" }));
+    await userEvent.click(within(row).getByRole("button", { name: "Remove from saved" }));
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/saved/a", { method: "DELETE" }));
     expect(fetch.failed).not.toHaveBeenCalled();
   });

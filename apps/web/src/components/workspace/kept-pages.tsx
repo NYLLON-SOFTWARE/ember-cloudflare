@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import {
   isWebImage,
   MAX_NOTE_FILES,
@@ -15,7 +15,6 @@ import {
 } from "@ember/protocol";
 import {
   ArrowLeft,
-  Attachment as AttachmentIcon,
   Bookmark,
   CheckCircle,
   CheckCircleSolid,
@@ -28,9 +27,9 @@ import {
   Page,
   Plus,
   Sort,
-  Trash,
   Xmark,
 } from "@/components/icons/iconoir";
+import { fileTypeOf } from "@ember/protocol/library";
 import { Lightbox } from "@/components/lightbox";
 import { MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
@@ -44,26 +43,29 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useNameOf } from "@/hooks/use-directory";
-import { useMediaQuery } from "@/hooks/use-media-query";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { useMounted } from "@/hooks/use-mounted";
-import { navigate, permalinkOf } from "@/hooks/use-route";
+import { navigate, permalinkOf, returnTo } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { isSignedOut } from "@/lib/api";
-import { dateOf, fileTypeLabel, FILTER_LABELS, FILTERS, localInputValue, originOf, reminderChoices, shows, sorted, SORT_LABELS, SORTS, summaryOf, type KeptFilter, type KeptSort } from "@/lib/kept";
-import { dateLabel, dateTimeLabel } from "@/lib/messages";
+import { dateOf, FILTER_LABELS, shortDateLabel, FILTERS, localInputValue, originOf, reminderChoices, shows, sorted, SORT_LABELS, SORTS, summaryOf, type KeptFilter, type KeptSort } from "@/lib/kept";
+import { dateTimeLabel } from "@/lib/messages";
 import { clearItem, keepItem, useSavedVersion } from "@/lib/saved";
 import { changeItem, fetchSavedItem, fetchSavedList, uploadNoteFile } from "@/lib/saved-lists";
 import { cn } from "@/lib/utils";
 import { Attachment } from "./attachment";
 import { ATTACH_BUTTON } from "./composer-buttons";
-import { EmojiButton, MentionButton } from "./composer-menus";
+import { EmojiButton, FormattingToggle, MentionButton } from "./composer-menus";
 import { ComposerToolbar } from "./composer-toolbar";
-import { NO_FORMATS, type Formats } from "./formatting";
+import { NO_FORMATS, PHONE_TOOL_GROUPS, type Formats } from "./formatting";
+import { FileTypeIcon } from "./file-list";
 import { RichTextEditor, type RichTextEditorHandle } from "./editor";
 import { MessageItem, type MessageEditors } from "./message-item";
 import { HEADER_TEXT_BUTTON, PageHeader } from "./page-header";
 import type { RoomPanes } from "./room-view";
-import { ONE_PANE, SplitPanes, type Pane, type PaneStack } from "./split-panes";
+import { SplitPanes, type Pane, type PaneStack } from "./split-panes";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { ROUND_BUTTON } from "../mobile/back-button";
 import { UserAvatar } from "./user-avatar";
 
 // To-dos and Saved, after Slack's: a list of what you keep, filtered and sorted, beside the item you've
@@ -138,6 +140,47 @@ export function TodosPage(props: Omit<Props, "list">) {
   return <KeptPage list="todo" {...props} />;
 }
 
+/** A phone's Back from the list, to Home, which opened it: back, when Home was the entry before, so the two don't loop. */
+function backHome(event: MouseEvent<HTMLAnchorElement>) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  returnTo("/");
+}
+
+/** The keys typed while an editor opens, which it takes once it has focus. */
+interface TypedAhead {
+  take: () => string;
+}
+
+/**
+ * Keeps what's typed from now until the editor opening takes it, as Edit's does a moment after it's
+ * pressed, so the first keys aren't lost. It gives up after a few seconds.
+ */
+function typeAhead(): TypedAhead {
+  let text = "";
+  const keep = (event: KeyboardEvent) => {
+    if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.key.length === 1) text += event.key;
+    else if (event.key === "Backspace") text = text.slice(0, -1);
+    else return;
+    event.preventDefault();
+  };
+  const stop = () => {
+    document.removeEventListener("keydown", keep, true);
+    clearTimeout(timer);
+  };
+  document.addEventListener("keydown", keep, true);
+  const timer = setTimeout(stop, 3000);
+  return {
+    take: () => {
+      stop();
+      const typed = text;
+      text = "";
+      return typed;
+    },
+  };
+}
+
 /** What you've saved, at `/saved`. */
 export function SavedPage(props: Omit<Props, "list">) {
   return <KeptPage list="saved" {...props} />;
@@ -152,8 +195,8 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
   const [filter, setFilter] = useState<KeptFilter>("all");
   const [sort, setSort] = useState<KeptSort>("newest");
   const [creating, setCreating] = useState(false);
-  // The note Edit opened, whose text takes focus.
-  const [editing, setEditing] = useState<string | null>(null);
+  // The note Edit opened, whose text takes focus and the keys typed before it could.
+  const [editing, setEditing] = useState<{ id: string; typed: TypedAhead } | null>(null);
   const [viewing, setViewing] = useState<StoredFile | null>(null);
   // A thread opened from a saved message's conversation, in the pane beside it, and that pane.
   // A saved reply opens with its thread, until that's closed.
@@ -208,7 +251,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
     remind: (item, at) => act(changeItem(item.id, { remindAt: at && at.toISOString() })),
     clear: (item) => {
       setItems((items) => items && items.filter((i) => i.id !== item.id));
-      if (item.id === itemId) navigate(savedPath(list), { replace: true });
+      if (item.id === itemId) returnTo(savedPath(list));
       clearItem(item.id).catch(failed);
     },
     open: (item) => {
@@ -224,7 +267,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
     },
     edit: (item) => {
       // A note opens with the cursor in its text, ready to change it.
-      if (item.kind === "note") setEditing(item.id);
+      if (item.kind === "note") setEditing({ id: item.id, typed: typeAhead() });
       actions.open(item);
     },
   };
@@ -236,12 +279,19 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
   const created = (item: SavedItem) => {
     setItems((items) => items && [item, ...items.filter((i) => i.id !== item.id)]);
     setCreating(false);
-    navigate(savedPath(list, item.id));
+    // The new to-do takes the place of the blank one, so Back from it goes to the list.
+    navigate(savedPath(list, item.id), { replace: true });
   };
   const closeDetail = () => {
     setCreating(false);
-    if (itemId !== undefined) navigate(savedPath(list));
+    if (itemId !== undefined) returnTo(savedPath(list));
   };
+  // An item open at its own address is already an entry in the history, so a phone's Back leaves it
+  // without one for its pane too; a new to-do, and a thread beside a saved message, get one.
+  const paneStack = useCallback(
+    (stack: PaneStack) => onPaneStack?.(itemId === undefined ? stack : { ...stack, open: stack.open.filter((id) => id !== "detail") }),
+    [onPaneStack, itemId],
+  );
   const detailOpen = creating || itemId !== undefined;
 
   const row = (item: SavedItem) => (
@@ -251,7 +301,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
   const inProgress = shown.filter((item) => item.completedAt === null);
   const completed = shown.filter((item) => item.completedAt !== null);
 
-  const phone = useMediaQuery(ONE_PANE);
+  const phone = usePhoneLayout();
   const header = (
     <>
       <h1 className="min-w-0 flex-1 truncate text-[17px] leading-[1.4] font-[650] max-md:text-center max-md:font-bold">{names.title}</h1>
@@ -270,16 +320,23 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
     <section aria-label={names.title} className="flex h-full min-h-0 min-w-0 flex-col bg-background">
       {/* On phones the page's own top bar, with Back, stands over the list instead. */}
       {!phone && <div className="flex min-h-header items-center gap-3 border-b px-[22px] py-2.5">{header}</div>}
-      <div className="flex items-center gap-2 border-b px-4 py-2">
-        <FilterMenu list={list} filter={filter} onFilter={setFilter} />
-        <span className="flex-1" />
-        <SortMenu list={list} sort={sort} onSort={setSort} />
-      </div>
+      {items !== null && items.length > 0 && (
+        <div className="flex items-center gap-2 border-b px-4 py-2">
+          <FilterMenu list={list} filter={filter} onFilter={setFilter} />
+          <span className="flex-1" />
+          <SortMenu list={list} sort={sort} onSort={setSort} />
+        </div>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {items === null ? (
           <p className="p-6 text-center text-muted-foreground">Loading…</p>
+        ) : items.length === 0 ? (
+          <div className="grid h-full place-content-center justify-items-center gap-3 p-6 text-muted-foreground">
+            {list === "todo" ? <CheckCircle className="size-12" strokeWidth={1.25} /> : <Bookmark className="size-12" strokeWidth={1.25} />}
+            <p>{names.empty}</p>
+          </div>
         ) : shown.length === 0 ? (
-          <p className="p-6 text-center text-muted-foreground">{filter === "all" ? names.empty : "Nothing matches"}</p>
+          <p className="p-6 text-center text-muted-foreground">Nothing matches</p>
         ) : list === "todo" ? (
           <>
             <Section title="In progress" count={inProgress.length}>
@@ -303,7 +360,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
       <NoteEditor key="new" onSaved={created} onFailed={failed} />
     </Detail>
   ) : place && renderRoom ? (
-    <div className="flex h-full min-h-0 flex-col border-l bg-background" onClickCapture={(event) => openThreadForLink(event, place, setThread)}>
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background" onClickCapture={(event) => openThreadForLink(event, place, setThread)}>
       {/* Where the list doesn't show beside it, as on a phone, a way back to it. */}
       {/* Phones' back stack is the mobile layout's (`onPaneStack`), as Activity's is. */}
       {hiddenPanes > 0 && !phone && (
@@ -312,38 +369,42 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
           {names.title}
         </button>
       )}
-      <div className="min-h-0 flex-1">{renderRoom(place, { thread: threadPane, onCloseThread: () => setThread("closed") })}</div>
+      {/* The room's panes grid sizes its one column to the header's text, wider than a phone, unless held to the pane. */}
+      <div className="min-h-0 min-w-0 flex-1 *:grid-cols-[minmax(0,1fr)]">{renderRoom(place, { thread: threadPane, onCloseThread: () => setThread("closed") })}</div>
     </div>
   ) : selected ? (
-    <Detail title={names.item} onClose={closeDetail}>
-      <ItemDetail key={selected.id} item={selected} focus={editing === selected.id} me={me} origin={originOf(selected, roomsById, me.id, nameOf)} actions={actions} onChanged={replaced} onFailed={failed} />
+    <Detail title={names.item} onClose={closeDetail} menu={<ItemMenu item={selected} list={list} actions={actions} className={ROUND_BUTTON} />}>
+      <ItemDetail key={selected.id} item={selected} typed={editing?.id === selected.id ? editing.typed : null} me={me} origin={originOf(selected, roomsById, me.id, nameOf)} actions={actions} onChanged={replaced} onFailed={failed} />
     </Detail>
   ) : itemId !== undefined && items !== null ? (
     <Detail title={names.item} onClose={closeDetail}>
       <p className="text-muted-foreground">That item isn’t in your {names.title.toLowerCase()}.</p>
     </Detail>
-  ) : (
-    // Nothing open: the pane stays quiet, with the list's icon faded in its middle.
-    <MainContent aria-label={names.item} className="grid h-full place-content-center border-l bg-background p-6">
-      {list === "todo" ? <CheckCircle className="size-24 text-hover" strokeWidth={1} /> : <Bookmark className="size-24 text-hover" strokeWidth={1} />}
-    </MainContent>
-  );
+  ) : null;
 
   const panes: Pane[] = [
     { id: "list", label: `Resize ${names.title}`, minWidth: 320, defaultShare: place ? 0.32 : 0.42, content: listPane },
     { id: "detail", label: `Resize ${names.title}`, minWidth: 360, defaultShare: place ? 0.68 : 0.58, onClose: detailOpen ? closeDetail : undefined, content: detail },
   ];
-  if (phone && !detailOpen) panes.pop();
+  // With nothing open, the list has the page to itself.
+  if (!detail) panes.pop();
   if (place?.threadId !== undefined)
     panes.push({ id: "thread", label: "Resize thread", minWidth: 300, defaultShare: 0.3, onClose: () => setThread("closed"), content: <div ref={setThreadPane} className="h-full min-h-0" /> });
 
   return (
     <>
-      {phone && !detailOpen && <PageHeader>{header}</PageHeader>}
+      {phone && !detailOpen && (
+        <PageHeader>
+          <a href="/" aria-label="Back" title="Back" onClick={backHome} className={ROUND_BUTTON}>
+            <ArrowLeft className="size-[22px]" />
+          </a>
+          {header}
+        </PageHeader>
+      )}
       <SplitPanes
         layoutKey={list === "todo" ? "todos" : "saved"}
         panes={panes}
-        onLayout={onPaneStack}
+        onLayout={onPaneStack && paneStack}
         onCollapsed={setHiddenPanes}
         className={cn(
           "row-span-2 row-start-1 bg-background max-md:col-start-1",
@@ -426,6 +487,16 @@ interface RowActions {
   edit: (item: SavedItem) => void;
 }
 
+/** A kept file's tile, as Files shows one: a picture's or video's thumbnail, or else its type's icon. */
+function FileTile({ file }: { file: StoredFile }) {
+  const thumbnail = file.previewUrl ?? (isWebImage(file.contentType) ? file.url : undefined);
+  return thumbnail ? (
+    <img src={thumbnail} alt="" loading="lazy" className="size-9 shrink-0 rounded-lg bg-hover object-cover" />
+  ) : (
+    <FileTypeIcon file={{ kind: "file", type: fileTypeOf(file.contentType, file.name) }} />
+  );
+}
+
 /** Who a row shows: the message's author, or you for a note of your own. */
 const faceOf = (item: SavedItem, me: Me) => item.message?.creator ?? me;
 
@@ -442,11 +513,9 @@ function KeptRow({ item, list, selected, origin, me, actions }: { item: SavedIte
           <Page className="size-5" />
         </span>
       ) : file ? (
-        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface text-muted-foreground" title={file.contentType}>
-          <AttachmentIcon className="size-5" />
-        </span>
+        <FileTile file={file} />
       ) : (
-        <UserAvatar user={faceOf(item, me)} className="size-9 shrink-0" />
+        <UserAvatar user={faceOf(item, me)} square className="size-9 shrink-0" />
       )}
       <button
         type="button"
@@ -458,19 +527,18 @@ function KeptRow({ item, list, selected, origin, me, actions }: { item: SavedIte
           {done && <span className="sr-only">Completed: </span>}
           {summaryOf(item)}
         </span>
-        <span className="block truncate text-[13px] text-muted-foreground">
-          {file && item.message && (
-            <>
-              {nameOf(item.message.creator)} · {fileTypeLabel(file)} ·{" "}
-            </>
-          )}
-          {origin && <>{origin} · </>}
-          <time dateTime={date} title={dateTimeLabel(new Date(date))}>
-            {dateLabel(new Date(date))}
-          </time>
+        {/* Where it's from truncates first, keeping a reminder's state in sight. */}
+        <span className="flex min-w-0 gap-1 text-[13px] text-muted-foreground">
+          <span className="truncate">
+            {item.message && <>{nameOf(item.message.creator)} · </>}
+            {origin && <>{origin} · </>}
+            <time dateTime={date} title={dateTimeLabel(new Date(date))}>
+              {shortDateLabel(new Date(date))}
+            </time>
+          </span>
           {item.remindAt && !done && (
-            <>
-              {" · "}
+            <span className="shrink-0">
+              {"· "}
               {item.reminded ? (
                 <span className="text-negative">Overdue</span>
               ) : (
@@ -478,7 +546,7 @@ function KeptRow({ item, list, selected, origin, me, actions }: { item: SavedIte
                   <Clock className="inline size-3.5 align-[-2px]" /> {dateTimeLabel(new Date(item.remindAt))}
                 </>
               )}
-            </>
+            </span>
           )}
         </span>
       </button>
@@ -493,13 +561,13 @@ function KeptRow({ item, list, selected, origin, me, actions }: { item: SavedIte
  * they're in the menu its ⋯ opens.
  */
 function RowActionBar({ item, list, actions }: { item: SavedItem; list: SavedList; actions: RowActions }) {
-  // Whether its menu shows Custom…'s time to pick, in place of its items.
-  const [custom, setCustom] = useState(false);
   const done = item.completedAt !== null;
   const moveLabel = list === "todo" ? "Move to Saved" : "Move to To-dos";
+  const clearLabel = CLEAR_LABELS[list];
   return (
     <>
-      <div className="absolute top-1/2 right-3 z-1 hidden -translate-y-1/2 items-center gap-0.5 rounded-lg border bg-background p-0.5 shadow-sm group-focus-within/row:flex group-hover/row:flex touch:hidden!">
+      {/* It stays while its menu's open, and fades the title it covers. */}
+      <div className="absolute top-1/2 right-3 z-1 hidden -translate-y-1/2 items-center gap-0.5 rounded-lg border bg-background p-0.5 shadow-sm group-focus-within/row:flex group-hover/row:flex has-[[aria-expanded=true]]:flex before:pointer-events-none before:absolute before:inset-y-0 before:right-full before:w-10 before:bg-linear-to-l before:from-hover before:to-transparent touch:hidden!">
         {list === "todo" && (
           <button type="button" title={done ? "Mark in progress" : "Mark completed"} aria-label={done ? "Mark in progress" : "Mark completed"} className={ROW_ACTION} onClick={() => actions.complete(item)}>
             {done ? <CheckCircleSolid /> : <CheckCircle />}
@@ -520,62 +588,119 @@ function RowActionBar({ item, list, actions }: { item: SavedItem; list: SavedLis
         <button type="button" title={moveLabel} aria-label={moveLabel} className={ROW_ACTION} onClick={() => actions.move(item)}>
           {list === "todo" ? <Bookmark /> : <CheckCircle />}
         </button>
-        <button type="button" title="Clear" aria-label="Clear" className={ROW_ACTION} onClick={() => actions.clear(item)}>
-          <Trash />
+        <button type="button" title={clearLabel} aria-label={clearLabel} className={ROW_ACTION} onClick={() => actions.clear(item)}>
+          <Xmark />
         </button>
       </div>
-      <DropdownMenu onOpenChange={(open) => !open && setCustom(false)}>
-        <DropdownMenuTrigger aria-label="Item actions" className={cn(ROW_ACTION, "relative z-1 hidden size-11 shrink-0 self-center touch:grid")}>
-          <MoreHoriz />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {custom ? (
-            <CustomReminder onRemind={(at) => actions.remind(item, at)} />
-          ) : (
-          <>
-          {list === "todo" && <DropdownMenuItem onSelect={() => actions.complete(item)}>{done ? "Mark in progress" : "Mark completed"}</DropdownMenuItem>}
-          {list === "todo" && <DropdownMenuItem onSelect={() => actions.edit(item)}>Edit</DropdownMenuItem>}
-          <DropdownMenuItem onSelect={() => actions.move(item)}>{moveLabel}</DropdownMenuItem>
-          {list === "todo" && (
+      <ItemMenu item={item} list={list} actions={actions} className="relative z-1 hidden self-center touch:grid" />
+    </>
+  );
+}
+
+/** What takes an item out of its list: a to-do's done with, and a saved item's no longer saved. */
+const CLEAR_LABELS = { todo: "Clear", saved: "Remove from saved" } as const satisfies Record<SavedList, string>;
+
+/** One of the item sheet's rows: full width, a fingertip's 48px tall at least. */
+const SHEET_ROW = "flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-xl px-4 py-2.5 text-start text-base hover:bg-hover active:bg-hover";
+
+/**
+ * ⋯ for fingers, on a row and over an open to-do, which opens the item's actions in a sheet from the
+ * bottom of the screen: To-dos' Mark completed, Edit, Move to Saved and Remind me…, whose times take the
+ * sheet's place, and Saved's Move to To-dos, with Clear or Remove from saved set apart below.
+ */
+function ItemMenu({ item, list, actions, className }: { item: SavedItem; list: SavedList; actions: RowActions; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState<"actions" | "remind" | "custom">("actions");
+  const done = item.completedAt !== null;
+  const opened = (open: boolean) => {
+    setOpen(open);
+    if (!open) setView("actions");
+  };
+  const row = (label: string, onSelect: () => void, { keepOpen = false, destructive = false, detail }: { keepOpen?: boolean; destructive?: boolean; detail?: string } = {}) => (
+    <button
+      key={label}
+      type="button"
+      onClick={() => {
+        if (!keepOpen) opened(false);
+        onSelect();
+      }}
+      className={cn(SHEET_ROW, destructive && "text-destructive")}
+    >
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate">{label}</span>
+        {detail && <span className="truncate text-sm text-muted-foreground">{detail}</span>}
+      </span>
+    </button>
+  );
+  const remind = (at: Date | null) => actions.remind(item, at);
+  return (
+    <>
+      <button type="button" aria-label="Item actions" aria-haspopup="dialog" aria-expanded={open} onClick={() => opened(true)} className={cn(ROW_ACTION, "size-11 shrink-0", className)}>
+        <MoreHoriz />
+      </button>
+      <Sheet open={open} onOpenChange={opened}>
+        <SheetContent
+          side="bottom"
+          showCloseButton={false}
+          className="mx-auto max-w-[560px] gap-1 rounded-t-[20px] border-x px-2 pt-2 pr-[max(8px,env(safe-area-inset-right))] pb-[max(12px,env(safe-area-inset-bottom))] pl-[max(8px,env(safe-area-inset-left))]"
+        >
+          <span aria-hidden="true" className="mx-auto mb-1 h-1 w-9 shrink-0 rounded-full bg-muted-foreground/40" />
+          <SheetTitle className="truncate px-4 pt-1 pb-2 text-[15px] font-semibold text-muted-foreground">{view === "actions" ? summaryOf(item) : "Remind me"}</SheetTitle>
+          <SheetDescription className="sr-only">{view === "actions" ? `Actions for ${summaryOf(item)}` : "When to remind you"}</SheetDescription>
+          {view === "actions" ? (
             <>
-              <DropdownMenuSeparator />
-              {reminderChoices(new Date()).map(({ label, at }) => (
-                <DropdownMenuItem key={label} onSelect={() => actions.remind(item, at)}>
-                  Remind me {label.charAt(0).toLowerCase() + label.slice(1)}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  setCustom(true);
-                }}
-              >
-                Custom…
-              </DropdownMenuItem>
-              {item.remindAt && <DropdownMenuItem onSelect={() => actions.remind(item, null)}>Remove reminder</DropdownMenuItem>}
+              {list === "todo" && row(done ? "Mark in progress" : "Mark completed", () => actions.complete(item))}
+              {list === "todo" && row("Edit", () => actions.edit(item))}
+              {row(list === "todo" ? "Move to Saved" : "Move to To-dos", () => actions.move(item))}
+              {list === "todo" && row("Remind me…", () => setView("remind"), { keepOpen: true, detail: item.remindAt ? dateTimeLabel(new Date(item.remindAt)) : undefined })}
+              <hr className="mx-4 my-1 border-t" />
+              {row(CLEAR_LABELS[list], () => actions.clear(item), { destructive: true })}
             </>
+          ) : view === "remind" ? (
+            <>
+              {reminderChoices(new Date()).map(({ label, at }) => row(label, () => remind(at)))}
+              {row("Custom…", () => setView("custom"), { keepOpen: true })}
+              {item.remindAt && (
+                <>
+                  <hr className="mx-4 my-1 border-t" />
+                  {row("Remove reminder", () => remind(null))}
+                </>
+              )}
+            </>
+          ) : (
+            <CustomReminder
+              large
+              onRemind={(at) => {
+                opened(false);
+                remind(at);
+              }}
+            />
           )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onSelect={() => actions.clear(item)}>
-            Clear
-          </DropdownMenuItem>
-          </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </SheetContent>
+      </Sheet>
     </>
   );
 }
 
 /** Add reminder's menu, around its trigger: the times it offers, a time of your own, and Remove reminder once one is set. */
 function ReminderMenu({ item, onRemind, children }: { item: SavedItem; onRemind: (at: Date | null) => void; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState(false);
+  const opened = (open: boolean) => {
+    setOpen(open);
+    if (!open) setCustom(false);
+  };
   return (
-    <DropdownMenu onOpenChange={(open) => !open && setCustom(false)}>
+    <DropdownMenu open={open} onOpenChange={opened}>
       {children}
       <DropdownMenuContent align="end" className="min-w-56">
         {custom ? (
-          <CustomReminder onRemind={onRemind} />
+          <CustomReminder
+            onRemind={(at) => {
+              opened(false);
+              onRemind(at);
+            }}
+          />
         ) : (
           <>
             {reminderChoices(new Date()).map(({ label, at }) => (
@@ -605,10 +730,10 @@ function ReminderMenu({ item, onRemind, children }: { item: SavedItem; onRemind:
 }
 
 /** A time of your own for a reminder, in a menu, for Custom…. */
-function CustomReminder({ onRemind }: { onRemind: (at: Date) => void }) {
+function CustomReminder({ onRemind, large = false }: { onRemind: (at: Date) => void; large?: boolean }) {
   return (
     <form
-      className="grid gap-2 p-2"
+      className={cn("grid gap-2 p-2", large && "gap-3 px-4 pb-2")}
       onSubmit={(event) => {
         event.preventDefault();
         const value = new FormData(event.currentTarget).get("at");
@@ -616,10 +741,17 @@ function CustomReminder({ onRemind }: { onRemind: (at: Date) => void }) {
       }}
     >
       <label className="grid gap-1 text-[13px]">
-        Remind me at
-        <input name="at" type="datetime-local" required defaultValue={localInputValue(new Date(Date.now() + 3_600_000))} className="rounded-md border bg-background px-2 py-1 text-base" />
+        {/* The sheet's title already says it. */}
+        <span className={cn(large && "sr-only")}>Remind me at</span>
+        <input
+          name="at"
+          type="datetime-local"
+          required
+          defaultValue={localInputValue(new Date(Date.now() + 3_600_000))}
+          className={cn("rounded-md border bg-background px-2 py-1 text-base", large && "h-11 rounded-xl px-3")}
+        />
       </label>
-      <button type="submit" className="rounded-md bg-foreground px-3 py-1.5 text-sm font-medium text-background">
+      <button type="submit" className={cn("rounded-md bg-foreground px-3 py-1.5 text-sm font-medium text-background", large && "h-11 rounded-xl bg-primary text-base text-primary-foreground")}>
         Set reminder
       </button>
     </form>
@@ -627,19 +759,19 @@ function CustomReminder({ onRemind }: { onRemind: (at: Date) => void }) {
 }
 
 /** The pane beside the list: its title and ×, over what's open, or on a phone, where it covers the list, Back and its title. */
-function Detail({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  const phone = useMediaQuery(ONE_PANE);
+function Detail({ title, onClose, menu, children }: { title: string; onClose: () => void; menu?: ReactNode; children: ReactNode }) {
+  const phone = usePhoneLayout();
   return (
-    <MainContent className="flex h-full min-h-0 flex-col border-l bg-background">
+    <MainContent className="flex h-full min-h-0 min-w-0 flex-col bg-background">
       <div className="flex min-h-header items-center gap-2 border-b px-5 max-md:min-h-14 max-md:px-2 max-md:pt-[env(safe-area-inset-top)]">
         {phone && (
-          <button type="button" aria-label="Back" title="Back" onClick={onClose} className="grid size-11 shrink-0 place-items-center rounded-full border bg-surface text-foreground hover:bg-hover">
+          <button type="button" aria-label="Back" title="Back" onClick={onClose} className={ROUND_BUTTON}>
             <ArrowLeft className="size-[22px]" />
           </button>
         )}
         <h2 className="flex-1 text-[17px] font-[650] max-md:text-center">{title}</h2>
         {phone ? (
-          <span aria-hidden="true" className="w-11 shrink-0" />
+          (menu ?? <span aria-hidden="true" className="w-11 shrink-0" />)
         ) : (
           <button type="button" aria-label="Close" onClick={onClose} className="grid size-9 cursor-pointer place-items-center rounded-lg hover:bg-hover touch:size-11">
             <Xmark className="size-5" />
@@ -653,8 +785,8 @@ function Detail({ title, onClose, children }: { title: string; onClose: () => vo
 
 interface ItemDetailProps {
   item: SavedItem;
-  /** Whether a note takes focus, as Edit opened it. */
-  focus: boolean;
+  /** What was typed after Edit opened a note, which takes focus, or null when it doesn't. */
+  typed: TypedAhead | null;
   me: Me;
   origin: string;
   actions: RowActions;
@@ -663,11 +795,11 @@ interface ItemDetailProps {
 }
 
 /** An item opened beside its list: a note to edit, or the message it keeps, with its reminder and status. */
-function ItemDetail({ item, focus, me, origin, actions, onChanged, onFailed }: ItemDetailProps) {
+function ItemDetail({ item, typed, me, origin, actions, onChanged, onFailed }: ItemDetailProps) {
   return (
     <div className="grid gap-4">
       {item.kind === "note" ? (
-        <NoteEditor item={item} autoFocus={focus} onSaved={onChanged} onFailed={onFailed} />
+        <NoteEditor item={item} typed={typed} onSaved={onChanged} onFailed={onFailed} />
       ) : item.unavailable ? (
         <p className="text-muted-foreground">This message is unavailable.</p>
       ) : !item.message ? (
@@ -701,7 +833,7 @@ function ItemDetail({ item, focus, me, origin, actions, onChanged, onFailed }: I
  * A note of your own, new or kept, in the message editor, with its files, which upload as they're
  * chosen, and Add or Save changes.
  */
-function NoteEditor({ item, autoFocus = false, onSaved, onFailed }: { item?: SavedItem; autoFocus?: boolean; onSaved: (item: SavedItem) => void; onFailed: (error: unknown) => void }) {
+function NoteEditor({ item, typed = null, onSaved, onFailed }: { item?: SavedItem; typed?: TypedAhead | null; onSaved: (item: SavedItem) => void; onFailed: (error: unknown) => void }) {
   const editor = useRef<RichTextEditorHandle>(null);
   const picker = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<NoteFile[]>(item?.files ?? []);
@@ -709,6 +841,9 @@ function NoteEditor({ item, autoFocus = false, onSaved, onFailed }: { item?: Sav
   const [saving, setSaving] = useState(false);
   const [formats, setFormats] = useState<Formats>(NO_FORMATS);
   const [linkOpen, setLinkOpen] = useState(false);
+  // A phone keeps the formatting tools behind Aa, which swaps them in for the buttons, as the composer does.
+  const phone = usePhoneLayout();
+  const [toolsShown, setToolsShown] = useState(false);
   const mounted = useMounted();
 
   const attach = async (chosen: FileList | null) => {
@@ -746,11 +881,32 @@ function NoteEditor({ item, autoFocus = false, onSaved, onFailed }: { item?: Sav
     }
   };
 
+  const toolbar = (className?: string) => (
+    <ComposerToolbar
+      formats={formats}
+      disabled={saving}
+      onFormat={(format) => editor.current?.format(format)}
+      onBlock={(block) => editor.current?.setBlock(block)}
+      onLink={(url) => editor.current?.link(url)}
+      linkOpen={linkOpen}
+      onLinkOpenChange={setLinkOpen}
+      onReturnFocus={() => editor.current?.focus()}
+      groups={phone ? PHONE_TOOL_GROUPS : undefined}
+      className={className}
+    />
+  );
+
   return (
     <form
       // The composer's styles: its text 16px on phones and touch screens, so iOS doesn't zoom in on it.
       className="composer grid gap-3"
       data-toolbar=""
+      onFocus={(event) => {
+        // The text takes what was typed while it opened, once it can.
+        if (!typed || !(event.target as HTMLElement).isContentEditable) return;
+        const text = typed.take();
+        if (text) requestAnimationFrame(() => editor.current?.insertText(text));
+      }}
       onSubmit={(event) => {
         event.preventDefault();
         void save();
@@ -758,17 +914,7 @@ function NoteEditor({ item, autoFocus = false, onSaved, onFailed }: { item?: Sav
     >
       {/* The composer's card, as the message box draws it: the formatting toolbar, the text, and its buttons. */}
       <div className="flex min-h-[132px] min-w-0 flex-col rounded-[12px] border bg-surface p-3 focus-within:border-muted-foreground max-md:p-2.5">
-        <ComposerToolbar
-          formats={formats}
-          disabled={saving}
-          onFormat={(format) => editor.current?.format(format)}
-          onBlock={(block) => editor.current?.setBlock(block)}
-          onLink={(url) => editor.current?.link(url)}
-          linkDraft={() => editor.current?.linkDraft() ?? { text: "", url: "" }}
-          linkOpen={linkOpen}
-          onLinkOpenChange={setLinkOpen}
-          onReturnFocus={() => editor.current?.focus()}
-        />
+        {!phone && toolbar()}
         <div className="flex min-w-0 flex-1 flex-col">
           <Suspense fallback={<div className="min-h-12 py-1 text-muted-foreground">What’s on your to-do list?</div>}>
             <RichTextEditor
@@ -778,7 +924,7 @@ function NoteEditor({ item, autoFocus = false, onSaved, onFailed }: { item?: Sav
               rows={2}
               initialValue={item?.body ?? ""}
               mentionsFrom="/api/autocompletable/users"
-              autoFocus={item === undefined || autoFocus}
+              autoFocus={item === undefined || typed !== null}
               toolbar={false}
               onFormats={setFormats}
               onKeyDown={(event) => {
@@ -816,20 +962,51 @@ function NoteEditor({ item, autoFocus = false, onSaved, onFailed }: { item?: Sav
             className="sr-only"
             onChange={(event) => void attach(event.currentTarget.files).finally(() => picker.current && (picker.current.value = ""))}
           />
-          <button
-            type="button"
-            aria-label={uploading > 0 ? "Uploading…" : "Attach a file"}
-            title="Attach a file"
-            disabled={saving || files.length >= MAX_NOTE_FILES}
-            className={ATTACH_BUTTON}
-            onClick={() => picker.current?.click()}
-          >
-            <Plus className="size-[18px]" />
-          </button>
-          <EmojiButton disabled={saving} onPick={(emoji) => editor.current?.insertText(emoji)} onReturnFocus={() => editor.current?.focus()} />
-          <MentionButton disabled={saving} onMention={() => editor.current?.startMention()} />
-          {uploading > 0 && <span className="ml-2 text-[13px] text-muted-foreground">Uploading…</span>}
-          <span className="flex-1" />
+          {phone && toolsShown ? (
+            <>
+              <button
+                type="button"
+                title="Hide formatting"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  setToolsShown(false);
+                  editor.current?.focus();
+                }}
+                className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-full bg-primary text-primary-foreground"
+              >
+                <Xmark className="size-5" />
+                <span className="sr-only">Hide formatting</span>
+              </button>
+              {toolbar("mx-0 min-w-0 flex-1 pb-0")}
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                aria-label={uploading > 0 ? "Uploading…" : "Attach a file"}
+                title="Attach a file"
+                disabled={saving || files.length >= MAX_NOTE_FILES}
+                className={ATTACH_BUTTON}
+                onClick={() => picker.current?.click()}
+              >
+                <Plus className="size-[18px]" />
+              </button>
+              {phone && (
+                <FormattingToggle
+                  disabled={saving}
+                  shown={false}
+                  onToggle={() => {
+                    setToolsShown(true);
+                    editor.current?.focus();
+                  }}
+                />
+              )}
+              <EmojiButton disabled={saving} onPick={(emoji) => editor.current?.insertText(emoji)} onReturnFocus={() => editor.current?.focus()} />
+              <MentionButton disabled={saving} onMention={() => editor.current?.startMention()} />
+              {uploading > 0 && <span className="ml-2 text-[13px] text-muted-foreground">Uploading…</span>}
+              <span className="flex-1" />
+            </>
+          )}
           <button type="submit" disabled={saving || uploading > 0} className="inline-flex min-h-8 cursor-pointer items-center rounded-lg px-3 text-sm font-semibold hover:bg-hover disabled:opacity-60 touch:min-h-11">
             {item ? "Save" : "Add"}
           </button>

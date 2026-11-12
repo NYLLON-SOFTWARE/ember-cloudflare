@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 import { Bookmark, CheckCircle, type IconoirIconProps } from "@/components/icons/iconoir";
 import { SAVED_PATH, TODOS_PATH } from "@/hooks/use-route";
-import { useKeptCounts, type KeptCounts } from "@/lib/saved";
+import { countsKnown, useKeptCounts, type KeptCounts } from "@/lib/saved";
 
 // To-dos and Saved as shortcuts to their pages, for the places that link to them by a card or a row, as
 // the phone's Home does in its row of cards above the rooms: each one's title, icon, address, and what its
@@ -20,16 +20,19 @@ export interface KeptShortcut {
 
 const counted = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
+/** A card's second line, held blank until the counts arrive rather than saying 0 for a moment. */
+const known = (counts: KeptCounts, say: (counts: KeptCounts) => string) => (countsKnown(counts) ? say(counts) : "\u00a0");
+
 export const KEPT_SHORTCUTS: KeptShortcut[] = [
   {
     page: "todos",
     title: "To-dos",
     href: TODOS_PATH,
     Icon: CheckCircle,
-    detail: ({ openTodos, overdueTodos }) => [`${openTodos} open`, ...(overdueTodos > 0 ? [`${overdueTodos} overdue`] : [])].join(" · "),
+    detail: (counts) => known(counts, ({ openTodos, overdueTodos }) => [`${openTodos} open`, ...(overdueTodos > 0 ? [`${overdueTodos} overdue`] : [])].join(" · ")),
     badge: ({ overdueTodos }) => overdueTodos,
   },
-  { page: "saved", title: "Saved", href: SAVED_PATH, Icon: Bookmark, detail: ({ savedItems }) => counted(savedItems, "item", "items"), badge: () => 0 },
+  { page: "saved", title: "Saved", href: SAVED_PATH, Icon: Bookmark, detail: (counts) => known(counts, ({ savedItems }) => counted(savedItems, "item", "items")), badge: () => 0 },
 ];
 
 /** The lists' counts as they are now, for `detail` and `badge`. */

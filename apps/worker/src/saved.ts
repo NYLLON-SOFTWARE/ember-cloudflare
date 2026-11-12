@@ -8,6 +8,7 @@ import {
   parseNewSavedItem,
   parseSavedChange,
   REMINDER_NOT_AHEAD,
+  REMINDER_NOT_IN_SAVED,
   SAVED_LIST_FULL,
   SAVED_LISTS,
   type Message,
@@ -135,13 +136,27 @@ async function noteBodyOf(env: Env, markup: string): Promise<{ body: string; pla
   const prepared = prepareBody(markup, (sgid) => people.get(userIdFromSgid(sgid) ?? ""));
   if (prepared === null) return "Ember couldn't read that to-do";
   if (isMessageTooLong(prepared.plainText)) return MESSAGE_TOO_LONG;
-  // Text of nothing a reader could see, as of zero-width spaces, is no text, though a mention is some.
-  const unseen = prepared.mentions.length === 0 && prepared.plainText.replace(INVISIBLE, "") === "";
-  return prepared.blank || unseen ? { body: "", plainText: "" } : { body: prepared.html, plainText: prepared.plainText };
+  return prepared.blank || !isSeen(prepared.html) ? { body: "", plainText: "" } : { body: prepared.html, plainText: prepared.plainText };
 }
 
-/** White space, and the characters that take no room: zero-width spaces and joiners, word joiners and byte-order marks. */
-const INVISIBLE = /[\s\u200B-\u200D\u2060\uFEFF]/gu;
+/**
+ * Whether stored markup shows something: an attachment, as a mention, or text a reader could see. Its
+ * text is read from the markup rather than the plain text, whose bullets and quotation marks an empty
+ * list or quote would show.
+ */
+const isSeen = (html: string) => /<action-text-attachment\b/.test(html) || shownText(html).replace(INVISIBLE, "") !== "";
+
+const TEXT_ESCAPES: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&nbsp;": "\u00A0" };
+
+/** The text of stored markup, without its tags, whose serializer escapes only `&`, `<`, `>` and U+00A0 in text. */
+const shownText = (html: string) => html.replace(/<[^>]*>/g, "").replace(/&(?:amp|lt|gt|nbsp);/g, (escape) => TEXT_ESCAPES[escape]!);
+
+/**
+ * White space, and the characters that show nothing: those Unicode says to ignore when they can't be
+ * shown, as zero-width spaces, joiners, direction marks, variation selectors, tags and the Hangul
+ * fillers, and the blank Braille pattern.
+ */
+const INVISIBLE = /[\p{White_Space}\p{Default_Ignorable_Code_Point}\u2800]/gu;
 
 /**
  * Takes the files `ids` names for a note: ones `userId` sent `NOTE_FILES_PATH` that no note carries yet, as
@@ -233,7 +248,8 @@ export async function keepSaved(request: Request, env: Env): Promise<Response> {
 /**
  * `PATCH /api/saved/<id>`, a `SavedChange`: moves your item to the other list, marks it completed or in
  * progress, sets or clears its reminder, or changes a note's text and files, answering it as it is then.
- * Files a note no longer carries are deleted from R2.
+ * A reminder for an item in Saved answers 422, unless it moves to To-dos with it. Files a note no longer
+ * carries are deleted from R2.
  */
 export async function changeSaved(request: Request, env: Env, id: string): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -256,12 +272,16 @@ export async function changeSaved(request: Request, env: Env, id: string): Promi
   const space = workspace(env);
   let dropped: KeptNoteFile[] = [];
   let added: string[] = [];
-  if (asked.fileIds !== undefined || change.note !== undefined) {
+  // A reminder set with no move is for the list the item's in, which has to be To-dos.
+  const reminding = typeof asked.remindAt === "string" && asked.list === undefined;
+  const rewriting = asked.fileIds !== undefined || change.note !== undefined;
+  if (reminding || rewriting) {
     const before = await space.savedItem(credentials!, id);
     if (!before || before === "missing") return problem(before ? 404 : 401, before ? ITEM_NOT_FOUND : NOT_SIGNED_IN);
+    if (reminding && before.list !== "todo") return problem(422, REMINDER_NOT_IN_SAVED);
     const fileIds = asked.fileIds ?? before.files.map(({ key }) => key);
     // A note keeps some text or a file.
-    if (before.kind === "note" && (change.note?.body ?? before.body ?? "") === "" && fileIds.length === 0) return problem(422, EMPTY_NOTE);
+    if (rewriting && before.kind === "note" && (change.note?.body ?? before.body ?? "") === "" && fileIds.length === 0) return problem(422, EMPTY_NOTE);
     if (asked.fileIds !== undefined) {
       const keeping = new Set(fileIds);
       added = fileIds.filter((fileId) => !before.files.some(({ key }) => key === fileId));

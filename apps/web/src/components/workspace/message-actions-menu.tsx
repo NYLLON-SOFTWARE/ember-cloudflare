@@ -480,7 +480,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             )}
             {/* After Forward message, as Slack's bar has it, and a file's Save, as a file's own save is in Slack. */}
             <KeepButton list="todo" kept={kept} onKeep={keep} />
-            {message.attachment && <KeepButton list="saved" kept={kept} onKeep={keep} />}
+            <KeepButton list="saved" kept={kept} onKeep={keep} />
             {/* More actions holds Quote and Copy link with a mouse. */}
             {message.attachment ? (
               <FileActions file={message.attachment} />
@@ -564,13 +564,6 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
               <Link />
               Copy link
             </button>
-            {/* The bar has Add to to-dos, and a file's Save. */}
-            {!message.attachment && (
-              <button type="button" className={ITEM} onClick={() => keep("saved")}>
-                {kept === "saved" ? <BookmarkSolid /> : <Bookmark />}
-                {kept === "saved" ? "Remove from saved" : "Save"}
-              </button>
-            )}
             {editable && (
               <>
                 <hr className="my-1 border-message-border" />

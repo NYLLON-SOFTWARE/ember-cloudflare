@@ -156,6 +156,7 @@ export function parseSavedChange(data: unknown): SavedChange | string {
   }
   if (remindAt !== undefined) {
     if (remindAt !== null && !isRemindTime(remindAt)) return "A reminder needs a time";
+    if (remindAt !== null && list === "saved") return REMINDER_NOT_IN_SAVED;
     change.remindAt = remindAt;
   }
   if (body !== undefined) {
@@ -178,6 +179,9 @@ export function isRemindableAt(remindAt: string, now: number): boolean {
 
 /** Why a reminder can't be set for then. */
 export const REMINDER_NOT_AHEAD = "Pick a time in the next year for the reminder.";
+
+/** Why an item in Saved, which keeps no reminders, can't take one. */
+export const REMINDER_NOT_IN_SAVED = "Only a to-do takes a reminder. Move it to To-dos first.";
 
 /** Where an item's page is: in To-dos, `/todos/<id>`, and in Saved, `/saved/<id>`, or the list's own. */
 export const savedPath = (list: SavedList, itemId?: string) => `/${list === "todo" ? "todos" : "saved"}${itemId === undefined ? "" : `/${encodeURIComponent(itemId)}`}`;

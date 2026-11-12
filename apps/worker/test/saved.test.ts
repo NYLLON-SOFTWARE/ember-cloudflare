@@ -1,5 +1,5 @@
 import { runDurableObjectAlarm } from "cloudflare:test";
-import { MAX_SAVED_ITEMS, NOTE_FILES_PATH, SAVED_LIST_FULL, type NoteFile, type SavedItem, type SavedItems, type SavedList, type SavedMark, type SavedMarks, type WorkspaceServerFrame, type ActivityPage } from "@ember/protocol";
+import { MAX_SAVED_ITEMS, NOTE_FILES_PATH, REMINDER_NOT_IN_SAVED, SAVED_LIST_FULL, type NoteFile, type SavedItem, type SavedItems, type SavedList, type SavedMark, type SavedMarks, type WorkspaceServerFrame, type ActivityPage } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, connect, createRoom, freshDeploy, freshRoom, openWorkspaceSocket, post, pushBrowser, signIn, upload, workspaceSql, workspaceStub, type Session } from "./support";
 
@@ -233,6 +233,26 @@ describe("To-dos of your own", () => {
     expect((await listOf(ada, "todo"))[0]!.plainText).toBe("Keep me");
   });
 
+  it("refuses a note whose characters or markup show nothing", async () => {
+    const ada = await signIn("Ada");
+    const unseen = [
+      "\u3164", "\u00AD", "\u200E", "\u200F", "\u202A", "\u202E", "\u2066", "\u2069", "\u2061", "\u2064",
+      "\uFFA0", "\u2800", "\u034F", "\u180E", "\uFE00", "\uFE0F", "\u{E0020}", "\u{E0001}", "\u115F\u1160", "&nbsp;\u200B",
+    ].map((text) => `<p>${text}</p>`);
+    const empty = ["<ul><li></li></ul>", "<ol><li></li><li> </li></ol>", "<blockquote></blockquote>", "<blockquote><p>\u3164</p></blockquote>"];
+    for (const body of [...unseen, ...empty]) {
+      const response = await keep(ada, { list: "todo", body });
+      expect(response.status, body).toBe(422);
+      expect(await response.json(), body).toEqual({ error: "Write something or add a file" });
+    }
+    const note = await kept(ada, { list: "todo", body: "<p>Keep me</p>" });
+    expect((await change(ada, note.id, { body: "<ul><li>\u2800</li></ul>" })).status).toBe(422);
+    // Characters that show nothing alone still join ones that do.
+    expect((await kept(ada, { list: "todo", body: "<p>\u{1F468}\u200D\u{1F469}\u200D\u{1F467}</p>" })).plainText).toBe("\u{1F468}\u200D\u{1F469}\u200D\u{1F467}");
+    expect((await kept(ada, { list: "todo", body: "<ul><li>Milk</li></ul>" })).plainText).toBe("• Milk");
+    expect((await kept(ada, { list: "todo", body: "<p>&amp;</p>" })).plainText).toBe("&");
+  });
+
   it("keeps a note with its text, completes it and reopens it", async () => {
     const ada = await signIn("Ada");
     const note = await kept(ada, { list: "todo", body: "<p>Call <strong>Grace</strong></p>" });
@@ -321,7 +341,44 @@ describe("Reminders", () => {
     const item = await kept(ada, { list: "todo", roomId: room, messageId: message.id });
     await changed(ada, item.id, { remindAt: inAMinute() });
     expect((await changed(ada, item.id, { list: "saved" })).remindAt).toBeNull();
-    expect((await changed(ada, item.id, { remindAt: inAMinute() })).remindAt).toBeNull();
+    expect((await changed(ada, item.id, { remindAt: null })).remindAt).toBeNull();
+  });
+
+  it("refuses a reminder for an item in Saved, unless it moves to To-dos with it", async () => {
+    const ada = await signIn("Ada");
+    const note = await kept(ada, { list: "todo", body: "<p>Later</p>" });
+    await changed(ada, note.id, { list: "saved" });
+
+    for (const changes of [{ remindAt: inAMinute() }, { remindAt: inAMinute(), completed: true }, { list: "saved", remindAt: inAMinute() }]) {
+      const response = await change(ada, note.id, changes);
+      expect(response.status).toBe(422);
+      expect(await response.json()).toEqual({ error: REMINDER_NOT_IN_SAVED });
+    }
+    expect((await listOf(ada, "saved"))[0]).toMatchObject({ list: "saved", remindAt: null, completedAt: null });
+    expect((await changed(ada, note.id, { list: "saved", remindAt: null })).list).toBe("saved");
+
+    const remindAt = inAMinute();
+    expect(await changed(ada, note.id, { list: "todo", remindAt })).toMatchObject({ list: "todo", remindAt });
+    expect((await listOf(ada, "todo"))[0]).toMatchObject({ id: note.id, remindAt });
+  });
+
+  it("leaves an item in Saved, and without a reminder, when To-dos is too full to take it", async () => {
+    const ada = await signIn("Ada");
+    const note = await kept(ada, { list: "todo", body: "<p>Later</p>" });
+    await changed(ada, note.id, { list: "saved" });
+    const now = new Date().toISOString();
+    await workspaceSql(
+      "INSERT INTO saved_items (id, user_id, list, kind, body, plain_text, created_at, updated_at) SELECT 'n' || value, ?, 'todo', 'note', '', '', ?, ? FROM json_each(?)",
+      ada.user.id,
+      now,
+      now,
+      JSON.stringify(Array.from({ length: MAX_SAVED_ITEMS }, (_, n) => n)),
+    );
+
+    const response = await change(ada, note.id, { list: "todo", remindAt: inAMinute() });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: SAVED_LIST_FULL });
+    expect((await listOf(ada, "saved"))[0]).toMatchObject({ id: note.id, remindAt: null });
   });
 
   it("reminds of a message with its text, in its room", async () => {
