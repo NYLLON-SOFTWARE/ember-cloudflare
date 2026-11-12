@@ -1,4 +1,4 @@
-import type { DirectPreviews, FollowedThreads } from "@ember/protocol";
+import type { DirectPreviews, ListedThreads } from "@ember/protocol";
 import { ApiError } from "./api";
 
 // What the DMs page and the Threads page ask the Worker for.
@@ -14,5 +14,5 @@ async function fetched<T>(path: string): Promise<T> {
 /** Each of your DMs' latest message and how many unread. */
 export const fetchDirectPreviews = () => fetched<DirectPreviews>("/api/directs");
 
-/** A page of the threads you follow, latest active first, from `cursor` on. */
-export const fetchFollowedThreads = (cursor: number | null = null) => fetched<FollowedThreads>(cursor === null ? "/api/threads" : `/api/threads?cursor=${cursor}`);
+/** A page of the threads in your rooms and DMs, latest active first, from `cursor` on. */
+export const fetchThreads = (cursor: number | null = null) => fetched<ListedThreads>(cursor === null ? "/api/threads" : `/api/threads?cursor=${cursor}`);

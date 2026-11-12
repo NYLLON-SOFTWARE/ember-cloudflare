@@ -147,7 +147,7 @@ export {
 } from "./push.ts";
 export { TRANSLATIONS, type TranslationKey } from "./translations.ts";
 export { dmPath, DMS_PATH, DRAFTS_PATH, PEOPLE_PATH, SENT_PATH, THREADS_PATH } from "./pages.ts";
-export { THREAD_CONTEXT, THREADS_LIMIT, type DirectPreview, type DirectPreviews, type FollowedThread, type FollowedThreads } from "./conversations.ts";
+export { THREAD_CONTEXT, THREADS_LIMIT, type DirectPreview, type DirectPreviews, type ListedThread, type ListedThreads } from "./conversations.ts";
 export {
   hasFilters,
   hasWords,

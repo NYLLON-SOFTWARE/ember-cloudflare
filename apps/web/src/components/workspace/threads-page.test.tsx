@@ -1,4 +1,4 @@
-import type { FollowedThread, FollowedThreads, Me, Message, Room, User } from "@ember/protocol";
+import { THREAD_CONTEXT, type ListedThread, type ListedThreads, type Me, type Message, type Room, type User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -28,15 +28,32 @@ const message = (id: string, plainText: string, creator: User, minutes: number, 
   ...(parentId && { parentId }),
 });
 
-const thread: FollowedThread = {
+const thread: ListedThread = {
   roomId: general.id,
   parent: message("p1", "Shall we ship it?", grace, 0),
   replies: [message("r2", "Tests are green", ada, 20, "p1"), message("r3", "Ship it", grace, 30, "p1")],
   count: 5,
+  following: false,
+  mentioned: false,
 };
 
-function showPage(answer: FollowedThreads) {
+/** A thread with as many replies as its card shows under its first message, and earlier ones it leaves out. */
+const busy: ListedThread = {
+  ...thread,
+  replies: Array.from({ length: THREAD_CONTEXT - 1 }, (_, i) => message(`b${i}`, `Reply ${i}`, grace, 10 + i, "p1")),
+  count: THREAD_CONTEXT + 2,
+};
+
+/** The messages a card shows, by their text, in the order it shows them. */
+const shownIn = (card: HTMLElement) =>
+  ["Shall we ship it?", ...busy.replies.map(({ plainText }) => plainText), "On it"]
+    .flatMap((text) => within(card).queryByText(text) ?? [])
+    .sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+    .map((element) => element.textContent);
+
+function showPage(answer: ListedThreads) {
   vi.spyOn(globalThis, "fetch").mockClear().mockImplementation(async () => Response.json(answer));
+  vi.mocked(handOver).mockClear();
   render(
     <Sheet>
       <ThreadsPage me={ada} rooms={[general]} onFailed={vi.fn()} />
@@ -53,6 +70,25 @@ describe("Threads page", () => {
     expect(within(card).getByRole("link", { name: "3 more replies" })).toHaveAttribute("href", "/rooms/general/threads/p1");
     expect(within(card).getByText("Ship it")).toBeInTheDocument();
     expect(within(card).getByRole("link", { name: "Open thread" })).toHaveAttribute("href", "/rooms/general/threads/p1");
+  });
+
+  it("shows a thread's first message and its latest replies, THREAD_CONTEXT messages in all, the ones written here among them", async () => {
+    showPage({ threads: [busy], next: null });
+    const card = await screen.findByRole("article", { name: "Thread in general" });
+    expect(shownIn(card)).toEqual(["Shall we ship it?", "Reply 0", "Reply 1", "Reply 2", "Reply 3", "Reply 4"]);
+    expect(within(card).getByRole("link", { name: "3 more replies" })).toBeInTheDocument();
+
+    await userEvent.type(within(card).getByRole("textbox"), "On it{Enter}");
+    expect(shownIn(card)).toEqual(["Shall we ship it?", "Reply 1", "Reply 2", "Reply 3", "Reply 4", "On it"]);
+    expect(within(card).getByRole("link", { name: "4 more replies" })).toBeInTheDocument();
+  });
+
+  it("marks the threads that mention you, and the ones you follow", async () => {
+    showPage({ threads: [{ ...thread, mentioned: true, following: true }, { ...thread, parent: message("p2", "Lunch?", grace, 1), replies: [], count: 1, following: true }, { ...thread, parent: message("p3", "FYI", grace, 2), replies: [], count: 1 }], next: null });
+    const [mentions, following, other] = await screen.findAllByRole("article", { name: "Thread in general" });
+    expect(within(mentions!).getByText("Mentions you")).toBeInTheDocument();
+    expect(within(following!).getByText("Following")).toBeInTheDocument();
+    expect(within(other!).queryByText(/Mentions you|Following/)).toBeNull();
   });
 
   it("sends a reply written in a card to its thread, showing it at once", async () => {
