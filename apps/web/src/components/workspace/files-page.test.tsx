@@ -169,6 +169,18 @@ describe("Files page", () => {
     expect(screen.getByRole("heading", { name: "No matches" })).toBeInTheDocument();
   });
 
+  it("leaves a touch screen's rows nothing to tap but the file, their actions held for a long press (R4-RE-1)", async () => {
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(pointer: coarse)", media, addEventListener() {}, removeEventListener() {} }));
+    serve();
+    renderPage();
+    await waitFor(() => expect(rows()).toHaveLength(3));
+    for (const trigger of screen.getAllByRole("button", { name: /^More actions for/, hidden: true })) {
+      expect(trigger).toHaveClass("invisible", "size-0", "touch:size-0");
+      expect(trigger).not.toHaveClass("touch:size-11");
+    }
+    vi.unstubAllGlobals();
+  });
+
   it("names a private room after a lock, not #", async () => {
     const lab: Room = { id: "lab", name: "QA Lab", kind: "closed", icon: null };
     serve([{ ...files[0]!, roomId: "lab" }]);
