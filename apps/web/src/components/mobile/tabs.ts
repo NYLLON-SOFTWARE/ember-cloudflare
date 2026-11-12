@@ -7,6 +7,22 @@ export const DMS_PATH = "/dms";
 export const ACTIVITY_PATH = "/activity";
 export const FILES_PATH = "/files";
 
+/** The pages Home's cards open, which sit above the rooms in the desktop's Home sidebar. */
+export const THREADS_PATH = "/threads";
+export const DRAFTS_PATH = "/drafts";
+export const PEOPLE_PATH = "/people";
+export const SAVED_PATH = "/saved";
+export const TODOS_PATH = "/todos";
+
+/** What each of Home's cards is called, by the page it opens. */
+export const SHORTCUTS: Readonly<Record<string, string>> = {
+  [THREADS_PATH]: "Threads",
+  [DRAFTS_PATH]: "Drafts & sent",
+  [PEOPLE_PATH]: "People",
+  [SAVED_PATH]: "Saved",
+  [TODOS_PATH]: "To-dos",
+};
+
 /** Each tab's page. */
 export const TAB_PATHS = { home: "/", dms: DMS_PATH, activity: ACTIVITY_PATH, files: FILES_PATH } as const satisfies Record<Tab, string>;
 

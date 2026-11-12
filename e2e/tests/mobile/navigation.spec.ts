@@ -47,6 +47,22 @@ test("Home is the list of conversations rather than the room last visited, and a
   await expect(page).toHaveURL(/\/$/);
 });
 
+test("Home's cards, what's above the rooms on the desktop, scroll sideways and each opens over Home, with Back", async ({ page, screenIsFine }) => {
+  await page.goto("/");
+  const cards = page.getByRole("list", { name: "Shortcuts" });
+  await expect(cards.getByRole("link")).toHaveText([/^Threads/, /^Drafts & sent/, /^People/, /^Saved/, /^To-dos/]);
+  // Wider than a phone held upright, where the row scrolls rather than squeezing them.
+  const { width, height } = page.viewportSize()!;
+  if (width < height) expect(await cards.evaluate((row) => row.scrollWidth > row.clientWidth)).toBe(true);
+  await screenIsFine();
+
+  await cards.getByRole("link", { name: /^Threads/ }).tap();
+  await expect(page).toHaveURL(/\/threads$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Threads" })).toBeVisible();
+  await page.getByRole("navigation", { name: "Page" }).getByRole("link", { name: "Back" }).tap();
+  await expect(page).toHaveURL(/\/$/);
+});
+
 test("a room's top bar is Back, its name with how many are in it, and its buttons, and fits the phone", async ({ page, room, screenIsFine }) => {
   await openRoom(page, room);
   const header = page.getByRole("navigation", { name: "Page" });
@@ -98,6 +114,10 @@ test("the composer is Slack's pill until it's tapped, then opens with its button
   await expect(send).toBeVisible();
   expect((await card.boundingBox())!.height).toBeGreaterThan(80);
   await expect(tabBar(page)).toBeHidden();
+  // Send is dimmed until there's something to send.
+  await expect(send).toHaveCSS("opacity", "0.4");
+  await page.keyboard.type("Hi");
+  await expect(send).toHaveCSS("opacity", "1");
   await screenIsFine();
 });
 

@@ -29,7 +29,9 @@ import { DmsPage } from "../mobile/dms-page";
 import { FilesPage } from "../mobile/files-page";
 import { HomePage } from "../mobile/home-page";
 import { TabBar, type TabNotices } from "../mobile/tab-bar";
-import { tabAt, tabOf, type Tab } from "../mobile/tabs";
+import { KeyboardInset } from "../mobile/keyboard-inset";
+import { ShortcutPage } from "../mobile/shortcut-page";
+import { SHORTCUTS, tabAt, tabOf, type Tab } from "../mobile/tabs";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
@@ -661,12 +663,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       case "files":
         return <FilesPage me={me} />;
       default:
+        if (SHORTCUTS[path]) return <ShortcutPage title={SHORTCUTS[path]} />;
         return (
           <HomePage
             me={me}
             workspaceName={workspaceName}
             sidebar={sidebar}
-            unread={activity.unread}
             huddles={liveHuddles}
             newRelease={newRelease}
             onNewDirect={openNewDirect}
@@ -830,7 +832,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       <DrawerOpen value={drawerOpen}>
         <div
           className={cn(
-            "relative grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)_auto]",
+            // On a phone, it ends above the on-screen keyboard where that covers the page (`KeyboardInset`).
+            "relative grid h-dvh max-md:h-[calc(100dvh-var(--keyboard-inset,0px))] grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)_auto]",
             settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)_auto]",
             // A thread open beside its room, from 1180px wide, which takes 420px of the room's width.
             "min-[1180px]:has-[>[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
@@ -888,6 +891,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           </SheetContent>
 
           {page()}
+          {phone && <KeyboardInset />}
           {phone && TAB_BAR_PAGES.has(route.page) && <TabBar current={tabOf(path, openedFromTab, isDirect)} notices={tabNotices} roomId={currentRoomId} />}
           <MovedNotice />
           {newDirect && (

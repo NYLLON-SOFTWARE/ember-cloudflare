@@ -3,9 +3,37 @@
  * page: the composer's room under the tab bar, and the composer as Slack's pill until it has focus.
  */
 @media (width < 56.3125rem) {
-  /* While the tab bar shows, it keeps clear of the home indicator, so the composer above it needn't. */
-  body:has([data-tab-bar]:not([data-typing])) footer:has(> .composer) {
+  /*
+   * While the tab bar shows, it keeps clear of the home indicator, so the composer above it needn't, and
+   * neither does it right above the on-screen keyboard, which covers the home indicator.
+   */
+  body:has([data-tab-bar]:not([data-typing])) footer:has(> .composer),
+  html[data-keyboard] footer:has(> .composer) {
     padding-bottom: 8px;
+  }
+
+  /*
+   * The composer in use, Slack's: a rounded box with the text over one row of buttons, the text growing
+   * to five lines and then scrolling inside the box, and Send the arrow alone, dimmed until there's
+   * something to send.
+   */
+  .composer {
+    [data-composer-card] {
+      border-radius: 22px;
+    }
+
+    .lexxy-editor__content {
+      max-block-size: calc(5lh + var(--composer-padding) + 4px);
+    }
+
+    button[type="submit"] {
+      background: transparent;
+      color: var(--foreground);
+    }
+  }
+
+  .composer:has(lexxy-editor.lexxy-editor--empty):not(:has(> div > button[aria-label^="Remove "])) button[type="submit"] {
+    opacity: 0.4;
   }
 
   /*
