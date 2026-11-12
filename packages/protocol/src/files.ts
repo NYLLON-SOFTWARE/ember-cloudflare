@@ -120,6 +120,35 @@ export interface StoredFile {
   previewUrl?: string;
 }
 
+/** Where a file shared in another room is sent to `roomId` as a message of its own, copied rather than uploaded again. */
+export const sharedFilesPath = (roomId: RoomId) => `${uploadsPath(roomId)}/shared`;
+
+/**
+ * What the app sends to share a file posted in another room, as Files in Ember picks one: the room it was
+ * posted in, its id there, and the id the app gives the message it becomes, as for an upload.
+ */
+export interface SharedFile {
+  roomId: RoomId;
+  fileId: string;
+  clientMessageId: string;
+  /** The message in whose thread the file is a reply, which `alsoSend` sends to the room too. */
+  parentId?: string;
+  alsoSend?: boolean;
+}
+
+/** Parses an untrusted `SharedFile`, or returns why it's refused. */
+export function parseSharedFile(data: unknown): SharedFile | string {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
+  const { roomId, fileId, clientMessageId, parentId, alsoSend } = data as Record<string, unknown>;
+  if (typeof roomId !== "string" || roomId.length === 0 || roomId.length > MAX_ID_LENGTH) return "A shared file needs the room it's in";
+  if (typeof fileId !== "string" || fileId.length === 0 || fileId.length > MAX_ID_LENGTH) return "A shared file needs its id";
+  if (typeof clientMessageId !== "string" || clientMessageId.length === 0 || clientMessageId.length > MAX_ID_LENGTH) return "A file needs an id for its message";
+  const shared = { roomId: roomId as RoomId, fileId, clientMessageId };
+  if (parentId === undefined) return shared;
+  if (typeof parentId !== "string" || parentId.length === 0 || parentId.length > MAX_ID_LENGTH) return "A reply's thread must be a message's id";
+  return { ...shared, parentId, alsoSend: alsoSend === true };
+}
+
 /** A UTF-16 surrogate without its pair, which no file name can hold. */
 const LONE_SURROGATE = /\p{Surrogate}/u;
 

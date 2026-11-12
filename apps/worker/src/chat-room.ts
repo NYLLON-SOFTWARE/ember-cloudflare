@@ -747,6 +747,18 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
+   * File `key`, posted in the room and still there, for `sharer`, who's in the room, to share in another,
+   * or null when the room turns them away, as `startUpload` does, or has no such file.
+   */
+  async sharedFile(roomId: RoomId, sharer: Uploader, key: string): Promise<RoomBlob | null> {
+    return this.serially(async () => {
+      if (await this.revocationsFor(roomId).refuse(sharer.tags, sharer.authorizedAt)) return null;
+      const blob = await this.blobsFor(roomId).find(key);
+      return blob?.completedAt && blob.messageId !== null && blob.metadata !== null ? blob : null;
+    });
+  }
+
+  /**
    * Records what the first part of `uploader`'s upload `key`, in more than one part, says the file is,
    * with the multipart upload R2 has started and the part it has, unless another request has recorded
    * its own first part, answering the upload as it is then. Answers null when the room turns the uploader

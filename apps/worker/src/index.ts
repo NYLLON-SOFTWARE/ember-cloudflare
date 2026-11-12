@@ -1,5 +1,7 @@
 import {
   AVATAR_PATH,
+  parseShareCheck,
+  SHARE_CHECK_PATH,
   CloseCode,
   type ActivityPage,
   CURRENT_PASSWORD_NEEDED,
@@ -125,7 +127,7 @@ import { failed, notFound } from "./error-pages";
 import { jsonWithETag } from "./etag";
 import { fileAddressOf, serveFile } from "./files/serving";
 import { pictureFormOf } from "./files/pictures";
-import { NO_STORAGE, startUpload, uploadPart, uploadPreview } from "./files/uploads";
+import { NO_STORAGE, shareFile, startUpload, uploadPart, uploadPreview } from "./files/uploads";
 import { CSP_REPORT_PATH, cspReport } from "./csp";
 import { addressRefusal, answerProbe, deployedAddressOf, lookUpDns, originFor, probeOf, reachOf } from "./custom-domain";
 import { redirectToHttps, requiresHttps, withHeaders } from "./headers";
@@ -864,6 +866,22 @@ async function mentionable(request: Request, env: Env): Promise<Response> {
   return new Response(items.join(""), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
+/**
+ * `POST /api/share-check`, a `ShareCheck`: whether sharing from one room in another, both the asker's,
+ * would show it to people who can't see it now, as `ShareWidening` says, for the app to warn first.
+ */
+async function shareCheck(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const check = parseShareCheck(await jsonBodyOf(request));
+  if (typeof check === "string") return problem(422, check);
+  if (!isRoomId(check.sourceRoomId) || !isRoomId(check.targetRoomId)) return problem(404, ROOM_NOT_FOUND);
+  const widening = await workspace(env).shareWidening(credentials, check.sourceRoomId, check.targetRoomId);
+  if (!widening) return problem(401, "Not signed in");
+  if (widening === "not found") return problem(404, ROOM_NOT_FOUND);
+  return json(widening);
+}
+
 /** A parameter's value unless it's blank, as Rails' `presence` reads it. */
 const present = (value: string | null) => (value === null || value.trim() === "" ? undefined : value);
 
@@ -1175,6 +1193,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/sidebar/invitation" && request.method === "DELETE") return () => dismissInvitation(request, env);
   if (pathname === "/api/users" && request.method === "GET") return () => directory(request, env);
   if (pathname === "/api/autocompletable/users" && request.method === "GET") return () => mentionable(request, env);
+  if (pathname === SHARE_CHECK_PATH && request.method === "POST") return () => shareCheck(request, env);
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return () => setFavoriteOrder(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
@@ -1239,6 +1258,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (membership && request.method === "DELETE") return () => (isRoomId(membership[1]!) ? leaveRoom(request, env, membership[1]!) : problem(404, ROOM_NOT_FOUND));
   const uploads = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads$/);
   if (uploads && request.method === "POST") return () => (isRoomId(uploads[1]!) ? startUpload(request, env, uploads[1]!) : problem(404, ROOM_NOT_FOUND));
+  const shared = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads\/shared$/);
+  if (shared && request.method === "POST") return () => (isRoomId(shared[1]!) ? shareFile(request, env, shared[1]!) : problem(404, ROOM_NOT_FOUND));
   // A file's key never needs percent-encoding either, so an encoded segment names no upload.
   const part = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads\/([^/]+)\/parts\/([1-9][0-9]*)$/);
   if (part && request.method === "PUT")

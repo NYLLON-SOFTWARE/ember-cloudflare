@@ -40,6 +40,7 @@ import {
   type RoomSettings,
   type Search,
   type SharedRoom,
+  type ShareWidening,
   type SidebarRoom,
   type User,
   type UserId,
@@ -2378,6 +2379,21 @@ const MENTIONABLE_MEMBERS = `SELECT ${DIRECTORY_COLUMNS}
   WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.name LIKE '%' || ?1 || '%'
   ORDER BY lower(users.name), users.id LIMIT ${MENTIONABLE_PAGE}`;
 
+/**
+ * A room that every active person can see, which sharing from widens nothing. Merging sub-rooms
+ * (slack-subrooms) declares this too, as an open room that isn't inside a private one: keep that one.
+ */
+const OPEN_TO_EVERYONE = `rooms.kind = 'open'`;
+
+/**
+ * Whether room ?1 is open to everyone, and how many active people in room ?2 aren't in ?1, as sharing from
+ * ?1 in ?2 would show them what they can't see now. Bots aren't counted.
+ */
+const SHARE_WIDENING = `SELECT EXISTS (SELECT 1 FROM rooms WHERE rooms.id = ?1 AND ${OPEN_TO_EVERYONE}) AS source_open,
+  (SELECT count(*) FROM memberships JOIN users ON users.id = memberships.user_id
+    WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.role <> ${BOT}
+      AND NOT EXISTS (SELECT 1 FROM memberships AS seeing WHERE seeing.room_id = ?1 AND seeing.user_id = memberships.user_id)) AS new_viewers`;
+
 /** Whether someone in a room can change it: administrators and the room's creator can. */
 const CAN_ADMINISTER = `(users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id) AS can_administer`;
 
@@ -3718,6 +3734,13 @@ export class WorkspaceStore {
   async mentionable(query: string, roomId: RoomId | null): Promise<DirectoryEntry[]> {
     const rows = roomId === null ? await this.db.all<DirectoryRow>(MENTIONABLE_PEOPLE, query) : await this.db.all<DirectoryRow>(MENTIONABLE_MEMBERS, query, roomId);
     return rows.map(directoryEntry);
+  }
+
+  /** Whether sharing from room `sourceRoomId` in `targetRoomId` shows it to people who can't see it now, and how many. */
+  async shareWidening(sourceRoomId: RoomId, targetRoomId: RoomId): Promise<ShareWidening> {
+    const [row] = await this.db.all<{ source_open: number; new_viewers: number }>(SHARE_WIDENING, sourceRoomId, targetRoomId);
+    const newViewers = row!.source_open === 1 ? 0 : row!.new_viewers;
+    return { widens: newViewers > 0, newViewers };
   }
 
   /** Everyone, whatever their status, for the people directory. */

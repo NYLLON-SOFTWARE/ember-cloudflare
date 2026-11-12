@@ -1,14 +1,14 @@
-import { MAX_FILE_SIZE, type ClientFrame, type LinkPreview, type ServerFrame, type User } from "@ember/protocol";
+import { MAX_FILE_SIZE, type ClientFrame, type LinkPreview, type ServerFrame, type ShareWidening, type StoredFile, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
 import type { RoomFrames } from "@/hooks/use-room";
+import type { Sendable } from "@/lib/uploads";
 import { createRef } from "react";
 import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
-import { fileLink } from "./files-picker";
 
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
 // and every test starts before its code has loaded.
@@ -16,7 +16,7 @@ vi.mock("./editor", async (importOriginal) => ({ ...(await importOriginal<typeof
 
 async function showComposer({ typing = [] as User[], disabled = false, roomId = "r1", threadId = undefined as string | undefined, direct = false, closed = false, autoFocus = true } = {}) {
   const onSend = vi.fn((_body: string, _alsoSend: boolean) => true);
-  const onSendFiles = vi.fn((_files: File[], _alsoSend: boolean) => {});
+  const onSendFiles = vi.fn((_files: Sendable[], _alsoSend: boolean) => {});
   const onTyping = vi.fn();
   const composer = createRef<ComposerHandle>();
   const view = render(
@@ -823,6 +823,25 @@ describe("Only members see a room", () => {
   });
 });
 
+/**
+ * The Worker as Files in Ember asks it: a search for files that finds `file`, shared in room `roomId`, and
+ * the share check, answering `widening`, or failing for null.
+ */
+function filesInEmber(file: StoredFile, widening: ShareWidening | null, { roomId = "r9", kind = "open" }: { roomId?: string; kind?: string } = {}) {
+  const fetch = vi.fn(async (path: string, _init?: RequestInit) => {
+    if (path === "/api/share-check") return widening ? Response.json(widening) : new Response(null, { status: 500 });
+    return Response.json({
+      search: { q: "", hasFile: true },
+      matches: [{ message: { id: "m1", roomId, attachment: file, createdAt: "2026-11-01T10:00:00Z" }, words: [] }],
+      next: null,
+      rooms: [{ id: roomId, kind, name: "design", icon: null }],
+      recent: [],
+    });
+  });
+  vi.stubGlobal("fetch", fetch);
+  return fetch;
+}
+
 /** A room's socket as the composer hears it: what it sends, and frames for it to hear. */
 function roomFrames() {
   const listeners = new Set<(frame: ServerFrame) => void>();
@@ -856,19 +875,10 @@ describe("Attach", () => {
     expect(picker).toHaveBeenCalledOnce();
   });
 
-  it("links a file shared in a room you're in, picked from Files in Ember, in what's written", async () => {
+  it("attaches a file shared in a room you're in, picked from Files in Ember, to send as a file of its own", async () => {
     const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/rails/active_storage/blobs/f1/plan.pdf", downloadUrl: "/d" };
-    const fetch = vi.fn(async (_path: string) =>
-      Response.json({
-        search: { q: "", hasFile: true },
-        matches: [{ message: { id: "m1", roomId: "r9", attachment: file, createdAt: "2026-11-01T10:00:00Z" }, words: [] }],
-        next: null,
-        rooms: [{ id: "r9", kind: "open", name: "design", icon: null }],
-        recent: [],
-      }),
-    );
-    vi.stubGlobal("fetch", fetch);
-    const { input, user } = await showComposer();
+    const fetch = filesInEmber(file, { widens: false, newViewers: 0 });
+    const { input, user, onSend, onSendFiles } = await showComposer();
     await user.click(screen.getByRole("button", { name: "Attach" }));
     await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
     const dialog = await screen.findByRole("dialog", { name: "Files in Ember" });
@@ -877,13 +887,75 @@ describe("Attach", () => {
     expect(fetch.mock.calls[0]![0]).toContain("has=file");
 
     await user.click(pick);
+    await screen.findByRole("button", { name: "Remove plan.pdf" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(input).toHaveValue("plan.pdf");
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+    expect(chips()).toEqual(["Remove plan.pdf"]);
+
+    await user.type(input, "The plan{Enter}");
+    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([{ roomId: "r9", file }], false);
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>The plan</p>", false);
+    expect(chips()).toEqual([]);
   });
 
-  it("writes a picked file's link to its address on this server", () => {
-    const file = { id: "f1", name: 'a "b" <c>.pdf', contentType: "", byteSize: 1, url: "/files/f1", downloadUrl: "/d" };
-    expect(fileLink(file, "https://ember.test")).toBe('<a href="https://ember.test/files/f1">a &quot;b&quot; &lt;c&gt;.pdf</a>');
+  it("warns before attaching a file that would reach people who can't see the room it's from, where Cancel attaches nothing", async () => {
+    const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/files/f1/plan.pdf", downloadUrl: "/d" };
+    const fetch = filesInEmber(file, { widens: true, newViewers: 2 }, { kind: "closed" });
+    const { user } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
+    const pick = await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /plan\.pdf/ });
+
+    await user.click(pick);
+    const warning = await screen.findByRole("alertdialog", { name: "Share outside #design?" });
+    expect(warning).toHaveAccessibleDescription("2 people in #general can't see the original.");
+    expect(fetch).toHaveBeenCalledWith("/api/share-check", expect.objectContaining({ method: "POST", body: JSON.stringify({ sourceRoomId: "r9", targetRoomId: "r1" }) }));
+    await user.click(within(warning).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Files in Ember" })).toBeInTheDocument();
+    expect(pick).toHaveFocus();
+    expect(chips()).toEqual([]);
+
+    await user.click(pick);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Files in Ember" })).toBeInTheDocument();
+    expect(chips()).toEqual([]);
+
+    await user.click(pick);
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Share" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(chips()).toEqual(["Remove plan.pdf"]);
+  });
+
+  it("attaches a file from the room it's for without asking, and says so when it can't check who'd see one", async () => {
+    const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/files/f1/plan.pdf", downloadUrl: "/d" };
+    const fetch = filesInEmber(file, null, { roomId: "r1" });
+    const { user } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
+    await user.click(await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /plan\.pdf/ }));
+    expect(await screen.findByRole("button", { name: "Remove plan.pdf" })).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalledWith("/api/share-check", expect.anything());
+
+    filesInEmber(file, null);
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
+    await user.click(await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /plan\.pdf/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't check who can see that file. Try again.");
+    await user.keyboard("{Escape}");
+    expect(chips()).toEqual(["Remove plan.pdf"]);
+  });
+
+  it("shows a picture picked from Files in Ember by its preview", async () => {
+    const file = { id: "f2", name: "moon.jpg", contentType: "image/jpeg", byteSize: 1, url: "/files/f2/moon.jpg", downloadUrl: "/d", previewUrl: "/previews/f2/moon.webp" };
+    filesInEmber(file, { widens: false, newViewers: 0 });
+    const { user } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
+    await user.click(await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /moon\.jpg/ }));
+    expect((await screen.findByRole("button", { name: "Remove moon.jpg" })).querySelector("img")).toHaveAttribute("src", "/previews/f2/moon.webp");
   });
 });
 

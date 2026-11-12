@@ -95,15 +95,19 @@ export {
   MAX_PREVIEW_PIXELS,
   MAX_PREVIEW_SIZE,
   parseNewUpload,
+  parseSharedFile,
   PREVIEW_MAX_HEIGHT,
   PREVIEW_MAX_WIDTH,
+  sharedFilesPath,
   uploadPartPath,
   uploadPreviewPath,
   uploadsPath,
   type NewUpload,
+  type SharedFile,
   type StoredFile,
   type Upload,
 } from "./files.ts";
+export { parseShareCheck, SHARE_CHECK_PATH, type ShareCheck, type ShareWidening } from "./sharing.ts";
 export {
   BOTS_PATH,
   CUSTOM_STYLES_PATH,

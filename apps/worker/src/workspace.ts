@@ -71,6 +71,7 @@ import {
   type User,
   type UserId,
   type UserStatus,
+  type ShareWidening,
   type WorkspaceServerFrame,
   type WorkspaceSettings,
 } from "@ember/protocol";
@@ -2750,6 +2751,19 @@ export class Workspace extends DurableObject<Env> {
     if (!user) return null;
     if (roomId !== null && !(await this.store.isMember(roomId, user.id))) return "not found";
     return this.store.mentionable(query, roomId);
+  }
+
+  /**
+   * Whether sharing from room `sourceRoomId` in `targetRoomId` would show it to people who can't see it now,
+   * for the person `credentials` signs in, who has to be in both: "not found" if they aren't, or null
+   * without a valid session.
+   */
+  async shareWidening(credentials: Credentials, sourceRoomId: RoomId, targetRoomId: RoomId): Promise<ShareWidening | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const [source, target] = await Promise.all([this.store.isMember(sourceRoomId, user.id), this.store.isMember(targetRoomId, user.id)]);
+    if (!source || !target) return "not found";
+    return this.store.shareWidening(sourceRoomId, targetRoomId);
   }
 
   /** Everyone in the workspace, for the person `credentials` signs in, or null without a valid session. */

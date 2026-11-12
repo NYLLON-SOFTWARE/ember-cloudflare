@@ -78,6 +78,7 @@ import {
   type SavedPushSubscription,
   type Search,
   type SearchResults,
+  type ShareWidening,
   type SearchSort,
   type SendingDomainCheck,
   type SentTestEmail,
@@ -93,6 +94,7 @@ import {
   type WorkspaceSettings,
   type YourAssistantChanged,
   type YourAssistantChanges,
+  SHARE_CHECK_PATH,
 } from "@ember/protocol";
 import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTrial, AgentTrialAnswer, NewAgent } from "@ember/protocol/agents";
 import type { AgentToolPicks, AgentTools, App, AppAnswer, AppChanges, AppId, Apps, AppSummary, NewApp, OfferedApp, ToolPick } from "@ember/protocol/apps";
@@ -905,6 +907,11 @@ export async function leaveRoom(roomId: RoomId): Promise<void> {
 export async function fetchLinkPreview(url: string, signal: AbortSignal): Promise<LinkPreview | null> {
   const preview = await request<Partial<LinkPreview>>("/api/unfurl", { method: "POST", body: JSON.stringify({ url }), signal });
   return preview.title && preview.url ? (preview as LinkPreview) : null;
+}
+
+/** Whether sharing from room `sourceRoomId` in `targetRoomId` would reach people who can't see it now, to warn first. */
+export async function checkShare(sourceRoomId: RoomId, targetRoomId: RoomId): Promise<ShareWidening> {
+  return request<ShareWidening>(SHARE_CHECK_PATH, { method: "POST", body: JSON.stringify({ sourceRoomId, targetRoomId }) });
 }
 
 /**

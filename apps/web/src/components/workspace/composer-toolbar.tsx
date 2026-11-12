@@ -170,7 +170,7 @@ function LinkField({ linked, open, onOpenChange, onLink, onReturnFocus, ...butto
           onReturnFocus();
         }}
       >
-        <label htmlFor={fieldId} className="mb-1.5 block text-[13px] font-semibold">
+        <label htmlFor={fieldId} className="sr-only">
           Link
         </label>
         <input
