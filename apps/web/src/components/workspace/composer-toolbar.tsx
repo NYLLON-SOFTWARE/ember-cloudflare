@@ -3,6 +3,7 @@ import { NavArrowDown } from "@/components/icons/iconoir";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { appleKeyboard } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
+import { TEXT_BUTTON } from "./composer-buttons";
 import { BLOCKS, isActive, isDisabled, linkAddress, TOOL_GROUPS, type Block, type Format, type Formats, type Tool } from "./formatting";
 import { PopoverMenu } from "./popover-menu";
 
@@ -167,8 +168,6 @@ interface LinkFieldProps extends ToolButton {
 const FIELD =
   "h-9 w-full rounded-md border bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-selected-dark aria-invalid:border-negative touch:h-11 touch:text-base";
 const LABEL = "mb-1 block text-[13px] font-semibold";
-const FIELD_BUTTON = "cursor-pointer rounded-md px-3 py-1.5 text-[13px] font-semibold touch:min-h-11";
-
 /**
  * Link, which opens Slack's pair of fields above it: Text, what's selected or the link's own, and Link, its
  * address. Enter or Save links the text to the address, Cancel leaves it, and Remove link, there for a link
@@ -261,15 +260,15 @@ function LinkField({ linked, open, onOpenChange, onLink, draft, onReturnFocus, .
                 onOpenChange(false);
                 onLink(null, text);
               }}
-              className={cn(FIELD_BUTTON, "mr-auto px-2.5 font-normal text-negative hover:bg-hover")}
+              className={cn(TEXT_BUTTON, "mr-auto px-2.5 font-normal text-negative hover:bg-hover")}
             >
               Remove link
             </button>
           )}
-          <button type="button" onClick={() => onOpenChange(false)} className={cn(FIELD_BUTTON, "hover:bg-hover")}>
+          <button type="button" onClick={() => onOpenChange(false)} className={cn(TEXT_BUTTON, "hover:bg-hover")}>
             Cancel
           </button>
-          <button type="button" onClick={save} className={cn(FIELD_BUTTON, "bg-foreground text-background hover:brightness-85")}>
+          <button type="button" onClick={save} className={cn(TEXT_BUTTON, "bg-foreground text-background hover:brightness-85")}>
             Save
           </button>
         </div>

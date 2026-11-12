@@ -442,6 +442,17 @@ describe("Attach files", () => {
     expect(attachFiles()).toHaveValue("");
   });
 
+  it("keeps Send's two halves in ink together with files alone, which can't be scheduled", async () => {
+    const { user } = await showComposer();
+    const send = screen.getByRole("button", { name: "Send Message" });
+    expect(send.parentElement).not.toHaveAttribute("data-sendable");
+    await user.upload(attachFiles(), fileOf("a.txt"));
+    expect(send).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Schedule for later" })).toBeDisabled();
+    // The chevron's dimming is for a pair with nothing to send.
+    expect(send.parentElement).toHaveAttribute("data-sendable");
+  });
+
   it("shows the files picked inside the card under the text: a picture's thumbnail, and anything else's icon, name, type and size", async () => {
     const { made } = thumbnails();
     const { input, user } = await showComposer();
@@ -971,8 +982,9 @@ describe("Attach", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
     const pick = await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /plan\.pdf/ });
 
-    // Who shared it and its size tell it apart, and a private room's shows a lock.
-    expect(pick).toHaveTextContent("#design · Grace · 1 B · Nov 1, 2026");
+    // Who shared it and its size tell it apart, and a private room's shows a lock in place of its #.
+    expect(pick).toHaveTextContent("design · Grace · 1 B · Nov 1, 2026");
+    expect(pick).not.toHaveTextContent("#");
     expect(within(pick).getByRole("img", { name: "Private" })).toBeInTheDocument();
 
     await user.click(pick);
@@ -1192,7 +1204,8 @@ describe("Schedule for later", () => {
     const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
     const items = within(dialog).getAllByRole("listitem");
     expect(items.map((item) => item.querySelector("p:nth-child(2)")!.textContent)).toEqual(["First", "Second"]);
-    expect(within(items[0]!).getByRole("button", { name: "Send now" })).toHaveFocus();
+    // It opens on Edit time, so Enter can't send a message by accident.
+    expect(within(items[0]!).getByRole("button", { name: "Edit time" })).toHaveFocus();
     await user.click(within(items[0]!).getByRole("button", { name: "Send now" }));
     await user.click(within(items[1]!).getByRole("button", { name: "Delete" }));
     expect(send.mock.calls.map(([frame]) => frame)).toEqual([
@@ -1362,13 +1375,13 @@ describe("Edit a message in the composer", () => {
   };
 
   /** A room whose composer edits `mine` while `edit()` is called, as a phone's layout has it, and stops as it answers. */
-  async function editing({ saves = true } = {}) {
+  async function editing({ saves = true, message: edited = mine } = {}) {
     const onSave = vi.fn((_body: string) => saves);
     const onCancel = vi.fn();
     let edit = () => {};
     function Room() {
       const [message, setMessage] = useState<Message | null>(null);
-      edit = () => setMessage(mine);
+      edit = () => setMessage(edited);
       const done = () => setMessage(null);
       const editing: ComposerEdit | null = message && {
         message,
@@ -1403,6 +1416,15 @@ describe("Edit a message in the composer", () => {
     expect(onSave).toHaveBeenCalledExactlyOnceWith("<p>Hello again</p>");
     await vi.waitFor(() => expect(input).toHaveValue("Draft"));
     expect(screen.getByRole("button", { name: "Send Message" })).toBeInTheDocument();
+  });
+
+  it("edits only a forward's note, keeping its quote", async () => {
+    const quote = '<blockquote><p>Lunch at noon?</p></blockquote><cite>Grace · <time datetime="2026-11-12T09:00:00Z">9:00 AM</time> <a href="/rooms/r2/@m0">#</a></cite>';
+    const { input, onSave, edit, user } = await editing({ message: { ...mine, body: `<p>See this</p>${quote}` } });
+    edit();
+    await vi.waitFor(() => expect(input).toHaveValue("See this"));
+    await user.type(input, " now{Enter}");
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(`<p>See this now</p>${quote}`);
   });
 
   it("cancels on Escape, or as it's saved unchanged, and stays where the change didn't go", async () => {

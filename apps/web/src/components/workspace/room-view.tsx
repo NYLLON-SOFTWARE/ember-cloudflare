@@ -14,6 +14,7 @@ import type { Room } from "@/lib/api";
 import { roomName } from "@/lib/directs";
 import { rememberLastRoom } from "@/lib/last-room";
 import type { RoomAnswer } from "@/lib/room-list";
+import { hasEditableText } from "@/lib/messages";
 import { isPending } from "@/lib/room-state";
 import { Composer, RoomGoneNotice, type ComposerHandle, type RoomGone } from "./composer";
 import { MessageList } from "./message-list";
@@ -123,7 +124,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   // history and may not hold it.
   const editLastMessage = () => {
     if (state.hasNewer) return;
-    const newest = state.messages.findLast((message) => message.creator.id === me.id);
+    const newest = state.messages.findLast((message) => message.creator.id === me.id && hasEditableText(message));
     if (newest && !isPending(newest)) editors.open(newest.id);
   };
 

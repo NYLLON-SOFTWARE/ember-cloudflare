@@ -2,6 +2,7 @@ import { useContext, useState } from "react";
 import type { Message } from "@ember/protocol";
 import { editableBody } from "@ember/richtext/dom";
 import { DirectoryLoaded, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
+import { forwardParts } from "@/lib/messages";
 import { avatarUrlOf } from "./user-avatar";
 
 /**
@@ -18,7 +19,7 @@ export function useEditableBody(message: Message | null): string | null {
   const [editable, setEditable] = useState<{ id: string; body: string } | null>(null);
   if (message && editable?.id !== message.id && (directoryLoaded || message.mentions.every((person) => person.name !== ""))) {
     const body = editableBody(
-      message.body,
+      forwardParts(message.body)?.note ?? message.body,
       (userId) => {
         const person = mentionedPerson(people, message.mentions, userId);
         return person && { id: person.id, name: person.name, avatarUrl: avatarUrlOf(people, person) };

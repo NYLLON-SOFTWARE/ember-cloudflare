@@ -7,6 +7,7 @@ import { useMessageEditors } from "@/hooks/use-message-editors";
 import type { RoomFrames } from "@/hooks/use-room";
 import { roomPath, useVisit } from "@/hooks/use-route";
 import { useThread } from "@/hooks/use-thread";
+import { hasEditableText } from "@/lib/messages";
 import { isPending, type ConnectionStatus } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
 import { Composer, RoomGoneNotice, type ComposerHandle, type RoomGone } from "./composer";
@@ -75,7 +76,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
 
   // Up Arrow edits your newest reply, as the room's composer edits your newest message.
   const editLastReply = () => {
-    const newest = replies.messages.findLast((message) => message.creator.id === me.id);
+    const newest = replies.messages.findLast((message) => message.creator.id === me.id && hasEditableText(message));
     if (newest && !isPending(newest)) editors.open(newest.id);
   };
 

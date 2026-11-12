@@ -6,7 +6,7 @@ import { MessageSheet, useMessageSheets, type MessageSheetHandle } from "@/compo
 import { PageLink } from "@/components/page-link";
 import { PeopleContext } from "@/hooks/use-directory";
 import { messagePath, permalinkOf, personPath, threadPath } from "@/hooks/use-route";
-import { cardsQuote, dateTimeLabel, lastReplyLabel, timeLabel } from "@/lib/messages";
+import { cardsQuote, dateTimeLabel, hasEditableText, lastReplyLabel, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
 import { AgentBadge, isAgent } from "./agent-badge";
@@ -263,9 +263,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
   const attachEditor = useCallback((editor: MessageEditorHandle | null) => editors.attach(message.id, editor), [editors, message.id]);
   const pending = isPending(message);
   const upload = isPending(message) ? message.upload : undefined;
-  // The editor shows only while the message can still be changed, and has text to change: a file message's
-  // and a bot's cards' can't be.
-  const editing = editorOpen && actions !== null && !pending && !message.attachment && !message.cards;
+  // The editor shows only while the message can still be changed, and has text to change: a file message's,
+  // a bot's cards' and a forward's quote can't be.
+  const editing = editorOpen && actions !== null && !pending && hasEditableText(message);
   const [customizing, setCustomizing] = useState(false);
   // What opened Forward message, while it's open.
   const [forwarding, setForwarding] = useState<HTMLElement | null>(null);

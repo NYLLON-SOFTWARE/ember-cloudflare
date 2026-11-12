@@ -3,8 +3,9 @@ import type { Message } from "@ember/protocol";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { mentionPromptSrc } from "@/lib/api";
 import { hasTouchKeyboard, pressedAlone } from "@/lib/keyboard";
+import { editedBody } from "@/lib/messages";
 import { cn } from "@/lib/utils";
-import { COMPOSER_CARD } from "./composer-buttons";
+import { COMPOSER_CARD, TEXT_BUTTON } from "./composer-buttons";
 import { useFormatting } from "./composer-formatting";
 import { RichTextEditor, type RichTextEditorHandle } from "./editor";
 import { useEditableBody } from "./editable-body";
@@ -24,7 +25,6 @@ export interface MessageEditorHandle {
 }
 
 /** Cancel and Save, as Slack's: 32px text buttons, or 44px on touch screens. */
-const ACTION = "h-8 cursor-pointer rounded-[7px] px-3 text-[13px] font-semibold touch:h-11";
 
 /**
  * The edit form, in place of the message's text, under its author and time, as Slack's is: the composer's
@@ -51,7 +51,8 @@ export function MessageEditor({ message, onSave, onClose, ref }: Props) {
     // Saving a message left blank or as it was only closes the editor. An edit that couldn't be sent
     // keeps it open, so what was written isn't lost. Lexxy writes mentions with their content, so a
     // message with them is sent as it was, which the room keeps as it is.
-    if (written && !written.isBlank() && written.value() !== message.body && !onSave(written.value())) return;
+    const body = written && !written.isBlank() ? editedBody(message, written.value()) : null;
+    if (body !== null && body !== message.body && !onSave(body)) return;
     onClose();
   };
 
@@ -87,10 +88,10 @@ export function MessageEditor({ message, onSave, onClose, ref }: Props) {
         </Suspense>
       </div>
       <div className="flex justify-end gap-2 pt-2">
-        <button type="button" title="Esc" onClick={onClose} className={cn(ACTION, "border bg-background hover:bg-hover")}>
+        <button type="button" title="Esc" onClick={onClose} className={cn(TEXT_BUTTON, "border bg-background hover:bg-hover")}>
           Cancel
         </button>
-        <button type="button" title="Enter" onClick={save} className={cn(ACTION, "bg-foreground text-background hover:brightness-85")}>
+        <button type="button" title="Enter" onClick={save} className={cn(TEXT_BUTTON, "bg-foreground text-background hover:brightness-85")}>
           Save
         </button>
       </div>

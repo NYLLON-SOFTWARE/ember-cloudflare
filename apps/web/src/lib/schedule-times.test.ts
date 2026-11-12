@@ -45,6 +45,7 @@ describe("Scheduling times", () => {
     expect(sendTimeInSentence(new Date(2026, 10, 16, 9).getTime(), wednesdayNight)).toMatch(/^Monday at 9:00/);
     expect(sendTimeInSentence(new Date(2026, 10, 25, 9).getTime(), wednesdayNight)).toMatch(/^Wednesday, November 25/);
     expect(shortSendTime(new Date(2026, 10, 16, 9).getTime(), wednesdayNight)).toMatch(/^Mon, Nov 16, 9:00\sAM$/);
+    expect(shortSendTime(new Date(2027, 0, 4, 9).getTime(), wednesdayNight)).toMatch(/^Mon, Jan 4, 2027, 9:00\sAM$/);
   });
 
   it("schedules no further ahead than the room allows", () => {
