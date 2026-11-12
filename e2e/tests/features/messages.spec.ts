@@ -460,7 +460,8 @@ test.describe("Message action bar", () => {
     await ada.page.keyboard.press("Enter");
     await expect(actions).toBeVisible();
     await more.press("Enter");
-    await tray.getByRole("button", { name: "Fire" }).press("Enter");
+    await ada.page.keyboard.type("fire");
+    await tray.getByRole("button", { name: "🔥", exact: true }).first().press("Enter");
     await expect(message.getByRole("list", { name: "Reactions" })).toContainText("🔥");
     await expect(actions).toBeHidden();
     await expect(message.getByRole("button", { name: "Message options" })).toBeFocused();

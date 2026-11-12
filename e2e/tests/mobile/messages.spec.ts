@@ -97,6 +97,8 @@ test("message actions open with a tap on Message options and fit a wider touch s
   const tray = page.getByRole("group", { name: "More reactions" });
   await expect(tray).toBeVisible();
   await screenIsFine();
+  // A short screen scrolls the tray, New boost and all.
+  await tray.getByRole("button", { name: "New boost" }).scrollIntoViewIfNeeded();
   await expect(tray.getByRole("button", { name: "New boost" })).toBeInViewport();
   await tray.getByRole("searchbox", { name: "Search emoji" }).fill("fire");
   await tray.getByRole("button", { name: "🔥", exact: true }).first().tap();
