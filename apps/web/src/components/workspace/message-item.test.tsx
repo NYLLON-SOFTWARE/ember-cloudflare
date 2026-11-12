@@ -1118,6 +1118,12 @@ describe("To-dos and Saved", () => {
     expect(await within(actionBar()).findByRole("button", { name: "Remove from to-dos" })).toBeInTheDocument();
   });
 
+  it("says Saved over a message you saved, in the timeline", () => {
+    act(() => heardSaved({ marks: [{ id: "i2", list: "saved", messageId: "m1" }], openTodos: 0, overdueTodos: 0, savedItems: 1 }));
+    const { article } = show(message());
+    expect(within(article).getByText("Saved")).toBeInTheDocument();
+  });
+
   it("takes a message out of Saved from the bar, as every tab hears it's there", async () => {
     const clear = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
     act(() => heardSaved({ marks: [{ id: "i2", list: "saved", messageId: "m1" }], openTodos: 0, overdueTodos: 0, savedItems: 1 }));

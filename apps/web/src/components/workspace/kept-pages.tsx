@@ -9,26 +9,13 @@ import {
   type NoteFile,
   type Room,
   type RoomId,
+  type UserId,
   type SavedItem,
   type SavedList,
   type StoredFile,
 } from "@ember/protocol";
-import {
-  ArrowLeft,
-  Bookmark,
-  CheckCircle,
-  CheckCircleSolid,
-  Clock,
-  Edit,
-  FilterList,
-  MoreHoriz,
-  NavArrowDown,
-  NavArrowRight,
-  Page,
-  Plus,
-  Sort,
-  Xmark,
-} from "@/components/icons/iconoir";
+import { ArrowLeft, Bookmark, CheckCircle, CheckCircleSolid, Clock, Edit, MoreHoriz, NavArrowDown, NavArrowRight, Page, Plus, Xmark } from "@/components/icons/iconoir";
+import { Sort } from "@/components/icons/iconoir-more";
 import { fileTypeOf } from "@ember/protocol/library";
 import { Lightbox } from "@/components/lightbox";
 import { MainContent } from "@/components/main-content";
@@ -58,7 +45,8 @@ import { ATTACH_BUTTON } from "./composer-buttons";
 import { EmojiButton, FormattingToggle, MentionButton } from "./composer-menus";
 import { ComposerToolbar } from "./composer-toolbar";
 import { NO_FORMATS, PHONE_TOOL_GROUPS, type Formats } from "./formatting";
-import { FileTypeIcon } from "./file-list";
+import { FileTypeIcon, PILL } from "./file-list";
+import { Chip, CHIPS_ROW } from "./search-box";
 import { RichTextEditor, type RichTextEditorHandle } from "./editor";
 import { MessageItem, type MessageEditors } from "./message-item";
 import { HEADER_TEXT_BUTTON, PageHeader } from "./page-header";
@@ -147,6 +135,37 @@ function backHome(event: MouseEvent<HTMLAnchorElement>) {
   returnTo("/");
 }
 
+/** Where a new to-do's unsaved text is kept in this browser, or a note's being changed, by `userId`. */
+const draftKeyOf = (userId: UserId, itemId?: string) => `todo-draft-${userId}${itemId === undefined ? "" : `-${itemId}`}`;
+
+/** The draft kept at `key`, or null with none, or where storage can't be reached. */
+function readDraft(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+/** Keeps `html` as the draft at `key`, or forgets it for null. */
+function keepDraft(key: string, html: string | null): void {
+  try {
+    if (html) localStorage.setItem(key, html);
+    else localStorage.removeItem(key);
+  } catch {
+    // Unkept, then.
+  }
+}
+
+/** Moves the draft at `from` to `to`, saying whether there was one. */
+function moveDraft(from: string, to: string): boolean {
+  const html = readDraft(from);
+  if (!html) return false;
+  keepDraft(to, html);
+  keepDraft(from, null);
+  return true;
+}
+
 /** The keys typed while an editor opens, which it takes once it has focus. */
 interface TypedAhead {
   take: () => string;
@@ -211,7 +230,9 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
     setThread(null);
   }
 
-  // Loads again whenever what you keep changes, here or in another tab, so a moved item leaves this list.
+  // Loads again whenever what you keep changes, here or in another tab, so a moved item leaves this list,
+  // and whenever your rooms do, so an item from a room you've left shows as unavailable at once.
+  const roomIds = rooms.map((room) => room.id).join(" ");
   useEffect(() => {
     let current = true;
     fetchSavedList(list).then(
@@ -221,7 +242,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
     return () => {
       current = false;
     };
-  }, [list, version, onFailed]);
+  }, [list, version, roomIds, onFailed]);
 
   // An item's address in the other list, as a link from before it moved, goes on to its own.
   const missing = itemId !== undefined && items !== null && !items.some((item) => item.id === itemId);
@@ -230,12 +251,17 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
     let current = true;
     fetchSavedItem(itemId).then(
       (item) => current && item.list !== list && navigate(savedPath(item.list, item.id), { replace: true }),
-      () => {},
+      () => {
+        // Cleared elsewhere while you changed it: what you'd written opens again as a new to-do.
+        if (!current || !moveDraft(draftKeyOf(me.id, itemId), draftKeyOf(me.id))) return;
+        setCreating(true);
+        returnTo(savedPath(list));
+      },
     );
     return () => {
       current = false;
     };
-  }, [missing, itemId, list]);
+  }, [missing, itemId, list, me.id]);
 
   const roomsById = useMemo(() => new Map(rooms.map((room) => [room.id, room])), [rooms]);
   const shown = useMemo(() => (items ? sorted(items.filter((item) => shows(filter, item)), sort) : []), [items, filter, sort]);
@@ -250,6 +276,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
     move: (item) => act(changeItem(item.id, { list: list === "todo" ? "saved" : "todo" })),
     remind: (item, at) => act(changeItem(item.id, { remindAt: at && at.toISOString() })),
     clear: (item) => {
+      keepDraft(draftKeyOf(me.id, item.id), null);
       setItems((items) => items && items.filter((i) => i.id !== item.id));
       if (item.id === itemId) returnTo(savedPath(list));
       clearItem(item.id).catch(failed);
@@ -295,7 +322,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
   const detailOpen = creating || itemId !== undefined;
 
   const row = (item: SavedItem) => (
-    <KeptRow key={item.id} item={item} list={list} selected={item.id === itemId} origin={originOf(item, roomsById, me.id, nameOf)} me={me} actions={actions} />
+    <KeptRow key={item.id} item={item} list={list} selected={item.id === itemId} origin={originOf(item, roomsById, me.id, nameOf)} actions={actions} />
   );
   const nameOf = useNameOf();
   const inProgress = shown.filter((item) => item.completedAt === null);
@@ -319,11 +346,16 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
   const listPane = (
     <section aria-label={names.title} className="flex h-full min-h-0 min-w-0 flex-col bg-background">
       {/* On phones the page's own top bar, with Back, stands over the list instead. */}
-      {!phone && <div className="flex min-h-header items-center gap-3 border-b px-[22px] py-2.5">{header}</div>}
+      {!phone && <div className="flex min-h-header items-center gap-3 border-b px-4 py-2.5">{header}</div>}
       {items !== null && items.length > 0 && (
-        <div className="flex items-center gap-2 border-b px-4 py-2">
-          <FilterMenu list={list} filter={filter} onFilter={setFilter} />
-          <span className="flex-1" />
+        <div className="flex items-center gap-2 border-b py-2 pr-4 md:pl-4">
+          <div role="group" aria-label="Filter" className={cn("flex min-w-0 flex-1 gap-2", CHIPS_ROW)}>
+            {FILTERS[list].map((option) => (
+              <Chip key={option} pressed={filter === option} onClick={() => setFilter(option)}>
+                {FILTER_LABELS[option]}
+              </Chip>
+            ))}
+          </div>
           <SortMenu list={list} sort={sort} onSort={setSort} />
         </div>
       )}
@@ -357,7 +389,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
   const place = list === "saved" && selected?.message && renderRoom ? placeOfMessage(selected.message, thread) : null;
   const detail = creating ? (
     <Detail title={names.item} onClose={closeDetail}>
-      <NoteEditor key="new" onSaved={created} onFailed={failed} />
+      <NoteEditor key="new" draftKey={draftKeyOf(me.id)} onSaved={created} onFailed={failed} />
     </Detail>
   ) : place && renderRoom ? (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background" onClickCapture={(event) => openThreadForLink(event, place, setThread)}>
@@ -383,8 +415,8 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
   ) : null;
 
   const panes: Pane[] = [
-    { id: "list", label: `Resize ${names.title}`, minWidth: 320, defaultShare: place ? 0.32 : 0.42, content: listPane },
-    { id: "detail", label: `Resize ${names.title}`, minWidth: 360, defaultShare: place ? 0.68 : 0.58, onClose: detailOpen ? closeDetail : undefined, content: detail },
+    { id: "list", label: `Resize ${names.title}`, minWidth: 320, defaultShare: 0.36, content: listPane },
+    { id: "detail", label: `Resize ${names.title}`, minWidth: 360, defaultShare: 0.64, onClose: detailOpen ? closeDetail : undefined, content: detail },
   ];
   // With nothing open, the list has the page to itself.
   if (!detail) panes.pop();
@@ -435,31 +467,10 @@ function Section({ title, count, children }: { title: string; count: number; chi
   );
 }
 
-function FilterMenu({ list, filter, onFilter }: { list: SavedList; filter: KeptFilter; onFilter: (filter: KeptFilter) => void }) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger aria-label={`Filter: ${FILTER_LABELS[filter]}`} className={TOOLBAR_BUTTON}>
-        <FilterList className="size-4" />
-        {filter === "all" ? "Filter" : FILTER_LABELS[filter]}
-        <NavArrowDown className="size-3.5" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
-        <DropdownMenuRadioGroup value={filter} onValueChange={(value) => onFilter(value as KeptFilter)}>
-          {FILTERS[list].map((option) => (
-            <DropdownMenuRadioItem key={option} value={option}>
-              {FILTER_LABELS[option]}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 function SortMenu({ list, sort, onSort }: { list: SavedList; sort: KeptSort; onSort: (sort: KeptSort) => void }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger aria-label={`Sort: ${SORT_LABELS[sort]}`} className={TOOLBAR_BUTTON}>
+      <DropdownMenuTrigger aria-label={`Sort: ${SORT_LABELS[sort]}`} className={PILL}>
         <Sort className="size-4" />
         <span className="max-md:sr-only">{SORT_LABELS[sort]}</span>
       </DropdownMenuTrigger>
@@ -497,14 +508,12 @@ function FileTile({ file }: { file: StoredFile }) {
   );
 }
 
-/** Who a row shows: the message's author, or you for a note of your own. */
-const faceOf = (item: SavedItem, me: Me) => item.message?.creator ?? me;
-
-function KeptRow({ item, list, selected, origin, me, actions }: { item: SavedItem; list: SavedList; selected: boolean; origin: string; me: Me; actions: RowActions }) {
+function KeptRow({ item, list, selected, origin, actions }: { item: SavedItem; list: SavedList; selected: boolean; origin: string; actions: RowActions }) {
   const date = dateOf(item);
   const file = item.message?.attachment;
   const gone = item.kind !== "note" && !item.message;
   const done = item.completedAt !== null;
+  const overdue = item.remindAt !== null && item.reminded === true && !done;
   const nameOf = useNameOf();
   return (
     <li className={cn("group/row relative flex items-start gap-3 border-b px-4 py-3 last:border-b-0 hover:bg-hover", selected && "bg-hover")}>
@@ -514,8 +523,13 @@ function KeptRow({ item, list, selected, origin, me, actions }: { item: SavedIte
         </span>
       ) : file ? (
         <FileTile file={file} />
+      ) : item.message ? (
+        <UserAvatar user={item.message.creator} square className="size-9 shrink-0" />
       ) : (
-        <UserAvatar user={faceOf(item, me)} square className="size-9 shrink-0" />
+        // A note of your own needs no face of yours on every row.
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-hover text-foreground">
+          <Page className="size-5" />
+        </span>
       )}
       <button
         type="button"
@@ -523,29 +537,26 @@ function KeptRow({ item, list, selected, origin, me, actions }: { item: SavedIte
         aria-current={selected ? "true" : undefined}
         className="min-w-0 flex-1 cursor-pointer text-left after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-foreground"
       >
-        <span className={cn("block truncate text-[15px]", gone && "text-muted-foreground italic", done && "text-muted-foreground line-through")}>
+        <span className={cn("block truncate text-[15px] max-md:text-[17px]", gone && "text-muted-foreground italic", done && "text-muted-foreground line-through")}>
           {done && <span className="sr-only">Completed: </span>}
           {summaryOf(item)}
         </span>
-        {/* Where it's from truncates first, keeping a reminder's state in sight. */}
-        <span className="flex min-w-0 gap-1 text-[13px] text-muted-foreground">
+        {/* An overdue to-do says so first, in place of its date; an upcoming reminder's time stays in sight. */}
+        <span className="flex min-w-0 gap-1 text-[13px] text-muted-foreground max-md:text-[15px]">
           <span className="truncate">
+            {overdue && <span className="text-negative">Overdue · </span>}
             {item.message && <>{nameOf(item.message.creator)} · </>}
-            {origin && <>{origin} · </>}
-            <time dateTime={date} title={dateTimeLabel(new Date(date))}>
-              {shortDateLabel(new Date(date))}
-            </time>
+            {origin && <>{origin}{!overdue && " · "}</>}
+            {!overdue && (
+              <time dateTime={date} title={dateTimeLabel(new Date(date))}>
+                {shortDateLabel(new Date(date))}
+              </time>
+            )}
           </span>
-          {item.remindAt && !done && (
+          {item.remindAt && !done && !overdue && (
             <span className="shrink-0">
               {"· "}
-              {item.reminded ? (
-                <span className="text-negative">Overdue</span>
-              ) : (
-                <>
-                  <Clock className="inline size-3.5 align-[-2px]" /> {dateTimeLabel(new Date(item.remindAt))}
-                </>
-              )}
+              <Clock className="inline size-3.5 align-[-2px]" /> {dateTimeLabel(new Date(item.remindAt))}
             </span>
           )}
         </span>
@@ -799,7 +810,7 @@ function ItemDetail({ item, typed, me, origin, actions, onChanged, onFailed }: I
   return (
     <div className="grid gap-4">
       {item.kind === "note" ? (
-        <NoteEditor item={item} typed={typed} onSaved={onChanged} onFailed={onFailed} />
+        <NoteEditor item={item} draftKey={draftKeyOf(me.id, item.id)} typed={typed} onSaved={onChanged} onFailed={onFailed} />
       ) : item.unavailable ? (
         <p className="text-muted-foreground">This message is unavailable.</p>
       ) : !item.message ? (
@@ -820,7 +831,13 @@ function ItemDetail({ item, typed, me, origin, actions, onChanged, onFailed }: I
           <ReminderMenu item={item} onRemind={(at) => actions.remind(item, at)}>
             <DropdownMenuTrigger className={TOOLBAR_BUTTON}>
               <Clock className="size-4" />
-              {item.remindAt ? `Reminder: ${dateTimeLabel(new Date(item.remindAt))}` : "Add reminder"}
+              {item.remindAt === null ? (
+                "Add reminder"
+              ) : item.reminded && item.completedAt === null ? (
+                <span className="text-negative">Overdue · {shortDateLabel(new Date(item.remindAt))}</span>
+              ) : (
+                `Reminder: ${dateTimeLabel(new Date(item.remindAt))}`
+              )}
             </DropdownMenuTrigger>
           </ReminderMenu>
         </div>
@@ -833,7 +850,18 @@ function ItemDetail({ item, typed, me, origin, actions, onChanged, onFailed }: I
  * A note of your own, new or kept, in the message editor, with its files, which upload as they're
  * chosen, and Add or Save changes.
  */
-function NoteEditor({ item, typed = null, onSaved, onFailed }: { item?: SavedItem; typed?: TypedAhead | null; onSaved: (item: SavedItem) => void; onFailed: (error: unknown) => void }) {
+interface NoteEditorProps {
+  item?: SavedItem;
+  /** Where its unsaved text is kept in this browser, as a message's draft is, until it's saved. */
+  draftKey: string;
+  typed?: TypedAhead | null;
+  onSaved: (item: SavedItem) => void;
+  onFailed: (error: unknown) => void;
+}
+
+function NoteEditor({ item, draftKey, typed = null, onSaved, onFailed }: NoteEditorProps) {
+  // What was written and not saved, last time, through signing out or a reload, or else the note's text.
+  const [initialValue] = useState(() => readDraft(draftKey) ?? item?.body ?? "");
   const editor = useRef<RichTextEditorHandle>(null);
   const picker = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<NoteFile[]>(item?.files ?? []);
@@ -872,6 +900,7 @@ function NoteEditor({ item, typed = null, onSaved, onFailed }: { item?: SavedIte
     try {
       const fileIds = files.map(({ id }) => id);
       const saved = item ? await changeItem(item.id, { body, fileIds }) : await keepItem({ list: "todo", body, ...(fileIds.length > 0 && { fileIds }) });
+      keepDraft(draftKey, null);
       if (mounted.current) onSaved(saved);
     } catch (error) {
       if (!isSignedOut(error) || mounted.current) onFailed(error);
@@ -887,7 +916,8 @@ function NoteEditor({ item, typed = null, onSaved, onFailed }: { item?: SavedIte
       disabled={saving}
       onFormat={(format) => editor.current?.format(format)}
       onBlock={(block) => editor.current?.setBlock(block)}
-      onLink={(url) => editor.current?.link(url)}
+      onLink={(url, text) => editor.current?.link(url, text)}
+      linkDraft={() => editor.current?.linkDraft() ?? { text: "", url: "" }}
       linkOpen={linkOpen}
       onLinkOpenChange={setLinkOpen}
       onReturnFocus={() => editor.current?.focus()}
@@ -913,7 +943,7 @@ function NoteEditor({ item, typed = null, onSaved, onFailed }: { item?: SavedIte
       }}
     >
       {/* The composer's card, as the message box draws it: the formatting toolbar, the text, and its buttons. */}
-      <div className="flex min-h-[132px] min-w-0 flex-col rounded-[12px] border bg-surface p-3 focus-within:border-muted-foreground max-md:p-2.5">
+      <div className="flex min-h-[132px] min-w-0 flex-col rounded-[12px] border border-input bg-surface p-3 focus-within:border-ring focus-within:shadow-[0_0_0_1px_var(--ring)] max-md:p-2.5">
         {!phone && toolbar()}
         <div className="flex min-w-0 flex-1 flex-col">
           <Suspense fallback={<div className="min-h-12 py-1 text-muted-foreground">What’s on your to-do list?</div>}>
@@ -922,7 +952,8 @@ function NoteEditor({ item, typed = null, onSaved, onFailed }: { item?: SavedIte
               label="To-do"
               placeholder="What’s on your to-do list?"
               rows={2}
-              initialValue={item?.body ?? ""}
+              initialValue={initialValue}
+              onChange={() => keepDraft(draftKey, editor.current?.isBlank() ? null : (editor.current?.value() ?? null))}
               mentionsFrom="/api/autocompletable/users"
               autoFocus={item === undefined || typed !== null}
               toolbar={false}

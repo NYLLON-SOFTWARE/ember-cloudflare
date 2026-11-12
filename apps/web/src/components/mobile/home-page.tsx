@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode } from "react";
+import { Fragment, type ComponentType, type ReactNode } from "react";
 import type { LiveHuddle, Me, RoomId } from "@ember/protocol";
 import { EditPencil, Group, Headset, MultiBubble } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
@@ -72,7 +72,7 @@ interface CardProps {
   Icon: ComponentType<{ className?: string }>;
   title: string;
   /** How much is there, when there's a count to give. */
-  detail?: string;
+  detail?: ReactNode;
   /** Where it goes, or nowhere, when there's nothing there. */
   href?: string;
 }
@@ -84,7 +84,17 @@ const KEPT_CARDS: KeptShortcut["page"][] = ["saved", "todos"];
 function KeptCard({ shortcut }: { shortcut: KeptShortcut }) {
   const counts = useKeptCounts();
   const count = shortcut.page === "todos" ? counts.openTodos : counts.savedItems;
-  return <Card Icon={shortcut.Icon} title={shortcut.title} detail={count > 0 ? shortcut.detail(counts) : undefined} href={shortcut.href} />;
+  // Its parts stay whole, an overdue count in red, and the card grows to hold them rather than cut one off.
+  const detail =
+    count > 0
+      ? shortcut.detail(counts).map((part, index) => (
+          <Fragment key={part.text}>
+            {index > 0 && " · "}
+            <span className={part.alert ? "whitespace-nowrap text-negative" : "whitespace-nowrap"}>{part.text}</span>
+          </Fragment>
+        ))
+      : undefined;
+  return <Card Icon={shortcut.Icon} title={shortcut.title} detail={detail} href={shortcut.href} />;
 }
 
 /** One of Home's cards: an icon, its name, and how much is there, each the same height with a count or without. */
@@ -93,10 +103,10 @@ function Card({ Icon, title, detail, href }: CardProps) {
     <>
       <Icon className="size-6" />
       <span className="mt-1 truncate text-base leading-5 font-semibold">{title}</span>
-      {detail && <span className="truncate text-sm leading-5 text-muted-foreground">{detail}</span>}
+      {detail && <span className="text-sm leading-5 whitespace-nowrap text-muted-foreground">{detail}</span>}
     </>
   );
-  const card = "flex h-full min-h-[92px] w-[132px] flex-col rounded-xl border bg-surface px-3.5 py-3 text-foreground no-underline";
+  const card = "flex h-full min-h-[92px] w-max min-w-[132px] flex-col rounded-xl border bg-surface px-3.5 py-3 text-foreground no-underline";
   return (
     <li className="shrink-0">
       {href ? (

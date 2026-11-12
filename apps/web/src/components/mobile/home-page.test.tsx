@@ -32,7 +32,7 @@ function renderHome({ huddles = {}, loaded = true }: { huddles?: Record<RoomId, 
   return within(screen.getByRole("list", { name: "Shortcuts" }));
 }
 
-const cardTexts = (cards: ReturnType<typeof renderHome>) => cards.getAllByRole("listitem").map((card) => [...card.firstElementChild!.querySelectorAll("span")].map((line) => line.textContent));
+const cardTexts = (cards: ReturnType<typeof renderHome>) => cards.getAllByRole("listitem").map((card) => [...card.firstElementChild!.querySelectorAll(":scope > span")].map((line) => line.textContent));
 
 describe("Home on a phone", () => {
   it("heads the page with the workspace's name alone, and your avatar", () => {

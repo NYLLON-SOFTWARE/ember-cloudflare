@@ -1,7 +1,8 @@
 import { memo, useCallback, useContext, useMemo, useRef, useState } from "react";
 import type { CardAction, Me, Message, User } from "@ember/protocol";
 import { displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
-import { NavArrowRight } from "@/components/icons/iconoir";
+import { BookmarkSolid, NavArrowRight } from "@/components/icons/iconoir";
+import { useSavedMark } from "@/lib/saved";
 import { MessageSheet, useMessageSheets, type MessageSheetHandle } from "@/components/mobile/message-sheet";
 import { PageLink } from "@/components/page-link";
 import { PeopleContext } from "@/hooks/use-directory";
@@ -279,6 +280,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
   // Any message that mentions you, yours too, as Campfire's message_formatter.js means to mark them,
   // though it looks for an avatar address that mentions don't have, so it never does.
   const mentioned = message.mentions.some((person) => person.id === me.id);
+  // Saved, in the timeline, where the message can be acted on rather than shown as a copy.
+  const saved = useSavedMark(message.id)?.list === "saved" && actions !== null;
   const shown = useMemo(() => shownBody(message.body, message.plainText), [message.body, message.plainText]);
   // Quote quotes what the message shows, or the plain text of a bot's cards where they're all it shows.
   const quoted = useMemo(
@@ -357,6 +360,13 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
         open && "bg-hover",
       )}
     >
+      {/* A message you saved says so over it, as Slack's "Saved for later", its bookmark in the avatar's column. */}
+      {saved && (
+        <p className="col-span-full grid grid-cols-subgrid pt-1 text-[13px] leading-5 text-muted-foreground">
+          <BookmarkSolid className="size-3 self-center justify-self-end" />
+          <span>Saved</span>
+        </p>
+      )}
       {/* The avatar sits 8px down, level with the author's name, and 4px below where the editor starts. */}
       {!threaded && <AvatarLink user={message.creator} square className="mt-2 size-9 max-md:size-[30px]" />}
 

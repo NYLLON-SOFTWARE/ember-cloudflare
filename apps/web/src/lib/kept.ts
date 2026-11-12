@@ -5,15 +5,15 @@ import { timeLabel } from "./messages";
 // What the To-dos and Saved pages make of their items: what each row says, which ones a filter shows, in
 // what order, and the times a reminder can be set for.
 
-/** What a list's Filter shows. */
+/** What a list's filter chips show. */
 export type KeptFilter = "all" | "messages" | "files" | "notes" | "reminders";
 
 export const FILTER_LABELS: Record<KeptFilter, string> = {
-  all: "All items",
+  all: "All",
   messages: "Messages",
   files: "Files",
-  notes: "Your own to-dos",
-  reminders: "With a reminder",
+  notes: "Your own",
+  reminders: "Reminders",
 };
 
 /** The filters each list offers: Saved holds no notes. */

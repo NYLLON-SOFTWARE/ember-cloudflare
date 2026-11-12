@@ -11,11 +11,11 @@ describe("To-dos and Saved shortcuts", () => {
     ]);
   });
 
-  it("say how many to-dos are open, and overdue when any are, and how many items are saved", () => {
-    expect(todos!.detail({ openTodos: 3, overdueTodos: 0, savedItems: 0 })).toBe("3 open");
-    expect(todos!.detail({ openTodos: 3, overdueTodos: 1, savedItems: 0 })).toBe("3 open · 1 overdue");
+  it("say how many to-dos are open, and overdue as a warning when any are, and how many items are saved", () => {
+    expect(todos!.detail({ openTodos: 3, overdueTodos: 0, savedItems: 0 })).toEqual([{ text: "3 open" }]);
+    expect(todos!.detail({ openTodos: 3, overdueTodos: 1, savedItems: 0 })).toEqual([{ text: "3 open" }, { text: "1 overdue", alert: true }]);
     expect(todos!.badge({ openTodos: 3, overdueTodos: 1, savedItems: 0 })).toBe(1);
-    expect(saved!.detail({ openTodos: 0, overdueTodos: 0, savedItems: 1 })).toBe("1 item");
-    expect(saved!.detail({ openTodos: 0, overdueTodos: 0, savedItems: 12 })).toBe("12 items");
+    expect(saved!.detail({ openTodos: 0, overdueTodos: 0, savedItems: 1 })).toEqual([{ text: "1 item" }]);
+    expect(saved!.detail({ openTodos: 0, overdueTodos: 0, savedItems: 12 })).toEqual([{ text: "12 items" }]);
   });
 });
