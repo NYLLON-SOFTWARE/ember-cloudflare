@@ -81,16 +81,10 @@ export function FilesPage({ me, place, rooms, onFailed }: Props) {
           />
           {shown === null ? (
             failed ? (
-              <NothingHere title="Files couldn’t load">Check your connection, then come back to this page.</NothingHere>
+              <NothingHere title="Files couldn’t load" />
             ) : null
           ) : shown.length === 0 ? (
-            <NothingHere title={files!.length === 0 ? "No files yet" : "No files found"}>
-              {place === "starred" && files!.every((file) => !file.starred)
-                ? "Click the star on any file to add it here for later."
-                : files!.length === 0
-                  ? "Files shared in your conversations show up here."
-                  : "Try different words, or take a filter off."}
-            </NothingHere>
+            <NothingHere title={place === "starred" && files!.every((file) => !file.starred) ? "No starred files" : files!.length === 0 ? "No files" : "No matches"} />
           ) : (
             <ul aria-label={PLACE_TITLES[place]} className="flex flex-col">
               {shown.map((file) => (

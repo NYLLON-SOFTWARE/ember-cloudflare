@@ -16,7 +16,7 @@ import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
 import { MessageList } from "./message-list";
 import { RoomHeader } from "./room-header";
 import { RoomNotice } from "./room-notice";
-import { RoomTabs } from "./room-tabs";
+import { RoomTabs, RoomTabsContext, useRoomTabs } from "./room-tabs";
 import { ThreadPanel } from "./thread-panel";
 
 /** Where a thread covers its room, rather than showing beside it: below 1180px wide. */
@@ -74,6 +74,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
     if (foundGone) roomGone();
   }, [foundGone]);
   const deleted = gone || foundGone;
+  const tabs = useRoomTabs(room, deleted, onFailed);
 
   // The room opens at the message its address names. Following its permalink, or one to another message
   // in it, or the room's own link, goes there, or to the newest, even when it's the page shown. One
@@ -109,7 +110,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   };
 
   return (
-    <>
+    <RoomTabsContext value={tabs}>
       {/* The room's header and messages, placed in the page's grid as if they were its own. */}
       <div className="contents" inert={covered}>
         <RoomHeader
@@ -128,7 +129,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
         />
         {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
         <MainContent className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
-          <RoomTabs room={room} me={me} deleted={deleted} onFailed={onFailed} />
+          <RoomTabs room={room} me={me} state={tabs} onFailed={onFailed} />
           <RoomNotice notice={state.notice} onDismiss={dismissNotice} />
           <MessageList
             roomName={name}
@@ -188,6 +189,6 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
           onDismissRoomNotice={dismissNotice}
         />
       )}
-    </>
+    </RoomTabsContext>
   );
 }

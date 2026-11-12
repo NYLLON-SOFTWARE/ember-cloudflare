@@ -1,4 +1,4 @@
-import { useContext, useId, useMemo, useState, type ComponentType, type ReactNode } from "react";
+import { useContext, useId, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import type { Me, Room, RoomId, UserId } from "@ember/protocol";
 import {
   ANY_TIME,
@@ -48,6 +48,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PeopleContext } from "@/hooks/use-directory";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { messagePath, navigate, roomPath } from "@/hooks/use-route";
 import { roomTabAddress } from "@/lib/library";
 import { dateLabel, dateTimeLabel } from "@/lib/messages";
@@ -333,13 +334,57 @@ interface FileRowProps {
   onStar: (file: LibraryFile, starred: boolean) => void;
 }
 
+/** How long a finger has to stay on a row for its menu to open. */
+const LONG_PRESS_MS = 500;
+
+/**
+ * What has a row open its menu, `open`, on a touch screen as a finger holds it, or as it's held long enough
+ * for the browser's own menu, and makes the tap that ends the hold open nothing.
+ */
+export function useLongPress(open: () => void) {
+  const press = useRef<{ timer: ReturnType<typeof setTimeout>; held: boolean } | null>(null);
+  const released = () => {
+    if (press.current && !press.current.held) clearTimeout(press.current.timer);
+  };
+  return {
+    onPointerDown: (event: React.PointerEvent) => {
+      if (event.pointerType !== "touch") return;
+      const timer = setTimeout(() => {
+        press.current = { timer, held: true };
+        open();
+      }, LONG_PRESS_MS);
+      press.current = { timer, held: false };
+    },
+    onPointerUp: released,
+    onPointerCancel: released,
+    onPointerLeave: released,
+    onClickCapture: (event: React.MouseEvent) => {
+      if (press.current?.held) event.preventDefault();
+      press.current = null;
+    },
+    onContextMenu: (event: React.MouseEvent) => {
+      if (!matchMedia("(pointer: coarse)").matches) return;
+      event.preventDefault();
+      open();
+    },
+  };
+}
+
+/** A row's actions that show as the pointer or focus reaches it, or that it opens its menu with. */
+export const ROW_ACTIONS = "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100";
+
 /**
  * A file's row: its kind's icon, its name, which opens it, who shared it and when, or when you last opened
- * it, and its actions: open, star, download and more.
+ * it. Its actions, open, star, download and more, show as the pointer or focus reaches it; a star stays
+ * on a starred file, which is how it shows it's starred. On a touch screen, holding the row opens its
+ * menu, which then holds every action.
  */
 export function FileRow({ file, room, names, showRoom, onOpened, onStar }: FileRowProps) {
   const created = new Date(file.createdAt);
   const canvas = file.kind === "canvas";
+  const touch = useMediaQuery("(pointer: coarse)");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const holding = useLongPress(() => setMenuOpen(true));
   const opened = (event: React.MouseEvent) => {
     onOpened(file);
     if (!canvas) return;
@@ -347,8 +392,19 @@ export function FileRow({ file, room, names, showRoom, onOpened, onStar }: FileR
     navigate(openAddress(file));
   };
   const when = file.viewedAt ? `Last viewed ${dateLabel(new Date(file.viewedAt))}` : dateLabel(created);
+  const star = (
+    <button type="button" aria-pressed={file.starred} title={file.starred ? "Unstar" : "Star"} onClick={() => onStar(file, !file.starred)} className={ROW_BUTTON}>
+      {file.starred ? <StarSolid /> : <Star />}
+      <span className="sr-only">
+        {file.starred ? "Unstar" : "Star"} {file.name}
+      </span>
+    </button>
+  );
   return (
-    <li className="group flex min-h-[68px] items-center gap-3 rounded-lg px-3 py-2 hover:bg-hover max-md:px-2">
+    <li
+      {...holding}
+      className="group flex min-h-[68px] items-center gap-3 rounded-lg px-3 py-2 [-webkit-touch-callout:none] hover:bg-hover max-md:px-2"
+    >
       <FileTypeIcon file={file} />
       <div className="min-w-0 flex-1">
         <a
@@ -375,31 +431,32 @@ export function FileRow({ file, room, names, showRoom, onOpened, onStar }: FileR
           {file.file && <span className="shrink-0 max-md:hidden">· {sizeLabel(file.file.byteSize)}</span>}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 touch:opacity-100 max-md:opacity-100">
-        <a
-          href={openAddress(file)}
-          onClick={opened}
-          {...(!canvas && { target: "_blank", rel: "noopener" })}
-          title={canvas ? "Open canvas" : "Open in a new tab"}
-          className={cn(ROW_BUTTON, "max-md:hidden")}
-        >
-          <OpenNewWindow />
-          <span className="sr-only">Open {file.name}</span>
-        </a>
-        <button type="button" aria-pressed={file.starred} title={file.starred ? "Unstar" : "Star"} onClick={() => onStar(file, !file.starred)} className={ROW_BUTTON}>
-          {file.starred ? <StarSolid /> : <Star />}
-          <span className="sr-only">
-            {file.starred ? "Unstar" : "Star"} {file.name}
-          </span>
-        </button>
-        {file.file && (
-          <a href={file.file.downloadUrl} download={file.file.name} title="Download" className={cn(ROW_BUTTON, "max-md:hidden")}>
-            <Download />
-            <span className="sr-only">Download {file.name}</span>
-          </a>
+      <div className="flex shrink-0 items-center gap-0.5">
+        {!touch && (
+          <div className={cn("flex items-center gap-0.5", ROW_ACTIONS)}>
+            <a
+              href={openAddress(file)}
+              onClick={opened}
+              {...(!canvas && { target: "_blank", rel: "noopener" })}
+              title={canvas ? "Open canvas" : "Open in a new tab"}
+              className={ROW_BUTTON}
+            >
+              <OpenNewWindow />
+              <span className="sr-only">Open {file.name}</span>
+            </a>
+            {!file.starred && star}
+            {file.file && (
+              <a href={file.file.downloadUrl} download={file.file.name} title="Download" className={ROW_BUTTON}>
+                <Download />
+                <span className="sr-only">Download {file.name}</span>
+              </a>
+            )}
+          </div>
         )}
-        <DropdownMenu>
-          <DropdownMenuTrigger title="More actions" className={ROW_BUTTON}>
+        {file.starred && (touch ? <StarSolid aria-label="Starred" className="mx-1 size-[18px] text-muted-foreground" /> : star)}
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          {/* On a touch screen, holding the row opens it, and it's only there to place the menu. */}
+          <DropdownMenuTrigger title="More actions" tabIndex={touch ? -1 : undefined} className={cn(ROW_BUTTON, ROW_ACTIONS, touch && "pointer-events-none w-0")}>
             <MoreVert />
             <span className="sr-only">More actions for {file.name}</span>
           </DropdownMenuTrigger>
@@ -409,16 +466,16 @@ export function FileRow({ file, room, names, showRoom, onOpened, onStar }: FileR
                 <PageLink href={messagePath(file.roomId, file.messageId)}>{room?.kind === "direct" ? "View in conversation" : "View in room"}</PageLink>
               </DropdownMenuItem>
             )}
-            {canvas && <DropdownMenuItem onSelect={() => navigate(openAddress(file))}>Open canvas</DropdownMenuItem>}
-            {file.file && (
+            <DropdownMenuItem onSelect={() => void navigator.clipboard?.writeText(new URL(openAddress(file), location.href).href)}>Copy link</DropdownMenuItem>
+            {/* What the row's own buttons do, for a touch screen, which has none. */}
+            {touch && file.file && (
               <DropdownMenuItem asChild>
                 <a href={file.file.downloadUrl} download={file.file.name}>
                   Download
                 </a>
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem onSelect={() => void navigator.clipboard?.writeText(new URL(openAddress(file), location.href).href)}>Copy link</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onStar(file, !file.starred)}>{file.starred ? "Unstar" : "Star"}</DropdownMenuItem>
+            {touch && <DropdownMenuItem onSelect={() => onStar(file, !file.starred)}>{file.starred ? "Unstar" : "Star"}</DropdownMenuItem>}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

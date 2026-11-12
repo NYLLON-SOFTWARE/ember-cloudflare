@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import { FILES_PATH, filesPath, type FilesPlace, type Me } from "@ember/protocol";
-import { MultiplePages, PageEdit, Star, StarSolid, type IconoirIconProps } from "@/components/icons/iconoir";
+import { MultiplePages, PageEdit, Star, type IconoirIconProps } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { fileOpened, useFiles } from "@/hooks/use-files";
 import { navigate } from "@/hooks/use-route";
@@ -19,7 +19,7 @@ const PLACES: Array<{ place: FilesPlace; Icon: ComponentType<IconoirIconProps> }
 
 /**
  * The Files page's column, in the sidebar's place, after Slack's: All files and Canvases, then Starred,
- * which lists the files you've starred, each opening its file, or says how to star one.
+ * which lists the files you’ve starred, each opening its file.
  */
 export function FilesNav({ place }: { me: Me; place: FilesPlace }) {
   const { files } = useFiles();
@@ -50,11 +50,6 @@ export function FilesNav({ place }: { me: Me; place: FilesPlace }) {
           <Star className="size-[18px] shrink-0 text-muted-foreground" />
           {PLACE_TITLES.starred}
         </PageLink>
-        {files !== null && starred.length === 0 && (
-          <p className="px-[9px] text-[13px] leading-[18px] text-muted-foreground">
-            Click the <StarSolid aria-label="star" className="inline size-3.5 align-[-2px]" /> on any file to add it here for later.
-          </p>
-        )}
         <ul className="flex flex-col gap-[3px]">
           {starred.map((file) => (
             <li key={file.id}>

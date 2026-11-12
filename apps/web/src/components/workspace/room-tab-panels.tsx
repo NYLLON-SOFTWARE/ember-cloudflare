@@ -26,13 +26,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { PeopleContext } from "@/hooks/use-directory";
-import { messagePath } from "@/hooks/use-route";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { messagePath, navigate } from "@/hooks/use-route";
 import { isSignedOut, type Room } from "@/lib/api";
 import { addFolderItem, addTab, fetchFiles, fetchRoomLibrary, markFile, openTab, orderTabs, removeFolderItem, removeTab, renameTab } from "@/lib/library";
 import { dateLabel } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import { PageLink } from "@/components/page-link";
-import { FileRow, FileSearch, FileTypeIcon, FilterButton, FilterDialog, NothingHere, sizeLabel, SortMenu, TypesMenu } from "./file-list";
+import { FileRow, FileSearch, FileTypeIcon, FilterButton, FilterDialog, NothingHere, ROW_ACTIONS, sizeLabel, SortMenu, TypesMenu, useLongPress } from "./file-list";
 import { Chip, CHIPS_ROW, useSearchNames } from "./search-box";
 import { CanvasEditor, TAB_ICONS, type ShownTab } from "./room-tab-icons";
 
@@ -252,9 +253,7 @@ function FilesAndLinks({ room, me, onFailed }: { room: Room; me: Me; onFailed: (
           </section>
         )}
         {shown === null ? null : shown.length === 0 ? (
-          <NothingHere title={library!.files.length + library!.links.length === 0 ? "Nothing shared here yet" : "Nothing found"}>
-            {library!.files.length + library!.links.length === 0 ? "Files and links sent in this conversation show up here." : "Try different words, or take a filter off."}
-          </NothingHere>
+          <NothingHere title={library!.files.length + library!.links.length === 0 ? "No files or links" : "No matches"} />
         ) : (
           <ul aria-label="Files and links" className="flex flex-col">
             {shown.map((entry) =>
@@ -279,8 +278,11 @@ function LinkRow({ link, names }: { link: LibraryLink; names: ReturnType<typeof 
   } catch {
     // Kept whole.
   }
+  // Its one action, the message it was sent in, shows as the pointer or focus reaches it; on a touch screen,
+  // holding the row goes there.
+  const holding = useLongPress(() => navigate(messagePath(link.roomId, link.messageId)));
   return (
-    <li className="group flex min-h-[68px] items-center gap-3 rounded-lg px-3 py-2 hover:bg-hover max-md:px-2">
+    <li {...holding} className="group flex min-h-[68px] items-center gap-3 rounded-lg px-3 py-2 [-webkit-touch-callout:none] hover:bg-hover max-md:px-2">
       <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-lg bg-hover">
         <LinkIcon className="size-5" />
       </span>
@@ -298,7 +300,7 @@ function LinkRow({ link, names }: { link: LibraryLink; names: ReturnType<typeof 
           </time>
         </p>
       </div>
-      <PageLink href={messagePath(link.roomId, link.messageId)} className="shrink-0 rounded-md px-2 py-1 text-[13px] text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-background hover:text-foreground touch:opacity-100 max-md:opacity-100">
+      <PageLink href={messagePath(link.roomId, link.messageId)} className={cn("shrink-0 rounded-md px-2 py-1 text-[13px] text-muted-foreground hover:bg-background hover:text-foreground touch:hidden", ROW_ACTIONS)}>
         View message
       </PageLink>
     </li>
@@ -306,6 +308,53 @@ function LinkRow({ link, names }: { link: LibraryLink; names: ReturnType<typeof 
 }
 
 // Folders.
+
+/**
+ * A file or link in a folder, opening in a new tab, under the file's name or the link's address where its
+ * title isn't that. Remove shows as the pointer or focus reaches it; on a touch screen, holding the row
+ * offers it.
+ */
+function FolderItemRow({ item, onRemove }: { item: FolderItem; onRemove: () => void }) {
+  const touch = useMediaQuery("(pointer: coarse)");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const holding = useLongPress(() => setMenuOpen(true));
+  const where = item.file ? item.file.file.name : item.url;
+  return (
+    <li {...holding} className="group flex min-h-14 items-center gap-3 rounded-lg px-3 py-2 [-webkit-touch-callout:none] hover:bg-hover">
+      {item.file ? (
+        <FileTypeIcon file={{ kind: "file", type: fileTypeFor(item.file.file) }} />
+      ) : (
+        <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-lg bg-hover">
+          <LinkIcon className="size-5" />
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
+        <a href={item.file?.file.url ?? item.url} target="_blank" rel="noopener noreferrer" className="block truncate font-semibold hover:underline">
+          {item.title}
+        </a>
+        {where !== item.title && <p className="truncate text-[13px] text-muted-foreground">{where}</p>}
+      </div>
+      {touch ? (
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger tabIndex={-1} aria-hidden className="pointer-events-none h-8 w-0" />
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={onRemove}>Remove from folder</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <button
+          type="button"
+          onClick={onRemove}
+          title="Remove from folder"
+          className={cn("grid size-8 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground", ROW_ACTIONS)}
+        >
+          <Xmark className="size-4" />
+          <span className="sr-only">Remove {item.title}</span>
+        </button>
+      )}
+    </li>
+  );
+}
 
 /** A folder's files and links, each opening in a new tab, with Add and remove. */
 function FolderPanel({ room, me, opened, onChanged, onFailed }: { room: Room; me: Me; opened: OpenedTab; onChanged: (opened: OpenedTab) => void; onFailed: (error: unknown) => void }) {
@@ -328,34 +377,11 @@ function FolderPanel({ room, me, opened, onChanged, onFailed }: { room: Room; me
           </DropdownMenu>
         </div>
         {items.length === 0 ? (
-          <NothingHere title="This folder is empty">Add files sent in this conversation, or links.</NothingHere>
+          <NothingHere title="Empty folder" />
         ) : (
           <ul className="flex flex-col">
             {items.map((item) => (
-              <li key={item.id} className="group flex min-h-14 items-center gap-3 rounded-lg px-3 py-2 hover:bg-hover">
-                {item.file ? (
-                  <FileTypeIcon file={{ kind: "file", type: fileTypeFor(item.file.file) }} />
-                ) : (
-                  <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-lg bg-hover">
-                    <LinkIcon className="size-5" />
-                  </span>
-                )}
-                <div className="min-w-0 flex-1">
-                  <a href={item.file?.file.url ?? item.url} target="_blank" rel="noopener noreferrer" className="block truncate font-semibold hover:underline">
-                    {item.title}
-                  </a>
-                  <p className="truncate text-[13px] text-muted-foreground">{item.file ? item.file.file.name : item.url}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void remove(item)}
-                  title="Remove from folder"
-                  className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-background hover:text-foreground touch:size-11 touch:opacity-100"
-                >
-                  <Xmark className="size-4" />
-                  <span className="sr-only">Remove {item.title}</span>
-                </button>
-              </li>
+              <FolderItemRow key={item.id} item={item} onRemove={() => void remove(item)} />
             ))}
           </ul>
         )}
@@ -459,7 +485,7 @@ function AddDialog({ room, me, kind, heading, onClose, onSubmit, onFailed }: Omi
               value={title}
               maxLength={MAX_TAB_TITLE_LENGTH}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder={kind === "file" ? (picked?.name ?? "") : kind === "link" ? "What it’s called" : ""}
+              placeholder={kind === "file" ? (picked?.name ?? "") : ""}
               className={FIELD}
               autoFocus={kind === "folder" || kind === "canvas"}
             />
@@ -517,7 +543,7 @@ export function FilePicker({ roomId, me, picked, onPick, onFailed }: FilePickerP
         {files === null ? (
           <li className="p-3 text-sm text-muted-foreground">Loading…</li>
         ) : shown.length === 0 ? (
-          <li className="p-3 text-sm text-muted-foreground">{files.length === 0 ? "No files have been sent here yet." : "No files found."}</li>
+          <li className="p-3 text-sm text-muted-foreground">{files.length === 0 ? "No files" : "No matches"}</li>
         ) : (
           shown.map((file) => (
             <li
@@ -576,7 +602,7 @@ export function EditTabsDialog({ room, tabs, onClose, onSaved, onFailed }: { roo
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-[520px] gap-4">
         <DialogTitle className="text-xl font-bold">Edit tabs</DialogTitle>
-        <DialogDescription>Messages and Files & links always come first.</DialogDescription>
+        <DialogDescription className="sr-only">Rename, remove and reorder this conversation’s tabs.</DialogDescription>
         <ul className="grid gap-2">
           {rows.map(({ tab, title, removed }, index) => {
             const Icon = TAB_ICONS[tab.kind];

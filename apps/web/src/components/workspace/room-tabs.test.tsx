@@ -4,7 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { navigate } from "@/hooks/use-route";
-import { RoomTabs } from "./room-tabs";
+import { RoomTabs, useRoomTabs } from "./room-tabs";
 
 const ada: Me = { id: "u1", name: "Ada Lovelace", administrator: false };
 const general: Room = { id: "general", name: "general", kind: "open", icon: null };
@@ -56,11 +56,19 @@ function serve() {
   });
 }
 
+const failed = vi.fn();
+
+/** The strip, with the tabs a room's view keeps for it. */
+function Strip({ deleted }: { deleted: boolean }) {
+  const state = useRoomTabs(general, deleted, failed);
+  return <RoomTabs room={general} me={ada} state={state} onFailed={failed} />;
+}
+
 /** The strip over a room's messages, as the room's main content holds it. */
 function renderStrip(deleted = false) {
   return render(
     <main className="relative">
-      <RoomTabs room={general} me={ada} deleted={deleted} onFailed={vi.fn()} />
+      <Strip deleted={deleted} />
       <section aria-label="Messages">Timeline</section>
     </main>,
   );

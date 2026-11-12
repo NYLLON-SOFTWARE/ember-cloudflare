@@ -1,4 +1,4 @@
-import { useContext, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import type { Me, RoomPerson, RoomSettings, User } from "@ember/protocol";
 import { ArrowLeft, ChatBubbleEmpty, Search as SearchIcon, User as UserIcon, UserPlus } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
@@ -9,6 +9,7 @@ import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { personPath } from "@/hooks/use-route";
 import { changeRoom, fetchRoomSettings, isSignedOut, type Room } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { AgentBadge, isAgent } from "./agent-badge";
 import { UserAvatar } from "./user-avatar";
 
 // Who's in a room, after Slack's channel details: a person and how many are in it at the top of the room,
@@ -71,14 +72,14 @@ export function MembersButton({ room, me, present, onFailed }: Props) {
         ref={button}
         type="button"
         title="View members"
-        aria-label={count === undefined ? "View members" : `View members, ${count} ${count === 1 ? "member" : "members"}`}
+        aria-label={count === undefined ? "View members" : `View members, ${countOf(count)}`}
         onClick={() => {
           setOpen(true);
           setAsked((asked) => asked + 1);
         }}
-        className="inline-flex h-9 shrink-0 cursor-pointer items-center gap-1 rounded-lg border px-2 text-[14px] font-medium text-muted-foreground hover:bg-hover hover:text-foreground touch:h-11"
+        className="inline-flex h-9 shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2 text-[14px] font-medium hover:bg-hover touch:h-11"
       >
-        <UserIcon className="size-[18px]" />
+        <UserIcon className="size-5" />
         {count !== undefined && <span>{count}</span>}
       </button>
       {open && (
@@ -109,6 +110,8 @@ interface DialogProps {
   onFailed: (error: unknown) => void;
 }
 
+const countOf = (count: number) => `${count} ${count === 1 ? "member" : "members"}`;
+
 /** A row, 44px tall at least for fingers. */
 const ROW = "flex min-h-11 items-center gap-3 rounded-lg px-2 py-1.5 text-start hover:bg-hover";
 
@@ -116,6 +119,20 @@ function MembersDialog({ room, me, present, members, opener, onClose, onAdded, o
   const nameOf = useNameOf();
   const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
+  const list = useRef<HTMLDivElement>(null);
+  // ↓ from the search goes into the people, ↑ and ↓ go along them, and ↑ from the first back to the search.
+  // Enter opens the one focused, or from the search, the only one it finds.
+  const moveThroughList = (event: KeyboardEvent<HTMLDivElement>) => {
+    const search = list.current?.querySelector<HTMLInputElement>("input[type=search]");
+    const rows = [...(list.current?.querySelectorAll<HTMLElement>("[aria-label=Members] a") ?? [])];
+    const at = rows.indexOf(document.activeElement as HTMLElement);
+    const inSearch = document.activeElement === search;
+    if (event.key === "Enter" && inSearch && rows.length === 1) rows[0]!.click();
+    else if (event.key === "ArrowDown" && (inSearch || at >= 0)) rows[inSearch ? 0 : Math.min(at + 1, rows.length - 1)]?.focus();
+    else if (event.key === "ArrowUp" && at >= 0) (at === 0 ? search : rows[at - 1])?.focus();
+    else return;
+    event.preventDefault();
+  };
   const title = room.kind === "direct" ? room.members.filter((member) => member.id !== me.id).map(nameOf).join(", ") || nameOf(me) : room.name;
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -125,17 +142,20 @@ function MembersDialog({ room, me, present, members, opener, onClose, onAdded, o
           opener.current?.focus({ preventScroll: true });
         }}
         className={cn(
-          "flex max-h-[min(640px,calc(100dvh-4rem))] flex-col gap-0 p-0 sm:max-w-[560px]",
+          // As tall as it opens whatever the search leaves, and held at the top, so the rows stay put under the pointer.
+          "top-[10dvh] flex h-[min(640px,80dvh)] translate-y-0 flex-col gap-0 p-0 sm:max-w-[560px]",
           // A phone's is the whole screen.
           "max-md:inset-0 max-md:h-dvh max-md:max-h-none max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-none max-md:border-0 max-md:pt-[env(safe-area-inset-top)] max-md:pb-[env(safe-area-inset-bottom)]",
           "[&>[data-slot=dialog-close]]:top-5 [&>[data-slot=dialog-close]]:right-5 [&>[data-slot=dialog-close]]:grid [&>[data-slot=dialog-close]]:size-9 [&>[data-slot=dialog-close]]:place-items-center [&>[data-slot=dialog-close]]:touch:size-11 [&>[data-slot=dialog-close]_svg]:size-5",
         )}
       >
-        <div className="flex items-center gap-2.5 border-b px-6 pt-5 pb-4 pr-16 max-md:px-4">
-          {room.kind === "direct" ? <ChatBubbleEmpty className="size-5 shrink-0" /> : <RoomIcon icon={room.icon} size={22} className="shrink-0 text-[23px] text-muted-foreground" />}
-          <DialogTitle className="truncate text-xl font-bold">{title}</DialogTitle>
+        <div className="border-b px-6 pt-5 pb-4 pr-16 max-md:px-4">
+          <div className="flex items-center gap-2.5">
+            {room.kind === "direct" ? <ChatBubbleEmpty className="size-5 shrink-0" /> : <RoomIcon icon={room.icon} size={22} className="shrink-0 text-[23px] text-muted-foreground" />}
+            <DialogTitle className="truncate text-xl font-bold">{title}</DialogTitle>
+          </div>
+          <DialogDescription className="mt-0.5 text-[14px] text-muted-foreground">{members ? countOf(members.people.length) : " "}</DialogDescription>
         </div>
-        <DialogDescription className="sr-only">Who’s in this conversation.</DialogDescription>
         {adding && members?.addable && members.settings ? (
           <AddPeople
             settings={members.settings}
@@ -148,25 +168,18 @@ function MembersDialog({ room, me, present, members, opener, onClose, onAdded, o
             onFailed={onFailed}
           />
         ) : (
-          <>
-            <div className="flex items-center gap-4 border-b px-6 max-md:px-4">
-              <span className="border-b-2 border-foreground py-2.5 text-[14px] font-semibold">
-                Members{members ? ` ${members.people.length}` : ""}
-              </span>
-            </div>
-            <div className="flex min-h-0 flex-1 flex-col gap-2 px-4 pt-3 pb-4 max-md:px-2">
-              <FindPeople value={q} onChange={setQ} />
-              {members?.addable && (
-                <button type="button" onClick={() => setAdding(true)} className={cn(ROW, "font-medium")}>
-                  <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-hover">
-                    <UserPlus className="size-5" />
-                  </span>
-                  Add people
-                </button>
-              )}
-              {members ? <PeopleList people={members.people} me={me} present={present} q={q} onPicked={onClose} /> :<p className="p-3 text-sm text-muted-foreground">Loading…</p>}
-            </div>
-          </>
+          <div ref={list} onKeyDown={moveThroughList} className="flex min-h-0 flex-1 flex-col gap-2 px-4 pt-3 pb-4 max-md:px-2">
+            <FindPeople value={q} onChange={setQ} />
+            {members?.addable && (
+              <button type="button" onClick={() => setAdding(true)} className={cn(ROW, "font-medium")}>
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-hover">
+                  <UserPlus className="size-5" />
+                </span>
+                Add people
+              </button>
+            )}
+            {members ? <PeopleList people={members.people} me={me} present={present} q={q} onPicked={onClose} /> : <p className="p-3 text-sm text-muted-foreground">Loading…</p>}
+          </div>
         )}
       </DialogContent>
     </Dialog>
@@ -189,15 +202,29 @@ function FindPeople({ value, onChange }: { value: string; onChange: (q: string) 
   );
 }
 
-/** `people` whose names hold `q`, by their names now, you first. */
+/** Whether someone's a bot or an AI agent, as the people directory lists them, whom the list marks. */
+function useIsBot(): (user: User) => boolean {
+  const directory = useContext(PeopleContext);
+  return useCallback(
+    (user: User) => {
+      const listed = directory.get(user.id);
+      return listed?.role === "bot" || isAgent(listed ?? user);
+    },
+    [directory],
+  );
+}
+
+/** `people` whose names hold each of `q`'s words, in any order, by their names now: you first, and bots last. */
 function usePeopleFound(people: User[], meId: string, q: string): User[] {
   const nameOf = useNameOf();
+  const isBot = useIsBot();
   return useMemo(() => {
-    const words = q.trim().toLowerCase();
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    const rank = (user: User) => (user.id === meId ? 0 : isBot(user) ? 2 : 1);
     return people
-      .filter((person) => !words || nameOf(person).toLowerCase().includes(words))
-      .sort((a, b) => (a.id === meId ? -1 : b.id === meId ? 1 : nameOf(a).localeCompare(nameOf(b))));
-  }, [people, meId, q, nameOf]);
+      .filter((person) => words.every((word) => nameOf(person).toLowerCase().includes(word)))
+      .sort((a, b) => rank(a) - rank(b) || nameOf(a).localeCompare(nameOf(b)));
+  }, [people, meId, q, nameOf, isBot]);
 }
 
 /**
@@ -209,7 +236,8 @@ function PeopleList({ people, me, present, q, onPicked }: { people: User[]; me: 
   const nameOf = useNameOf();
   const here = useMemo(() => new Set(present.map(({ id }) => id)), [present]);
   const found = usePeopleFound(people, me.id, q);
-  if (found.length === 0) return <p className="p-3 text-sm text-muted-foreground">Nobody by that name is in here.</p>;
+  const isBot = useIsBot();
+  if (found.length === 0) return <p className="p-3 text-sm text-muted-foreground">No matches</p>;
   return (
     <ul aria-label="Members" className="min-h-0 flex-1 overflow-y-auto">
       {found.map((person) => {
@@ -225,6 +253,7 @@ function PeopleList({ people, me, present, q, onPicked }: { people: User[]; me: 
                 <span className="block truncate text-[15px] font-semibold text-foreground">
                   {nameOf(person)}
                   {person.id === me.id && <span className="font-normal text-muted-foreground"> (you)</span>}
+                  {isBot(person) && <AgentBadge label={isAgent(directory.get(person.id) ?? person) ? "Agent" : "Bot"} />}
                   {here.has(person.id) && <span className="sr-only">, here now</span>}
                 </span>
                 {bio && <span className="block truncate text-[13px] text-muted-foreground">{bio}</span>}
@@ -269,7 +298,7 @@ function AddPeople({ settings, addable, onBack, onAdded, onFailed }: { settings:
       </div>
       <FindPeople value={q} onChange={setQ} />
       {addable.length === 0 ? (
-        <p className="p-3 text-sm text-muted-foreground">Everyone is in here already.</p>
+        <p className="p-3 text-sm text-muted-foreground">Everyone’s in here</p>
       ) : (
         <ul aria-label="People to add" className="min-h-0 flex-1 overflow-y-auto">
           {found.map((person) => (
