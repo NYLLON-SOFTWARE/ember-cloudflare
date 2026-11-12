@@ -1,12 +1,15 @@
 import { useContext, useRef, useState, type ComponentType, type MouseEvent, type ReactNode } from "react";
+import type { Involvement, Room } from "@ember/protocol";
 import type { RoomTab } from "@ember/protocol/library";
 import { ChatLines, CheckCircleSolid, Link, MultiplePages, Plus, Search, Settings, User as UserIcon, type IconoirIconProps } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { usePush } from "@/hooks/use-push";
 import { personPath, roomSettingsPath, SEARCHES_PATH } from "@/hooks/use-route";
-import { INVOLVEMENT_LABELS } from "@/lib/involvement";
+import { setInvolvement } from "@/lib/api";
+import { pushAllowed } from "@/lib/push";
 import { cn } from "@/lib/utils";
 import { FavoriteButton } from "../workspace/favorite-button";
+import { BELLS } from "../workspace/involvement-button";
 import { NotificationBell } from "../workspace/notification-bell";
 import type { RoomHeaderProps } from "../workspace/room-header";
 import { MembersButton } from "../workspace/room-members";
@@ -50,7 +53,9 @@ export function RoomDetailsSheet({ open, onOpenChange, room, me, name, present, 
   const tabs = useContext(RoomTabsContext);
   const openSearch = useContext(OpenSearchContext);
   const { on } = usePush();
+  const Bell = BELLS[involvement];
   const [adding, setAdding] = useState(false);
+  const [pickingLevel, setPickingLevel] = useState(false);
   // Whether what was picked takes focus itself, as the search box and Add a tab do, rather than the pill getting it back.
   const handedOver = useRef(false);
   const direct = room.kind === "direct";
@@ -114,10 +119,31 @@ export function RoomDetailsSheet({ open, onOpenChange, room, me, name, present, 
             <Label>{favorite ? "Unstar" : "Star"}</Label>
           </div>
         )}
-        <div className={CONTROL_ROW}>
-          <NotificationBell room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} />
-          <Label>{on ? INVOLVEMENT_LABELS[involvement] : "Enable notifications"}</Label>
-        </div>
+        {/* Your level in the room is the server's, so it's yours to pick whether or not this phone can have
+            notifications, which a row of its own turns on where it can. */}
+        <button
+          type="button"
+          onClick={() => {
+            handOver();
+            setPickingLevel(true);
+          }}
+          aria-description={LEVEL_NAMES[involvement]}
+          className={ROW}
+        >
+          <span className={ICON}>
+            <Bell />
+          </span>
+          <span className="min-w-0 flex-1 truncate">Notifications</span>
+          <span aria-hidden="true" className="shrink-0 text-muted-foreground">
+            {LEVEL_NAMES[involvement]}
+          </span>
+        </button>
+        {!on && pushAllowed() && (
+          <div className={CONTROL_ROW}>
+            <NotificationBell room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} />
+            <Label>Enable notifications</Label>
+          </div>
+        )}
         {person ? (
           <PageLink href={personPath(person.id)} onClick={close} className={cn(ROW, "text-foreground no-underline")}>
             <span className={ICON}>
@@ -145,6 +171,7 @@ export function RoomDetailsSheet({ open, onOpenChange, room, me, name, present, 
           Settings
         </PageLink>
       </BottomSheet>
+      <LevelSheet open={pickingLevel} onOpenChange={setPickingLevel} room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} />
       {tabs && (
         <ActionSheet
           open={adding}
@@ -197,5 +224,71 @@ function CustomTabRow({ tab, selected, onShow, onOpened }: { tab: RoomTab; selec
         <span className="min-w-0 flex-1 truncate">{tab.title}</span>
       </a>
     </li>
+  );
+}
+
+/** Each level's name in the details' Notifications row and its sheet. */
+const LEVEL_NAMES: Record<Involvement, string> = {
+  everything: "All messages",
+  mentions: "@ mentions",
+  nothing: "Off",
+  invisible: "Off and hidden",
+};
+
+/** The levels a room offers, as Slack lists them, all first, and a DM's, which has no mentions to single out nor a sidebar to hide from. */
+const ROOM_LEVELS: Involvement[] = ["everything", "mentions", "nothing", "invisible"];
+const DIRECT_LEVELS: Involvement[] = ["everything", "nothing"];
+
+interface LevelSheetProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  room: Room;
+  involvement: Involvement;
+  askForRoom: RoomHeaderProps["askForRoom"];
+  onFailed: RoomHeaderProps["onFailed"];
+}
+
+/** Your level in a room, to pick one of, the one it is ticked; picking one saves it and closes the sheet. */
+function LevelSheet({ open, onOpenChange, room, involvement, askForRoom, onFailed }: LevelSheetProps) {
+  const [saving, setSaving] = useState(false);
+  const pick = async (level: Involvement) => {
+    if (saving) return;
+    if (level === involvement) return onOpenChange(false);
+    setSaving(true);
+    const answered = askForRoom();
+    try {
+      answered({ type: "involved", roomId: room.id, involvement: await setInvolvement(room.id, level) });
+      onOpenChange(false);
+    } catch (error) {
+      onFailed(error);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <BottomSheet open={open} onOpenChange={onOpenChange} title="Notifications">
+      <div role="radiogroup" aria-label="Notifications" aria-busy={saving || undefined} className="contents">
+        {(room.kind === "direct" ? DIRECT_LEVELS : ROOM_LEVELS).map((level) => {
+          const Icon = BELLS[level];
+          return (
+            <button
+              key={level}
+              type="button"
+              role="radio"
+              aria-checked={level === involvement}
+              aria-disabled={saving || undefined}
+              onClick={() => void pick(level)}
+              className={cn(ROW, "aria-disabled:opacity-50")}
+            >
+              <span className={ICON}>
+                <Icon />
+              </span>
+              <span className="min-w-0 flex-1 truncate">{LEVEL_NAMES[level]}</span>
+              {level === involvement && <CheckCircleSolid className="size-5 shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+    </BottomSheet>
   );
 }

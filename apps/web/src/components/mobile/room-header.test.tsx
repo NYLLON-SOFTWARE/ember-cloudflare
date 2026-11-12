@@ -70,7 +70,7 @@ describe("A room's top bar on a phone", () => {
     expect(await within(header()).findByRole("button", { name: "Backend Engineering · 9 members" })).toBeInTheDocument();
     expect(within(header()).getByRole("link", { name: "Back" })).toHaveAttribute("href", "/");
     // The star and the bell are in the room's details, rather than the top bar.
-    expect(within(header()).queryByRole("button", { name: "Favorite room" })).not.toBeInTheDocument();
+    expect(within(header()).queryByRole("button", { name: "Star room" })).not.toBeInTheDocument();
     expect(within(header()).queryByRole("checkbox")).not.toBeInTheDocument();
   });
 
@@ -112,14 +112,49 @@ describe("Room details on a phone", () => {
     await userEvent.click(within(header()).getByRole("button", { name: /^Backend/ }));
     const sheet = details();
     expect(within(sheet).getByRole("button", { name: "Messages" })).toHaveAttribute("aria-current", "true");
-    expect(within(sheet).getByRole("button", { name: "Favorite room" })).toHaveAttribute("aria-pressed", "false");
-    expect(within(sheet).getByRole("checkbox", { name: "Notifying about @ mentions" })).toBeInTheDocument();
+    expect(within(sheet).getByRole("button", { name: "Star room" })).toHaveAttribute("aria-pressed", "false");
+    expect(within(sheet).getByRole("button", { name: "Notifications" })).toHaveAccessibleDescription("@ mentions");
     expect(await within(sheet).findByRole("button", { name: "View members, 9 members" })).toBeInTheDocument();
     expect(within(sheet).getByRole("link", { name: "Search in conversation" })).toBeInTheDocument();
     expect(within(sheet).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/rooms/closeds/backend/edit");
 
     await userEvent.click(within(sheet).getByRole("button", { name: "Files & links" }));
     expect(tabs.show).toHaveBeenCalledWith("files");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("picks your level in the room from a sheet of its own, whether or not this phone can have notifications", async () => {
+    const answered = vi.fn();
+    const fetched = vi.mocked(fetch);
+    fetched.mockImplementation(async (input) => (String(input).endsWith("/involvement") ? Response.json({ involvement: "everything" }) : Response.json({ room: backend, people: [], canAdminister: false })));
+    render(
+      <RoomTabsContext value={tabsOf()}>
+        <MobileRoomHeader
+          room={backend}
+          me={linus}
+          name="Engineering – Backend"
+          present={[]}
+          status="open"
+          offline={false}
+          favorite={false}
+          onStarred={vi.fn()}
+          involvement="mentions"
+          askForRoom={() => answered}
+          onSessionChanged={vi.fn()}
+          onFailed={vi.fn()}
+        />
+      </RoomTabsContext>,
+    );
+    await userEvent.click(within(header()).getByRole("button", { name: /^Backend/ }));
+    // Where notifications can't be on at all, as in Safari outside the Home Screen, there's nothing to enable.
+    expect(within(details()).queryByRole("button", { name: "Enable notifications" })).not.toBeInTheDocument();
+    await userEvent.click(within(details()).getByRole("button", { name: "Notifications" }));
+    const levels = within(await screen.findByRole("dialog", { name: "Notifications" })).getByRole("radiogroup", { name: "Notifications" });
+    expect(within(levels).getAllByRole("radio").map((radio) => radio.textContent)).toEqual(["All messages", "@ mentions", "Off", "Off and hidden"]);
+    expect(within(levels).getByRole("radio", { name: "@ mentions" })).toBeChecked();
+    await userEvent.click(within(levels).getByRole("radio", { name: "All messages" }));
+    expect(fetched).toHaveBeenCalledWith("/api/rooms/backend/involvement", expect.objectContaining({ method: "PUT", body: JSON.stringify({ involvement: "everything" }) }));
+    expect(answered).toHaveBeenCalledWith({ type: "involved", roomId: "backend", involvement: "everything" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
@@ -137,6 +172,6 @@ describe("Room details on a phone", () => {
     await userEvent.click(within(header()).getByRole("button", { name: /^Direct message with Ada/ }));
     expect(within(details()).getByRole("link", { name: "View profile" })).toHaveAttribute("href", "/users/ada");
     expect(within(details()).queryByRole("button", { name: /^View members/ })).not.toBeInTheDocument();
-    expect(within(details()).queryByRole("button", { name: "Favorite room" })).not.toBeInTheDocument();
+    expect(within(details()).queryByRole("button", { name: "Star room" })).not.toBeInTheDocument();
   });
 });
