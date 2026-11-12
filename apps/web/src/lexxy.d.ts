@@ -77,6 +77,7 @@ declare module "@37signals/lexxy" {
     $isParagraphNode(node: LexicalNode | null | undefined): node is ParagraphNode;
     $isTextNode(node: LexicalNode | null | undefined): node is TextNode;
     COMMAND_PRIORITY_HIGH: number;
+    COMMAND_PRIORITY_CRITICAL: number;
     KEY_BACKSPACE_COMMAND: LexicalCommand<KeyboardEvent | null>;
     KEY_SPACE_COMMAND: LexicalCommand<KeyboardEvent>;
     FORMAT_TEXT_COMMAND: LexicalCommand<string>;

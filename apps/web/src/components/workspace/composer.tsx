@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { flushSync } from "react-dom";
-import { MAX_FILE_SIZE, type User } from "@ember/protocol";
+import { isWebImage, MAX_FILE_SIZE, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
 import { Page, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
@@ -8,15 +8,15 @@ import type { RoomFrames } from "@/hooks/use-room";
 import { useScheduled } from "@/hooks/use-scheduled";
 import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { dropTarget } from "@/lib/drop-target";
-import { hasTouchKeyboard, opensLink, pressedAlone, sendsMessage } from "@/lib/keyboard";
+import { hasTouchKeyboard, pressedAlone } from "@/lib/keyboard";
 import { isEmberFile, sendableFacts, tooLargeToAttach, type EmberFile, type Sendable } from "@/lib/uploads";
 import { tellDraftsChanged } from "@/lib/draft-keys";
 import { cn } from "@/lib/utils";
+import { COMPOSER_CARD } from "./composer-buttons";
 import { AttachMenu, EmojiButton, FormattingToggle, MentionButton, SendButton } from "./composer-menus";
-import { ComposerToolbar } from "./composer-toolbar";
+import { useFormatting } from "./composer-formatting";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
 import { FilesPicker } from "./files-picker";
-import { isDisabled, NO_FORMATS, type Formats } from "./formatting";
 import { ScheduledNotice } from "./schedule-send";
 import { uploadSize } from "./upload-card";
 
@@ -163,7 +163,9 @@ function usePickedFiles() {
 function useThumbnail(file: Sendable): string | undefined {
   const [thumbnail, setThumbnail] = useState<string>();
   useLayoutEffect(() => {
-    if (isEmberFile(file)) return setThumbnail(file.file.previewUrl ?? (isImage(file) ? file.file.url : undefined));
+    // A picture in Ember shows by its preview, or itself if every browser shows it: an SVG, say, is served
+    // as a download, which no image shows.
+    if (isEmberFile(file)) return setThumbnail(file.file.previewUrl ?? (isWebImage(file.file.contentType) ? file.file.url : undefined));
     if (!isImage(file)) return;
     const url = URL.createObjectURL(file);
     setThumbnail(url);
@@ -197,7 +199,7 @@ function FileChip({ file, onRemove }: { file: Sendable; onRemove: () => void }) 
       <Xmark className="size-3.5" />
     </button>
   );
-  if (isImage(file) || thumbnail !== undefined) {
+  if (thumbnail !== undefined || (!isEmberFile(file) && isImage(file))) {
     return (
       <li className="group relative size-16 shrink-0">
         <img src={thumbnail} alt={name} className="size-16 rounded-[8px] border object-cover" />
@@ -317,8 +319,6 @@ export function Composer({
   const form = useRef<HTMLFormElement>(null);
   const fileField = useRef<HTMLInputElement>(null);
   const [toolbarShown, setToolbarShown] = useToolbarShown(toolbarByDefault);
-  const [formats, setFormats] = useState<Formats>(NO_FORMATS);
-  const [linkOpen, setLinkOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [alsoSend, setAlsoSend] = useState(false);
   const key = draftKey(userId, roomId, threadId);
@@ -441,28 +441,9 @@ export function Composer({
     text.focus();
   };
 
-  const keyDown = (event: KeyboardEvent) => {
-    if (opensLink(event)) {
-      event.preventDefault();
-      event.stopPropagation();
-      if (isDisabled("link", formats)) return;
-      // The toolbar shows for the Link field, though Aa had hidden it.
-      flushSync(() => setToolbarShown(true, false));
-      setLinkOpen(true);
-      return;
-    }
-    if (strikesThrough(event)) {
-      event.preventDefault();
-      if (!isDisabled("strikethrough", formats)) editor.current?.format("strikethrough");
-      return;
-    }
-    // Enter picks from an open list, such as the people to mention, and starts a new line in a code block,
-    // as in Slack, where Ctrl or Cmd+Enter sends.
-    if (editor.current?.hasOpenPrompt() || !sendsMessage(event, { inCodeBlock: formats.codeBlock, inList: formats.list !== null })) return;
-    event.preventDefault();
-    event.stopPropagation();
-    submit();
-  };
+  // The toolbar shows for the Link field, though Aa had hidden it.
+  const { onFormats, keyDown: formattingKeyDown, toolbar } = useFormatting(editor, { onShowToolbar: () => flushSync(() => setToolbarShown(true, false)) });
+  const keyDown = (event: KeyboardEvent) => formattingKeyDown(event, submit);
 
   const placeholderToolbar = toolbarShown && !(editorShown && editorReady);
 
@@ -493,22 +474,13 @@ export function Composer({
             {scheduleRefusal}
           </p>
         )}
-        <div className="flex min-h-[108px] min-w-0 flex-col rounded-[12px] border border-input bg-surface p-3 focus-within:border-ring focus-within:shadow-[0_0_0_1px_var(--ring)] max-md:min-h-[100px] max-md:p-2.5">
+        <div className={cn(COMPOSER_CARD, "min-h-[108px] max-md:min-h-[100px]")}>
           {toolbarShown &&
             // Its place is kept while the editor loads, whose stylesheet paints its icons, so the text doesn't move down as it shows.
             (placeholderToolbar ? (
               <div aria-hidden="true" className="h-[34px] shrink-0 touch:h-[50px]" />
             ) : (
-              <ComposerToolbar
-                formats={formats}
-                onFormat={(format) => editor.current?.format(format)}
-                onBlock={(block) => editor.current?.setBlock(block)}
-                onLink={(url, text) => editor.current?.link(url, text)}
-                linkDraft={() => editor.current?.linkDraft() ?? { text: "", url: "" }}
-                linkOpen={linkOpen}
-                onLinkOpenChange={setLinkOpen}
-                onReturnFocus={() => editor.current?.focus()}
-              />
+              toolbar
             ))}
           {/* The editor takes the card's padding and fills this, all the card above the buttons (rich-text-editor.css). */}
           <div className="flex min-w-0 flex-1 flex-col">
@@ -528,7 +500,7 @@ export function Composer({
                     return replied.current || (autoFocus && focusOnOpen && focusStayedOn(focusAtOpen));
                   }}
                   toolbar={false}
-                  onFormats={setFormats}
+                  onFormats={onFormats}
                   onChange={changed}
                   onKeyDown={keyDown}
                   onLinkPasted={previewLink}
@@ -651,7 +623,6 @@ function useToolbarShown(byDefault: boolean): [boolean, (shown: boolean, keep?: 
 }
 
 /** Cmd+Shift+X, or Ctrl+Shift+X, which strikes through, as Slack's does. */
-const strikesThrough = (event: KeyboardEvent) => event.key.toLowerCase() === "x" && event.shiftKey && event.ctrlKey !== event.metaKey && !event.altKey;
 
 /**
  * What stands in the composer's place in a room that's gone: deleted, or no longer this person's. Its

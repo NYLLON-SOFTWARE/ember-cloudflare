@@ -14,7 +14,7 @@ import { BotCards } from "./bot-card";
 import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions-menu";
 import { MessageBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
-import { FixedMessageEditor, MessageEditor, type MessageEditorHandle } from "./message-editor";
+import { MessageEditor, type MessageEditorHandle } from "./message-editor";
 import { UploadCard } from "./upload-card";
 import { AvatarLink, UserAvatar, userTitle } from "./user-avatar";
 
@@ -253,8 +253,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
   const attachEditor = useCallback((editor: MessageEditorHandle | null) => editors.attach(message.id, editor), [editors, message.id]);
   const pending = isPending(message);
   const upload = isPending(message) ? message.upload : undefined;
-  // The editor shows only while the message can still be changed.
-  const editing = editorOpen && actions !== null && !pending;
+  // The editor shows only while the message can still be changed, and has text to change: a file message's
+  // and a bot's cards' can't be.
+  const editing = editorOpen && actions !== null && !pending && !message.attachment && !message.cards;
   const [customizing, setCustomizing] = useState(false);
   const customField = useRef<HTMLInputElement>(null);
   // The Custom reaction form goes as the editor opens, as the editor replaces the whole message.
@@ -276,8 +277,13 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
   // without one.
   const context = message.parentId !== undefined && (!thread || message.alsoSent) && <ReplyContext message={message} thread={thread} />;
   const threaded = follows && !context;
-  // Edited messages are marked, as Slack marks them, so readers can tell a message changed.
-  const edited = message.editedAt !== null && <span className="text-xs text-message-muted">(edited)</span>;
+  // Edited messages are marked after their text, as Slack marks them, so readers can tell a message changed,
+  // and when.
+  const edited = message.editedAt !== null && (
+    <span className="text-[12px] text-message-muted" title={dateTimeLabel(new Date(message.editedAt))}>
+      (edited)
+    </span>
+  );
 
   // The permalink: the time, linking to the message, though not while the message is on its way to the
   // room. A follow-up's shows only on hover or focus, after its text, without moving it.
@@ -321,94 +327,80 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
       {/* The avatar sits 8px down, level with the author's name, and 4px below where the editor starts. */}
       {!threaded && <AvatarLink user={message.creator} square className="mt-2 size-9 max-md:size-[30px]" />}
 
-      {editing && (message.attachment || message.cards) ? (
-        <FixedMessageEditor ref={attachEditor} onDelete={() => actions.remove(message.id) && editors.returnFocus()} onClose={() => editors.close(message.id)}>
-          {message.attachment ? <Attachment file={message.attachment} /> : message.body !== "" && <MessageBody nodes={shown} mentions={message.mentions} />}
-          {message.cards && <BotCards cards={message.cards} />}
-        </FixedMessageEditor>
-      ) : editing ? (
-        <MessageEditor
-          ref={attachEditor}
-          message={message}
-          onSave={(body) => actions.edit(message.id, body)}
-          onDelete={() => actions.remove(message.id) && editors.returnFocus()}
-          onClose={() => editors.close(message.id)}
-        />
-      ) : (
-        // The body, which a permalink outlines. A follow-up's time takes a column of its own after the
-        // text, which the text gives up its room to only as it runs long.
-        <div
-          data-body-content
-          className={cn(
-            "col-start-2 min-w-0",
-            allEmoji ? "py-0" : "py-1",
-            threaded && "grid grid-cols-[minmax(0,max-content)_minmax(max-content,1fr)] items-start gap-x-2.5 touch:pr-8",
-            // A message that mentions you, which wiggles as it shows, as Campfire's messages.css has it.
-            mentioned && "animate-wiggle border-l-2 border-mention bg-mention/10 pl-2 motion-reduce:animate-none",
-          )}
-        >
-          {/* The heading, a 15px h3, whose letters are spaced as headings' are. A follow-up's
-              holds only its time, which it leaves to the text's grid. */}
-          {threaded ? (
-            <h3 className="contents text-[15px]">{permalink}</h3>
-          ) : (
-            <h3 className="flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5 max-md:pr-[22px]">
-              <Author user={message.creator} />
-              {permalink}
-              {edited}
-            </h3>
-          )}
-          {context}
+      {/* The body, which a permalink outlines. A follow-up's time takes a column of its own after the
+          text, which the text gives up its room to only as it runs long, and the editor its place. */}
+      <div
+        data-body-content
+        className={cn(
+          "col-start-2 min-w-0",
+          allEmoji ? "py-0" : "py-1",
+          threaded && !editing && "grid grid-cols-[minmax(0,max-content)_minmax(max-content,1fr)] items-start gap-x-2.5 touch:pr-8",
+          // A message that mentions you, which wiggles as it shows, as Campfire's messages.css has it.
+          mentioned && "animate-wiggle border-l-2 border-mention bg-mention/10 pl-2 motion-reduce:animate-none",
+        )}
+      >
+        {/* The heading, a 15px h3, whose letters are spaced as headings' are. A follow-up's
+            holds only its time, which it leaves to the text's grid. */}
+        {threaded ? (
+          !editing && <h3 className="contents text-[15px]">{permalink}</h3>
+        ) : (
+          <h3 className="flex min-h-[22px] items-baseline gap-2 text-[15px] leading-[22px] max-md:flex-wrap max-md:gap-x-2 max-md:gap-y-0.5 max-md:pr-[22px]">
+            <Author user={message.creator} />
+            {permalink}
+          </h3>
+        )}
+        {context}
 
-          {/* A grouped message has no header, so its mark follows the text, or the file a bot replaced. Where
-              Message options is 44px, the text stops 32px short of the row's end, clear of it. A file message
-              shows its file in place of its text, and its upload's
-              card until the room has it. A bot's cards follow, with no text before them where it sent none. */}
-          {upload ? (
-            <div className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
-              <UploadCard upload={upload} />
-            </div>
-          ) : message.attachment ? (
-            <div dir="auto" className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
-              <Attachment file={message.attachment} />
-              {threaded && edited}
-            </div>
-          ) : (
-            (message.body !== "" || !message.cards) && (
-              <MessageBody
-                nodes={shown}
-                mentions={message.mentions}
-                emoji={allEmoji}
-                trailing={(threaded && edited) || undefined}
-                className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}
-              />
-            )
-          )}
-
-          {message.cards && (
-            <BotCards cards={message.cards} className={threaded ? "col-start-1" : "touch:pr-8"} onAction={actions && !pending ? (action) => actions.click(message.id, action) : undefined} />
-          )}
-
-          {pending && !upload && (message.failed ? <NotSent message={message} actions={actions} editors={editors} /> : message.queued && <p className="col-span-full text-xs text-message-muted">Sending…</p>)}
-
-          {(message.boosts.length > 0 || customizing) && (
-            <MessageBoosts
-              message={message}
-              me={me}
-              threaded={threaded}
-              actions={actions}
-              customizing={customizing}
-              customField={customField}
-              onAddBoost={(button) => menu.current?.openReactions(button)}
-              onCloseCustom={() => setCustomizing(false)}
-              returnFocus={() => menu.current?.focus()}
+        {/* A grouped message has no header, so its mark follows the text, or the file a bot replaced. Where
+            Message options is 44px, the text stops 32px short of the row's end, clear of it. A file message
+            shows its file in place of its text, and its upload's
+            card until the room has it. A bot's cards follow, with no text before them where it sent none. */}
+        {editing ? (
+          <MessageEditor ref={attachEditor} message={message} onSave={(body) => actions.edit(message.id, body)} onClose={() => editors.close(message.id)} />
+        ) : upload ? (
+          <div className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
+            <UploadCard upload={upload} />
+          </div>
+        ) : message.attachment ? (
+          <div dir="auto" className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}>
+            <Attachment file={message.attachment} />
+            {edited}
+          </div>
+        ) : (
+          (message.body !== "" || !message.cards) && (
+            <MessageBody
+              nodes={shown}
+              mentions={message.mentions}
+              emoji={allEmoji}
+              trailing={edited || undefined}
+              className={threaded ? "col-start-1 row-start-1" : "touch:pr-8"}
             />
-          )}
+          )
+        )}
 
-          {/* As Slack has it, under the reactions. */}
-          {!thread && message.thread && <ThreadSummary message={message} />}
-        </div>
-      )}
+        {message.cards && !editing && (
+          <BotCards cards={message.cards} className={threaded ? "col-start-1" : "touch:pr-8"} onAction={actions && !pending ? (action) => actions.click(message.id, action) : undefined} />
+        )}
+
+        {pending && !upload && (message.failed ? <NotSent message={message} actions={actions} editors={editors} /> : message.queued && <p className="col-span-full text-xs text-message-muted">Sending…</p>)}
+
+        {!editing && (message.boosts.length > 0 || customizing) && (
+          <MessageBoosts
+            message={message}
+            me={me}
+            threaded={threaded}
+            actions={actions}
+            customizing={customizing}
+            customField={customField}
+            onAddBoost={(button) => menu.current?.openReactions(button)}
+            onCloseCustom={() => setCustomizing(false)}
+            returnFocus={() => menu.current?.focus()}
+          />
+        )}
+
+        {/* As Slack has it, under the reactions. */}
+        {!thread && !editing && message.thread && <ThreadSummary message={message} />}
+      </div>
 
       {actions && !pending && !editing && (
         <MessageActionsMenu

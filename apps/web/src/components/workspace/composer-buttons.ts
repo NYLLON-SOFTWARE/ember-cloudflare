@@ -29,3 +29,10 @@ export const SEND_HALF = cn(
 
 /** Send's chevron, which opens Schedule message. */
 export const SCHEDULE_HALF = cn(SEND_HALF, "w-6 touch:w-11");
+
+/**
+ * The composer's card, around the toolbar, the text and its buttons, which a message's editor is too: the
+ * input grey at rest, and the ring's colour with a 1px ring while the text has focus.
+ */
+export const COMPOSER_CARD =
+  "flex min-w-0 flex-col rounded-[12px] border border-input bg-surface p-3 focus-within:border-ring focus-within:shadow-[0_0_0_1px_var(--ring)] max-md:p-2.5";

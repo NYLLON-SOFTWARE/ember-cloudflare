@@ -1,4 +1,4 @@
-import { configure, Extension, Lexical, type ElementNode, type LexicalNode } from "@37signals/lexxy";
+import { configure, Extension, Lexical, type ElementNode, type LexicalEditor, type LexicalNode } from "@37signals/lexxy";
 import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE } from "@ember/richtext/dom";
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
 import { HEADING_TAGS, NO_FORMATS, type Block, type Format, type Formats } from "./formatting";
@@ -62,8 +62,41 @@ class CampfireRichTextExtension extends Extension {
   }
 
   get lexicalExtension() {
-    return this.defineExtension({ name: "campfire/rich-text", nodes: [CiteNode], register: registerQuoteLines });
+    return this.defineExtension({
+      name: "campfire/rich-text",
+      nodes: [CiteNode],
+      register: (editor: LexicalEditor) => {
+        const stopQuoting = registerQuoteLines(editor);
+        const stopSpacing = registerSpaceAfterBareAt(editor);
+        return () => {
+          stopQuoting();
+          stopSpacing();
+        };
+      },
+    });
   }
+}
+
+/**
+ * Has a space typed straight after an @, before any of a name, type a space, which shuts the @ prompt's
+ * list, rather than mention whoever it lists first, as Lexxy's space picks the person highlighted.
+ * Heard before Lexxy's own, which it registers as its list opens.
+ */
+function registerSpaceAfterBareAt(editor: LexicalEditor): () => void {
+  return editor.registerCommand(
+    Lexical.KEY_SPACE_COMMAND,
+    (event: KeyboardEvent) => {
+      const selection = Lexical.$getSelection();
+      if (!Lexical.$isRangeSelection(selection) || !selection.isCollapsed() || selection.anchor.type !== "text") return false;
+      const before = selection.anchor.getNode().getTextContent().slice(0, selection.anchor.offset);
+      if (!/(^|\s)@$/.test(before)) return false;
+      // Written here, rather than by the browser, whose input Lexxy would take as picking someone too.
+      event.preventDefault();
+      selection.insertText(" ");
+      return true;
+    },
+    Lexical.COMMAND_PRIORITY_CRITICAL,
+  );
 }
 
 // Campfire's settings (app/javascript/initializers/rich_text.js), which have to come before Lexxy

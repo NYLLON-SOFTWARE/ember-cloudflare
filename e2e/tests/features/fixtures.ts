@@ -80,6 +80,29 @@ export class Member {
     return this.message(text).getByRole("group", { name: "Message actions" });
   }
 
+  /** Opens a message's More actions, as a mouse does, from Message options at the end of its bar, and returns it. */
+  async moreActions(text: string): Promise<Locator> {
+    await this.actions(text);
+    await this.message(text).getByRole("button", { name: "Message options" }).click();
+    return this.message(text).getByRole("group", { name: "More actions" });
+  }
+
+  /** Opens a message's editor from More actions' Edit message. */
+  async edit(text: string): Promise<void> {
+    await (await this.moreActions(text)).getByRole("button", { name: "Edit message" }).click();
+  }
+
+  /** The dialog Delete message asks in, while it's open. */
+  deleteDialog(): Locator {
+    return this.page.getByRole("alertdialog", { name: "Delete message?" });
+  }
+
+  /** Deletes a message from More actions' Delete message, answering Delete in the dialog that asks first. */
+  async delete(text: string): Promise<void> {
+    await (await this.moreActions(text)).getByRole("button", { name: "Delete message" }).click();
+    await this.deleteDialog().getByRole("button", { name: "Delete", exact: true }).click();
+  }
+
   /**
    * The header's Connecting… or Reconnecting… badge, shown once the room's socket has been down 5 seconds,
    * rather than the bell's status, which says what a press of it did.

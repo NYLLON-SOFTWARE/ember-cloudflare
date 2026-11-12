@@ -90,14 +90,14 @@ function DaySeparator({ at }: { at: string }) {
 
 /**
  * The New line, over the first message that came while the room was marked unread: in the negative red,
- * with its word at the end.
+ * with its word at its start, clear of the message actions that open over the line's end.
  */
 function NewSeparator() {
   return (
     <div
       role="separator"
       aria-label="New messages"
-      className="mb-1.5 flex items-center gap-2 text-xs leading-4 font-bold text-negative before:flex-1 before:border-t before:border-negative"
+      className="mb-1.5 flex items-center gap-2 text-xs leading-4 font-bold text-negative after:flex-1 after:border-t after:border-negative"
     >
       <span aria-hidden="true">New</span>
     </div>

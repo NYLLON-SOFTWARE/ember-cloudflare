@@ -26,12 +26,8 @@ const writtenAt = (times: Map<string, string>) => (page: Page) =>
 /** A message's More actions, while it's open. */
 const moreActions = (message: Locator) => message.getByRole("group", { name: "More actions" });
 
-/** Hovers the message that says `text`, then clicks Message options, the bar's last button, and returns More actions. */
-async function openMoreActions(member: Member, text: string): Promise<Locator> {
-  await member.actions(text);
-  await member.message(text).getByRole("button", { name: "Message options" }).click();
-  return moreActions(member.message(text));
-}
+/** A message's editor while it's open: the composer's card, with Cancel and Save under it. */
+const editorIn = (message: Locator) => message.locator(".composer").locator("xpath=..");
 
 /** The day separator just above the message that says `text`, if it has one. */
 const separatorAbove = (member: Member, text: string) => member.message(text).locator("xpath=preceding-sibling::h2");
@@ -331,7 +327,8 @@ test.describe("Message action bar", () => {
     const bounds = await box(bar(first));
     const row = await box(first);
     const pane = await box(ada.timeline());
-    expect(bounds).toMatchObject({ width: 234, height: 42 });
+    // Three quick reactions, More reactions and Reply in thread, then Message options: Edit is in More actions.
+    expect(bounds).toMatchObject({ width: 202, height: 42 });
     expect(pane.x + pane.width - bounds.x - bounds.width).toBe(16);
     expect(row.y - bounds.y).toBe(17);
     // Message options is the bar's last button, and the bar overlaps the row rather than floating above it.
@@ -372,7 +369,7 @@ test.describe("Message action bar", () => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1311, height: 900 } } });
     await ada.send("Name your buttons.");
     const actions = await ada.actions("Name your buttons.");
-    for (const [role, name] of [["button", "Clapping"], ["button", "More reactions"], ["link", "Reply in thread"], ["button", "Edit"]] as const) {
+    for (const [role, name] of [["button", "Clapping"], ["button", "More reactions"], ["link", "Reply in thread"]] as const) {
       const control = actions.getByRole(role, { name });
       await control.hover();
       // The last button's may still be fading out beside it.
@@ -443,7 +440,7 @@ test.describe("Message action bar", () => {
     await expect(tray).toContainText("More reactions");
     expect(Math.abs((await box(quick)).y - quickBefore.y)).toBeLessThan(1);
     expect((await box(tray)).y).toBeGreaterThan(quickBefore.y);
-    // The tray opens at its first reaction, as Reply in thread and Edit follow More reactions on the bar.
+    // The tray opens at its first reaction, as Reply in thread follows More reactions on the bar.
     await expect(tray.getByRole("button", { name: "Muscle" })).toBeFocused();
     // The click shut the tooltip that named More reactions as the pointer reached it, which takes Escape until it has faded.
     await expect(ada.page.getByRole("tooltip")).toHaveCount(0);
@@ -567,20 +564,23 @@ test.describe("Message action bar", () => {
   test("lays the bar out in two rows of four on touch screens where a row of its buttons doesn't fit", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { ...phone, viewport: { width: 320, height: 620 } } });
     // On a phone, Enter starts a new line, so Send Message sends it.
-    await ada.composer().fill("Eight actions on a narrow phone");
+    await ada.composer().fill("Seven actions on a narrow phone");
     await ada.page.getByRole("button", { name: "Send Message" }).tap();
-    const message = ada.message("Eight actions on a narrow phone");
+    const message = ada.message("Seven actions on a narrow phone");
     await expect(message).not.toHaveAttribute("aria-busy");
     const options = message.getByRole("button", { name: "Message options" });
     await options.tap();
-    // The reactions go in the first row, and Reply in thread starts the second, which Edit ends.
+    // The reactions go in the first row, and Reply in thread starts the second, then Quote and Copy link, and
+    // your own message's Edit and Delete message, which a mouse finds in More actions.
     const first = await box(bar(message).getByRole("button", { name: "Thumbs up" }));
     const more = await box(bar(message).getByRole("button", { name: "More reactions" }));
     const thread = await box(bar(message).getByRole("link", { name: "Reply in thread" }));
-    const edit = await box(bar(message).getByRole("button", { name: "Edit" }));
+    const copy = await box(bar(message).getByRole("button", { name: "Copy link" }));
+    await expect(bar(message).getByRole("button", { name: "Edit" })).toBeVisible();
+    await expect(bar(message).getByRole("button", { name: "Delete message" })).toBeVisible();
     expect(more).toMatchObject({ x: first.x + 3 * 44, y: first.y });
     expect(thread).toMatchObject({ x: first.x, y: first.y + 44 });
-    expect(edit).toMatchObject({ x: more.x, y: thread.y });
+    expect(copy).toMatchObject({ x: first.x + 2 * 44, y: thread.y });
     // Lined up with Message options' right edge, as far as the timeline lets it.
     const trigger = await box(options);
     expect(more.x + more.width + 5).toBe(Math.min(trigger.x + trigger.width, 320 - 8));
@@ -689,31 +689,38 @@ test.describe("More actions on a message", () => {
     await (await participant("Grace")).say("Copy my words");
     const ada = await members.signIn("Ada");
     await ada.page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-    const panel = await openMoreActions(ada, "Copy my words");
+    const panel = await ada.moreActions("Copy my words");
     await expect(panel.getByRole("button")).toHaveText(["Quote", "Copy text", "Copy link"]);
     await panel.getByRole("button", { name: "Copy text" }).click();
     await expect.poll(() => ada.page.evaluate(() => navigator.clipboard.readText())).toBe("Copy my words");
     await expect(panel).toBeVisible();
   });
 
-  test("deletes a message for everyone from Delete message, after asking", async ({ members }) => {
+  test("deletes a message for everyone from Delete message, after asking in a dialog that shows it", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     await ada.send("Delete me from the menu");
     await expect(grace.message("Delete me from the menu")).toBeVisible();
-    const remove = (await openMoreActions(ada, "Delete me from the menu")).getByRole("button", { name: "Delete message" });
+    const message = ada.message("Delete me from the menu");
 
-    ada.page.once("dialog", (dialog) => dialog.dismiss());
-    await remove.click();
-    await expect(remove).toBeVisible();
+    // The dialog shows the message as it'll go, its author, time and text, with Cancel focused, which keeps it.
+    await (await ada.moreActions("Delete me from the menu")).getByRole("button", { name: "Delete message" }).click();
+    const dialog = ada.deleteDialog();
+    await expect(dialog).toContainText(ada.name);
+    await expect(dialog.locator("time")).toBeVisible();
+    await expect(dialog).toContainText("Delete me from the menu");
+    const cancel = dialog.getByRole("button", { name: "Cancel" });
+    await expect(cancel).toBeFocused();
+    await cancel.click();
+    await expect(dialog).toHaveCount(0);
+    await expect(message).toBeVisible();
+    await expect(message.getByRole("button", { name: "Message options" })).toBeFocused();
 
-    ada.page.once("dialog", (dialog) => {
-      expect(dialog.message()).toBe("Are you sure you want to delete this message?");
-      void dialog.accept();
-    });
-    await remove.click();
+    await (await ada.moreActions("Delete me from the menu")).getByRole("button", { name: "Delete message" }).click();
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
     await expect(grace.message("Delete me from the menu")).toHaveCount(0);
-    await expect(ada.message("Delete me from the menu")).toHaveCount(0);
+    await expect(message).toHaveCount(0);
     await expect(ada.composer()).toBeFocused();
   });
 });
@@ -802,7 +809,7 @@ test.describe("Copy a link to a message", () => {
     await ada.page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
     // With a mouse, it's in More actions rather than on the bar.
     await expect((await ada.actions("Link to me")).getByRole("button", { name: "Copy link" })).toHaveCount(0);
-    const panel = await openMoreActions(ada, "Link to me");
+    const panel = await ada.moreActions("Link to me");
     const copy = panel.getByRole("button", { name: "Copy link" });
     const color = await copy.evaluate((button) => getComputedStyle(button).color);
     await copy.click();
@@ -818,7 +825,7 @@ test.describe("Link to a message", () => {
     await (await participant("Grace")).say("Find me later");
     const ada = await members.signIn("Ada");
     await ada.page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-    await (await openMoreActions(ada, "Find me later")).getByRole("button", { name: "Copy link" }).click();
+    await (await ada.moreActions("Find me later")).getByRole("button", { name: "Copy link" }).click();
     const path = new URL(await ada.page.evaluate(() => navigator.clipboard.readText())).pathname;
 
     const grace = await members.signIn("Grace", { path });
@@ -831,7 +838,7 @@ test.describe("Link to a message", () => {
     await (await participant("Grace")).say("Find me again");
     const ada = await members.signIn("Ada");
     await ada.page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-    await (await openMoreActions(ada, "Find me again")).getByRole("button", { name: "Copy link" }).click();
+    await (await ada.moreActions("Find me again")).getByRole("button", { name: "Copy link" }).click();
     const permalink = new URL(await ada.page.evaluate(() => navigator.clipboard.readText())).pathname;
 
     const grace = await members.signIn("Grace", { path: permalink.replace("/@", "/messages/") });
@@ -842,12 +849,12 @@ test.describe("Link to a message", () => {
 });
 
 test.describe("Edit a message", () => {
-  test("lets the author edit a message, for everyone, saving on Ctrl or Cmd+Enter", async ({ members }) => {
+  test("lets the author edit a message from More actions, for everyone, saving on Ctrl or Cmd+Enter", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     await ada.send("Helo");
 
-    await (await ada.actions("Helo")).getByRole("button", { name: "Edit" }).click();
+    await ada.edit("Helo");
     await expect(ada.editor()).toBeFocused();
     await expect(ada.editor()).toHaveText("Helo");
     await ada.editor().fill("Hello");
@@ -860,27 +867,69 @@ test.describe("Edit a message", () => {
     await expect(ada.composer()).toBeFocused();
   });
 
-  test("edits the formatting along with the text, starting a new paragraph on Enter", async ({ members }) => {
+  test("marks an edited message after its text, not beside its time", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await ada.send("Mark me");
+    await ada.edit("Mark me");
+    await ada.editor().fill("Marked");
+    await ada.editor().press("Enter");
+    const message = ada.message("Marked");
+    const edited = message.getByText("(edited)", { exact: true });
+    await expect(edited).toBeVisible();
+    await expect(message.getByRole("heading", { level: 3 })).not.toContainText("(edited)");
+    await expect(message.locator(".message-content")).toHaveText("Marked (edited)");
+    await expect(edited).toHaveCSS("font-size", "12px");
+  });
+
+  test("edits the formatting along with the text, breaking the line on Shift+Enter and saving on Enter", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.composer().pressSequentially("A **bold** claim");
     await ada.composer().press("Enter");
-    await (await ada.actions("A bold claim")).getByRole("button", { name: "Edit" }).click();
+    await ada.edit("A bold claim");
     await expect(ada.editor().locator("strong")).toHaveText("bold");
     // The cursor is after the text.
     await ada.page.keyboard.type(", revised");
-    await ada.editor().press("Enter");
+    await ada.editor().press("Shift+Enter");
     await ada.page.keyboard.type("Second thoughts");
-    await ada.editor().press("ControlOrMeta+Enter");
+    await expect(ada.editor()).toHaveText("A bold claim, revised\nSecond thoughts", { useInnerText: true });
+    await ada.editor().press("Enter");
+    await expect(ada.editor()).toHaveCount(0);
     const content = ada.message("A bold claim, revised").locator(".message-content");
     await expect(ada.message("A bold claim, revised")).toContainText("(edited)");
     await expect(content.locator("strong")).toHaveText("bold");
-    await expect(content.locator("p")).toHaveText(["A bold claim, revised", "Second thoughts"]);
+    await expect(content).toContainText("A bold claim, revised\nSecond thoughts", { useInnerText: true });
+    await expect(ada.page.getByRole("article")).toHaveCount(1);
+  });
+
+  test("adds an item on Enter in a list, and a line in a code block, as the composer does", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await ada.send("Shopping");
+    await ada.edit("Shopping");
+    await ada.editor().press("Shift+Enter");
+    await ada.editor().pressSequentially("- milk");
+    await ada.editor().press("Enter");
+    await ada.editor().pressSequentially("eggs");
+    await expect(ada.editor().locator("ul > li")).toHaveText(["milk", "eggs"]);
+    await ada.editor().press("ControlOrMeta+Enter");
+    await expect(ada.editor()).toHaveCount(0);
+    await expect(ada.message("Shopping").locator(".message-content li")).toHaveText(["milk", "eggs"]);
+
+    await ada.send("Snippet");
+    await ada.edit("Snippet");
+    await ada.message("Snippet").getByRole("toolbar", { name: "Formatting" }).getByRole("button", { name: "Code block", exact: true }).click();
+    await ada.editor().press("End");
+    await ada.editor().press("Enter");
+    await ada.editor().pressSequentially("more");
+    await expect(ada.editor()).toBeVisible();
+    await ada.editor().press("ControlOrMeta+Enter");
+    await expect(ada.editor()).toHaveCount(0);
+    await expect(ada.message("Snippet").locator("pre")).toContainText("Snippet\nmore", { useInnerText: true });
   });
 
   test("keeps the editor and what's written when the edit is too long to save", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.send("Short");
-    await (await ada.actions("Short")).getByRole("button", { name: "Edit" }).click();
+    await ada.edit("Short");
     await ada.editor().evaluate((content) => {
       (content.closest("lexxy-editor") as HTMLElement & { value: string }).value = `<p>${"x".repeat(10_001)}</p>`;
     });
@@ -890,13 +939,33 @@ test.describe("Edit a message", () => {
     await expect(ada.page.getByRole("article")).not.toContainText("(edited)");
   });
 
-  test("shows the formatting toolbar above the text on a wide screen with a mouse", async ({ members }) => {
+  test("opens the composer's card in place of the text, under its author, with the toolbar above and Cancel and Save below", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.send("Format me");
-    await (await ada.actions("Format me")).getByRole("button", { name: "Edit" }).click();
-    const bold = ada.message("Format me").getByRole("toolbar").getByRole("button", { name: "Bold" });
+    await ada.edit("Format me");
+    const message = ada.message("Format me");
+    const card = message.locator(".composer");
+    await expect(card).toBeVisible();
+    await expect(message.locator(".message-content")).toHaveCount(0);
+    const author = await box(message.getByRole("heading", { level: 3 }));
+    await expect(message.getByRole("heading", { level: 3 })).toContainText(ada.name);
+    const cardBox = await box(card);
+    expect(author.y + author.height).toBeLessThanOrEqual(cardBox.y);
+
+    // The composer's toolbar, above the text on a wide screen with a mouse.
+    const bold = card.getByRole("toolbar", { name: "Formatting" }).getByRole("button", { name: "Bold" });
     await expect(bold).toBeVisible();
     expect((await box(bold)).y).toBeLessThan((await box(ada.editor())).y);
+
+    // Cancel, then Save, under the card at its right.
+    const cancel = message.getByRole("button", { name: "Cancel", exact: true });
+    const save = message.getByRole("button", { name: "Save", exact: true });
+    await expect(cancel).toHaveAttribute("title", "Esc");
+    await expect(save).toHaveAttribute("title", "Enter");
+    const [cancelBox, saveBox] = [await box(cancel), await box(save)];
+    expect(cancelBox.y).toBeGreaterThanOrEqual(cardBox.y + cardBox.height);
+    expect(cancelBox.x + cancelBox.width).toBeLessThan(saveBox.x);
+    expect(Math.abs(saveBox.x + saveBox.width - (cardBox.x + cardBox.width))).toBeLessThan(1);
   });
 
   test("scrolls the editor to the middle of the timeline as it opens, from the newest messages too", async ({ members, participant }) => {
@@ -909,9 +978,9 @@ test.describe("Edit a message", () => {
     // The room opens at its newest messages. The editor's message is near the top of the view, so the editor
     // would go up out of it by however much taller than the message it is, if the timeline stayed at the end.
     const [, entry] = await ada.inView(/Entry #\d+/);
-    await (await ada.actions(entry!)).getByRole("button", { name: "Edit" }).click();
+    await ada.edit(entry!);
     await expect(ada.editor()).toBeFocused();
-    await expect.poll(() => ada.offCentre(ada.message(entry!).locator(".message-edit"))).toBeLessThanOrEqual(1);
+    await expect.poll(() => ada.offCentre(editorIn(ada.message(entry!)))).toBeLessThanOrEqual(1);
   });
 
   test("shows all of your newest message's editor as it opens at the newest messages", async ({ members, participant }) => {
@@ -921,34 +990,34 @@ test.describe("Edit a message", () => {
     await ada.send("My newest");
     await expect(ada.message("My newest")).not.toHaveAttribute("aria-busy");
     // The editor goes on below the view, so Lexxy scrolls the timeline to its caret, and its own scroll to the middle
-    // of the timeline ends at the end.
+    // of the timeline ends at the end, showing Cancel and Save under it too.
     await ada.composer().press("ArrowUp");
     await expect(ada.editor()).toBeFocused();
-    await expect.poll(() => ada.outOfView(ada.message("My newest").locator(".message-edit"))).toBe(0);
+    await expect.poll(() => ada.outOfView(editorIn(ada.message("My newest")))).toBe(0);
   });
 
-  test("saves from Save changes with the Link field open, as Lexxy checks that itself", async ({ members }) => {
+  test("saves from Save with the Link field open, as Lexxy checks that itself", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.send("Draft");
-    await (await ada.actions("Draft")).getByRole("button", { name: "Edit" }).click();
+    await ada.edit("Draft");
     await ada.editor().fill("Final");
     await ada.editor().press("ControlOrMeta+k");
-    await ada.page.getByRole("button", { name: "Save changes" }).click();
+    await ada.message("Final").getByRole("button", { name: "Save", exact: true }).click();
     await expect(ada.message("Final")).toContainText("(edited)");
   });
 
-  test("discards an edit with Escape or Close editor and discard changes", async ({ members }) => {
+  test("discards an edit with Escape or Cancel", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.send("Unchanged");
-    await (await ada.actions("Unchanged")).getByRole("button", { name: "Edit" }).click();
+    await ada.edit("Unchanged");
     await ada.editor().fill("Something else");
     await ada.editor().press("Escape");
     await expect(ada.editor()).toHaveCount(0);
     await expect(ada.composer()).toBeFocused();
 
-    await (await ada.actions("Unchanged")).getByRole("button", { name: "Edit" }).click();
+    await ada.edit("Unchanged");
     await ada.editor().fill("Something else");
-    await ada.page.getByRole("button", { name: "Close editor and discard changes" }).click();
+    await ada.message("Something else").getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(ada.editor()).toHaveCount(0);
     await expect(ada.message("Unchanged")).not.toContainText("(edited)");
     await expect(ada.composer()).toBeFocused();
@@ -986,7 +1055,7 @@ test.describe("Edit a message", () => {
   test("takes no files", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.send("Look");
-    await (await ada.actions("Look")).getByRole("button", { name: "Edit" }).click();
+    await ada.edit("Look");
     await ada.editor().evaluate((content) => {
       const clipboardData = new DataTransfer();
       clipboardData.items.add(new File([new Uint8Array([137, 80, 78, 71])], "screenshot.png", { type: "image/png" }));
@@ -996,14 +1065,16 @@ test.describe("Edit a message", () => {
     await expect(ada.editor().locator("img, action-text-attachment, figure")).toHaveCount(0);
   });
 
-  test("offers no Edit on other people's messages", async ({ members }) => {
+  test("offers no Edit on other people's messages, on the bar or in More actions", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     await ada.send("Ada's");
 
     const toolbar = await grace.actions("Ada's");
     await expect(toolbar.getByRole("button", { name: "Thumbs up" })).toBeVisible();
-    await expect(toolbar.getByRole("button", { name: "Edit" })).toHaveCount(0);
+    await expect(toolbar.getByRole("button", { name: /Edit/ })).toHaveCount(0);
+    const panel = await grace.moreActions("Ada's");
+    await expect(panel.getByRole("button")).toHaveText(["Quote", "Copy text", "Copy link"]);
   });
 
   test("lets an administrator edit anyone's message, for everyone", async ({ browser, baseURL, members, rooms }) => {
@@ -1014,7 +1085,8 @@ test.describe("Edit a message", () => {
     const message = administrator.getByRole("article").filter({ hasText: "Grace's typo" });
 
     await message.hover();
-    await message.getByRole("button", { name: "Edit" }).click();
+    await message.getByRole("button", { name: "Message options" }).click();
+    await moreActions(message).getByRole("button", { name: "Edit message" }).click();
     const editor = editorField(administrator, "Edit message");
     await editor.fill("Grace's fix");
     await editor.press("ControlOrMeta+Enter");
@@ -1025,22 +1097,19 @@ test.describe("Edit a message", () => {
 });
 
 test.describe("Delete a message", () => {
-  test("deletes a message for everyone from its editor, after asking", async ({ members }) => {
+  test("deletes a message for everyone, asking first in a dialog that Escape cancels", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     await ada.send("Oops");
     await expect(grace.message("Oops")).toBeVisible();
-    await (await ada.actions("Oops")).getByRole("button", { name: "Edit" }).click();
 
-    ada.page.once("dialog", (dialog) => dialog.dismiss());
-    await ada.page.getByRole("button", { name: "Delete message" }).click();
-    await expect(ada.editor()).toBeVisible();
+    await (await ada.moreActions("Oops")).getByRole("button", { name: "Delete message" }).click();
+    await expect(ada.deleteDialog()).toContainText("Oops");
+    await ada.page.keyboard.press("Escape");
+    await expect(ada.deleteDialog()).toHaveCount(0);
+    await expect(ada.message("Oops")).toBeVisible();
 
-    ada.page.once("dialog", (dialog) => {
-      expect(dialog.message()).toBe("Are you sure you want to delete this message?");
-      void dialog.accept();
-    });
-    await ada.page.getByRole("button", { name: "Delete message" }).click();
+    await ada.delete("Oops");
     await expect(grace.message("Oops")).toHaveCount(0);
     await expect(ada.message("Oops")).toHaveCount(0);
     await expect(ada.composer()).toBeFocused();
@@ -1054,20 +1123,28 @@ test.describe("Delete a message", () => {
     const message = administrator.getByRole("article").filter({ hasText: "Grace's mistake" });
 
     await message.hover();
-    await message.getByRole("button", { name: "Edit" }).click();
-    administrator.once("dialog", (dialog) => void dialog.accept());
-    await administrator.getByRole("button", { name: "Delete message" }).click();
+    await message.getByRole("button", { name: "Message options" }).click();
+    await moreActions(message).getByRole("button", { name: "Delete message" }).click();
+    const dialog = administrator.getByRole("alertdialog", { name: "Delete message?" });
+    // It shows whose message it is, which isn't the administrator's.
+    await expect(dialog).toContainText(grace.name);
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(grace.message("Grace's mistake")).toHaveCount(0);
     await expect(message).toHaveCount(0);
     await administrator.context().close();
   });
 
-  test("offers Delete in the editor, not on the action bar", async ({ members }) => {
+  test("offers Delete in More actions, not on the action bar or in the editor", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await ada.send("Mine to delete");
     const bar = await ada.actions("Mine to delete");
-    await expect(bar.getByRole("button", { name: "Edit" })).toBeVisible();
-    await expect(bar.getByRole("button", { name: /Delete/ })).toHaveCount(0);
+    await expect(bar.getByRole("button", { name: "Thumbs up" })).toBeVisible();
+    await expect(bar.getByRole("button", { name: /Delete|Edit/ })).toHaveCount(0);
+    await expect((await ada.moreActions("Mine to delete")).getByRole("button", { name: "Delete message" })).toBeVisible();
+
+    await ada.edit("Mine to delete");
+    await expect(ada.editor()).toBeFocused();
+    await expect(ada.message("Mine to delete").getByRole("button", { name: /Delete/ })).toHaveCount(0);
   });
 });
 

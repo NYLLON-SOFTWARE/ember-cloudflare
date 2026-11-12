@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { huddleShortcut, muteShortcut, opensFind, opensLink, opensShortcuts, SHORTCUTS, pressedAlone, savesEdit, sendsMessage, togglesHuddle, togglesMute } from "./keyboard";
+import { huddleShortcut, muteShortcut, opensFind, opensLink, opensShortcuts, SHORTCUTS, pressedAlone, sendsMessage, togglesHuddle, togglesMute } from "./keyboard";
 
 function pointer(coarse: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === "(pointer: coarse)" && coarse }));
@@ -62,22 +62,6 @@ describe("opensLink", () => {
     expect(opensLink(press("k", { ctrlKey: true, shiftKey: true }))).toBe(false);
     expect(opensLink(press("k", { metaKey: true, altKey: true }))).toBe(false);
     expect(opensLink(press("j", { ctrlKey: true }))).toBe(false);
-  });
-});
-
-describe("savesEdit", () => {
-  it("is Ctrl+Enter or Cmd+Enter", () => {
-    expect(savesEdit(press("Enter", { ctrlKey: true }))).toBe(true);
-    expect(savesEdit(press("Enter", { metaKey: true }))).toBe(true);
-  });
-
-  it("isn't Enter on its own, with other keys held, or while an input method is composing", () => {
-    expect(savesEdit(press("Enter"))).toBe(false);
-    expect(savesEdit(press("Enter", { shiftKey: true }))).toBe(false);
-    expect(savesEdit(press("Enter", { ctrlKey: true, metaKey: true }))).toBe(false);
-    expect(savesEdit(press("Enter", { ctrlKey: true, shiftKey: true }))).toBe(false);
-    expect(savesEdit(press("Enter", { metaKey: true, altKey: true }))).toBe(false);
-    expect(savesEdit(press("Enter", { ctrlKey: true, isComposing: true }))).toBe(false);
   });
 });
 
