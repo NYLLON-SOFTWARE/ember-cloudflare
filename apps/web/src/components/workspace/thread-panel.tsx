@@ -119,7 +119,8 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
           </span>
         </div>
         {onClose ? (
-          <button type="button" title="Close thread" aria-label="Close thread" onClick={onClose} className={CLOSE_BUTTON}>
+          // Phones have Back for it, as a room's thread does.
+          <button type="button" title="Close thread" aria-label="Close thread" onClick={onClose} className={cn(CLOSE_BUTTON, "max-md:hidden")}>
             <Xmark className="size-5" />
           </button>
         ) : (

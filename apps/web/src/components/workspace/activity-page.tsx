@@ -20,7 +20,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { activityPath, navigate, personPath } from "@/hooks/use-route";
+import { activityPath, navigate, personPath, returnTo } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import type { ActivityState } from "@/hooks/use-activity";
 import { ALL_ACTIVITY, filterCount, shows, type ActivityFilter, type ActivityFilterKind, type ActivityNames, type ActivityTab } from "@/lib/activity-feed";
@@ -101,10 +101,12 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
     navigate(activityPath(placeOf(item)));
     if (!item.read) mark([item.id], true);
   };
+  // Closing a pane goes back to where it opened from, as Back does, so that Back never opens it again,
+  // or where nothing opened it, as after a reload, takes its parent's place in the history.
   const closeThread = () => {
-    if (place) navigate(activityPath({ roomId: place.roomId, messageId: place.messageId }));
+    if (place) returnTo(activityPath({ roomId: place.roomId, messageId: place.messageId }));
   };
-  const closeConversation = () => navigate(activityPath(null));
+  const closeConversation = () => returnTo(activityPath(null));
 
   // A thread opened from the conversation shown opens in the pane beside it, as Slack's do, rather than
   // going to the room's page; anything else the conversation links to goes there.
@@ -160,7 +162,7 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
     {
       id: "conversation",
       label: "Resize activity",
-      onClose: conversation ? closeConversation : undefined,
+      onClose: place ? closeConversation : undefined,
       minWidth: 380,
       defaultShare: side ? 0.4 : 0.58,
       content:
@@ -170,12 +172,15 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
             {hiddenPanes > 0 && !phone && <BackToActivity onClick={closeConversation} />}
             <div className="min-h-0 flex-1">{renderRoom(place, { thread: threadPane, onCloseThread: closeThread })}</div>
           </div>
+        ) : place ? (
+          <Unavailable />
         ) : (
           <NothingOpen />
         ),
     },
   ];
-  if (phone && !conversation) panes.pop();
+  // With nothing open, the feed shows alone on phones, and beside a profile anywhere, with no empty pane between.
+  if (!place && (phone || side === "profile")) panes.pop();
   if (side === "thread" && roomOpen)
     panes.push({ id: "thread", label: "Resize thread", minWidth: 300, defaultShare: 0.3, sizedBySeparator: true, onClose: closeThread, content: <div ref={setThreadPane} className="h-full min-h-0" /> });
   if (side === "profile" && profile)
@@ -229,6 +234,15 @@ function useActivityNames(rooms: SidebarRoom[], me: Me): ActivityNames {
       isBot: (userId: UserId) => people.get(userId)?.role === "bot",
     };
   }, [rooms, me.id, people, nameOf]);
+}
+
+/** What the conversation's pane says for an address naming a room you aren't in, or no room at all. */
+function Unavailable() {
+  return (
+    <MainContent className="grid h-full place-content-center border-l bg-background p-6 text-sm text-muted-foreground">
+      <p>You can’t open this conversation.</p>
+    </MainContent>
+  );
 }
 
 /** Where the conversation goes until an item opens one: the page's content, quiet. */
@@ -433,13 +447,13 @@ function emptyFeedLine(anyItems: boolean, filter: ActivityFilter): string {
   return onlyUnreads ? "You’re all caught up." : "Nothing matches.";
 }
 
-/** What an item is, in a word or two, and the icon by its source. */
-const KINDS: Record<ActivityItem["kind"], { icon: typeof AtSign; source: (where: string) => string }> = {
-  mention: { icon: AtSign, source: (where) => `Mention in ${where}` },
-  direct: { icon: ChatBubbleEmpty, source: () => "Direct message" },
-  thread: { icon: MessageText, source: (where) => `Thread in ${where}` },
-  reaction: { icon: Emoji, source: (where) => `Reaction in ${where}` },
-  invitation: { icon: UserPlus, source: (where) => where },
+/** What each kind of item is, for screen readers, and its icon, by the conversation it's from. */
+const KINDS: Record<ActivityItem["kind"], { icon: typeof AtSign; word: string }> = {
+  mention: { icon: AtSign, word: "Mention" },
+  direct: { icon: ChatBubbleEmpty, word: "Direct message" },
+  thread: { icon: MessageText, word: "Thread reply" },
+  reaction: { icon: Emoji, word: "Reaction" },
+  invitation: { icon: UserPlus, word: "Invitation" },
 };
 
 interface RowProps {
@@ -462,7 +476,7 @@ const LONG_PRESS_SLOP_PX = 10;
  */
 function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
   const people = useContext(PeopleContext);
-  const { icon: Icon, source } = KINDS[item.kind];
+  const { icon: Icon, word } = KINDS[item.kind];
   const where = names.roomNameOf(item.roomId);
   const author = names.nameOf(item.actorId);
   const actor = { id: item.actorId, name: author, avatarUrl: people.get(item.actorId)?.avatarUrl };
@@ -551,14 +565,17 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
           aria-keyshortcuts="U"
           // Who it's from, whether it's unread, what it says and where, as separate words, which the
           // lines it shows them in wouldn't keep apart.
-          aria-label={`${author}${item.read ? "" : ", unread"}: ${preview(item)}, ${source(where)}`}
+          aria-label={`${author}${item.read ? "" : ", unread"}: ${preview(item)}, ${word} in ${where}`}
           className="block w-full text-left outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
         >
           <span className={cn("line-clamp-2 text-[15px] leading-snug wrap-anywhere", item.read ? "text-muted-foreground" : "text-foreground")}>{preview(item)}</span>
-          <span className="mt-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
-            <Icon className="size-3.5 shrink-0" />
-            <span className="truncate">{source(where)}</span>
-          </span>
+          {/* The conversation it's from, which a DM with its author alone doesn't need named again. */}
+          {where !== author && (
+            <span className="mt-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+              <Icon className="size-3.5 shrink-0" />
+              <span className="truncate">{where}</span>
+            </span>
+          )}
         </button>
       </div>
       <button
