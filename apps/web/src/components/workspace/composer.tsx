@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { flushSync } from "react-dom";
-import { isWebImage, MAX_FILE_SIZE, reachesMore, type Message, type ShareWidening, type User } from "@ember/protocol";
+import { isKeepableFileName, isWebImage, MAX_FILE_SIZE, reachesMore, type Message, type ShareWidening, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
 import { ArrowUp, Lock, Page, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
@@ -11,7 +11,7 @@ import { dropTarget } from "@/lib/drop-target";
 import { checkShare, fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { hasTouchKeyboard, pressedAlone } from "@/lib/keyboard";
 import { editedBody } from "@/lib/messages";
-import { isEmberFile, sendableFacts, tooLargeToAttach, type EmberFile, type Sendable } from "@/lib/uploads";
+import { isEmberFile, nameNotKept, sendableFacts, tooLargeToAttach, type EmberFile, type Sendable } from "@/lib/uploads";
 import { tellDraftsChanged } from "@/lib/draft-keys";
 import { cn } from "@/lib/utils";
 import { COMPOSER_CARD, ICON_BUTTON } from "./composer-buttons";
@@ -135,8 +135,8 @@ interface PickedFile {
 }
 
 /**
- * The files picked to send with the next message: in order of their names, leaving out any over 250 MB,
- * which it says until more are picked.
+ * The files picked to send with the next message: in order of their names, leaving out any over 250 MB, or
+ * named as Ember can't keep, which it says until more are picked.
  */
 function usePickedFiles() {
   const [files, setFiles] = useState<PickedFile[]>([]);
@@ -149,6 +149,7 @@ function usePickedFiles() {
     for (const file of picked) {
       const { name, size } = sendableFacts(file);
       if (size > MAX_FILE_SIZE) refused.push(tooLargeToAttach(name));
+      else if (!isKeepableFileName(name)) refused.push(nameNotKept(name));
       else fitting.push({ key: ++lastKey.current, file });
     }
     setErrors(refused);
