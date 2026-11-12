@@ -51,7 +51,7 @@ export function PeoplePage() {
             />
           </div>
           {shown.length > 0 ? (
-            <ul aria-label="People" className="grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-4 max-md:grid-cols-[repeat(auto-fill,minmax(140px,1fr))] max-md:gap-3">
+            <ul aria-label="People" className="grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-4 max-md:-mx-3 max-md:flex max-md:flex-col max-md:gap-0">
               {shown.map((person) => (
                 <li key={person.id}>
                   <PersonCard person={person} />
@@ -67,14 +67,21 @@ export function PeoplePage() {
   );
 }
 
-/** Someone's card: their photo, filling the card's width, over their name and bio, the whole card a link to their page. */
+/**
+ * Someone's card: their photo, filling the card's width, over their name and bio, the whole card a link to
+ * their page. On phones it's a row, as Slack's app lists people: a 40px photo beside their name and a line
+ * of their bio.
+ */
 function PersonCard({ person }: { person: DirectoryUser }) {
   return (
-    <PageLink href={personPath(person.id)} className="group flex h-full flex-col overflow-hidden rounded-xl border bg-surface text-foreground no-underline hover:bg-hover">
-      <UserAvatar user={person} lazy className="aspect-square h-auto w-full rounded-none" />
-      <span className="flex min-w-0 flex-col gap-0.5 px-3 py-2.5">
-        <span className="truncate text-[15px] font-semibold">{person.name}</span>
-        {person.bio?.trim() && <span className="line-clamp-2 text-[13px] text-muted-foreground">{person.bio}</span>}
+    <PageLink
+      href={personPath(person.id)}
+      className="group flex h-full flex-col overflow-hidden rounded-xl border bg-surface text-foreground no-underline hover:bg-hover max-md:min-h-14 max-md:flex-row max-md:items-center max-md:gap-3 max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:px-4 max-md:py-2"
+    >
+      <UserAvatar user={person} lazy square className="aspect-square h-auto w-full rounded-none max-md:size-10 max-md:shrink-0 max-md:rounded-[6px]" />
+      <span className="flex min-w-0 flex-col gap-0.5 px-3 py-2.5 max-md:flex-1 max-md:p-0">
+        <span className="truncate text-[15px] font-semibold max-md:text-[17px]">{person.name}</span>
+        {person.bio?.trim() && <span className="line-clamp-2 text-[13px] text-muted-foreground max-md:line-clamp-1 max-md:text-[14px]">{person.bio}</span>}
       </span>
     </PageLink>
   );

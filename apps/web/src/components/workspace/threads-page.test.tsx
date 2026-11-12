@@ -70,8 +70,12 @@ describe("Threads page", () => {
     expect(within(card).getByRole("link", { name: "3 more replies" })).toHaveAttribute("href", "/rooms/general/threads/p1");
     expect(within(card).getByText("Ship it")).toBeInTheDocument();
     expect(within(card).getByRole("link", { name: "Open thread" })).toHaveAttribute("href", "/rooms/general/threads/p1");
-    // 44px square on phones, where it's its arrow alone.
-    expect(within(card).getByRole("link", { name: "Open thread" })).toHaveClass("max-md:min-h-11", "max-md:min-w-11", "touch:min-w-11");
+    // Shown on hover beside the page; on phones the room's name, 44px tall, opens the thread.
+    expect(within(card).getByRole("link", { name: "Open thread" })).toHaveClass("opacity-0", "group-hover/card:opacity-100", "max-md:hidden");
+    const roomLink = within(card.querySelector("h2")!).getByRole("link", { name: "general" });
+    expect(roomLink).toHaveAttribute("href", "/rooms/general/threads/p1");
+    expect(roomLink).toHaveClass("max-md:min-h-11");
+    expect(card).toHaveClass("max-md:rounded-none", "max-md:border-x-0");
   });
 
   it("shows a thread's first message and its latest replies, THREAD_CONTEXT messages in all, the ones written here among them", async () => {
@@ -133,6 +137,15 @@ describe("Threads page", () => {
   it("puts the first page asked for again first, keeping the threads loaded after it and the cursor after those", () => {
     const [a, b, c] = ["a", "b", "c"].map((id): ListedThread => ({ ...thread, parent: message(id, id, grace, 0) }));
     expect(withFirstPage({ threads: [a!, b!], next: 7 }, { threads: [c!, b!], next: 3 })).toEqual({ threads: [c, b, a], next: 7 });
+  });
+
+  it("starts the first reply after the ones left out with its author, though they wrote the first message just before", async () => {
+    const close: ListedThread = { ...thread, replies: [message("r9", "And also", grace, 1, "p1")], count: 4 };
+    showPage({ threads: [close], next: null });
+    const card = await screen.findByRole("article", { name: "Thread in general" });
+    expect(within(card).getByRole("link", { name: "3 more replies" })).toBeInTheDocument();
+    // Grace's name heads both her first message and her reply.
+    expect(within(card).getAllByText("Grace", { selector: "h3 *, h3" }).length).toBeGreaterThanOrEqual(2);
   });
 
   it("says when there are no threads", async () => {

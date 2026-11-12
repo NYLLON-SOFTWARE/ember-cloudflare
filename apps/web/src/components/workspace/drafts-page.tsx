@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Me, Room, SearchMatch } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
-import { EditPencil, NavArrowRight, Trash } from "@/components/icons/iconoir";
+import { EditPencil, Trash } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { useMounted } from "@/hooks/use-mounted";
@@ -12,12 +12,8 @@ import { discardDraft, draftsOf, type Draft } from "@/lib/drafts";
 import { dateTimeLabel, timeLabel } from "@/lib/messages";
 import { activityLabel } from "@/lib/direct-list";
 import { cn } from "@/lib/utils";
-import { MessageItem, type MessageEditors } from "./message-item";
 import { PageHeader } from "./page-header";
 import { RoomMark, useSearchNames, type SearchNames } from "./search-box";
-
-/** Sent messages can't be edited or replied to here, so nothing opens an editor or writes in a composer. */
-const NO_EDITORS: MessageEditors = { open() {}, close() {}, returnFocus() {}, attach() {}, reply() {} };
 
 /** A `.btn` under the list, 44px tall for fingers. */
 const BUTTON = "inline-flex cursor-pointer items-center justify-center gap-[0.5em] rounded-[9px] border bg-background px-[1.1em] py-[0.5em] font-medium hover:bg-hover touch:min-h-11";
@@ -88,29 +84,78 @@ function Drafts({ me, names }: { me: Me; names: SearchNames }) {
   };
   if (shown.length === 0) return <Nothing title="No drafts" />;
   return (
-    <ul className="flex flex-col gap-3">
+    <ul className="flex flex-col">
       {shown.map(({ draft, room, text }) => (
-        <li key={draft.key} className="flex items-start gap-3 rounded-xl border bg-background px-4 py-3 max-md:px-3">
-          <PageLink href={draft.threadId ? threadPath(room.id, draft.threadId) : roomPath(room.id)} className="flex min-w-0 flex-1 flex-col gap-1 text-foreground no-underline">
-            <span className="flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground">
-              <RoomMark room={room} size={15} />
-              <span className="min-w-0 truncate font-semibold text-foreground">{names.roomName(room)}</span>
-              {draft.threadId && <span className="shrink-0">· Thread reply</span>}
-            </span>
-            <span className="line-clamp-3 text-[15px] leading-[22px] wrap-anywhere">{text}</span>
-          </PageLink>
-          <button
-            type="button"
-            title="Delete draft"
-            aria-label={`Delete draft in ${names.roomName(room)}`}
-            onClick={() => discard(draft)}
-            className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-lg text-muted-foreground hover:bg-hover hover:text-foreground touch:size-11"
-          >
-            <Trash className="size-[18px]" />
-          </button>
+        <li key={draft.key}>
+          <ItemRow
+            room={room}
+            roomName={names.roomName(room)}
+            threadReply={draft.threadId !== undefined}
+            href={draft.threadId ? threadPath(room.id, draft.threadId) : roomPath(room.id)}
+            text={text}
+            action={
+              <button
+                type="button"
+                title="Delete draft"
+                aria-label={`Delete draft in ${names.roomName(room)}`}
+                onClick={() => discard(draft)}
+                className="grid size-8 shrink-0 cursor-pointer place-items-center rounded-lg text-muted-foreground opacity-0 group-hover/item:opacity-100 hover:bg-hover hover:text-foreground focus-visible:opacity-100 touch:size-11 touch:opacity-100"
+              >
+                <Trash className="size-[18px]" />
+              </button>
+            }
+          />
         </li>
       ))}
     </ul>
+  );
+}
+
+interface ItemRowProps {
+  room: Room | null;
+  roomName: string;
+  /** Whether it's a reply in one of the room's threads. */
+  threadReply: boolean;
+  href: string;
+  /** When it was sent, if it was. */
+  at?: Date;
+  text: string;
+  /** What the row offers besides opening it, shown on hover, and always on touch screens. */
+  action?: ReactNode;
+}
+
+/**
+ * A draft's or a sent message's row, as the DMs page's rows are: its room's mark, the room's name in bold
+ * and "· Thread reply" for a reply, when it was sent at the right edge, and a line or two of what it
+ * says, the whole row opening where it is.
+ */
+function ItemRow({ room, roomName, threadReply, href, at, text, action }: ItemRowProps) {
+  return (
+    <div className="group/item relative flex items-start hover:bg-hover">
+      <PageLink
+        href={href}
+        className="flex min-w-0 flex-1 items-start gap-3 px-[18px] py-3 text-foreground no-underline outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset max-md:px-4"
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-[6px] bg-surface text-muted-foreground">
+          <RoomMark room={room} size={18} />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="min-w-0 flex-1 truncate text-[15px] leading-[22px]">
+              <span className="font-semibold">{roomName}</span>
+              {threadReply && <span className="text-[13px] text-muted-foreground"> · Thread reply</span>}
+            </span>
+            {at && (
+              <time dateTime={at.toISOString()} title={dateTimeLabel(at)} className="shrink-0 text-[12px] text-muted-foreground">
+                {sentLabel(at)}
+              </time>
+            )}
+          </span>
+          <span className="line-clamp-2 text-[14px] leading-5 wrap-anywhere text-muted-foreground">{text}</span>
+        </span>
+      </PageLink>
+      {action && <span className="self-center pr-3">{action}</span>}
+    </div>
   );
 }
 
@@ -162,31 +207,19 @@ function Sent({ me, names, onFailed }: { me: Me; names: SearchNames; onFailed: (
   if (page.matches.length === 0) return <Nothing title="Nothing sent yet" />;
   return (
     <>
-      <ol className="flex flex-col gap-3">
+      <ol className="flex flex-col">
         {page.matches.map(({ message }) => {
           const room = page.rooms.get(message.roomId) ?? names.room(message.roomId);
-          const created = new Date(message.createdAt);
           return (
-            <li key={message.id} className="overflow-hidden rounded-xl border bg-background">
-              <div className="flex min-h-9 items-center gap-2 border-b bg-surface px-4 py-1.5 text-[13px] text-muted-foreground max-md:px-3">
-                <RoomMark room={room} size={15} />
-                <span className="min-w-0 truncate font-semibold text-foreground">{room ? names.roomName(room) : "A room you’ve left"}</span>
-                {message.parentId !== undefined && <span className="shrink-0">· Thread reply</span>}
-                <span aria-hidden>·</span>
-                <time dateTime={message.createdAt} title={dateTimeLabel(created)} className="shrink-0">
-                  {sentLabel(created)}
-                </time>
-                <PageLink
-                  href={permalinkOf(message)}
-                  className="ml-auto inline-flex shrink-0 items-center justify-center gap-0.5 rounded-md px-1.5 py-0.5 font-medium hover:bg-hover hover:text-foreground touch:min-h-11 touch:min-w-11"
-                >
-                  <span className="max-md:sr-only">Open</span>
-                  <NavArrowRight className="size-4" />
-                </PageLink>
-              </div>
-              <div className="pb-1">
-                <MessageItem message={message} me={me} threaded={false} editing={false} actions={null} editors={NO_EDITORS} />
-              </div>
+            <li key={message.id}>
+              <ItemRow
+                room={room}
+                roomName={room ? names.roomName(room) : "A room you’ve left"}
+                threadReply={message.parentId !== undefined}
+                href={permalinkOf(message)}
+                at={new Date(message.createdAt)}
+                text={message.plainText.replace(/\s+/g, " ").trim()}
+              />
             </li>
           );
         })}
