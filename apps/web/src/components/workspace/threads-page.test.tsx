@@ -1,11 +1,11 @@
 import { THREAD_CONTEXT, type ListedThread, type ListedThreads, type Me, type Message, type Room, type User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import { handOver } from "@/lib/outbox";
-import { ThreadsPage } from "./threads-page";
+import { ThreadsPage, withFirstPage } from "./threads-page";
 
 vi.mock("@/lib/outbox", () => ({ handOver: vi.fn() }));
 
@@ -112,6 +112,27 @@ describe("Threads page", () => {
     expect(handOver).toHaveBeenCalledExactlyOnceWith("general", [expect.objectContaining({ parentId: "p1", plainText: "On it", queued: true, creator: ada })]);
     expect(box).toHaveValue("");
     expect(within(screen.getByRole("article", { name: "Thread in general" })).getByText("On it")).toBeInTheDocument();
+  });
+
+  it("brings the cards up to date as the tab is shown again, with others' replies, its own written there once each", async () => {
+    showPage({ threads: [thread], next: null });
+    const card = await screen.findByRole("article", { name: "Thread in general" });
+    await userEvent.click(within(card).getByRole("button", { name: "Reply" }));
+    await userEvent.type(within(card).getByRole("textbox"), "On it{Enter}");
+    const mine = vi.mocked(handOver).mock.calls[0]![1][0]!;
+
+    // Since: Grace replied, and the reply written here reached the thread.
+    const now: ListedThread = { ...thread, replies: [...thread.replies, message("r4", "Shipped", grace, 40, "p1"), { ...mine, id: "r5", clientMessageId: mine.clientMessageId } as Message], count: 7 };
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ threads: [now], next: null }));
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    act(() => void document.dispatchEvent(new Event("visibilitychange")));
+    expect(await within(card).findByText("Shipped")).toBeInTheDocument();
+    expect(within(card).getAllByText("On it")).toHaveLength(1);
+  });
+
+  it("puts the first page asked for again first, keeping the threads loaded after it and the cursor after those", () => {
+    const [a, b, c] = ["a", "b", "c"].map((id): ListedThread => ({ ...thread, parent: message(id, id, grace, 0) }));
+    expect(withFirstPage({ threads: [a!, b!], next: 7 }, { threads: [c!, b!], next: 3 })).toEqual({ threads: [c, b, a], next: 7 });
   });
 
   it("says when there are no threads", async () => {

@@ -31,7 +31,7 @@ interface Props {
 }
 
 /** The threads loaded so far, and the cursor of the next page, or null when there are no more. */
-interface Loaded {
+export interface Loaded {
   threads: ListedThread[];
   next: number | null;
 }
@@ -48,14 +48,25 @@ export function ThreadsPage({ me, rooms, onFailed }: Props) {
   const [loadingMore, setLoadingMore] = useState(false);
   const mounted = useMounted();
   useTitle("Threads");
+  // Bumped whenever the first page may have changed, which nothing tells this tab of as replies come.
+  const [refreshes, setRefreshes] = useState(0);
+  useEffect(() => {
+    const refresh = () => document.visibilityState === "visible" && setRefreshes((refreshes) => refreshes + 1);
+    const every = setInterval(refresh, THREADS_REFRESH_MS);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      clearInterval(every);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
   useEffect(() => {
     let stopped = false;
     fetchThreads().then(
-      (page) => !stopped && setLoaded(page),
+      (page) => !stopped && setLoaded((loaded) => (loaded ? withFirstPage(loaded, page) : page)),
       (error: unknown) => (!stopped || isSignedOut(error)) && onFailed(error),
     );
     return () => void (stopped = true);
-  }, [onFailed]);
+  }, [onFailed, refreshes]);
   const showMore = () => {
     if (!loaded || loaded.next === null || loadingMore) return;
     setLoadingMore(true);
@@ -113,6 +124,19 @@ export function ThreadsPage({ me, rooms, onFailed }: Props) {
   );
 }
 
+/** How often the first page of threads is asked for again while the tab is shown, for the replies that come. */
+export const THREADS_REFRESH_MS = 30_000;
+
+/**
+ * `loaded` with the first page of threads asked for again, `page`: its threads first, latest active
+ * first, as they are now, then the others loaded, which the page ends before, keeping the cursor of the
+ * page after those.
+ */
+export function withFirstPage(loaded: Loaded, page: Loaded): Loaded {
+  const fresh = new Set(page.threads.map(({ parent }) => parent.id));
+  return { threads: [...page.threads, ...loaded.threads.filter(({ parent }) => !fresh.has(parent.id))], next: loaded.next };
+}
+
 /** How many replies a card leaves out, as its link to them says. */
 const moreRepliesLabel = (count: number) => (count === 1 ? "1 more reply" : `${count} more replies`);
 
@@ -129,9 +153,11 @@ function ThreadCard({ thread, me, names }: { thread: ListedThread; me: Me; names
   // The replies written here, shown at once and sent by the outbox, as a thread closed while its room is
   // away hands over what it couldn't send.
   const [written, setWritten] = useState<Message[]>([]);
-  const replies = useMemo(() => [...thread.replies, ...written].slice(-(THREAD_CONTEXT - 1)), [thread, written]);
+  // Those the thread has come back with since are its own.
+  const unechoed = useMemo(() => written.filter((reply) => !thread.replies.some((other) => other.clientMessageId === reply.clientMessageId)), [thread, written]);
+  const replies = useMemo(() => [...thread.replies, ...unechoed].slice(-(THREAD_CONTEXT - 1)), [thread, unechoed]);
   const items = useMemo(() => timeline([thread.parent, ...replies]), [thread, replies]);
-  const left = thread.count + written.length - replies.length;
+  const left = thread.count + unechoed.length - replies.length;
   const mark = markOf(thread);
   // As in a thread's panel: no summary of the thread under its first message, nor Reply in thread.
   const place = useMemo<ThreadPlace>(() => ({ roomName: room && room.kind !== "direct" ? room.name : "", direct: room?.kind === "direct" }), [room]);
