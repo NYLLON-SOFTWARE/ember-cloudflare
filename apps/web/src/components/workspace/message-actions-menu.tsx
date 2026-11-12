@@ -400,6 +400,11 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
           hidden={!open}
           onPointerEnter={() => clearTimeout(leaveTimer.current)}
           onPointerLeave={() => left()}
+          // A mouse's press on a button or link keeps focus where it is. Safari focuses no button it clicks,
+          // but the timeline around it, so focus leaving the bar would shut it before the click lands.
+          onMouseDown={(event) => {
+            if ((event.target as Element).closest("button, a")) event.preventDefault();
+          }}
           className="group/menu fixed z-30 grid w-max min-w-0 gap-[7px]"
         >
           <div
