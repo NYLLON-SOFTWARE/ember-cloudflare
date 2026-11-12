@@ -241,7 +241,10 @@ interface Props {
   /** Who's writing, whose drafts are their own. */
   userId: string;
   typing: User[];
-  /** While the room's been away a while: nothing's sent or uploaded, but what's written can still be formatted. */
+  /**
+   * While the room's been away a while: what's written still goes, waiting for the room, as Slack's does,
+   * but files, which upload once it's there, and scheduling wait for it.
+   */
   disabled: boolean;
   /**
    * Holds back the editor's code while the room's first messages are on their way, and until they're
@@ -401,13 +404,13 @@ export function Composer({
     setAlsoSend(false);
   };
 
-  // This sends nothing while the room is disconnected, and otherwise sends the files picked, then what's
-  // written unless it's blank, and focuses the editor, on touch screens too. Before the editor shows, as
-  // its code loads, only the files go.
+  // This sends the files picked, then what's written unless it's blank, and focuses the editor, on touch
+  // screens too. While the room is away what's written goes, to wait for it, and the files stay. Before the
+  // editor shows, as its code loads, only the files go.
   const submit = () => {
-    if (disabled) return;
     setScheduleRefusal(null);
-    if (picked.files.length > 0) {
+    // Files picked wait for the room, which they upload to.
+    if (picked.files.length > 0 && !disabled) {
       onSendFiles(
         picked.files.map(({ file }) => file),
         alsoSend,
@@ -597,7 +600,7 @@ export function Composer({
               </label>
             )}
             {/* Files picked go at once, so they can't be scheduled. */}
-            <SendButton disabled={disabled} empty={blank && picked.files.length === 0} cannotSchedule={!frames || blank || picked.files.length > 0} onSchedule={schedule} />
+            <SendButton disabled={false} empty={blank && picked.files.length === 0} cannotSchedule={disabled || !frames || blank || picked.files.length > 0} onSchedule={schedule} />
           </div>
         </div>
       </form>

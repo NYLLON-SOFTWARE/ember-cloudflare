@@ -947,6 +947,11 @@ export class ChatRoom extends DurableObject<Env> {
     switch (frame.type) {
       case "message.create": {
         if (isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, clientMessageId: frame.clientMessageId, failed: frame.type });
+        // A message the app sends again, as it does what it kept while the room was away, posts once: the
+        // room answers as it does asking about it.
+        if ((await store.storedClientMessageIds(user, [frame.clientMessageId])).length > 0) {
+          return this.send(ws, { type: "message.checked", stored: [frame.clientMessageId], missing: [] });
+        }
         const inThread = frame.parentId === undefined ? undefined : await this.inThread(store, frame.parentId, frame.alsoSend === true);
         if (inThread === null) return this.send(ws, { type: "error", message: MESSAGE_GONE, clientMessageId: frame.clientMessageId, failed: frame.type });
         const body = await this.prepare(frame.body);

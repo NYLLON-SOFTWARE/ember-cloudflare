@@ -241,7 +241,8 @@ describe("Formatting toolbar", () => {
     expect(tool("Bold")).toHaveAttribute("aria-pressed", "true");
     expect(input).toHaveFocus();
     for (const name of ["Formatting", "Emoji", "Mention someone"]) expect(screen.getByRole("button", { name: new RegExp(name) }), name).toBeEnabled();
-    for (const name of ["Attach", "Send Message", "Schedule for later"]) expect(screen.getByRole("button", { name }), name).toBeDisabled();
+    for (const name of ["Attach", "Schedule for later"]) expect(screen.getByRole("button", { name }), name).toBeDisabled();
+    expect(sendButton()).toBeEnabled();
   });
 
   it("starts a new line on Enter in a code block, and a new item in a list, where Ctrl+Enter sends", async () => {
@@ -360,12 +361,15 @@ describe("Send from the keyboard", () => {
     expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>Too much</p>");
   });
 
-  it("holds on to the text while the room is disconnected", async () => {
-    const { onSend, input, user } = await showComposer({ disabled: true });
+  it("sends what's written while the room is disconnected, to wait for it, as Slack does, keeping files picked for when it's back", async () => {
+    const { onSend, onSendFiles, input, user, view } = await showComposer({ disabled: true });
+    fireEvent.drop(view.container.querySelector("form")!, { dataTransfer: { files: [fileOf("plan.txt")] } });
     await user.type(input, "Are you there?{Enter}");
-    expect(onSend).not.toHaveBeenCalled();
-    expect(input).toHaveValue("Are you there?");
-    expect(sendButton()).toBeDisabled();
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Are you there?</p>", false);
+    expect(onSendFiles).not.toHaveBeenCalled();
+    expect(chips()).toEqual(["Remove plan.txt"]);
+    expect(input).toHaveValue("");
+    expect(sendButton()).toBeEnabled();
   });
 });
 

@@ -27,6 +27,10 @@ export interface MessageActions {
   edit: (messageId: string, body: string) => boolean;
   /** Returns whether the deletion was sent. */
   remove: (messageId: string) => boolean;
+  /** Sends a message shown as not sent again. */
+  retry?: (clientMessageId: string) => void;
+  /** Forgets a message shown as not sent. */
+  discard?: (clientMessageId: string) => void;
   /** Clicks a button that acts on one of a message's cards, answering whether its bot took the click, once the room says. */
   click: (messageId: string, action: CardAction) => Promise<boolean>;
 }
@@ -205,6 +209,43 @@ function Author({ user }: { user: User }) {
   );
 }
 
+/** A message's own small buttons, under it: 13px, or a fingertip's 44px on touch screens. */
+const UNSENT_ACTION = "cursor-pointer rounded-[5px] px-1.5 py-0.5 text-xs font-semibold hover:bg-hover touch:min-h-11";
+
+/**
+ * What a message that couldn't go says, as Slack's does: Not sent, with Retry, which sends it again, Edit,
+ * which writes it in the composer again in its place, and Delete.
+ */
+function NotSent({ message, actions, editors }: { message: PendingMessage; actions: MessageActions | null; editors: MessageEditors }) {
+  return (
+    <p className="col-span-full flex flex-wrap items-center gap-x-1 text-xs">
+      <span className="me-1 text-destructive">Not sent</span>
+      {actions?.retry && (
+        <button type="button" onClick={() => actions.retry?.(message.clientMessageId)} className={UNSENT_ACTION}>
+          Retry
+        </button>
+      )}
+      {actions?.discard && (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              editors.reply(message.body);
+              actions.discard?.(message.clientMessageId);
+            }}
+            className={UNSENT_ACTION}
+          >
+            Edit
+          </button>
+          <button type="button" onClick={() => actions.discard?.(message.clientMessageId)} className={cn(UNSENT_ACTION, "text-destructive")}>
+            Delete
+          </button>
+        </>
+      )}
+    </p>
+  );
+}
+
 /** One message: a 36px avatar gutter, author and time, then the body. */
 export const MessageItem = memo(function MessageItem({ message, me, threaded: follows, editing: editorOpen, actions, editors, thread, open }: Props) {
   const article = useRef<HTMLElement>(null);
@@ -348,7 +389,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
             <BotCards cards={message.cards} className={threaded ? "col-start-1" : "touch:pr-8"} onAction={actions && !pending ? (action) => actions.click(message.id, action) : undefined} />
           )}
 
-          {pending && message.failed && <p className="col-span-full text-xs text-destructive">Not sent</p>}
+          {pending && !upload && (message.failed ? <NotSent message={message} actions={actions} editors={editors} /> : message.queued && <p className="col-span-full text-xs text-message-muted">Sending…</p>)}
 
           {(message.boosts.length > 0 || customizing) && (
             <MessageBoosts

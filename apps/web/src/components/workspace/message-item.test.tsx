@@ -64,7 +64,7 @@ function show(
   m: Message | PendingMessage,
   { me = ada, administrator = false, threaded = false, sent = true, thread = undefined as ThreadPlace | undefined, open = false } = {},
 ) {
-  const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent), click: vi.fn(() => Promise.resolve(sent)) };
+  const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent), retry: vi.fn(), discard: vi.fn(), click: vi.fn(() => Promise.resolve(sent)) };
   let setEditing: (editing: boolean) => void = () => {};
   let setMessage: (message: Message | PendingMessage) => void = () => {};
   let setConnections: (update: (connections: number) => number) => void = () => {};
@@ -343,9 +343,23 @@ describe("See your message before it's saved", () => {
     expect(screen.queryByText("Not sent")).not.toBeInTheDocument();
   });
 
-  it("says when a message couldn't be sent", () => {
-    show({ ...message(), pending: true, failed: true });
+  it("says when a message couldn't be sent, with Retry, Edit, which writes it in the composer again, and Delete", async () => {
+    const { actions, editors } = show({ ...message({ body: "<p>Hello?</p>", clientMessageId: "c1" }), pending: true, failed: true });
     expect(screen.getByText("Not sent")).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(actions.retry).toHaveBeenCalledExactlyOnceWith("c1");
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(editors.reply).toHaveBeenCalledExactlyOnceWith("<p>Hello?</p>");
+    expect(actions.discard).toHaveBeenCalledExactlyOnceWith("c1");
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(actions.discard).toHaveBeenCalledTimes(2);
+  });
+
+  it("says a message waiting for the room is sending, quietly", () => {
+    show({ ...message(), pending: true, queued: true });
+    expect(screen.getByText("Sending…")).toHaveClass("text-message-muted");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 
