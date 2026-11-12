@@ -6,7 +6,7 @@ import { useAccount } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
 import { roomSettingsPath, usePath } from "@/hooks/use-route";
 import { fetchPerson, fetchRoomSettings } from "@/lib/api";
-import { fetchTabs } from "@/lib/library";
+import { fetchTabs } from "@/lib/room-tabs";
 import { cn } from "@/lib/utils";
 import { AgentBadge, useIsWithAgent } from "../workspace/agent-badge";
 import { HuddleButton } from "../workspace/huddle-button";

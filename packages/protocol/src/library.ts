@@ -101,9 +101,7 @@ export interface Library {
 /** The most file messages, and messages with links, the library reads, newest first. */
 export const LIBRARY_LIMIT = 1_000;
 
-export const FILES_API_PATH = "/api/files";
-export const FILE_MARKS_API_PATH = "/api/files/marks";
-export const roomLibraryPath = (roomId: RoomId) => `/api/rooms/${encodeURIComponent(roomId)}/library`;
+export { FILE_MARKS_API_PATH, FILES_API_PATH, roomLibraryPath, roomTabPath, roomTabsPath } from "./library-paths.ts";
 
 /** Starring a file or a canvas, or not, or saying it was opened, as `PUT /api/files/marks` takes it. */
 export interface FileMark {
@@ -314,9 +312,6 @@ export const CANVAS_TOO_LONG = "That canvas is too long to save.";
 /** Why the room refuses a canvas someone deleted, as it was being written. */
 export const CANVAS_GONE = "That canvas isn't there anymore";
 export const CANVAS_CHANGED = "Someone else changed this canvas. It shows their changes now.";
-
-export const roomTabsPath = (roomId: RoomId) => `/api/rooms/${encodeURIComponent(roomId)}/tabs`;
-export const roomTabPath = (roomId: RoomId, tabId: string) => `${roomTabsPath(roomId)}/${encodeURIComponent(tabId)}`;
 
 /** What adding a tab or a folder's item sends: a file sent in the room names its message. */
 export type NewTabTarget = { kind: "file"; messageId: string } | { kind: "link"; url: string } | { kind: "folder" } | { kind: "canvas" };

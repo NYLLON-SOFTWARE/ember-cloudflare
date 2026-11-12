@@ -1,4 +1,4 @@
-import { useContext, useEffect, useEffectEvent, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from "react";
+import { useContext, useEffect, useEffectEvent, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import type { DirectoryUser, UserId } from "@ember/protocol";
 import { Search, Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -10,6 +10,7 @@ import { PEOPLE_PAGE, peopleMatching, soughtName } from "@/lib/directs";
 import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { AgentBadge, useIsAgent } from "./agent-badge";
+import { returnFocus } from "./dialog-openers";
 import { UserAvatar } from "./user-avatar";
 
 // The New direct message dialog. It lists the people directory the page already has, so it searches as
@@ -21,29 +22,6 @@ const BUTTON = "inline-flex cursor-pointer items-center justify-center gap-[0.5e
 const FOOTER_BUTTON = "min-h-[42px] px-4 py-2.5 touch:min-h-11 upto-500px:min-h-11";
 /** Show more people, and Try again. */
 const MORE_BUTTON = "m-2 px-3 py-2 text-[13px] touch:min-h-11";
-
-/**
- * A link's click that opens New direct message in place: a plain click on the rail's DMs and the
- * sidebar's New direct message, leaving one with a modifier key to follow the link to
- * `/rooms/directs/new`, as into a new tab.
- */
-export function opensNewDirect(open: (opener: HTMLElement) => void) {
-  return (event: MouseEvent<HTMLAnchorElement>) => {
-    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
-    open(event.currentTarget);
-  };
-}
-
-/**
- * Puts focus back on what opened a dialog, or, when that's gone with the drawer it was in, on the
- * drawer's toggle.
- */
-export function returnFocus(opener: HTMLElement | null) {
-  opener?.focus({ preventScroll: true });
-  if (opener && document.activeElement === opener) return;
-  document.querySelector<HTMLElement>("[data-ember-sidebar-toggle]")?.focus({ preventScroll: true });
-}
 
 interface Props {
   /** The link that opened it, or null when the page's address did. */

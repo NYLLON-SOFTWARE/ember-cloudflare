@@ -5,7 +5,7 @@ import { ChatLines, Link, MultiplePages, Plus, type IconoirIconProps } from "@/c
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { navigate, useQuery } from "@/hooks/use-route";
 import type { Room } from "@/lib/api";
-import { fetchTabs } from "@/lib/library";
+import { fetchTabs } from "@/lib/room-tabs";
 import { cn } from "@/lib/utils";
 import { TAB_ICONS, type ShownTab } from "./room-tab-icons";
 

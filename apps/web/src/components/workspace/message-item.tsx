@@ -15,8 +15,7 @@ import { BotCards } from "./bot-card";
 import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions-menu";
 import { MessageBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
-import { ForwardDialog } from "./forward-dialog";
-import { MessageEditor, type MessageEditorHandle } from "./message-editor";
+import { RarePage } from "./rare-pages";
 import { UploadCard } from "./upload-card";
 import { AvatarLink, UserAvatar, userTitle } from "./user-avatar";
 
@@ -469,7 +468,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
             }}
           />
         ))}
-      {forwarding && <ForwardDialog message={message} opener={forwarding} onClose={() => setForwarding(null)} />}
+      {forwarding && (
+        <RarePage show={({ ForwardDialog }) => <ForwardDialog message={message} opener={forwarding} onClose={() => setForwarding(null)} />} loading={null} />
+      )}
     </article>
   );
 });

@@ -11,7 +11,7 @@ import { membersShown, roomName } from "@/lib/directs";
 import { quotedTimeLabel } from "@/lib/messages";
 import { roomDisplayName } from "@/lib/sub-rooms";
 import { cn } from "@/lib/utils";
-import { returnFocus } from "./new-direct-dialog";
+import { returnFocus } from "./dialog-openers";
 import { ConversationsContext } from "./quote-cite";
 import { ShareWarning, shareWidening, type SharePlace } from "./share-warning";
 import { DIALOG_BACKDROP, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";

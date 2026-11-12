@@ -6,8 +6,8 @@ import { Page, Plus, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import type { RoomFrames } from "@/hooks/use-room";
 import { useScheduled } from "@/hooks/use-scheduled";
-import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { dropTarget } from "@/lib/drop-target";
+import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { hasTouchKeyboard, pressedAlone } from "@/lib/keyboard";
 import { isEmberFile, sendableFacts, tooLargeToAttach, type EmberFile, type Sendable } from "@/lib/uploads";
 import { tellDraftsChanged } from "@/lib/draft-keys";
@@ -16,8 +16,8 @@ import { COMPOSER_CARD } from "./composer-buttons";
 import { AttachMenu, EmojiButton, FormattingToggle, MentionButton, SendButton } from "./composer-menus";
 import { useFormatting } from "./composer-formatting";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
-import { FilesPicker } from "./files-picker";
 import { ScheduledNotice } from "./schedule-send";
+import { RarePage } from "./rare-pages";
 import { fileSize } from "./upload-card";
 
 /**
@@ -584,16 +584,21 @@ export function Composer({
         </div>
       </form>
       {filesOpen && (
-        <FilesPicker
-          meId={userId}
-          roomId={roomId}
-          room={{ label: direct ? roomName : `#${roomName}`, direct }}
-          onClose={() => setFilesOpen(false)}
-          onPick={(shared) => {
-            setFilesOpen(false);
-            picked.share(shared);
-          }}
-          onReturnFocus={() => editor.current?.focus()}
+        <RarePage
+          show={({ FilesPicker }) => (
+            <FilesPicker
+              meId={userId}
+              roomId={roomId}
+              room={{ label: direct ? roomName : `#${roomName}`, direct }}
+              onClose={() => setFilesOpen(false)}
+              onPick={(shared) => {
+                setFilesOpen(false);
+                picked.share(shared);
+              }}
+              onReturnFocus={() => editor.current?.focus()}
+            />
+          )}
+          loading={null}
         />
       )}
     </footer>

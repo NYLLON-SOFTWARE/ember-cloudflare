@@ -15,18 +15,9 @@ import {
   type RoomTab,
 } from "@ember/protocol/library";
 import { ApiError } from "./api";
+import { request, sending } from "./library-request";
 
 // The Files page's and room tabs' requests (apps/worker/src/library.ts).
-
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, { ...init, headers: init.body ? { "Content-Type": "application/json" } : {} });
-  if (response.status === 204) return undefined as T;
-  const data = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new ApiError(response.status, data.error ?? `Request failed (${response.status})`);
-  return data;
-}
-
-const sending = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });
 
 /** Every file and canvas in the rooms you're in. */
 export const fetchFiles = () => request<Library>(FILES_API_PATH);
@@ -36,9 +27,6 @@ export const fetchRoomLibrary = (roomId: RoomId) => request<Library>(roomLibrary
 
 /** Stars a file or canvas, or not, or records that it was opened. */
 export const markFile = (mark: FileMark) => request<FileMarks>(FILE_MARKS_API_PATH, sending("PUT", mark));
-
-/** A room's tabs, or none where the answer lists none. */
-export const fetchTabs = async (roomId: RoomId) => (await request<{ tabs?: RoomTab[] }>(roomTabsPath(roomId))).tabs ?? [];
 
 export const addTab = (roomId: RoomId, tab: NewTab) => request<OpenedTab>(roomTabsPath(roomId), sending("POST", tab));
 
