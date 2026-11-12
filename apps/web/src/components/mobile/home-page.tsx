@@ -1,22 +1,21 @@
 import type { ComponentType, ReactNode } from "react";
 import type { LiveHuddle, Me, RoomId } from "@ember/protocol";
-import { Bell, Headset } from "@/components/icons/iconoir";
+import { CheckCircle, EditPencil, Group, Headset, MultiBubble, Star } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
+import { useDirectoryCount } from "./people-count";
 import { roomPath, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { AppearanceMenu } from "../workspace/appearance-menu";
 import { NavigationIcon } from "../workspace/navigation-icon";
 import { ROUND_BUTTON } from "./back-button";
 import { NewMessageButton, TabPage, YouLink } from "./tab-page";
-import { ACTIVITY_PATH } from "./tabs";
+import { DRAFTS_PATH, PEOPLE_PATH, SAVED_PATH, THREADS_PATH, TODOS_PATH } from "./tabs";
 
 interface Props {
   me: Me;
   workspaceName: string;
   /** The conversations, as the sidebar lists them. */
   sidebar: ReactNode;
-  /** How many conversations are unread. */
-  unread: number;
   /** The huddles going on in this person's rooms, by room. */
   huddles: Record<RoomId, LiveHuddle>;
   /** The release of Ember out since this one, which Admin marks for an administrator, or null for none. */
@@ -26,12 +25,15 @@ interface Props {
 
 /**
  * Home on a phone, Slack's: the workspace's logo and name at the top, with the way to its settings, the
- * appearance menu and your avatar at the other end, then a row of cards, Unreads and Huddles, and the
- * conversations, with New direct message floating over their bottom right.
+ * appearance menu and your avatar at the other end, then a row of cards that scrolls sideways, for what
+ * sits above the rooms in the desktop's Home sidebar (Threads, Drafts & sent, People, Saved, To-dos) and
+ * the huddles going on, once huddles are on, then the conversations, with New direct message floating
+ * over their bottom right.
  */
-export function HomePage({ me, workspaceName, sidebar, unread, huddles, newRelease, onNewDirect }: Props) {
-  const { logo, tagline } = useAccount();
+export function HomePage({ me, workspaceName, sidebar, huddles, newRelease, onNewDirect }: Props) {
+  const { logo, tagline, huddles: huddlesOn } = useAccount();
   const live = Object.keys(huddles) as RoomId[];
+  const people = useDirectoryCount();
   return (
     <TabPage
       heading={
@@ -63,8 +65,14 @@ export function HomePage({ me, workspaceName, sidebar, unread, huddles, newRelea
       floating={<NewMessageButton onNewDirect={onNewDirect} />}
     >
       <ul aria-label="Shortcuts" className="flex shrink-0 gap-2.5 overflow-x-auto border-b px-4 py-3 [scrollbar-width:none]">
-        <Card Icon={Bell} title="Unreads" detail={unread > 0 ? `${unread} new` : "All caught up"} href={ACTIVITY_PATH} marked={unread > 0} />
-        <Card Icon={Headset} title="Huddles" detail={`${live.length} live`} href={live.length > 0 ? roomPath(live[0]!) : undefined} marked={live.length > 0} />
+        <Card Icon={MultiBubble} title="Threads" detail="Following" href={THREADS_PATH} />
+        <Card Icon={EditPencil} title="Drafts & sent" detail="Unsent" href={DRAFTS_PATH} />
+        <Card Icon={Group} title="People" detail={people === null ? "Directory" : `${people} ${people === 1 ? "person" : "people"}`} href={PEOPLE_PATH} />
+        <Card Icon={Star} title="Saved" detail="For later" href={SAVED_PATH} />
+        <Card Icon={CheckCircle} title="To-dos" detail="Your list" href={TODOS_PATH} />
+        {huddlesOn && (
+          <Card Icon={Headset} title="Huddles" detail={`${live.length} live`} href={live.length > 0 ? roomPath(live[0]!) : undefined} marked={live.length > 0} />
+        )}
       </ul>
       {/* The conversations keep their own scrolling, which moving a starred room scrolls as it's dragged,
           in the room left under the cards. */}
@@ -80,11 +88,11 @@ interface CardProps {
   /** Where it goes, or nowhere, when there's nothing there. */
   href?: string;
   /** Whether something's waiting there, which a dot marks. */
-  marked: boolean;
+  marked?: boolean;
 }
 
 /** One of Home's cards: an icon with a dot when something's waiting there, its name, and how much. */
-function Card({ Icon, title, detail, href, marked }: CardProps) {
+function Card({ Icon, title, detail, href, marked = false }: CardProps) {
   const contents = (
     <>
       <span className="relative w-fit">

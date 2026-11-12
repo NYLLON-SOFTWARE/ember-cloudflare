@@ -34,7 +34,7 @@ export function TabBar({ current, notices, roomId }: Props) {
       aria-label="Tabs"
       data-tab-bar
       data-typing={typing || undefined}
-      className="relative z-[3] col-start-1 row-[-2/-1] flex items-center gap-2 bg-background pt-1.5 data-typing:hidden [@media(height<43.75rem)]:pt-1 pr-[max(12px,env(safe-area-inset-right))] pb-[max(8px,env(safe-area-inset-bottom))] pl-[max(12px,env(safe-area-inset-left))] md:hidden"
+      className="relative z-[3] col-start-1 row-[-2/-1] flex items-center gap-2 bg-background pt-1.5 data-typing:hidden [@media(height<37.5rem)]:pt-1 pr-[max(12px,env(safe-area-inset-right))] pb-[max(8px,env(safe-area-inset-bottom))] pl-[max(12px,env(safe-area-inset-left))] md:hidden"
     >
       <div className="flex min-w-0 flex-1 items-center rounded-full border bg-surface p-1 shadow-[0_2px_12px_var(--color-drag-shadow)]">
         <TabLink tab="home" label="Home" current={current} notice={notices.home} icon={<NavigationIcon slot="home" size={22} className="size-[22px]" />} />
@@ -46,7 +46,7 @@ export function TabBar({ current, notices, roomId }: Props) {
         href={SEARCHES_PATH}
         aria-label="Search"
         onClick={opensSearch(openSearch, roomId === null ? {} : { roomId })}
-        className="grid size-14 shrink-0 place-items-center rounded-full border bg-surface shadow-[0_2px_12px_var(--color-drag-shadow)] [@media(height<43.75rem)]:size-12"
+        className="grid size-14 shrink-0 place-items-center rounded-full border bg-surface shadow-[0_2px_12px_var(--color-drag-shadow)] [@media(height<37.5rem)]:size-12"
       >
         <NavigationIcon slot="search" size={24} className="size-6" />
       </PageLink>
@@ -71,14 +71,14 @@ function TabLink({ tab, label, current, notice, icon }: TabLinkProps) {
       aria-description={notice}
       className={cn(
         "relative flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-full px-1 text-[11px] leading-[14px] font-medium text-muted-foreground",
-        "aria-[current=page]:bg-hover aria-[current=page]:text-foreground [@media(height<43.75rem)]:min-h-11",
+        "aria-[current=page]:bg-hover aria-[current=page]:text-foreground [@media(height<37.5rem)]:min-h-11",
       )}
     >
       <span className="relative">
         {icon}
         {notice && <span aria-hidden="true" className="absolute -top-0.5 -right-1.5 size-[9px] rounded-full border-2 border-surface bg-foreground" />}
       </span>
-      <span className="max-w-full truncate [@media(height<43.75rem)]:sr-only">{label}</span>
+      <span className="max-w-full truncate [@media(height<37.5rem)]:sr-only">{label}</span>
     </PageLink>
   );
 }

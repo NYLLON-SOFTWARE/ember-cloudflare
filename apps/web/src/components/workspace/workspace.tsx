@@ -32,7 +32,9 @@ import { DmsPage } from "../mobile/dms-page";
 import { FilesPage } from "../mobile/files-page";
 import { HomePage } from "../mobile/home-page";
 import { TabBar, type TabNotices } from "../mobile/tab-bar";
-import { tabAt, tabOf, type Tab } from "../mobile/tabs";
+import { KeyboardInset } from "../mobile/keyboard-inset";
+import { ShortcutPage } from "../mobile/shortcut-page";
+import { SHORTCUTS, tabAt, tabOf, type Tab } from "../mobile/tabs";
 import { addressShowing } from "./room-tabs";
 import type { RoomGone } from "./composer";
 import { ActivityPage } from "./activity-page";
@@ -758,12 +760,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       case "files":
         return <FilesPage me={me} />;
       default:
+        if (SHORTCUTS[path]) return <ShortcutPage title={SHORTCUTS[path]} />;
         return (
           <HomePage
             me={me}
             workspaceName={workspaceName}
             sidebar={sidebar}
-            unread={activity.unread}
             huddles={liveHuddles}
             newRelease={newRelease}
             onNewDirect={openNewDirect}
@@ -996,7 +998,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       <DrawerOpen value={drawerOpen}>
         <div
           className={cn(
-            "relative grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)_auto]",
+            // On a phone, it ends above the on-screen keyboard where that covers the page (`KeyboardInset`).
+            "relative grid h-dvh max-md:h-[calc(100dvh-var(--keyboard-inset,0px))] grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)_auto]",
             settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)_auto]",
             // The DMs page's list, which shows each DM's latest message, is wider, as Slack's is.
             !settings && directsShown && "md:[--spacing-sidebar:340px]",
@@ -1058,6 +1061,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
 
           {page()}
           {room && profilePane?.userId && <ProfilePanel key={profilePane.userId} userId={profilePane.userId} me={me} pane={profilePane} placement="column" />}
+          {phone && <KeyboardInset />}
           {phone && TAB_BAR_PAGES.has(route.page) && <TabBar current={tabOf(path, openedFromTab, isDirect)} notices={tabNotices} roomId={currentRoomId} />}
           <MovedNotice />
           {newDirect && (
