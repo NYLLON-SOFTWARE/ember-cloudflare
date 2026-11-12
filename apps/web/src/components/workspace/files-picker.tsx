@@ -8,7 +8,7 @@ import type { EmberFile } from "@/lib/uploads";
 import { roomName } from "@/lib/directs";
 import { cn } from "@/lib/utils";
 import { shareWidening, ShareWarning, type SharePlace } from "./share-warning";
-import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE } from "./unsaved-changes";
+import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE } from "./dialog-styles";
 import { fileSize } from "./upload-card";
 
 /** A file shared in a room, as the picker offers it. */

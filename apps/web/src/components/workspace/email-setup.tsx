@@ -18,7 +18,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, changeAccount, checkSendingDomain, forgetResendApiKey, isSignedOut, saveResendApiKey } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { sendsEmail, TestEmail } from "./email-settings";
-import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";
+import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./dialog-styles";
 
 // Set up email, for administrators: the steps to have Ember send email, one at a time, in a dialog that
 // Membership's Email card opens, as Invite by email does, and as turning on Email domain does before

@@ -10,7 +10,7 @@ import { closeMicrophone, listDevices, microphoneOf, NO_DEVICES, openMicrophone,
 import { inItNow } from "@/lib/huddle-people";
 import { cn } from "@/lib/utils";
 import { SELECT } from "./model-picker";
-import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";
+import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./dialog-styles";
 import { UserAvatar } from "./user-avatar";
 
 /** What the preview says while the browser asks whether Ember may use a microphone. */

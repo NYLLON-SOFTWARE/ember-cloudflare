@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, isSignedOut, saveTurnstileKeys } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";
+import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./dialog-styles";
 
 // Set up Turnstile, for administrators: the steps to give Ember a Cloudflare Turnstile widget's keys, in
 // a dialog that Membership's Turnstile card opens, as do the ways to join whose limits stand in for its

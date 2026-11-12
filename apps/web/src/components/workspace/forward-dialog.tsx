@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { returnFocus } from "./dialog-openers";
 import { ConversationsContext } from "./quote-cite";
 import { ShareWarning, shareWidening, type SharePlace } from "./share-warning";
-import { DIALOG_BACKDROP, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";
+import { DIALOG_BACKDROP, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./dialog-styles";
 import { UserAvatar } from "./user-avatar";
 
 // Forward message, as Slack's is: pick a conversation you're in, or a thread in one by pasting a link to a

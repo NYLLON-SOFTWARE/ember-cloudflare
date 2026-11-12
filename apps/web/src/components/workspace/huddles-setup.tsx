@@ -4,8 +4,8 @@ import { Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { Actions } from "./assistant-setup";
+import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE } from "./dialog-styles";
 import { HuddlesSteps, useHuddlesKeys } from "./huddles-steps";
-import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE } from "./unsaved-changes";
 
 // Set up huddles, for administrators: the dialog that the Huddles section's switch opens, around the two
 // steps that give Ember the keys of a Realtime SFU app (`HuddlesSteps`), which huddles run through, and

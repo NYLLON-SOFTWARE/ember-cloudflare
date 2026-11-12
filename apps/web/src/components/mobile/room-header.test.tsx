@@ -3,10 +3,11 @@ import type { RoomTab } from "@ember/protocol/library";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { PHONE_LAYOUT } from "@/hooks/use-phone-layout";
 import { PushContext } from "@/hooks/use-push";
 import { PUSH_ON } from "@/test-push";
+import { loadRarePages } from "../workspace/rare-pages";
 import { RoomTabsContext, type RoomTabsState } from "../workspace/room-tabs";
 import { MobileRoomHeader } from "./room-header";
 
@@ -25,6 +26,9 @@ beforeEach(() => {
     return Response.json({ room: backend, people: Array.from({ length: 9 }, (_, i) => ({ id: `u${i}`, name: `Person ${i}`, member: true })), canAdminister: false });
   });
 });
+
+// Room details load with the pages.
+beforeAll(() => loadRarePages(), 120_000);
 
 afterEach(() => {
   vi.restoreAllMocks();

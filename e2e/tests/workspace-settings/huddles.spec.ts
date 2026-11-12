@@ -221,7 +221,7 @@ test.describe("A huddle", () => {
     // Ada mutes from the bar, and unmutes with the keys, which the button she pressed doesn't take as a press.
     await adasBar.getByRole("button", { name: "Mute microphone" }).click();
     await expect(adasBar.getByRole("button", { name: "Unmute microphone" })).toBeFocused();
-    await page.keyboard.press("Control+Shift+Space");
+    await page.keyboard.press("ControlOrMeta+Shift+Space");
     await expect(adasBar.getByRole("button", { name: "Mute microphone" })).toBeVisible();
 
     // Grace leaves from her bar. The huddle goes on for Ada, who no longer hears her.
@@ -245,7 +245,7 @@ test.describe("A huddle", () => {
     await expect(grace.getByRole("button", { name: "Start huddle", exact: true })).toBeVisible();
     await expect(sidebarMark(grace, room)).toHaveCount(0);
     await expect(sidebarMark(page, room)).toHaveCount(0);
-    await page.keyboard.press("Control+Alt+Shift+H");
+    await page.keyboard.press("ControlOrMeta+Alt+Shift+H");
     await expect(starting).toBeVisible();
     await starting.getByRole("button", { name: "Cancel", exact: true }).last().click();
     await expect(starting).toBeHidden();

@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { hasTouchKeyboard } from "@/lib/keyboard";
 import { customTime, dateValue, latestSendTime, SCHEDULE_AHEAD_DAYS, timeValue } from "@/lib/schedule-times";
 import { cn } from "@/lib/utils";
-import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";
+import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./dialog-styles";
 import { SHEET } from "./schedule-send";
 
 // Custom time, for scheduling a message or moving one, which loads with the pages few visits need (pages.ts).
