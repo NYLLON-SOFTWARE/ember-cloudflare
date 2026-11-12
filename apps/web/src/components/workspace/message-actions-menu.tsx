@@ -500,12 +500,14 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             role="group"
             aria-label="More reactions"
             hidden={!trayOpen}
-            className={cn(PANEL, "flex w-max max-w-full flex-col justify-self-end overflow-hidden group-data-[panel-above]/menu:-order-1")}
+            className={cn(PANEL, "flex w-max max-w-full flex-col justify-self-end overflow-y-auto overscroll-contain group-data-[panel-above]/menu:-order-1")}
           >
             {/* The emoji picker, which loads with the pages few visits need, opens afresh each time. */}
             {trayOpen && (
               <RarePage
-                show={({ EmojiPicker }) => <EmojiPicker onPick={react} autoFocus={overlapping} className="min-h-0" />}
+                // It gives up height for the tray to fit, down to its search, categories and two rows of emoji,
+                // below which the tray scrolls, New boost and all.
+                show={({ EmojiPicker }) => <EmojiPicker onPick={react} autoFocus={overlapping} className="min-h-[12.5rem] touch:min-h-[15.5rem]" />}
                 loading={<div className="h-[22rem] w-[19rem] touch:w-[23rem]" />}
               />
             )}

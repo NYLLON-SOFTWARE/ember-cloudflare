@@ -29,6 +29,7 @@ export { EmojiPicker } from "@/components/emoji-picker";
 // Dialogs and panels few visits open, which load with the pages.
 export { ActivityPage } from "./activity-page";
 export { EmojiSheet } from "@/components/emoji-sheet";
+export { EmojiSheet } from "@/components/emoji-sheet";
 export { ForwardDialog } from "./forward-dialog";
 export { FilesPicker } from "./files-picker";
 export { ShareWarning } from "./share-warning";
