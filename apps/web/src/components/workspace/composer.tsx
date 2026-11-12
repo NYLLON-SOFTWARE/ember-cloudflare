@@ -441,6 +441,13 @@ export function Composer({
     text.focus();
   };
 
+  // Focus goes to the × of the file that takes the removed one's place, or the one before it, or the text.
+  const removePicked = (key: number, index: number) => {
+    flushSync(() => picked.remove(key));
+    const removes = form.current?.querySelectorAll<HTMLElement>('[aria-label="Files to send"] button') ?? [];
+    (removes[Math.min(index, removes.length - 1)] ?? editor.current)?.focus();
+  };
+
   // The toolbar shows for the Link field, though Aa had hidden it.
   const { onFormats, keyDown: formattingKeyDown, toolbar } = useFormatting(editor, { onShowToolbar: () => flushSync(() => setToolbarShown(true, false)) });
   const keyDown = (event: KeyboardEvent) => formattingKeyDown(event, submit);
@@ -468,7 +475,7 @@ export function Composer({
         {...dropTarget(picked.add)}
       >
         <TypingIndicator typists={typing} />
-        <ScheduledNotice messages={scheduledHere} scheduled={scheduled} disabled={disabled} />
+        <ScheduledNotice messages={scheduledHere} scheduled={scheduled} disabled={disabled} onReturnFocus={() => editor.current?.focus()} onEdit={(body) => editor.current?.replace(body)} />
         {scheduleRefusal && (
           <p role="alert" className="mb-1.5 text-[13px] text-negative">
             {scheduleRefusal}
@@ -513,8 +520,8 @@ export function Composer({
           {/* The files picked, under the text, as Slack's composer has them, and those too large to send. */}
           {picked.files.length > 0 && (
             <ul aria-label="Files to send" className="flex flex-wrap items-end gap-2.5 pt-2 pb-2.5">
-              {picked.files.map(({ key, file }) => (
-                <FileChip key={key} file={file} onRemove={() => picked.remove(key)} />
+              {picked.files.map(({ key, file }, index) => (
+                <FileChip key={key} file={file} onRemove={() => removePicked(key, index)} />
               ))}
             </ul>
           )}

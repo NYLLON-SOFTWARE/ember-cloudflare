@@ -21,9 +21,17 @@ describe("Share check", () => {
     const launch = await createRoom("launch", { closedTo: [ada.user.id, grace.user.id, linus.user.id, mary.user.id], as: ada });
     const lobby = await createRoom("lobby", { as: ada });
 
-    expect(await widening(ada, design.id, launch.id)).toEqual({ widens: true, newViewers: 2 });
+    expect(await widening(ada, design.id, launch.id)).toEqual({ widens: true, newViewers: 2, names: ["Linus", "Mary"] });
     // An open room takes in everyone active, who can't all see Design.
     expect(await widening(ada, design.id, lobby.id)).toMatchObject({ widens: true });
+  });
+
+  it("names three of those it would reach at most, by name", async () => {
+    const people = [await signIn("Ada"), await signIn("Zed"), await signIn("Bea"), await signIn("Cy"), await signIn("Dee")];
+    const ada = people[0]!;
+    const design = await createRoom("design", { closedTo: [ada.user.id], as: ada });
+    const launch = await createRoom("launch", { closedTo: people.map(({ user }) => user.id), as: ada });
+    expect(await widening(ada, design.id, launch.id)).toEqual({ widens: true, newViewers: 4, names: ["Bea", "Cy", "Dee"] });
   });
 
   it("doesn't warn when everyone in the room shared to can see the room it's from already", async () => {
@@ -33,20 +41,20 @@ describe("Share check", () => {
     const fewer = await createRoom("fewer", { closedTo: [ada.user.id, grace.user.id], as: ada });
     const lobby = await createRoom("lobby", { as: ada });
 
-    expect(await widening(ada, design.id, same.id)).toEqual({ widens: false, newViewers: 0 });
-    expect(await widening(ada, design.id, fewer.id)).toEqual({ widens: false, newViewers: 0 });
+    expect(await widening(ada, design.id, same.id)).toEqual({ widens: false, newViewers: 0, names: [] });
+    expect(await widening(ada, design.id, fewer.id)).toEqual({ widens: false, newViewers: 0, names: [] });
     // A room open to everyone is everyone's to see.
-    expect(await widening(ada, lobby.id, design.id)).toEqual({ widens: false, newViewers: 0 });
+    expect(await widening(ada, lobby.id, design.id)).toEqual({ widens: false, newViewers: 0, names: [] });
   });
 
   it("counts from a DM's two people, leaving out people who've left", async () => {
     const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
     const dm = await direct(ada, grace);
     const launch = await createRoom("launch", { closedTo: [ada.user.id, grace.user.id, linus.user.id], as: ada });
-    expect(await widening(grace, dm.id, launch.id)).toEqual({ widens: true, newViewers: 1 });
+    expect(await widening(grace, dm.id, launch.id)).toEqual({ widens: true, newViewers: 1, names: ["Linus"] });
 
     await workspaceSql("UPDATE users SET status = 1 WHERE id = ?", linus.user.id);
-    expect(await widening(grace, dm.id, launch.id)).toEqual({ widens: false, newViewers: 0 });
+    expect(await widening(grace, dm.id, launch.id)).toEqual({ widens: false, newViewers: 0, names: [] });
   });
 
   it("answers only someone in both rooms", async () => {

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { Message, Room, RoomId, StoredFile, UserId } from "@ember/protocol";
+import type { Message, Room, RoomId, ShareWidening, StoredFile, UserId } from "@ember/protocol";
 import { Lock, Page, Search, Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useNameOf } from "@/hooks/use-directory";
@@ -61,18 +61,18 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
   const [failed, setFailed] = useState(false);
   const [unchecked, setUnchecked] = useState(false);
   // A file that would reach people who can't see where it was shared, while the warning asks about it.
-  const [warning, setWarning] = useState<{ shared: SharedFile; newViewers: number } | null>(null);
+  const [warning, setWarning] = useState<{ shared: SharedFile; widening: ShareWidening } | null>(null);
   const picking = useRef<SharedFile | null>(null);
   // The file's button, which focus goes back to when the warning shares nothing.
   const picked = useRef<HTMLElement | null>(null);
   const fieldId = useId();
 
   const send = ({ roomId, file }: SharedFile) => onPick({ roomId, file });
-  // Asked again as Share is pressed, as who's in the room may have changed while the warning was open: a new
-  // count shows in the warning, to share on, and none at all, or the same, shares.
-  const share = async ({ shared, newViewers }: { shared: SharedFile; newViewers: number }) => {
+  // Asked again as Attach is pressed, as who's in the room may have changed while the warning was open: a new
+  // count shows in the warning, to attach on, and none at all, or the same, attaches.
+  const share = async ({ shared, widening }: { shared: SharedFile; widening: ShareWidening }) => {
     const now = await shareWidening(shared.roomId, roomId).catch(() => undefined);
-    if (now?.widens && now.newViewers !== newViewers) return setWarning({ shared, newViewers: now.newViewers });
+    if (now?.widens && now.newViewers !== widening.newViewers) return setWarning({ shared, widening: now });
     setWarning(null);
     send(shared);
   };
@@ -83,7 +83,7 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
     const widening = await shareWidening(shared.roomId, roomId).catch(() => undefined);
     if (picking.current !== shared) return;
     if (widening === undefined) return setUnchecked(true);
-    if (widening?.widens) setWarning({ shared, newViewers: widening.newViewers });
+    if (widening?.widens) setWarning({ shared, widening });
     else send(shared);
   };
 
@@ -114,7 +114,11 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
         showCloseButton={false}
         aria-describedby={undefined}
         overlayClassName={DIALOG_BACKDROP}
-        className={cn(DIALOG, "w-[520px]")}
+        // A sheet the height of the screen on phones, over which the warning comes up from the bottom.
+        className={cn(
+          DIALOG,
+          "w-[520px] max-md:inset-0 max-md:h-dvh max-md:max-h-none max-md:w-full max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-none max-md:pt-[max(24px,env(safe-area-inset-top))] max-md:sm:max-w-none",
+        )}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           onReturnFocus();
@@ -152,7 +156,7 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
             {query ? "No files match." : "No files have been shared yet."}
           </p>
         ) : (
-          <ul aria-label="Files" className="-mx-2 max-h-[50dvh] overflow-y-auto">
+          <ul aria-label="Files" className="-mx-2 max-h-[50dvh] overflow-y-auto max-md:max-h-[calc(100dvh-10rem)]">
             {files.map((shared) => (
               <li key={shared.file.id}>
                 <button
@@ -161,7 +165,10 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
                     picked.current = event.currentTarget;
                     void pick(shared);
                   }}
-                  className="flex w-full cursor-pointer items-center gap-3 rounded-[8px] px-2 py-2 text-start hover:bg-hover touch:min-h-11"
+                  className={cn(
+                    "flex w-full cursor-pointer items-center gap-3 rounded-[8px] px-2 py-2 text-start hover:bg-hover touch:min-h-11",
+                    warning?.shared === shared && "bg-hover",
+                  )}
                 >
                   {shared.file.previewUrl ? (
                     <img src={shared.file.previewUrl} alt="" className="size-9 shrink-0 rounded-[6px] border object-cover" />
@@ -198,9 +205,12 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
         )}
         {warning && (
           <ShareWarning
-            source={{ label: warning.shared.roomLabel, direct: warning.shared.direct }}
+            source={{ label: warning.shared.roomLabel, direct: warning.shared.direct, closed: warning.shared.closed }}
             target={room}
-            newViewers={warning.newViewers}
+            widening={warning.widening}
+            confirm="Attach"
+            // Over the picker, whose own backdrop is there already, so the file picked stays readable.
+            overlayClassName="bg-transparent"
             onCancel={() => setWarning(null)}
             onReturnFocus={() => picked.current?.focus()}
             onShare={() => void share(warning)}

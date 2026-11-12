@@ -1,7 +1,7 @@
 import { MAX_SCHEDULE_AHEAD_MS, type RoomId } from "@ember/protocol";
 import { runDurableObjectAlarm } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { MESSAGE_GONE } from "../src/chat-room";
+import { MESSAGE_GONE, SCHEDULED_AUTHOR_GONE, SCHEDULED_THREAD_GONE } from "../src/chat-room";
 import { connect, freshDeploy, freshRoom, post, roomSql, roomStub, settle, workspaceSql, type Socket } from "./support";
 
 // Slack's scheduled messages: kept by the room, listed only to their author, and posted as theirs by the
@@ -51,12 +51,12 @@ describe("Scheduled messages", () => {
     expect(await roomSql(room, "SELECT count(*) AS n FROM scheduled_messages WHERE room_id = ?", room)).toEqual([{ n: 0 }]);
   });
 
-  it("posts a scheduled reply in its thread, and drops one whose thread's message was deleted", async () => {
+  it("posts a scheduled reply in its thread, and keeps one whose thread's message was deleted, unsent, saying why", async () => {
     const room = await freshRoom("scheduled-replies");
     const ada = await connect(room, "Ada");
     const [parent, doomed] = [await post(ada, "<p>Plan</p>"), await post(ada, "<p>Old plan</p>")];
     await schedule(ada, "<p>Later</p>", undefined, { parentId: parent.id, alsoSend: true });
-    await schedule(ada, "<p>Never</p>", undefined, { parentId: doomed.id });
+    const [, never] = await schedule(ada, "<p>Never</p>", Date.now() + 2 * HOUR, { parentId: doomed.id });
     ada.send({ type: "message.delete", messageId: doomed.id });
     await ada.next("message.deleted");
 
@@ -64,9 +64,18 @@ describe("Scheduled messages", () => {
     const { message } = await ada.next("message.created");
     expect(message).toMatchObject({ parentId: parent.id, alsoSent: true, plainText: "Later" });
     expect((await ada.next("scheduled")).messages).toHaveLength(1);
-    expect((await ada.next("scheduled")).messages).toEqual([]);
+    // It's the room's now, as its thread is gone, where its author's composer shows it.
+    expect((await ada.next("scheduled")).messages).toEqual([{ id: never!.id, body: "<p>Never</p>", sendAt: expect.any(Number) as number, failed: SCHEDULED_THREAD_GONE }]);
     await settle(ada);
     expect(ada.pending("message.created")).toEqual([]);
+
+    // The alarm leaves it be, until its author sends it, to the room.
+    expect(await runDurableObjectAlarm(roomStub(room))).toBe(false);
+    ada.send({ type: "scheduled.send", id: never!.id });
+    const posted = (await ada.next("message.created")).message;
+    expect(posted).toMatchObject({ plainText: "Never" });
+    expect(posted).not.toHaveProperty("parentId");
+    expect((await ada.next("scheduled")).messages).toEqual([]);
   });
 
   it("moves, sends now and deletes a scheduled message for its author alone", async () => {
@@ -113,7 +122,7 @@ describe("Scheduled messages", () => {
     expect(await roomSql(room, "SELECT count(*) AS n FROM scheduled_messages WHERE room_id = ?", room)).toEqual([{ n: 0 }]);
   });
 
-  it("drops a scheduled message once its author is no longer in the room, or no longer active", async () => {
+  it("doesn't post a scheduled message once its author is no longer in the room, or no longer active, keeping it unsent", async () => {
     const room = await freshRoom("scheduled-access");
     const [ada, grace, lin] = [await connect(room, "Ada"), await connect(room, "Grace"), await connect(room, "Lin")];
     await schedule(ada, "<p>From Ada</p>");
@@ -124,6 +133,53 @@ describe("Scheduled messages", () => {
     await timeComes(room);
     await settle(lin);
     expect(lin.pending("message.created")).toEqual([]);
+    expect(await roomSql(room, "SELECT body, failed FROM scheduled_messages WHERE room_id = ? ORDER BY body", room)).toEqual([
+      { body: "<p>From Ada</p>", failed: SCHEDULED_AUTHOR_GONE },
+      { body: "<p>From Grace</p>", failed: SCHEDULED_AUTHOR_GONE },
+    ]);
+    // Nor is either tried again.
+    expect(await runDurableObjectAlarm(roomStub(room))).toBe(false);
+  });
+
+  it("sends one that couldn't be posted once its author can post again, and moving it tries it again", async () => {
+    const room = await freshRoom("scheduled-retry");
+    const [ada, grace] = [await connect(room, "Ada"), await connect(room, "Grace")];
+    const [first] = await schedule(ada, "<p>One</p>");
+    const [, second] = await schedule(ada, "<p>Two</p>", Date.now() + 2 * HOUR);
+    await roomSql(room, "UPDATE scheduled_messages SET failed = ? WHERE room_id = ?", SCHEDULED_AUTHOR_GONE, room);
+
+    ada.send({ type: "scheduled.send", id: first!.id });
+    expect((await grace.next("message.created")).message).toMatchObject({ plainText: "One", creator: { id: ada.me.id } });
+    expect((await ada.next("scheduled")).messages).toMatchObject([{ id: second!.id, failed: SCHEDULED_AUTHOR_GONE }]);
+
+    const later = Date.now() + 3 * HOUR;
+    ada.send({ type: "scheduled.update", id: second!.id, sendAt: later });
+    expect((await ada.next("scheduled")).messages).toEqual([{ id: second!.id, body: "<p>Two</p>", sendAt: later }]);
+    await timeComes(room);
+    expect((await grace.next("message.created")).message).toMatchObject({ plainText: "Two" });
+  });
+
+  it("keeps a message scheduled twice with the same client id once, answering what's scheduled", async () => {
+    const room = await freshRoom("scheduled-twice");
+    const ada = await connect(room, "Ada");
+    const frame = { type: "scheduled.create", clientMessageId: "twice", body: "<p>Once</p>", sendAt: Date.now() + HOUR } as const;
+    ada.send(frame);
+    const [kept] = (await ada.next("scheduled")).messages;
+    ada.send(frame);
+    expect((await ada.next("scheduled")).messages).toEqual([kept]);
+    // Even once it's posted, or its time has passed.
+    ada.send({ type: "scheduled.send", id: kept!.id });
+    await ada.next("message.created");
+    expect((await ada.next("scheduled")).messages).toEqual([]);
+    ada.send({ ...frame, sendAt: Date.now() - 1000 });
+    expect((await ada.next("scheduled")).messages).toEqual([]);
+    await settle(ada);
+    expect(ada.pending("error")).toEqual([]);
     expect(await roomSql(room, "SELECT count(*) AS n FROM scheduled_messages WHERE room_id = ?", room)).toEqual([{ n: 0 }]);
+
+    // The index keeps one however it's written.
+    await expect(
+      roomSql(room, "INSERT INTO scheduled_messages (id, room_id, author_id, client_message_id, body, send_at, created_at) VALUES ('x', ?, ?, 'c', 'b', 1, 'now'), ('y', ?, ?, 'c', 'b', 1, 'now')", room, ada.me.id, room, ada.me.id),
+    ).rejects.toThrow(/UNIQUE/);
   });
 });

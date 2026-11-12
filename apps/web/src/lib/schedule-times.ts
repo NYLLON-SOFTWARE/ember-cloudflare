@@ -1,3 +1,5 @@
+import { MAX_SCHEDULE_AHEAD_MS } from "@ember/protocol";
+
 // When a message can be scheduled for, as Slack's Schedule message menu offers it, and how its times read.
 
 /** A time the Schedule message menu offers, with what it says. */
@@ -37,25 +39,47 @@ export function schedulePresets(now: Date): SchedulePreset[] {
 /** A time of day as this browser writes it, such as 9:00 AM. */
 export const clock = (at: Date) => at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
-/** Whether `a` and `b` are on the same day. */
-const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+/** How many days `at`'s day is after `now`'s, counting a day that a clock change shortens or lengthens as one. */
+const daysAhead = (at: Date, now: Date) => Math.round((daysAfter(at, 0).getTime() - daysAfter(now, 0).getTime()) / (24 * 60 * 60 * 1000));
 
 /**
- * When a scheduled message goes, as its notice says it: today, tomorrow, or on its date, at its time,
- * with the year only when it's not this one.
+ * When a scheduled message goes, as the menu and the list say it: today, tomorrow, or its weekday within
+ * the week, as Monday at 9:00 AM, or else its date, with the year only when it's not this one, at its time.
  */
 export function sendTimeLabel(sendAt: number, now: Date): string {
   const at = new Date(sendAt);
-  if (sameDay(at, now)) return `Today at ${clock(at)}`;
-  if (sameDay(at, daysAfter(now, 1))) return `Tomorrow at ${clock(at)}`;
+  const days = daysAhead(at, now);
+  if (days === 0) return `Today at ${clock(at)}`;
+  if (days === 1) return `Tomorrow at ${clock(at)}`;
   const day = at.toLocaleDateString(undefined, {
     weekday: "long",
-    month: "long",
-    day: "numeric",
+    ...((days < 0 || days >= 7) && { month: "long", day: "numeric" }),
     ...(at.getFullYear() !== now.getFullYear() && { year: "numeric" }),
   });
   return `${day} at ${clock(at)}`;
 }
+
+/** `sendTimeLabel` within a sentence, as "1 scheduled message, tomorrow at 9:00 AM": only today and tomorrow aren't names. */
+export const sendTimeInSentence = (sendAt: number, now: Date) => sendTimeLabel(sendAt, now).replace(/^(Today|Tomorrow)\b/, (word) => word.toLowerCase());
+
+/** When a scheduled message goes, as a phone's notice says it, short enough to fit: Mon, Nov 16, 9:00 AM. */
+export function shortSendTime(sendAt: number, now: Date): string {
+  const at = new Date(sendAt);
+  return at.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    ...(at.getFullYear() !== now.getFullYear() && { year: "numeric" }),
+  });
+}
+
+/** How many days ahead a message can be scheduled, as the room allows. */
+export const SCHEDULE_AHEAD_DAYS = MAX_SCHEDULE_AHEAD_MS / (24 * 60 * 60 * 1000);
+
+/** The last moment a message can be scheduled for from `now`, as the room allows. */
+export const latestSendTime = (now: Date) => new Date(now.getTime() + MAX_SCHEDULE_AHEAD_MS);
 
 /** A date as a date field takes it: YYYY-MM-DD, in this browser's time zone. */
 export const dateValue = (at: Date) => `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
