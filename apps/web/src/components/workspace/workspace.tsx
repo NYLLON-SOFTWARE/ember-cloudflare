@@ -6,12 +6,10 @@ import { MainContent, SkipLink } from "@/components/main-content";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useAccount } from "@/hooks/use-account";
-import { useActivity } from "@/hooks/use-activity";
 import { useAppBadge } from "@/hooks/use-app-badge";
 import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
-import { useDraftCount } from "@/hooks/use-draft-count";
-import { useMediaQuery } from "@/hooks/use-media-query";
 import { useHuddle } from "@/hooks/use-huddle";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
 import { useSidebar } from "@/hooks/use-sidebar";
@@ -19,32 +17,30 @@ import { ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api
 import { hearHuddleEnd, leaveHuddle, muteHuddle } from "@/lib/huddle-store";
 import { whenIdle } from "@/lib/idle";
 import { opensFind, opensShortcuts, togglesHuddle, togglesMute } from "@/lib/keyboard";
-import { lastChannelVisited, lastRoomVisited, rememberLastChannel } from "@/lib/last-room";
+import { lastRoomVisited } from "@/lib/last-room";
 import { takeMemberfulFlash } from "@/lib/memberful";
 import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
-import { apart, markedUnread } from "@/lib/room-list";
+import { markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { addressShowing } from "./room-tabs";
-import { dmPath, messagePath, navigate, pageMark, returnTo, roomPath, routeOf, useHash, useQuery, useRoute, type Route } from "@/hooks/use-route";
-import type { RoomGone } from "./composer";
-import { ActivityPage } from "./activity-page";
+import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useHash, usePath, useRoute, type Route } from "@/hooks/use-route";
+import { ActivityPage } from "../mobile/activity-page";
+import { DmsPage } from "../mobile/dms-page";
+import { FilesPage } from "../mobile/files-page";
+import { HomePage } from "../mobile/home-page";
+import { TabBar, type TabNotices } from "../mobile/tab-bar";
+import { tabAt, tabOf, type Tab } from "../mobile/tabs";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
 import { NewDirectDialog } from "./new-direct-dialog";
-import { opensProfile, PROFILE_PARAM, ProfilePaneContext, ProfilePanel, type ProfilePane } from "./profile-pane";
-import { Notices } from "./notices";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
-import { RoomView, type RoomPanes, type RoomViewHandle } from "./room-view";
-import { RoomUnavailable } from "./room-unavailable";
+import { RoomView, type RoomViewHandle } from "./room-view";
 import { OpenSearchContext, SearchBox, type SearchBoxOptions } from "./search-box";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
-import { Sidebar, type SidebarPage } from "./sidebar";
-import { UpdatedNotice } from "./updated-notice";
+import { Sidebar } from "./sidebar";
 import { WelcomePage } from "./welcome-page";
-import { ConversationsContext } from "./quote-cite";
 
 type RarePages = typeof import("./pages");
 
@@ -76,20 +72,10 @@ const RARE_PAGES = new Set<Route["page"]>([
   "bot-settings",
   "new-agent",
   "agent-settings",
-  "new-app",
-  "app-settings",
-  "app-signed-in",
   "profile",
   "push-subscriptions",
   "person",
   "search",
-  "dms",
-  "people",
-  "drafts",
-  "threads",
-  "files",
-  "todos",
-  "saved",
 ]);
 
 /**
@@ -102,11 +88,10 @@ export function loadPageAhead(pathname: string): Promise<unknown> {
 
 /**
  * What the rail marks on each page: the logo and Home at home, Home on a room's page and the pages that
- * go on to one, and on the Home sidebar's pages, DMs on the DMs page and a DM's settings, as on a DM's
- * own page, Search on search, Admin or Workspace on every page of community settings (a room's forms,
- * the bot and agent pages and the Custom CSS page among them), your avatar on your profile, and nothing
- * on your push subscriptions, whose address none of its links have, nor on New direct message's, which
- * goes on to the last room visited at once.
+ * go on to one, Search on search, Admin or Workspace on every page of community settings (a room's
+ * forms, the bot and agent pages and the Custom CSS page among them), your avatar on your profile, and nothing on
+ * a DM's settings or your push subscriptions, whose addresses none of its links have, nor on New direct
+ * message's, which goes on to the last room visited at once.
  */
 const RAIL_PAGES = {
   home: "home",
@@ -117,7 +102,7 @@ const RAIL_PAGES = {
   "new-room": "workspace",
   "room-settings": "workspace",
   "new-direct": null,
-  "direct-settings": "dms",
+  "direct-settings": null,
   "workspace-settings": "workspace",
   "custom-styles": "workspace",
   bots: "workspace",
@@ -125,25 +110,17 @@ const RAIL_PAGES = {
   "bot-settings": "workspace",
   "new-agent": "workspace",
   "agent-settings": "workspace",
-  "new-app": "workspace",
-  "app-settings": "workspace",
-  "app-signed-in": "workspace",
   profile: "profile",
   "push-subscriptions": null,
   person: null,
   search: "search",
-  dms: "dms",
-  people: "home",
-  drafts: "home",
-  threads: "home",
-  files: "files",
-  activity: "activity",
-  todos: "todos",
-  saved: "home",
 } as const satisfies Record<Route["page"], RailPage>;
 
-/** The Home sidebar's link each of its pages marks. */
-const SIDEBAR_PAGES: Partial<Record<Route["page"], SidebarPage>> = { people: "people", drafts: "drafts", threads: "threads", saved: "saved" };
+/**
+ * The pages a phone shows the tab bar on, as Slack's does: the tabs' own, conversations, threads, people
+ * and search. Settings and forms, which have Go Back of their own, take the whole screen.
+ */
+const TAB_BAR_PAGES = new Set<Route["page"]>(["home", "newest-room", "room", "message", "room-of-kind", "person", "search"]);
 
 /** Loads the page shown again, for the Worker to answer it with Campfire's 404 page, as it does for someone nobody is. */
 const showNotFound = () => loadPage(location.pathname);
@@ -212,7 +189,6 @@ const reasonFor = (error: unknown) => (error instanceof ApiError ? error.message
  */
 function namedRoomId(route: Route): RoomId | null {
   if (route.page === "room-of-kind") return route.kind !== "direct" ? route.roomId : null;
-  if (route.page === "dms") return route.roomId ?? null;
   return route.page === "room" || route.page === "room-settings" || route.page === "direct-settings" ? route.roomId : null;
 }
 
@@ -224,15 +200,16 @@ function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
 
 /**
  * Where an address goes on to once someone's rooms are known, or null when it shows a page of its own:
- * home to the last room visited, `/rooms` to the room they were put in latest, a room's address for its
- * kind to the room's own, and a DM's settings home, unless it's theirs. New direct message's goes home
- * too, under the dialog it opens, and a message's own address goes on to its permalink.
+ * home to the last room visited, but on a phone, where home is the Home tab's list, `/rooms` to the
+ * newest room, a room's address for its kind to the room's own, and a DM's settings home, unless it's
+ * theirs. New direct message's goes home too, under the dialog it opens, and a message's own address goes
+ * on to its permalink.
  */
-function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
+function redirectOf(route: Route, rooms: SidebarRoom[], phone: boolean): Redirect | null {
   switch (route.page) {
     case "home": {
-      // Home lists no DMs, so it goes on to the last room visited that isn't one.
-      const room = lastChannelVisited(rooms);
+      if (phone) return null;
+      const room = lastRoomVisited(rooms);
       return room && { path: roomPath(room.id) };
     }
     case "newest-room":
@@ -241,19 +218,11 @@ function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
     case "room-of-kind": {
       // A direct message's goes on without looking, and the room's own address checks it.
       if (route.kind === "direct") return { path: roomPath(route.roomId) };
-      // A room this person can't see says so at its own address.
       const room = rooms.find((r) => r.id === route.roomId);
-      return room?.kind === "direct" ? ROOM_NOT_FOUND : { path: roomPath(route.roomId) };
+      return room && room.kind !== "direct" ? { path: roomPath(room.id) } : ROOM_NOT_FOUND;
     }
     case "room":
-      // A room this person can't see says so in its place.
-      return null;
-    // A DM beside the DMs page's list: a room that isn't a DM goes on to its own address.
-    case "dms": {
-      if (route.roomId === undefined) return null;
-      const room = rooms.find((r) => r.id === route.roomId);
-      return !room ? ROOM_NOT_FOUND : room.kind === "direct" ? null : { path: roomPath(room.id) };
-    }
+      return rooms.some((r) => r.id === route.roomId) ? null : ROOM_NOT_FOUND;
     case "message":
       // Without looking, as the permalink checks the room.
       return { path: route.messageId ? messagePath(route.roomId, route.messageId) : roomPath(route.roomId) };
@@ -268,7 +237,8 @@ function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
 
 /**
  * The drawer layout: `max-md`, 900px wide and below, where the rail and sidebar move into a drawer
- * opened from the header, or on a page of community settings, the rail alone.
+ * opened from the header, or on a page of community settings, the rail alone. Phones, which take the
+ * same width, have the tab bar instead (`PHONE_LAYOUT`), so the drawer never opens there.
  */
 const DRAWER_LAYOUT = "(width < 56.3125rem)";
 
@@ -311,19 +281,25 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
-  // Activity, which the workspace socket keeps current on every page, for the rail's count and its page.
-  const activityFailed = useRef<(error: unknown) => void>(() => {});
-  const activityFeed = useActivity(useCallback((error: unknown) => activityFailed.current(error), []));
-  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, activityFeed.heard);
+  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
   const [newDirect, setNewDirect] = useState<{ opener: HTMLElement | null } | null>(null);
+  // Activity's filter, which lives as long as the page: other pages keep it on, and loading the page
+  // again starts with it off.
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
   const drawerRail = useRef<HTMLDivElement>(null);
   const roomView = useRef<RoomViewHandle>(null);
   const route = useRoute();
   const hash = useHash();
+  const phone = usePhoneLayout();
+  // On a phone, the tab whose page is shown, or the one the page shown was opened from.
+  const path = usePath();
+  const ownTab = phone ? tabAt(path) : null;
+  const [openedFromTab, setOpenedFromTab] = useState<Tab | null>(null);
+  if (ownTab && ownTab !== openedFromTab) setOpenedFromTab(ownTab);
   // On a page of community settings, the links to their sections take the conversations' place.
   const section = settingsSectionOf(route, hash);
   const administrator = me.administrator;
@@ -334,8 +310,6 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const favorites = list?.favorites ?? NO_FAVORITES;
   const sharedOrder = list?.sharedOrder ?? NO_ORDER;
   const starred = useMemo(() => new Set(favorites.rooms), [favorites]);
-  // What a quote's cite names conversations by, and Forward message lists.
-  const conversations = useMemo(() => ({ rooms: rooms ?? NO_ROOMS, meId: me.id }), [rooms, me.id]);
   // Not anyone the directory has heard is removed or banned since the list loaded.
   const listedSuggestions = list?.suggestions ?? NO_PEOPLE;
   const suggestions = useMemo(
@@ -352,8 +326,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     return () => drawerLayout.removeEventListener("change", close);
   }, []);
 
-  // Another page starts with the drawer closed.
-  useEffect(() => setDrawerOpen(false), [route]);
+  // Another page starts with the drawer closed, but the one Activity goes to from the drawer on a page
+  // of community settings, which keeps it open on the conversations it filters.
+  const keepDrawer = useRef(false);
+  useEffect(() => {
+    if (!keepDrawer.current) setDrawerOpen(false);
+  }, [route]);
 
   // The pages few visits need load once the rooms have, while the browser is idle, so that going to one
   // doesn't wait for them. If they fail to, the first page that needs them tries again.
@@ -417,9 +395,6 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     },
     [flash, onSessionChanged, mounted],
   );
-  useLayoutEffect(() => {
-    activityFailed.current = failed;
-  }, [failed]);
   const redirect = useCallback(
     ({ path, alert }: Redirect) => {
       navigate(path, { replace: true });
@@ -463,18 +438,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // A room found gone while it's shown stays on screen to say so until another page shows, whether its
   // own socket finds it gone or the workspace socket, which can hear first, says so. A DM's settings
   // stay too, which go home once their own deletion answers, as the workspace socket can tell of it first.
-  const [gone, setGone] = useState<{ room: Room; route: Route; why: RoomGone } | null>(null);
-  const roomGone = (room: Room, why: RoomGone) => {
-    setGone({ room, route, why });
+  const [gone, setGone] = useState<{ room: Room; route: Route } | null>(null);
+  const roomGone = (room: Room) => {
+    setGone({ room, route });
     unlistRoom(room.id);
   };
-  const goneHere = gone?.route === route ? gone : null;
-  const goneRoom = goneHere?.room ?? null;
-  // A room that's gone has no tabs, so its address names none.
-  const tabAddressed = new URLSearchParams(useQuery()).has("tab");
-  useEffect(() => {
-    if (goneHere && tabAddressed) navigate(addressShowing("messages"), { replace: true });
-  }, [goneHere, tabAddressed]);
+  const goneRoom = gone?.route === route ? gone.room : null;
   // A room shown as gone that's listed again, as when someone is put back in it, shows as it is on a page
   // started afresh, since its own socket may have stopped. `returns` counts the rooms that came back so.
   const [returns, setReturns] = useState(0);
@@ -520,17 +489,19 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
 
   // Where the address goes on to, once the list it goes by has come.
   const goingOn = useMemo(
-    () => (rooms && !askingAgain && !goneRoom && !unansweredHere ? redirectOf(route, rooms) : null),
-    [rooms, askingAgain, goneRoom, unansweredHere, route],
+    () => (rooms && !askingAgain && !goneRoom && !unansweredHere ? redirectOf(route, rooms, phone) : null),
+    [rooms, askingAgain, goneRoom, unansweredHere, route, phone],
   );
   // Before the page paints, so a page that only goes on to another doesn't show.
   useLayoutEffect(() => {
     if (goingOn) redirect(goingOn);
   }, [goingOn, redirect]);
+  // The page Activity keeps the drawer open for is the one home goes on to, if it goes on.
+  useEffect(() => {
+    if (!goingOn) keepDrawer.current = false;
+  }, [route, goingOn]);
 
-  // The room the page shows: a room's page's, or the DM open beside the DMs page's list.
-  const shownRoomId = route.page === "room" ? route.roomId : route.page === "dms" ? (route.roomId ?? null) : null;
-  const room = shownRoomId === null || goingOn ? null : (goneRoom ?? rooms?.find((r) => r.id === shownRoomId) ?? null);
+  const room = route.page !== "room" || goingOn ? null : (goneRoom ?? rooms?.find((r) => r.id === route.roomId) ?? null);
   // When the room shown was marked unread as of as it opened, for its timeline's New line, kept while it
   // stays open, though opening it reads it. Coming back to it with nothing new draws none.
   const [opened, setOpened] = useState<{ roomId: RoomId | null; newSince: string | null }>({ roomId: null, newSince: null });
@@ -541,19 +512,17 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const direct = route.page !== "direct-settings" || goingOn || !rooms ? null : directIn(goneRoom ? [goneRoom] : rooms, route.roomId);
   // The workspace socket's news that a room is gone takes it out of the list, and the room or the DM's
   // settings shown stay. Declared as a function, so that `useSidebar` above can take it.
-  function shownRoomGone(roomId: RoomId, lostAccess: boolean) {
+  function shownRoomGone(roomId: RoomId) {
     const shown = room ?? direct;
-    if (shown?.id === roomId) setGone({ room: shown, route, why: lostAccess ? "lost access" : "deleted" });
+    if (shown?.id === roomId) setGone({ room: shown, route });
   }
   // Go Back on the settings pages returns to the last room visited, or home when there's none.
   const lastRoom = rooms && lastRoomVisited(rooms);
   const back = lastRoom ? roomPath(lastRoom.id) : "/";
   const select = (roomId: string) => navigate(roomPath(roomId));
-  // The DMs page's list opens a DM beside it, at its address there.
-  const selectDirect = (roomId: string) => navigate(dmPath(roomId));
   // A suggestion, or the button on someone's page, starts the DM with its person, or opens the one they
-  // have, and goes there, listing it as the server answers: to its own address, or the DMs page's.
-  const startDirectWith = async (person: User, pathOf: (roomId: RoomId) => string = roomPath) => {
+  // have, and goes there, listing it as the server answers.
+  const startDirectWith = async (person: User) => {
     const answered = askForRoom();
     const mark = pageMark();
     try {
@@ -561,7 +530,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       answered({ type: "saved", room });
       // A page the person has gone to meanwhile stays.
       if (!mounted.current || pageMark() !== mark) return false;
-      navigate(pathOf(room.id));
+      navigate(roomPath(room.id));
       return true;
     } catch (error) {
       failed(error);
@@ -577,23 +546,29 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     const link = (event.target as Element).closest("a[href]");
     if (link instanceof HTMLAnchorElement && link.pathname === location.pathname) setDrawerOpen(false);
   };
+  // Following a link in the rail or the sidebar turns Activity off once the app goes there, so keeping
+  // unsaved changes, which holds it here, keeps Activity on. One the browser opens somewhere else leaves
+  // this page as it was, as it leaves the drawer.
+  const showAllForLink = (event: MouseEvent) => {
+    if (event.defaultPrevented && (event.target as Element).closest("a[href]")) afterNavigating(() => setUnreadOnly(false));
+  };
   const currentRoomId = room?.id ?? null;
-  const unreadConversations = (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length;
-
-  // Someone's profile, open beside the room or Activity's conversation, as the address's `profile` says,
-  // so a reload keeps it and Back closes it. Another profile takes its place in the history, and closing
-  // it goes back, as Back would, to the page it opened on.
-  const query = useQuery();
-  const profileId = new URLSearchParams(query).get(PROFILE_PARAM);
-  const profilePane: ProfilePane | null =
-    route.page === "room" || route.page === "activity"
-      ? {
-          userId: profileId || null,
-          open: (userId) => navigate(`${location.pathname}?${new URLSearchParams({ [PROFILE_PARAM]: userId })}`, { replace: profileId !== null }),
-          close: () => returnTo(location.pathname),
-          startDirect: startDirectWith,
-        }
-      : null;
+  const activity = {
+    on: unreadOnly,
+    unread: (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length,
+    onToggle: () => {
+      // A page of community settings has no conversations to show, so Activity goes home to them, once
+      // unsaved changes let it. Pressed in the drawer, it keeps the drawer open, as it is when
+      // Activity's pressed on any other page.
+      if (!settings) return setUnreadOnly((on) => !on);
+      const inDrawer = drawerOpen;
+      navigate("/");
+      afterNavigating(() => {
+        setUnreadOnly((on) => !on);
+        keepDrawer.current = inDrawer;
+      });
+    },
+  };
   // Cmd+F or Ctrl+F opens the search box, as it opens Slack's: in the room shown, or with the search the
   // results page shows, or for everything. In a dialog, the search box among them, the key is the browser's.
   const findPressed = useEffectEvent((event: KeyboardEvent) => {
@@ -651,84 +626,61 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     if (huddleLinked) followHuddleLink(huddleLinked);
   }, [huddleLinked]);
 
-  // The app's badge counts the unread conversations, as badge_dot_controller.js counts the sidebar's unread
-  // rows, once the server's list has come: the empty one a failed first load leaves knows nothing of
-  // what's unread. The rail's Activity counts Activity's unread items.
-  useAppBadge(answered ? unreadConversations : null);
-  // A DM, and its settings, show beside the DMs page's list, as the DMs page does, and the rail marks DMs
-  // for them; any other page shows beside Home's, which goes back to the last room it showed.
-  const directsShown = route.page === "dms" || route.page === "direct-settings" || room?.kind === "direct";
-  const channelShown = room && room.kind !== "direct" ? room.id : null;
-  useEffect(() => {
-    if (channelShown !== null) rememberLastChannel(channelShown);
-  }, [channelShown]);
-  // How many DMs there are, but the hidden ones, how many are unread, and how many unread messages they
-  // have, as far as each counts them, or one for a DM marked unread without a count, which DMs on the rail
-  // counts, as Slack's does.
-  const directCounts = useMemo(() => {
-    if (rooms === null) return null;
-    const unread = apart(rooms).directs.filter((r) => markedUnread(r, currentRoomId));
-    return { conversations: apart(rooms).directs.length, unread: unread.length, messages: unread.reduce((sum, r) => sum + (r.unreadCount ?? 1), 0) };
-  }, [rooms, currentRoomId]);
-  const draftCount = useDraftCount(me.id);
-  // In the drawer layout the DMs page shows its list in the page itself, so the sidebar, hidden there,
-  // doesn't draw it a second time.
-  const directsInPage = useMediaQuery(DRAWER_LAYOUT) && route.page === "dms" && route.roomId === undefined;
+  // The app's badge counts what Activity does, as badge_dot_controller.js counts the sidebar's unread rows,
+  // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
+  useAppBadge(answered ? activity.unread : null);
   const rail = (
-    <Rail
-      me={me}
-      workspaceName={workspaceName}
-      current={room?.kind === "direct" ? "dms" : RAIL_PAGES[route.page]}
-      activity={{ unread: activityFeed.feed.unread }}
-      directsUnread={directCounts?.messages ?? 0}
-      newRelease={newRelease}
-    />
+    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} newRelease={newRelease} onNewDirect={openNewDirect} />
   );
-  // The DMs page's list loads with the pages few visits need, which load once the rooms have, while the
-  // browser is idle, so it's there by the time DMs is followed; until then its column is blank.
-  const directsPane = (
-    <RarePage
-      show={({ DirectsColumn }) => (
-        <DirectsColumn
-          meId={me.id}
-          rooms={rooms ?? NO_ROOMS}
-          loaded={rooms !== null}
-          onSignedOut={() => onSessionChanged(null)}
-          suggestions={suggestions}
-          currentRoomId={currentRoomId}
-          unreadOnly={false}
-          onSelect={selectDirect}
-          onNewDirect={openNewDirect}
-          onStartDirect={(person) => startDirectWith(person, dmPath)}
-        />
-      )}
-      loading={<div className="h-full bg-surface" />}
-      onFailed={failed}
-    />
-  );
-  const sidebar = directsShown ? (
-    directsPane
-  ) : (
+  const sidebar = (
     <Sidebar
       workspaceName={workspaceName}
       meId={me.id}
       rooms={rooms ?? NO_ROOMS}
       loaded={rooms !== null}
+      suggestions={suggestions}
       favorites={favorites}
       sharedOrder={sharedOrder}
-      huddles={huddlesOn ? liveHuddles : NO_HUDDLES}
       currentRoomId={currentRoomId}
-      currentPage={SIDEBAR_PAGES[route.page] ?? null}
-      draftCount={draftCount}
-      unreadOnly={false}
+      unreadOnly={unreadOnly}
       onSelect={select}
+      onNewDirect={openNewDirect}
+      onStartDirect={startDirectWith}
       onStarred={starredRooms}
       onSessionChanged={onSessionChanged}
     />
   );
-  // The Files page has its own column in the sidebar's place, as Slack's has.
-  const filesNav =
-    route.page === "files" ? <RarePage show={({ FilesNav }) => <FilesNav me={me} place={route.place} />} loading={null} onFailed={failed} /> : null;
+
+  // On a phone, the tabs' pages, and what's waiting on each, which the tab bar marks.
+  const tabPage = (rooms: SidebarRoom[]) => {
+    switch (ownTab) {
+      case "dms":
+        return <DmsPage me={me} rooms={rooms} loaded onNewDirect={openNewDirect} />;
+      case "activity":
+        return <ActivityPage me={me} rooms={rooms} loaded />;
+      case "files":
+        return <FilesPage me={me} />;
+      default:
+        return (
+          <HomePage
+            me={me}
+            workspaceName={workspaceName}
+            sidebar={sidebar}
+            unread={activity.unread}
+            huddles={liveHuddles}
+            newRelease={newRelease}
+            onNewDirect={openNewDirect}
+          />
+        );
+    }
+  };
+  const unreadRooms = (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId));
+  const tabNotices: TabNotices = {
+    home: unreadRooms.some((r) => r.kind !== "direct") ? "Unread rooms" : undefined,
+    dms: unreadRooms.some((r) => r.kind === "direct") ? "Unread DMs" : undefined,
+    activity: activity.unread > 0 ? `${activity.unread} unread` : undefined,
+  };
+  const isDirect = (roomId: string) => rooms?.find((r) => r.id === roomId)?.kind === "direct";
 
   /**
    * One of the pages few visits need, as `show` makes it once they've loaded. Keyed by the page, so that going on
@@ -737,35 +689,6 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const rarePage = (show: (pages: RarePages) => ReactNode) => (
     <RarePage key={route.page} show={show} loading={settings ? SETTINGS_LOADING : LOADING} onFailed={failed} />
   );
-  /**
-   * The room `place` names, in a pane of a page that opens conversations beside its list, as Activity and
-   * Saved do, its thread put in another by `panes`; `key` tells one opening from another.
-   */
-  const roomPane = (rooms: SidebarRoom[], place: { roomId: RoomId; messageId?: string; threadId?: string; replyId?: string }, key: string, panes: RoomPanes) => {
-    const shown = rooms.find((r) => r.id === place.roomId);
-    return (
-      shown && (
-        <RoomView
-          key={`${shown.id}/${key}`}
-          room={shown}
-          messageId={place.messageId}
-          threadId={place.threadId}
-          replyId={place.replyId}
-          invitation={invitation?.roomId === shown.id ? invitation : null}
-          onDismissInvitation={dismissCard}
-          me={me}
-          favorite={starred.has(shown.id)}
-          onStarred={starredRooms}
-          involvement={shown.involvement}
-          askForRoom={askForRoom}
-          onSessionChanged={onSessionChanged}
-          onFailed={failed}
-          onGone={(gone) => unlistRoom(gone.id)}
-          panes={panes}
-        />
-      )
-    );
-  };
   const page = () => {
     switch (route.page) {
       case "new-room":
@@ -819,49 +742,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ AgentSettingsPage }) => (
           <AgentSettingsPage key={route.agentId} agentId={route.agentId} me={me} rooms={rooms} onMissing={showNotFound} onFailed={failed} />
         ));
-      case "new-app":
-        return rarePage(({ NewAppPage }) => <NewAppPage me={me} onFailed={failed} />);
-      case "app-settings":
-        return rarePage(({ AppSettingsPage }) => <AppSettingsPage key={route.appId} appId={route.appId} me={me} onMissing={showNotFound} onFailed={failed} />);
-      case "app-signed-in":
-        return rarePage(({ AppSignedInPage }) => <AppSignedInPage me={me} onFailed={failed} />);
       case "profile":
         return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />);
       case "push-subscriptions":
         return rarePage(({ PushSubscriptionsPage }) => <PushSubscriptionsPage back={back} onFailed={failed} />);
-      case "files":
-        return rarePage(({ FilesPage }) => <FilesPage me={me} place={route.place} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
       case "search":
         return rarePage(({ SearchPage }) => <SearchPage me={me} rooms={rooms ?? NO_ROOMS} back={back} onFailed={failed} />);
-      case "people":
-        return rarePage(({ PeoplePage }) => <PeoplePage />);
-      case "drafts":
-        return rarePage(({ DraftsPage }) => <DraftsPage key={route.tab} me={me} tab={route.tab} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
-      case "threads":
-        return rarePage(({ ThreadsPage }) => <ThreadsPage me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
-      case "activity":
-        if (!rooms) return LOADING;
-        return (
-          <ActivityPage
-            me={me}
-            place={route.roomId === undefined ? null : { roomId: route.roomId, messageId: route.messageId, threadId: route.threadId, replyId: route.replyId }}
-            rooms={rooms}
-            activity={activityFeed}
-            renderRoom={(place, panes) => roomPane(rooms, place, "activity", panes)}
-          />
-        );
-      case "todos":
-        return rarePage(({ TodosPage }) => <TodosPage itemId={route.itemId} me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
-      case "saved":
-        return rarePage(({ SavedPage }) => (
-          <SavedPage
-            itemId={route.itemId}
-            me={me}
-            rooms={rooms ?? NO_ROOMS}
-            onFailed={failed}
-            renderRoom={(place, panes) => roomPane(rooms ?? NO_ROOMS, place, `saved/${route.itemId}`, panes)}
-          />
-        ));
       case "person":
         return rarePage(({ PersonPage }) => (
           <PersonPage
@@ -875,17 +761,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             onFailed={failed}
           />
         ));
-      // The DMs page, with a DM picked there shown as a room's page shows it.
-      case "dms":
       default:
-        if (route.page === "dms" && route.roomId === undefined) return rarePage(({ DirectsHome }) => <DirectsHome list={directsPane} counts={directCounts} onNewDirect={openNewDirect} />);
         if (direct)
           return rarePage(({ DirectSettingsPage }) => (
             <DirectSettingsPage key={direct.id} room={direct} me={me} back={back} askForRoom={askForRoom} onMissing={missing} onFailed={failed} />
           ));
-        // A room that's gone, or an address naming one this person can't see, says so in the room's place.
-        if (route.page === "room" && goneHere) return <RoomUnavailable room={goneHere.room} gone={goneHere.why} goTo={lastRoom} me={me} />;
-        if (route.page === "room" && !room && rooms && !askingAgain && !unansweredHere) return <RoomUnavailable room={null} gone="lost access" goTo={lastRoom} me={me} />;
         if (room)
           return (
             <RoomView
@@ -899,6 +779,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               onDismissInvitation={dismissCard}
               me={me}
               favorite={starred.has(room.id)}
+              gone={goneRoom !== null}
               onStarred={starredRooms}
               // As the list has it, or as it starts once the room has gone from the list.
               involvement={rooms?.find((r) => r.id === room.id)?.involvement ?? startingInvolvement(room)}
@@ -909,7 +790,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               onGone={roomGone}
             />
           );
-        if (route.page === "home" && rooms && !goingOn) return <WelcomePage me={me} />;
+        // On a phone, the tabs' pages, but Home for someone in no rooms yet, which has nothing to list.
+        if (route.page === "home" && rooms && !goingOn) return phone && (ownTab !== "home" || rooms.length > 0) ? tabPage(rooms) : <WelcomePage me={me} />;
         // Why the room can't show, kept where it would show rather than in an alert that fades, as a
         // browser's own page says when a server can't be reached. The header keeps the way to the other
         // rooms on a phone.
@@ -948,24 +830,18 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       <DrawerOpen value={drawerOpen}>
         <div
           className={cn(
-            "relative grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]",
-            settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",
-            // The DMs page's list, which shows each DM's latest message, is wider, as Slack's is.
-            !settings && directsShown && "md:[--spacing-sidebar:340px]",
-            // A thread or a profile open beside its room, from 1180px wide, which takes 420px of the room's
-            // width until it's resized; a profile covers the thread, which keeps its place for when it closes.
-            "min-[1180px]:has-[>[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_var(--side-width,420px)]",
-            "[&:has(>[data-profile])>[data-thread]:not([data-profile])]:hidden",
+            "relative grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)_auto]",
+            settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)_auto]",
+            // A thread open beside its room, from 1180px wide, which takes 420px of the room's width.
+            "min-[1180px]:has-[>[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
           )}
-          onClickCapture={(event) => opensProfile(profilePane, event)}
         >
           <SkipLink />
-          <div className="contents max-md:hidden [&>*]:row-span-2">
+          <div className="contents max-md:hidden [&>*]:row-span-2" onClick={showAllForLink}>
             {rail}
-            {/* Activity's feed and To-dos' list take the conversations' place. */}
-            {!settings && route.page !== "activity" && route.page !== "todos" && (
+            {!settings && (
               <aside aria-label="Conversations" className="min-h-0 overflow-hidden border-r">
-                {filesNav ?? (!directsInPage && sidebar)}
+                {sidebar}
               </aside>
             )}
           </div>
@@ -984,7 +860,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               const focused = document.activeElement;
               if (focused && focused !== document.body) event.preventDefault();
             }}
-            onClick={closeForLinkHere}
+            onClick={(event) => {
+              closeForLinkHere(event);
+              showAllForLink(event);
+            }}
             className="flex w-auto max-w-[calc(100dvw-16px)] flex-row gap-0 border-0 bg-surface p-0 shadow-none sm:max-w-[calc(100dvw-16px)] md:hidden"
           >
             <SheetTitle className="sr-only">{settings ? "Navigation" : "Conversations"}</SheetTitle>
@@ -1003,17 +882,14 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
                 >
                   <Xmark className="size-5" />
                 </SheetClose>
-                {filesNav ?? sidebar}
+                {sidebar}
               </aside>
             )}
           </SheetContent>
 
           {page()}
-          {room && profilePane?.userId && <ProfilePanel key={profilePane.userId} userId={profilePane.userId} me={me} pane={profilePane} placement="column" />}
-          <Notices>
-            <MovedNotice />
-            <UpdatedNotice />
-          </Notices>
+          {phone && TAB_BAR_PAGES.has(route.page) && <TabBar current={tabOf(path, openedFromTab, isDirect)} notices={tabNotices} roomId={currentRoomId} />}
+          <MovedNotice />
           {newDirect && (
             <NewDirectDialog
               opener={newDirect.opener}
@@ -1054,11 +930,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       <DirectoryLoaded value={directory.loaded}>
         <SettingsLayout value={settings}>
           <OpenSearchContext value={openSearch}>
-            <HuddlesContext value={huddles}>
-              <ProfilePaneContext value={profilePane}>
-                <ConversationsContext value={conversations}>{layout}</ConversationsContext>
-              </ProfilePaneContext>
-            </HuddlesContext>
+            <HuddlesContext value={huddles}>{layout}</HuddlesContext>
           </OpenSearchContext>
         </SettingsLayout>
       </DirectoryLoaded>

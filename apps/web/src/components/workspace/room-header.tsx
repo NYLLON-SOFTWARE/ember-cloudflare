@@ -17,7 +17,7 @@ import { OpenSearchContext, opensSearch } from "./search-box";
 import { MembersButton } from "./room-members";
 import { SubRoomTitle } from "./sub-room-title";
 
-interface Props {
+export interface RoomHeaderProps {
   room: Room;
   /** Whoever's reading it, whom its members list calls "(you)". */
   me: Me;
@@ -46,7 +46,7 @@ interface Props {
  * is then your notification level's, and its settings. A DM's has a chat bubble in place of the room's
  * icon, and no star or huddle button, and a DM with an AI agent alone the agent badge after its name.
  */
-export function RoomHeader({ room, me, name, present, status, offline, favorite, onStarred, involvement, askForRoom, onSessionChanged, onFailed }: Props) {
+export function RoomHeader({ room, me, name, present, status, offline, favorite, onStarred, involvement, askForRoom, onSessionChanged, onFailed }: RoomHeaderProps) {
   const isWithAgent = useIsWithAgent();
   const openSearch = useContext(OpenSearchContext);
   const direct = room.kind === "direct";

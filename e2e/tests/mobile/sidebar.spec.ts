@@ -1,7 +1,7 @@
 import type { Sidebar } from "@ember/protocol";
 import { cookieHeader, createRoom, keepOtherRoomsOut, openRoom, rowsWithStars, sidebarRoomRows, signInAs } from "../../fixtures";
 import { settle } from "./audits";
-import { expect, hasDrawerLayout, test } from "./fixtures";
+import { expect, hasPhoneLayout, showConversations, test } from "./fixtures";
 
 test.describe("Reorder starred rooms", () => {
   test("a finger held on a starred room drags it to a new place", async ({ page, request, session }) => {
@@ -21,10 +21,10 @@ test.describe("Reorder starred rooms", () => {
     await keepOtherRoomsOut(page, ids);
     await signInAs(page, session);
     await openRoom(page, rooms[0]!);
-    if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();
+    await showConversations(page);
     const rows = sidebarRoomRows(page);
     await expect.poll(() => rowsWithStars(rows)).toEqual(["#general★", "#random★"]);
-    // Where the finger goes down is measured once the drawer has slid in, as a person would wait.
+    // Where the finger goes down is measured once the page has settled, as a person would wait.
     await settle(page);
 
     // Playwright's touchscreen only taps, so the finger goes down, moves and lifts through DevTools.
@@ -40,7 +40,7 @@ test.describe("Reorder starred rooms", () => {
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await expect(page.getByRole("status").filter({ hasText: "Starred room order saved." })).toBeAttached();
     // Lifting the finger on the room's row didn't open it.
-    await expect(page).toHaveURL(new RegExp(`/rooms/${rooms[0]!.id}$`));
+    await expect(page).toHaveURL(hasPhoneLayout(page) ? /\/$/ : new RegExp(`/rooms/${rooms[0]!.id}$`));
 
     const saved = await request.get("/api/sidebar", { headers: { Cookie: cookieHeader(session) } });
     expect(((await saved.json()) as Sidebar).favorites.rooms).toEqual([rooms[1]!.id, rooms[0]!.id]);

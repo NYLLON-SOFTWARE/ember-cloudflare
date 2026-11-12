@@ -4,6 +4,7 @@ import type { Favorites, Invitation, Involvement, Me } from "@ember/protocol";
 import { MainContent } from "@/components/main-content";
 import { useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { useMessageEditors } from "@/hooks/use-message-editors";
 import { useRoom } from "@/hooks/use-room";
 import { useShowPresence } from "@/hooks/use-shown-presence";
@@ -16,6 +17,7 @@ import type { RoomAnswer } from "@/lib/room-list";
 import { isPending } from "@/lib/room-state";
 import { Composer, RoomGoneNotice, type ComposerHandle, type RoomGone } from "./composer";
 import { MessageList } from "./message-list";
+import { MobileRoomHeader } from "../mobile/room-header";
 import { RoomHeader } from "./room-header";
 import { RoomNotice } from "./room-notice";
 import { RoomFramesContext } from "./room-tab-icons";
@@ -114,6 +116,8 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   const covered = useMediaQuery(THREAD_COVERS_ROOM) && threadId !== undefined && !panes;
   // In panes, the thread goes in its own, once it's there.
   const placed = (thread: ReactNode) => (panes ? panes.thread && createPortal(thread, panes.thread) : thread);
+  // A phone has a top bar of its own, Slack's.
+  const Header = usePhoneLayout() ? MobileRoomHeader : RoomHeader;
 
   // Up Arrow edits your newest message, unless it's still on its way, or the timeline is reading older
   // history and may not hold it.
@@ -128,7 +132,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
       <RoomFramesContext value={frames}>
         {/* The room's header and messages, placed in the page's grid as if they were its own. */}
         <div className={panes ? "grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]" : "contents"} inert={covered}>
-          <RoomHeader
+          <Header
             room={room}
             me={me}
             name={name}

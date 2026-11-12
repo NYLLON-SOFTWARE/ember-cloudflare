@@ -1,6 +1,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { Menu } from "@/components/icons/iconoir";
 import { SheetTrigger } from "@/components/ui/sheet";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { cn } from "@/lib/utils";
 import { SettingsLayout, SettingsNavigation } from "./settings-navigation";
 
@@ -8,8 +9,9 @@ import { SettingsLayout, SettingsNavigation } from "./settings-navigation";
 export const DrawerOpen = createContext(false);
 
 /**
- * The top bar, the navigation landmark "Page", holding what the page puts in it. At 900px and below it
- * starts with the button that opens the drawer, named for what it does next.
+ * The top bar, the navigation landmark "Page", holding what the page puts in it. At 900px and below,
+ * the phone layout, the tab bar takes the drawer's place, so it starts with what the page puts there,
+ * such as Back; the drawer's button, named for what it does next, is left for a layout with the drawer.
  *
  * On a page of community settings it spans the column of their links too, ends with "Community
  * settings", and the links follow it (`SettingsNavigation`), where the conversations would be: there the
@@ -20,6 +22,7 @@ export function PageHeader({ children }: { children?: ReactNode }) {
   const drawerOpen = useContext(DrawerOpen);
   const settings = useContext(SettingsLayout);
   const drawer = settings ? "navigation" : "conversations";
+  const phone = usePhoneLayout();
   return (
     <>
       <nav
@@ -30,14 +33,16 @@ export function PageHeader({ children }: { children?: ReactNode }) {
         )}
       >
         {/* Marked for New direct message to give focus back to once the drawer's gone, and drawn with
-            Iconoir's menu. */}
-        <SheetTrigger
-          data-ember-sidebar-toggle
-          aria-label={`${drawerOpen ? "Close" : "Open"} ${drawer}`}
-          className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex"
-        >
-          <Menu className="size-[22px]" />
-        </SheetTrigger>
+            Iconoir's menu. A phone has the tab bar instead. */}
+        {!phone && (
+          <SheetTrigger
+            data-ember-sidebar-toggle
+            aria-label={`${drawerOpen ? "Close" : "Open"} ${drawer}`}
+            className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex"
+          >
+            <Menu className="size-[22px]" />
+          </SheetTrigger>
+        )}
         {children}
         {settings && <h1 className="min-w-0 flex-1 text-[17px] leading-[1.4] font-[650] max-md:text-base">Community settings</h1>}
       </nav>

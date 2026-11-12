@@ -2,7 +2,7 @@ import type { LiveHuddle, User } from "@ember/protocol";
 import type { HuddleServerFrame } from "@ember/protocol/huddles";
 import type { Page } from "@playwright/test";
 import { changeTheWorkspace, isolateRoom, listing, openRoom, signInAs, type TestRoom } from "../../fixtures";
-import { expect, hasDrawerLayout, test } from "./fixtures";
+import { expect, hasDrawerLayout, hasPhoneLayout, test } from "./fixtures";
 
 // A room's huddle on a phone: its button in the room's header, the preview it starts from, and the bar
 // of the huddle the tab is in. The main test server has no huddles, whose keys Cloudflare would be asked
@@ -42,8 +42,8 @@ async function standInHuddle(page: Page, you: User, others: User[] = []): Promis
 test("a room's huddle button fits the phone", async ({ page, room, screenIsFine }) => {
   await openRoomWithHuddlesOn(page, room);
   await expect(header(page).getByRole("button", { name: "Start huddle", exact: true })).toBeVisible();
-  // Under 430px the header has no room for Search as well, which the drawer's rail has too.
-  await expect(header(page).getByRole("link", { name: "Search messages" })).toBeVisible({ visible: page.viewportSize()!.width >= 430 });
+  // A phone has Search in the tab bar rather than the header.
+  await expect(header(page).getByRole("link", { name: "Search messages" })).toBeVisible({ visible: !hasPhoneLayout(page) });
   // And the room's name keeps its first few letters even 320px wide.
   expect((await header(page).getByRole("heading", { level: 1 }).boundingBox())!.width).toBeGreaterThan(40);
   await screenIsFine();
