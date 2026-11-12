@@ -1,4 +1,4 @@
-import { MAX_FILE_SIZE, MAX_SCHEDULE_AHEAD_MS, type ClientFrame, type LinkPreview, type ServerFrame, type ShareWidening, type StoredFile, type User } from "@ember/protocol";
+import { MAX_FILE_SIZE, MAX_SCHEDULE_AHEAD_MS, type ClientFrame, type LinkPreview, type Message, type ServerFrame, type ShareWidening, type StoredFile, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -7,8 +7,8 @@ import { PeopleContext } from "@/hooks/use-directory";
 import type { RoomFrames } from "@/hooks/use-room";
 import { dateValue } from "@/lib/schedule-times";
 import type { Sendable } from "@/lib/uploads";
-import { createRef } from "react";
-import { Composer, RoomGoneNotice, type ComposerHandle } from "./composer";
+import { createRef, useState } from "react";
+import { Composer, RoomGoneNotice, type ComposerEdit, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
 import { loadRarePages } from "./rare-pages";
 import { UNDO_MS } from "./schedule-send";
@@ -1343,5 +1343,86 @@ describe("Layouts of the composer", () => {
     await user.type(input, "Now");
     await user.click(sendButton());
     expect(onSend).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Edit a message in the composer", () => {
+  const mine: Message = {
+    id: "m1",
+    clientMessageId: "c1",
+    roomId: "r1",
+    creator: { id: "u1", name: "Ada" },
+    body: "<p>Hello</p>",
+    plainText: "Hello",
+    mentions: [],
+    createdAt: "2026-11-12T10:00:00Z",
+    updatedAt: "2026-11-12T10:00:00Z",
+    editedAt: null,
+    boosts: [],
+  };
+
+  /** A room whose composer edits `mine` while `edit()` is called, as a phone's layout has it, and stops as it answers. */
+  async function editing({ saves = true } = {}) {
+    const onSave = vi.fn((_body: string) => saves);
+    const onCancel = vi.fn();
+    let edit = () => {};
+    function Room() {
+      const [message, setMessage] = useState<Message | null>(null);
+      edit = () => setMessage(mine);
+      const done = () => setMessage(null);
+      const editing: ComposerEdit | null = message && {
+        message,
+        onSave: (body) => {
+          const saved = onSave(body);
+          if (saved) done();
+          return saved;
+        },
+        onCancel: () => {
+          onCancel();
+          done();
+        },
+      };
+      return <Composer roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} editing={editing} onSend={() => true} onSendFiles={() => {}} onTyping={() => {}} />;
+    }
+    render(<Room />);
+    const input = await screen.findByRole("textbox", { name: "Write a message" });
+    return { input, onSave, onCancel, edit: () => act(edit), user: userEvent.setup() };
+  }
+
+  it("writes the message in place of what's written, saves on Enter, and gives what was written back", async () => {
+    const { input, onSave, edit, user } = await editing();
+    await user.type(input, "Draft");
+    edit();
+    await vi.waitFor(() => expect(input).toHaveValue("Hello"));
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Attach" })).toBeDisabled();
+    // What's edited isn't the room's draft.
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>Draft</p>");
+
+    await user.type(input, " again{Enter}");
+    expect(onSave).toHaveBeenCalledExactlyOnceWith("<p>Hello again</p>");
+    await vi.waitFor(() => expect(input).toHaveValue("Draft"));
+    expect(screen.getByRole("button", { name: "Send Message" })).toBeInTheDocument();
+  });
+
+  it("cancels on Escape, or as it's saved unchanged, and stays where the change didn't go", async () => {
+    const { input, onSave, onCancel, edit, user } = await editing({ saves: false });
+    edit();
+    await vi.waitFor(() => expect(input).toHaveValue("Hello"));
+    await user.type(input, "{Escape}");
+    expect(onCancel).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(input).toHaveValue(""));
+
+    edit();
+    await vi.waitFor(() => expect(input).toHaveValue("Hello"));
+    await user.type(input, "{Enter}");
+    expect(onCancel).toHaveBeenCalledTimes(2);
+    expect(onSave).not.toHaveBeenCalled();
+
+    edit();
+    await vi.waitFor(() => expect(input).toHaveValue("Hello"));
+    await user.type(input, "!{Enter}");
+    expect(onSave).toHaveBeenCalledExactlyOnceWith("<p>Hello!</p>");
+    expect(input).toHaveValue("Hello!");
   });
 });
