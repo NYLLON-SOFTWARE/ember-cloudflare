@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ComponentProps } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useSheetColumns } from "@/components/emoji-columns";
 import { ArrowUp, AtSign, CheckCircle, Emoji, Laptop, Page, Plus } from "@/components/icons/iconoir";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
@@ -36,17 +37,6 @@ export function AttachMenu({ disabled, onUpload, onFilesInEmber, onReturnFocus }
 // The picker and its emoji come with the pages few visits need, loaded while the browser is idle, or as it
 // first opens. A chunk of their own would split the app's script (see oneAppScript in vite.config.ts).
 
-/** The sheet's gutters, 16px on each side, which the picker's own 8px are half of. */
-const SHEET_GUTTERS = 32;
-
-/** How many 44px emoji a row of the phone's sheet holds, within its gutters. */
-const sheetColumns = () => Math.max(1, Math.floor((window.innerWidth - SHEET_GUTTERS) / 44));
-
-function subscribeToResizes(resized: () => void) {
-  window.addEventListener("resize", resized);
-  return () => window.removeEventListener("resize", resized);
-}
-
 /**
  * Emoji, which opens the emoji picker to write one at the cursor: a popover, or on phones a sheet from the
  * bottom of the screen, as wide as the screen allows, which leaves the keyboard down until the search is tapped.
@@ -56,7 +46,7 @@ export function EmojiButton({ disabled = false, onPick, onReturnFocus }: { disab
   // Shut, saying so, where its code couldn't load.
   const [opened, failed] = useOpenedRarePage(open, () => setOpen(false));
   const phone = usePhoneLayout();
-  const columns = useSyncExternalStore(subscribeToResizes, sheetColumns);
+  const columns = useSheetColumns();
   const button = (props: ComponentProps<"button">) => (
     <button type="button" disabled={disabled} title="Emoji" onMouseDown={(event) => event.preventDefault()} className={ICON_BUTTON} {...props}>
       <Emoji className="size-[18px]" />

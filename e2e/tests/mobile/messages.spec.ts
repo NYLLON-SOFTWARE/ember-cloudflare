@@ -61,13 +61,14 @@ test("a long press opens a message's actions in a sheet that fits the phone, wit
   await expect(sheet).toBeFocused();
   await screenIsFine();
 
-  // Add reaction opens a sheet of reactions in its place.
+  // Add reaction opens the emoji picker in a sheet in its place.
   await sheet.getByRole("button", { name: "Add reaction" }).tap();
   const picker = page.getByRole("dialog", { name: "Add reaction" });
   await expect(picker).toBeVisible();
   await expect(sheet).toBeHidden();
   await screenIsFine();
-  await picker.getByRole("group", { name: "All reactions" }).getByRole("button", { name: "Fire" }).tap();
+  await picker.getByRole("searchbox", { name: "Search emoji" }).fill("fire");
+  await picker.getByRole("button", { name: "🔥", exact: true }).first().tap();
   await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button", { name: "🔥" })).toBeVisible();
   await expect(picker).toBeHidden();
 
@@ -93,15 +94,17 @@ test("message actions open with a tap on Message options and fit a wider touch s
   await expect(actions).toBeVisible();
   await screenIsFine();
 
+  // A phone held sideways has no room in the timeline for the tray beside the bar, so More reactions opens
+  // the picker in a sheet, as Add reaction does.
   await actions.getByRole("button", { name: "More reactions" }).tap();
-  const tray = page.getByRole("group", { name: "More reactions" });
-  await expect(tray).toBeVisible();
+  const sheet = page.getByRole("dialog", { name: "Add reaction" });
+  await expect(sheet).toBeVisible();
+  await expect(actions).toBeHidden();
   await screenIsFine();
-  // A short screen scrolls the tray, New boost and all.
-  await tray.getByRole("button", { name: "New boost" }).scrollIntoViewIfNeeded();
-  await expect(tray.getByRole("button", { name: "New boost" })).toBeInViewport();
-  await tray.getByRole("searchbox", { name: "Search emoji" }).fill("fire");
-  await tray.getByRole("button", { name: "🔥", exact: true }).first().tap();
+  await sheet.getByRole("button", { name: "New boost" }).scrollIntoViewIfNeeded();
+  await expect(sheet.getByRole("button", { name: "New boost" })).toBeInViewport();
+  await sheet.getByRole("searchbox", { name: "Search emoji" }).fill("fire");
+  await sheet.getByRole("button", { name: "🔥", exact: true }).first().tap();
   await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button", { name: "🔥" })).toBeVisible();
   // A reaction closes the bar, and focus goes back to Message options.
   await expect(actions).toBeHidden();

@@ -1642,17 +1642,18 @@ describe("Message actions on a phone", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("opens a sheet of reactions alone from Add reaction, the frequent first, then every one and New boost", async () => {
+  it("opens the emoji picker in a sheet from Add reaction, searching every emoji, then New boost", async () => {
     onPhone();
     const { actions, user } = show(message({ boosts: [boost("b1", grace, "👍")] }));
     await user.click(reactions().getByRole("button", { name: "Add reaction" }));
     const picker = screen.getByRole("dialog", { name: "Add reaction" });
     expect(screen.queryByRole("dialog", { name: "Message actions" })).not.toBeInTheDocument();
-    const named = (group: string) => within(within(picker).getByRole("group", { name: group })).getAllByRole("button").map((button) => button.getAttribute("aria-label"));
-    expect(named("Frequently used")).toEqual(["Thumbs up", "Clapping", "Waving hand"]);
-    expect(named("All reactions")).toEqual([...REACTIONS.map(([, title]) => title), "New boost"]);
+    // A finger opened it, so the keyboard stays down until the search is tapped.
+    expect(within(picker).getByRole("searchbox", { name: "Search emoji" })).not.toHaveFocus();
+    expect(within(picker).getByRole("button", { name: "New boost" })).toBeInTheDocument();
 
-    await user.click(within(within(picker).getByRole("group", { name: "All reactions" })).getByRole("button", { name: "Fire" }));
+    await user.type(within(picker).getByRole("searchbox", { name: "Search emoji" }), "fire");
+    await user.click(within(picker).getAllByRole("button", { name: "🔥" })[0]!);
     expect(actions.boost).toHaveBeenCalledWith("m1", "🔥");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
