@@ -144,18 +144,13 @@ test("a picture opens over the room, and Back closes it there", async ({ page, r
   await expect(page).not.toHaveURL(new RegExp(`/rooms/${room.id}$`));
 });
 
-test("Activity lists what's unread, and its tab has a dot", async ({ page, room, participant, screenIsFine }) => {
-  const ada = await participant("Ada");
+test("Activity's feed takes the whole screen under its top bar, with its filters, and fits the phone", async ({ page, room, screenIsFine }) => {
   await openRoom(page, room);
   await tabBar(page).getByRole("link", { name: "Activity", exact: true }).tap();
-  await ada.say("Anyone around?");
-  const row = page.getByRole("list", { name: "Unread conversations" }).getByRole("link", { name: new RegExp(room.name) });
-  await expect(row).toBeVisible();
-  await expect(tabBar(page).getByRole("link", { name: "Activity", exact: true })).toHaveAccessibleDescription(/unread/);
+  await expect(page).toHaveURL(/\/activity$/);
+  await expect(page.getByRole("navigation", { name: "Activity" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Page" }).getByRole("link", { name: "Your profile" })).toBeVisible();
   await screenIsFine();
-  await row.tap();
-  await expect(page).toHaveURL(new RegExp(`/rooms/${room.id}$`));
-  await expect(tabBar(page).getByRole("link", { name: "Activity", exact: true })).toHaveAttribute("aria-current", "page");
 });
 
 test("turning a phone on its side past 900px swaps the tab bar for the rail", async ({ page, room }) => {
