@@ -107,11 +107,11 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
   return (
     <div className="flex h-full flex-col bg-surface">
       <div className="flex flex-none flex-col gap-2.5 px-3 pt-4 pb-2.5">
-        {/* At 900px and below the drawer's close button sits at the end of this row, which keeps clear of it.
+        {/* Between 768px and 900px the drawer's close button sits at the end of this row, which keeps clear of it.
             Where the page titles itself and has a New direct message of its own, phones have neither here. */}
-        <div className={cn("flex min-h-8 items-center gap-2 px-1.5 max-md:pr-10", !titled && "max-md:hidden")}>
+        <div className={cn("flex min-h-8 items-center gap-2 px-1.5 md:max-[56.3125rem]:pr-10", !titled && "max-md:hidden")}>
           <h2 className={cn("min-w-0 flex-1 truncate text-[17px] leading-6 font-[650]", !titled && "sr-only")}>Direct messages</h2>
-          {/* Beside the page, Unreads is a switch, as Slack's desktop app has it; on phones, chips under Find a DM…. */}
+          {/* Beside the page, Unreads is a chip, as Activity's is; on phones, All and Unreads are chips under Find a DM…. */}
           <span className="contents max-md:hidden">
             <UnreadsSwitch on={onlyUnread} disabled={unreadOnly} onChange={setUnreadsOn} />
           </span>
@@ -157,6 +157,7 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
                 room={room}
                 meId={meId}
                 preview={previews.get(room.id) ?? null}
+                previewKnown={previews.has(room.id)}
                 current={room.id === currentRoomId}
                 unreadId={markedUnread(room, currentRoomId) ? unreadId : null}
                 onClick={(event) => select(event, room.id)}
@@ -173,10 +174,10 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
           </div>
         )}
         {empty &&
-          (onlyUnread ? (
-            <ListEmptyState Icon={CheckCircle} title="You’re all caught up" />
-          ) : typed.trim() ? (
+          (typed.trim() ? (
             <ListEmptyState Icon={Search} title="No matches" />
+          ) : onlyUnread ? (
+            <ListEmptyState Icon={CheckCircle} title="You’re all caught up" />
           ) : (
             <ListEmptyState Icon={ChatBubbleEmpty} title="No direct messages yet" />
           ))}
@@ -245,6 +246,8 @@ interface DirectRowProps {
   room: DirectSidebarRoom;
   meId: UserId;
   preview: DirectPreview | null;
+  /** Whether its preview has come, before which its row keeps a line for it, so it doesn't jump. */
+  previewKnown: boolean;
   /** Whether it's the DM the tab shows. */
   current: boolean;
   /** The element saying the DM is unread, when it's marked so, or null. */
@@ -257,7 +260,7 @@ interface DirectRowProps {
  * with yourself, with the agent badge in a DM with an AI agent alone, when it was last active, its latest
  * message, and how many are unread, or a dot when it's marked unread before that's known.
  */
-function DirectRow({ room, meId, preview, current, unreadId, onClick }: DirectRowProps) {
+function DirectRow({ room, meId, preview, previewKnown, current, unreadId, onClick }: DirectRowProps) {
   const nameOf = useNameOf();
   const isWithAgent = useIsWithAgent();
   const members = membersShown(room, meId);
@@ -268,6 +271,18 @@ function DirectRow({ room, meId, preview, current, unreadId, onClick }: DirectRo
   // Named for whom it's with, and described by whether it's unread, how many, when, and what was said last.
   const nameId = useId();
   const aboutId = useId();
+  // How many are unread, or a dot where it's marked unread before that's known.
+  const marker =
+    count > 0 ? (
+      <span
+        aria-hidden="true"
+        className="mt-px inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-foreground px-1.5 text-[11px] leading-none font-semibold text-background"
+      >
+        {unreadBadge(count)}
+      </span>
+    ) : (
+      unread && <span aria-hidden="true" className="mt-1.5 size-[7px] shrink-0 self-start rounded-full bg-foreground" />
+    );
   return (
     <a
       href={dmPath(room.id)}
@@ -276,10 +291,11 @@ function DirectRow({ room, meId, preview, current, unreadId, onClick }: DirectRo
       aria-describedby={unreadId ? `${unreadId} ${aboutId}` : aboutId}
       onClick={onClick}
       // The ring is inset, so the list's edges, which the row runs to, don't clip it. A DM with nothing
-      // said in it yet has its name centered beside the avatar, in a row as tall as the avatar and its padding.
+      // said in it yet has its name centered beside the avatar, in a row as tall as the avatar and its
+      // padding, once that's known: until its preview comes, a row keeps a faint line for it.
       className={cn(
         "group/row flex gap-3 px-[18px] py-3 text-foreground no-underline outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-[current=page]:bg-hover",
-        latest ? "min-h-[72px] items-start" : "min-h-[60px] items-center",
+        latest || !previewKnown ? "min-h-[72px] items-start" : "min-h-[60px] items-center",
       )}
     >
       <DirectAvatars members={members} ringClassName="ring-surface group-hover/row:ring-hover group-aria-[current=page]/row:ring-hover" />
@@ -290,25 +306,26 @@ function DirectRow({ room, meId, preview, current, unreadId, onClick }: DirectRo
             <span className="sr-only">Direct message with</span> {members.map((member) => `${nameOf(member)}${member.id === meId ? " (you)" : ""}`).join(", ")}
             {isWithAgent(room) && <AgentBadge className="ms-0.5" />}
           </span>
-          {count > 0 && (
-            <span className="order-last inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center self-center rounded-full bg-foreground px-1.5 text-[11px] leading-none font-semibold text-background">
-              {unreadBadge(count)}
-            </span>
-          )}
-          {unread && count === 0 && <span aria-hidden="true" className="order-last size-[7px] shrink-0 self-center rounded-full bg-foreground" />}
           <time dateTime={at.toISOString()} className="shrink-0 text-[12px] text-muted-foreground">
             {activityLabel(at)}
           </time>
+          {!latest && marker}
         </span>
         {/* What screen readers hear after the name: how many are unread, when, and what was said. */}
         <span id={aboutId} className="sr-only">
           {[count > 0 && `${unreadBadge(count)} unread`, activityLabel(at), latest && previewOf(latest, meId, members.length > 1, nameOf)].filter(Boolean).join(", ")}
         </span>
-        {latest && (
-          // Two lines on phones, as Slack's app shows, and one beside the page, so the rows keep one height.
-          <span aria-hidden="true" className={cn("line-clamp-2 text-[14px] leading-5 wrap-anywhere md:line-clamp-1", unread ? "text-foreground" : "text-muted-foreground")}>
-            {previewOf(latest, meId, members.length > 1, nameOf)}
+        {latest ? (
+          // The time keeps the right edge, and how many are unread ends the message's line, as in Slack.
+          <span className="flex min-w-0 items-start gap-2">
+            {/* Two lines on phones, as Slack's app shows, and one beside the page, so the rows keep one height. */}
+            <span aria-hidden="true" className={cn("min-w-0 flex-1 line-clamp-2 text-[14px] leading-5 wrap-anywhere md:line-clamp-1", unread ? "text-foreground" : "text-muted-foreground")}>
+              {previewOf(latest, meId, members.length > 1, nameOf)}
+            </span>
+            {marker}
           </span>
+        ) : (
+          !previewKnown && <span aria-hidden="true" className="mt-1.5 h-3 w-2/3 rounded-full bg-hover" />
         )}
       </span>
     </a>

@@ -192,13 +192,17 @@ describe("Activity filter", () => {
     expect(activity).toHaveClass("aria-pressed:bg-hover", "aria-pressed:text-foreground");
   });
 
-  it("counts unread conversations in a pill at its corner, hidden at none", () => {
+  it("counts unread conversations in a pill at its corner, up to 9+, hidden at none", () => {
     const { rerender } = render(railAt("room", { ...activityOff, unread: 3 }));
     const activity = screen.getByRole("button", { name: "Activity" });
     expect(activity).toHaveAccessibleDescription("3 unread");
     const pill = within(activity).getByText("3");
     expect(pill).toHaveAttribute("aria-hidden", "true");
     expect(pill).toHaveClass("absolute", "h-[17px]", "min-w-[17px]", "border-2", "border-surface", "bg-foreground", "text-[10px]", "text-background");
+
+    rerender(railAt("room", { ...activityOff, unread: 14 }));
+    expect(activity).toHaveAccessibleDescription("9+ unread");
+    expect(within(activity).getByText("9+")).toBeInTheDocument();
 
     rerender(railAt("room", { ...activityOff, unread: 0 }));
     expect(activity).not.toHaveAttribute("aria-description");

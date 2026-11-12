@@ -69,7 +69,7 @@ function ActivityButton({ on, unread, onToggle }: Activity) {
     <button
       type="button"
       aria-pressed={on}
-      aria-description={unread > 0 ? `${unread} unread` : undefined}
+      aria-description={unread > 0 ? `${unreadBadge(unread)} unread` : undefined}
       title="Show unread conversations"
       onClick={onToggle}
       className={cn(RAIL_LINK, "aria-pressed:bg-hover aria-pressed:text-foreground")}
@@ -81,7 +81,7 @@ function ActivityButton({ on, unread, onToggle }: Activity) {
           aria-hidden="true"
           className={COUNT_BADGE}
         >
-          {unread}
+          {unreadBadge(unread)}
         </span>
       )}
     </button>
