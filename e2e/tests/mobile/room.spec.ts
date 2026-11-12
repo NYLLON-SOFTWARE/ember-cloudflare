@@ -1,6 +1,23 @@
+import type { Page } from "@playwright/test";
 import { REACTIONS, type Sidebar } from "@ember/protocol";
 import { isolateRoom, keepOtherRoomsOut, openRoom, signInAs } from "../../fixtures";
-import { expect, hasPhoneLayout, REACTION_PILLS, showConversations, test } from "./fixtures";
+import { expect, hasPhoneLayout, REACTION_PILLS, test } from "./fixtures";
+
+/**
+ * Goes from the room shown to Home's list of conversations: Back on a phone, as Slack's goes up from a
+ * conversation, and nowhere elsewhere, where the sidebar shows them beside the room.
+ */
+async function showConversations(page: Page): Promise<void> {
+  if (hasPhoneLayout(page)) await page.getByRole("navigation", { name: "Page" }).getByRole("link", { name: "Back" }).tap();
+}
+
+/** Where the room's star is: its top bar, or on a phone, its details, which the top bar's pill opens. */
+async function roomStar(page: Page, name: string) {
+  const header = page.getByRole("navigation", { name: "Page" });
+  if (!hasPhoneLayout(page)) return header.getByRole("button", { name: "Favorite room" });
+  await header.getByRole("button", { name: new RegExp(`^${name}`) }).tap();
+  return page.getByRole("dialog", { name }).getByRole("button", { name: "Favorite room" });
+}
 
 test.beforeEach(async ({ page, session }) => {
   await signInAs(page, session);
@@ -66,12 +83,13 @@ test("a busy room fits the phone", async ({ page, room, participant, screenIsFin
 test("the room's star, and a starred room's row on Home, fit the phone", async ({ page, room, screenIsFine }) => {
   await isolateRoom(page, room);
   await openRoom(page, room);
-  const star = page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Star room" });
+  const star = await roomStar(page, room.name);
   await star.tap();
   await expect(star).toHaveAttribute("aria-pressed", "true");
   await screenIsFine();
 
   if (!hasPhoneLayout(page)) return;
+  await page.keyboard.press("Escape");
   await showConversations(page);
   await expect(page.getByRole("main").getByRole("link", { name: room.name }).getByRole("img", { name: "Favorite" })).toBeVisible();
   await screenIsFine();
@@ -83,7 +101,7 @@ test("a star that can't be saved says so on the phone, however long the room's n
   await isolateRoom(page, named);
   await page.route("**/api/rooms/*/favorite", (route) => route.fulfill({ status: 503, json: { error: "Workspace unavailable" } }));
   await openRoom(page, named);
-  await page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Star room" }).tap();
+  await (await roomStar(page, named.name)).tap();
   await expect(page.getByRole("status").filter({ hasText: "Couldn’t save your star. Please try again." })).toBeVisible();
   await screenIsFine();
 });
@@ -100,10 +118,21 @@ test("long room names are truncated, not overflowing", async ({ page, room, scre
   await screenIsFine();
 });
 
-test("the rail's appearance menu, or Home's top bar's on a phone, fits the phone", async ({ page, room, screenIsFine }) => {
+test("the rail's appearance menu, or the You sheet's on a phone, fits the phone", async ({ page, room, screenIsFine }) => {
   await openRoom(page, room);
   await showConversations(page);
-  const rail = page.getByRole("navigation", { name: hasPhoneLayout(page) ? "Page" : "Workspace" });
+  if (hasPhoneLayout(page)) {
+    await page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "You" }).tap();
+    const you = page.getByRole("dialog");
+    await expect(you.getByRole("group", { name: "Appearance" })).toBeVisible();
+    await screenIsFine();
+    await you.getByText("Dark", { exact: true }).tap();
+    await expect(page.locator("html")).toHaveClass(/dark/);
+    // It stays open for another choice.
+    await expect(you.getByRole("radio", { name: "Dark" })).toBeChecked();
+    return;
+  }
+  const rail = page.getByRole("navigation", { name: "Workspace" });
 
   // Where the rail scrolls, as on a phone in landscape, start with the button at the bottom of the
   // screen, where its menu is most likely to open under the home indicator.

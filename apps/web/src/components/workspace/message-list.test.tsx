@@ -314,7 +314,7 @@ describe("Catch up after a reconnect", () => {
 describe("Take back a reaction", () => {
   it("brings back a reaction shown as going once the room refuses to delete one, or lets the page in again", async () => {
     const boosted: Message = { ...message("m1"), boosts: [{ id: "b1", messageId: "m1", booster: ada, content: "👍", createdAt: "" }] };
-    const pill = () => within(screen.getByRole("list", { name: "Reactions" })).getByRole("listitem");
+    const pill = () => within(screen.getByRole("list", { name: "Reactions" })).getAllByRole("listitem")[0]!;
     const remove = async () => {
       actions.unboost.mockReturnValueOnce(true);
       await userEvent.click(within(pill()).getByRole("button", { name: "Delete this boost" }));

@@ -1,12 +1,15 @@
-import { useContext, useId, useLayoutEffect, useRef, useState, type Ref } from "react";
-import { MAX_BOOST_LENGTH, type Boost, type Me, type Message } from "@ember/protocol";
+import { useContext, useId, useLayoutEffect, useRef, useState, type ComponentProps, type Ref } from "react";
+import { MAX_BOOST_LENGTH, REACTIONS, type Boost, type Me, type Message } from "@ember/protocol";
 import { isAllEmoji } from "@ember/richtext/dom";
 import { ArrowUp, Emoji, Minus, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { pressedAlone } from "@/lib/keyboard";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { safeAreaBoundary } from "@/lib/safe-area";
 import { cn } from "@/lib/utils";
+import { PANEL, ReactionChoices } from "./message-actions-menu";
 import type { MessageActions } from "./message-item";
 import { AvatarLink, UserAvatar } from "./user-avatar";
 
@@ -19,12 +22,17 @@ interface Props {
   threaded: boolean;
   /** What can be done to the message, or null where nothing can, as in a room that's gone. */
   actions: MessageActions | null;
-  /** Whether the Custom reaction form shows, in place of Add a boost. */
+  /** Whether the Custom reaction form shows, in place of Add reaction. */
   customizing: boolean;
   /** The Custom reaction form's field, while it shows. */
   customField?: Ref<HTMLInputElement>;
-  /** Opens the message's bar with More reactions showing, from its Add a boost. */
-  onAddBoost: (button: HTMLButtonElement) => void;
+  /** Opens the Custom reaction form, from the picker's New boost. */
+  onNewBoost: () => void;
+  /**
+   * Opens a phone's sheet of reactions from Add reaction, given the button, where a phone's messages have
+   * sheets in place of Message options. Left out, Add reaction opens its own picker beside it.
+   */
+  onAddReaction?: (button: HTMLButtonElement) => void;
   /** Closes the Custom reaction form. */
   onCloseCustom: () => void;
   /** Hands focus to the message's Message options, as a reaction sent or deleted here does. */
@@ -32,11 +40,11 @@ interface Props {
 }
 
 /**
- * The reactions under a message (Campfire's boosts.css): a pill for each, oldest first, then Add a
- * boost, which opens the message's bar with More reactions showing, or the Custom reaction form that New
- * boost opens in its place. Add a boost shows once the message has a reaction, as messages.css shows it.
+ * The reactions under a message (Campfire's boosts.css): a pill for each, oldest first, then Add reaction,
+ * a pill as tall as theirs, which opens a picker of reactions alone, or the Custom reaction form that New
+ * boost opens in its place. Add reaction shows once the message has a reaction, as messages.css shows it.
  */
-export function MessageBoosts({ message, me, threaded, actions, customizing, customField, onAddBoost, onCloseCustom, returnFocus }: Props) {
+export function MessageBoosts({ message, me, threaded, actions, customizing, customField, onNewBoost, onAddReaction, onCloseCustom, returnFocus }: Props) {
   const hint = useId();
   const deletable = (boost: Boost) => actions !== null && boost.booster.id === me.id;
 
@@ -66,36 +74,86 @@ export function MessageBoosts({ message, me, threaded, actions, customizing, cus
         "col-span-full flex w-full flex-wrap items-center gap-x-[0.4ch] text-message-ink",
         // Where Message options is 44px, the next message's rises 11px into this one, reaching 38px in from
         // its edge, so reactions, and the Custom reaction form after them, stop short of it. A grouped
-        // message's body already keeps 32px of that clear.
-        threaded ? "touch:pr-1.5" : "touch:pr-[38px]",
+        // message's body already keeps 32px of that clear. A phone's sheets leave nothing there.
+        !onAddReaction && (threaded ? "touch:pr-1.5" : "touch:pr-[38px]"),
       )}
     >
       <ul aria-label="Reactions" className="flex flex-wrap gap-x-[0.4ch] empty:hidden">
         {message.boosts.map((boost) => (
           <BoostPill key={boost.id} boost={boost} hint={hint} onDelete={deletable(boost) ? () => remove(boost) : null} />
         ))}
+        {/* Among the reactions, as Slack's is, so it shares their 24px floor for fingertips. */}
+        {actions && !customizing && message.boosts.length > 0 && (
+          <li className="mt-1 flex">
+            {onAddReaction ? (
+              <AddReaction onClick={(event) => onAddReaction(event.currentTarget)} />
+            ) : (
+              <ReactionPicker onReact={(emoji) => actions.boost(message.id, emoji)} onNewBoost={onNewBoost} />
+            )}
+          </li>
+        )}
       </ul>
       {message.boosts.some(deletable) && (
         <span id={hint} hidden>
           Press enter to delete this boost
         </span>
       )}
-      {customizing ? (
-        <CustomReaction me={me} fieldRef={customField} onAdd={add} onCancel={cancel} />
-      ) : (
-        actions &&
-        message.boosts.length > 0 && (
-          <button
-            type="button"
-            className="mt-1 grid size-9 shrink-0 cursor-pointer place-items-center rounded-full border bg-background text-[0.66em] text-foreground touch:size-11 hover:not-active:border-muted-foreground"
-            onClick={(event) => onAddBoost(event.currentTarget)}
-          >
-            <Emoji className="h-5 w-[1.3em]" />
-            <span className="sr-only">Add a boost</span>
-          </button>
-        )
-      )}
+      {customizing && <CustomReaction me={me} fieldRef={customField} onAdd={add} onCancel={cancel} />}
     </div>
+  );
+}
+
+/**
+ * Add reaction: a pill with a smiley, of a reaction pill's height, radius and border, its emoji's line
+ * holding the smiley as the pill's holds its emoji. For fingers it's wider, 44px, and takes taps a little
+ * above and below it, as far as the reactions and summary around it leave clear.
+ */
+function AddReaction(props: ComponentProps<"button">) {
+  return (
+    <button
+      type="button"
+      aria-label="Add reaction"
+      className={cn(
+        "relative flex cursor-pointer items-center rounded-[4rem] border bg-background px-2.5 py-[0.1em] text-muted-foreground hover:not-active:border-muted-foreground hover:not-active:text-foreground aria-expanded:border-muted-foreground aria-expanded:text-foreground",
+        "touch:px-3 touch:after:absolute touch:after:-inset-x-px touch:after:-inset-y-1 touch:after:rounded-[4rem]",
+      )}
+      {...props}
+    >
+      <span className="grid h-6 place-items-center">
+        <Emoji className="size-[18px]" />
+      </span>
+    </button>
+  );
+}
+
+/**
+ * The picker Add reaction opens beside itself, where messages have Message options: every reaction, then
+ * New boost, without the rest of the message's actions. Choosing one closes it, handing focus back to Add
+ * reaction, as Escape does.
+ */
+function ReactionPicker({ onReact, onNewBoost }: { onReact: (emoji: string) => void; onNewBoost: () => void }) {
+  const [open, setOpen] = useState(false);
+  const choose = (then: () => void) => {
+    setOpen(false);
+    then();
+  };
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <AddReaction />
+      </PopoverTrigger>
+      {/* Over the timeline rather than the composer under the message, and clear of a notch. */}
+      <PopoverContent
+        aria-label="Add reaction"
+        side="top"
+        align="start"
+        collisionPadding={8}
+        collisionBoundary={safeAreaBoundary()}
+        className={cn(PANEL, "w-max max-w-(--radix-popover-content-available-width) p-2 text-foreground")}
+      >
+        <ReactionChoices reactions={REACTIONS} onReact={(emoji) => choose(() => onReact(emoji))} onNewBoost={() => choose(onNewBoost)} />
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -176,7 +234,7 @@ function BoostPill({ boost, hint, onDelete }: { boost: Boost; hint: string; onDe
 }
 
 /**
- * New boost's form, a pill in Add a boost's place: your avatar and a field for up to 16 characters that
+ * New boost's form, a pill in Add reaction's place: your avatar and a field for up to 16 characters that
  * can't start with a space, as wide as what's written, then Add reaction once something is, and an X that
  * cancels, as Escape does. How many characters are left shows once five or fewer are. It scrolls itself
  * into view, as its scroll-into-view controller does.

@@ -18,6 +18,7 @@ import {
   tomorrowMorning,
 } from "@/lib/schedule-times";
 import { cn } from "@/lib/utils";
+import { ActionSheet, BottomSheet } from "../mobile/action-sheet";
 import { SCHEDULE_HALF } from "./composer-buttons";
 import { PopoverMenu } from "./popover-menu";
 import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./unsaved-changes";
@@ -107,6 +108,8 @@ interface TimeDialogProps {
   onClose: () => void;
   /** Where focus goes once it closes. */
   onReturnFocus?: () => void;
+  /** Where focus goes as it closes, as Radix's `onCloseAutoFocus`. */
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 /**

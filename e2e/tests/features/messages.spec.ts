@@ -262,7 +262,7 @@ test.describe("Times on follow-up messages", () => {
 
     await ada.composer().hover();
     await expect(shown("Follow-up")).toHaveCSS("opacity", "0");
-    await ada.message("Follow-up").getByRole("button", { name: "Add a boost" }).focus();
+    await ada.message("Follow-up").getByRole("button", { name: "Add reaction" }).focus();
     await expect(shown("Follow-up")).toHaveCSS("opacity", "1");
   });
 

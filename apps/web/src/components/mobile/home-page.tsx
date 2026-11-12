@@ -1,15 +1,15 @@
 import type { ComponentType, ReactNode } from "react";
 import type { LiveHuddle, Me, RoomId } from "@ember/protocol";
-import { CheckCircle, EditPencil, Group, Headset, MultiBubble, Star } from "@/components/icons/iconoir";
+import { EditPencil, Group, Headset, MultiBubble } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
+import { roomPath } from "@/hooks/use-route";
+import { KEPT_SHORTCUTS, type KeptShortcut } from "../workspace/kept-shortcuts";
+import { cappedCount, useDraftCount } from "./draft-count";
 import { useDirectoryCount } from "./people-count";
-import { roomPath, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
-import { AppearanceMenu } from "../workspace/appearance-menu";
-import { NavigationIcon } from "../workspace/navigation-icon";
-import { ROUND_BUTTON } from "./back-button";
 import { NewMessageButton, TabPage, YouLink } from "./tab-page";
-import { DRAFTS_PATH, PEOPLE_PATH, SAVED_PATH, THREADS_PATH, TODOS_PATH } from "./tabs";
+import { DRAFTS_PATH, PEOPLE_PATH, THREADS_PATH } from "./tabs";
+import { NewReleaseContext } from "./you-sheet";
 
 interface Props {
   me: Me;
@@ -18,92 +18,85 @@ interface Props {
   sidebar: ReactNode;
   /** The huddles going on in this person's rooms, by room. */
   huddles: Record<RoomId, LiveHuddle>;
-  /** The release of Ember out since this one, which Admin marks for an administrator, or null for none. */
+  /** The release of Ember out since this one, which the You sheet's Admin says is available, or null for none. */
   newRelease: string | null;
   onNewDirect: (opener: HTMLElement) => void;
 }
 
 /**
- * Home on a phone, Slack's: the workspace's logo and name at the top, with the way to its settings, the
- * appearance menu and your avatar at the other end, then a row of cards that scrolls sideways, for what
- * sits above the rooms in the desktop's Home sidebar (Threads, Drafts & sent, People, Saved, To-dos) and
- * the huddles going on, once huddles are on, then the conversations, with New direct message floating
- * over their bottom right.
+ * Home on a phone, Slack's: the workspace's logo and name at the top, with your avatar, which opens the
+ * You sheet, at the other end, then a row of cards that scrolls sideways, for what sits above the rooms in
+ * the desktop's Home sidebar (Threads, Drafts & sent, People, Saved, To-dos) and the huddles going on,
+ * once huddles are on, then the conversations, with New direct message floating over their bottom right.
+ * The logo, the cards and the rooms' icons line up 16px from the screen's edge.
  */
 export function HomePage({ me, workspaceName, sidebar, huddles, newRelease, onNewDirect }: Props) {
-  const { logo, tagline, huddles: huddlesOn } = useAccount();
+  const { logo, huddles: huddlesOn } = useAccount();
   const live = Object.keys(huddles) as RoomId[];
   const people = useDirectoryCount();
+  const drafts = useDraftCount(me.id);
   return (
-    <TabPage
-      heading={
-        <>
-          <img src={logo ?? "/ember-icon.png"} alt="" width={36} height={36} className="size-9 shrink-0 rounded-[9px] object-cover" />
-          <hgroup className="min-w-0">
-            <h1 className="truncate text-[19px] leading-6 font-bold">{workspaceName}</h1>
-            {tagline && <p className="truncate text-xs leading-4 text-muted-foreground">{tagline}</p>}
-          </hgroup>
-        </>
-      }
-      actions={
-        <>
-          <PageLink
-            href={WORKSPACE_SETTINGS_PATH}
-            aria-label={me.administrator ? "Admin" : "Workspace"}
-            title={me.administrator ? "Admin" : "Workspace"}
-            aria-description={newRelease === null ? undefined : `Ember ${newRelease} is available`}
-            className={`relative ${ROUND_BUTTON}`}
-          >
-            <NavigationIcon slot="admin" size={20} className="size-5" />
-            {newRelease !== null && <span aria-hidden="true" className="absolute top-0.5 right-0.5 size-[9px] rounded-full border-2 border-surface bg-foreground" />}
-          </PageLink>
-          {/* Below the top bar, clear of its other buttons. */}
-          <AppearanceMenu side="bottom" />
-          <YouLink me={me} />
-        </>
-      }
-      floating={<NewMessageButton onNewDirect={onNewDirect} />}
-    >
-      <ul aria-label="Shortcuts" className="flex shrink-0 gap-2.5 overflow-x-auto border-b px-4 py-3 [scrollbar-width:none]">
-        <Card Icon={MultiBubble} title="Threads" detail="Following" href={THREADS_PATH} />
-        <Card Icon={EditPencil} title="Drafts & sent" detail="Unsent" href={DRAFTS_PATH} />
-        <Card Icon={Group} title="People" detail={people === null ? "Directory" : `${people} ${people === 1 ? "person" : "people"}`} href={PEOPLE_PATH} />
-        <Card Icon={Star} title="Saved" detail="For later" href={SAVED_PATH} />
-        <Card Icon={CheckCircle} title="To-dos" detail="Your list" href={TODOS_PATH} />
-        {huddlesOn && (
-          <Card Icon={Headset} title="Huddles" detail={`${live.length} live`} href={live.length > 0 ? roomPath(live[0]!) : undefined} marked={live.length > 0} />
-        )}
-      </ul>
-      {/* The conversations keep their own scrolling, which moving a starred room scrolls as it's dragged,
-          in the room left under the cards. */}
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)]">{sidebar}</div>
-    </TabPage>
+    <NewReleaseContext value={newRelease}>
+      <TabPage
+        heading={
+          <>
+            <img src={logo ?? "/ember-icon.png"} alt="" width={36} height={36} className="size-9 shrink-0 rounded-[9px] object-cover" />
+            <h1 className="min-w-0 truncate text-[19px] leading-6 font-bold">{workspaceName}</h1>
+          </>
+        }
+        actions={<YouLink me={me} />}
+        floating={<NewMessageButton onNewDirect={onNewDirect} />}
+      >
+        <ul aria-label="Shortcuts" className="flex shrink-0 gap-2.5 overflow-x-auto border-b px-4 py-3 [scrollbar-width:none]">
+          <Card Icon={MultiBubble} title="Threads" href={THREADS_PATH} />
+          <Card Icon={EditPencil} title="Drafts & sent" detail={drafts > 0 ? `${cappedCount(drafts)} ${drafts === 1 ? "draft" : "drafts"}` : undefined} href={DRAFTS_PATH} />
+          <Card Icon={Group} title="People" detail={people === null ? undefined : `${people} ${people === 1 ? "person" : "people"}`} href={PEOPLE_PATH} />
+          {KEPT_CARDS.map((page) => (
+            <KeptCard key={page} shortcut={KEPT_SHORTCUTS.find((shortcut) => shortcut.page === page)!} />
+          ))}
+          {huddlesOn && <Card Icon={Headset} title="Huddles" detail={live.length > 0 ? `${live.length} live` : undefined} href={live.length > 0 ? roomPath(live[0]!) : undefined} />}
+        </ul>
+        {/* The conversations keep their own scrolling, which moving a starred room scrolls as it's dragged,
+            in the room left under the cards. They scroll on behind the tab bar and New direct message,
+            and clear of them at their end, past a spacer rather than padding, which a list can't be shorter
+            than, as on a phone on its side; less the 16px gap before it. Their rows' icons line up with the cards. */}
+        <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] *:px-[7px]! *:pb-0! *:after:h-[calc(var(--mobile-bottom-inset,6rem)-1rem)] *:after:shrink-0">
+          {sidebar}
+        </div>
+      </TabPage>
+    </NewReleaseContext>
   );
 }
 
 interface CardProps {
   Icon: ComponentType<{ className?: string }>;
   title: string;
-  detail: string;
+  /** How much is there, when there's a count to give. */
+  detail?: string;
   /** Where it goes, or nowhere, when there's nothing there. */
   href?: string;
-  /** Whether something's waiting there, which a dot marks. */
-  marked?: boolean;
 }
 
-/** One of Home's cards: an icon with a dot when something's waiting there, its name, and how much. */
-function Card({ Icon, title, detail, href, marked = false }: CardProps) {
+/** Saved, then To-dos, as the desktop's Home sidebar has them. */
+const KEPT_CARDS: KeptShortcut["page"][] = ["saved", "todos"];
+
+/** Saved's or To-dos' card, which says how many to-dos are open. Saved has no count to give yet. */
+function KeptCard({ shortcut }: { shortcut: KeptShortcut }) {
+  const count = shortcut.useBadge();
+  const counted = shortcut.page === "todos" ? "open" : count === 1 ? "item" : "items";
+  return <Card Icon={shortcut.Icon} title={shortcut.title} detail={count > 0 ? `${cappedCount(count)} ${counted}` : undefined} href={shortcut.href} />;
+}
+
+/** One of Home's cards: an icon, its name, and how much is there, each the same height with a count or without. */
+function Card({ Icon, title, detail, href }: CardProps) {
   const contents = (
     <>
-      <span className="relative w-fit">
-        <Icon className="size-6" />
-        {marked && <span aria-hidden="true" className="absolute -top-0.5 -right-1 size-2 rounded-full bg-foreground" />}
-      </span>
-      <span className="mt-1 text-base leading-5 font-semibold">{title}</span>
-      <span className="text-sm leading-5 text-muted-foreground">{detail}</span>
+      <Icon className="size-6" />
+      <span className="mt-1 truncate text-base leading-5 font-semibold">{title}</span>
+      {detail && <span className="truncate text-sm leading-5 text-muted-foreground">{detail}</span>}
     </>
   );
-  const card = "flex min-h-[92px] w-[132px] flex-col rounded-xl border bg-surface px-3.5 py-3 text-foreground no-underline";
+  const card = "flex h-full min-h-[92px] w-[132px] flex-col rounded-xl border bg-surface px-3.5 py-3 text-foreground no-underline";
   return (
     <li className="shrink-0">
       {href ? (

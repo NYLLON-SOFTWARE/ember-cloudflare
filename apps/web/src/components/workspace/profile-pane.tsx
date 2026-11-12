@@ -190,19 +190,29 @@ function statusLabel(status: Person["status"] | undefined): string {
   return "No longer on this account";
 }
 
-/** Their time where they are, as their browser last said, kept current to the minute. */
-function LocalTime({ timeZone }: { timeZone: string }) {
+/**
+ * The time in `timeZone`, as "2:51 AM", kept current to the minute, or null without a time zone or with
+ * one this browser doesn't know.
+ */
+export function useLocalTime(timeZone: string | null | undefined): string | null {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
+    if (!timeZone) return;
     const timer = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(timer);
-  }, []);
-  let time: string;
+  }, [timeZone]);
+  if (!timeZone) return null;
   try {
-    time = now.toLocaleTimeString(undefined, { timeZone, hour: "numeric", minute: "2-digit" });
+    return now.toLocaleTimeString(undefined, { timeZone, hour: "numeric", minute: "2-digit" });
   } catch {
     return null;
   }
+}
+
+/** Their time where they are, as their browser last said, kept current to the minute. */
+export function LocalTime({ timeZone }: { timeZone: string }) {
+  const time = useLocalTime(timeZone);
+  if (time === null) return null;
   return (
     <p className="flex items-center gap-2 text-sm text-muted-foreground">
       <ClockRotateRight className="size-4" />

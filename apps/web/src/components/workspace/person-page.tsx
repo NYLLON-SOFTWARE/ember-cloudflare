@@ -12,6 +12,7 @@ import { useTitle } from "@/hooks/use-title";
 import { banPerson, fetchPerson, isSignedOut, unbanPerson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { PhoneProfile } from "../mobile/profile";
+import { LocalTime } from "./profile-pane";
 import { AgentBadge, isAgent } from "./agent-badge";
 import { HEADER_BUTTON } from "./page-header";
 import { isMissing } from "./room-settings-page";
@@ -164,6 +165,9 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
           {/* Campfire's `.gap` with a third of its block space between rows. */}
           <div className="flex flex-col gap-x-[1ch] gap-y-[calc(1rem/3)]">
             <h1 className="text-[23px] leading-[1.2] font-bold">{person.name}</h1>
+            {/* A phone's profile says their time where they are under their name, as Slack's does; a wider
+                screen's profile pane says it. */}
+            {phone && person.timeZone && <LocalTime timeZone={person.timeZone} />}
             {/* Campfire's link, left out for someone with no address. */}
             {person.emailAddress !== undefined && (
               <div>

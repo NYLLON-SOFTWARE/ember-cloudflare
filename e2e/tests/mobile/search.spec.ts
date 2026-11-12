@@ -1,5 +1,5 @@
 import { openRoom, signInAs } from "../../fixtures";
-import { expect, hasPhoneLayout, tabBar, test } from "./fixtures";
+import { expect, hasPhoneLayout, test } from "./fixtures";
 
 /** A word in no other test's messages or searches, since every test shares the server and its open rooms. */
 const uniqueWord = (word: string) => `${word}${crypto.randomUUID().slice(0, 8)}`;
@@ -14,12 +14,17 @@ test("the search box and its results fit the phone, with recent searches, chips 
   await ada.say(`The ${word} at https://example.com/${"analytical-engine-".repeat(8)} ran on and on through the whole afternoon`);
   await openRoom(page, room);
 
-  // A phone has Search in the tab bar, which opens in the room shown, as the room's top bar's does.
+  // A phone has Search in conversation in the room's details, which the top bar's pill opens, and which
+  // opens the box in the room, as the wider top bar's Search does.
   const header = page.getByRole("navigation", { name: "Page" });
-  const search = hasPhoneLayout(page) ? tabBar(page).getByRole("link", { name: "Search" }) : header.getByRole("link", { name: "Search messages" });
   const box = page.getByRole("dialog", { name: "Search" });
   const field = box.getByRole("combobox", { name: "Search" });
-  await search.tap();
+  const openSearch = async () => {
+    if (!hasPhoneLayout(page)) return header.getByRole("link", { name: "Search messages" }).tap();
+    await header.getByRole("button", { name: new RegExp(`^${room.name}`) }).tap();
+    await page.getByRole("dialog", { name: room.name }).getByRole("link", { name: "Search in conversation" }).tap();
+  };
+  await openSearch();
   await expect(field).toBeFocused();
   await expect(box.getByRole("button", { name: `Remove in:${room.name}` })).toBeVisible();
   // The chips scroll sideways rather than push the box off the screen.
@@ -48,7 +53,7 @@ test("the search box and its results fit the phone, with recent searches, chips 
 
   // Back in the room, the box lists the searches just made.
   await page.getByRole("link", { name: "Exit search" }).tap();
-  await search.tap();
+  await openSearch();
   await expect(box.getByRole("heading", { name: "Recent searches" })).toBeVisible();
   await expect(box.getByRole("option").filter({ hasNotText: "Show results for" })).toHaveCount(4);
   await screenIsFine();

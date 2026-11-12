@@ -7,6 +7,11 @@ import { NavigationIcon } from "../workspace/navigation-icon";
 import { OpenSearchContext, opensSearch } from "../workspace/search-box";
 import { TAB_PATHS, type Tab } from "./tabs";
 import "./mobile.css";
+import "./tab-bar.css";
+
+/** The tabs' icons and Search's, all one size. */
+const ICON_SIZE = 22;
+const ICON = "size-[22px]";
 
 /** What's waiting on each tab, which a dot at its icon's corner marks. */
 export type TabNotices = Partial<Record<Tab, string>>;
@@ -22,9 +27,11 @@ interface Props {
 /**
  * The phone layout's tab bar, Slack's: Home, DMs, Activity and Files in a pill along the bottom of the
  * screen, the marked one highlighted, and Search, which opens the search box, in a circle of its own
- * beside them, in the room shown when there is one. A tab with something waiting has a dot at its icon's corner, said to screen readers as a
- * description. It makes way for the on-screen keyboard, and on a short screen, such as a small phone's
- * or one on its side, which has little height to spare, shows its icons alone.
+ * beside them, in the room shown when there is one, as far from the screen's edge as the floating New
+ * direct message button over it. A tab with something waiting has a dot at its icon's corner, said to
+ * screen readers as a description. It floats over a tab's page (tab-bar.css), makes way for the
+ * on-screen keyboard, and on a short screen, such as a small phone's or one on its side, which has little
+ * height to spare, shows its icons alone.
  */
 export function TabBar({ current, notices, roomId }: Props) {
   const openSearch = useContext(OpenSearchContext);
@@ -35,26 +42,23 @@ export function TabBar({ current, notices, roomId }: Props) {
     return () => document.documentElement.removeAttribute("data-typing");
   }, [typing]);
   return (
-    <nav
-      aria-label="Tabs"
-      data-tab-bar
-      data-typing={typing || undefined}
-      className="relative z-[3] col-start-1 row-[-2/-1] flex items-center gap-2 bg-background pt-1.5 data-typing:hidden [@media(height<37.5rem)]:pt-1 pr-[max(12px,env(safe-area-inset-right))] pb-[max(8px,env(safe-area-inset-bottom))] pl-[max(12px,env(safe-area-inset-left))] md:hidden"
-    >
-      <div className="flex min-w-0 flex-1 items-center rounded-full border bg-surface p-1 shadow-[0_2px_12px_var(--color-drag-shadow)]">
-        <TabLink tab="home" label="Home" current={current} notice={notices.home} icon={<NavigationIcon slot="home" size={22} className="size-[22px]" />} />
-        <TabLink tab="dms" label="DMs" current={current} notice={notices.dms} icon={<NavigationIcon slot="dms" size={22} className="size-[22px]" />} />
-        <TabLink tab="activity" label="Activity" current={current} notice={notices.activity} icon={<NavigationIcon slot="activity" size={22} className="size-[22px]" />} />
-        <TabLink tab="files" label="Files" current={current} notice={notices.files} icon={<Page className="size-[22px]" />} />
+    <nav aria-label="Tabs" data-tab-bar data-typing={typing || undefined} className="relative z-[3] col-start-1 row-[-2/-1] data-typing:hidden md:hidden">
+      <div className="flex items-center gap-2 bg-background pt-1.5 pr-[max(16px,env(safe-area-inset-right))] pb-[max(8px,env(safe-area-inset-bottom))] pl-[max(16px,env(safe-area-inset-left))] [@media(height<37.5rem)]:pt-1">
+        <div className="flex min-w-0 flex-1 items-center rounded-full border bg-surface p-1 shadow-[0_2px_12px_var(--color-drag-shadow)]">
+          <TabLink tab="home" label="Home" current={current} notice={notices.home} icon={<NavigationIcon slot="home" size={ICON_SIZE} className={ICON} />} />
+          <TabLink tab="dms" label="DMs" current={current} notice={notices.dms} icon={<NavigationIcon slot="dms" size={ICON_SIZE} className={ICON} />} />
+          <TabLink tab="activity" label="Activity" current={current} notice={notices.activity} icon={<NavigationIcon slot="activity" size={ICON_SIZE} className={ICON} />} />
+          <TabLink tab="files" label="Files" current={current} notice={notices.files} icon={<Page className={ICON} />} />
+        </div>
+        <PageLink
+          href={SEARCHES_PATH}
+          aria-label="Search"
+          onClick={opensSearch(openSearch, roomId === null ? {} : { roomId })}
+          className="grid size-14 shrink-0 place-items-center rounded-full border bg-surface shadow-[0_2px_12px_var(--color-drag-shadow)] [@media(height<37.5rem)]:size-12"
+        >
+          <NavigationIcon slot="search" size={ICON_SIZE} className={ICON} />
+        </PageLink>
       </div>
-      <PageLink
-        href={SEARCHES_PATH}
-        aria-label="Search"
-        onClick={opensSearch(openSearch, roomId === null ? {} : { roomId })}
-        className="grid size-14 shrink-0 place-items-center rounded-full border bg-surface shadow-[0_2px_12px_var(--color-drag-shadow)] [@media(height<37.5rem)]:size-12"
-      >
-        <NavigationIcon slot="search" size={24} className="size-6" />
-      </PageLink>
     </nav>
   );
 }

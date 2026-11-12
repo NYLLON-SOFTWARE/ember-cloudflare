@@ -18,8 +18,8 @@ const AddTabDialog = lazy(() => import("./pages").then(({ AddTabDialog }) => ({ 
 const EditTabsDialog = lazy(() => import("./pages").then(({ EditTabsDialog }) => ({ default: EditTabsDialog })));
 
 
-/** What the + menu adds. */
-const ADDABLE: Array<{ kind: RoomTabKind; label: string }> = [
+/** What the + menu adds, and a phone's room details sheet. */
+export const ADDABLE: Array<{ kind: RoomTabKind; label: string }> = [
   { kind: "file", label: "File" },
   { kind: "link", label: "Link" },
   { kind: "folder", label: "Folder" },
@@ -184,8 +184,9 @@ export function RoomTabs({ room, me, state, onFailed }: Props) {
   return (
     <div className="contents">
       {/* The tabs scroll sideways, with a mouse's wheel too, while + stays at the end of the strip, in reach. */}
-      {/* For fingers, tall enough for + to be a fingertip's 44px without reaching over the header. */}
-      <div ref={strip} className="flex h-10 flex-none items-end gap-0.5 border-b bg-background pr-[14px] touch:h-12 max-md:pr-1.5">
+      {/* For fingers, tall enough for + to be a fingertip's 44px without reaching over the header. A phone
+          has none: its room details sheet, which the top bar's pill opens, lists the tabs. */}
+      <div ref={strip} className="flex h-10 flex-none items-end gap-0.5 border-b bg-background pr-[14px] touch:h-12 max-md:hidden">
         <div
           ref={list}
           role="tablist"
@@ -193,7 +194,7 @@ export function RoomTabs({ room, me, state, onFailed }: Props) {
           onKeyDown={moveFocus}
           onWheel={scrollSideways}
           onScroll={measure}
-          className={cn("flex h-full min-w-0 items-end gap-0.5 overflow-x-auto pl-[14px] [scrollbar-width:none] max-md:pl-1.5", OVERFLOW_FADES[overflow])}
+          className={cn("flex h-full min-w-0 items-end gap-0.5 overflow-x-auto pl-[14px] [scrollbar-width:none]", OVERFLOW_FADES[overflow])}
         >
           <StripTab label="Messages" Icon={ChatLines} selected={!covering} onSelect={() => select("messages")} />
           {!deleted && <StripTab label="Files & links" Icon={MultiplePages} selected={shown === "files"} onSelect={() => select("files")} />}
@@ -239,7 +240,7 @@ export function RoomTabs({ room, me, state, onFailed }: Props) {
         <section
           role="tabpanel"
           aria-label={shown === "files" ? "Files & links" : (custom?.title ?? "Tab")}
-          className="absolute inset-x-0 top-10 bottom-0 z-[5] flex min-h-0 flex-col bg-background"
+          className="absolute inset-x-0 top-10 bottom-0 z-[5] flex min-h-0 flex-col bg-background max-md:top-0"
         >
           <Suspense fallback={null}>
             <RoomTabPanel

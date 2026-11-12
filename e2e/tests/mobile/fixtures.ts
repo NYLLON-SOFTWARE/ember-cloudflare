@@ -61,9 +61,15 @@ export function hasPhoneLayout(page: Page): boolean {
 /** The phone layout's tab bar. */
 export const tabBar = (page: Page) => page.getByRole("navigation", { name: "Tabs" });
 
-/** Goes to Home's list of conversations: the Home tab on a phone, where the sidebar shows them, and the room shown elsewhere. */
+/**
+ * Goes to Home's list of conversations: on a phone, the Home tab, or Back to it from a page without the
+ * tab bar; elsewhere, the room shown, which has the sidebar beside it.
+ */
 export async function showConversations(page: Page): Promise<void> {
-  if (hasPhoneLayout(page)) await tabBar(page).getByRole("link", { name: "Home", exact: true }).tap();
+  if (!hasPhoneLayout(page)) return;
+  const home = tabBar(page).getByRole("link", { name: "Home", exact: true });
+  if (!(await home.isVisible())) await page.getByRole("navigation", { name: "Page" }).getByRole("link", { name: /^Back/ }).first().tap();
+  await home.tap();
 }
 
 /** Each page's DevTools session and the insets it reports right now. */
