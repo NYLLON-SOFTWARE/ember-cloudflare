@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import { REACTIONS } from "@ember/protocol";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { ArrowUp, AtSign, Emoji, Laptop, Page, Plus } from "@/components/icons/iconoir";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -32,7 +31,10 @@ export function AttachMenu({ disabled, onUpload, onFilesInEmber, onReturnFocus }
   );
 }
 
-/** Emoji, which offers the reactions' emoji to write at the cursor. */
+// The picker and its emoji, which load as it first opens.
+const EmojiPicker = lazy(async () => ({ default: (await import("@/components/emoji-picker")).EmojiPicker }));
+
+/** Emoji, which opens the emoji picker to write one at the cursor. */
 export function EmojiButton({ disabled = false, onPick, onReturnFocus }: { disabled?: boolean; onPick: (emoji: string) => void; onReturnFocus: () => void }) {
   const [open, setOpen] = useState(false);
   return (
@@ -46,29 +48,21 @@ export function EmojiButton({ disabled = false, onPick, onReturnFocus }: { disab
       <PopoverContent
         side="top"
         align="start"
-        className="w-auto max-w-[min(20rem,calc(100vw-2rem))] p-2"
+        className="w-auto max-w-[calc(100vw-1rem)] p-0"
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           onReturnFocus();
         }}
       >
-        <div role="group" aria-label="Emoji" className="grid grid-cols-8 gap-0.5">
-          {REACTIONS.map(([emoji, title]) => (
-            <button
-              key={emoji}
-              type="button"
-              title={title}
-              aria-label={title}
-              onClick={() => {
-                setOpen(false);
-                onPick(emoji);
-              }}
-              className="flex size-8 cursor-pointer items-center justify-center rounded-[6px] text-[20px] hover:bg-hover touch:size-11"
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
+        <Suspense fallback={<div className="h-[22rem] w-[19rem] touch:w-[23rem]" />}>
+          <EmojiPicker
+            onPick={(emoji) => {
+              setOpen(false);
+              onPick(emoji);
+            }}
+            onClose={() => setOpen(false)}
+          />
+        </Suspense>
       </PopoverContent>
     </Popover>
   );
