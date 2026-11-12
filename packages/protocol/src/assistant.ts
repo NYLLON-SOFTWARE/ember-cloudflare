@@ -5,11 +5,13 @@ import { parseTemplate } from "./prompts.ts";
 // AI assistant tab of workspace settings through `/api/account/assistant`.
 
 /**
- * The API formats AI Gateway's REST API takes a model's requests in, at `/ai/v1/messages`,
- * `/ai/v1/responses` and `/ai/v1/chat/completions`: Anthropic's models take only Messages, some of
- * OpenAI's only Responses, and most others Chat Completions.
+ * The API formats Ember asks a model in: the three AI Gateway's REST API takes a model's requests in, at
+ * `/ai/v1/messages`, `/ai/v1/responses` and `/ai/v1/chat/completions`, where Anthropic's models take only
+ * Messages, some of OpenAI's only Responses, and most others Chat Completions, and xAI's own Responses,
+ * which AI Gateway's xAI endpoint passes on, where Grok can search the web, as it can't through the REST
+ * API, which takes Grok's requests only in Chat Completions.
  */
-export const MODEL_FORMATS = ["messages", "responses", "chat"] as const;
+export const MODEL_FORMATS = ["messages", "responses", "chat", "xai"] as const;
 export type ModelFormat = (typeof MODEL_FORMATS)[number];
 
 /**
@@ -56,6 +58,9 @@ export const ASSISTANT_MODELS: readonly AssistantModel[] = [
 
 /** Whether `model` is one of Workers AI's, which Cloudflare runs itself, rather than another company's. */
 export const isWorkersAiModel = (model: string) => model.startsWith("@cf/");
+
+/** Whether `model` is one of xAI's, Grok, which Ember asks in xAI's own Responses when it can. */
+export const isXaiModel = (model: string) => model.startsWith("xai/");
 
 /** What to call `model`: its name in `models`, or else in the models Ember knows, or else its ID. */
 export const modelName = (model: string, models: readonly AssistantModel[] = []) =>
@@ -246,11 +251,12 @@ export const WEB_SEARCHES_PER_ANSWER = 5;
 export const PAGES_READ_PER_ANSWER = 3;
 
 /** What a model may do on the web in each format, with the tools AI Gateway passes on in it. */
-export const WEB_TOOLS_IN: Record<ModelFormat, readonly WebTool[]> = { messages: ["search", "read"], responses: ["search"], chat: [] };
+export const WEB_TOOLS_IN: Record<ModelFormat, readonly WebTool[]> = { messages: ["search", "read"], responses: ["search"], chat: [], xai: ["search"] };
 
 /**
- * The format `model` is likeliest to take: the one `models` list it with, or the models Ember knows, or
- * else Messages for Anthropic's, Responses for OpenAI's, and Chat Completions for anyone else's.
+ * The format `model` is likeliest to take through AI Gateway's REST API: the one `models` list it with,
+ * or the models Ember knows, or else Messages for Anthropic's, Responses for OpenAI's, and Chat
+ * Completions for anyone else's, Grok too, which Ember asks in xAI's own Responses first when it can.
  */
 export function formatOf(model: string, models: readonly AssistantModel[] = []): ModelFormat {
   const listed = (models.find(({ id }) => id === model) ?? ASSISTANT_MODELS.find(({ id }) => id === model))?.format;
@@ -258,13 +264,21 @@ export function formatOf(model: string, models: readonly AssistantModel[] = []):
 }
 
 /**
+ * The format `model`, which took its test question in `format`, searches the web in: that one, when AI
+ * Gateway passes on tools for the web in it, or else xAI's own Responses for Grok, or null for a model
+ * that can't search.
+ */
+export const searchFormatOf = (model: string, format: ModelFormat): ModelFormat | null =>
+  WEB_TOOLS_IN[format].length > 0 ? format : isXaiModel(model) ? "xai" : null;
+
+/**
  * Ember AI as the AI assistant tab shows it to administrators while it's on: the Cloudflare account it
  * asks through, the model it answers anyone with who hasn't picked another, the models people can pick
  * from, that one among them, in the order they were added, the most each dial goes to for anyone's
  * questions, and what @ember does on the web: what it may while Search the web is on, nothing while it's
- * off, or null when the model that answers everyone can't, as only Anthropic's and OpenAI's models have
- * tools for it that AI Gateway passes on. Then the instructions Ember adds to @ember's own, what Ember
- * adds around them, and @ember's avatar.
+ * off, or null when the model that answers everyone can't, as only Anthropic's, OpenAI's and xAI's models
+ * have tools for it that AI Gateway passes on (`searchFormatOf`). Then the instructions Ember adds to
+ * @ember's own, what Ember adds around them, and @ember's avatar.
  */
 export interface AssistantSettings {
   accountId: string;
@@ -339,14 +353,15 @@ export const WEB_SEARCH_REFUSED = "Say whether @ember searches the web.";
 
 /** Why Search the web can't turn on for the model called `name`, which has no tool for it that AI Gateway passes on. */
 export const cannotSearchWith = (name: string) =>
-  `${name} can't search the web through AI Gateway, but Anthropic's and OpenAI's models can. Choose one under Models or Change.`;
+  `${name} can't search the web through AI Gateway, but Anthropic's, OpenAI's and xAI's models can. Choose one under Models or Change.`;
 
 /** Why it didn't turn on once the model was asked: Ember AI was changed or turned off meanwhile, or Search the web was. */
 export const WEB_SEARCH_CHANGED = "Ember AI changed while its model searched. Try again.";
 
 /**
  * The Cloudflare account Ember AI asks through, as Set up Ember AI gives it: its ID, and an API token of
- * its with the Workers AI Read permission, which a change can leave out to keep the one Ember has.
+ * its with the Workers AI Read permission, and AI Gateway Run, which Grok needs to search the web, which a
+ * change can leave out to keep the one Ember has.
  */
 export interface AssistantKeys {
   accountId: string;

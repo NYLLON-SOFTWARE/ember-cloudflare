@@ -379,6 +379,21 @@ describe("New agent", () => {
     );
   });
 
+  it("lets Grok search the web, in xAI's own Responses, without reading pages, as Cloudflare's REST API can't have it search", async () => {
+    const { user } = showNewAgent();
+    await fillIn(user);
+    await user.selectOptions(modelMenu(), "Another model…");
+    await user.type(screen.getByRole("textbox", { name: "Model ID" }), "xai/grok-4.7");
+    await user.click(webSwitch());
+    expect(webSwitch()).toBeChecked();
+    expect(webSwitch()).toHaveAccessibleDescription(
+      "Recap searches the web when a question needs it, at most 5 times an answer, and lists the pages it used under its answer. AI Gateway's credits pay for each search.",
+    );
+    await user.click(screen.getByRole("button", { name: "Create agent" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    await waitFor(() => expect(sent()).toEqual([["POST /api/account/agents", expect.objectContaining({ model: "xai/grok-4.7", webSearch: true })]]));
+  });
+
   it("says the most an answer costs at the model's prices, and nothing of one for a Workers AI model", async () => {
     const { user } = showNewAgent();
     await loaded();

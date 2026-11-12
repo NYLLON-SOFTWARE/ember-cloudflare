@@ -7,8 +7,9 @@ import { AI_GATEWAY_ACCOUNT, AI_GATEWAY_PORT } from "../../projects/workspace-se
 // answers a request in any of AI Gateway's three formats with `HELLO` in that format, or, given a tool
 // for searching the web in Messages or Responses, with `FOUND`, citing `SOURCE`, as the model would once
 // it had searched, or, asked `CARD_QUESTION` last, with `CARDED` and a card's Slack payload, refusing as
-// Cloudflare does an account or a token it doesn't know. A spec can hold its answers, to see what shows
-// while a model answers.
+// Cloudflare does an account or a token it doesn't know. It's the default gateway's xAI endpoint too,
+// where Ember asks Grok in xAI's own Responses, which answers as Responses does, taking the API token in
+// AI Gateway's own header alone. A spec can hold its answers, to see what shows while a model answers.
 
 /** What every model says, whatever it's asked. */
 export const HELLO = "Hello, team! Mention @ember whenever you'd like a hand.";
@@ -56,13 +57,17 @@ export const CATALOG = [
   },
 ];
 
-/** What Ember asked AI Gateway: where, with which token and gateway, and what. */
+/** What Ember asked AI Gateway: where, with which token, as Cloudflare's API or AI Gateway's endpoints for each provider take it, and gateway, and what. */
 export interface GatewayAsked {
   path: string;
   authorization: string | undefined;
+  aigAuthorization: string | undefined;
   gateway: string | undefined;
   body: Record<string, unknown>;
 }
+
+/** Where the account's default gateway passes requests on to xAI's own Responses. */
+export const XAI_PATH = `/v1/${AI_GATEWAY_ACCOUNT.accountId}/default/grok/v1/responses`;
 
 export interface FakeGateway {
   /** What it was asked, in order. */
@@ -141,10 +146,16 @@ async function answer(request: IncomingMessage, response: ServerResponse, asked:
   await held;
   const path = request.url ?? "";
   const gateway = request.headers["cf-aig-gateway-id"] as string | undefined;
+  const aigAuthorization = request.headers["cf-aig-authorization"] as string | undefined;
   const sent = body === "" ? {} : (JSON.parse(body) as Record<string, unknown>);
-  asked.push({ path, authorization: request.headers.authorization, gateway, body: sent });
+  asked.push({ path, authorization: request.headers.authorization, aigAuthorization, gateway, body: sent });
   const [, account, endpoint] = path.match(/^\/accounts\/([^/]+)\/ai\/([^?]+)/) ?? [];
   const reply = (status: number, data: unknown) => void response.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(data));
+  if (path === XAI_PATH) {
+    // It would pass a token in Authorization on to xAI, as an xAI key of the account's own.
+    if (aigAuthorization !== `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}` || request.headers.authorization !== undefined) return reply(401, { success: false, error: [{ code: 2009, message: "Unauthorized" }] });
+    return reply(200, (searches(sent) && SEARCHED_ANSWERS.responses) || (asksForCard(sent) ? CARD_ANSWERS : ANSWERS).responses);
+  }
   if (account !== AI_GATEWAY_ACCOUNT.accountId) {
     return reply(400, { success: false, errors: [{ code: 7003, message: `Could not route to /client/v4${path}, perhaps your object identifier is invalid?` }] });
   }

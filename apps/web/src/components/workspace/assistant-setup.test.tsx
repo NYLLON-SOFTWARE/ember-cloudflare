@@ -121,13 +121,17 @@ describe("Set up Ember AI", () => {
     expect(setup).toHaveAccessibleDescription(
       "Ember AI asks a model through your Cloudflare account's AI Gateway. Workers AI's models come with a free daily allowance, and other companies' are paid for with AI Gateway's credits. Ember keeps the API token encrypted.",
     );
-    const [open, token, account] = steps();
+    const [open, token, account, run] = steps();
     expect(open).toHaveTextContent("In the Cloudflare dashboard, open Workers AI and choose Use REST API.");
     const dashboard = within(open!).getByRole("link", { name: "Open Workers AI in the Cloudflare dashboard" });
     expect(dashboard).toHaveAttribute("href", "https://dash.cloudflare.com/?to=/:account/ai/workers-ai");
     expect(dashboard).toHaveAttribute("target", "_blank");
     expect(token).toHaveTextContent("Choose Create a Workers AI API Token, then Create API Token, and copy the token here.");
     expect(account).toHaveTextContent("Copy the Account ID shown there too.");
+    expect(run).toHaveTextContent("So that Grok can search the web, edit the token under API Tokens on your Cloudflare profile and add the AI Gateway Run permission.");
+    const tokens = within(run!).getByRole("link", { name: "Open your API tokens in the Cloudflare dashboard" });
+    expect(tokens).toHaveAttribute("href", "https://dash.cloudflare.com/profile/api-tokens");
+    expect(tokens).toHaveAttribute("target", "_blank");
     expect(accountIdField()).toHaveValue("");
     expect(accountIdField()).not.toHaveAccessibleDescription();
     expect(button("Continue")).toBeDisabled();
@@ -310,7 +314,7 @@ describe("Set up Ember AI", () => {
     serve();
     const { user } = showSetup(savedOf({ accountId: ACCOUNT_ID, model: "openai/gpt-6.1-sol" }));
     await dialog("Set up Ember AI");
-    expect(steps()).toHaveLength(2);
+    expect(steps()).toHaveLength(3);
     expect(accountIdField()).toHaveValue(ACCOUNT_ID);
     expect(workersAiLink()).toHaveAttribute("href", `https://dash.cloudflare.com/${ACCOUNT_ID}/ai/workers-ai`);
     expect(apiTokenField()).toHaveValue("");
@@ -334,6 +338,7 @@ describe("Set up Ember AI", () => {
     expect(steps().map((step) => step.textContent)).toEqual([
       "In the Cloudflare dashboard, open Workers AI and choose Use REST API. Open Workers AI in the Cloudflare dashboard",
       "Choose Create a Workers AI API Token, then Create API Token, and copy the token here.",
+      "So that Grok can search the web, edit the token under API Tokens on your Cloudflare profile and add the AI Gateway Run permission. Open your API tokens in the Cloudflare dashboard",
     ]);
     expect(accountIdField()).toHaveValue(ACCOUNT_ID);
     expect(accountIdField()).toHaveAccessibleDescription("Ember is deployed to this account. To ask through another, paste that account's ID.");
@@ -386,7 +391,7 @@ describe("Set up Ember AI", () => {
     serve();
     showSetup(savedOf({ accountId: OTHER_ACCOUNT_ID, model: "openai/gpt-6.1-sol" }), ACCOUNT_ID);
     await dialog("Set up Ember AI");
-    expect(steps()).toHaveLength(2);
+    expect(steps()).toHaveLength(3);
     expect(accountIdField()).toHaveValue(OTHER_ACCOUNT_ID);
     expect(accountIdField()).not.toHaveAccessibleDescription();
     expect(workersAiLink()).toHaveAttribute("href", `https://dash.cloudflare.com/${OTHER_ACCOUNT_ID}/ai/workers-ai`);

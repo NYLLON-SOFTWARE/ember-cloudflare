@@ -176,7 +176,7 @@ export const AGENT_SET_UP_AGAIN = "Ember AI was set up again while the model ans
 
 /** Why Search the web can't be on for an agent whose model, called `name`, has no tool for it that AI Gateway passes on. */
 export const agentCannotSearchWith = (name: string) =>
-  `${name} can't search the web through AI Gateway, but Anthropic's and OpenAI's models can. Choose one of theirs, or leave Search the web off.`;
+  `${name} can't search the web through AI Gateway, but Anthropic's, OpenAI's and xAI's models can. Choose one of theirs, or leave Search the web off.`;
 
 /** Why an agent's fields are refused before anything's saved. */
 export const NAME_REFUSED = `Give it a name of one line, at most ${MAX_USER_NAME_LENGTH} characters, which people mention it by.`;

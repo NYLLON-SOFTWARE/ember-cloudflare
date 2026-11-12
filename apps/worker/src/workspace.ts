@@ -74,13 +74,16 @@ import {
 } from "@ember/protocol";
 import {
   DEFAULT_LEVELS,
+  isXaiModel,
   MAX_ASSISTANT_MODELS,
   modelName,
+  searchFormatOf,
   TOP_LEVELS,
   WEB_TOOLS_IN,
   withinMost,
   type AnswerLevels,
   type AssistantChanges,
+  type ModelFormat,
   type ThinkingLevel,
   type WebTool,
   type YourAssistant,
@@ -305,7 +308,7 @@ const assistantSettingsOf = ({ assistant, assistantMost, assistantInstructions, 
     model: assistant.model,
     models: assistant.models,
     most: assistantMost,
-    webTools: WEB_TOOLS_IN[assistant.format].length === 0 ? null : assistant.webTools,
+    webTools: searchFormatOf(assistant.model, assistant.format) === null ? null : assistant.webTools,
     instructions: assistantInstructions,
     promptTemplate: assistantPromptTemplate,
   };
@@ -1258,22 +1261,29 @@ export class Workspace extends DurableObject<Env> {
    * Changes what @ember may do on the web to `webTools`, as Search the web was asked to at `askedAt` while
    * Ember AI is on, as the administrator `credentials` signs in, answering Ember AI as the AI assistant tab
    * then shows it: "off" while it's off, "forbidden" for anyone else, and null without a valid session.
-   * The change, whose tools Search the web found the model `tested` took, changes nothing ("changed") once
-   * Ember AI answers everyone through another account or with another model, or in another format, or
-   * once a change to Search the web asked for after it has been saved, as when it's turned off while the
-   * model searched, which this change doesn't undo.
+   * The change, whose tools Search the web found the model `tested` took, in the format it searched in,
+   * `searchedIn`, which the model is asked in from then on, wherever people pick it, as the other Grok
+   * models people pick are once Grok has searched through xAI's endpoint, which they reach as it does,
+   * changes nothing ("changed") once Ember AI answers everyone through another account or with another
+   * model, or in another format than `tested`'s, or once a change to Search the web asked for after it
+   * has been saved, as when it's turned off while the model searched, which this change doesn't undo.
    */
   async changeAssistantWebTools(
     credentials: Credentials,
     webTools: WebTool[],
     tested: AskedAs | null,
     askedAt: string,
+    searchedIn: ModelFormat | null = null,
   ): Promise<{ assistant: AssistantSettings } | "off" | "changed" | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
-      if (!account.assistant) return "off";
-      if (tested && !isAskedAs(account.assistant, tested)) return "changed";
-      if (account.assistant.webToolsAskedAt !== null && account.assistant.webToolsAskedAt > askedAt) return "changed";
-      return this.storeAssistant(account, { ...account.assistant, webTools, webToolsAskedAt: askedAt });
+      const { assistant } = account;
+      if (!assistant) return "off";
+      if (tested && !isAskedAs(assistant, tested)) return "changed";
+      if (assistant.webToolsAskedAt !== null && assistant.webToolsAskedAt > askedAt) return "changed";
+      const format = searchedIn ?? assistant.format;
+      const moves = (id: string) => id === assistant.model || (searchedIn === "xai" && isXaiModel(id));
+      const models = assistant.models.map((model) => (moves(model.id) ? { ...model, format } : model));
+      return this.storeAssistant(account, { ...assistant, format, models, webTools, webToolsAskedAt: askedAt });
     });
   }
 

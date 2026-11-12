@@ -31,6 +31,7 @@ import { mentionPromptItem } from "@ember/richtext";
 import { runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentAnsweredUnsearched } from "../src/assistant/agents";
+import { XAI_TOKEN_REFUSED } from "../src/assistant/gateway";
 import type { Db, Statement } from "../src/db";
 import type { Workspace } from "../src/workspace";
 import notFoundPage from "../../web/public/404.html";
@@ -48,6 +49,9 @@ const OTHER_API_TOKEN = "another-api-token-with-workers-ai-read_01";
 const CLOUDFLARE_API = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/ai/v1`;
 /** Anthropic's models, which take Messages and can search the web, OpenAI's, which takes Responses, and one of Workers AI's, which takes Chat Completions and can't. */
 const [SONNET, HAIKU, GPT, GLM] = ["anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5", "openai/gpt-6.1-sol", "@cf/zai-org/glm-4.7-flash"];
+/** xAI's Grok, which searches the web only in xAI's own Responses, through the default gateway's xAI endpoint there. */
+const GROK = "xai/grok-4.7";
+const XAI_ENDPOINT = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default/grok/v1/responses`;
 const HELLO = "Hello, team!";
 
 /** An agent as New agent sends it: Recap, on Claude Haiku, in every open room. */
@@ -96,6 +100,28 @@ function sayingHello(url: string): Response {
 /** A model that says hello, and searches the web whenever it's given a tool for it, as Anthropic's do. */
 const answering = (asked: Asked): Response =>
   searches(asked) ? Response.json({ type: "message", role: "assistant", content: SEARCHED, stop_reason: "end_turn", usage: { input_tokens: 1_000, output_tokens: 100 } }) : sayingHello(asked.url);
+
+/** Grok's answer once it has searched, as xAI's own Responses has it, citing the page by its number. */
+const XAI_SEARCHED = {
+  object: "response",
+  status: "completed",
+  output: [
+    { type: "web_search_call", id: "ws_1", status: "completed", action: { type: "search", query: "Cloudflare AI Gateway" } },
+    { type: "message", role: "assistant", content: [{ type: "output_text", text: "AI Gateway is Cloudflare's proxy for AI models.", annotations: [{ type: "url_citation", url: DOCS.url, title: "1" }] }] },
+  ],
+};
+
+/**
+ * Grok, through the xAI endpoint, searching the web whenever it's given a tool for it, or the xAI endpoint
+ * refusing an API token without AI Gateway Run, `withoutRun`, as models answer everything else (`answering`).
+ */
+const grokAnswering =
+  (withoutRun = false) =>
+  (asked: Asked): Response => {
+    if (asked.url !== XAI_ENDPOINT) return answering(asked);
+    if (withoutRun) return Response.json({ success: false, result: [], messages: [], error: [{ code: 2009, message: "Unauthorized" }] }, { status: 401 });
+    return searches(asked) ? Response.json(XAI_SEARCHED) : sayingHello(asked.url);
+  };
 
 /** How the fake AI Gateway answers, which a test can change, and what it was asked. */
 let answer: (asked: Asked) => Response | Promise<Response>;
@@ -409,6 +435,40 @@ describe("AI agents", () => {
       expect(unthinking()[1]!.body.system).toContain("You are Scout, an AI agent");
       // The AI assistant tab lists what it does on the web too.
       expect(await listed(administrator)).toEqual([expect.objectContaining({ name: "Scout", webTools: ["search", "read"] })]);
+    });
+
+    it("has Grok search the web through AI Gateway's xAI endpoint, in xAI's own Responses, as it's asked from then on", async () => {
+      const administrator = await setUp();
+      asked.length = 0;
+      answer = grokAnswering();
+      const grok = await made(administrator, { name: "Grok", model: GROK, webSearch: true });
+      expect(grok).toMatchObject({ model: GROK, format: "xai", webTools: ["search"] });
+      expect(unthinking().map(({ url }) => url)).toEqual([XAI_ENDPOINT, XAI_ENDPOINT]);
+      expect(unthinking().map(searches)).toEqual([false, true]);
+      // The API token goes in AI Gateway's own header there, as xAI would take one in Authorization as its own key.
+      expect(asked.every(({ authorization }) => authorization === null)).toBe(true);
+      expect(unthinking()[1]!.body).toMatchObject({ model: "grok-4.7", tools: [{ type: "web_search" }], store: false });
+    });
+
+    it("moves a Grok agent onto the xAI endpoint once Search the web goes on, saying what the API token lacks until it can", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const administrator = await setUp();
+      // Made with an API token without AI Gateway Run, which Cloudflare's REST API asks Grok in Chat Completions with.
+      answer = grokAnswering(true);
+      const grok = await made(administrator, { name: "Grok", model: GROK });
+      expect(grok).toMatchObject({ format: "chat", webTools: [] });
+
+      asked.length = 0;
+      expect(await refusalOf(await changeAgent(administrator, grok.id, { webSearch: true }))).toEqual([422, { error: `${XAI_TOKEN_REFUSED} Cloudflare says: Unauthorized`, field: "webSearch" }]);
+      expect(asked.map(({ url }) => url)).toEqual([XAI_ENDPOINT]);
+      expect(await shownAgent(administrator, grok.id)).toMatchObject({ format: "chat", webTools: [] });
+
+      // Once the token has it, Grok searches there, and is asked there from then on.
+      answer = grokAnswering();
+      asked.length = 0;
+      expect(await agentOf(await changeAgent(administrator, grok.id, { webSearch: true }))).toMatchObject({ format: "xai", webTools: ["search"] });
+      expect(asked.map(({ url }) => url)).toEqual([XAI_ENDPOINT]);
+      expect(await workspaceSql("SELECT format, web_tools FROM agents WHERE user_id = ?", grok.id)).toEqual([{ format: "xai", web_tools: '["search"]' }]);
     });
 
     it("refuses Search the web for a model that can't search, or that answered without searching, on its field", async () => {

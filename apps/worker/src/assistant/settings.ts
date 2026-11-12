@@ -18,6 +18,7 @@ import {
   parseNewAssistantModel,
   parseWebSearchChange,
   parseYourAssistantChanges,
+  searchFormatOf,
   WEB_TOOLS_IN,
   type AssistantCatalog,
   type AssistantChanged,
@@ -268,12 +269,14 @@ function assistantAvatarAnswer(changed: AssistantChanged | "off" | "forbidden" |
 /**
  * `PUT /api/account/assistant/web_search`, `{ on }`: turns Search the web on or off while Ember AI is on,
  * as the Ember AI card's switch does, answering Ember AI as it is then, and, once it's on, what the model
- * that answers everyone said when it searched (`searchedBy`). The models people pick are given their
- * format's tools for the web then too. Someone who isn't an administrator hears so before anything they
- * sent is read, and turning it on for a model whose format has no tools for the web, that it can't
- * search. The model, or the Cloudflare account, being changed while it searched turns nothing on, as it's
- * the model that was asked, through that account, that searched, and nor does Search the web being
- * turned off meanwhile, or on again, as the latest change asked for is the one that stays.
+ * that answers everyone said when it searched (`searchedBy`), in the format it searches in, which it's
+ * asked in from then on, as Grok is in xAI's own Responses (`searchFormatOf`). The models people pick
+ * are given their format's tools for the web then too. Someone who isn't an administrator hears so
+ * before anything they sent is read, and turning it on for a model that has no tools for the web in any
+ * format, that it can't search. The model, or the Cloudflare account, being changed while it searched
+ * turns nothing on, as it's the model that was asked, through that account, that searched, and nor does
+ * Search the web being turned off meanwhile, or on again, as the latest change asked for is the one that
+ * stays.
  */
 export async function changeWebSearch(request: Request, env: Env): Promise<Response> {
   const askedAt = new Date().toISOString();
@@ -284,10 +287,12 @@ export async function changeWebSearch(request: Request, env: Env): Promise<Respo
   if (!change) return problem(422, WEB_SEARCH_REFUSED);
   const gateway = change.on ? await ember.assistantGateway() : null;
   if (change.on && !gateway) return problem(409, ASSISTANT_OFF);
-  if (gateway && WEB_TOOLS_IN[gateway.format].length === 0) return problem(422, cannotSearchWith(gateway.name));
-  const searched = gateway ? await searchedBy(env, gateway) : { webTools: [], found: null };
+  const searchFormat = gateway && searchFormatOf(gateway.model, gateway.format);
+  if (gateway && !searchFormat) return problem(422, cannotSearchWith(gateway.name));
+  const searched = gateway && searchFormat ? await searchedBy(env, { ...gateway, format: searchFormat }) : { webTools: [], found: null };
   if ("refusal" in searched) return problem(searched.status, searched.refusal);
-  const changed = await ember.changeAssistantWebTools(credentials, searched.webTools, gateway && { accountId: gateway.accountId, model: gateway.model, format: gateway.format }, askedAt);
+  const tested = gateway && { accountId: gateway.accountId, model: gateway.model, format: gateway.format };
+  const changed = await ember.changeAssistantWebTools(credentials, searched.webTools, tested, askedAt, searchFormat);
   if (!changed) return problem(401, NOT_SIGNED_IN);
   if (changed === "forbidden") return problem(403, ASSISTANT_FORBIDDEN);
   if (changed === "off") return problem(409, ASSISTANT_OFF);
