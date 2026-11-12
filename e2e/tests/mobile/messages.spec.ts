@@ -291,7 +291,7 @@ test("deleting your own message from its sheet asks first, in a dialog that fits
 
   const sheet = await openActions(page, message, "A message to delete");
   await sheet.getByRole("button", { name: "Delete message" }).tap();
-  const question = page.getByRole("alertdialog", { name: "Delete message?" });
+  const question = page.getByRole("alertdialog", { name: "Delete message" });
   await expect(question).toBeVisible();
   await screenIsFine();
   await question.getByRole("button", { name: "Cancel" }).tap();
