@@ -184,7 +184,8 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
                       {shared.closed && <Lock aria-label="Private" className="size-3 shrink-0" />}
                       <span className="truncate">
                         {[
-                          shared.roomLabel,
+                          // A private room's lock stands in for its #.
+                          shared.closed ? shared.roomLabel.replace(/^#/, "") : shared.roomLabel,
                           shared.uploader,
                           fileSize(shared.file.byteSize),
                           new Date(shared.sharedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }),

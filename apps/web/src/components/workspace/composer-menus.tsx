@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { ArrowUp, AtSign, CheckCircle, Emoji, Laptop, Page, Plus } from "@/components/icons/iconoir";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { cn } from "@/lib/utils";
 import { ATTACH_BUTTON, ICON_BUTTON, SEND_HALF } from "./composer-buttons";
 import { PopoverMenu } from "./popover-menu";
@@ -119,13 +120,20 @@ interface SendButtonProps {
  */
 export function SendButton({ disabled, empty = false, cannotSchedule, onSchedule, saves = false }: SendButtonProps) {
   const [scheduling, setScheduling] = useState(false);
+  // A phone's Send is one circle, which holding opens Send later, as Slack's does.
+  const phone = usePhoneLayout();
+  const holdToSchedule = () => {
+    pressedLong.current = true;
+    navigator.vibrate?.(10);
+    setScheduling(true);
+  };
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Whether the press that's ending was long, so its click doesn't send too.
   const pressedLong = useRef(false);
   const stopTimer = () => clearTimeout(timer.current);
   useEffect(() => stopTimer, []);
   return (
-    <div data-empty={empty || undefined} className="group/send ml-auto flex shrink-0 items-center overflow-hidden rounded-[8px]">
+    <div data-empty={empty || undefined} data-sendable={(!empty && !disabled) || undefined} className={cn("group/send ml-auto flex shrink-0 items-center overflow-hidden rounded-[8px]", phone && "overflow-visible rounded-full")}>
       <button
         type="submit"
         disabled={disabled}
@@ -135,26 +143,27 @@ export function SendButton({ disabled, empty = false, cannotSchedule, onSchedule
         onPointerDown={(event) => {
           pressedLong.current = false;
           if (cannotSchedule || event.button !== 0) return;
-          timer.current = setTimeout(() => {
-            pressedLong.current = true;
-            setScheduling(true);
-          }, LONG_PRESS_MS);
+          timer.current = setTimeout(holdToSchedule, LONG_PRESS_MS);
         }}
         onPointerUp={stopTimer}
         onPointerLeave={stopTimer}
         onPointerCancel={stopTimer}
-        onContextMenu={(event) => event.preventDefault()}
+        // A phone's own long-press, where it comes before the timer, opens Send later too.
+        onContextMenu={(event) => {
+          event.preventDefault();
+          if (phone && !cannotSchedule && !scheduling) holdToSchedule();
+        }}
         onClick={(event) => {
           if (!pressedLong.current) return;
           pressedLong.current = false;
           event.preventDefault();
         }}
-        className={cn(SEND_HALF, "w-9 touch:w-11")}
+        className={cn(SEND_HALF, "w-9 touch:w-11", phone && "rounded-full active:brightness-75")}
       >
         {saves ? <CheckCircle className="size-[18px]" /> : <ArrowUp className="size-[18px]" />}
         <span className="sr-only">{saves ? "Save" : "Send Message"}</span>
       </button>
-      <span aria-hidden="true" className="h-8 w-px bg-background/30 group-data-empty/send:bg-border touch:h-11" />
+      {!phone && <span aria-hidden="true" className="h-8 w-px bg-background/30 group-data-empty/send:bg-border touch:h-11" />}
       <ScheduleMenu disabled={disabled || cannotSchedule} onSchedule={onSchedule} open={scheduling} onOpenChange={setScheduling} />
     </div>
   );

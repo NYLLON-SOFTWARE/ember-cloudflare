@@ -7,7 +7,7 @@ import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import type { Scheduled } from "@/hooks/use-scheduled";
 import { schedulePresets, sendTimeInSentence, sendTimeLabel, shortSendTime, tomorrowMorning } from "@/lib/schedule-times";
 import { cn } from "@/lib/utils";
-import { SCHEDULE_HALF } from "./composer-buttons";
+import { SCHEDULE_HALF, TEXT_BUTTON } from "./composer-buttons";
 import { PopoverMenu } from "./popover-menu";
 import { RarePage } from "./rare-pages";
 import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE } from "./unsaved-changes";
@@ -192,7 +192,7 @@ export function ScheduledNotice({ messages, scheduled, disabled, onReturnFocus, 
     setOpen(false);
     onEdit?.(message.body);
   };
-  const listAction = "cursor-pointer rounded-[6px] px-2 py-1 text-[13px] font-medium hover:bg-hover touch:min-h-11 disabled:pointer-events-none disabled:opacity-50";
+  const listAction = cn(TEXT_BUTTON, "px-2 hover:bg-hover");
   const sheetAction = "flex min-h-12 w-full cursor-pointer items-center rounded-[9px] px-3 text-start text-[17px] hover:bg-hover disabled:pointer-events-none disabled:opacity-50";
   const undoLine = (message: ListedScheduled) => (
     <>
@@ -237,7 +237,9 @@ export function ScheduledNotice({ messages, scheduled, disabled, onReturnFocus, 
           overlayClassName={DIALOG_BACKDROP}
           onOpenAutoFocus={(event) => {
             event.preventDefault();
-            list.current?.querySelector<HTMLElement>("li button")?.focus();
+            // On the first message's Edit time, or Edit, rather than Send now, so Enter can't send it.
+            const first = list.current?.querySelector("li");
+            (first?.querySelector<HTMLElement>("button[data-first]") ?? first?.querySelector<HTMLElement>("button"))?.focus();
           }}
           onCloseAutoFocus={(event) => {
             if (!onReturnFocus || moving !== null) return;
@@ -269,12 +271,12 @@ export function ScheduledNotice({ messages, scheduled, disabled, onReturnFocus, 
                         Send now
                       </button>
                       {message.failed === undefined ? (
-                        <button type="button" disabled={disabled} onClick={() => setMoving(message)} className={listAction}>
+                        <button type="button" disabled={disabled} data-first onClick={() => setMoving(message)} className={listAction}>
                           Edit time
                         </button>
                       ) : (
                         onEdit && (
-                          <button type="button" disabled={disabled} onClick={() => edit(message)} className={listAction}>
+                          <button type="button" disabled={disabled} data-first onClick={() => edit(message)} className={listAction}>
                             Edit
                           </button>
                         )

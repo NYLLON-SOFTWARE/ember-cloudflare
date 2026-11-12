@@ -1,7 +1,7 @@
 import type { Message } from "@ember/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { displayBody, OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
-import { dateLabel, dateTimeLabel, lastReplyLabel, quotedTimeLabel, replyQuote, timeLabel, timeline } from "./messages";
+import { dateLabel, dateTimeLabel, editedBody, forwardParts, hasEditableText, lastReplyLabel, quotedTimeLabel, replyQuote, timeLabel, timeline } from "./messages";
 
 const at = (iso: string, creatorId = "u1"): Message => ({
   id: iso,
@@ -138,5 +138,30 @@ describe("Quote a message", () => {
     expect(quote(solo, "https://basecamp.com")).toBe(`<blockquote>https://basecamp.com/</blockquote>${CITE}`);
     expect(quote(preview({ filename: "Free cookies", description: "At www.example.com" }), "")).toBe(`<blockquote>http://www.example.com/</blockquote>${CITE}`);
     expect(quote(preview({ filename: "Unlinked" }), "")).toBe(`<blockquote></blockquote>${CITE}`);
+  });
+});
+
+describe("Edit a forward", () => {
+  const quote = '<blockquote><p>Lunch?</p><blockquote><p>Earlier</p></blockquote></blockquote><cite>Grace · <time datetime="2026-11-12T09:00:00Z">9:00 AM</time> <a href="/rooms/r2/@m0">#</a></cite>';
+  const message = (body: string): Message => ({ ...at("2026-11-12T10:00:00Z"), body });
+
+  it("splits a forward into its note and the quote that ends it", () => {
+    expect(forwardParts(`<p>See this</p>${quote}`)).toEqual({ note: "<p>See this</p>", quote });
+    expect(forwardParts("<p>Plain</p>")).toBeNull();
+    // A quote with what's written after it is no forward's.
+    expect(forwardParts(`${quote}<p>Agreed</p>`)).toBeNull();
+  });
+
+  it("edits a forward's note, and offers nothing to edit of a forward without one, a file or cards", () => {
+    expect(hasEditableText(message("<p>Plain</p>"))).toBe(true);
+    expect(hasEditableText(message(`<p>See this</p>${quote}`))).toBe(true);
+    expect(hasEditableText(message(quote))).toBe(false);
+    expect(hasEditableText(message(`<p><br></p>${quote}`))).toBe(false);
+    expect(hasEditableText({ ...message(""), cards: [] })).toBe(false);
+  });
+
+  it("puts the quote back after the edited note", () => {
+    expect(editedBody(message(`<p>See this</p>${quote}`), "<p>See this now</p>")).toBe(`<p>See this now</p>${quote}`);
+    expect(editedBody(message("<p>Plain</p>"), "<p>Changed</p>")).toBe("<p>Changed</p>");
   });
 });

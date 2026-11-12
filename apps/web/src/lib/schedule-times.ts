@@ -69,14 +69,9 @@ export const sendTimeInSentence = (sendAt: number, now: Date) => sendTimeLabel(s
 export function shortSendTime(sendAt: number, now: Date): string {
   const at = new Date(sendAt);
   if (daysAhead(at, now) <= 1 && daysAhead(at, now) >= 0) return sendTimeLabel(sendAt, now);
-  return at.toLocaleString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    ...(at.getFullYear() !== now.getFullYear() && { year: "numeric" }),
-  });
+  // The day and the time apart, joined as every engine is to read it: WebKit writes them as one with "at".
+  const day = at.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", ...(at.getFullYear() !== now.getFullYear() && { year: "numeric" }) });
+  return `${day}, ${at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 }
 
 /** How many days ahead a message can be scheduled, as the room allows. */

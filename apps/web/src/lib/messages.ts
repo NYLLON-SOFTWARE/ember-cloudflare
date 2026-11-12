@@ -163,3 +163,30 @@ function hrefOf(href: string | undefined): string {
     return href;
   }
 }
+
+/**
+ * A forward's two parts, as Forward posts one (chat-room.ts): the forwarder's note, which is theirs to edit,
+ * and the quote of what it forwards, with its cite, which ends it and which the room keeps up to date. A
+ * message that ends with a quote it was written with splits the same way. Null for any other message.
+ */
+export function forwardParts(body: string): { note: string; quote: string } | null {
+  const quoteAt = body.indexOf("<blockquote");
+  if (quoteAt === -1 || body.lastIndexOf("<cite") < quoteAt || !body.endsWith("</cite>")) return null;
+  return { note: body.slice(0, quoteAt), quote: body.slice(quoteAt) };
+}
+
+/** Whether markup has nothing in it to read: no text and no mention. */
+const holdsNothing = (markup: string) => !markup.includes("<action-text-attachment") && markup.replace(/<[^>]*>|&nbsp;/g, "").trim() === "";
+
+/**
+ * Whether `message`'s text can be edited: not a file message's or a bot's cards', and of a forward only its
+ * note, so one without a note has nothing to edit.
+ */
+export function hasEditableText(message: Message): boolean {
+  if (message.attachment || message.cards) return false;
+  const forward = forwardParts(message.body);
+  return forward === null || !holdsNothing(forward.note);
+}
+
+/** What `message`'s text is once edited to `written`: a forward keeps its quote after its note. */
+export const editedBody = (message: Message, written: string) => written + (forwardParts(message.body)?.quote ?? "");

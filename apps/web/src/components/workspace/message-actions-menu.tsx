@@ -40,7 +40,7 @@ import { mentionedPerson, PeopleContext, useNameOf } from "@/hooks/use-directory
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { permalinkOf } from "@/hooks/use-route";
 import { copyWithSuccess } from "@/lib/clipboard";
-import { replyQuote } from "@/lib/messages";
+import { hasEditableText, replyQuote } from "@/lib/messages";
 import { toggleKept, useSavedMark } from "@/lib/saved";
 import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
@@ -473,7 +473,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
               </ActionTooltip>
             )}
             {/* Without a mouse, which More actions opens for, Edit and Delete message are the bar's. */}
-            {!overlapping && editable && !message.attachment && !message.cards && (
+            {!overlapping && editable && hasEditableText(message) && (
               <ActionTooltip label="Edit">
                 <button type="button" aria-label="Edit" className={ACTION} onClick={edit}>
                   <Edit />
@@ -533,8 +533,8 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             {editable && (
               <>
                 <hr className="my-1 border-message-border" />
-                {/* The text of a file message, or of a bot's cards, can't be changed. */}
-                {!message.attachment && !message.cards && (
+                {/* The text of a file message, of a bot's cards, or of a forward's quote, can't be changed. */}
+                {hasEditableText(message) && (
                   <button type="button" className={ITEM} onClick={edit}>
                     <Edit />
                     Edit message

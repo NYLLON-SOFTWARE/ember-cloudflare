@@ -10,6 +10,7 @@ import { useScheduled } from "@/hooks/use-scheduled";
 import { dropTarget } from "@/lib/drop-target";
 import { checkShare, fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { hasTouchKeyboard, pressedAlone } from "@/lib/keyboard";
+import { editedBody } from "@/lib/messages";
 import { isEmberFile, sendableFacts, tooLargeToAttach, type EmberFile, type Sendable } from "@/lib/uploads";
 import { tellDraftsChanged } from "@/lib/draft-keys";
 import { cn } from "@/lib/utils";
@@ -455,7 +456,7 @@ export function Composer({
   // Saves the message edited, or cancels an edit that changes nothing, as the message editor does.
   const saveEdit = ({ message, onSave, onCancel }: ComposerEdit) => {
     const text = editor.current;
-    const body = text && !text.isBlank() ? text.value() : null;
+    const body = text && !text.isBlank() ? editedBody(message, text.value()) : null;
     if (body === null || body === message.body) return onCancel();
     onSave(body);
   };
