@@ -184,7 +184,8 @@ export function RoomTabs({ room, me, state, onFailed }: Props) {
   return (
     <div className="contents">
       {/* The tabs scroll sideways, with a mouse's wheel too, while + stays at the end of the strip, in reach. */}
-      <div ref={strip} className="flex h-10 flex-none items-end gap-0.5 border-b bg-background pr-[14px] max-md:pr-1.5">
+      {/* For fingers, tall enough for + to be a fingertip's 44px without reaching over the header. */}
+      <div ref={strip} className="flex h-10 flex-none items-end gap-0.5 border-b bg-background pr-[14px] touch:h-12 max-md:pr-1.5">
         <div
           ref={list}
           role="tablist"
@@ -209,7 +210,7 @@ export function RoomTabs({ room, me, state, onFailed }: Props) {
             )}
         </div>
         <Popover open={menuOpen && !deleted} onOpenChange={setMenuOpen}>
-          <PopoverTrigger hidden={deleted} title="Add a tab" className="mb-1.5 grid size-7 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground aria-expanded:bg-hover touch:size-11">
+          <PopoverTrigger hidden={deleted} title="Add a tab" className="mb-1.5 grid size-7 shrink-0 cursor-pointer place-items-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground aria-expanded:bg-hover touch:mb-0.5 touch:size-11">
             <Plus className="size-4" />
             <span className="sr-only">Add a tab</span>
           </PopoverTrigger>
