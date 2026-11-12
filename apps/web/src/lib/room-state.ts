@@ -480,11 +480,13 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     // A thread's, which its own state keeps, and a click's answer, which its button waits for.
     case "thread.opened":
     case "thread.history":
-    case "card.clicked":
+    // The composer keeps what you've scheduled (scheduled.ts).
+    case "scheduled":
     // A canvas's, which its editor keeps (canvas-live.ts).
     case "canvas.state":
     case "canvas.steps":
     case "canvas.refused":
+    case "card.clicked":
     case "pong":
       return state;
   }
