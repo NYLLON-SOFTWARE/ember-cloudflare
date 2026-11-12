@@ -1,8 +1,9 @@
-import { createContext, useContext, useId, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import type { DirectPreview, RoomId, SidebarRoom, User, UserId } from "@ember/protocol";
 import { ChatBubbleEmpty, ChatPlusIn, CheckCircle, Search } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
 import { useDirectPreviews } from "@/hooks/use-direct-previews";
+import { keepShapes, keptShapes, type DirectShape } from "@/lib/dm-shapes";
 import { useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useMounted } from "@/hooks/use-mounted";
@@ -51,6 +52,10 @@ interface Props {
  */
 export function DirectsColumn({ onSignedOut, ...props }: Omit<Props, "previews"> & { onSignedOut: () => void }) {
   const previews = useDirectPreviews(props.loaded ? props.rooms : null, true, onSignedOut);
+  // Each row's shape, kept for the next time the list draws before its messages come.
+  useEffect(() => {
+    if (previews.size > 0) keepShapes(props.meId, previews);
+  }, [previews, props.meId]);
   return <DirectsPane {...props} previews={previews} />;
 }
 
@@ -93,6 +98,7 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
   };
   const empty = loaded && listed.length === 0 && suggested.length === 0;
   const titled = useContext(DirectsTitleContext);
+  const shapes = useMemo(() => keptShapes(meId), [meId]);
   const compose = (
     <a
       href={NEW_DIRECT_PATH}
@@ -132,6 +138,7 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
                 meId={meId}
                 preview={previews.get(room.id) ?? null}
                 previewKnown={previews.has(room.id)}
+                shape={shapes.get(room.id) ?? 2}
                 current={room.id === currentRoomId}
                 unreadId={markedUnread(room, currentRoomId) ? unreadId : null}
                 onClick={(event) => select(event, room.id)}
@@ -223,6 +230,8 @@ interface DirectRowProps {
   preview: DirectPreview | null;
   /** Whether its preview has come, before which its row keeps a line for it, so it doesn't jump. */
   previewKnown: boolean;
+  /** The shape its row had when this browser last listed it, two lines' worth on phones when that's not known. */
+  shape: DirectShape;
   /** Whether it's the DM the tab shows. */
   current: boolean;
   /** The element saying the DM is unread, when it's marked so, or null. */
@@ -235,7 +244,9 @@ interface DirectRowProps {
  * with yourself, with the agent badge in a DM with an AI agent alone, when it was last active, its latest
  * message, and how many are unread, or a dot when it's marked unread before that's known.
  */
-function DirectRow({ room, meId, preview, previewKnown, current, unreadId, onClick }: DirectRowProps) {
+function DirectRow({ room, meId, preview, previewKnown, shape, current, unreadId, onClick }: DirectRowProps) {
+  // Until its message comes, it's drawn as it last was: with nothing said, a line, or two on phones.
+  const quiet = previewKnown ? preview?.latest == null : shape === 0;
   const nameOf = useNameOf();
   const isWithAgent = useIsWithAgent();
   const members = membersShown(room, meId);
@@ -269,7 +280,7 @@ function DirectRow({ room, meId, preview, previewKnown, current, unreadId, onCli
       // as one with a line of message, and a DM with nothing said in it yet has its name centered there.
       className={cn(
         "group/row flex min-h-[72px] gap-3 px-[18px] py-3 text-foreground no-underline outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-[current=page]:bg-hover",
-        latest || !previewKnown ? "items-start" : "items-center",
+        quiet ? "items-center" : "items-start",
       )}
     >
       <DirectAvatars members={members} ringClassName="ring-surface group-hover/row:ring-hover group-aria-[current=page]/row:ring-hover" />
@@ -283,7 +294,7 @@ function DirectRow({ room, meId, preview, previewKnown, current, unreadId, onCli
           <time dateTime={at.toISOString()} className="shrink-0 text-[12px] text-muted-foreground">
             {activityLabel(at)}
           </time>
-          {!latest && previewKnown && marker}
+          {quiet && marker}
         </span>
         {/* What screen readers hear after the name: how many are unread, when, and what was said. */}
         <span id={aboutId} className="sr-only">
@@ -294,19 +305,19 @@ function DirectRow({ room, meId, preview, previewKnown, current, unreadId, onCli
           <span className="flex min-w-0 items-start gap-2">
             {/* Two lines on phones, as Slack's app shows, always as tall as two, so a row never grows as its
                 message comes, and one beside the page, so the rows keep one height. */}
-            <span aria-hidden="true" className={cn("min-w-0 flex-1 line-clamp-2 text-[14px] leading-5 wrap-anywhere max-md:min-h-10 md:line-clamp-1", unread ? "text-foreground" : "text-muted-foreground")}>
+            <span aria-hidden="true" className={cn("min-w-0 flex-1 line-clamp-2 text-[14px] leading-5 wrap-anywhere md:line-clamp-1", unread ? "text-foreground" : "text-muted-foreground")}>
               {previewOf(latest, meId, members.length > 1, nameOf)}
             </span>
             {marker}
           </span>
         ) : (
-          // Until its message comes, a faint line, two on phones, where its message has two, and its
+          // Until its message comes, a faint line, two on phones where its message last took two, and its
           // unread mark at the end of it, where the message's would be.
-          !previewKnown && (
+          !quiet && (
             <span className="flex min-w-0 items-start gap-2">
-              <span aria-hidden="true" className="flex min-w-0 flex-1 flex-col gap-2 pt-1 max-md:min-h-10">
+              <span aria-hidden="true" className={cn("flex min-w-0 flex-1 flex-col gap-2 pt-1", shape === 2 && "max-md:min-h-10")}>
                 <span className="h-3 w-2/3 rounded-full bg-hover" />
-                <span className="h-3 w-1/2 rounded-full bg-hover md:hidden" />
+                {shape === 2 && <span className="h-3 w-1/2 rounded-full bg-hover md:hidden" />}
               </span>
               {marker}
             </span>

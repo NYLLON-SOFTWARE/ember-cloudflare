@@ -314,9 +314,25 @@ describe("DMs page, minimally", () => {
     expect(directRows()[0]!.querySelector(".bg-hover.rounded-full")).toBeNull();
   });
 
-  it("keeps a message's two lines' height on phones, so a row doesn't grow as its message comes", () => {
+  it("draws a message's line or two as they come, with no empty line kept under one", () => {
     renderPane({ rooms: [direct("d1", [ada!, grace!])], previews: new Map([["d1", { roomId: "d1", latest: message("d1", grace!, "hi"), unread: 0 }]]) });
-    expect(within(directRows()[0]!).getByText("hi")).toHaveClass("max-md:min-h-10", "line-clamp-2", "md:line-clamp-1");
+    const text = within(directRows()[0]!).getByText("hi");
+    expect(text).toHaveClass("line-clamp-2", "md:line-clamp-1");
+    expect(text).not.toHaveClass("max-md:min-h-10");
+  });
+
+  it("draws each row as it last was before its message comes, so the list doesn't jump: nothing said, a line, or two", () => {
+    localStorage.setItem("ember:dm-shapes:u1", JSON.stringify({ d1: 0, d2: 1 }));
+    renderPane({ rooms: [direct("d1", [ada!, grace!], false, at(3)), direct("d2", [ada!, linus!], false, at(2)), direct("d3", [ada!, alan!], false, at(1))] });
+    const [quiet, short, unknown] = directRows();
+    expect(quiet).toHaveClass("items-center");
+    expect(quiet!.querySelector(".bg-hover.rounded-full")).toBeNull();
+    expect(short!.querySelectorAll(".bg-hover.rounded-full")).toHaveLength(1);
+    expect(short!.querySelector(".max-md\\:min-h-10")).toBeNull();
+    // One never listed here reserves two lines on phones, the most it can take.
+    expect(unknown!.querySelectorAll(".bg-hover.rounded-full")).toHaveLength(2);
+    expect(unknown!.querySelector(".max-md\\:min-h-10")).toBeInTheDocument();
+    localStorage.clear();
   });
 
   it("ends the faint line with the unread dot while the message is on its way, where the message's would be", () => {
