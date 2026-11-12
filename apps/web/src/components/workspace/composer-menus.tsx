@@ -31,8 +31,9 @@ export function AttachMenu({ disabled, onUpload, onFilesInEmber, onReturnFocus }
   );
 }
 
-// The picker and its emoji, which load as it first opens.
-const EmojiPicker = lazy(async () => ({ default: (await import("@/components/emoji-picker")).EmojiPicker }));
+// The picker and its emoji, which come with the pages few visits need, loaded while the browser is idle, or as
+// it first opens. A chunk of their own would split the app's script (see oneAppScript in vite.config.ts).
+const EmojiPicker = lazy(async () => ({ default: (await import("./pages")).EmojiPicker }));
 
 /** Emoji, which opens the emoji picker to write one at the cursor. */
 export function EmojiButton({ disabled = false, onPick, onReturnFocus }: { disabled?: boolean; onPick: (emoji: string) => void; onReturnFocus: () => void }) {
