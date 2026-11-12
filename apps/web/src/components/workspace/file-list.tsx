@@ -508,7 +508,7 @@ export function FileRow({ file, room, names, showRoom, sort, onOpened, onStar }:
           <DropdownMenuTrigger
             title="More actions"
             tabIndex={touch ? -1 : undefined}
-            className={cn(ROW_BUTTON, !compact && ROW_ACTIONS, touch && "pointer-events-none w-0")}
+            className={cn(ROW_BUTTON, !compact && ROW_ACTIONS, touch && "pointer-events-none invisible size-0 touch:size-0")}
           >
             <MoreHoriz />
             <span className="sr-only">More actions for {file.name}</span>
