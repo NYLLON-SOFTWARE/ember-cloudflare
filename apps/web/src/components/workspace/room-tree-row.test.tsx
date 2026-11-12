@@ -100,6 +100,18 @@ describe("A collapsed parent's unread count", () => {
     expect(within(roomsRegion()).getByRole("link", { name: /Strata/ })).toHaveTextContent("9+");
   });
 
+  it("keeps the pill at the row's end, where the arrow takes its place as the row is hovered or has focus", async () => {
+    const counts = [{ ...strata, unread: true, unreadCount: 2 }, ...subRooms];
+    renderSidebar({ rooms: [general, ...counts] });
+    const parentRow = () => within(roomsRegion()).getByRole("link", { name: /Strata/ });
+    for (const collapsed of [false, true]) {
+      expect(parentRow()).not.toHaveClass("pr-10");
+      expect(parentRow()).toHaveClass("group-hover/tree:[&>:last-child]:invisible", "touch:[&>:last-child]:visible");
+      expect(toggle()).toHaveClass("opacity-0", "group-hover/tree:opacity-100", "touch:opacity-100");
+      if (!collapsed) await userEvent.click(toggle());
+    }
+  });
+
   it("keeps the dot on a collapsed parent whose unread sub-rooms count nothing", async () => {
     renderSidebar();
     await userEvent.click(toggle());

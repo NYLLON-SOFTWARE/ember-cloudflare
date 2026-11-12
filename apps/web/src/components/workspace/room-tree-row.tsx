@@ -27,6 +27,10 @@ export interface TreeRowOptions {
 /** The most a row counts, which it shows as "9+", as the server caps each room's count. */
 export const UNREAD_COUNT_CAP = 10;
 
+/** A parent's row with a count pill, its last child, which the arrow takes the place of on hover or focus, except under fingers. */
+const PILL_UNDER_ARROW =
+  "touch:pr-12 group-hover/tree:[&>:last-child]:invisible group-focus-within/tree:[&>:last-child]:invisible touch:[&>:last-child]:visible";
+
 /** A room as the tree reads it: with how many unread messages it counts, and whether one mentions you, where the sidebar says. */
 type Counted = SharedRoom & { unreadCount?: number; unreadMentioned?: boolean };
 
@@ -63,7 +67,8 @@ interface Props<T extends Counted> {
 
 /**
  * A room in the sidebar's tree: its row, and for a parent, an arrow at the row's end that expands or
- * collapses its sub-rooms, indented under it, shown at rest only while they're collapsed. Following the
+ * collapses its sub-rooms, indented under it, shown at rest only while they're collapsed and the row has
+ * no count pill, which the arrow takes the place of. Following the
  * parent's name opens its room, as any row's does. Collapsed, the parent shows unread while any of its
  * sub-rooms is, and the sub-room the tab shows stays under it.
  */
@@ -78,10 +83,13 @@ export function RoomTreeRow<T extends Counted>({ branch, label, row, isUnread, c
   const counted = unreadRooms.reduce((sum, r) => sum + (r.unreadCount ?? 0), 0);
   const count = collapsed && counted > 0 ? Math.min(counted, UNREAD_COUNT_CAP) : undefined;
   const mentioned = count !== undefined && unreadRooms.some((r) => r.unreadMentioned);
+  // A row with a count pill keeps it at its end, where every row's is, and the arrow takes its place as
+  // the row is hovered or has focus; fingers, which always have the arrow, keep the pill beside it.
+  const pill = unread && (count ?? room.unreadCount ?? 0) > 0;
   return (
     <>
       <div className="group/tree relative">
-        {row(room, { label, unread, ...(count !== undefined && { count, mentioned }), className: "pr-10 touch:pr-12" })}
+        {row(room, { label, unread, ...(count !== undefined && { count, mentioned }), className: pill ? PILL_UNDER_ARROW : "pr-10 touch:pr-12" })}
         <button
           type="button"
           aria-expanded={!collapsed}
@@ -93,7 +101,7 @@ export function RoomTreeRow<T extends Counted>({ branch, label, row, isUnread, c
             "absolute inset-y-0 right-0 flex w-9 cursor-pointer items-center justify-center rounded-lg text-muted-foreground hover:bg-hover hover:text-foreground touch:w-11",
             // Expanded, it shows with a pointer only as the row is hovered or has focus; collapsed, it stays, so the
             // sub-rooms folded away can be found, and fingers, which can't hover, always have it.
-            !collapsed && "opacity-0 group-hover/tree:opacity-100 group-focus-within/tree:opacity-100 touch:opacity-100",
+            (!collapsed || pill) && "opacity-0 group-hover/tree:opacity-100 group-focus-within/tree:opacity-100 touch:opacity-100",
           )}
         >
           <NavArrowRight className={cn("size-4 transition-transform motion-reduce:transition-none", !collapsed && "rotate-90")} />
