@@ -70,6 +70,7 @@ import forwards from "../migrations/0080_forwards.sql";
 import forwardChanges from "../migrations/0081_forward_changes.sql";
 import savedItems from "../migrations/0085_saved_items.sql";
 import savedRemindersSent from "../migrations/0086_saved_reminders_sent.sql";
+import noteUploads from "../migrations/0087_note_uploads.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -168,6 +169,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0081_forward_changes.sql", scope: "room", sql: forwardChanges },
   { name: "0085_saved_items.sql", scope: "workspace", sql: savedItems },
   { name: "0086_saved_reminders_sent.sql", scope: "workspace", sql: savedRemindersSent },
+  { name: "0087_note_uploads.sql", scope: "workspace", sql: noteUploads },
 ];
 
 /**

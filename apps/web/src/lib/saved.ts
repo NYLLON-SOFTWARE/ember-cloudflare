@@ -18,9 +18,10 @@ export async function keepItem(item: NewSavedItem): Promise<SavedItem> {
   return dataOf<SavedItem>(await fetch("/api/saved", json("POST", item)));
 }
 
+/** Clears item `id`, which another tab may have cleared already, which is as good. */
 export async function clearItem(id: string): Promise<void> {
   const response = await fetch(`/api/saved/${encodeURIComponent(id)}`, { method: "DELETE" });
-  if (!response.ok) await dataOf(response);
+  if (!response.ok && response.status !== 404) await dataOf(response);
 }
 
 /** How many to-dos are in progress, how many of those are overdue, and how many items are saved. */

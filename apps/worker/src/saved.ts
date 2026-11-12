@@ -28,7 +28,6 @@ import { fileSigner } from "./files/addresses";
 import { objectKey } from "./files/blobs";
 import { sanitizedFilename } from "./files/filename";
 import { identifiedOf, keptAs } from "./files/uploads";
-import { base36 } from "./ids";
 import { urlOf } from "./request-url";
 import type { KeptNoteFile, StoredSavedChange, StoredSavedItem } from "./saved-store";
 import { messagesOf } from "./kept-messages";
@@ -47,9 +46,7 @@ const NO_STORAGE = "Ember isn't set up to store files";
 const FILE_NOT_FOUND = "That file isn't one of yours";
 const EMPTY_NOTE = "Write something or add a file";
 const NOTES_STAY = "Only To-dos holds notes of your own";
-
-/** The length of a file's R2 key, as a room's files have (`KEY` in files/serving.ts). */
-const KEY_LENGTH = 28;
+const TOO_MANY_WAITING = "Add the files you've sent to a to-do, or wait a day, before sending more.";
 
 const isList = (value: string | null): value is SavedList => SAVED_LISTS.includes(value as SavedList);
 
@@ -139,7 +136,31 @@ async function noteBodyOf(env: Env, markup: string): Promise<{ body: string; pla
   const prepared = prepareBody(markup, (sgid) => people.get(userIdFromSgid(sgid) ?? ""));
   if (prepared === null) return "Ember couldn't read that to-do";
   if (isMessageTooLong(prepared.plainText)) return MESSAGE_TOO_LONG;
-  return prepared.blank ? { body: "", plainText: "" } : { body: prepared.html, plainText: prepared.plainText };
+  // Text of nothing a reader could see, as of zero-width spaces, is no text, though a mention is some.
+  const unseen = prepared.mentions.length === 0 && prepared.plainText.replace(INVISIBLE, "") === "";
+  return prepared.blank || unseen ? { body: "", plainText: "" } : { body: prepared.html, plainText: prepared.plainText };
+}
+
+/** White space, and the characters that take no room: zero-width spaces and joiners, word joiners and byte-order marks. */
+const INVISIBLE = /[\s\u200B-\u200D\u2060\uFEFF]/gu;
+
+/**
+ * Takes the files `ids` names for a note: ones `userId` sent `NOTE_FILES_PATH` that no note carries yet, as
+ * R2 keeps them, answering them, or null, taking none, if one isn't. `put` keeps them, and they wait again
+ * for a note if it doesn't.
+ */
+async function takeFiles(env: Env, credentials: Credentials, userId: UserId, ids: string[], put: (files: KeptNoteFile[]) => Promise<boolean>): Promise<boolean | null> {
+  const files = await ownFiles(env, userId, ids);
+  if (!files) return null;
+  const space = workspace(env);
+  const taken = await space.claimNoteUploads(credentials, ids);
+  if (taken?.length !== ids.length) {
+    await space.releaseNoteUploads(credentials, taken ?? []);
+    return null;
+  }
+  const kept = await put(files);
+  if (!kept) await space.releaseNoteUploads(credentials, ids);
+  return kept;
 }
 
 /** The files `ids` names, which have to be ones `userId` sent `NOTE_FILES_PATH`, as R2 keeps them, or null if one isn't. */
@@ -195,12 +216,16 @@ export async function keepSaved(request: Request, env: Env): Promise<Response> {
   }
   const body = await noteBodyOf(env, asked.body);
   if (typeof body === "string") return problem(422, body);
-  const files = await ownFiles(env, user.id, asked.fileIds ?? []);
-  if (!files) return problem(422, FILE_NOT_FOUND);
-  if (body.body === "" && files.length === 0) return problem(422, EMPTY_NOTE);
+  const fileIds = asked.fileIds ?? [];
+  if (body.body === "" && fileIds.length === 0) return problem(422, EMPTY_NOTE);
   const remindAt = asked.remindAt === undefined ? null : asked.remindAt;
   if (remindAt !== null && !isRemindableAt(remindAt, Date.now())) return problem(422, REMINDER_NOT_AHEAD);
-  const kept = await space.keepNote(credentials!, { ...body, files, remindAt: remindAt === null ? null : Date.parse(remindAt) });
+  let kept: Awaited<ReturnType<typeof space.keepNote>> = null;
+  const taken = await takeFiles(env, credentials!, user.id, fileIds, async (files) => {
+    kept = await space.keepNote(credentials!, { ...body, files, remindAt: remindAt === null ? null : Date.parse(remindAt) });
+    return kept !== null && kept !== "full";
+  });
+  if (taken === null) return problem(422, FILE_NOT_FOUND);
   if (!kept) return problem(401, NOT_SIGNED_IN);
   if (kept === "full") return problem(422, SAVED_LIST_FULL);
   return Response.json(await shownItem(env, kept, new Map()), { status: 201 });
@@ -231,17 +256,29 @@ export async function changeSaved(request: Request, env: Env, id: string): Promi
   }
   const space = workspace(env);
   let dropped: KeptNoteFile[] = [];
-  if (asked.fileIds !== undefined) {
+  let added: string[] = [];
+  if (asked.fileIds !== undefined || change.note !== undefined) {
     const before = await space.savedItem(credentials!, id);
     if (!before || before === "missing") return problem(before ? 404 : 401, before ? ITEM_NOT_FOUND : NOT_SIGNED_IN);
-    const keeping = new Set(asked.fileIds);
-    const added = asked.fileIds.filter((fileId) => !before.files.some(({ key }) => key === fileId));
-    const files = await ownFiles(env, user.id, added);
-    if (!files) return problem(422, FILE_NOT_FOUND);
-    change.files = [...before.files.filter(({ key }) => keeping.has(key)), ...files];
-    dropped = before.files.filter(({ key }) => !keeping.has(key));
+    const fileIds = asked.fileIds ?? before.files.map(({ key }) => key);
+    // A note keeps some text or a file.
+    if (before.kind === "note" && (change.note?.body ?? before.body ?? "") === "" && fileIds.length === 0) return problem(422, EMPTY_NOTE);
+    if (asked.fileIds !== undefined) {
+      const keeping = new Set(fileIds);
+      added = fileIds.filter((fileId) => !before.files.some(({ key }) => key === fileId));
+      const files = await ownFiles(env, user.id, added);
+      if (!files) return problem(422, FILE_NOT_FOUND);
+      change.files = [...before.files.filter(({ key }) => keeping.has(key)), ...files];
+      dropped = before.files.filter(({ key }) => !keeping.has(key));
+    }
+  }
+  const claimed = await space.claimNoteUploads(credentials!, added);
+  if (claimed?.length !== added.length) {
+    await space.releaseNoteUploads(credentials!, claimed ?? []);
+    return problem(422, FILE_NOT_FOUND);
   }
   const changed = await space.changeSavedItem(credentials!, id, change);
+  if (typeof changed !== "object" || changed === null) await space.releaseNoteUploads(credentials!, added);
   if (!changed) return problem(401, NOT_SIGNED_IN);
   if (changed === "missing") return problem(404, ITEM_NOT_FOUND);
   if (changed === "full") return problem(422, SAVED_LIST_FULL);
@@ -274,12 +311,12 @@ async function forgetFiles(env: Env, files: KeptNoteFile[]): Promise<void> {
 /**
  * `POST /api/saved/files?name=<name>`, a file's bytes, `MAX_NOTE_FILE_SIZE` at most: keeps a file in R2
  * for a note of yours, answering 201 with it, its addresses signed, for a new note or a change to name by
- * its id. Its type is what its bytes say, as a room's file's is.
+ * its id. Its type is what its bytes say, as a room's file's is. It waits a day for a note to take it, and
+ * each person may have `MAX_WAITING_NOTE_UPLOADS` waiting, past which this answers 429.
  */
 export async function uploadNoteFile(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
-  const user = await userOf(env, credentials);
-  if (!user) return problem(401, NOT_SIGNED_IN);
+  if (!credentials) return problem(401, NOT_SIGNED_IN);
   if (!env.FILES) return problem(503, NO_STORAGE);
   const declared = Number(request.headers.get("Content-Length"));
   if (declared > MAX_NOTE_FILE_SIZE) return problem(413, NOTE_FILE_TOO_LARGE);
@@ -288,10 +325,13 @@ export async function uploadNoteFile(request: Request, env: Env): Promise<Respon
   const name = sanitizedFilename(urlOf(request).searchParams.get("name") ?? "").slice(0, 255) || "file";
   const { contentType, metadata } = identifiedOf(bytes.subarray(0, 64 * 1024), name, request.headers.get("Content-Type") ?? "");
   const { width, height } = JSON.parse(metadata) as { width?: number; height?: number };
-  const key = base36(KEY_LENGTH);
+  const started = await workspace(env).startNoteUpload(credentials);
+  if (!started) return problem(401, NOT_SIGNED_IN);
+  if (started === "limited") return problem(429, TOO_MANY_WAITING);
+  const { key, userId } = started;
   const kept = keptAs(contentType, name);
   const shape: Record<string, string> = width !== undefined && height !== undefined ? { width: String(width), height: String(height) } : {};
-  await env.FILES.put(objectKey(key), bytes, { ...kept, customMetadata: { ...kept.customMetadata, owner: user.id, ...shape } });
+  await env.FILES.put(objectKey(key), bytes, { ...kept, customMetadata: { ...kept.customMetadata, owner: userId, ...shape } });
   const [file] = await noteFilesOf([{ key, name, contentType, byteSize: bytes.length, ...(width !== undefined && height !== undefined && { width, height }) }], env.SESSION_SECRET);
   return Response.json(file, { status: 201 });
 }

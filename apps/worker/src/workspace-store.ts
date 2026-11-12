@@ -78,8 +78,8 @@ import { ADDRESS_TAG_PREFIX, EVERYONE, SESSION_TAG_PREFIX, type Revocation } fro
 import { addRecorded, readInRoom, recordedRows, recordMessage, type RecordedItems } from "./activity";
 import type { RoomEvent } from "./room-log";
 import { forgettingRoomTabs } from "./room-tabs";
+import { NEXT_REMINDER_DUE, NEXT_UPLOAD_DUE } from "./saved-store";
 import { forgettingScheduledListings } from "./scheduled-listings";
-import { NEXT_REMINDER_DUE } from "./saved-store";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
 // storage or in D1 (see db.ts).
@@ -3580,7 +3580,7 @@ export class WorkspaceStore {
   }
 
   /**
-   * When the outbox's next revocation, purge, reindex, picture deletion, membership check or reminder is due, if
+   * When the outbox's next revocation, purge, reindex, picture deletion, membership check, reminder or unused note file's deletion is due, if
    * any is waiting, leaving out the purges waiting on their rooms' revocations, which are due no sooner.
    */
   async nextDeliveryDue(): Promise<number | null> {
@@ -3592,12 +3592,13 @@ export class WorkspaceStore {
       membership: number | null;
       catchUp: number | null;
       reminder: number | null;
+      upload: number | null;
     }>(
       `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
         (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
-        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp, (${NEXT_REMINDER_DUE}) AS reminder`,
+        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp, (${NEXT_REMINDER_DUE}) AS reminder, (${NEXT_UPLOAD_DUE}) AS upload`,
     );
-    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.reminder].filter((time) => typeof time === "number");
+    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.reminder, row?.upload].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
   }
 

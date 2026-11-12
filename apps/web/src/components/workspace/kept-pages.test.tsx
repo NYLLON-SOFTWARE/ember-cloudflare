@@ -39,7 +39,7 @@ const item = (id: string, changes: Partial<SavedItem>): SavedItem => ({
 });
 
 /** Shows a list's page, answering its list with `items` and any change with the item it's made of. */
-function showPage(Page: typeof TodosPage, items: SavedItem[]) {
+function showPage(Page: typeof TodosPage, items: SavedItem[], itemId?: string, elsewhere: SavedItem[] = []) {
   const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const path = String(input);
     if (init?.method === "PATCH") {
@@ -47,14 +47,18 @@ function showPage(Page: typeof TodosPage, items: SavedItem[]) {
       const change = JSON.parse(String(init.body)) as { completed?: boolean; list?: string };
       return Response.json({ ...changed, ...(change.completed !== undefined && { completedAt: change.completed ? "2026-11-12T00:00:00.000Z" : null }), ...(change.list && { list: change.list }) });
     }
+    if (init?.method === "DELETE") return Response.json({ error: "That item isn't in your lists" }, { status: 404 });
+    const one = elsewhere.find(({ id }) => path === `/api/saved/${id}`);
+    if (one) return Response.json(one);
     return Response.json({ items });
   });
+  const failed = vi.fn();
   render(
     <Sheet>
-      <Page me={ada} rooms={[general]} onFailed={vi.fn()} />
+      <Page me={ada} rooms={[general]} itemId={itemId} onFailed={failed} />
     </Sheet>,
   );
-  return fetch;
+  return Object.assign(fetch, { failed });
 }
 
 describe("To-dos", () => {
@@ -96,5 +100,21 @@ describe("Saved", () => {
     expect(bar.getByRole("button", { name: "Clear" })).toBeInTheDocument();
     await userEvent.click(bar.getByRole("button", { name: "Move to To-dos" }));
     expect(await screen.findByText("Nothing saved")).toBeInTheDocument();
+  });
+});
+
+describe("Either list", () => {
+  it("goes on to an item's own list from the other's address", async () => {
+    history.replaceState(null, "", "/todos/s1");
+    showPage(TodosPage, [], "s1", [item("s1", { list: "saved", message: message("m-s1", "Moved") })]);
+    await vi.waitFor(() => expect(location.pathname).toBe("/saved/s1"));
+  });
+
+  it("takes an item another tab cleared first as cleared, saying nothing", async () => {
+    const fetch = showPage(SavedPage, [item("a", { list: "saved", message: message("m-a", "Gone twice") })]);
+    const row = (await screen.findByText("Gone twice")).closest("li")!;
+    await userEvent.click(within(row).getByRole("button", { name: "Clear" }));
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/saved/a", { method: "DELETE" }));
+    expect(fetch.failed).not.toHaveBeenCalled();
   });
 });

@@ -114,13 +114,15 @@ import { alreadyAMemberEmail, emailDomainLinkEmail, invitationEmail, passwordRes
 import { guestSignIn, type Env } from "./env";
 import { pictureObjects, type StoredPicture } from "./files/pictures";
 import type { SfuApp } from "./huddles/sfu";
-import { alphanumeric, sortableId } from "./ids";
+import { alphanumeric, base36, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
 import { ScheduledListings, type ScheduledChange } from "./scheduled-listings";
 import { sendPushes } from "./push/delivery";
 import { reminderPayload } from "./push/payload";
+import type { RecordedReminder } from "./activity";
 import { messagesOf } from "./kept-messages";
-import { SavedStore, type DueReminder, type KeepRefusal, type KeptNoteFile, type MessageToKeep, type NoteToKeep, type StoredSavedChange, type StoredSavedItem } from "./saved-store";
+import { objectKey } from "./files/blobs";
+import { NOTE_UPLOAD_TTL_MS, SavedStore, type DueReminder, type KeepRefusal, type KeptNoteFile, type MessageToKeep, type NoteToKeep, type StoredSavedChange, type StoredSavedItem } from "./saved-store";
 import { memberfulApiOf, membershipsOf, namelessMember, type MemberfulMember } from "./memberful-api";
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
@@ -4049,17 +4051,63 @@ export class Workspace extends DurableObject<Env> {
    * Puts each reminder in its person's Activity, with the start of its to-do's text, or of the message it
    * keeps as its room has it now, and tells them. A failure is only logged: the push still goes.
    */
-  private async recordReminders(due: DueReminder[]): Promise<void> {
+  private async recordReminders(reminders: RecordedReminder[]): Promise<void> {
     try {
-      const refs = due.flatMap(({ roomId, messageId }) => (roomId !== null && messageId !== null ? [{ roomId, messageId }] : []));
-      const messages = await messagesOf(this.env, refs);
-      const reminders = due.map(({ id, userId, roomId, messageId, plainText }) => {
-        const message = messageId === null ? undefined : messages.get(messageId);
-        return { userId, savedId: id, roomId, messageId, parentId: message?.parentId ?? null, text: plainText ?? message?.plainText ?? "" };
-      });
       this.tellOfActivity(await this.activity.recordReminders(reminders, new Date().toISOString()));
     } catch (error) {
       console.error("Could not put reminders in Activity", error);
+    }
+  }
+
+  /**
+   * The reminders of `due` that still remind anyone (`DueReminder.live`), with what they say: a note's text,
+   * or the start of its message as its room has it now, leaving out those whose message is gone.
+   */
+  private async remindersToSend(due: DueReminder[]): Promise<RecordedReminder[]> {
+    const live = due.filter((reminder) => reminder.live);
+    const refs = live.flatMap(({ roomId, messageId }) => (roomId !== null && messageId !== null ? [{ roomId, messageId }] : []));
+    const messages = await messagesOf(this.env, refs);
+    return live.flatMap(({ id, userId, roomId, messageId, plainText }): RecordedReminder[] => {
+      if (messageId === null) return [{ userId, savedId: id, roomId, messageId, parentId: null, text: plainText ?? "" }];
+      const message = messages.get(messageId);
+      if (!message || message.deleted) return [];
+      return [{ userId, savedId: id, roomId, messageId, parentId: message.parentId ?? null, text: message.plainText }];
+    });
+  }
+
+  /**
+   * Records a new file for a note of the person `credentials` signs in, answering it, "limited" when they
+   * have as many waiting as they may, or null without a valid session.
+   */
+  async startNoteUpload(credentials: Credentials): Promise<{ userId: UserId; key: string } | "limited" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const key = base36(NOTE_FILE_KEY_LENGTH);
+    if (!(await this.saved.startUpload(user.id, key, Date.now()))) return "limited";
+    await this.wakeAt(Date.now() + NOTE_UPLOAD_TTL_MS);
+    return { userId: user.id, key };
+  }
+
+  /** Takes the person's waiting files of `keys` for a note, answering those it took, or null without a valid session. */
+  async claimNoteUploads(credentials: Credentials, keys: string[]): Promise<string[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.saved.claimUploads(user.id, keys);
+  }
+
+  /** Puts files a note took back as the person's waiting ones, as when the note couldn't be kept. */
+  async releaseNoteUploads(credentials: Credentials, keys: string[]): Promise<void> {
+    const user = await this.authenticate(credentials);
+    if (user) await this.saved.releaseUploads(user.id, keys, Date.now());
+  }
+
+  /** Has R2 delete the files sent for notes a day ago that no note took, up to `DELIVERIES_PER_RUN`. */
+  private async deleteStaleNoteUploads(): Promise<void> {
+    const stale = await this.saved.staleUploads(Date.now() - NOTE_UPLOAD_TTL_MS, DELIVERIES_PER_RUN);
+    if (stale.length === 0 || !this.env.FILES) return;
+    try {
+      await this.env.FILES.delete(stale.map(objectKey));
+    } catch (error) {
+      console.error("Could not delete unused note files from R2", error);
     }
   }
 
@@ -4077,21 +4125,33 @@ export class Workspace extends DurableObject<Env> {
     const now = Date.now();
     const due = await this.saved.dueReminders(now, DELIVERIES_PER_RUN);
     if (due.length === 0) return;
-    await this.saved.settleReminders(due.map(({ id }) => id), now);
-    const byPerson = Map.groupBy(due, ({ userId }) => userId);
-    await this.recordReminders(due);
+    const kinds = new Map(due.map(({ id, kind }) => [id, kind]));
+    // Each reminder due goes off once, or is taken back when it's no longer worth saying. Where its
+    // message can't be read now, it goes off unsaid rather than wait.
+    const sending = await this.remindersToSend(due).catch((error: unknown) => {
+      console.error("Could not read reminders' messages", error);
+      return null;
+    });
+    const sent = new Set((sending ?? []).map(({ savedId }) => savedId));
+    await this.saved.settleReminders(sending ? [...sent] : due.map(({ id }) => id), now);
+    if (sending) await this.saved.dropReminders(due.flatMap(({ id }) => (sent.has(id) ? [] : [id])), now);
+    if (!sending) return;
+    await this.recordReminders(sending);
+    const byPerson = Map.groupBy(sending, ({ userId }) => userId);
     try {
       const pushes = [];
       for (const [userId, reminders] of byPerson) {
         const deliveries = (await this.saved.reminderDeliveries(userId)).map(deliveryOf);
-        if (deliveries.length > 0) pushes.push(...reminders.map((reminder) => ({ payload: reminderPayload(reminder), deliveries })));
+        const payloadOf = ({ savedId, text }: RecordedReminder) => reminderPayload({ id: savedId, list: "todo", kind: kinds.get(savedId)!, plainText: text });
+        if (deliveries.length > 0) pushes.push(...reminders.map((reminder) => ({ payload: payloadOf(reminder), deliveries })));
       }
       const gone = await sendPushes(this.env, pushes, (id) => this.store.pushable(id));
       if (gone.length > 0) await this.forgetPushSubscriptions(gone);
     } catch (error) {
       console.error("Could not push reminders", error);
     }
-    for (const userId of byPerson.keys()) await this.savedChanged(userId);
+    // Those whose reminders went by unsaid hear too, as their to-dos' reminders have gone.
+    for (const userId of new Set(due.map(({ userId }) => userId))) await this.savedChanged(userId);
   }
 
   /** Forgets the recent searches of the person `credentials` signs in, answering false without a valid session. */
@@ -4442,6 +4502,7 @@ export class Workspace extends DurableObject<Env> {
     const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
     await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
     await this.deliverReminders();
+    await this.deleteStaleNoteUploads();
     await this.checkMemberships();
     await this.scheduleDelivery();
   }
@@ -4688,6 +4749,9 @@ export class Workspace extends DurableObject<Env> {
     if (unregistered.length > 0) await this.wakeAt(Date.now());
   }
 }
+
+/** The length of a note file's R2 key, as a room's files have (`KEY` in files/serving.ts). */
+const NOTE_FILE_KEY_LENGTH = 28;
 
 export const workspace = (env: Env) => env.WORKSPACE.getByName("workspace");
 
