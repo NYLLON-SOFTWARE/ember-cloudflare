@@ -1,10 +1,11 @@
-import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore, type ComponentProps } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ComponentProps } from "react";
 import { ArrowUp, AtSign, CheckCircle, Emoji, Laptop, Page, Plus } from "@/components/icons/iconoir";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { cn } from "@/lib/utils";
 import { ATTACH_BUTTON, ICON_BUTTON, SEND_HALF } from "./composer-buttons";
 import { PopoverMenu } from "./popover-menu";
+import { preloadRarePages, RarePage, useOpenedRarePage } from "./rare-pages";
 import { ScheduleMenu } from "./schedule-send";
 
 // The buttons of the composer's bottom row, each a piece of its own, so a layout can place them as it
@@ -32,10 +33,8 @@ export function AttachMenu({ disabled, onUpload, onFilesInEmber, onReturnFocus }
   );
 }
 
-// The picker and its emoji, which come with the pages few visits need, loaded while the browser is idle, or as
-// it first opens. A chunk of their own would split the app's script (see oneAppScript in vite.config.ts).
-const EmojiPicker = lazy(async () => ({ default: (await import("./pages")).EmojiPicker }));
-const EmojiSheet = lazy(async () => ({ default: (await import("./pages")).EmojiSheet }));
+// The picker and its emoji come with the pages few visits need, loaded while the browser is idle, or as it
+// first opens. A chunk of their own would split the app's script (see oneAppScript in vite.config.ts).
 
 /** The sheet's gutters, 16px on each side, which the picker's own 8px are half of. */
 const SHEET_GUTTERS = 32;
@@ -54,6 +53,8 @@ function subscribeToResizes(resized: () => void) {
  */
 export function EmojiButton({ disabled = false, onPick, onReturnFocus }: { disabled?: boolean; onPick: (emoji: string) => void; onReturnFocus: () => void }) {
   const [open, setOpen] = useState(false);
+  // Shut, saying so, where its code couldn't load.
+  const [opened, failed] = useOpenedRarePage(open, () => setOpen(false));
   const phone = usePhoneLayout();
   const columns = useSyncExternalStore(subscribeToResizes, sheetColumns);
   const button = (props: ComponentProps<"button">) => (
@@ -74,11 +75,13 @@ export function EmojiButton({ disabled = false, onPick, onReturnFocus }: { disab
   if (phone) {
     return (
       <>
-        {button({ "aria-haspopup": "dialog", "aria-expanded": open, onClick: () => setOpen(true) })}
-        {open && (
-          <Suspense fallback={null}>
-            <EmojiSheet columns={columns} onPick={pick} onClose={() => setOpen(false)} onReturnFocus={onReturnFocus} />
-          </Suspense>
+        {button({ "aria-haspopup": "dialog", "aria-expanded": open, onPointerDown: preloadRarePages, onClick: () => setOpen(true) })}
+        {opened && open && (
+          <RarePage
+            show={({ EmojiSheet }) => <EmojiSheet columns={columns} onPick={pick} onClose={() => setOpen(false)} onReturnFocus={onReturnFocus} />}
+            loading={null}
+            onFailed={failed}
+          />
         )}
       </>
     );
@@ -88,9 +91,13 @@ export function EmojiButton({ disabled = false, onPick, onReturnFocus }: { disab
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{button({})}</PopoverTrigger>
       <PopoverContent side="top" align="start" className="w-auto max-w-[calc(100vw-1rem)] p-0" onCloseAutoFocus={returnFocus}>
-        <Suspense fallback={<div className="h-[22rem] w-[19rem] touch:w-[23rem]" />}>
-          <EmojiPicker onPick={pick} onClose={() => setOpen(false)} />
-        </Suspense>
+        {opened && (
+          <RarePage
+            show={({ EmojiPicker }) => <EmojiPicker onPick={pick} onClose={() => setOpen(false)} />}
+            loading={<div className="h-[22rem] w-[19rem] touch:w-[23rem]" />}
+            onFailed={failed}
+          />
+        )}
       </PopoverContent>
     </Popover>
   );
