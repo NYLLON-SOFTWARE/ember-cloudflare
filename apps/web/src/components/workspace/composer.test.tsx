@@ -2,7 +2,7 @@ import { MAX_FILE_SIZE, MAX_SCHEDULE_AHEAD_MS, type ClientFrame, type LinkPrevie
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
 import type { RoomFrames } from "@/hooks/use-room";
 import { dateValue } from "@/lib/schedule-times";
@@ -10,11 +10,15 @@ import type { Sendable } from "@/lib/uploads";
 import { createRef } from "react";
 import { Composer, RoomGoneNotice, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
+import { loadRarePages } from "./rare-pages";
 import { UNDO_MS } from "./schedule-send";
 
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
 // and every test starts before its code has loaded.
 vi.mock("./editor", async (importOriginal) => ({ ...(await importOriginal<typeof import("./editor")>()), editorLoaded: vi.fn(() => false) }));
+
+// What opens here loads with the pages few visits need, which take a while to import in a test.
+beforeAll(() => loadRarePages(), 120_000);
 
 async function showComposer({ typing = [] as User[], disabled = false, roomId = "r1", threadId = undefined as string | undefined, direct = false, closed = false, autoFocus = true } = {}) {
   const onSend = vi.fn((_body: string, _alsoSend: boolean) => true);

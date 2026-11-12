@@ -174,7 +174,7 @@ async function workspaceSends(frame: WorkspaceServerFrame) {
 
 // The pages few visits need show at once here, as they do once they've loaded soon after the workspace
 // shows. pages.test.tsx tests them loading.
-beforeAll(() => loadPageAhead("/searches"));
+beforeAll(() => loadPageAhead("/searches"), 120_000);
 
 beforeEach(() => {
   vi.stubGlobal("WebSocket", QuietSocket);

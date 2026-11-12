@@ -12,7 +12,7 @@ type Translations = (typeof import("@ember/protocol/translations"))["TRANSLATION
 let loaded: Translations | undefined;
 
 /** Every field's translations, which load as a translate button is first hovered or opened, apart from the app. */
-const loadTranslations = () => import("@ember/protocol/translations").then(({ TRANSLATIONS }) => (loaded = TRANSLATIONS));
+export const loadTranslations = () => import("@ember/protocol/translations").then(({ TRANSLATIONS }) => (loaded = TRANSLATIONS));
 
 /** `translations` under a translate button, unless the workspace hides translation buttons, as it does until an administrator shows them. */
 export function TranslationButton({ translations }: { translations: TranslationKey }) {
