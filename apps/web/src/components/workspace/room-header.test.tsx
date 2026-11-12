@@ -1,4 +1,4 @@
-import { avatarSvg, type DirectoryUser, type Room, type User } from "@ember/protocol";
+import type { DirectoryUser, Me, Room, User } from "@ember/protocol";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps, ReactNode } from "react";
@@ -18,6 +18,8 @@ const general: Room = { id: "general", name: "general", kind: "open", icon: null
 const adaDirect: Room = { id: "direct-1", kind: "direct", members: [{ id: "ada", name: "Ada" }, { id: "linus", name: "Linus" }], activeAt: "2026-10-15T12:00:00.000Z" };
 /** @ember, the AI assistant. */
 const ember: User = { id: "ember", name: "Ember" };
+/** Whoever's reading the header. */
+const linus: Me = { id: "linus", name: "Linus", administrator: false };
 
 afterEach(() => history.replaceState(null, "", "/"));
 
@@ -35,6 +37,7 @@ function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, on
         <Sheet onOpenChange={onOpenChange}>
           <RoomHeader
             room={general}
+            me={linus}
             name="general"
             present={[]}
             status="open"
@@ -53,44 +56,12 @@ function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, on
   );
 }
 
-describe("Who's here", () => {
-  it("shows up to four faces of the people here, and how many more", () => {
-    renderHeader({ present: people(6) });
-    expect(screen.getByText("6 here now")).toBeInTheDocument();
-    const faces = [...screen.getByTitle(/^Person 0, Person 1, .*Person 5$/).querySelectorAll("img")];
-    // Their initials, drawn as the Worker draws them while the directory doesn't list them.
-    expect(faces.map((face) => atob(face.getAttribute("src")!.split(",")[1]!))).toEqual(people(4).map((person) => avatarSvg(person.id, person.name)));
-    expect(screen.getByText("+2")).toBeInTheDocument();
-  });
-
-  it("names them as the people directory lists them now, which follows a rename since the room heard them", () => {
-    const renamed = { id: "u1", name: "Grace Hopper", bio: null, role: "member", status: "active", avatarUrl: "/users/u1/avatar" } as const;
-    render(
-      <PeopleContext value={new Map([[renamed.id, renamed]])}>
-        <Sheet>
-          <RoomHeader
-            room={general}
-            name="general"
-            present={people(2)}
-            status="open"
-            offline={false}
-            favorite={false}
-            onStarred={vi.fn()}
-            involvement="mentions"
-            askForRoom={() => vi.fn()}
-            onSessionChanged={vi.fn()}
-            onFailed={vi.fn()}
-          />
-        </Sheet>
-      </PeopleContext>,
-    );
-    expect(screen.getByTitle("Person 0, Grace Hopper")).toBeInTheDocument();
-  });
-
-  it("shows no overflow count for four or fewer", () => {
-    renderHeader({ present: people(2) });
-    expect(screen.getByText("2 here now")).toBeInTheDocument();
-    expect(screen.queryByText(/^\+\d/)).not.toBeInTheDocument();
+describe("Members", () => {
+  it("shows a person and how many are in a DM in place of who's here, which never lists the reader alone", () => {
+    renderHeader({ room: adaDirect, name: "Ada", present: [{ id: "linus", name: "Linus" }] });
+    expect(screen.getByRole("button", { name: "View members, 2 members" })).toHaveTextContent("2");
+    expect(screen.queryByText(/here now/)).not.toBeInTheDocument();
+    expect(document.querySelector("nav img")).toBeNull();
   });
 });
 
@@ -156,6 +127,7 @@ describe("Group DMs and DM names", () => {
         <Sheet>
           <RoomHeader
             room={{ ...adaDirect, members: [{ id: "ada", name: "Ada" }, { id: recap.id, name: recap.name }] }}
+            me={linus}
             name="Recap"
             present={[]}
             status="open"
@@ -290,7 +262,8 @@ describe("Notification levels", () => {
   });
 
   it("hands on the level its bell saves, says under the bell when it couldn't, and leaves a session that's ended to the workspace", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ involvement: "everything" }));
+    // The member count asks for the room's settings as the header shows, before the bell saves anything.
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({}, { status: 404 })).mockResolvedValueOnce(Response.json({ involvement: "everything" }));
     const [answered, onFailed] = [vi.fn(), vi.fn()];
     renderHeader({ askForRoom: () => answered, onFailed });
     const bell = screen.getByRole("checkbox", { name: "Notifying about @ mentions" });
@@ -321,6 +294,7 @@ describe("Huddles", () => {
         <Sheet>
           <RoomHeader
             room={room}
+            me={linus}
             name={name}
             present={[]}
             status="open"
