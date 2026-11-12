@@ -53,8 +53,10 @@ export interface SavedItem {
   files?: StoredFile[];
   /** When it was marked completed, or null while it's in progress. */
   completedAt: string | null;
-  /** When it reminds its person, or null for no reminder. */
+  /** When it reminds its person, or reminded them, or null for no reminder. */
   remindAt: string | null;
+  /** Its reminder has gone off: a to-do in progress is overdue then. */
+  reminded?: true;
   createdAt: string;
   updatedAt: string;
 }
@@ -66,10 +68,15 @@ export interface SavedMark {
   messageId: string;
 }
 
-/** What `GET /api/saved/marks` answers: the messages you keep, and how many of your to-dos are in progress. */
+/**
+ * What `GET /api/saved/marks` answers: the messages you keep, how many of your to-dos are in progress, how
+ * many of those are overdue, their reminders gone off, and how many items you've saved.
+ */
 export interface SavedMarks {
   marks: SavedMark[];
   openTodos: number;
+  overdueTodos: number;
+  savedItems: number;
 }
 
 /** What `GET /api/saved?list=` answers: the list's items, newest first. */

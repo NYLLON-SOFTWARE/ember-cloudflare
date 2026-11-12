@@ -60,14 +60,14 @@ function showPage(Page: typeof TodosPage, items: SavedItem[]) {
 describe("To-dos", () => {
   it("lists to-dos in progress and completed, each with where its message is and when", async () => {
     showPage(TodosPage, [item("a", { message: message("m-a", "Ship the deck") }), item("b", { message: message("m-b", "Reply to Lin", "p1"), completedAt: "2026-11-02T00:00:00.000Z" }), item("c", { kind: "note", roomId: undefined, messageId: undefined, body: "<p>Call Grace</p>", plainText: "Call Grace", files: [] })]);
-    const inProgress = await screen.findByRole("button", { name: /In progress/ });
+    const inProgress = await screen.findByRole("button", { name: /^In progress\s*\d/ });
     expect(inProgress).toHaveTextContent("In progress2");
-    expect(screen.getByRole("button", { name: /Completed/ })).toHaveTextContent("Completed1");
+    expect(screen.getByRole("button", { name: /^Completed\s*\d/ })).toHaveTextContent("Completed1");
     expect(screen.getByText("Ship the deck")).toBeInTheDocument();
     expect(screen.getByText(/^#general/)).toBeInTheDocument();
     expect(screen.getByText(/Thread in #general/)).toBeInTheDocument();
     expect(screen.getByText("Call Grace")).toBeInTheDocument();
-    expect(screen.getByLabelText("Completed")).toBeInTheDocument();
+    expect(screen.getByText(/Reply to Lin/)).toHaveClass("line-through");
     expect(screen.getByText("Select a to-do to view details.")).toBeInTheDocument();
   });
 
@@ -76,7 +76,7 @@ describe("To-dos", () => {
     const row = (await screen.findByText("Ship the deck")).closest("li")!;
     await userEvent.click(within(row).getByRole("button", { name: "Mark completed" }));
     expect(fetch).toHaveBeenCalledWith("/api/saved/a", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ completed: true }) }));
-    expect(await screen.findByRole("button", { name: /Completed/ })).toHaveTextContent("Completed1");
+    expect(await screen.findByRole("button", { name: /^Completed\s*\d/ })).toHaveTextContent("Completed1");
   });
 
   it("says a deleted message was deleted, and a message out of sight is unavailable", async () => {
@@ -95,6 +95,6 @@ describe("Saved", () => {
     expect(bar.queryByRole("button", { name: "Add reminder" })).not.toBeInTheDocument();
     expect(bar.getByRole("button", { name: "Clear" })).toBeInTheDocument();
     await userEvent.click(bar.getByRole("button", { name: "Move to To-dos" }));
-    expect(await screen.findByText("Nothing saved yet. Save a message or a file from its actions.")).toBeInTheDocument();
+    expect(await screen.findByText("Nothing saved")).toBeInTheDocument();
   });
 });

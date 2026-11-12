@@ -23,14 +23,19 @@ export async function clearItem(id: string): Promise<void> {
   if (!response.ok) await dataOf(response);
 }
 
-/** What you keep, by message, how many to-dos are open, and a count of the changes heard, which lists' pages load again on. */
+/** How many to-dos are in progress, how many of those are overdue, and how many items are saved. */
+export type KeptCounts = Omit<SavedMarks, "marks">;
+
+const NO_COUNTS: KeptCounts = { openTodos: 0, overdueTodos: 0, savedItems: 0 };
+
+/** What you keep, by message, the lists' counts, and a count of the changes heard, which lists' pages load again on. */
 interface SavedState {
   marks: Map<string, SavedMark>;
-  openTodos: number;
+  counts: KeptCounts;
   version: number;
 }
 
-let state: SavedState = { marks: new Map(), openTodos: 0, version: 0 };
+let state: SavedState = { marks: new Map(), counts: NO_COUNTS, version: 0 };
 const listeners = new Set<() => void>();
 
 function publish(next: SavedState) {
@@ -39,8 +44,8 @@ function publish(next: SavedState) {
 }
 
 /** Takes what the Workspace says you keep now, from this tab or another. */
-export function heardSaved({ marks, openTodos }: SavedMarks): void {
-  publish({ marks: new Map(marks.map((mark) => [mark.messageId, mark])), openTodos, version: state.version + 1 });
+export function heardSaved({ marks, ...counts }: SavedMarks): void {
+  publish({ marks: new Map(marks.map((mark) => [mark.messageId, mark])), counts, version: state.version + 1 });
 }
 
 /** Loads what you keep afresh, as a workspace socket that has just connected may have missed a change. */
@@ -50,7 +55,7 @@ export async function reloadSaved(): Promise<void> {
 
 /** Forgets what the last person signed in kept. */
 export function forgetSaved(): void {
-  publish({ marks: new Map(), openTodos: 0, version: state.version + 1 });
+  publish({ marks: new Map(), counts: NO_COUNTS, version: state.version + 1 });
 }
 
 const subscribe = (listener: () => void) => {
@@ -63,9 +68,9 @@ export function useSavedMark(messageId: string): SavedMark | undefined {
   return useSyncExternalStore(subscribe, () => state.marks.get(messageId));
 }
 
-/** How many of your to-dos are in progress, for To-dos' badge. */
-export function useOpenTodos(): number {
-  return useSyncExternalStore(subscribe, () => state.openTodos);
+/** How many to-dos are in progress and overdue, and how many items are saved, for the cards that link to their pages. */
+export function useKeptCounts(): KeptCounts {
+  return useSyncExternalStore(subscribe, () => state.counts);
 }
 
 /** How many times what you keep has changed, which a list's page loads again on. */
