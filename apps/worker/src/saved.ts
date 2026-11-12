@@ -16,14 +16,13 @@ import {
   type SavedItem,
   type SavedItems,
   type SavedList,
+  type SavedMarks,
   type User,
   type UserId,
 } from "@ember/protocol";
 import { prepareBody, userIdFromSgid, userIdsIn } from "@ember/richtext";
-import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
 import { credentialsOf } from "./auth";
 import { jsonBodyOf } from "./bodies";
-import { sharedDb } from "./db";
 import type { Env } from "./env";
 import { fileSigner } from "./files/addresses";
 import { objectKey } from "./files/blobs";
@@ -32,7 +31,7 @@ import { identifiedOf, keptAs } from "./files/uploads";
 import { base36 } from "./ids";
 import { urlOf } from "./request-url";
 import type { KeptNoteFile, StoredSavedChange, StoredSavedItem } from "./saved-store";
-import { messagesAnywhereWithIds } from "./store";
+import { messagesOf } from "./kept-messages";
 import { workspace, type Credentials } from "./workspace";
 
 // To-dos and Saved over HTTP: each person's lists, which the Workspace keeps, with each item's message
@@ -54,20 +53,12 @@ const KEY_LENGTH = 28;
 
 const isList = (value: string | null): value is SavedList => SAVED_LISTS.includes(value as SavedList);
 
-/** The messages `items` keep, as their rooms have them now, by id: from D1 at once, where every room keeps them, or else from each room once. */
-async function messagesOf(env: Env, items: StoredSavedItem[]): Promise<Map<string, Message>> {
-  const kept = items.filter((item): item is StoredSavedItem & { roomId: RoomId; messageId: string } => item.available && item.roomId !== null && item.messageId !== null);
-  if (kept.length === 0) return new Map();
-  const db = sharedDb(env);
-  const messages: Message[] = [];
-  if (db) messages.push(...(await messagesAnywhereWithIds(db, kept.map(({ messageId }) => messageId), env.SESSION_SECRET)));
-  else
-    await eachAtMost([...Map.groupBy(kept, ({ roomId }) => roomId)], ROOMS_AT_ONCE, async ([roomId, inRoom]) => {
-      messages.push(...(await env.CHAT_ROOM.getByName(roomId).messagesWithIds(roomId, inRoom.map(({ messageId }) => messageId))));
-    });
-  // Each item names its room, so a message read from D1 counts only in the room the item names.
-  const rooms = new Map(kept.map(({ messageId, roomId }) => [messageId, roomId]));
-  return new Map(messages.filter((message) => rooms.get(message.id) === message.roomId).map((message) => [message.id, message]));
+/** The messages `items` keep, as their rooms have them now, by id, for those whose rooms their person can see. */
+function messagesKept(env: Env, items: StoredSavedItem[]): Promise<Map<string, Message>> {
+  return messagesOf(
+    env,
+    items.flatMap(({ available, roomId, messageId }) => (available && roomId !== null && messageId !== null ? [{ roomId, messageId }] : [])),
+  );
 }
 
 /** A note's files as the app shows them, their addresses signed under `secret`. */
@@ -105,7 +96,7 @@ async function shownItem(env: Env, item: StoredSavedItem, messages: Map<string, 
 }
 
 async function shownItems(env: Env, items: StoredSavedItem[]): Promise<SavedItem[]> {
-  const messages = await messagesOf(env, items);
+  const messages = await messagesKept(env, items);
   return Promise.all(items.map((item) => shownItem(env, item, messages)));
 }
 
@@ -120,12 +111,12 @@ export async function listSaved(request: Request, env: Env): Promise<Response> {
   return Response.json({ items: await shownItems(env, items) } satisfies SavedItems, { headers: { "Cache-Control": "no-store" } });
 }
 
-/** `GET /api/saved/marks`: the messages you keep in either list, so each message's actions say Add or Remove. */
+/** `GET /api/saved/marks`: the messages you keep in either list, so each message's actions say Add or Remove, and how many to-dos are open. */
 export async function savedMarks(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const marks = credentials && (await workspace(env).savedMarks(credentials));
   if (!marks) return problem(401, NOT_SIGNED_IN);
-  return Response.json({ marks }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json(marks satisfies SavedMarks, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** `GET /api/saved/<id>`: one of your items, as `GET /api/saved` lists it. */

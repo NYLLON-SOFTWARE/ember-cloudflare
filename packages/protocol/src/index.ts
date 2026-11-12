@@ -225,6 +225,7 @@ export {
   type SavedKind,
   type SavedList,
   type SavedMark,
+  type SavedMarks,
 } from "./saved.ts";
 
 export type UserId = string;
@@ -1928,10 +1929,10 @@ export type WorkspaceServerFrame =
   | { type: "activity.updated"; items: ActivityItem[] }
   /**
    * They've changed their To-dos or Saved, in this tab or another, or a reminder of theirs has gone off:
-   * the messages kept in their lists now, so each message's actions say Add or Remove, and the lists'
-   * pages load again.
+   * the messages kept in their lists now, so each message's actions say Add or Remove, and how many of
+   * their to-dos are in progress, for To-dos' badge, and the lists' pages load again.
    */
-  | { type: "saved.changed"; marks: SavedMark[] }
+  | { type: "saved.changed"; marks: SavedMark[]; openTodos: number }
   | { type: "error"; message: string }
   | { type: "pong" };
 

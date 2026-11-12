@@ -66,6 +66,12 @@ export interface SavedMark {
   messageId: string;
 }
 
+/** What `GET /api/saved/marks` answers: the messages you keep, and how many of your to-dos are in progress. */
+export interface SavedMarks {
+  marks: SavedMark[];
+  openTodos: number;
+}
+
 /** What `GET /api/saved?list=` answers: the list's items, newest first. */
 export interface SavedItems {
   items: SavedItem[];

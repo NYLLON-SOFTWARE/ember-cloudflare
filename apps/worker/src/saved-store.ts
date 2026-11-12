@@ -1,4 +1,4 @@
-import { MAX_SAVED_ITEMS, type RoomId, type SavedKind, type SavedList, type SavedMark, type UserId } from "@ember/protocol";
+import { MAX_SAVED_ITEMS, type RoomId, type SavedKind, type SavedList, type SavedMarks, type UserId } from "@ember/protocol";
 import { statement, type Db } from "./db";
 import type { DeliveryRow } from "./workspace-store";
 
@@ -102,6 +102,9 @@ const ITEM_OF_MESSAGE = `SELECT ${ITEM_COLUMNS} FROM saved_items WHERE user_id =
 /** The messages person ?1 keeps in either list, ?2 at most, oldest first. */
 const MARKS = `SELECT id, list, message_id FROM saved_items WHERE user_id = ?1 AND message_id IS NOT NULL ORDER BY created_at, id LIMIT ?2`;
 
+/** How many of person ?1's to-dos are in progress. */
+const OPEN_TODOS = `SELECT count(*) AS open FROM saved_items WHERE user_id = ?1 AND list = 'todo' AND completed_at IS NULL`;
+
 /** Whether person ?1 is in room ?2, and how many items they keep in list ?3. */
 const ROOM_AND_COUNT = `SELECT EXISTS (SELECT 1 FROM memberships WHERE room_id = ?2 AND user_id = ?1) AS member,
   (SELECT count(*) FROM saved_items WHERE user_id = ?1 AND list = ?3) AS count`;
@@ -197,10 +200,13 @@ export class SavedStore {
     return row ? itemOf(row) : null;
   }
 
-  /** The messages someone keeps, in either list. */
-  async marks(userId: UserId): Promise<SavedMark[]> {
-    const rows = await this.db.all<{ id: string; list: SavedList; message_id: string }>(MARKS, userId, 2 * MAX_SAVED_ITEMS);
-    return rows.map((row) => ({ id: row.id, list: row.list, messageId: row.message_id }));
+  /** The messages someone keeps, in either list, and how many of their to-dos are in progress. */
+  async marks(userId: UserId): Promise<SavedMarks> {
+    const [rows, [open]] = (await this.db.batch([statement(MARKS, userId, 2 * MAX_SAVED_ITEMS), statement(OPEN_TODOS, userId)])) as [
+      Array<{ id: string; list: SavedList; message_id: string }>,
+      Array<{ open: number }>,
+    ];
+    return { marks: rows.map((row) => ({ id: row.id, list: row.list, messageId: row.message_id })), openTodos: open?.open ?? 0 };
   }
 
   /**

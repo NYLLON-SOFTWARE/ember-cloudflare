@@ -1,5 +1,5 @@
 import { runDurableObjectAlarm } from "cloudflare:test";
-import { MAX_SAVED_ITEMS, NOTE_FILES_PATH, SAVED_LIST_FULL, type NoteFile, type SavedItem, type SavedItems, type SavedList, type SavedMark, type WorkspaceServerFrame } from "@ember/protocol";
+import { MAX_SAVED_ITEMS, NOTE_FILES_PATH, SAVED_LIST_FULL, type NoteFile, type SavedItem, type SavedItems, type SavedList, type SavedMark, type SavedMarks, type WorkspaceServerFrame, type ActivityPage } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, connect, createRoom, freshDeploy, freshRoom, openWorkspaceSocket, post, pushBrowser, signIn, upload, workspaceSql, workspaceStub, type Session } from "./support";
 
@@ -32,7 +32,11 @@ async function listOf(session: Session, list: SavedList): Promise<SavedItem[]> {
 }
 
 async function marksOf(session: Session): Promise<SavedMark[]> {
-  return ((await (await api("/api/saved/marks", as(session))).json()) as { marks: SavedMark[] }).marks;
+  return ((await (await api("/api/saved/marks", as(session))).json()) as SavedMarks).marks;
+}
+
+async function openTodosOf(session: Session): Promise<number> {
+  return ((await (await api("/api/saved/marks", as(session))).json()) as SavedMarks).openTodos;
 }
 
 /** Posts `text` in `room` as `session`, answering the message. */
@@ -157,7 +161,7 @@ describe("Keeping messages", () => {
     const gracesTab = await openWorkspaceSocket(grace);
 
     const item = await kept(ada, { list: "saved", roomId: room, messageId: message.id });
-    expect(await tab.next()).toEqual({ type: "saved.changed", marks: [{ id: item.id, list: "saved", messageId: message.id }] } satisfies WorkspaceServerFrame);
+    expect(await tab.next()).toEqual({ type: "saved.changed", marks: [{ id: item.id, list: "saved", messageId: message.id }], openTodos: 0 } satisfies WorkspaceServerFrame);
     expect(await gracesTab.answers()).toBe(true);
   });
 });
@@ -169,7 +173,9 @@ describe("To-dos of your own", () => {
     expect(note).toMatchObject({ list: "todo", kind: "note", plainText: "Call Grace", files: [] });
     expect(note.body).toContain("<strong>Grace</strong>");
 
+    expect(await openTodosOf(ada)).toBe(1);
     expect((await changed(ada, note.id, { completed: true })).completedAt).not.toBeNull();
+    expect(await openTodosOf(ada)).toBe(0);
     expect((await changed(ada, note.id, { completed: false, body: "<p>Call Lin</p>" })).plainText).toBe("Call Lin");
     expect((await change(ada, note.id, { list: "saved" })).status).toBe(422);
     expect(await marksOf(ada)).toEqual([]);
@@ -199,6 +205,19 @@ describe("To-dos of your own", () => {
 });
 
 describe("Reminders", () => {
+  it("reminds of a message with its text, in its room", async () => {
+    const ada = await signIn("Ada");
+    const room = await freshRoom("Design");
+    const message = await said(room, ada, "Review the deck");
+    const item = await kept(ada, { list: "todo", roomId: room, messageId: message.id });
+    await changed(ada, item.id, { remindAt: new Date(Date.now() + 60_000).toISOString() });
+    await workspaceSql("UPDATE saved_items SET remind_at = ? WHERE id = ?", Date.now() - 1, item.id);
+    await runDurableObjectAlarm(workspaceStub());
+
+    const activity = (await (await api("/api/activity", as(ada))).json()) as ActivityPage;
+    expect(activity.items).toMatchObject([{ kind: "reminder", roomId: room, messageId: message.id, preview: "Review the deck", content: item.id }]);
+  });
+
   it("refuses a reminder in the past", async () => {
     const ada = await signIn("Ada");
     const note = await kept(ada, { list: "todo", body: "<p>Later</p>" });
@@ -224,7 +243,11 @@ describe("Reminders", () => {
     await runDurableObjectAlarm(workspaceStub());
 
     expect(pushed).toEqual([endpoint]);
-    expect(await tab.next()).toEqual({ type: "saved.changed", marks: [] });
+    const added = await tab.next();
+    expect(added).toMatchObject({ type: "activity.added", items: [{ kind: "reminder", roomId: "", messageId: null, actorId: ada.user.id, preview: "Stand-up", content: note.id, read: false }] });
+    expect(await tab.next()).toEqual({ type: "saved.changed", marks: [], openTodos: 1 });
     expect((await listOf(ada, "todo"))[0]!.remindAt).toBeNull();
+    const activity = (await (await api("/api/activity", as(ada))).json()) as ActivityPage;
+    expect(activity.items.map(({ kind, content }) => [kind, content])).toEqual([["reminder", note.id]]);
   });
 });
