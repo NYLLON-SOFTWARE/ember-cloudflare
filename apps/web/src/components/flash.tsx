@@ -44,6 +44,9 @@ export function FlashProvider({ workspace = false, children }: { workspace?: boo
 export const useOptionalFlash = (): Flasher | null => useContext(FlashContext);
 
 /** Flashes messages over the page, from inside a `FlashProvider`. */
+/** The flash, where there is one: none in a part of the app shown on its own, as in its tests. */
+export const useFlashIfAny = (): Flasher | null => useContext(FlashContext);
+
 export function useFlash(): Flasher {
   const flash = useContext(FlashContext);
   if (!flash) throw new Error("useFlash needs a FlashProvider around it");

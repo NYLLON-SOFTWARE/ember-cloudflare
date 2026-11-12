@@ -16,7 +16,7 @@ import type { RoomHeaderProps } from "../workspace/room-header";
 import { RoomTabsContext } from "../workspace/room-tabs";
 import { BackButton } from "./back-button";
 import { DirectAvatar, personOfDirect } from "./direct-person";
-import { RarePage } from "../workspace/rare-pages";
+import { RarePage, useOpenedRarePage } from "../workspace/rare-pages";
 
 /** A capsule in a phone's top bar: 44px tall, round at each end, as Back is. */
 // Its edge is a ring rather than a border, so what fills it is the capsule's whole 44px, a fingertip's.
@@ -32,8 +32,7 @@ export function MobileRoomHeader(props: RoomHeaderProps) {
   const { room, me, name, present, status, offline } = props;
   const isWithAgent = useIsWithAgent();
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [detailsShown, setDetailsShown] = useState(false);
-  if (detailsOpen && !detailsShown) setDetailsShown(true);
+  const [detailsShown, detailsFailed] = useOpenedRarePage(detailsOpen, () => setDetailsOpen(false));
   const direct = room.kind === "direct";
   const huddles = useAccount().huddles && !direct;
   const person = personOfDirect(room, me.id);
@@ -89,7 +88,7 @@ export function MobileRoomHeader(props: RoomHeaderProps) {
         </div>
       )}
       {/* It loads as it first opens, and stays in the page once it has, so it can slide away. */}
-      {detailsShown && <RarePage show={({ RoomDetailsSheet }) => <RoomDetailsSheet {...props} open={detailsOpen} onOpenChange={setDetailsOpen} />} loading={null} />}
+      {detailsShown && <RarePage show={({ RoomDetailsSheet }) => <RoomDetailsSheet {...props} open={detailsOpen} onOpenChange={setDetailsOpen} />} loading={null} onFailed={detailsFailed} />}
     </PageHeader>
   );
 }
