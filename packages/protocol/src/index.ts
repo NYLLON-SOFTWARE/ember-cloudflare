@@ -7,6 +7,7 @@ import type { AgentProfile } from "./agents.ts";
 import type { AssistantSettings, YourAssistant } from "./assistant.ts";
 import { isActionId, isActionValue, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
+import type { SavedMark } from "./saved.ts";
 import type { HuddlesSettings, LiveHuddle } from "./huddles.ts";
 import type { Canvas } from "./library.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
@@ -128,7 +129,9 @@ export {
   PASSWORD_RESET_PATH,
   PROFILE_PATH,
   PUSH_SUBSCRIPTIONS_PATH,
+  SAVED_PATH,
   SEARCHES_PATH,
+  TODOS_PATH,
   SIGN_UP_PATH,
   threadPath,
   TRANSFER_PATH,
@@ -197,6 +200,29 @@ export {
   type SearchResults,
   type SearchSort,
 } from "./search.ts";
+export {
+  isRemindableAt,
+  MAX_NOTE_FILE_SIZE,
+  MAX_NOTE_FILES,
+  MAX_REMIND_AHEAD_MS,
+  MAX_SAVED_ITEMS,
+  NOTE_FILE_TOO_LARGE,
+  NOTE_FILES_PATH,
+  parseNewSavedItem,
+  parseSavedChange,
+  REMINDER_NOT_AHEAD,
+  SAVED_LIST_FULL,
+  SAVED_LISTS,
+  savedPath,
+  type NewSavedItem,
+  type NoteFile,
+  type SavedChange,
+  type SavedItem,
+  type SavedItems,
+  type SavedKind,
+  type SavedList,
+  type SavedMark,
+} from "./saved.ts";
 
 export type UserId = string;
 export type RoomId = string;
@@ -423,7 +449,7 @@ export type RoomChanges = { name?: string; icon?: RoomIconChoice; parentId?: Roo
  * The rail's buttons and the appearance modes, whose icons an administrator can choose in Community
  * settings.
  */
-export const NAVIGATION_SLOTS = ["home", "dms", "activity", "search", "admin", "light", "dark", "system"] as const;
+export const NAVIGATION_SLOTS = ["home", "dms", "activity", "todos", "search", "admin", "light", "dark", "system"] as const;
 export type NavigationSlot = (typeof NAVIGATION_SLOTS)[number];
 
 /**
@@ -434,6 +460,7 @@ export const DEFAULT_NAVIGATION_ICONS = {
   home: "iconoir:regular:home",
   dms: "iconoir:regular:multi-bubble",
   activity: "iconoir:regular:bell",
+  todos: "iconoir:regular:check-circle",
   search: "iconoir:regular:search",
   admin: "iconoir:regular:box",
   light: "iconoir:regular:sun-light",
@@ -1874,6 +1901,12 @@ export type WorkspaceServerFrame =
   | { type: "activity.removed"; ids: number[] }
   /** Items of their Activity that say what an edited message says now. */
   | { type: "activity.updated"; items: ActivityItem[] }
+  /**
+   * They've changed their To-dos or Saved, in this tab or another, or a reminder of theirs has gone off:
+   * the messages kept in their lists now, so each message's actions say Add or Remove, and the lists'
+   * pages load again.
+   */
+  | { type: "saved.changed"; marks: SavedMark[] }
   | { type: "error"; message: string }
   | { type: "pong" };
 

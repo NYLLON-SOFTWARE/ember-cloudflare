@@ -79,6 +79,7 @@ import { addRecorded, readInRoom, recordedRows, recordMessage, type RecordedItem
 import type { RoomEvent } from "./room-log";
 import { forgettingRoomTabs } from "./room-tabs";
 import { forgettingScheduledListings } from "./scheduled-listings";
+import { NEXT_REMINDER_DUE } from "./saved-store";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
 // storage or in D1 (see db.ts).
@@ -1774,7 +1775,7 @@ const PUSHABLE = `SELECT 1 FROM push_subscriptions JOIN users ON users.id = push
   WHERE push_subscriptions.id = ?1 AND users.status = ${ACTIVE}`;
 
 /** A subscription a push goes to, and the count it sets the badge to. */
-interface DeliveryRow {
+export interface DeliveryRow {
   id: number;
   endpoint: string;
   p256dh_key: string;
@@ -1796,7 +1797,7 @@ const TEST_PUSH = `SELECT id, endpoint, p256dh_key, auth_key,
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = push_subscriptions.user_id AND marked.unread_at IS NOT NULL) AS badge
   FROM push_subscriptions WHERE id = ?1 AND user_id = ?2`;
 
-const deliveryOf = (row: DeliveryRow): PushDelivery => ({
+export const deliveryOf = (row: DeliveryRow): PushDelivery => ({
   subscriptionId: row.id,
   endpoint: row.endpoint,
   p256dhKey: row.p256dh_key,
@@ -3579,16 +3580,24 @@ export class WorkspaceStore {
   }
 
   /**
-   * When the outbox's next revocation, purge, reindex, picture deletion or membership check is due, if
+   * When the outbox's next revocation, purge, reindex, picture deletion, membership check or reminder is due, if
    * any is waiting, leaving out the purges waiting on their rooms' revocations, which are due no sooner.
    */
   async nextDeliveryDue(): Promise<number | null> {
-    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null; membership: number | null; catchUp: number | null }>(
+    const [row] = await this.db.all<{
+      revocation: number | null;
+      purge: number | null;
+      reindex: number | null;
+      picture: number | null;
+      membership: number | null;
+      catchUp: number | null;
+      reminder: number | null;
+    }>(
       `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
         (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
-        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp`,
+        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp, (${NEXT_REMINDER_DUE}) AS reminder`,
     );
-    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp].filter((time) => typeof time === "number");
+    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.reminder].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
   }
 

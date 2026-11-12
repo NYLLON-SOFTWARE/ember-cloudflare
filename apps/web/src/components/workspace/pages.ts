@@ -10,6 +10,7 @@ export { DirectSettingsPage } from "./direct-settings-page";
 export { EmberPage } from "./ember-settings";
 export { HuddleBar } from "./huddle-bar";
 export { HuddlePreview } from "./huddle-preview";
+export { SavedPage, TodosPage } from "./kept-pages";
 export { NewRoomPage } from "./new-room-page";
 export { PersonPage } from "./person-page";
 export { ProfilePage } from "./profile-page";

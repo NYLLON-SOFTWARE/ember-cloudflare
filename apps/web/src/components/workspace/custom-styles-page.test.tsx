@@ -240,6 +240,7 @@ describe("Navigation icons", () => {
       "Choose Home icon",
       "Choose DMs icon",
       "Choose Activity icon",
+      "Choose To-dos icon",
       "Choose Search icon",
       "Choose Admin icon",
       "Choose Light mode icon",

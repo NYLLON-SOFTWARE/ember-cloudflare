@@ -1,6 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   type ListedScheduledMessage,
+  type SavedList,
+  type SavedMark,
   ASSISTANT_ID,
   ASSISTANT_NAME,
   CANT_SEND_EMAIL,
@@ -115,6 +117,9 @@ import type { SfuApp } from "./huddles/sfu";
 import { alphanumeric, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
 import { ScheduledListings, type ScheduledChange } from "./scheduled-listings";
+import { sendPushes } from "./push/delivery";
+import { reminderPayload } from "./push/payload";
+import { SavedStore, type KeepRefusal, type KeptNoteFile, type MessageToKeep, type NoteToKeep, type StoredSavedChange, type StoredSavedItem } from "./saved-store";
 import { memberfulApiOf, membershipsOf, namelessMember, type MemberfulMember } from "./memberful-api";
 import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
@@ -131,6 +136,7 @@ import { CLOSE_REASONS, closeTooLarge, isTooLarge, MAX_WORKSPACE_FRAME_SIZE, RES
 import type { Transfer } from "./transfers";
 import type { TurnstileKeys } from "./turnstile";
 import {
+  deliveryOf,
   NEW_ACCOUNT_LOOKS,
   WorkspaceStore,
   type AccountChange,
@@ -810,6 +816,7 @@ export class Workspace extends DurableObject<Env> {
   private readonly store: WorkspaceStore;
   /** Everyone's Activity, beside their memberships. */
   private readonly activity: ActivityStore;
+  private readonly saved: SavedStore;
   /** Everyone's scheduled messages across rooms, which each room sends as they change. */
   private readonly scheduled: ScheduledListings;
   private readonly sessions = new SessionCache<StoredSession>(CACHED_SESSIONS);
@@ -863,6 +870,7 @@ export class Workspace extends DurableObject<Env> {
     this.db = openDb(env, ctx.storage, "workspace");
     this.store = new WorkspaceStore(this.db);
     this.activity = new ActivityStore(this.db);
+    this.saved = new SavedStore(this.db);
     this.scheduled = new ScheduledListings(this.db);
     // The outbox can hold revocations with no alarm set for them: the Workspace can stop after saving a
     // change but before setting the alarm, and an alarm that keeps failing is given up. So it looks
@@ -3962,6 +3970,110 @@ export class Workspace extends DurableObject<Env> {
     return user && this.scheduled.of(user.id);
   }
 
+  /** The items in `list` of the person `credentials` signs in, newest first, or null without a valid session. */
+  async savedItems(credentials: Credentials, list: SavedList): Promise<StoredSavedItem[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.saved.items(user.id, list);
+  }
+
+  /** The person's item `id`, or "missing" when they have none, or null without a valid session. */
+  async savedItem(credentials: Credentials, id: string): Promise<StoredSavedItem | "missing" | null> {
+    const user = await this.authenticate(credentials);
+    return user && ((await this.saved.item(user.id, id)) ?? "missing");
+  }
+
+  /** The messages the person keeps in either list, or null without a valid session. */
+  async savedMarks(credentials: Credentials): Promise<SavedMark[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.saved.marks(user.id);
+  }
+
+  /**
+   * Keeps a message, which its room has, in `list` for the person `credentials` signs in, or moves their
+   * item that keeps it there, answering the item, why it can't, or null without a valid session. Every tab
+   * of theirs hears what they keep now.
+   */
+  async keepMessage(credentials: Credentials, list: SavedList, message: MessageToKeep): Promise<StoredSavedItem | KeepRefusal | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const kept = await this.saved.keepMessage(user.id, sortableId(), list, message, new Date().toISOString());
+    if (typeof kept !== "string") await this.savedChanged(user.id);
+    return kept;
+  }
+
+  /**
+   * Keeps a note in To-dos for the person `credentials` signs in, answering it, "full" when To-dos has no
+   * room for it, or null without a valid session.
+   */
+  async keepNote(credentials: Credentials, note: NoteToKeep): Promise<StoredSavedItem | "full" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const kept = await this.saved.keepNote(user.id, sortableId(), note, new Date().toISOString());
+    if (!kept) return "full";
+    if (note.remindAt !== null) await this.wakeAt(note.remindAt);
+    await this.savedChanged(user.id);
+    return kept;
+  }
+
+  /**
+   * Changes the person's item `id`, answering it as it is then, "missing" when they have none, "full"
+   * when the list it's to move to has no room, "note" for a note it would move to Saved, or null without a
+   * valid session.
+   */
+  async changeSavedItem(credentials: Credentials, id: string, change: StoredSavedChange): Promise<StoredSavedItem | "missing" | "full" | "note" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const changed = await this.saved.change(user.id, id, change, new Date().toISOString());
+    if (!changed) return "missing";
+    if (typeof changed === "string") return changed;
+    if (typeof change.remindAt === "number") await this.wakeAt(change.remindAt);
+    await this.savedChanged(user.id);
+    return changed;
+  }
+
+  /**
+   * Forgets the person's item `id`, answering its note's files, for R2 to forget too, "missing" when they
+   * have none, or null without a valid session.
+   */
+  async clearSavedItem(credentials: Credentials, id: string): Promise<KeptNoteFile[] | "missing" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const files = await this.saved.clear(user.id, id);
+    if (!files) return "missing";
+    await this.savedChanged(user.id);
+    return files;
+  }
+
+  /** Tells every tab of `userId`'s what they keep now, so their lists load again. */
+  private async savedChanged(userId: UserId): Promise<void> {
+    this.tell([userId], { type: "saved.changed", marks: await this.saved.marks(userId) });
+  }
+
+  /**
+   * Pushes the reminders due now, up to `DELIVERIES_PER_RUN`, to their people's browsers, and clears
+   * them, so each goes off once, whether or not a push could be sent: a reminder isn't worth trying again
+   * hours late. Each person's tabs hear of it, so the item's reminder goes from their lists.
+   */
+  private async deliverReminders(): Promise<void> {
+    const now = Date.now();
+    const due = await this.saved.dueReminders(now, DELIVERIES_PER_RUN);
+    if (due.length === 0) return;
+    await this.saved.settleReminders(due.map(({ id }) => id), now);
+    const byPerson = Map.groupBy(due, ({ userId }) => userId);
+    try {
+      const pushes = [];
+      for (const [userId, reminders] of byPerson) {
+        const deliveries = (await this.saved.reminderDeliveries(userId)).map(deliveryOf);
+        if (deliveries.length > 0) pushes.push(...reminders.map((reminder) => ({ payload: reminderPayload(reminder), deliveries })));
+      }
+      const gone = await sendPushes(this.env, pushes, (id) => this.store.pushable(id));
+      if (gone.length > 0) await this.forgetPushSubscriptions(gone);
+    } catch (error) {
+      console.error("Could not push reminders", error);
+    }
+    for (const userId of byPerson.keys()) await this.savedChanged(userId);
+  }
+
   /** Forgets the recent searches of the person `credentials` signs in, answering false without a valid session. */
   async clearSearches(credentials: Credentials): Promise<boolean> {
     const user = await this.authenticate(credentials);
@@ -4309,6 +4421,7 @@ export class Workspace extends DurableObject<Env> {
     const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
     const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
     await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
+    await this.deliverReminders();
     await this.checkMemberships();
     await this.scheduleDelivery();
   }

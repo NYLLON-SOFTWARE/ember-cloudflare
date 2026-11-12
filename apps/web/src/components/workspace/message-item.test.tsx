@@ -9,6 +9,7 @@ import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directo
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { quotedTimeLabel, timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
+import { forgetSaved, heardSaved } from "@/lib/saved";
 import { MessageItem, type ThreadPlace } from "./message-item";
 
 const ada: User = { id: "u1", name: "Ada" };
@@ -248,7 +249,7 @@ describe("Download and share files", () => {
   it("offers Download in place of Quote among a file message's actions", async () => {
     const { user } = show(fileMessage(), { me: grace });
     await user.click(optionsOn("Q3 report.pdf"));
-    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Forward message…", "Download", "Copy link"]);
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Forward message…", "Download", "Copy link", "Save", "Add to to-dos"]);
     const download = within(actionBar()).getByRole("link", { name: "Download" });
     expect(download).toHaveAttribute("href", report.downloadUrl);
     expect(download).toHaveClass("ios-pwa:hidden");
@@ -449,7 +450,7 @@ describe("Edit a message", () => {
   it("has Edit and Delete message on the bar without a mouse, which can't open More actions, where a mouse has them, as Slack does", async () => {
     const { user } = show(message({ creator: grace }), { administrator: true });
     await user.click(optionsOn("Hello"));
-    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Forward message…", "Quote", "Copy link", "Edit", "Delete message"]);
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Forward message…", "Quote", "Copy link", "Edit", "Delete message", "Add to to-dos"]);
   });
 
   it("edits in place of the message's text, under its author and time, starting from its text, where Enter saves", async () => {
@@ -571,7 +572,7 @@ describe("Message action bar", () => {
     await user.click(options);
     expect(options).toHaveAttribute("aria-expanded", "true");
     expect(options).toHaveAttribute("aria-controls", actionBar().id);
-    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Forward message…", "Quote", "Copy link"]);
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Forward message…", "Quote", "Copy link", "Add to to-dos"]);
 
     await user.click(options);
     expect(options).toHaveAttribute("aria-expanded", "false");
@@ -716,7 +717,7 @@ describe("Message action bar", () => {
     withMouse();
     const { article } = show(message(), { me: grace });
     fireEvent.pointerEnter(article, { pointerType: "mouse" });
-    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Forward message…"]);
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Forward message…", "Add to to-dos"]);
   });
 
   it("opens Forward message from the bar, closing the bar", async () => {
@@ -736,7 +737,7 @@ describe("Message action bar", () => {
       await user.hover(control);
       named.push(screen.getByRole("tooltip").textContent);
     }
-    expect(named).toEqual(["Thumbs up", "Clapping", "Waving hand", "More reactions", "Reply in thread", "Forward message…", "More actions"]);
+    expect(named).toEqual(["Thumbs up", "Clapping", "Waving hand", "More reactions", "Reply in thread", "Forward message…", "Add to to-dos", "More actions"]);
     await user.unhover(optionsOn("Hello"));
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 
@@ -780,7 +781,7 @@ describe("More actions on a message", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent("More actions");
 
     await user.click(options);
-    expect(items()).toEqual(["Quote", "Copy text", "Copy link"]);
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Add to to-dos", "Save"]);
     expect(within(moreActions()).getByRole("button", { name: "Quote" })).toHaveFocus();
     expect(options).toHaveClass("bg-hover");
     // The pointer leaving no longer closes the bar.
@@ -798,19 +799,19 @@ describe("More actions on a message", () => {
     withMouse();
     const { article, user } = show(message());
     await openMoreActions(user, article);
-    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Edit message", "Delete message"]);
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Add to to-dos", "Save", "Edit message", "Delete message"]);
     expect(within(moreActions()).getByRole("button", { name: "Delete message" })).toHaveClass("text-negative");
     cleanup();
 
     const file = show(fileMessage(), { me: grace, administrator: true });
     await openMoreActions(file.user, file.article);
-    expect(items()).toEqual(["Copy link", "Delete message"]);
+    expect(items()).toEqual(["Copy link", "Add to to-dos", "Save file", "Delete message"]);
     cleanup();
 
     // A bot's cards can't be edited either, but their text can be quoted and copied.
     const cards = show(cardMessage(), { me: grace, administrator: true });
     await openMoreActions(cards.user, cards.article);
-    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Delete message"]);
+    expect(items()).toEqual(["Quote", "Copy text", "Copy link", "Add to to-dos", "Save", "Delete message"]);
   });
 
   it("offers neither Edit message nor Delete message on someone else's message to anyone but an administrator", async () => {
@@ -1110,6 +1111,31 @@ describe("Copy a link to a message", () => {
     vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new DOMException("Denied", "NotAllowedError"));
     await pressAction(user, "Copy link");
     expect(within(actionBar()).getByRole("button", { name: "Copy link" })).not.toHaveClass("text-positive");
+  });
+});
+
+describe("To-dos and Saved", () => {
+  afterEach(forgetSaved);
+
+  it("adds a message to your to-dos from the bar, then says Remove once it's there", async () => {
+    const keep = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ id: "i1", list: "todo" }, { status: 201 }));
+    const { user } = show(message());
+    await pressAction(user, "Add to to-dos");
+    expect(keep).toHaveBeenCalledWith("/api/saved", expect.objectContaining({ method: "POST", body: JSON.stringify({ list: "todo", roomId: "general", messageId: "m1" }) }));
+    expect(await within(actionBar()).findByRole("button", { name: "Remove from to-dos" })).toBeInTheDocument();
+  });
+
+  it("takes a message out of Saved from More actions, as every tab hears it's there", async () => {
+    withMouse();
+    const clear = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
+    act(() => heardSaved([{ id: "i2", list: "saved", messageId: "m1" }]));
+    const { article, user } = show(message());
+    fireEvent.pointerEnter(article, { pointerType: "mouse" });
+    await user.click(within(article).getByRole("button", { name: "Message options" }));
+    const moreActions = screen.getByRole("group", { name: "More actions" });
+    await user.click(within(moreActions).getByRole("button", { name: "Remove from saved" }));
+    expect(clear).toHaveBeenCalledWith("/api/saved/i2", { method: "DELETE" });
+    expect(within(moreActions).getByRole("button", { name: "Save" })).toBeInTheDocument();
   });
 });
 

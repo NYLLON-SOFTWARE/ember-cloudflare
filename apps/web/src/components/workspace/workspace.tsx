@@ -85,6 +85,8 @@ const RARE_PAGES = new Set<Route["page"]>([
   "drafts",
   "threads",
   "files",
+  "todos",
+  "saved",
 ]);
 
 /**
@@ -132,10 +134,12 @@ const RAIL_PAGES = {
   threads: "home",
   files: "files",
   activity: "activity",
+  todos: "todos",
+  saved: "home",
 } as const satisfies Record<Route["page"], RailPage>;
 
 /** The Home sidebar's link each of its pages marks. */
-const SIDEBAR_PAGES: Partial<Record<Route["page"], SidebarPage>> = { people: "people", drafts: "drafts", threads: "threads" };
+const SIDEBAR_PAGES: Partial<Record<Route["page"], SidebarPage>> = { people: "people", drafts: "drafts", threads: "threads", saved: "saved" };
 
 /** Loads the page shown again, for the Worker to answer it with Campfire's 404 page, as it does for someone nobody is. */
 const showNotFound = () => loadPage(location.pathname);
@@ -835,6 +839,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             }}
           />
         );
+      case "todos":
+        return rarePage(({ TodosPage }) => <TodosPage itemId={route.itemId} me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
+      case "saved":
+        return rarePage(({ SavedPage }) => <SavedPage itemId={route.itemId} me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
       case "person":
         return rarePage(({ PersonPage }) => (
           <PersonPage

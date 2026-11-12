@@ -2,7 +2,7 @@ import { useContext, type MouseEvent } from "react";
 import type { Me, NavigationSlot } from "@ember/protocol";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
-import { ACTIVITY_PATH, DMS_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
+import { ACTIVITY_PATH, DMS_PATH, PROFILE_PATH, SEARCHES_PATH, TODOS_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { unreadBadge } from "@/lib/unread-badge";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
@@ -91,7 +91,7 @@ function ActivityLink({ unread, current }: Activity & { current: boolean }) {
  * settings, your avatar on your profile), Home on a room's page, DMs on the DMs page and a DM's, and
  * Files on the Files page.
  */
-export type RailPage = "home" | "room" | "dms" | "activity" | "search" | "workspace" | "profile" | "files" | null;
+export type RailPage = "home" | "room" | "dms" | "activity" | "search" | "todos" | "workspace" | "profile" | "files" | null;
 
 interface Props {
   me: Me;
@@ -138,6 +138,7 @@ export function Rail({ me, workspaceName, current, activity, directsUnread, newR
       <RailLink slot="dms" label="DMs" href={DMS_PATH} current={marked === "dms"} unread={directsUnread} />
       <ActivityLink unread={activity.unread} current={marked === "activity"} />
       <FilesRailLink current={marked === "files"} className={RAIL_LINK} />
+      <RailLink slot="todos" label="To-dos" href={TODOS_PATH} current={marked === "todos"} />
       {/* Opens the search box in place, for everything. */}
       <RailLink slot="search" label="Search" href={SEARCHES_PATH} current={marked === "search"} onClick={opensSearch(openSearch)} />
       <hr className="my-1 w-8 border-t" />

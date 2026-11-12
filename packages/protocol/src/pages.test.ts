@@ -200,6 +200,16 @@ describe("Private sign-in link", () => {
 });
 
 describe("Search page", () => {
+  it("shows To-dos at `/todos` and Saved at `/saved`, each with an item open at its id", () => {
+    expect(workspacePageOf("/todos")).toEqual({ page: "todos" });
+    expect(workspacePageOf("/todos/01abc")).toEqual({ page: "todos", itemId: "01abc" });
+    expect(workspacePageOf("/saved")).toEqual({ page: "saved" });
+    expect(workspacePageOf("/saved/01abc")).toEqual({ page: "saved", itemId: "01abc" });
+    expect(workspacePageOf(`/saved/${"x".repeat(MAX_ID_LENGTH + 1)}`)).toEqual({ page: "saved" });
+    expect(isAppPage("/todos")).toBe(true);
+    for (const path of ["/todos/", "/todos/a/b", "/saveds"]) expect(workspacePageOf(path), path).toBeNull();
+  });
+
   it("shows search at `/searches`, whatever its query string, which the path leaves out", () => {
     expect(workspacePageOf("/searches")).toEqual({ page: "search" });
     expect(isAppPage("/searches")).toBe(true);

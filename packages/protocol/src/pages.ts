@@ -80,7 +80,11 @@ export type WorkspacePage =
    * a conversation open beside it, the room's address follows, as `/activity/rooms/<id>/@<message id>`,
    * and with a thread open too, `/activity/rooms/<id>/threads/<message id>/@<reply id>`.
    */
-  | { page: "activity"; roomId?: RoomId; messageId?: string; threadId?: string; replyId?: string };
+  | { page: "activity"; roomId?: RoomId; messageId?: string; threadId?: string; replyId?: string }
+  /** Your to-dos, at `/todos`, with one open beside them at `/todos/<id>`. */
+  | { page: "todos"; itemId?: string }
+  /** What you've saved, at `/saved`, with one's message open beside it at `/saved/<id>`. */
+  | { page: "saved"; itemId?: string };
 
 /** Which of the workspace's files the Files page lists. */
 export type FilesPlace = "all" | "canvases" | "starred";
@@ -120,6 +124,8 @@ export const FILES_PATH = "/files";
 
 /** The Files page's address for `place`. */
 export const filesPath = (place: FilesPlace) => (place === "all" ? FILES_PATH : `${FILES_PATH}/${place}`);
+export const TODOS_PATH = "/todos";
+export const SAVED_PATH = "/saved";
 
 /**
  * A message's thread, which opens beside its room, or a reply's permalink there, which opens the thread at
@@ -172,6 +178,8 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   const files = pathname.match(/^\/files(?:\/(canvases|starred))?$/);
   if (files) return { page: "files", place: (files[1] as FilesPlace | undefined) ?? "all" };
   if (pathname === ACTIVITY_PATH) return { page: "activity" };
+  const kept = pathname.match(/^\/(todos|saved)(?:\/([^/]+))?$/);
+  if (kept) return keptPageOf(kept[1] === "todos" ? "todos" : "saved", kept[2]);
   if (pathname.startsWith(`${ACTIVITY_PATH}/rooms/`)) return activityPageOf(pathname.slice(ACTIVITY_PATH.length));
   if (/^\/users\/[^/]+\/profile$/.test(pathname)) return { page: "profile" };
   if (/^\/users\/[^/]+\/push_subscriptions$/.test(pathname)) return { page: "push-subscriptions" };
@@ -210,6 +218,12 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
  * names. A thread or reply whose id is malformed, or longer than any message's, is left out, as a
  * permalink's message is, so the room opens without the thread, or the thread at its newest replies.
  */
+/** A list's page, with the item `itemSegment` names open, if it names one. */
+function keptPageOf(page: "todos" | "saved", itemSegment: string | undefined): WorkspacePage {
+  const itemId = itemSegment === undefined ? null : decoded(itemSegment);
+  return itemId && itemId.length <= MAX_ID_LENGTH ? { page, itemId } : { page };
+}
+
 function threadPageOf(roomSegment: string, threadSegment: string, replySegment: string | undefined): WorkspacePage | null {
   const roomId = roomSegment === "new" ? null : decoded(roomSegment);
   if (!roomId) return null;

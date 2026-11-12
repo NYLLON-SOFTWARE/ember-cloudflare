@@ -13,9 +13,26 @@ import {
   type Ref,
   type RefObject,
 } from "react";
-import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
+import { QUICK_REACTION_COUNT, REACTIONS, type Message, type SavedList, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { ArrowRight, ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash } from "@/components/icons/iconoir";
+import { useOptionalFlash } from "@/components/flash";
+import {
+  ArrowRight,
+  Bookmark,
+  BookmarkSolid,
+  ChatPlusIn,
+  CheckCircle,
+  CheckCircleSolid,
+  Copy,
+  Download,
+  Edit,
+  Emoji,
+  MessageText,
+  MoreHoriz,
+  QuoteMessage,
+  ShareAndroid,
+  Trash,
+} from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -24,6 +41,7 @@ import { useMediaQuery } from "@/hooks/use-media-query";
 import { permalinkOf } from "@/hooks/use-route";
 import { copyWithSuccess } from "@/lib/clipboard";
 import { replyQuote } from "@/lib/messages";
+import { toggleKept, useSavedMark } from "@/lib/saved";
 import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { COPY_CODE } from "./code-block";
@@ -129,6 +147,9 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   // What Copy text copies: the message's plain text, which holds a bot's cards' too. A file message has none
   // but its file's name.
   const text = message.attachment ? null : message.plainText;
+  // Where you keep the message, if you do, which Add to to-dos and Save say.
+  const kept = useSavedMark(message.id)?.list;
+  const flash = useOptionalFlash();
 
   const show = (byHovering: boolean) => {
     hoverOpened.current = byHovering;
@@ -173,6 +194,11 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   const forward = () => {
     close();
     onForward?.(trigger.current!);
+  };
+
+  // Add to to-dos and Save keep the message, or take it out of the list it's in, leaving the bar open.
+  const keep = (list: SavedList) => {
+    toggleKept(list, message.roomId, message.id).catch((error: unknown) => flash?.("alert", error instanceof Error ? error.message : String(error)));
   };
 
   // New boost closes the bar too, and the form it opens takes focus.
@@ -491,6 +517,10 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </button>
               </ActionTooltip>
             )}
+            {/* A file is saved from the bar, as a file's own save is in Slack. */}
+            {message.attachment && <KeepButton list="saved" kept={kept} onKeep={keep} />}
+            {/* Last before Message options, as Slack's bar has it. */}
+            <KeepButton list="todo" kept={kept} onKeep={keep} />
           </div>
           <div
             ref={tray}
@@ -536,6 +566,15 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             <button type="button" className={ITEM} onClick={(event) => void copyLink(event, message)}>
               <Copy />
               Copy link
+            </button>
+            <hr className="my-1 border-message-border" />
+            <button type="button" className={ITEM} onClick={() => keep("todo")}>
+              {kept === "todo" ? <CheckCircleSolid /> : <CheckCircle />}
+              {kept === "todo" ? "Remove from to-dos" : "Add to to-dos"}
+            </button>
+            <button type="button" className={ITEM} onClick={() => keep("saved")}>
+              {kept === "saved" ? <BookmarkSolid /> : <Bookmark />}
+              {kept === "saved" ? "Remove from saved" : message.attachment ? "Save file" : "Save"}
             </button>
             {editable && (
               <>
@@ -585,6 +624,26 @@ function ActionTooltip({ label, children }: { label: string; children: ReactElem
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/** The words for keeping a message in `list`, or taking it out, by whether it's kept there now. */
+const KEEP_LABELS = {
+  todo: { add: "Add to to-dos", remove: "Remove from to-dos" },
+  saved: { add: "Save", remove: "Remove from saved" },
+} as const satisfies Record<SavedList, { add: string; remove: string }>;
+
+/** The bar's Add to to-dos, or Save, which is pressed while the message is kept in its list. */
+function KeepButton({ list, kept, onKeep }: { list: SavedList; kept: SavedList | undefined; onKeep: (list: SavedList) => void }) {
+  const pressed = kept === list;
+  const label = KEEP_LABELS[list][pressed ? "remove" : "add"];
+  const Icon = list === "todo" ? (pressed ? CheckCircleSolid : CheckCircle) : pressed ? BookmarkSolid : Bookmark;
+  return (
+    <ActionTooltip label={label}>
+      <button type="button" aria-label={label} className={ACTION} onClick={() => onKeep(list)}>
+        <Icon />
+      </button>
+    </ActionTooltip>
   );
 }
 

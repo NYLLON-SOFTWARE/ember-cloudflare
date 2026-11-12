@@ -2,6 +2,7 @@ import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useReducer, us
 import { CloseCode, parseServerFrame, type ActivityFrame, type Account, type DirectoryUser, type Me, type RoomId, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
+import { heardSaved, reloadSaved } from "@/lib/saved";
 import { NO_ROOM_LIST, roomListReducer, type RoomAnswer } from "@/lib/room-list";
 
 /**
@@ -181,6 +182,8 @@ export function useSidebar(
           if (!toldOf.account) accountChanged(frame.account);
           // Activity loads again too, with whatever came while the socket was away.
           activity(null);
+          // What you keep may have changed while this was away.
+          void reloadSaved().catch(() => {});
           return reload();
         case "room.saved":
           heardOf(frame.room.id);
@@ -224,6 +227,8 @@ export function useSidebar(
         case "activity.removed":
         case "activity.updated":
           return activity(frame);
+        case "saved.changed":
+          return heardSaved(frame.marks);
       }
     };
 

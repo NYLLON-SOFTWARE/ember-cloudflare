@@ -1,9 +1,7 @@
-import { useContext, useId, useMemo, useState, type ComponentType, type MouseEvent, type ReactNode } from "react";
-import type { Favorites, LiveHuddle, Me, RoomId, SidebarRoom, UserId } from "@ember/protocol";
-import { EditPencil, Group, Headset, Lock, MultiBubble, NavArrowDown, type IconoirIconProps } from "@/components/icons/iconoir";
+import { Bookmark, EditPencil, Group, Headset, Lock, MultiBubble, NavArrowDown, type IconoirIconProps } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
-import { DRAFTS_PATH, PEOPLE_PATH, roomPath, THREADS_PATH } from "@/hooks/use-route";
+import { DRAFTS_PATH, PEOPLE_PATH, roomPath, SAVED_PATH, THREADS_PATH } from "@/hooks/use-route";
 import { useStarOrder } from "@/hooks/use-star-order";
 import { apart, inSidebarOrder, markedUnread, type SharedSidebarRoom } from "@/lib/room-list";
 import { roomDisplayName, roomTree } from "@/lib/sub-rooms";
@@ -20,12 +18,13 @@ const ROW =
   "flex min-h-9 items-center gap-2.5 rounded-lg px-[9px] py-[7px] text-sm leading-[22px] text-foreground no-underline touch:min-h-11 hover:bg-hover aria-[current=page]:bg-hover";
 
 /** The Home sidebar's own pages, which its links at the top open. */
-export type SidebarPage = "threads" | "drafts" | "people";
+export type SidebarPage = "threads" | "drafts" | "saved" | "people";
 
 /** The links at the top of the list, in order, after Slack's. */
 const LINKS: Array<{ page: SidebarPage; label: string; href: string; Icon: ComponentType<IconoirIconProps> }> = [
   { page: "threads", label: "Threads", href: THREADS_PATH, Icon: MultiBubble },
   { page: "drafts", label: "Drafts & sent", href: DRAFTS_PATH, Icon: EditPencil },
+  { page: "saved", label: "Saved", href: SAVED_PATH, Icon: Bookmark },
   { page: "people", label: "People", href: PEOPLE_PATH, Icon: Group },
 ];
 
@@ -366,3 +365,4 @@ function HuddleMark({ huddle, meId, wordsId, className }: HuddleMarkProps) {
     </>
   );
 }
+
