@@ -48,6 +48,16 @@ describe("People page", () => {
     expect(screen.queryByRole("list", { name: "People" })).not.toBeInTheDocument();
     expect(screen.getByText("No one matches that search.")).toBeInTheDocument();
   });
+
+  it("searches in the field Find a DM… has, which clears with a button of its own", async () => {
+    showPage();
+    const field = screen.getByRole("searchbox", { name: "Search for people" });
+    expect(field).toHaveClass("h-9", "[&::-webkit-search-cancel-button]:appearance-none");
+    await userEvent.type(field, "admiral");
+    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(field).toHaveValue("");
+    expect(field).toHaveFocus();
+  });
 });
 
 describe("personMatches", () => {

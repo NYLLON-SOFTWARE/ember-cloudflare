@@ -1,6 +1,6 @@
-import { createContext, useContext, useId, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { createContext, useContext, useId, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import type { DirectPreview, RoomId, SidebarRoom, User, UserId } from "@ember/protocol";
-import { ChatBubbleEmpty, ChatPlusIn, CheckCircle, Search, Xmark } from "@/components/icons/iconoir";
+import { ChatBubbleEmpty, ChatPlusIn, CheckCircle, Search } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
 import { useDirectPreviews } from "@/hooks/use-direct-previews";
 import { useNameOf } from "@/hooks/use-directory";
@@ -17,6 +17,7 @@ import { DirectAvatars } from "./direct-avatars";
 import { ListEmptyState } from "./list-empty-state";
 import { opensNewDirect } from "./new-direct-dialog";
 import { PageHeader } from "./page-header";
+import { SearchField } from "./search-field";
 import { UnreadsSwitch } from "./unreads-switch";
 import { UserAvatar } from "./user-avatar";
 
@@ -70,7 +71,6 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
   );
   const suggested = useMemo(() => (onlyUnread || typed.trim() !== "" ? [] : suggestedPeople(suggestions, rooms)), [onlyUnread, typed, suggestions, rooms]);
   const unreadId = useId();
-  const findRef = useRef<HTMLInputElement>(null);
   const mounted = useMounted();
   const [starting, setStarting] = useState<UserId | null>(null);
   // A suggestion starts its DM once the page's guard lets it, from a page with changes to lose.
@@ -117,33 +117,7 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
           </span>
           {compose}
         </div>
-        <div className="relative">
-          <Search aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-          {/* The browser's own clear button is drawn in its own blue, so the field draws its own. */}
-          <input
-            ref={findRef}
-            type="search"
-            value={typed}
-            onChange={(event) => setTyped(event.target.value)}
-            placeholder="Find a DM…"
-            aria-label="Find a DM"
-            className="h-8 w-full rounded-lg border bg-background pr-8 pl-8 text-[14px] outline-none placeholder:text-muted-foreground focus-visible:border-ring touch:h-11 touch:text-base max-md:text-base [&::-webkit-search-cancel-button]:appearance-none"
-          />
-          {typed !== "" && (
-            <button
-              type="button"
-              aria-label="Clear"
-              title="Clear"
-              onClick={() => {
-                setTyped("");
-                findRef.current?.focus();
-              }}
-              className="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground touch:size-9"
-            >
-              <Xmark className="size-4" />
-            </button>
-          )}
-        </div>
+        <SearchField value={typed} onChange={setTyped} placeholder="Find a DM…" label="Find a DM" />
         <UnreadsChips on={onlyUnread} disabled={unreadOnly} onChange={setUnreadsOn} />
       </div>
       <span id={unreadId} hidden>

@@ -92,9 +92,9 @@ export function ThreadsPage({ me, rooms, onFailed }: Props) {
         <h1 className="min-w-0 flex-1 truncate text-[17px] leading-[1.4] font-[650] max-md:text-base">Threads</h1>
       </PageHeader>
       <MainContent className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain bg-background pr-[env(safe-area-inset-right)] [scrollbar-gutter:stable] max-md:pl-[env(safe-area-inset-left)]">
-        <div className="mx-auto flex w-full max-w-[960px] flex-col gap-4 px-[22px] pt-4 pb-[max(18px,env(safe-area-inset-bottom))] max-md:px-3 max-md:pt-3">
+        <div className="flex w-full max-w-[960px] flex-col gap-4 px-[22px] pt-4 pb-[max(18px,env(safe-area-inset-bottom))] max-md:px-3 max-md:pt-3">
           {!loaded ? (
-            <p className="py-10 text-center text-muted-foreground">Loading…</p>
+            <ThreadsLoading />
           ) : loaded.threads.length === 0 ? (
             <div className="grid justify-items-center px-6 pt-[8dvh] pb-6 text-center text-muted-foreground">
               <MultiBubble className="mb-4 h-auto w-16 max-w-[25vw] text-foreground opacity-20" />
@@ -121,6 +121,27 @@ export function ThreadsPage({ me, rooms, onFailed }: Props) {
         </div>
       </MainContent>
     </>
+  );
+}
+
+/** Threads loading: the shapes of two cards, each a header over a message, faint, for screen readers Loading…. */
+function ThreadsLoading() {
+  return (
+    <div role="status" className="flex flex-col gap-4">
+      <span className="sr-only">Loading…</span>
+      {[0, 1].map((card) => (
+        <div key={card} aria-hidden="true" className="overflow-hidden rounded-xl border bg-background">
+          <div className="h-10 border-b bg-surface" />
+          <div className="flex gap-3 px-5 py-3">
+            <span className="size-9 shrink-0 rounded-[6px] bg-hover" />
+            <span className="flex flex-1 flex-col gap-2 pt-1">
+              <span className="h-3 w-1/4 rounded-full bg-hover" />
+              <span className="h-3 w-2/3 rounded-full bg-hover" />
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -199,7 +220,7 @@ function ThreadCard({ thread, me, names }: { thread: ListedThread; me: Me; names
             {/* The first reply after the ones left out starts its author's group, as what came between isn't shown. */}
             <MessageItem message={message} me={me} threaded={threaded && !(index === 1 && left > 0)} editing={false} actions={null} editors={NO_EDITORS} thread={place} />
             {index === 0 && left > 0 && (
-              <PageLink href={threadPath(thread.roomId, thread.parent.id)} className="ml-[68px] inline-block py-1 text-[13px] font-semibold text-link hover:underline max-md:ml-[58px]">
+              <PageLink href={threadPath(thread.roomId, thread.parent.id)} className="ml-16 inline-block py-1 text-[13px] font-semibold text-link hover:underline max-md:ml-[52px]">
                 {moreRepliesLabel(left)}
               </PageLink>
             )}
