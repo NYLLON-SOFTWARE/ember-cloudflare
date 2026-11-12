@@ -227,11 +227,11 @@ export async function askInTurn(
   timeoutMs: number,
 ): Promise<(Answered & { format: ModelFormat }) | GatewayRefusal> {
   let first: GatewayRefusal | null = null;
-  for (const format of formats) {
+  for (const [index, format] of formats.entries()) {
     const answered = await ask(env, { ...gateway, format }, questionIn(format), timeoutMs);
     if (!("refusal" in answered)) return { ...answered, format };
     if (!answered.wrongFormat && !answered.closed) return answered;
-    if (answered.closed) console.error(`Asking ${gateway.model} through Cloudflare's REST API, as AI Gateway's xAI endpoint didn't let it through: ${answered.refusal}`);
+    if (answered.closed && index < formats.length - 1) console.error(`Asking ${gateway.model} through Cloudflare's REST API, as AI Gateway's xAI endpoint didn't let it through: ${answered.refusal}`);
     if (!first || first.closed) first = answered;
   }
   return first!;

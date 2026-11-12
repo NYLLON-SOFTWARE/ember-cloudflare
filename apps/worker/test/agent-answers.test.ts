@@ -661,11 +661,14 @@ describe("Try it", () => {
   it("tries Grok searching the web through AI Gateway's xAI endpoint alone, saying on Search the web what the API token lacks while it doesn't take it", async () => {
     const { ada } = await setUp();
     const trial = { ...TRIAL, name: "Grok", model: "xai/grok-4.7", thinking: "low", webSearch: true, question: "who won the latest Packers game?" };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const unauthorized = internet(() => Response.json({ success: false, result: [], messages: [], error: [{ code: 2009, message: "Unauthorized" }] }, { status: 401 }), true);
     const refused = await tryIt(ada, null, trial);
     expect(refused.status).toBe(422);
     expect(await refused.json()).toEqual({ error: `${XAI_TOKEN_REFUSED} Cloudflare says: Unauthorized`, field: "webSearch" });
     expect(unauthorized.map(({ url }) => url)).toEqual([XAI_ENDPOINT]);
+    // Nothing else is asked, so the Worker's log doesn't say Grok is asked through Cloudflare's REST API instead.
+    expect(errors).not.toHaveBeenCalledWith(expect.stringContaining("through Cloudflare's REST API"));
     vi.restoreAllMocks();
 
     const questions = internet(() => Response.json({ object: "response", status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "The Packers won." }] }] }), true);
