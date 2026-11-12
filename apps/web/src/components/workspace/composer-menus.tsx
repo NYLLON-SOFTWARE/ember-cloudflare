@@ -1,11 +1,13 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowUp, AtSign, CheckCircle, Emoji, Laptop, Page, Plus } from "@/components/icons/iconoir";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { cn } from "@/lib/utils";
 import { ATTACH_BUTTON, ICON_BUTTON, SEND_HALF } from "./composer-buttons";
 import { PopoverMenu } from "./popover-menu";
 import { ScheduleMenu } from "./schedule-send";
+import { DIALOG_BACKDROP } from "./unsaved-changes";
 
 // The buttons of the composer's bottom row, each a piece of its own, so a layout can place them as it
 // needs: +, Aa, Emoji, @ and Send with its schedule menu. Each keeps focus in the text, so a phone's
@@ -36,35 +38,78 @@ export function AttachMenu({ disabled, onUpload, onFilesInEmber, onReturnFocus }
 // it first opens. A chunk of their own would split the app's script (see oneAppScript in vite.config.ts).
 const EmojiPicker = lazy(async () => ({ default: (await import("./pages")).EmojiPicker }));
 
-/** Emoji, which opens the emoji picker to write one at the cursor. */
+/** The sheet's gutters, 16px on each side, which the picker's own 8px are half of. */
+const SHEET_GUTTERS = 32;
+
+/** How many 44px emoji a row of the phone's sheet holds, within its gutters. */
+const sheetColumns = () => Math.max(1, Math.floor((window.innerWidth - SHEET_GUTTERS) / 44));
+
+function subscribeToResizes(resized: () => void) {
+  window.addEventListener("resize", resized);
+  return () => window.removeEventListener("resize", resized);
+}
+
+/**
+ * Emoji, which opens the emoji picker to write one at the cursor: a popover, or on phones a sheet from the
+ * bottom of the screen, as wide as the screen allows, which leaves the keyboard down until the search is tapped.
+ */
 export function EmojiButton({ disabled = false, onPick, onReturnFocus }: { disabled?: boolean; onPick: (emoji: string) => void; onReturnFocus: () => void }) {
   const [open, setOpen] = useState(false);
+  const phone = usePhoneLayout();
+  const columns = useSyncExternalStore(subscribeToResizes, sheetColumns);
+  const sheet = useRef<HTMLDivElement>(null);
+  const button = (
+    <button type="button" disabled={disabled} title="Emoji" onMouseDown={(event) => event.preventDefault()} className={ICON_BUTTON}>
+      <Emoji className="size-[18px]" />
+      <span className="sr-only">Emoji</span>
+    </button>
+  );
+  const returnFocus = (event: Event) => {
+    event.preventDefault();
+    onReturnFocus();
+  };
+  const picker = (props: { columns?: number; autoFocus?: boolean; className?: string }) => (
+    <Suspense fallback={<div className={props.className ?? "h-[22rem] w-[19rem] touch:w-[23rem]"} />}>
+      <EmojiPicker
+        {...props}
+        onPick={(emoji) => {
+          setOpen(false);
+          onPick(emoji);
+        }}
+        onClose={() => setOpen(false)}
+      />
+    </Suspense>
+  );
+
+  if (phone) {
+    return (
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>{button}</DialogTrigger>
+        <DialogContent
+          ref={sheet}
+          showCloseButton={false}
+          overlayClassName={DIALOG_BACKDROP}
+          aria-describedby={undefined}
+          // The sheet takes focus, rather than the search, which would raise the keyboard over it.
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            sheet.current?.focus();
+          }}
+          onCloseAutoFocus={returnFocus}
+          className="top-auto bottom-0 left-0 block w-full max-w-none translate-x-0 translate-y-0 gap-0 rounded-t-[18px] rounded-b-none border-x-0 border-b-0 px-2 pt-2 pb-[max(8px,env(safe-area-inset-bottom))] sm:max-w-none"
+        >
+          <DialogTitle className="sr-only">Emoji</DialogTitle>
+          {picker({ columns, autoFocus: false, className: "h-[min(22rem,calc(100dvh-4rem))] w-full" })}
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button type="button" disabled={disabled} title="Emoji" onMouseDown={(event) => event.preventDefault()} className={ICON_BUTTON}>
-          <Emoji className="size-[18px]" />
-          <span className="sr-only">Emoji</span>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        side="top"
-        align="start"
-        className="w-auto max-w-[calc(100vw-1rem)] p-0"
-        onCloseAutoFocus={(event) => {
-          event.preventDefault();
-          onReturnFocus();
-        }}
-      >
-        <Suspense fallback={<div className="h-[22rem] w-[19rem] touch:w-[23rem]" />}>
-          <EmojiPicker
-            onPick={(emoji) => {
-              setOpen(false);
-              onPick(emoji);
-            }}
-            onClose={() => setOpen(false)}
-          />
-        </Suspense>
+      <PopoverTrigger asChild>{button}</PopoverTrigger>
+      <PopoverContent side="top" align="start" className="w-auto max-w-[calc(100vw-1rem)] p-0" onCloseAutoFocus={returnFocus}>
+        {picker({})}
       </PopoverContent>
     </Popover>
   );

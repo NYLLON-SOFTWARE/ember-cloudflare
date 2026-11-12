@@ -128,6 +128,15 @@ const reactions = () => within(screen.getByRole("list", { name: "Reactions" }));
 /** The pills of the reactions under the one message shown, without the Add reaction after them. */
 const pills = () => reactions().getAllByRole("listitem").filter((item) => !within(item).queryByRole("button", { name: "Add reaction" }));
 
+/** More reactions' tray, which holds the emoji picker and New boost. */
+const tray = () => screen.getByRole("group", { name: "More reactions" });
+
+/** The tray's button for `emoji`, found by selector, as working out the role and name of each of some 1,900 is slow. */
+const emojiButton = (emoji: string) => [...tray().querySelectorAll<HTMLButtonElement>("button[data-emoji]")].find((button) => button.dataset.emoji === emoji)!;
+
+/** The emoji picker's search. */
+const searchBox = () => screen.getByLabelText("Search emoji");
+
 /** The Custom reaction form's field. */
 const customField = () => screen.getByRole("textbox", { name: "Custom reaction" });
 
@@ -613,13 +622,14 @@ describe("Message action bar", () => {
     expect(optionsOn("there")).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("opens the tray at its first reaction, and Escape closes it, handing focus to More reactions, then the actions, handing it to Message options", async () => {
+  it("opens the emoji picker at its first emoji, and Escape closes it, handing focus to More reactions, then the actions, handing it to Message options", async () => {
     const { user } = show(message());
     await pressAction(user, "More reactions");
     const more = within(actionBar()).getByRole("button", { name: "More reactions" });
     expect(more).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("group", { name: "More reactions" })).toBeVisible();
-    expect(within(screen.getByRole("group", { name: "More reactions" })).getByRole("button", { name: "Muscle" })).toHaveFocus();
+    expect(tray()).toBeVisible();
+    // Without a mouse, the first emoji rather than the search, which would raise a touch screen's keyboard.
+    expect(document.activeElement).toHaveAttribute("data-emoji", "👍");
 
     await user.keyboard("{Escape}");
     expect(more).toHaveAttribute("aria-expanded", "false");
@@ -751,8 +761,7 @@ describe("Message action bar", () => {
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 
     await user.click(within(actionBar()).getByRole("button", { name: "More reactions" }));
-    await user.hover(within(screen.getByRole("group", { name: "More reactions" })).getByRole("button", { name: "New boost" }));
-    expect(screen.getByRole("tooltip")).toHaveTextContent("New boost");
+    expect(searchBox()).toHaveFocus();
   });
 
   it("names nothing as focus reaches a button, so Escape shuts the actions at once", async () => {
@@ -868,6 +877,8 @@ describe("More actions on a message", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(actions.remove).not.toHaveBeenCalled();
+    // The message's row, rather than Message options, which shows only while the pointer's over the message.
+    expect(article).toHaveFocus();
 
     await openMoreActions(user, article);
     await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
@@ -877,7 +888,7 @@ describe("More actions on a message", () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
-  it("hands focus back to Message options when the deletion can't be sent", async () => {
+  it("hands focus to the message's row after Cancel, or when the deletion can't be sent, which a click then doesn't", async () => {
     withMouse();
     const { actions, article, editors, user } = show(message(), { sent: false });
     await openMoreActions(user, article);
@@ -885,7 +896,15 @@ describe("More actions on a message", () => {
     await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete" }));
     expect(actions.remove).toHaveBeenCalledWith("m1");
     expect(editors.returnFocus).not.toHaveBeenCalled();
-    expect(optionsOn("Hello")).toHaveFocus();
+    expect(article).toHaveFocus();
+
+    await openMoreActions(user, article);
+    await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    expect(article).toHaveFocus();
+    // It takes focus only until it loses it.
+    act(() => optionsOn("Hello").focus());
+    expect(article).not.toHaveAttribute("tabindex");
   });
 
   it("closes on Escape, handing focus to Message options, then the bar", async () => {
@@ -1140,16 +1159,20 @@ describe("React to a message", () => {
     expect(actions.boost).toHaveBeenCalledWith("m1", "👏");
   });
 
-  it("keeps the other reactions and New boost in a tray", async () => {
+  it("reacts with any emoji from the picker in More reactions, which keeps New boost", async () => {
     const { actions, user } = show(message(), { me: grace });
     await pressAction(user, "More reactions");
-    const tray = screen.getByRole("group", { name: "More reactions" });
-    expect(tray).toHaveTextContent(/^More reactions/);
-    expect(within(tray).getAllByRole("button").map((b) => b.textContent)).toEqual(["💪Muscle", "❤️Red heart", "😂Face with tears of joy", "🎉Party popper", "🔥Fire", "New boost"]);
-    await user.click(within(tray).getByRole("button", { name: "Fire" }));
-    expect(actions.boost).toHaveBeenCalledWith("m1", "🔥");
+    expect(within(tray()).getByText("New boost").closest("button")).toBeInTheDocument();
+    await user.type(searchBox(), "fox_face");
+    await user.click(emojiButton("🦊"));
+    expect(actions.boost).toHaveBeenCalledWith("m1", "🦊");
     expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
     expect(optionsOn("Hello")).toHaveFocus();
+
+    // The picker opens afresh, with the fox first among the emoji used most.
+    await pressAction(user, "More reactions");
+    expect(searchBox()).toHaveValue("");
+    expect(tray().querySelector("button[data-emoji]")).toHaveAttribute("data-emoji", "🦊");
   });
 
   it("lists reactions oldest first, each with its booster's avatar, and emoji larger than words", () => {
@@ -1215,7 +1238,7 @@ describe("Custom reactions", () => {
   /** Opens New boost's form on the message, from its bar's tray. */
   async function newBoost(user: UserEvent) {
     await pressAction(user, "More reactions");
-    await user.click(screen.getByRole("button", { name: "New boost" }));
+    await user.click(within(tray()).getByText("New boost"));
   }
 
   it("adds a reaction of your own from New boost's form, then hands focus to Message options", async () => {
