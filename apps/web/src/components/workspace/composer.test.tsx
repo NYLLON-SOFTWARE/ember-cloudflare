@@ -244,7 +244,7 @@ describe("Formatting toolbar", () => {
     for (const name of ["Attach", "Send Message", "Schedule for later"]) expect(screen.getByRole("button", { name }), name).toBeDisabled();
   });
 
-  it("starts a new line on Enter in a code block, where Ctrl+Enter sends, and sends on Enter from a list", async () => {
+  it("starts a new line on Enter in a code block, and a new item in a list, where Ctrl+Enter sends", async () => {
     const { onSend, input, user } = await showComposer();
     await user.click(tool("Code block"));
     await user.type(input, "one{Enter}two");
@@ -255,13 +255,19 @@ describe("Formatting toolbar", () => {
 
     await user.click(tool("Bulleted list"));
     await user.type(input, "a{Enter}");
+    expect(onSend).toHaveBeenCalledOnce();
+    await user.keyboard("{Control>}{Enter}{/Control}");
     expect(onSend).toHaveBeenCalledTimes(2);
   });
 
   it("links what's selected to an address from Link, or Ctrl+K, giving one without a scheme https://", async () => {
     const { input, user } = await showComposer();
+    await user.type(input, "the plan");
+    (input as HTMLTextAreaElement).setSelectionRange(4, 8);
     await user.keyboard("{Control>}k{/Control}");
     const field = await screen.findByRole("textbox", { name: "Link" });
+    expect(screen.getByRole("textbox", { name: "Text" })).toHaveValue("plan");
+    expect(field).toHaveFocus();
     await user.type(field, "not an address{Enter}");
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a web address");
 
@@ -269,7 +275,16 @@ describe("Formatting toolbar", () => {
     await user.type(field, "example.com/a{Enter}");
     expect(screen.queryByRole("textbox", { name: "Link" })).not.toBeInTheDocument();
     expect(input).toHaveAttribute("data-link", "https://example.com/a");
+    expect(input).toHaveAttribute("data-link-text", "plan");
     expect(tool("Link")).toHaveAttribute("aria-pressed", "true");
+
+    // Editing the link starts from its address, and Cancel leaves it.
+    await user.click(tool("Link"));
+    expect(await screen.findByRole("textbox", { name: "Link" })).toHaveValue("https://example.com/a");
+    await user.type(screen.getByRole("textbox", { name: "Text" }), " B");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("textbox", { name: "Link" })).not.toBeInTheDocument();
+    expect(input).toHaveAttribute("data-link-text", "plan");
 
     await user.click(tool("Link"));
     await user.click(await screen.findByRole("button", { name: "Remove link" }));
@@ -394,22 +409,23 @@ describe("Attach files", () => {
     expect(attachFiles()).toHaveValue("");
   });
 
-  it("shows a picture's thumbnail, and a file icon for anything else, over its name up to its last dot and its extension", async () => {
+  it("shows the files picked inside the card under the text: a picture's thumbnail, and anything else's icon, name, type and size", async () => {
     const { made } = thumbnails();
-    const { user } = await showComposer();
-    await user.upload(attachFiles(), [fileOf("moon.jpg", { type: "image/jpeg" }), fileOf("archive.tar.gz", { type: "application/gzip" }), fileOf("README")]);
+    const { input, user } = await showComposer();
+    await user.upload(attachFiles(), [fileOf("moon.jpg", { type: "image/jpeg" }), fileOf("archive.tar.gz", { type: "application/gzip", size: 12_300 }), fileOf("README")]);
 
-    const moon = screen.getByRole("button", { name: "Remove moon.jpg" });
+    const list = screen.getByRole("list", { name: "Files to send" });
+    expect(input.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(list.compareDocumentPosition(sendButton()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(made).toEqual(["blob:moon.jpg"]);
-    expect(moon.querySelector("img")).toHaveAttribute("src", "blob:moon.jpg");
-    const archive = screen.getByRole("button", { name: "Remove archive.tar.gz" });
+    expect(within(list).getByRole("img", { name: "moon.jpg" })).toHaveAttribute("src", "blob:moon.jpg");
+    const archive = screen.getByRole("button", { name: "Remove archive.tar.gz" }).closest("li")!;
     expect(archive.querySelector("img")).toBeNull();
     expect(archive.querySelector("svg")).toHaveClass("iconoir-page");
-    // The name runs to an ellipsis, and the extension doesn't.
-    expect(within(archive).getByText("archive.tar.")).toHaveClass("truncate");
-    expect(within(archive).getByText("gz")).toHaveClass("shrink-0");
-    // A name with no dot shows whole.
-    expect(within(screen.getByRole("button", { name: "Remove README" })).getByText("README")).toHaveClass("truncate");
+    // The name runs to an ellipsis at its end.
+    expect(within(archive).getByText("archive.tar.gz")).toHaveClass("truncate");
+    expect(archive).toHaveTextContent("GZ · 13 KB");
+    expect(screen.getByRole("button", { name: "Remove README" }).closest("li")).toHaveTextContent("File · 1 KB");
   });
 
   it("takes a file back out when its chip is pressed, letting go of its thumbnail", async () => {
@@ -832,7 +848,7 @@ function filesInEmber(file: StoredFile, widening: ShareWidening | null, { roomId
     if (path === "/api/share-check") return widening ? Response.json(widening) : new Response(null, { status: 500 });
     return Response.json({
       search: { q: "", hasFile: true },
-      matches: [{ message: { id: "m1", roomId, attachment: file, createdAt: "2026-11-01T10:00:00Z" }, words: [] }],
+      matches: [{ message: { id: "m1", roomId, creator: { id: "u2", name: "Grace" }, attachment: file, createdAt: "2026-11-01T10:00:00Z" }, words: [] }],
       next: null,
       rooms: [{ id: roomId, kind, name: "design", icon: null }],
       recent: [],
@@ -907,6 +923,10 @@ describe("Attach", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
     const pick = await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /plan\.pdf/ });
 
+    // Who shared it and its size tell it apart, and a private room's shows a lock.
+    expect(pick).toHaveTextContent("#design · Grace · 1 KB · Nov 1, 2026");
+    expect(within(pick).getByRole("img", { name: "Private" })).toBeInTheDocument();
+
     await user.click(pick);
     const warning = await screen.findByRole("alertdialog", { name: "Share outside #design?" });
     expect(warning).toHaveAccessibleDescription("2 people in #general can't see the original.");
@@ -955,7 +975,7 @@ describe("Attach", () => {
     await user.click(screen.getByRole("button", { name: "Attach" }));
     await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
     await user.click(await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /moon\.jpg/ }));
-    expect((await screen.findByRole("button", { name: "Remove moon.jpg" })).querySelector("img")).toHaveAttribute("src", "/previews/f2/moon.webp");
+    expect(await screen.findByRole("img", { name: "moon.jpg" })).toHaveAttribute("src", "/previews/f2/moon.webp");
   });
 });
 

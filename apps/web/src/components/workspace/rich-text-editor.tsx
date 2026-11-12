@@ -1,4 +1,4 @@
-import { configure, Extension, Lexical } from "@37signals/lexxy";
+import { configure, Extension, Lexical, type ElementNode, type LexicalNode } from "@37signals/lexxy";
 import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE } from "@ember/richtext/dom";
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
 import { HEADING_TAGS, NO_FORMATS, type Block, type Format, type Formats } from "./formatting";
@@ -182,6 +182,12 @@ function startCodeBlocks(lexxy: LexxyEditor): () => void {
   });
 }
 
+/** The link `node` is in, if it's in one, as Lexical's LinkNode has it. */
+function linkAround(node: LexicalNode | null): (ElementNode & { getURL(): string }) | null {
+  for (let at = node; at; at = at.getParent()) if (at.getType() === "link") return at as ElementNode & { getURL(): string };
+  return null;
+}
+
 /** Whether two readings of the text at the cursor differ, so the toolbar redraws only when they do. */
 const sameFormats = (a: Formats, b: Formats) => (Object.keys(a) as (keyof Formats)[]).every((key) => a[key] === b[key]);
 
@@ -217,6 +223,7 @@ type LexxyEditor = HTMLElement & {
     update(change: () => void, options?: { discrete?: boolean }): void;
     dispatchCommand(command: unknown, payload?: unknown): boolean;
     registerUpdateListener(listener: (update: { editorState: { read(read: () => void): void } }) => void): () => void;
+    getEditorState(): { read<T>(read: () => T): T };
     focus(): void;
   };
 };
@@ -244,8 +251,13 @@ export interface RichTextEditorHandle {
   format(format: Format): void;
   /** Turns the lines at the cursor into `block`. */
   setBlock(block: Block): void;
-  /** Links what's selected to `url`, or writes `url` linked at the cursor, or with null unlinks the link at the cursor. */
-  link(url: string | null): void;
+  /**
+   * Links what's selected to `url`, written as `text` where that's given and differs, or writes `text` or
+   * `url` linked at the cursor, or with null unlinks the link at the cursor.
+   */
+  link(url: string | null, text?: string): void;
+  /** What the Link field starts with: the text selected, or of the link at the cursor, and that link's address. */
+  linkDraft(): { text: string; url: string };
   /** Writes `text` at the cursor, taking focus. */
   insertText(text: string): void;
   /** Writes `markup` at the cursor, as pasting it would, taking focus. */
@@ -341,7 +353,35 @@ export default function RichTextEditor({
         if (block === "paragraph") lexxy.editor.dispatchCommand("setFormatParagraph");
         else lexxy.editor.dispatchCommand("applyHeadingFormat", HEADING_TAGS[block]);
       }),
-    link: (url) => change((lexxy) => lexxy.editor.dispatchCommand(url === null ? "unlink" : "link", url ?? undefined)),
+    link: (url, text) =>
+      change((lexxy) => {
+        if (url === null) return void lexxy.editor.dispatchCommand("unlink");
+        const selection = Lexical.$getSelection();
+        if (Lexical.$isRangeSelection(selection)) {
+          // A link at the cursor is changed whole, as Slack's Edit link does.
+          const link = linkAround(selection.anchor.getNode());
+          if (link && selection.isCollapsed()) link.select(0, link.getChildrenSize());
+          const selected = Lexical.$getSelection();
+          if (text && Lexical.$isRangeSelection(selected) && selected.getTextContent() !== text) {
+            selected.insertText(text);
+            const { anchor } = selected;
+            const written = anchor.getNode();
+            if (Lexical.$isTextNode(written)) written.select(anchor.offset - text.length, anchor.offset);
+          }
+        }
+        lexxy.editor.dispatchCommand("link", url);
+      }),
+    linkDraft: () => {
+      const lexxy = editor.current;
+      if (!lexxy) return { text: "", url: "" };
+      return lexxy.editor.getEditorState().read(() => {
+        const selection = Lexical.$getSelection();
+        if (!Lexical.$isRangeSelection(selection)) return { text: "", url: "" };
+        const link = linkAround(selection.anchor.getNode());
+        const text = selection.isCollapsed() ? (link?.getTextContent() ?? "") : selection.getTextContent();
+        return { text, url: link?.getURL() ?? "" };
+      });
+    },
     insertText: (text) =>
       change(() => {
         const selection = Lexical.$getSelection();

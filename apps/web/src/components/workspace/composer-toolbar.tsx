@@ -1,4 +1,4 @@
-import { Fragment, useId, useState } from "react";
+import { Fragment, useEffect, useEffectEvent, useId, useState, type KeyboardEvent } from "react";
 import { NavArrowDown } from "@/components/icons/iconoir";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { appleKeyboard } from "@/lib/keyboard";
@@ -27,8 +27,10 @@ interface Props {
   disabled?: boolean;
   onFormat: (format: Format) => void;
   onBlock: (block: Block) => void;
-  /** Links what's selected, or with null unlinks the link at the cursor. */
-  onLink: (url: string | null) => void;
+  /** Links what's selected, written as `text`, or with null unlinks the link at the cursor. */
+  onLink: (url: string | null, text: string) => void;
+  /** What the Link field starts with: the text selected, or of the link at the cursor, and its address. */
+  linkDraft: () => { text: string; url: string };
   /** Whether the link field is open, as Link or Ctrl or Cmd+K opens it. */
   linkOpen: boolean;
   onLinkOpenChange: (open: boolean) => void;
@@ -42,7 +44,7 @@ interface Props {
  * from the next. Each shows whether its format is on at the cursor, and inside code only the button
  * that turns the code off works. It scrolls sideways where it doesn't fit.
  */
-export function ComposerToolbar({ formats, disabled = false, onFormat, onBlock, onLink, linkOpen, onLinkOpenChange, onReturnFocus }: Props) {
+export function ComposerToolbar({ formats, disabled = false, onFormat, onBlock, onLink, linkDraft, linkOpen, onLinkOpenChange, onReturnFocus }: Props) {
   return (
     <div
       role="toolbar"
@@ -59,7 +61,16 @@ export function ComposerToolbar({ formats, disabled = false, onFormat, onBlock, 
             if (tool === "block") return <BlockMenu key={tool} block={formats.block} {...common} onBlock={onBlock} onReturnFocus={onReturnFocus} />;
             if (tool === "link") {
               return (
-                <LinkField key={tool} {...common} linked={formats.link} open={linkOpen} onOpenChange={onLinkOpenChange} onLink={onLink} onReturnFocus={onReturnFocus} />
+                <LinkField
+                  key={tool}
+                  {...common}
+                  linked={formats.link}
+                  open={linkOpen}
+                  onOpenChange={onLinkOpenChange}
+                  onLink={onLink}
+                  draft={linkDraft}
+                  onReturnFocus={onReturnFocus}
+                />
               );
             }
             return (
@@ -120,34 +131,51 @@ interface LinkFieldProps {
   linked: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onLink: (url: string | null) => void;
+  onLink: (url: string | null, text: string) => void;
+  draft: () => { text: string; url: string };
   onReturnFocus: () => void;
 }
 
+/** The Link field's text boxes, 36px tall, or 44px with 16px text on touch screens. */
+const FIELD =
+  "h-9 w-full rounded-md border bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-selected-dark aria-invalid:border-negative touch:h-11 touch:text-base";
+const LABEL = "mb-1 block text-[13px] font-semibold";
+const FIELD_BUTTON = "cursor-pointer rounded-md px-3 py-1.5 text-[13px] font-semibold touch:min-h-11";
+
 /**
- * Link, which opens a field for the address above it: Enter or Save links what's selected to it, or
- * writes it linked where nothing is, and Remove link unlinks the link at the cursor. An address without a
- * scheme gets https://, and one that isn't a web, mail or phone address is refused.
+ * Link, which opens Slack's pair of fields above it: Text, what's selected or the link's own, and Link, its
+ * address. Enter or Save links the text to the address, Cancel leaves it, and Remove link, there for a link
+ * already, unlinks it. An address without a scheme gets https://, and one that isn't a web, mail or phone
+ * address is refused.
  */
-function LinkField({ linked, open, onOpenChange, onLink, onReturnFocus, ...button }: LinkFieldProps) {
-  const [typed, setTyped] = useState("");
+function LinkField({ linked, open, onOpenChange, onLink, draft, onReturnFocus, ...button }: LinkFieldProps) {
+  const [text, setText] = useState("");
+  const [address, setAddress] = useState("");
   const [refused, setRefused] = useState(false);
-  const fieldId = useId();
+  const ids = { text: useId(), address: useId() };
+  // What's selected as it opens, however it opens: Link, or Ctrl or Cmd+K.
+  const start = useEffectEvent(() => {
+    const started = draft();
+    setText(started.text);
+    setAddress(started.url);
+    setRefused(false);
+  });
+  useEffect(() => {
+    if (open) start();
+  }, [open]);
   const save = () => {
-    const url = linkAddress(typed);
+    const url = linkAddress(address);
     if (url === null) return setRefused(true);
-    onLink(url);
+    onLink(url, text.trim() === "" ? url : text);
     onOpenChange(false);
   };
+  const saveOnEnter = (event: KeyboardEvent) => {
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    save();
+  };
   return (
-    <Popover
-      open={open}
-      onOpenChange={(open) => {
-        setTyped("");
-        setRefused(false);
-        onOpenChange(open);
-      }}
-    >
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverAnchor asChild>
         <button
           type="button"
@@ -170,27 +198,28 @@ function LinkField({ linked, open, onOpenChange, onLink, onReturnFocus, ...butto
           onReturnFocus();
         }}
       >
-        <label htmlFor={fieldId} className="sr-only">
+        <label htmlFor={ids.text} className={LABEL}>
+          Text
+        </label>
+        <input id={ids.text} type="text" autoComplete="off" value={text} onChange={(event) => setText(event.target.value)} onKeyDown={saveOnEnter} className={cn(FIELD, "mb-2.5")} />
+        <label htmlFor={ids.address} className={LABEL}>
           Link
         </label>
         <input
-          id={fieldId}
+          id={ids.address}
           type="text"
           inputMode="url"
           autoComplete="off"
-          placeholder="https://example.com"
-          value={typed}
+          // Where text is selected, the address is what's left to give.
+          autoFocus
+          value={address}
           aria-invalid={refused || undefined}
           onChange={(event) => {
-            setTyped(event.target.value);
+            setAddress(event.target.value);
             setRefused(false);
           }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
-            event.preventDefault();
-            save();
-          }}
-          className="h-9 w-full rounded-md border bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-selected-dark aria-invalid:border-negative touch:h-11 touch:text-base"
+          onKeyDown={saveOnEnter}
+          className={FIELD}
         />
         {refused && (
           <p role="alert" className="mt-1.5 text-[12px] text-negative">
@@ -203,14 +232,17 @@ function LinkField({ linked, open, onOpenChange, onLink, onReturnFocus, ...butto
               type="button"
               onClick={() => {
                 onOpenChange(false);
-                onLink(null);
+                onLink(null, text);
               }}
-              className="mr-auto cursor-pointer rounded-md px-2.5 py-1.5 text-[13px] text-negative hover:bg-hover touch:min-h-11"
+              className={cn(FIELD_BUTTON, "mr-auto px-2.5 font-normal text-negative hover:bg-hover")}
             >
               Remove link
             </button>
           )}
-          <button type="button" onClick={save} className="cursor-pointer rounded-md bg-foreground px-3 py-1.5 text-[13px] font-semibold text-background hover:brightness-85 touch:min-h-11">
+          <button type="button" onClick={() => onOpenChange(false)} className={cn(FIELD_BUTTON, "hover:bg-hover")}>
+            Cancel
+          </button>
+          <button type="button" onClick={save} className={cn(FIELD_BUTTON, "bg-foreground text-background hover:brightness-85")}>
             Save
           </button>
         </div>

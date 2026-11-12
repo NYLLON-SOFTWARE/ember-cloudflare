@@ -2,7 +2,7 @@ import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffe
 import { flushSync } from "react-dom";
 import { MAX_FILE_SIZE, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
-import { Page, XmarkCircle } from "@/components/icons/iconoir";
+import { Page, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import type { RoomFrames } from "@/hooks/use-room";
 import { useScheduled } from "@/hooks/use-scheduled";
@@ -18,6 +18,7 @@ import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandl
 import { FilesPicker } from "./files-picker";
 import { isDisabled, NO_FORMATS, type Formats } from "./formatting";
 import { ScheduledNotice } from "./schedule-send";
+import { uploadSize } from "./upload-card";
 
 /**
  * The typing indicator (Campfire's typing_tracker.js and composer.css): the names of whoever is typing,
@@ -80,7 +81,7 @@ function keepDraft(key: string, body: string | null) {
  */
 function LoadingEditor({ placeholder }: { placeholder: string }) {
   return (
-    <p aria-hidden="true" className="min-h-11 text-[14px] opacity-66 max-md:min-h-[34px] touch:text-[16px]">
+    <p aria-hidden="true" className="min-h-11 text-[15px] leading-[22px] opacity-66 max-md:min-h-[34px] touch:text-[16px]">
       {placeholder}
     </p>
   );
@@ -156,15 +157,6 @@ function usePickedFiles() {
 }
 
 /**
- * A file's name as its chip shows it: what runs to an ellipsis, up to its last dot, and its extension,
- * which doesn't. A name with no dot shows whole.
- */
-function splitName(name: string): [string, string] {
-  const dot = name.lastIndexOf(".");
-  return dot < 0 ? [name, ""] : [name.slice(0, dot + 1), name.slice(dot + 1)];
-}
-
-/**
  * The address of a picture's thumbnail, which is let go once its chip goes, or for a file in Ember, the
  * preview or picture its message shows.
  */
@@ -182,30 +174,48 @@ function useThumbnail(file: Sendable): string | undefined {
 
 const isImage = (file: Sendable) => (isEmberFile(file) ? file.file.contentType : file.type).startsWith("image/");
 
+/** A file's type as its chip says it: its extension, as Slack's do, or File for a name without one. */
+export const fileType = (name: string) => {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toUpperCase() : "File";
+};
+
+/** The × on a chip, a fingertip's 44px on touch screens, which shows as the pointer or focus reaches the chip. */
+const REMOVE =
+  "absolute -end-2 -top-2 grid size-6 cursor-pointer place-items-center rounded-full bg-foreground text-background opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 touch:size-11 touch:-end-3 touch:-top-3 touch:bg-transparent touch:opacity-100 touch:[&>svg]:size-6 touch:[&>svg]:rounded-full touch:[&>svg]:bg-foreground";
+
 /**
- * A file picked to send, styled by Campfire's composer.css: a picture's thumbnail, or a file icon, over
- * its name and a circled ×. Pressing it takes the file back out, which it says to screen readers too.
+ * A file picked to send, as Slack's composer shows one inside its card: a picture as a 64px thumbnail, and
+ * anything else as a 220×56 chip with its icon, its name, cut short at its end, and its type and size. Its
+ * ×, which takes the file back out, shows as the pointer or focus reaches it, and always on touch screens.
  */
 function FileChip({ file, onRemove }: { file: Sendable; onRemove: () => void }) {
   const thumbnail = useThumbnail(file);
-  const { name: fileName } = sendableFacts(file);
-  const [name, extension] = splitName(fileName);
-  const tile = "aspect-[5/4] w-full shrink-0 rounded-[1em] border border-muted-foreground";
-  return (
-    <button type="button" aria-label={`Remove ${fileName}`} onClick={onRemove} className="flex w-[100px] cursor-pointer flex-col items-center rounded-[1em]">
-      {isImage(file) || thumbnail !== undefined ? (
-        <img src={thumbnail} alt="" className={cn(tile, "object-cover")} />
-      ) : (
-        <span className={cn(tile, "flex items-center justify-center")}>
-          <Page className="h-auto w-[55%]" />
-        </span>
-      )}
-      <span className="flex max-w-full items-center px-[1ch] text-[0.8rem]">
-        <span className="truncate">{name}</span>
-        <span className="shrink-0">{extension}</span>
-        <XmarkCircle className="ms-[0.5em] -me-[0.5em] size-[1.3em] shrink-0" />
-      </span>
+  const { name, size } = sendableFacts(file);
+  const remove = (
+    <button type="button" aria-label={`Remove ${name}`} title="Remove" onClick={onRemove} className={REMOVE}>
+      <Xmark className="size-3.5" />
     </button>
+  );
+  if (isImage(file) || thumbnail !== undefined) {
+    return (
+      <li className="group relative size-16 shrink-0">
+        <img src={thumbnail} alt={name} className="size-16 rounded-[8px] border object-cover" />
+        {remove}
+      </li>
+    );
+  }
+  return (
+    <li className="group relative flex h-14 w-[220px] max-w-full shrink-0 items-center gap-2.5 rounded-[8px] border bg-background px-2.5">
+      <Page className="size-9 shrink-0 rounded-[7px] bg-surface p-[7px]" />
+      <span className="min-w-0">
+        <span className="block truncate text-[13px] font-semibold">{name}</span>
+        <span className="block truncate text-[12px] text-muted-foreground">
+          {fileType(name)} · {uploadSize(size)}
+        </span>
+      </span>
+      {remove}
+    </li>
   );
 }
 
@@ -445,7 +455,7 @@ export function Composer({
     }
     // Enter picks from an open list, such as the people to mention, and starts a new line in a code block,
     // as in Slack, where Ctrl or Cmd+Enter sends.
-    if (editor.current?.hasOpenPrompt() || !sendsMessage(event, { inCodeBlock: formats.codeBlock })) return;
+    if (editor.current?.hasOpenPrompt() || !sendsMessage(event, { inCodeBlock: formats.codeBlock, inList: formats.list !== null })) return;
     event.preventDefault();
     event.stopPropagation();
     submit();
@@ -480,18 +490,7 @@ export function Composer({
             {scheduleRefusal}
           </p>
         )}
-        {/* The files picked, and those too large to send. */}
-        <div className={cn("flex flex-wrap items-center gap-x-[1ch] gap-y-2", (picked.files.length > 0 || picked.errors.length > 0) && "pb-2")}>
-          {picked.files.map(({ key, file }) => (
-            <FileChip key={key} file={file} onRemove={() => picked.remove(key)} />
-          ))}
-          {picked.errors.length > 0 && (
-            <p role="alert" className="w-full px-3 py-2.5 text-[13px] leading-normal text-negative wrap-anywhere">
-              {picked.errors.join(" ")}
-            </p>
-          )}
-        </div>
-        <div className="flex min-h-[108px] min-w-0 flex-col rounded-[12px] border bg-surface p-3 focus-within:border-muted-foreground max-md:min-h-[100px] max-md:p-2.5">
+        <div className="flex min-h-[108px] min-w-0 flex-col rounded-[12px] border border-input bg-surface p-3 focus-within:border-ring focus-within:shadow-[0_0_0_1px_var(--ring)] max-md:min-h-[100px] max-md:p-2.5">
           {toolbarShown &&
             // Its place is kept while the editor loads, whose stylesheet paints its icons, so the text doesn't move down as it shows.
             (placeholderToolbar ? (
@@ -501,7 +500,8 @@ export function Composer({
                 formats={formats}
                 onFormat={(format) => editor.current?.format(format)}
                 onBlock={(block) => editor.current?.setBlock(block)}
-                onLink={(url) => editor.current?.link(url)}
+                onLink={(url, text) => editor.current?.link(url, text)}
+                linkDraft={() => editor.current?.linkDraft() ?? { text: "", url: "" }}
                 linkOpen={linkOpen}
                 onLinkOpenChange={setLinkOpen}
                 onReturnFocus={() => editor.current?.focus()}
@@ -535,6 +535,19 @@ export function Composer({
               )}
             </Suspense>
           </div>
+          {/* The files picked, under the text, as Slack's composer has them, and those too large to send. */}
+          {picked.files.length > 0 && (
+            <ul aria-label="Files to send" className="flex flex-wrap items-end gap-2.5 pt-2 pb-2.5">
+              {picked.files.map(({ key, file }) => (
+                <FileChip key={key} file={file} onRemove={() => picked.remove(key)} />
+              ))}
+            </ul>
+          )}
+          {picked.errors.length > 0 && (
+            <p role="alert" className="w-full pb-2 text-[13px] leading-normal text-negative wrap-anywhere">
+              {picked.errors.join(" ")}
+            </p>
+          )}
           <div className="flex flex-none items-center gap-0.5">
             {/* The browser's file picker, which Upload from your computer opens. */}
             <input
@@ -584,7 +597,7 @@ export function Composer({
               </label>
             )}
             {/* Files picked go at once, so they can't be scheduled. */}
-            <SendButton disabled={disabled} cannotSchedule={!frames || blank || picked.files.length > 0} onSchedule={schedule} />
+            <SendButton disabled={disabled} empty={blank && picked.files.length === 0} cannotSchedule={!frames || blank || picked.files.length > 0} onSchedule={schedule} />
           </div>
         </div>
       </form>

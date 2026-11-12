@@ -23,7 +23,7 @@ const attachmentMarkup = ({ contentType, html }: Attachment) =>
  * written under jsdom: a text box whose lines are one paragraph of Lexxy's markup, which tells of
  * changes and keys as the editor does, and of addresses pasted in it, below which it shows what's
  * added. Formatting turns on and off as the toolbar asks, for the whole text, which it tells `onFormats` of,
- * and clearing it turns off, and links are kept as `links`. The browser tests in e2e/ write in Lexxy itself.
+ * and clearing it turns off, and a link's address and text are kept as `data-link` and `data-link-text`. The browser tests in e2e/ write in Lexxy itself.
  */
 export default function RichTextEditor({ label, placeholder, rows, initialValue, autoFocus, onChange, onKeyDown, onLinkPasted, onFormats, ref }: ComponentProps<typeof Editor>) {
   const box = useRef<HTMLTextAreaElement>(null);
@@ -81,9 +81,14 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
       box.current?.focus();
     },
     setBlock: (block) => reformat({ block }),
-    link: (url) => {
+    link: (url, text) => {
       box.current!.dataset.link = url ?? "";
+      if (text !== undefined) box.current!.dataset.linkText = text;
       reformat({ link: url !== null });
+    },
+    linkDraft: () => {
+      const field = box.current!;
+      return { text: field.value.slice(field.selectionStart, field.selectionEnd), url: field.dataset.link ?? "" };
     },
     insertText: insert,
     insertHtml: (markup) => insert(writtenBody(markup).plainText),

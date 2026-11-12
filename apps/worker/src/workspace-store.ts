@@ -2367,17 +2367,24 @@ const DIRECTORY_WITH_IDS = `SELECT ${DIRECTORY_COLUMNS} FROM users WHERE id IN (
 export const MENTIONABLE_PAGE = 20;
 
 /**
- * Active people whose names contain ?1, by name. It's `LIKE`, so only ASCII letters ignore case, `%` and
- * `_` match anything, and "" matches everyone.
+ * The order the mentions prompt offers people in, as Slack's does: those with a word of their name starting
+ * with ?1 first, then those it's elsewhere in, people before bots, each by name.
+ */
+const MENTIONABLE_ORDER = `ORDER BY (users.name LIKE ?1 || '%' OR users.name LIKE '% ' || ?1 || '%') DESC, users.role = ${BOT},
+  lower(users.name), users.id`;
+
+/**
+ * Active people whose names contain ?1, in `MENTIONABLE_ORDER`. It's `LIKE`, so only ASCII letters ignore
+ * case, `%` and `_` match anything, and "" matches everyone.
  */
 const MENTIONABLE_PEOPLE = `SELECT ${DIRECTORY_COLUMNS} FROM users
-  WHERE status = ${ACTIVE} AND name LIKE '%' || ?1 || '%' ORDER BY lower(name), id LIMIT ${MENTIONABLE_PAGE}`;
+  WHERE status = ${ACTIVE} AND name LIKE '%' || ?1 || '%' ${MENTIONABLE_ORDER} LIMIT ${MENTIONABLE_PAGE}`;
 
 /** The same of room ?2's members (`Current.user.rooms.find(room_id).users`). */
 const MENTIONABLE_MEMBERS = `SELECT ${DIRECTORY_COLUMNS}
   FROM memberships JOIN users ON users.id = memberships.user_id
   WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.name LIKE '%' || ?1 || '%'
-  ORDER BY lower(users.name), users.id LIMIT ${MENTIONABLE_PAGE}`;
+  ${MENTIONABLE_ORDER} LIMIT ${MENTIONABLE_PAGE}`;
 
 /**
  * A room that every active person can see, which sharing from widens nothing. Merging sub-rooms
@@ -3728,7 +3735,7 @@ export class WorkspaceStore {
   }
 
   /**
-   * The first page of the active people whose names contain `query`, by name: room `roomId`'s members,
+   * The first page of the active people whose names contain `query`, those it starts a word of first: room `roomId`'s members,
    * or anyone's when it's null.
    */
   async mentionable(query: string, roomId: RoomId | null): Promise<DirectoryEntry[]> {
