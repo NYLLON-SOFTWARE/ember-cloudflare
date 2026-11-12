@@ -1686,7 +1686,7 @@ describe("Message actions on a phone", () => {
     const { actions, editors, user } = show(message());
     press(screen.getByText("Hello"));
     await user.click(within(sheet()).getByRole("button", { name: "Delete message" }));
-    const question = await screen.findByRole("alertdialog", { name: "Delete message?" });
+    const question = await screen.findByRole("alertdialog", { name: "Delete message" });
     // Desktop's question, with the message as it'll go.
     expect(within(question).getByText("Hello")).toBeInTheDocument();
     await user.click(within(question).getByRole("button", { name: "Cancel" }));
