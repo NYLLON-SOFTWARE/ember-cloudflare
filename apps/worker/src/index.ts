@@ -75,6 +75,7 @@ import {
   type ProfileAnswer,
   type ReleaseCheck,
   type RoomId,
+  SUB_ROOM_REFUSED,
   type RoomSettings,
   type SendingDomainCheck,
   type SentTestEmail,
@@ -904,6 +905,7 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
   }
   const created = await workspace(env).createRoom(credentials, room);
   if (!created) return problem(401, "Not signed in");
+  if (created === "bad parent") return problem(422, SUB_ROOM_REFUSED);
   return created === "forbidden" ? problem(403, ROOM_CREATION_FORBIDDEN) : json({ room: created }, { status: 201 });
 }
 
@@ -949,6 +951,7 @@ async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<R
   if (!room) return problem(401, "Not signed in");
   if (room === "not found") return problem(404, ROOM_NOT_FOUND);
   if (room === "forbidden") return problem(403, "Only administrators and the room's creator can change it");
+  if (room === "bad parent") return problem(422, SUB_ROOM_REFUSED);
   return typeof changes === "string" ? problem(422, changes) : json({ room });
 }
 

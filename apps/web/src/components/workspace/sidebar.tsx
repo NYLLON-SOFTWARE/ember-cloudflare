@@ -6,9 +6,11 @@ import { PageLink } from "@/components/page-link";
 import { DRAFTS_PATH, PEOPLE_PATH, roomPath, THREADS_PATH } from "@/hooks/use-route";
 import { useStarOrder } from "@/hooks/use-star-order";
 import { apart, inSidebarOrder, markedUnread, type SharedSidebarRoom } from "@/lib/room-list";
+import { roomDisplayName, roomTree } from "@/lib/sub-rooms";
 import { isFolded, rememberFolded, type SidebarSection } from "@/lib/sidebar-sections";
 import { unreadBadge } from "@/lib/unread-badge";
 import { cn } from "@/lib/utils";
+import { RoomTreeRow, useCollapsedRooms, type TreeRowOptions } from "./room-tree-row";
 import { PeopleContext } from "@/hooks/use-directory";
 import { inItsHuddle } from "@/lib/huddle-people";
 import { UserAvatar } from "./user-avatar";
@@ -89,6 +91,10 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
     folded[section] ? sectionRooms.filter((room) => room.id === currentRoomId || markedUnread(room, currentRoomId)) : sectionRooms;
   const starredRooms = shownIn("starred", listed.filter((room) => starred.has(room.id)));
   const otherRooms = shownIn("rooms", listed.filter((room) => !starred.has(room.id)));
+  // Starred rooms keep their place among the stars; the rest nest their sub-rooms under their parents.
+  const tree = roomTree(otherRooms);
+  const { collapsed, toggle: toggleSubRooms } = useCollapsedRooms();
+  const isUnread = (room: SharedSidebarRoom) => markedUnread(room, currentRoomId);
   const hasStarred = listed.some((room) => starred.has(room.id));
   const empty = loaded && listed.length === 0;
   const helpId = useId();
@@ -99,12 +105,15 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
     event.preventDefault();
     onSelect(roomId);
   };
-  const row = (room: SharedSidebarRoom) => (
+  // A room's row, which a parent's and its sub-rooms' are too (`RoomTreeRow`).
+  const row = (room: SharedSidebarRoom, { label, unread, className }: TreeRowOptions) => (
     <RoomRow
       key={room.id}
       room={room}
+      label={label}
+      className={className}
       current={room.id === currentRoomId}
-      unread={markedUnread(room, currentRoomId)}
+      unread={unread}
       starred={starred.has(room.id)}
       moving={room.id === moving}
       huddle={huddles[room.id]}
@@ -154,12 +163,25 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
       {hasStarred && (
         <Section title="Starred" folded={folded.starred} onToggle={() => toggle("starred")}>
           <div ref={listRef} {...listProps} className={cn("flex flex-col gap-[3px]", moving && "select-none")}>
-            {starredRooms.map(row)}
+            {starredRooms.map((room) => row(room, { label: roomDisplayName(room, rooms), unread: isUnread(room) }))}
           </div>
         </Section>
       )}
       <Section title="Rooms" folded={folded.rooms} onToggle={() => toggle("rooms")}>
-        <div className="flex flex-col gap-[3px]">{otherRooms.map(row)}</div>
+        <div className="flex flex-col gap-[3px]">
+          {tree.map((branch) => (
+            <RoomTreeRow
+              key={branch.room.id}
+              branch={branch}
+              label={roomDisplayName(branch.room, rooms)}
+              row={row}
+              isUnread={isUnread}
+              currentRoomId={currentRoomId}
+              collapsed={collapsed.has(branch.room.id)}
+              onToggle={toggleSubRooms}
+            />
+          ))}
+        </div>
         {/* Moves are told to screen readers, and a save that fails is shown. */}
         <p role="status" className={status?.error ? "mx-[9px] my-1 text-xs leading-normal text-negative wrap-anywhere" : "sr-only"}>
           {status?.message}
@@ -207,6 +229,10 @@ function Section({ title, folded, onToggle, children }: SectionProps) {
 
 interface RoomRowProps {
   room: SharedSidebarRoom;
+  /** Its name as the row shows it, its own by default: "Strata – Sales" for a sub-room listed apart from its parent. */
+  label?: string;
+  /** Classes the row adds, as a sub-room's indent. */
+  className?: string;
   /** Whether it's the room the tab shows. */
   current: boolean;
   /** Whether it's marked unread, which makes it bold, with a dot, or its count. */
@@ -241,7 +267,7 @@ interface RoomRowProps {
  * shows only what mentions you, as Slack's muted channels do. It carries `data-room-id`, by which
  * `useStarOrder` drags it.
  */
-export function RoomRow({ room, current, unread, count = room.unreadCount ?? 0, mentioned = room.unreadMentioned ?? false, starred, moving, huddle, meId, unreadId, helpId, onClick }: RoomRowProps) {
+export function RoomRow({ room, label = room.name, className, current, unread, count = room.unreadCount ?? 0, mentioned = room.unreadMentioned ?? false, starred, moving, huddle, meId, unreadId, helpId, onClick }: RoomRowProps) {
   // The words for who's in the room's huddle, which come with its mark.
   const huddleId = useId();
   const countId = useId();
@@ -261,6 +287,7 @@ export function RoomRow({ room, current, unread, count = room.unreadCount ?? 0, 
       onClick={onClick}
       className={cn(
         ROW,
+        className,
         "[-webkit-touch-callout:none]",
         showsUnread && "font-bold",
         muted && !showsUnread && "text-muted-foreground",
@@ -274,7 +301,7 @@ export function RoomRow({ room, current, unread, count = room.unreadCount ?? 0, 
       ) : (
         <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
       )}
-      <span className="truncate">{room.name}</span>
+      <span className="truncate">{label}</span>
       {huddle && <HuddleMark huddle={huddle} meId={meId} wordsId={huddleId} className="ml-auto" />}
       {/* Starred says a room's starred, so its row has no star of its own, as Slack's have none. */}
       {counted ? (

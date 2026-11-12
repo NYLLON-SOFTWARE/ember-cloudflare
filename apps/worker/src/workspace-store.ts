@@ -40,9 +40,12 @@ import {
   type RoomKind,
   type RoomSettings,
   type Search,
+  type ParentChoice,
+  type RoomParent,
   type SharedRoom,
   type ShareWidening,
   type SidebarRoom,
+  SUB_ROOM_SEPARATOR,
   type User,
   type UserId,
   type UserStatus,
@@ -538,6 +541,12 @@ export interface SavedRoomChange {
   removedIds: UserId[];
   /** Whether the shared order ranks the room, which the sidebars of the people it put in have left out. */
   ranked: boolean;
+  /** Who the change took out of the room's sub-rooms, no longer being in it, whose sockets there it queued closing. */
+  subRoomsLeft: Array<{ roomId: RoomId; userId: UserId }>;
+  /** Who it put in the room's sub-rooms open to everyone in it. */
+  subRoomsJoinedIds: UserId[];
+  /** Who's in the room's sub-rooms then, whose sidebars name the room with each. */
+  subRoomPeople: UserId[];
 }
 
 /** What applying events from a room's log changed. */
@@ -1324,6 +1333,8 @@ function navigationIconsIn(settings: Record<string, unknown> | null): Navigation
 
 interface RoomToChangeRow extends SharedRoom {
   can_administer: number;
+  parent_id: RoomId | null;
+  parent_name: string | null;
 }
 
 /** A room's huddle as the room last reported it: when it started, and who's in it, a JSON list of their ids in the order they joined. */
@@ -1345,6 +1356,8 @@ interface SidebarRow extends HuddleRow {
   unread_mentioned: number;
   involvement: Involvement;
   shared_position: number | null;
+  parent_id: RoomId | null;
+  parent_name: string | null;
 }
 
 /** Someone in a DM, as the statements that read a DM's people return them. */
@@ -1391,8 +1404,8 @@ const isRanked = (rows: unknown[]) => (rows as Array<{ ranked: number }>)[0]?.ra
 const membersOf = (rows: DirectMemberRow[]): User[] => rows.map(({ id, name }) => ({ id, name }));
 
 /** A room someone is in, with the people in it if it's a DM, whom `members` reads. */
-const roomOf = ({ id, kind, name, icon, active_at }: SidebarRow, members: DirectMemberRow[] = []): Room =>
-  kind === "direct" ? { id, kind, members: membersOf(members), activeAt: active_at } : { id, kind, name: name ?? "", icon };
+const roomOf = ({ id, kind, name, icon, active_at, ...row }: SidebarRow, members: DirectMemberRow[] = []): Room =>
+  kind === "direct" ? { id, kind, members: membersOf(members), activeAt: active_at } : { id, kind, name: name ?? "", icon, ...parentOf(row) };
 
 /** A room as someone's sidebar lists it, with whether it's marked unread for them, since when, and their level in it. */
 const sidebarRoom = (row: SidebarRow, members?: DirectMemberRow[]): SidebarRoom => ({
@@ -1404,7 +1417,10 @@ const sidebarRoom = (row: SidebarRow, members?: DirectMemberRow[]): SidebarRoom 
   involvement: row.involvement,
 });
 
-const roomToChange = (row: RoomToChangeRow) => ({ room: { id: row.id, kind: row.kind, name: row.name, icon: row.icon }, canAdminister: row.can_administer === 1 });
+const roomToChange = (row: RoomToChangeRow) => ({
+  room: { id: row.id, kind: row.kind, name: row.name, icon: row.icon, ...parentOf(row) },
+  canAdminister: row.can_administer === 1,
+});
 
 const storedSession = (row: SessionRow): StoredSession => ({
   id: row.session_id,
@@ -1413,6 +1429,19 @@ const storedSession = (row: SessionRow): StoredSession => ({
   guest: row.guest === 1,
   lastActiveAt: Date.parse(row.last_active_at),
 });
+
+/**
+ * An open room that every active person is let into, as `rooms` reads it: one of the workspace's own, or
+ * a sub-room of one open to everyone too. A sub-room of a private room takes in only its parent's people.
+ */
+const OPEN_TO_EVERYONE = `rooms.kind = 'open' AND (rooms.parent_id IS NULL
+  OR EXISTS (SELECT 1 FROM rooms AS parents WHERE parents.id = rooms.parent_id AND parents.kind = 'open'))`;
+
+/** A room's parent, as the statements that read a room name it: its id and name, or nulls. */
+const PARENT_COLUMNS = `rooms.parent_id, parents.name AS parent_name`;
+
+/** Joins a room's parent, if it has one, as `parents`. */
+const JOIN_PARENT = `LEFT JOIN rooms AS parents ON parents.id = rooms.parent_id`;
 
 /** When a room was last active: when its latest message came, or when it was made, until one has. */
 const ACTIVE_AT = `coalesce(rooms.last_message_at, rooms.created_at) AS active_at`;
@@ -1425,8 +1454,8 @@ const ACTIVE_AT = `coalesce(rooms.last_message_at, rooms.created_at) AS active_a
  * they were listed.
  */
 export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}, memberships.unread_at IS NOT NULL AS unread,
-    memberships.unread_at AS unread_since, memberships.unread_count, memberships.unread_mentioned, memberships.involvement, rooms.shared_position, rooms.huddle_started_at, rooms.huddle_user_ids
-  FROM memberships JOIN rooms ON rooms.id = memberships.room_id
+    memberships.unread_at AS unread_since, memberships.unread_count, memberships.unread_mentioned, memberships.involvement, rooms.shared_position, rooms.huddle_started_at, rooms.huddle_user_ids, ${PARENT_COLUMNS}
+  FROM memberships JOIN rooms ON rooms.id = memberships.room_id ${JOIN_PARENT}
   WHERE memberships.user_id = ? ORDER BY rooms.created_at, rooms.id`;
 
 /** The ids of the rooms in `rows` that the shared order ranks, in its order. */
@@ -1724,7 +1753,8 @@ const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
  */
 export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = memberships.user_id AND marked.unread_at IS NOT NULL) AS badge,
-    rooms.kind, rooms.name, (SELECT name FROM users AS authors WHERE authors.id = ?2) AS author_name
+    rooms.kind, coalesce((SELECT parents.name || '${SUB_ROOM_SEPARATOR}' FROM rooms AS parents WHERE parents.id = rooms.parent_id), '') || rooms.name AS name,
+    (SELECT name FROM users AS authors WHERE authors.id = ?2) AS author_name
   FROM rooms
     JOIN memberships ON memberships.room_id = rooms.id
     JOIN users ON users.id = memberships.user_id
@@ -2149,7 +2179,8 @@ const CHANGE_AGENT = `UPDATE agents SET description = ?2, instructions = ?3, mod
 
 /** Puts ?1 in the open rooms the JSON list ?2 names, of those there are, keeping the memberships it has. */
 const GRANT_PICKED_ROOMS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT rooms.id, ?1, ?3, ?3 FROM json_each(?2) AS picked JOIN rooms ON rooms.id = picked.value WHERE rooms.kind = 'open' ON CONFLICT DO NOTHING`;
+  SELECT rooms.id, ?1, ?3, ?3 FROM json_each(?2) AS picked JOIN rooms ON rooms.id = picked.value
+  WHERE ${OPEN_TO_EVERYONE} AND (rooms.parent_id IS NULL OR rooms.parent_id IN (SELECT value FROM json_each(?2))) ON CONFLICT DO NOTHING`;
 
 /** Takes ?1 out of the open rooms the JSON list ?2 doesn't name. */
 const LEAVE_UNPICKED_ROOMS = `DELETE FROM memberships WHERE user_id = ?1 AND room_id NOT IN (SELECT value FROM json_each(?2))
@@ -2176,11 +2207,11 @@ const ACTIVATE_AGENTS = `UPDATE users SET status = ${ACTIVE}, updated_at = ? WHE
 /** Puts each agent kept to the open rooms picked back in the ones it was in when Ember AI was turned off, of those still open. */
 const RESTORE_AGENTS_ROOMS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT rooms.id, agents.user_id, ?1, ?1 FROM agents, json_each(agents.kept_rooms) AS kept JOIN rooms ON rooms.id = kept.value
-  WHERE agents.every_open_room = 0 AND rooms.kind = 'open' ON CONFLICT DO NOTHING`;
+  WHERE agents.every_open_room = 0 AND ${OPEN_TO_EVERYONE} ON CONFLICT DO NOTHING`;
 
 /** Puts each agent that's in every open room in all of them, keeping the memberships it has. */
 const GRANT_OPEN_ROOMS_TO_AGENTS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT rooms.id, agents.user_id, ?1, ?1 FROM agents, rooms WHERE agents.every_open_room = 1 AND rooms.kind = 'open' ON CONFLICT DO NOTHING`;
+  SELECT rooms.id, agents.user_id, ?1, ?1 FROM agents, rooms WHERE agents.every_open_room = 1 AND ${OPEN_TO_EVERYONE} ON CONFLICT DO NOTHING`;
 
 /**
  * Adds @ember, the bot Ember AI answers as, without a token, so its key opens nothing, or lets it back,
@@ -2413,8 +2444,8 @@ const NAMED_NEW_VIEWER_NAMES = `SELECT users.name ${NEW_VIEWERS} ORDER BY lower(
 const CAN_ADMINISTER = `(users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id) AS can_administer`;
 
 /** A room someone is in, unless it's a DM, and whether they can change it. */
-export const ROOM_TO_CHANGE = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${CAN_ADMINISTER}
-  FROM memberships JOIN rooms ON rooms.id = memberships.room_id JOIN users ON users.id = memberships.user_id
+export const ROOM_TO_CHANGE = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${CAN_ADMINISTER}, ${PARENT_COLUMNS}
+  FROM memberships JOIN rooms ON rooms.id = memberships.room_id JOIN users ON users.id = memberships.user_id ${JOIN_PARENT}
   WHERE memberships.room_id = ? AND memberships.user_id = ? AND rooms.kind <> 'direct'`;
 
 /**
@@ -2429,13 +2460,147 @@ const ROOM_TO_DELETE = `SELECT rooms.kind, ${CAN_ADMINISTER}
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id JOIN users ON users.id = memberships.user_id
   WHERE memberships.room_id = ? AND memberships.user_id = ?`;
 
+// Sub-rooms (`@ember/protocol`'s sub-rooms.ts): a room's parent_id names the room it's under. Access to
+// a sub-room needs access to its parent, so every change to who's in a room ends by taking anyone not in
+// a sub-room's parent out of it, and by putting everyone in a parent in its sub-rooms open to "Everyone",
+// in the same batch. Each statement scopes to one room, or to one room's sub-rooms, by a key.
+
+/**
+ * Puts room ?1 under room ?2, recording when, ?3, unless ?2 is ?1, a DM or a sub-room, ?1 is a DM or
+ * has sub-rooms, or it's there already. Answers it, once it moved.
+ */
+const SET_PARENT = `UPDATE rooms SET parent_id = ?2, updated_at = ?3
+  WHERE id = ?1 AND kind <> 'direct' AND ?1 <> ?2 AND parent_id IS NOT ?2
+    AND EXISTS (SELECT 1 FROM rooms AS parents WHERE parents.id = ?2 AND parents.kind <> 'direct' AND parents.parent_id IS NULL)
+    AND NOT EXISTS (SELECT 1 FROM rooms AS children WHERE children.parent_id = ?1)
+  RETURNING id`;
+
+/** Makes sub-room ?1 a room of its own, recording when, ?2. */
+const CLEAR_PARENT = `UPDATE rooms SET parent_id = NULL, updated_at = ?2 WHERE id = ?1 AND parent_id IS NOT NULL RETURNING id`;
+
+/** Adds sub-room ?1 under ?6, as `INSERT_ROOM` adds a room, unless ?6 is a DM or a sub-room itself. Answers it, once it's added. */
+const INSERT_SUB_ROOM = `INSERT INTO rooms (id, kind, name, icon, creator_id, created_at, updated_at, parent_id)
+  SELECT ?1, ?2, ?3, ?4, ?5, ?7, ?7, ?6 WHERE EXISTS (SELECT 1 FROM rooms AS parents WHERE parents.id = ?6 AND parents.kind <> 'direct' AND parents.parent_id IS NULL)
+  RETURNING id`;
+
+/** Whether someone isn't in the parent of the sub-room a membership is in, which `memberships` reads. */
+const OUTSIDE_PARENT = `NOT EXISTS (SELECT 1 FROM memberships AS parents
+  WHERE parents.room_id = (SELECT parent_id FROM rooms WHERE rooms.id = memberships.room_id) AND parents.user_id = memberships.user_id)`;
+
+/**
+ * What takes the people not in their parent out of the sub-rooms `scope` names, by ?1: their sockets'
+ * closing queued with code ?2, due at ?3, then their memberships, answering a row for each.
+ */
+const outsidersOut = (scope: string): [string, string] => [
+  `INSERT INTO pending_revocations (room_id, tag, code, due_at)
+  SELECT room_id, user_id, ?2, ?3 FROM memberships WHERE room_id IN (SELECT id FROM rooms WHERE ${scope} AND parent_id IS NOT NULL) AND ${OUTSIDE_PARENT}
+  RETURNING id`,
+  `DELETE FROM memberships WHERE room_id IN (SELECT id FROM rooms WHERE ${scope} AND parent_id IS NOT NULL) AND ${OUTSIDE_PARENT}
+  RETURNING room_id, user_id`,
+];
+
+/** For sub-room ?1, its own, and for room ?1, its sub-rooms'. */
+const [QUEUE_OUTSIDERS_REVOCATIONS, OUTSIDERS_LEAVE] = outsidersOut("id = ?1");
+const [QUEUE_SUB_ROOM_OUTSIDERS_REVOCATIONS, SUB_ROOM_OUTSIDERS_LEAVE] = outsidersOut("parent_id = ?1");
+
+/**
+ * Puts everyone active in room ?1 in its sub-rooms open to "Everyone", as of ?2, keeping the memberships
+ * they have, and answers whom it put where.
+ */
+const GRANT_OPEN_SUB_ROOMS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
+  SELECT rooms.id, memberships.user_id, ?2, ?2 FROM rooms JOIN memberships ON memberships.room_id = rooms.parent_id
+    JOIN users ON users.id = memberships.user_id
+  WHERE rooms.parent_id = ?1 AND rooms.kind = 'open' AND users.status = ${ACTIVE}
+  ON CONFLICT DO NOTHING RETURNING room_id, user_id`;
+
+/** Puts everyone active in sub-room ?1's parent in it, as of ?2, keeping the memberships they have, and answers whom it put in. */
+const GRANT_SUB_ROOM_TO_PARENT_PEOPLE = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
+  SELECT rooms.id, memberships.user_id, ?2, ?2 FROM rooms JOIN memberships ON memberships.room_id = rooms.parent_id
+    JOIN users ON users.id = memberships.user_id
+  WHERE rooms.id = ?1 AND users.status = ${ACTIVE}
+  ON CONFLICT DO NOTHING RETURNING user_id`;
+
+/** Puts the people a JSON list ?3 names who are in sub-room ?1's parent in it, as of ?2, and answers whom it put in. */
+const GRANT_SUB_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
+  SELECT ?1, users.id, ?2, ?2 FROM users WHERE users.id IN (SELECT value FROM json_each(?3))
+    AND EXISTS (SELECT 1 FROM rooms JOIN memberships ON memberships.room_id = rooms.parent_id WHERE rooms.id = ?1 AND memberships.user_id = users.id)
+  ON CONFLICT DO NOTHING RETURNING user_id`;
+
+/** Who's in room ?1's sub-rooms, once each. */
+const SUB_ROOM_PEOPLE = `SELECT DISTINCT user_id FROM memberships WHERE room_id IN (SELECT id FROM rooms WHERE parent_id = ?1)`;
+
+/** How many sub-rooms room ?1 has. */
+const SUB_ROOM_COUNT = `SELECT count(*) AS count FROM rooms WHERE parent_id = ?1`;
+
+/**
+ * Makes room ?1's sub-rooms rooms of their own, as it's deleted, recording when, ?2. A sub-room open to
+ * everyone in a private room becomes private to the people in it, rather than open to the workspace.
+ */
+const PROMOTE_SUB_ROOMS = `UPDATE rooms SET parent_id = NULL, updated_at = ?2,
+    kind = CASE WHEN kind = 'open' AND EXISTS (SELECT 1 FROM rooms AS parents WHERE parents.id = ?1 AND parents.kind = 'closed') THEN 'closed' ELSE kind END
+  WHERE parent_id = ?1 RETURNING id`;
+
+/**
+ * The rooms ?1 is in that a room could go under, but ?2, by name: shared rooms that aren't sub-rooms,
+ * which they can change, being an administrator or the room's creator.
+ */
+const PARENT_CHOICES = `SELECT rooms.id, rooms.name, rooms.icon, rooms.kind
+  FROM memberships JOIN rooms ON rooms.id = memberships.room_id JOIN users ON users.id = memberships.user_id
+  WHERE memberships.user_id = ?1 AND rooms.kind <> 'direct' AND rooms.parent_id IS NULL AND rooms.id <> ?2
+    AND (users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id)
+  ORDER BY lower(rooms.name), rooms.id`;
+
+/** Who's in each of the private rooms `PARENT_CHOICES` reads. */
+const PARENT_CHOICE_PEOPLE = `SELECT memberships.room_id, memberships.user_id FROM memberships WHERE memberships.room_id IN (
+  SELECT rooms.id FROM memberships JOIN rooms ON rooms.id = memberships.room_id JOIN users ON users.id = memberships.user_id
+  WHERE memberships.user_id = ?1 AND rooms.kind = 'closed' AND rooms.parent_id IS NULL AND rooms.id <> ?2
+    AND (users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id))`;
+
+/** Room ?1, as `PARENT_CHOICES` would offer it to ?2. */
+const PARENT_CHOICE = `SELECT rooms.id, rooms.name
+  FROM memberships JOIN rooms ON rooms.id = memberships.room_id JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ?1 AND memberships.user_id = ?2 AND rooms.kind <> 'direct' AND rooms.parent_id IS NULL
+    AND (users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id)`;
+
+/** A room and the person a sub-room change took out of it. */
+interface RoomUserRow extends UserIdRow {
+  room_id: RoomId;
+}
+
+/** A room someone could put a room under, as `PARENT_CHOICES` reads it. */
+interface ParentChoiceRow {
+  id: RoomId;
+  name: string;
+  icon: SharedRoom["icon"];
+  kind: SharedRoom["kind"];
+}
+
+/** Room ?1's parent, from the columns `PARENT_COLUMNS` names, for the room it's read with. */
+const parentOf = (row: { parent_id: RoomId | null; parent_name: string | null }): { parent?: RoomParent } =>
+  row.parent_id === null ? {} : { parent: { id: row.parent_id, name: row.parent_name ?? "" } };
+
+/** The rooms a room could go under, with who's in the private ones. */
+function parentChoices(rows: ParentChoiceRow[], people: RoomUserRow[]): ParentChoice[] {
+  const byRoom = Map.groupBy(people, (row) => row.room_id);
+  return rows.map(({ id, name, icon, kind }) => ({
+    id,
+    name,
+    icon,
+    everyone: kind === "open",
+    memberIds: kind === "open" ? [] : (byRoom.get(id) ?? []).map((row) => row.user_id),
+  }));
+}
+
+/** The people a sub-room change took out of sub-rooms, by room. */
+const roomUsersOf = (rows: RoomUserRow[]) => rows.map((row) => ({ roomId: row.room_id, userId: row.user_id }));
+
 // Memberships are granted with one statement for everyone, rather than a row at a time, since both
 // backends bind at most 100 values a statement. A WHERE clause comes before each ON CONFLICT, which
 // SQLite would otherwise read as part of a join.
 
 /** Puts someone new in every open room. */
 const GRANT_OPEN_ROOMS_TO_USER = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT id, ?, ?, ? FROM rooms WHERE kind = 'open' ON CONFLICT DO NOTHING`;
+  SELECT id, ?, ?, ? FROM rooms WHERE ${OPEN_TO_EVERYONE} ON CONFLICT DO NOTHING`;
 
 /**
  * Puts every active person in an open room, keeping the memberships they already have, and answers whom
@@ -4258,52 +4423,96 @@ export class WorkspaceStore {
     return row ? roomToChange(row) : null;
   }
 
-  /** The same, with everyone active and whether they're in the room, read together. */
+  /**
+   * The same, with everyone active and whether they're in the room, and the rooms it could go under,
+   * none while it has sub-rooms, read together.
+   */
   async roomSettings(roomId: RoomId, userId: UserId): Promise<RoomSettings | null> {
-    const [[row], people] = (await this.db.batch([statement(ROOM_TO_CHANGE, roomId, userId), statement(ACTIVE_PEOPLE_IN_ROOM, roomId)])) as [
-      RoomToChangeRow[],
-      Array<User & { member: number }>,
+    const [[row], people, choices, choicePeople, [count]] = (await this.db.batch([
+      statement(ROOM_TO_CHANGE, roomId, userId),
+      statement(ACTIVE_PEOPLE_IN_ROOM, roomId),
+      statement(PARENT_CHOICES, userId, roomId),
+      statement(PARENT_CHOICE_PEOPLE, userId, roomId),
+      statement(SUB_ROOM_COUNT, roomId),
+    ])) as [RoomToChangeRow[], Array<User & { member: number }>, ParentChoiceRow[], RoomUserRow[], Array<{ count: number }>];
+    if (!row) return null;
+    const subRooms = count?.count ?? 0;
+    return {
+      ...roomToChange(row),
+      people: people.map((person) => ({ ...person, member: person.member === 1 })),
+      parents: subRooms > 0 ? [] : parentChoices(choices, choicePeople),
+      subRooms,
+    };
+  }
+
+  /** The rooms someone could put a new room under. */
+  async parentChoices(userId: UserId): Promise<ParentChoice[]> {
+    const [choices, people] = (await this.db.batch([statement(PARENT_CHOICES, userId, ""), statement(PARENT_CHOICE_PEOPLE, userId, "")])) as [
+      ParentChoiceRow[],
+      RoomUserRow[],
     ];
-    return row ? { ...roomToChange(row), people: people.map((person) => ({ ...person, member: person.member === 1 })) } : null;
+    return parentChoices(choices, people);
+  }
+
+  /** Room `parentId`, if someone could put a room under it, as `parentChoices` would offer it. */
+  async parentChoice(parentId: RoomId, userId: UserId): Promise<RoomParent | null> {
+    const [row] = await this.db.all<RoomParent>(PARENT_CHOICE, parentId, userId);
+    return row ? { id: row.id, name: row.name } : null;
+  }
+
+  /** How many sub-rooms room `roomId` has. */
+  async subRoomCount(roomId: RoomId): Promise<number> {
+    const [row] = await this.db.all<{ count: number }>(SUB_ROOM_COUNT, roomId);
+    return row?.count ?? 0;
   }
 
   /**
-   * Makes `changes` to a room in one transaction: renames it, and makes it open to everyone active, or
-   * private to just the people `memberIds` names, taking anyone else out but those suspended in a room
-   * that was private already, whom its settings don't list, and queueing closing their sockets there
-   * with `code`, due at `dueAt`. Answers what it changed, who's in the room then, and whether the shared
-   * order ranks it.
+   * Makes `changes` to a room in one transaction: renames it, moves it under `changes.parentId` or out
+   * from under its parent, and makes it open to everyone it can be, or private to just the people
+   * `memberIds` names, taking anyone else out but those suspended in a room that was private already,
+   * whom its settings don't list. `parentId` is the room it's under once it's changed, whose people are
+   * everyone it can take in. Then it takes anyone not in the room out of its sub-rooms, or anyone not in
+   * its parent out of it, and puts everyone in it in its sub-rooms open to "Everyone". Everyone it takes
+   * out has their sockets there queued closing with `code`, due at `dueAt`. Answers what it changed, who's
+   * in the room and its sub-rooms then, and whether the shared order ranks it.
    */
-  async changeRoom(roomId: RoomId, changes: RoomChanges, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
-    const update = statement(UPDATE_ROOM, changes.name ?? null, changes.kind ?? null, changes.icon ?? null, now, roomId);
-    const members = statement(ROOM_MEMBERS, roomId);
-    const ranked = statement(ROOM_RANKED, roomId);
-    if (changes.kind === "open") {
-      const grant = statement(GRANT_ROOM_TO_ACTIVE_USERS, roomId, now, now);
-      const [updated, added, after, rank] = (await this.db.batch([update, grant, members, ranked])) as UserIdRow[][];
-      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: userIdsOf(added!), removedIds: [], ranked: isRanked(rank!) };
-    }
-    if (changes.kind !== "closed") {
-      const [updated, after] = (await this.db.batch([update, members])) as UserIdRow[][];
-      // Nobody new is in it, so nobody's sidebar has left it out.
-      return { roomChanged: updated!.length > 0, memberIds: userIdsOf(after!), addedIds: [], removedIds: [], ranked: false };
-    }
-    const memberIds = JSON.stringify(changes.memberIds);
+  async changeRoom(roomId: RoomId, changes: RoomChanges, parentId: RoomId | null, code: CloseCode, dueAt: number, now: string): Promise<SavedRoomChange> {
+    const memberIds = changes.kind === "closed" ? JSON.stringify(changes.memberIds) : null;
+    const steps: Array<[string, Statement]> = [];
     // Whom it takes out is read before the room's kind changes, which says whether anyone suspended stays.
-    const [, removed, updated, added, after, rank] = (await this.db.batch([
-      statement(QUEUE_MEMBER_REVOCATIONS, code, dueAt, roomId, memberIds),
-      statement(REVOKE_ROOM_FROM_OTHERS, roomId, memberIds),
-      update,
-      statement(GRANT_ROOM_TO_USERS, roomId, now, now, memberIds),
-      members,
-      ranked,
-    ])) as UserIdRow[][];
+    if (memberIds !== null) {
+      steps.push(["queued", statement(QUEUE_MEMBER_REVOCATIONS, code, dueAt, roomId, memberIds)]);
+      steps.push(["removed", statement(REVOKE_ROOM_FROM_OTHERS, roomId, memberIds)]);
+    }
+    if (changes.parentId !== undefined)
+      steps.push(["moved", changes.parentId === null ? statement(CLEAR_PARENT, roomId, now) : statement(SET_PARENT, roomId, changes.parentId, now)]);
+    steps.push(["updated", statement(UPDATE_ROOM, changes.name ?? null, changes.kind ?? null, changes.icon ?? null, now, roomId)]);
+    if (changes.kind === "open")
+      steps.push(["added", parentId ? statement(GRANT_SUB_ROOM_TO_PARENT_PEOPLE, roomId, now) : statement(GRANT_ROOM_TO_ACTIVE_USERS, roomId, now, now)]);
+    if (memberIds !== null)
+      steps.push(["added", parentId ? statement(GRANT_SUB_ROOM_TO_USERS, roomId, now, memberIds) : statement(GRANT_ROOM_TO_USERS, roomId, now, now, memberIds)]);
+    if (parentId) {
+      steps.push(["outsiders queued", statement(QUEUE_OUTSIDERS_REVOCATIONS, roomId, code, dueAt)]);
+      steps.push(["outsiders", statement(OUTSIDERS_LEAVE, roomId)]);
+    }
+    steps.push(["sub-rooms queued", statement(QUEUE_SUB_ROOM_OUTSIDERS_REVOCATIONS, roomId, code, dueAt)]);
+    steps.push(["sub-rooms left", statement(SUB_ROOM_OUTSIDERS_LEAVE, roomId)]);
+    steps.push(["sub-rooms joined", statement(GRANT_OPEN_SUB_ROOMS, roomId, now)]);
+    steps.push(["members", statement(ROOM_MEMBERS, roomId)]);
+    steps.push(["sub-room people", statement(SUB_ROOM_PEOPLE, roomId)]);
+    // Only someone a change puts in has a sidebar whose shared order left the room out.
+    if (changes.kind) steps.push(["ranked", statement(ROOM_RANKED, roomId)]);
+    const results = await this.db.batch(steps.map(([, step]) => step));
+    const rows = <T>(name: string) => (results[steps.findIndex(([step]) => step === name)] ?? []) as T[];
     return {
-      roomChanged: updated!.length > 0,
-      memberIds: userIdsOf(after!),
-      addedIds: userIdsOf(added!),
-      removedIds: userIdsOf(removed!),
-      ranked: isRanked(rank!),
+      roomChanged: rows("updated").length > 0 || rows("moved").length > 0,
+      memberIds: userIdsOf(rows<UserIdRow>("members")),
+      addedIds: userIdsOf(rows<UserIdRow>("added")),
+      removedIds: [...userIdsOf(rows<UserIdRow>("removed")), ...userIdsOf(rows<UserIdRow>("outsiders"))],
+      ranked: isRanked(rows("ranked")),
+      subRoomsLeft: roomUsersOf(rows<RoomUserRow>("sub-rooms left")),
+      subRoomsJoinedIds: [...new Set(userIdsOf(rows<UserIdRow>("sub-rooms joined")))],
+      subRoomPeople: userIdsOf(rows<UserIdRow>("sub-room people")),
     };
   }
 
@@ -4313,12 +4522,18 @@ export class WorkspaceStore {
     return row!.found === 1;
   }
 
-  /** Takes someone out of a room, and in the same transaction queues closing their sockets there with `code`, due at `dueAt`. */
-  async leaveRoom(roomId: RoomId, userId: UserId, code: CloseCode, dueAt: number): Promise<void> {
-    await this.db.batch([
+  /**
+   * Takes someone out of a room and its sub-rooms, and in the same transaction queues closing their
+   * sockets there with `code`, due at `dueAt`. Answers the sub-rooms it took them out of.
+   */
+  async leaveRoom(roomId: RoomId, userId: UserId, code: CloseCode, dueAt: number): Promise<RoomId[]> {
+    const [, , , left] = (await this.db.batch([
       statement(`INSERT INTO pending_revocations (room_id, tag, code, due_at) VALUES (?, ?, ?, ?)`, roomId, userId, code, dueAt),
       statement(`DELETE FROM memberships WHERE room_id = ? AND user_id = ?`, roomId, userId),
-    ]);
+      statement(QUEUE_SUB_ROOM_OUTSIDERS_REVOCATIONS, roomId, code, dueAt),
+      statement(SUB_ROOM_OUTSIDERS_LEAVE, roomId),
+    ])) as RoomUserRow[][];
+    return left!.map((row) => row.room_id);
   }
 
   /** The kind of room `roomId`, DMs included, and whether someone can change it, unless they aren't in it. */
@@ -4331,16 +4546,18 @@ export class WorkspaceStore {
    * Deletes a room and who is in it, and in the same transaction queues closing every socket in it with
    * `code`, due at `dueAt`, in place of whatever else the outbox had for it. The room's own object
    * deletes its messages when that reaches it. The room is remembered as deleted, so registering
-   * `LEGACY_ROOMS` doesn't bring it back. Answers who was in it.
+   * `LEGACY_ROOMS` doesn't bring it back. Its sub-rooms become rooms of their own (`PROMOTE_SUB_ROOMS`).
+   * Answers who was in it, and the sub-rooms it had.
    */
-  async deleteRoom(roomId: RoomId, code: CloseCode, dueAt: number, now: string): Promise<UserId[]> {
-    const [, , members] = (await this.db.batch([
+  async deleteRoom(roomId: RoomId, code: CloseCode, dueAt: number, now: string): Promise<{ memberIds: UserId[]; subRoomIds: RoomId[] }> {
+    const [, , members, promoted] = (await this.db.batch([
       // Queued before the rest go, so it takes an id none of them had: SQLite numbers a row after the
       // largest id left, and the alarm settles what it delivered by id, so taking the id of one it's
       // delivering now would settle the deletion with it.
       statement(`INSERT INTO pending_revocations (room_id, tag, code, due_at) VALUES (?, ?, ?, ?)`, roomId, EVERYONE, code, dueAt),
       statement(`DELETE FROM pending_revocations WHERE room_id = ? AND tag <> ?`, roomId, EVERYONE),
       statement(`DELETE FROM memberships WHERE room_id = ? RETURNING user_id`, roomId),
+      statement(PROMOTE_SUB_ROOMS, roomId, now),
       // Its messages all go, a banned person's with them, and the search index forgets them.
       statement(`DELETE FROM pending_purges WHERE room_id = ?`, roomId),
       statement(`DELETE FROM pending_reindexes WHERE room_id = ?`, roomId),
@@ -4348,15 +4565,23 @@ export class WorkspaceStore {
       statement(`INSERT INTO deleted_rooms (id, deleted_at) VALUES (?, ?) ON CONFLICT DO NOTHING`, roomId, now),
       ...forgettingRoomTabs(roomId),
       forgettingScheduledListings(roomId),
-    ])) as UserIdRow[][];
-    return userIdsOf(members!);
+    ])) as [unknown[], unknown[], UserIdRow[], Array<{ id: RoomId }>, ...unknown[][]];
+    return { memberIds: userIdsOf(members), subRoomIds: promoted.map((row) => row.id) };
   }
 
   /**
    * Adds a room and its people: everyone active for an open room, or just `memberIds` for a closed one.
-   * Answers who's in it.
+   * A sub-room takes in only people in its parent: everyone in it for an open one. Answers who's in it,
+   * or null when the parent can't have sub-rooms, and nothing was added.
    */
-  async createRoom(room: SharedRoom, creatorId: UserId, memberIds: UserId[] | null, now: string): Promise<UserId[]> {
+  async createRoom(room: SharedRoom, creatorId: UserId, memberIds: UserId[] | null, now: string): Promise<UserId[] | null> {
+    if (room.parent) {
+      const [added, members] = (await this.db.batch([
+        statement(INSERT_SUB_ROOM, room.id, room.kind, room.name, room.icon, creatorId, room.parent.id, now),
+        memberIds ? statement(GRANT_SUB_ROOM_TO_USERS, room.id, now, JSON.stringify(memberIds)) : statement(GRANT_SUB_ROOM_TO_PARENT_PEOPLE, room.id, now),
+      ])) as UserIdRow[][];
+      return added!.length > 0 ? userIdsOf(members!) : null;
+    }
     const [, members] = (await this.db.batch([
       statement(
         `INSERT INTO rooms (id, kind, name, icon, creator_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,

@@ -286,6 +286,18 @@ Objects, D1 or speed call for something else.
   decide who can see a room, so nothing comes between the read and the writes. A deleted room leaves
   the order with its row. Whether only administrators create rooms stays in the account's settings,
   as in Campfire, and the Workspace keeps it with the rest of the account it has read.
+- **A sub-room names its parent**, `rooms.parent_id` (workspace migration 0075), under an index that
+  finds a room's sub-rooms, so the sidebar's statement reads each room's parent, and the parent's
+  name, with the room. Campfire has no sub-rooms. They nest one level: a statement that moves a room
+  under another checks in its `WHERE` that neither the parent nor the room breaks that, so two moves
+  at once can't nest three deep. Access to a sub-room needs access to its parent, so a sub-room's
+  memberships stay among its parent's: each change to who's in a room ends, in the same batch, by
+  taking anyone not in a sub-room's parent out of it, queueing their sockets' closing as any removal
+  does, and by putting the parent's people in its sub-rooms open to "Everyone". The statements that
+  put someone in every open room take only rooms of the workspace's own and sub-rooms of open rooms.
+  Deleting a parent sets its sub-rooms' `parent_id` back to null, and makes one open to a private
+  parent's people private to them. The shared order ranks sub-rooms with the rest, each parent's
+  after it, and the sidebar lists them under their parent in that order.
 - **A room's huddle is columns of the room.** A huddle's sockets are its room's object's, which
   alone knows who's in it, and Campfire has nothing like one. For everyone in the room to see it, in
   the huddle or not, the Workspace keeps who's in it, a JSON list of their ids in the order they

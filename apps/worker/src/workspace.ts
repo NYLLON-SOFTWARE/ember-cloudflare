@@ -64,6 +64,7 @@ import {
   type Room,
   type RoomChanges,
   type RoomId,
+  type RoomParent,
   type RoomSettings,
   type Search,
   type SentTestEmail,
@@ -2705,18 +2706,23 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Creates a room as the person `credentials` signs in: "forbidden" unless they may create rooms, or
    * null without a valid session. Everyone it puts in sees it in their sidebars at once, and nobody else
-   * hears of it.
+   * hears of it. A sub-room goes under a room they could put it under, or is refused as "bad parent".
    */
-  async createRoom(credentials: Credentials, room: NewRoom): Promise<SharedRoom | "forbidden" | null> {
+  async createRoom(credentials: Credentials, room: NewRoom): Promise<SharedRoom | "forbidden" | "bad parent" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     if (!(await this.mayCreateRoomsAs(user.id))) return "forbidden";
-    const created: SharedRoom = { id: sortableId(), kind: room.kind, name: room.name, icon: room.icon || null };
-    const at = new Date().toISOString();
-    const memberIds = await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, at);
-    this.tell(memberIds, { type: "room.saved", room: created });
-    if (room.kind === "closed") this.tellOfActivity(await this.activity.recordInvitations(created.id, user.id, memberIds, at));
-    return created;
+    return this.oneAtATime(async () => {
+      const parent = room.parentId ? await this.store.parentChoice(room.parentId, user.id) : null;
+      if (room.parentId && !parent) return "bad parent";
+      const created: SharedRoom = { id: sortableId(), kind: room.kind, name: room.name, icon: room.icon || null, ...(parent && { parent }) };
+      const at = new Date().toISOString();
+      const memberIds = await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, at);
+      if (!memberIds) return "bad parent";
+      this.tell(memberIds, { type: "room.saved", room: created });
+      if (room.kind === "closed") this.tellOfActivity(await this.activity.recordInvitations(created.id, user.id, memberIds, at));
+      return created;
+    });
   }
 
   /**
@@ -2743,7 +2749,9 @@ export class Workspace extends DurableObject<Env> {
   async newRoomForm(credentials: Credentials): Promise<NewRoomForm | "forbidden" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    return (await this.mayCreateRoomsAs(user.id)) ? { people: await this.store.activePeople() } : "forbidden";
+    if (!(await this.mayCreateRoomsAs(user.id))) return "forbidden";
+    const [people, parents] = await Promise.all([this.store.activePeople(), this.store.parentChoices(user.id)]);
+    return { people, parents };
   }
 
   /**
@@ -3676,31 +3684,43 @@ export class Workspace extends DurableObject<Env> {
    * leaves their sidebars. Everyone in it sees it as it is now in theirs, or, when only who's in it
    * changed, the people it puts in do.
    */
-  async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<SharedRoom | "not found" | "forbidden" | null> {
+  async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<SharedRoom | "not found" | "forbidden" | "bad parent" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.closingSockets(async () => {
       const found = await this.store.roomToChange(roomId, user.id);
       if (!found) return "not found";
       if (!found.canAdminister) return "forbidden";
+      const moving = changes.parentId !== undefined && changes.parentId !== (found.room.parent?.id ?? null);
+      const parent = moving ? await this.parentFor(roomId, changes.parentId!, user.id) : (found.room.parent ?? null);
+      if (parent === "bad parent") return parent;
+      // A room open to everyone it can take in takes in its new parent's people, or the workspace's.
+      if (moving && !changes.kind && found.room.kind === "open") changes = { ...changes, kind: "open" };
+      const { parent: _, ...unparented } = found.room;
       const changed: SharedRoom = {
-        ...found.room,
+        ...unparented,
+        ...(parent && { parent }),
         ...(changes.name && { name: changes.name }),
         ...(changes.kind && { kind: changes.kind }),
         ...(changes.icon !== undefined && { icon: changes.icon || null }),
       };
-      if (!changes.name && !changes.kind && changes.icon === undefined) return changed;
+      if (!moving) changes = { ...changes, parentId: undefined };
+      if (!changes.name && !changes.kind && changes.icon === undefined && !moving) return changed;
       const now = Date.now();
       // As when signing out, until the database says it queued nothing.
-      let queued = changes.kind === "closed";
+      let queued = changes.kind === "closed" || moving;
       let saved: SavedRoomChange;
       try {
-        saved = await this.store.changeRoom(roomId, changes, CloseCode.Reconnect, now, new Date(now).toISOString());
-        queued = saved.removedIds.length > 0;
+        saved = await this.store.changeRoom(roomId, changes, parent?.id ?? null, CloseCode.Reconnect, now, new Date(now).toISOString());
+        queued = saved.removedIds.length > 0 || saved.subRoomsLeft.length > 0;
       } finally {
         if (queued) await this.revocationsQueued(now);
       }
       this.tell(saved.removedIds, { type: "room.gone", roomId });
+      for (const left of saved.subRoomsLeft) this.tell([left.userId], { type: "room.gone", roomId: left.roomId });
+      // The sub-rooms' people read the room's name with theirs, and whoever joined them reads them anew.
+      const reread = new Set([...saved.subRoomsJoinedIds, ...(saved.roomChanged && changes.name ? saved.subRoomPeople : [])]);
+      if (reread.size > 0) this.tell([...reread], { type: "rooms.reordered" });
       this.tell(saved.roomChanged ? saved.memberIds : saved.addedIds, { type: "room.saved", room: changed });
       // Whoever it puts in has heard nothing of a huddle going on there.
       const huddle = saved.addedIds.length > 0 ? await this.store.liveHuddle(roomId) : null;
@@ -3712,6 +3732,16 @@ export class Workspace extends DurableObject<Env> {
       if (changed.kind === "closed") this.tellOfActivity(await this.activity.recordInvitations(roomId, user.id, saved.addedIds, new Date(now).toISOString()));
       return changed;
     });
+  }
+
+  /**
+   * The parent room `parentId` names for room `roomId`, as `userId` moves it there, or null for none:
+   * "bad parent" unless they could put a room under it, the room has no sub-rooms, and it isn't the room.
+   */
+  private async parentFor(roomId: RoomId, parentId: RoomId | null, userId: UserId): Promise<RoomParent | null | "bad parent"> {
+    if (parentId === null) return null;
+    if (parentId === roomId || (await this.store.subRoomCount(roomId)) > 0) return "bad parent";
+    return (await this.store.parentChoice(parentId, userId)) ?? "bad parent";
   }
 
   /**
@@ -3731,13 +3761,15 @@ export class Workspace extends DurableObject<Env> {
       if (found.canAdminister) return "can change";
       if (!(await this.store.anotherPersonInRoom(roomId, user.id))) return "last";
       const now = Date.now();
+      let subRoomIds: RoomId[] = [];
       try {
-        await this.store.leaveRoom(roomId, user.id, CloseCode.Reconnect, now);
+        subRoomIds = await this.store.leaveRoom(roomId, user.id, CloseCode.Reconnect, now);
       } finally {
         // As when signing out: the database may have saved it, and so queued it, though its answer was lost.
         await this.revocationsQueued(now);
       }
-      this.tell([user.id], { type: "room.gone", roomId });
+      // Access to a sub-room needs access to its parent, so they leave its sub-rooms too.
+      for (const id of [roomId, ...subRoomIds]) this.tell([user.id], { type: "room.gone", roomId: id });
       return "left";
     });
   }
@@ -3782,14 +3814,16 @@ export class Workspace extends DurableObject<Env> {
       if (!found) return "not found";
       if (found.kind !== "direct" && !found.canAdminister) return "forbidden";
       const now = Date.now();
-      let memberIds: UserId[];
+      let deleted: { memberIds: UserId[]; subRoomIds: RoomId[] };
       try {
-        memberIds = await this.store.deleteRoom(roomId, CloseCode.NotFound, now, new Date(now).toISOString());
+        deleted = await this.store.deleteRoom(roomId, CloseCode.NotFound, now, new Date(now).toISOString());
       } finally {
         // As when signing out: the database may have saved the deletion, and so queued it, though its answer was lost.
         await this.revocationsQueued(now);
       }
-      this.tell(memberIds, { type: "room.gone", roomId });
+      this.tell(deleted.memberIds, { type: "room.gone", roomId });
+      // Its sub-rooms are rooms of their own now, which their people's sidebars read anew.
+      if (deleted.subRoomIds.length > 0) this.tell(deleted.memberIds, { type: "rooms.reordered" });
       return "deleted";
     });
   }

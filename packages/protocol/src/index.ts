@@ -12,6 +12,7 @@ import type { Canvas } from "./library.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
 import { MAX_PUSH_ENDPOINT_LENGTH } from "./push.ts";
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
+import { parentIdOf, type ParentChoice, type RoomParent } from "./sub-rooms.ts";
 
 export { ROOM_ICON_NAMES };
 export {
@@ -53,6 +54,7 @@ export {
 // and the web app's main chunk, which imports this, would otherwise cost the app one more script to load
 // (`oneAppScript` in apps/web/vite.config.ts says why).
 export type { Bot, BotAnswer, BotChanges, BotRoom, Bots, BotSettings, NewBot } from "./bots.ts";
+export { SUB_ROOM_REFUSED, SUB_ROOM_SEPARATOR, subRoomName, type ParentChoice, type RoomParent } from "./sub-rooms.ts";
 // So is the rest of assistant.ts, from "@ember/protocol/assistant", which only Ember AI's settings, its dials and the Worker's assistant use.
 export type {
   AnswerLength,
@@ -256,6 +258,8 @@ export interface SharedRoom {
   name: string;
   /** Null for the default `#`. */
   icon: RoomIconName | null;
+  /** The room it's under, for a sub-room (`sub-rooms.ts`). */
+  parent?: RoomParent;
 }
 
 /**
@@ -356,7 +360,7 @@ export const suggestedCount = (peopleInDirects: number) => Math.max(0, SUGGESTED
  * A room to create: an open room takes in everyone, and a closed one only the people `memberIds` names.
  * Without an icon, it has the default `#`.
  */
-export type NewRoom = { name: string; icon?: RoomIconChoice } & ({ kind: "open" } | { kind: "closed"; memberIds: UserId[] });
+export type NewRoom = { name: string; icon?: RoomIconChoice; parentId?: RoomId } & ({ kind: "open" } | { kind: "closed"; memberIds: UserId[] });
 
 /** Someone active, as a room's settings list them, with whether they're in the room. */
 export interface RoomPerson extends User {
@@ -366,6 +370,8 @@ export interface RoomPerson extends User {
 /** What `GET /api/rooms/new` answers for the New room forms: everyone active, by name. */
 export interface NewRoomForm {
   people: User[];
+  /** The rooms a new room could go under. */
+  parents: ParentChoice[];
 }
 
 /**
@@ -388,13 +394,17 @@ export interface RoomSettings {
   canAdminister: boolean;
   /** Everyone active, by name. */
   people: RoomPerson[];
+  /** The rooms it could go under, none while it has sub-rooms of its own. */
+  parents: ParentChoice[];
+  /** How many sub-rooms it has, whoever can see them. */
+  subRooms: number;
 }
 
 /**
  * What `PATCH /api/rooms/<id>` changes in a room, as its settings save it: its name, its icon, and who
  * it's for, everyone or just the people `memberIds` names, which takes anyone else out of it.
  */
-export type RoomChanges = { name?: string; icon?: RoomIconChoice } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
+export type RoomChanges = { name?: string; icon?: RoomIconChoice; parentId?: RoomId | null } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
 
 /**
  * The rail's buttons and the appearance modes, whose icons an administrator can choose in Community
@@ -2143,6 +2153,8 @@ export function isRoomIcon(value: unknown): value is RoomIconName {
 
 const ICON_REFUSED = 'Icon must be one of the room icons, or "" for the default';
 
+const PARENT_REFUSED = "Parent must be a room's id, or null for none";
+
 /**
  * A room's icon: undefined when it's left out, which keeps the icon, or null when it's neither "" nor
  * exactly an icon's name.
@@ -2161,9 +2173,12 @@ export function parseNewRoom(data: unknown): NewRoom | string {
   if (!name) return `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
   const icon = iconChoice(r.icon);
   if (icon === null) return ICON_REFUSED;
-  if (r.kind === "open") return { kind: r.kind, name, icon };
+  const parentId = parentIdOf(r.parentId, isRoomId);
+  if (parentId === false) return PARENT_REFUSED;
+  const parent = parentId ? { parentId } : {};
+  if (r.kind === "open") return { kind: r.kind, name, icon, ...parent };
   const memberIds = r.memberIds ?? [];
-  return userIds(memberIds) ? { kind: r.kind, name, icon, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+  return userIds(memberIds) ? { kind: r.kind, name, icon, ...parent, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
 }
 
 /**
@@ -2177,7 +2192,9 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
   if (name === null) return `Name must be 1 to ${MAX_ROOM_NAME_LENGTH} characters`;
   const icon = iconChoice(r.icon);
   if (icon === null) return ICON_REFUSED;
-  const changes = { name, icon };
+  const parentId = parentIdOf(r.parentId, isRoomId);
+  if (parentId === false) return PARENT_REFUSED;
+  const changes = { name, icon, ...(parentId !== undefined && { parentId }) };
   if (r.kind === undefined) return changes;
   if (r.kind === "open") return { ...changes, kind: r.kind };
   if (r.kind !== "closed") return 'Kind must be "open" or "closed"';

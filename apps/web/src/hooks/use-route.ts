@@ -45,6 +45,8 @@ export function activityPath(place: { roomId: RoomId; messageId?: string; thread
   return ACTIVITY_PATH + room;
 }
 export const newRoomPath = (access: Access) => `/rooms/${KIND_SEGMENTS[access]}/new`;
+/** New room, for a sub-room of room `parentId`. */
+export const newSubRoomPath = (parentId: RoomId) => `${newRoomPath("open")}?parent=${encodeURIComponent(parentId)}`;
 /** A room's settings page, at the address for its kind. */
 export const roomSettingsPath = (kind: RoomKind, roomId: RoomId) => `/rooms/${KIND_SEGMENTS[kind]}/${encodeURIComponent(roomId)}/edit`;
 /** A bot's settings page, as Campfire's `edit_account_bot_path` gives it. */

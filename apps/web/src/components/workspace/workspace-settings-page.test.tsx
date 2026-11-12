@@ -2297,7 +2297,7 @@ describe("Shared room order", () => {
   const orderList = () => screen.getByRole("list", { name: "Room order" });
   const orderRows = () => within(orderList()).getAllByRole("listitem");
   /** The room a row is for, by the name its link to the room's settings has. */
-  const roomOf = (row: HTMLElement) => within(row).getByRole("link").getAttribute("aria-label")!.replace("Settings for ", "");
+  const roomOf = (row: HTMLElement) => within(row).getByRole("link", { name: /^Settings for / }).getAttribute("aria-label")!.replace("Settings for ", "");
   /** The rooms the list shows, top to bottom. */
   const ordered = () => orderRows().map(roomOf);
   const orderRow = (name: string) => orderRows().find((row) => roomOf(row) === name)!;

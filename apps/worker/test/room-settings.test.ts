@@ -48,7 +48,7 @@ describe("Create an open room", () => {
 
     const response = await newRoomForm(grace);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ people: [ada.user, grace.user] } satisfies NewRoomForm);
+    expect(await response.json()).toEqual({ people: [ada.user, grace.user], parents: [] } satisfies NewRoomForm);
   });
 
   it("asks who's signed in", async () => {
@@ -71,6 +71,8 @@ describe("Room settings page", () => {
         { ...grace.user, member: false },
         { ...linus.user, member: true },
       ],
+      parents: [],
+      subRooms: 0,
     } satisfies RoomSettings);
   });
 
