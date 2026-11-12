@@ -43,7 +43,14 @@ describe("DM previews", () => {
     await reply(graceInDm, first, "<p>a reply</p>");
     await caughtUp(withGrace.id);
 
-    const { previews } = await asked<DirectPreviews>(ada, "/api/directs");
+    // The Workspace marks the DM unread for Ada once its room tells it of Grace's messages, which can come
+    // a moment after the index has them.
+    let previews: DirectPreviews["previews"] = [];
+    for (let tries = 0; tries < 200; tries++) {
+      ({ previews } = await asked<DirectPreviews>(ada, "/api/directs"));
+      if (previews.find(({ roomId }) => roomId === withGrace.id)?.unread === 2) break;
+      await sleep(10);
+    }
     const byRoom = new Map(previews.map((preview) => [preview.roomId, preview]));
     expect(byRoom.get(withGrace.id)?.latest?.id).toBe(latest.id);
     expect(byRoom.get(withGrace.id)?.unread).toBe(2);
