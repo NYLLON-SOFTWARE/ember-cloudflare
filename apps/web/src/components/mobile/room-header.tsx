@@ -1,14 +1,17 @@
 import { useContext, useEffect, useId, useState } from "react";
-import { DMS_PATH, type Room, type User } from "@ember/protocol";
-import { ChatBubbleEmpty } from "@/components/icons/iconoir";
+import { ACTIVITY_PATH, DMS_PATH, type Room, type User } from "@ember/protocol";
+import { ChatBubbleEmpty, Lock } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { useAccount } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
+import { roomSettingsPath, usePath } from "@/hooks/use-route";
 import { fetchPerson, fetchRoomSettings } from "@/lib/api";
+import { fetchTabs } from "@/lib/room-tabs";
+import { cn } from "@/lib/utils";
 import { AgentBadge, useIsWithAgent } from "../workspace/agent-badge";
 import { HuddleButton } from "../workspace/huddle-button";
 import { PageHeader } from "../workspace/page-header";
-import { useLocalTime } from "../workspace/profile-pane";
+import { useLocalTime } from "../workspace/profile-panel";
 import type { RoomHeaderProps } from "../workspace/room-header";
 import { RoomTabsContext } from "../workspace/room-tabs";
 import { BackButton } from "./back-button";
@@ -36,15 +39,21 @@ export function MobileRoomHeader(props: RoomHeaderProps) {
   const about = useAbout(room, person, here);
   const detail = offline ? (status === "connecting" ? "Connecting…" : "Reconnecting…") : about;
   const ids = { name: useId(), detail: useId() };
+  // With nothing to go back to, as when a link opened it, Back goes up to where it's shown: Activity, for a
+  // room it opened, or the DMs or Home.
+  const inActivity = usePath().startsWith(`${ACTIVITY_PATH}/`);
   return (
     <PageHeader>
-      <BackButton fallback={direct ? DMS_PATH : "/"} />
+      <BackButton fallback={inActivity ? ACTIVITY_PATH : direct ? DMS_PATH : "/"} />
       {/* The pill reads as the room's name and its line, and a tap anywhere on it opens the room's details. */}
       <div className={`relative flex min-w-0 flex-1 items-center gap-2 py-1 pr-4 pl-3 text-foreground has-[>button:hover]:bg-hover ${CAPSULE}`}>
         {person ? (
           <DirectAvatar person={person} here={here} edge="border-surface" className="size-7" />
         ) : direct ? (
           <ChatBubbleEmpty className="size-5 shrink-0" />
+        ) : room.kind === "closed" && room.icon === null ? (
+          // A private room without an icon of its own has a lock where an open one has `#`, as in the sidebar.
+          <Lock aria-hidden="true" className="size-5 shrink-0 text-muted-foreground" />
         ) : (
           <RoomIcon icon={room.icon} size={20} className="shrink-0 text-[20px] text-muted-foreground" />
         )}

@@ -74,6 +74,12 @@ describe("A room's top bar on a phone", () => {
     expect(within(header()).queryByRole("checkbox")).not.toBeInTheDocument();
   });
 
+  it("goes Back up to Activity for a room Activity opened", () => {
+    history.replaceState(null, "", "/activity/rooms/backend/@m1");
+    renderHeader();
+    expect(within(header()).getByRole("link", { name: "Back" })).toHaveAttribute("href", "/activity");
+  });
+
   it("says the tab shown in place of how many there are", async () => {
     const tab: RoomTab = { id: "t1", kind: "canvas", title: "Roadmap" } as RoomTab;
     const { unmount } = renderHeader({}, tabsOf([tab]));
