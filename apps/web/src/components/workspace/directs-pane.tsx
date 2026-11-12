@@ -127,7 +127,7 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
             onChange={(event) => setTyped(event.target.value)}
             placeholder="Find a DM…"
             aria-label="Find a DM"
-            className="h-8 w-full rounded-lg border bg-background pr-8 pl-8 text-[14px] outline-none placeholder:text-muted-foreground focus-visible:border-ring touch:h-11 max-md:text-base [&::-webkit-search-cancel-button]:appearance-none"
+            className="h-8 w-full rounded-lg border bg-background pr-8 pl-8 text-[14px] outline-none placeholder:text-muted-foreground focus-visible:border-ring touch:h-11 touch:text-base max-md:text-base [&::-webkit-search-cancel-button]:appearance-none"
           />
           {typed !== "" && (
             <button
@@ -228,7 +228,8 @@ export function DirectsHome({ list, counts, onNewDirect }: DirectsHomeProps) {
             <ChatPlusIn className="size-5" />
           </a>
         </PageHeader>
-        <MainContent className="flex min-h-0 min-w-0 flex-col bg-surface pl-[env(safe-area-inset-left)]">
+        {/* Clear of a phone's notch and rounded corners on either side, held sideways. */}
+        <MainContent className="flex min-h-0 min-w-0 flex-col bg-surface pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
           <DirectsTitleContext value={false}>{list}</DirectsTitleContext>
         </MainContent>
       </>
