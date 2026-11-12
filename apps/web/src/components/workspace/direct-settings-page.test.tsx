@@ -1,10 +1,11 @@
 import type { DirectoryUser, DirectRoom, User } from "@ember/protocol";
 import { act, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import type { RoomAnswer } from "@/lib/room-list";
+import { answerConfirm } from "@/test-confirm";
 import { CONFIRM_DELETE_DIRECT, DirectSettingsPage } from "./direct-settings-page";
 
 const ada = { id: "u1", name: "Ada Lovelace" };
@@ -62,7 +63,11 @@ describe("Group DMs and DM names", () => {
 
 describe("Delete a direct message", () => {
   const deleteButton = () => screen.getByRole("button", { name: "Delete DM" });
-  const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
+  /** Presses Delete DM and answers what it asks with Delete, or else Cancel. */
+  const pressDelete = async (user: UserEvent, confirm = true) => {
+    await user.click(deleteButton());
+    await answerConfirm(user, CONFIRM_DELETE_DIRECT, confirm ? "Delete" : "Cancel");
+  };
   const deleted = () => new Response(null, { status: 204 });
 
   /** Holds the deletion until the returned function answers it. */
@@ -80,11 +85,11 @@ describe("Delete a direct message", () => {
   });
 
   it("deletes the DM once you confirm, taking it out of the sidebar and going home", async () => {
-    const confirm = confirmed(true);
+    const confirm = vi.spyOn(window, "confirm");
     const answer = holdDelete();
     const { onLeft, onMissing, user } = showPage(withGraceAndLinus);
-    await user.click(deleteButton());
-    expect(confirm).toHaveBeenCalledExactlyOnceWith(CONFIRM_DELETE_DIRECT);
+    await pressDelete(user);
+    expect(confirm).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls).toEqual([["/api/rooms/d1", expect.objectContaining({ method: "DELETE" })]]);
     // It can't be pressed again until it answers.
     expect(deleteButton()).toBeDisabled();
@@ -96,20 +101,18 @@ describe("Delete a direct message", () => {
   });
 
   it("deletes nothing unless you confirm", async () => {
-    confirmed(false);
     vi.spyOn(globalThis, "fetch");
     const { onLeft, user } = showPage(withGraceAndLinus);
-    await user.click(deleteButton());
+    await pressDelete(user, false);
     expect(fetch).not.toHaveBeenCalled();
     expect(onLeft).not.toHaveBeenCalled();
     expect(deleteButton()).toBeEnabled();
   });
 
   it("goes home with the alert when the DM's already gone", async () => {
-    confirmed(true);
     const answer = holdDelete();
     const { onLeft, onMissing, onFailed, user } = showPage(withGraceAndLinus);
-    await user.click(deleteButton());
+    await pressDelete(user);
     await answer(Response.json({ error: "Room not found or inaccessible" }, { status: 404 }));
     expect(onMissing).toHaveBeenCalledOnce();
     expect(onFailed).not.toHaveBeenCalled();
@@ -117,10 +120,9 @@ describe("Delete a direct message", () => {
   });
 
   it("says why the DM wasn't deleted, and lets you try again", async () => {
-    confirmed(true);
     const answer = holdDelete();
     const { onFailed, onLeft, user } = showPage(withGraceAndLinus);
-    await user.click(deleteButton());
+    await pressDelete(user);
     await answer(Response.json({ error: "Service unavailable" }, { status: 503 }));
     expect(onFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 503 }));
     expect(onLeft).not.toHaveBeenCalled();
@@ -129,10 +131,9 @@ describe("Delete a direct message", () => {
   });
 
   it("takes the DM out of the sidebar when the answer comes after the page was left, staying where you are", async () => {
-    confirmed(true);
     const answer = holdDelete();
     const { onLeft, user, unmount } = showPage(withGraceAndLinus);
-    await user.click(deleteButton());
+    await pressDelete(user);
     unmount();
     history.replaceState(null, "", "/rooms/random");
     await answer(deleted());
@@ -141,10 +142,9 @@ describe("Delete a direct message", () => {
   });
 
   it("reports only a session that's ended when a failure answers after the page was left", async () => {
-    confirmed(true);
     const first = holdDelete();
     const left = showPage(withGraceAndLinus);
-    await left.user.click(deleteButton());
+    await pressDelete(left.user);
     left.unmount();
     await first(Response.json({ error: "Room not found or inaccessible" }, { status: 404 }));
     expect(left.onMissing).not.toHaveBeenCalled();
@@ -152,7 +152,7 @@ describe("Delete a direct message", () => {
 
     const second = holdDelete();
     const signedOut = showPage(withGraceAndLinus);
-    await signedOut.user.click(deleteButton());
+    await pressDelete(signedOut.user);
     signedOut.unmount();
     await second(Response.json({ error: "Sign in to continue" }, { status: 401 }));
     expect(signedOut.onFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 401 }));

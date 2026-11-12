@@ -7,6 +7,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { navigate } from "@/hooks/use-route";
 import { keepAnswer } from "@/lib/search";
+import { answerConfirm } from "@/test-confirm";
 import { CONFIRM_CLEAR_SEARCHES, OpenSearchContext } from "./search-box";
 import { SearchPage } from "./search-page";
 
@@ -434,14 +435,15 @@ describe("Recent searches", () => {
       recent = [];
       return new Response(null, { status: 204 });
     });
-    const sure = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { user } = showPage("/searches");
     await screen.findByRole("heading", { name: "Find a conversation" });
     await user.click(within(recents()!).getByRole("button", { name: "Clear recent searches" }));
-    expect(sure).toHaveBeenCalledExactlyOnceWith(CONFIRM_CLEAR_SEARCHES);
+    await answerConfirm(user, CONFIRM_CLEAR_SEARCHES, "Cancel");
     expect(requests()).toEqual([["GET", "/api/searches?q="]]);
 
     await user.click(within(recents()!).getByRole("button", { name: "Clear recent searches" }));
+    await answerConfirm(user, CONFIRM_CLEAR_SEARCHES, "Clear");
     await waitFor(() => expect(recents()).toBeNull());
     expect(here()).toBe("/searches");
     expect(screen.getByRole("heading", { name: "Find a conversation" })).toBeVisible();
@@ -450,5 +452,6 @@ describe("Recent searches", () => {
       ["DELETE", "/api/searches"],
       ["GET", "/api/searches?q="],
     ]);
+    expect(confirm).not.toHaveBeenCalled();
   });
 });

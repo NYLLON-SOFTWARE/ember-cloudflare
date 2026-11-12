@@ -1,7 +1,7 @@
 import type { AccountSettings } from "@ember/protocol";
 import type { APIRequestContext, Browser, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
-import { administratorSession, cookieHeader, SAME_ORIGIN, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { administratorSession, answerConfirm, cookieHeader, SAME_ORIGIN, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 
 // Membership's ways to join. The specs that follow join through the join link, so each spec here puts
 // the ways back as they start: the join link on, and Open off.
@@ -34,8 +34,8 @@ test.describe("Sign up without a link", () => {
     await openMembership(page);
     const open = page.getByRole("switch", { name: "Open" });
     await expect(open).not.toBeChecked();
-    page.once("dialog", (dialog) => void dialog.accept());
     await open.click();
+    await answerConfirm(page, "Are you sure you want to let anyone create an account?", "Turn on");
     await expect(open).toBeChecked();
     await expect(page.getByRole("textbox", { name: "Share so anyone can sign up" })).toHaveValue(`${baseURL}/join`);
     await expect(page.getByRole("switch", { name: "Join link" })).toBeDisabled();

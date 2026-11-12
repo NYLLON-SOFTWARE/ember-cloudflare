@@ -1,7 +1,7 @@
 import type { AgentAnswer, Agents, NewAgent } from "@ember/protocol/agents";
 import { CARDS_PROMPT } from "@ember/protocol/prompts";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { administratorSession, cookieHeader, editorField, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
+import { administratorSession, answerConfirm, cookieHeader, editorField, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
 import { ANTHROPIC_PATH, CARD_HEADER, CARD_LINK, CARD_QUESTION, CARDED, CHAT_COMPLETIONS_PATH, HELLO, startFakeGateway, type FakeGateway } from "./fake-gateway";
 
@@ -155,8 +155,8 @@ test.describe("Agents", () => {
     await expect(page.getByRole("switch", { name: "Search the web" })).toBeChecked();
     await expect(page.getByRole("checkbox", { name: "general" })).toBeChecked();
 
-    page.once("dialog", (dialog) => void dialog.accept());
     await page.getByRole("button", { name: "Delete Scout" }).click();
+    await answerConfirm(page, "Are you sure you want to delete this agent?", "Delete");
     await expect(namesIn(card)).toHaveText(["Ember"]);
     // Its page is gone.
     const gone = await page.goto(`/account/agents/${scout.id}/edit`);

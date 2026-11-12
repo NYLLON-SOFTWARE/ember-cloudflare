@@ -1,7 +1,7 @@
 import { EMAIL_FROM_REFUSED } from "@ember/protocol";
 import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
-import { ADMINISTRATOR, administratorSession, cookieHeader, SAME_ORIGIN, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { ADMINISTRATOR, administratorSession, answerConfirm, cookieHeader, SAME_ORIGIN, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { RESEND_KEY } from "../../projects/workspace-settings";
 import { forgetResendKey, giveResendKey, startFakeResend, type FakeResend } from "./fake-resend";
 
@@ -78,8 +78,8 @@ test.describe("Sending email", () => {
     await expect(kept).toContainText('Ember sends email from "Acme, Inc." <chat@acme.example> with Resend.');
 
     // Stop sending email takes the From address away, once it's confirmed.
-    page.once("dialog", (dialog) => void dialog.accept());
     await kept.getByRole("button", { name: "Stop sending email" }).click();
+    await answerConfirm(page, "Are you sure you want Ember to stop sending email?", "Stop sending");
     await expect(kept).toContainText("Ember can't send email yet");
     await page.reload();
     await expect(page.getByRole("region", { name: "Email", exact: true })).toContainText("Ember can't send email yet");

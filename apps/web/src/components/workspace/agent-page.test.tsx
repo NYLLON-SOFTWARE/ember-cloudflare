@@ -23,6 +23,7 @@ import { AccountContext, useAccount } from "@/hooks/use-account";
 import { agentSettingsPath, leave, navigate, NEW_AGENT_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { dateLabel } from "@/lib/messages";
+import { answerConfirm } from "@/test-confirm";
 import { AGENTS_PATH } from "./agent-list";
 import { AGENT_CHANGES, AGENT_EXPLAINED, AgentSettingsPage, cannotSearch, CONFIRM_DELETE_AGENT, INSTRUCTIONS_EXPLAINED, NewAgentPage, tryExplained } from "./agent-page";
 import { toolsExplained } from "./agent-tools";
@@ -960,25 +961,27 @@ describe("An agent's settings", () => {
 
 describe("Delete an agent", () => {
   it("deletes the agent once it's confirmed, then goes back to the AI assistant tab", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { user } = showSettings();
     await loaded();
     const remove = screen.getByRole("button", { name: "Delete Recap" });
     await user.click(remove);
-    expect(confirm).toHaveBeenLastCalledWith(CONFIRM_DELETE_AGENT);
+    await answerConfirm(user, CONFIRM_DELETE_AGENT, "Cancel");
     expect(sent()).toEqual([]);
     await user.click(remove);
+    await answerConfirm(user, CONFIRM_DELETE_AGENT, "Delete");
     await wentBack();
     expect(sent()).toEqual([[`DELETE /api/account/agents/${RECAP.id}`, undefined]]);
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("can't save or delete the agent while a deletion is on its way, and leaves why one failed to the workspace's alerts", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     let fail = () => {};
     serve({ deleted: () => new Promise((resolve) => (fail = () => resolve(refused(500, "Something went wrong")))) });
     const { onFailed, user } = showSettings();
     await loaded();
     await user.click(screen.getByRole("button", { name: "Delete Recap" }));
+    await answerConfirm(user, CONFIRM_DELETE_AGENT, "Delete");
     for (const name of ["Save changes", "Delete Recap"]) expect(screen.getByRole("button", { name })).toBeDisabled();
 
     act(() => fail());

@@ -13,6 +13,7 @@ import { PageLink } from "@/components/page-link";
 import { Switch } from "@/components/ui/switch";
 import { useAccount } from "@/hooks/use-account";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "./confirm-dialog";
 import { EmailDomainSettings } from "./email-domain-settings";
 import { sendsEmail } from "./email-settings";
 import { InviteLink, ShareableLink } from "./invite-link";
@@ -71,6 +72,7 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
   if (account.emailDomainSignUp && account.emailDomains !== keptDomains) setKeptDomains(account.emailDomains);
   // Where each switch was moved to, while that's saved.
   const [moved, setMoved] = useState<Pick<AccountSettings, WaySetting>>({});
+  const [confirmFirst, confirmation] = useConfirm();
   const open = moved.openSignUp ?? account.openSignUp;
   const link = moved.joinLink ?? account.joinLink;
   const emailDomain = moved.emailDomainSignUp ?? account.emailDomainSignUp;
@@ -82,10 +84,10 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
   const openOverrides = open || account.openSignUp;
   const membersOnlyOverrides = membersOnly || account.memberfulSignIn;
 
-  const switchTo = (setting: WaySetting) => (on: boolean) => {
+  const switchTo = (setting: WaySetting) => async (on: boolean) => {
     if (moved[setting] !== undefined) return;
     const question = on ? ASKS_FIRST[setting] : undefined;
-    if (question && !confirm(question)) return;
+    if (question && !(await confirmFirst(question, { confirm: "Turn on" }))) return;
     setMoved((moved) => ({ ...moved, [setting]: on }));
     saveSwitch({ [setting]: on }, () => setMoved(({ [setting]: _, ...others }) => others));
   };
@@ -158,6 +160,7 @@ export function WaysToJoin({ settings, saveSwitch, saveEmailDomains, onSetUpEmai
         membersOnlySaving={moved.memberfulSignIn !== undefined}
         setAside={openOverrides && !membersOnly ? OPEN_OVERRIDES : null}
       />
+      {confirmation}
     </section>
   );
 }

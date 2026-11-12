@@ -3,6 +3,7 @@ import type { WorkspaceSettings } from "@ember/protocol";
 import { Switch } from "@/components/ui/switch";
 import { useMounted } from "@/hooks/use-mounted";
 import { forgetTurnstileKeys, isSignedOut } from "@/lib/api";
+import { useConfirm } from "./confirm-dialog";
 import { BUTTON } from "./email-settings";
 
 // The Turnstile card in Membership, for administrators: whether Cloudflare Turnstile checks that whoever
@@ -37,11 +38,12 @@ interface Props {
 export function TurnstileSettings({ turnstile, onSetUp, onStopped, onFailed }: Props) {
   const [stopping, setStopping] = useState(false);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
   // The deployment's secrets keep it on, whatever the switch is moved to.
   const secret = turnstile === "secret";
 
-  const stop = () => {
-    if (!confirm(CONFIRM_STOP_TURNSTILE)) return;
+  const stop = async () => {
+    if (!(await confirmFirst(CONFIRM_STOP_TURNSTILE, { confirm: "Turn off", destructive: true }))) return;
     setStopping(true);
     forgetTurnstileKeys().then(
       (turnstile) => {
@@ -86,6 +88,7 @@ export function TurnstileSettings({ turnstile, onSetUp, onStopped, onFailed }: P
           </button>
         </div>
       )}
+      {confirmation}
     </section>
   );
 }

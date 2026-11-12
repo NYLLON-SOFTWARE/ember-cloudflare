@@ -3,6 +3,7 @@ import type { WorkspaceSettings } from "@ember/protocol";
 import { Switch } from "@/components/ui/switch";
 import { useMounted } from "@/hooks/use-mounted";
 import { forgetHuddles, isSignedOut } from "@/lib/api";
+import { useConfirm } from "./confirm-dialog";
 import { HUDDLE_CHAT_TITLE } from "@/lib/huddle-chat";
 import { BUTTON } from "./email-settings";
 
@@ -37,9 +38,10 @@ interface Props {
 export function HuddlesSettings({ huddles, onSetUp, onStopped, onFailed }: Props) {
   const [stopping, setStopping] = useState(false);
   const mounted = useMounted();
+  const [confirmFirst, confirmation] = useConfirm();
 
-  const stop = () => {
-    if (!confirm(CONFIRM_STOP_HUDDLES)) return;
+  const stop = async () => {
+    if (!(await confirmFirst(CONFIRM_STOP_HUDDLES, { confirm: "Turn off", destructive: true }))) return;
     setStopping(true);
     forgetHuddles().then(
       () => {
@@ -86,6 +88,7 @@ export function HuddlesSettings({ huddles, onSetUp, onStopped, onFailed }: Props
           </button>
         </div>
       )}
+      {confirmation}
     </section>
   );
 }

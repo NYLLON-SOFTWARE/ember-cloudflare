@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import type { Message } from "@ember/protocol";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useNameOf } from "@/hooks/use-directory";
@@ -9,8 +9,8 @@ import { UserAvatar } from "./user-avatar";
 
 interface Props {
   title: string;
-  /** What it's about, as the dialog shows it under its title. */
-  children: ReactNode;
+  /** What it's about, as the dialog shows it under its title, unless the title says it all. */
+  children?: ReactNode;
   /** What the button that goes ahead says, red where it can't be undone. */
   confirm: string;
   destructive?: boolean;
@@ -41,9 +41,11 @@ export function ConfirmDialog({ title, children, confirm, destructive = false, o
         }}
       >
         <DialogTitle className={DIALOG_TITLE}>{title}</DialogTitle>
-        <DialogDescription asChild>
-          <div>{children}</div>
-        </DialogDescription>
+        {children !== undefined && (
+          <DialogDescription asChild>
+            <div>{children}</div>
+          </DialogDescription>
+        )}
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <button type="button" onClick={onCancel} className={OTHER_ACTION}>
             Cancel
@@ -55,6 +57,61 @@ export function ConfirmDialog({ title, children, confirm, destructive = false, o
       </DialogContent>
     </Dialog>
   );
+}
+
+interface Question {
+  /** What the button that goes ahead says, OK unless it's given. */
+  confirm?: string;
+  /** Red, for what can't be undone. */
+  destructive?: boolean;
+}
+
+interface Asking extends Required<Question> {
+  question: string;
+  answer: (yes: boolean) => void;
+  closed: () => void;
+}
+
+/**
+ * `confirm()` as the app's own dialog: `ask` shows `question` as its title and says whether the button that
+ * goes ahead was pressed, or Cancel, Escape or the backdrop, once the dialog has gone. Focus is back where
+ * it was when it asked, if that's still there, before the answer comes, so what the asker does next with
+ * focus wins. The asker renders `dialog`.
+ */
+export function useConfirm(): [ask: (question: string, options?: Question) => Promise<boolean>, dialog: ReactNode] {
+  const [asking, setAsking] = useState<Asking | null>(null);
+  const ask = useCallback(
+    (question: string, { confirm = "OK", destructive = false }: Question = {}) =>
+      new Promise<boolean>((resolve) => {
+        const opener = document.activeElement;
+        let yes = false;
+        setAsking({
+          question,
+          confirm,
+          destructive,
+          answer: (answer) => {
+            yes = answer;
+            setAsking(null);
+          },
+          closed: () => {
+            if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+            resolve(yes);
+          },
+        });
+      }),
+    [],
+  );
+  const dialog = asking && (
+    <ConfirmDialog
+      title={asking.question}
+      confirm={asking.confirm}
+      destructive={asking.destructive}
+      onConfirm={() => asking.answer(true)}
+      onCancel={() => asking.answer(false)}
+      onClosed={asking.closed}
+    />
+  );
+  return [ask, dialog];
 }
 
 /** Delete message's dialog, as Slack's: the message as it'll go, its author, time and first three lines. */

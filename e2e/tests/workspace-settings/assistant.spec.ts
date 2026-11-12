@@ -1,6 +1,6 @@
 import { DEFAULT_LEVELS, TOP_LEVELS } from "@ember/protocol/assistant";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { administratorSession, cookieHeader, drawnPicture, editorField, expect, SAME_ORIGIN, shownPicture, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
+import { administratorSession, answerConfirm, cookieHeader, drawnPicture, editorField, expect, SAME_ORIGIN, shownPicture, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
 import { ANTHROPIC_PATH, FOUND, GEMMA, HELLO, NEWER, RECALL_QUESTION, RECALLED, SOURCE, startFakeGateway, type FakeGateway } from "./fake-gateway";
 
@@ -401,8 +401,8 @@ test.describe("Ember AI", () => {
     const card = await openAssistant(page);
     const assistantSwitch = card.getByRole("switch", { name: "Ember AI" });
     await expect(assistantSwitch).toBeChecked();
-    page.once("dialog", (dialog) => void dialog.accept());
     await assistantSwitch.click();
+    await answerConfirm(page, "Are you sure you want to turn off Ember AI?", "Turn off");
     await expect(assistantSwitch).not.toBeChecked();
     await expect(card).toContainText("Ember AI adds AI agents");
     await expect(page.getByRole("region", { name: "Agents", exact: true })).toBeHidden();

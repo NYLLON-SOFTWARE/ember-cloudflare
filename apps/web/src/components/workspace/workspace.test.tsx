@@ -13,7 +13,9 @@ import { joinHuddle } from "@/lib/huddle";
 import { endHuddle, joinedHuddle, showHuddle, type HuddleControls } from "@/lib/huddle-store";
 import { loadPage } from "@/lib/page";
 import { badgeTheApp } from "@/test-badge";
+import { answerConfirm } from "@/test-confirm";
 import { PUSH_ON } from "@/test-push";
+import { CONFIRM_DELETE_DIRECT } from "./direct-settings-page";
 import { Workspace, loadPageAhead } from "./workspace";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
@@ -722,7 +724,7 @@ describe("Home sidebar pages", () => {
 
 describe("Delete a direct message", () => {
   it("deletes a DM from the settings its header opens, going home without an alert", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirm = vi.spyOn(window, "confirm");
     serve({
       "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])),
       "DELETE /api/rooms/d1": () => new Response(null, { status: 204 }),
@@ -733,17 +735,18 @@ describe("Delete a direct message", () => {
     expect(location.pathname).toBe("/rooms/directs/d1/edit");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Edit settings for Grace");
     await user.click(screen.getByRole("button", { name: "Delete DM" }));
+    await answerConfirm(user, CONFIRM_DELETE_DIRECT, "Delete");
 
     expect(await roomHeading()).toHaveTextContent("general");
     expect(location.pathname).toBe("/rooms/general");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     act(() => navigate("/dms"));
     expect(within(screen.getByRole("region", { name: "Direct messages" })).queryAllByRole("link", { name: /^Direct message with / })).toEqual([]);
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("goes home without an alert when the workspace socket tells of the deletion before it answers", async () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     let answer = (_: Response) => {};
     serve({
       "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])),
@@ -751,6 +754,7 @@ describe("Delete a direct message", () => {
     });
     const { user } = showWorkspace("/rooms/directs/d1/edit");
     await user.click(await screen.findByRole("button", { name: "Delete DM" }));
+    await answerConfirm(user, CONFIRM_DELETE_DIRECT, "Delete");
     await workspaceSends({ type: "room.gone", roomId: "d1" });
     // The page stays as it was until its deletion answers.
     expect(screen.getByRole("button", { name: "Delete DM" })).toBeDisabled();
@@ -764,7 +768,6 @@ describe("Delete a direct message", () => {
 
   it("keeps the settings of a DM someone else deletes on screen, going home with the alert once Delete finds it gone", async () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     serve({
       "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])),
       "DELETE /api/rooms/d1": () => Response.json({ error: "Room not found or inaccessible" }, { status: 404 }),
@@ -777,6 +780,7 @@ describe("Delete a direct message", () => {
     expect(location.pathname).toBe("/rooms/directs/d1/edit");
 
     await user.click(screen.getByRole("button", { name: "Delete DM" }));
+    await answerConfirm(user, CONFIRM_DELETE_DIRECT, "Delete");
     expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
     expect(await roomHeading()).toHaveTextContent("general");
   });
