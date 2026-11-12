@@ -261,6 +261,28 @@ function linkAround(node: LexicalNode | null): (ElementNode & { getURL(): string
   return null;
 }
 
+/**
+ * Turns off what was on at the cursor as the text is emptied, by deleting all of it, say, as sending it
+ * does (`clear`), so what's written next starts plain, rather than in the code or bold that was deleted.
+ * Only as it empties: a format turned on in an empty box stays for what's typed.
+ */
+function forgetFormatsAsEmptied(lexxy: LexxyEditor): () => void {
+  let wasEmpty = true;
+  return lexxy.editor.registerUpdateListener(({ editorState }) => {
+    let empty = false;
+    editorState.read(() => (empty = Lexical.$getRoot().getTextContent() === ""));
+    const emptied = empty && !wasEmpty;
+    wasEmpty = empty;
+    if (!emptied) return;
+    lexxy.editor.update(() => {
+      const selection = Lexical.$getSelection();
+      if (!Lexical.$isRangeSelection(selection)) return;
+      selection.setFormat(0);
+      selection.setStyle("");
+    });
+  });
+}
+
 /** Whether two readings of the text at the cursor differ, so the toolbar redraws only when they do. */
 const sameFormats = (a: Formats, b: Formats) => (Object.keys(a) as (keyof Formats)[]).every((key) => a[key] === b[key]);
 
@@ -504,7 +526,9 @@ export default function RichTextEditor({
     const lexxy = editor.current;
     if (!lexxy) return;
     lexxy.editor.update(() => update(lexxy));
-    lexxy.editor.focus();
+    // Only where the text lost focus: focusing it again can set the selection afresh, which loses a format
+    // turned on at the cursor for what's typed next, as Code with nothing selected is.
+    if (!lexxy.editorContentElement?.contains(document.activeElement)) lexxy.editor.focus();
   };
 
   const changed = useEffectEvent(() => onChange?.());
@@ -533,11 +557,13 @@ export default function RichTextEditor({
     let formats = NO_FORMATS;
     let stopReading: (() => void) | undefined;
     let stopFencing: (() => void) | undefined;
+    let stopForgetting: (() => void) | undefined;
     lexxy.addEventListener(
       "lexxy:initialize",
       () => {
         ready(lexxy);
         stopFencing = startCodeBlocks(lexxy);
+        stopForgetting = forgetFormatsAsEmptied(lexxy);
         stopReading = lexxy.editor.registerUpdateListener(({ editorState }) =>
           editorState.read(() => {
             const now = formatsAt(lexxy);
@@ -564,6 +590,7 @@ export default function RichTextEditor({
     return () => {
       stopReading?.();
       stopFencing?.();
+      stopForgetting?.();
       prompting?.disconnect();
       lexxy.remove();
       editor.current = null;

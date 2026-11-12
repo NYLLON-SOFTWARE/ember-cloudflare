@@ -73,6 +73,7 @@ declare module "@37signals/lexxy" {
   export const Lexical: {
     ElementNode: typeof ElementNode;
     $getSelection(): unknown;
+    $getRoot(): ElementNode;
     $isRangeSelection(selection: unknown): selection is RangeSelection;
     $copyNode<Node extends LexicalNode>(node: Node): Node;
     $createParagraphNode(): ParagraphNode;

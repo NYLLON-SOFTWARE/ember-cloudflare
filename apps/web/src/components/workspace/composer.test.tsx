@@ -999,7 +999,7 @@ describe("Attach", () => {
 
     filesInEmber(file, { widens: true, newViewers: 5, names: ["Grace", "Linus", "Mary"] }, { kind: "closed" });
     await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Attach" }));
-    expect(await screen.findByRole("alertdialog")).toHaveTextContent("5 people in #general aren't in private design and will be able to open this file.");
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent("5 people in #general aren’t in private design and will be able to open this file.");
     await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Attach" }));
     expect(await screen.findByRole("button", { name: "Remove plan.pdf" })).toBeInTheDocument();
     expect(fetch).toHaveBeenCalled();

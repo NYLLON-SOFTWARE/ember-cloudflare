@@ -111,7 +111,8 @@ export function linkAddress(typed: string): string | null {
   const address = typed.trim();
   // A web address has no spaces, and a host with a dot in it, or is this computer's.
   if (address === "" || /\s/.test(address)) return null;
-  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(address) ? address : `https://${address}`;
+  // A colon before digits is a port, as in localhost:3000, rather than a scheme's.
+  const withScheme = /^[a-z][a-z0-9+.-]*:(?!\d)/i.test(address) ? address : `https://${address}`;
   try {
     const url = new URL(withScheme);
     if (!["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) return null;

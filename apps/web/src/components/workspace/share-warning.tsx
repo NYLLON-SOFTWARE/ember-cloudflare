@@ -50,7 +50,7 @@ export type ShareSubject = "file" | "message";
 
 /**
  * What sharing does, as the warning says it: who'll be able to open the file, or see the message, by name for
- * up to three of them, or else how many, who aren't where it's from.
+ * up to three of them, or else how many, who aren’t where it's from.
  */
 export function shareWarningLine({ newViewers, names }: ShareWidening, source: SharePlace, target: SharePlace, subject: ShareSubject = "file"): ReactNode {
   const action = subject === "file" ? "open this file" : "see this message";
@@ -65,7 +65,7 @@ export function shareWarningLine({ newViewers, names }: ShareWidening, source: S
   const from = source.direct ? `your DM with ${source.label}` : placeName(source);
   return (
     <>
-      {newViewers} people in {where} aren't in {from} and will be able to {action}.
+      {newViewers} people in {where} aren’t in {from} and will be able to {action}.
     </>
   );
 }
