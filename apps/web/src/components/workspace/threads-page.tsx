@@ -102,7 +102,7 @@ export function ThreadsPage({ me, rooms, onFailed }: Props) {
             </div>
           ) : (
             <>
-              <ol className="flex flex-col gap-4">
+              <ol className="flex flex-col gap-4 max-md:-mx-3 max-md:gap-0">
                 {loaded.threads.map((thread) => (
                   <li key={thread.parent.id}>
                     <ThreadCard thread={thread} me={me} names={names} />
@@ -169,24 +169,34 @@ function ThreadCard({ thread, me, names }: { thread: ListedThread; me: Me; names
     setWritten((written) => [...written, message]);
   };
   return (
-    <article aria-label={`Thread in ${room ? names.roomName(room) : "a room"}`} className="overflow-hidden rounded-xl border bg-background">
-      <header className="flex min-h-10 items-center gap-2 border-b bg-surface px-4 py-2 text-[14px] max-md:px-3">
+    // On phones a card runs edge to edge, a rule under it, as Slack's app lists threads.
+    <article
+      aria-label={`Thread in ${room ? names.roomName(room) : "a room"}`}
+      className="group/card overflow-hidden rounded-xl border bg-background max-md:rounded-none max-md:border-x-0 max-md:border-t-0"
+    >
+      <header className="flex min-h-10 items-center gap-2 border-b bg-surface px-4 py-2 text-[14px] max-md:min-h-11 max-md:border-b-0 max-md:bg-background max-md:py-0">
         <RoomMark room={room} size={16} />
-        <h2 className="min-w-0 truncate font-semibold">{room ? names.roomName(room) : "A room you’ve left"}</h2>
-        {mark && <span className="shrink-0 rounded-md bg-hover px-1.5 py-px text-xs font-medium text-muted-foreground">{mark}</span>}
+        {/* The room's name opens the thread, 44px tall on phones, where it's the card's one way there. */}
+        <h2 className="min-w-0 truncate font-semibold">
+          <PageLink href={threadPath(thread.roomId, thread.parent.id)} className="inline-flex items-center text-foreground no-underline hover:underline max-md:min-h-11">
+            {room ? names.roomName(room) : "A room you’ve left"}
+          </PageLink>
+        </h2>
+        {mark && <span className="shrink-0 rounded-md bg-hover px-1.5 py-px text-xs font-medium text-foreground">{mark}</span>}
+        {/* Shown on hover and focus beside the page, where a pointer finds it. */}
         <PageLink
           href={threadPath(thread.roomId, thread.parent.id)}
-          // 44px square on phones, where it's its arrow alone, and for fingers anywhere.
-          className="ml-auto inline-flex shrink-0 items-center justify-center gap-0.5 rounded-md px-1.5 py-0.5 text-[13px] font-medium text-muted-foreground hover:bg-hover hover:text-foreground touch:min-h-11 touch:min-w-11 max-md:-my-2 max-md:min-h-11 max-md:min-w-11"
+          className="ml-auto inline-flex shrink-0 items-center justify-center gap-0.5 rounded-md px-1.5 py-0.5 text-[13px] font-medium text-muted-foreground opacity-0 group-hover/card:opacity-100 hover:bg-hover hover:text-foreground focus-visible:opacity-100 touch:hidden max-md:hidden"
         >
-          <span className="max-md:sr-only">Open thread</span>
+          <span>Open thread</span>
           <NavArrowRight className="size-4" />
         </PageLink>
       </header>
       <div className="flex flex-col pt-1 pb-1">
         {items.map(({ message, threaded }, index) => (
           <div key={message.id}>
-            <MessageItem message={message} me={me} threaded={threaded} editing={false} actions={null} editors={NO_EDITORS} thread={place} />
+            {/* The first reply after the ones left out starts its author's group, as what came between isn't shown. */}
+            <MessageItem message={message} me={me} threaded={threaded && !(index === 1 && left > 0)} editing={false} actions={null} editors={NO_EDITORS} thread={place} />
             {index === 0 && left > 0 && (
               <PageLink href={threadPath(thread.roomId, thread.parent.id)} className="ml-[68px] inline-block py-1 text-[13px] font-semibold text-link hover:underline max-md:ml-[58px]">
                 {moreRepliesLabel(left)}

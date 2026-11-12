@@ -71,8 +71,12 @@ describe("Drafts & sent", () => {
     showPage("sent");
     expect(await screen.findByText("the latest")).toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls[0]![0]).toContain("from=u1");
-    const opens = screen.getAllByRole("link", { name: "Open" });
+    // Each a row, as the DMs page's are, the whole of it opening the message where it is.
+    const opens = screen.getAllByRole("link", { name: /^(random|general)/ });
     expect(opens.map((link) => link.getAttribute("href"))).toEqual(["/rooms/random/@m2", "/rooms/general/threads/m0/@m1"]);
-    expect(screen.getByText("· Thread reply")).toBeInTheDocument();
+    expect(opens[0]).toHaveTextContent("random");
+    expect(opens[0]).toHaveTextContent("the latest");
+    expect(opens[0]!.querySelector("time")).toBeInTheDocument();
+    expect(within(opens[1]!).getByText("· Thread reply", { exact: false })).toBeInTheDocument();
   });
 });
