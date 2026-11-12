@@ -171,7 +171,7 @@ describe("Unread rooms", () => {
     expect(general).toHaveAccessibleName("general");
     expect(general).toHaveAccessibleDescription(`Unread ${HELP}`);
     expect(general!.lastElementChild).toHaveAttribute("aria-hidden", "true");
-    expect(general!.lastElementChild).toHaveClass("ml-auto", "size-[7px]", "rounded-full", "bg-foreground");
+    expect(general!.lastElementChild).toHaveClass("ml-auto", "size-[7px]", "rounded-full", "bg-muted-foreground");
 
     expect(random).not.toHaveClass("font-bold");
     expect(random).toHaveAccessibleDescription(HELP);

@@ -182,7 +182,8 @@ function ThreadCard({ thread, me, names }: { thread: ListedThread; me: Me; names
             {room ? names.roomName(room) : "A room you’ve left"}
           </PageLink>
         </h2>
-        {mark && <span className="shrink-0 rounded-md bg-hover px-1.5 py-px text-xs font-medium text-foreground">{mark}</span>}
+        {/* On phones a card is lean, as in Slack's app: its thread, opened from its room's name, has the rest. */}
+        {mark && <span className="shrink-0 rounded-md bg-hover px-1.5 py-px text-xs font-medium text-foreground max-md:hidden">{mark}</span>}
         {/* Shown on hover and focus beside the page, where a pointer finds it. */}
         <PageLink
           href={threadPath(thread.roomId, thread.parent.id)}
@@ -238,7 +239,7 @@ function ReplyBox({ onReply, label }: { onReply: (text: string) => void; label: 
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mb-2 ml-[68px] cursor-pointer rounded-md py-1 text-[13px] font-semibold text-muted-foreground hover:text-foreground touch:min-h-11 max-md:ml-[58px]"
+        className="mb-2 ml-[68px] cursor-pointer rounded-md py-1 text-[13px] font-semibold text-muted-foreground hover:text-foreground touch:min-h-11 max-md:hidden"
       >
         Reply
       </button>

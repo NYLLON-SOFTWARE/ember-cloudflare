@@ -12,6 +12,7 @@ vi.mock("@/lib/outbox", () => ({ handOver: vi.fn() }));
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const grace: User = { id: "u2", name: "Grace" };
 const general: Room = { id: "general", name: "general", kind: "open", icon: null };
+const secret: Room = { id: "secret", name: "secret", kind: "closed", icon: null };
 
 const message = (id: string, plainText: string, creator: User, minutes: number, parentId?: string): Message => ({
   id,
@@ -56,7 +57,7 @@ function showPage(answer: ListedThreads) {
   vi.mocked(handOver).mockClear();
   render(
     <Sheet>
-      <ThreadsPage me={ada} rooms={[general]} onFailed={vi.fn()} />
+      <ThreadsPage me={ada} rooms={[general, secret]} onFailed={vi.fn()} />
     </Sheet>,
   );
 }
@@ -95,6 +96,9 @@ describe("Threads page", () => {
     const [mentions, following, other] = await screen.findAllByRole("article", { name: "Thread in general" });
     expect(within(mentions!).getByText("Mentions you")).toBeInTheDocument();
     expect(within(following!).getByText("Following")).toBeInTheDocument();
+    // Not on phones, where a card is lean, and its thread has the rest, as does its Reply.
+    expect(within(following!).getByText("Following")).toHaveClass("max-md:hidden");
+    expect(within(following!).getByRole("button", { name: "Reply" })).toHaveClass("max-md:hidden");
     expect(within(other!).queryByText(/Mentions you|Following/)).toBeNull();
   });
 
@@ -146,6 +150,13 @@ describe("Threads page", () => {
     expect(within(card).getByRole("link", { name: "3 more replies" })).toBeInTheDocument();
     // Grace's name heads both her first message and her reply.
     expect(within(card).getAllByText("Grace", { selector: "h3 *, h3" }).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("marks a private room's thread with a lock, as the sidebar does, rather than `#`", async () => {
+    showPage({ threads: [{ ...thread, roomId: "secret" }], next: null });
+    const card = await screen.findByRole("article", { name: "Thread in secret" });
+    expect(card.querySelector("header .iconoir-lock")).toBeInTheDocument();
+    expect(within(card.querySelector("header")!).queryByText("#")).toBeNull();
   });
 
   it("says when there are no threads", async () => {
