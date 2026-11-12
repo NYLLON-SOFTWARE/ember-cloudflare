@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type MouseEvent } from "react";
 import type { Involvement } from "@ember/protocol";
 import { Bell } from "@/components/icons/iconoir";
+import { useFlashIfAny } from "@/components/flash";
 import { usePush } from "@/hooks/use-push";
 import { isSignedOut } from "@/lib/api";
 import { INVOLVEMENT_LABELS } from "@/lib/involvement";
 import type { PushNotice } from "@/lib/push";
 import { cn } from "@/lib/utils";
 import { InvolvementButton } from "./involvement-button";
-import { RarePage } from "./rare-pages";
+import { NOT_LOADED, RarePage } from "./rare-pages";
 
 /** A notice the dialog shows, numbered, so the same one again opens the help afresh. */
 export interface Shown {
@@ -42,6 +43,8 @@ export function NotificationBell({ className, onFailed, ...props }: ComponentPro
   // Whether this bell had focus as it turned notifications on.
   const [handingOver, setHandingOver] = useState(false);
   const { feedback, show } = useFeedback();
+  const flash = useFlashIfAny();
+  const setupFailed = useCallback(() => flash?.("alert", NOT_LOADED), [flash]);
 
   const saved = (involvement: Involvement, keyboard: boolean) => show(INVOLVEMENT_LABELS[involvement], keyboard);
   // An ended session still goes to sign in.
@@ -74,7 +77,8 @@ export function NotificationBell({ className, onFailed, ...props }: ComponentPro
             <span className="sr-only">Enable notifications</span>
           </button>
           {/* Loads with the pages, as few ever need it. */}
-          {shown && <RarePage show={({ NotificationSetup }) => <NotificationSetup shown={shown} />} loading={null} />}
+          {/* Each notice tries again, should the pages not have loaded for the last. */}
+          {shown && <RarePage key={shown.count} show={({ NotificationSetup }) => <NotificationSetup shown={shown} />} loading={null} onFailed={setupFailed} />}
         </>
       )}
       {/* The tooltip, for the eye only, as the status says the same. */}

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState } from "react";
 import type { Me } from "@ember/protocol";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
-import { preloadRarePages, RarePage } from "../workspace/rare-pages";
+import { preloadRarePages, RarePage, useOpenedRarePage } from "../workspace/rare-pages";
 import { UserAvatar } from "../workspace/user-avatar";
 
 /** The release of Ember out since this one, which the You sheet's Admin says is available, or null for none. */
@@ -15,8 +15,7 @@ export const NewReleaseContext = createContext<string | null>(null);
  */
 export function YouButton({ me }: { me: Me }) {
   const [open, setOpen] = useState(false);
-  const [opened, setOpened] = useState(false);
-  if (open && !opened) setOpened(true);
+  const [opened, failed] = useOpenedRarePage(open, () => setOpen(false));
   const newRelease = useContext(NewReleaseContext);
   const close = () => setOpen(false);
   return (
@@ -31,7 +30,7 @@ export function YouButton({ me }: { me: Me }) {
         {newRelease !== null && <span aria-hidden="true" className="absolute top-0.5 right-0.5 size-[11px] rounded-full border-2 border-background bg-foreground" />}
       </SheetTrigger>
       {/* The sheet loads with the pages the first time it opens, and stays to slide away. */}
-      {opened && <RarePage show={({ YouSheet }) => <YouSheet me={me} newRelease={newRelease} onClose={close} />} loading={null} />}
+      {opened && <RarePage show={({ YouSheet }) => <YouSheet me={me} newRelease={newRelease} onClose={close} />} loading={null} onFailed={failed} />}
     </Sheet>
   );
 }

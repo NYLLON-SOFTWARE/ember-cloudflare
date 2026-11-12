@@ -6,7 +6,7 @@ import { OVERLAPPING } from "@/components/workspace/message-actions-menu";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { useLongPress } from "./use-long-press";
-import { RarePage } from "@/components/workspace/rare-pages";
+import { RarePage, useOpenedRarePage } from "@/components/workspace/rare-pages";
 
 /**
  * Whether messages have sheets in place of Message options: in the phone layout, unless with a mouse,
@@ -60,7 +60,7 @@ export type Shown = "actions" | "reactions" | "delete" | null;
 export function MessageSheet({ row, ref, ...props }: Props) {
   const [shown, setShown] = useState<Shown>(null);
   // Once opened, the sheets stay in the page while they're shut, so they can slide away.
-  const [rendered, setRendered] = useState(false);
+  const [rendered, failed] = useOpenedRarePage(shown !== null, () => setShown(null));
   const options = useRef<HTMLButtonElement>(null);
   // What opened the sheets, which takes focus again as they close, unless what was chosen took it. A long
   // press leaves focus where it was.
@@ -70,7 +70,6 @@ export function MessageSheet({ row, ref, ...props }: Props) {
 
   const show = (sheet: Shown, from: HTMLElement | null) => {
     opener.current = from;
-    setRendered(true);
     setShown(sheet);
   };
 
@@ -100,6 +99,7 @@ export function MessageSheet({ row, ref, ...props }: Props) {
             <MessageSheets {...props} shown={shown} onShow={setShown} options={options} afterClosing={(then) => (next.current = then)} onCloseAutoFocus={closed} />
           )}
           loading={null}
+          onFailed={failed}
         />
       )}
     </>

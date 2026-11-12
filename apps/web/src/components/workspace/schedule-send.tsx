@@ -7,7 +7,7 @@ import type { Scheduled } from "@/hooks/use-scheduled";
 import { schedulePresets, sendTimeInSentence, shortSendTime, tomorrowMorning } from "@/lib/schedule-times";
 import { SCHEDULE_HALF } from "./composer-buttons";
 import { PopoverMenu } from "./popover-menu";
-import { RarePage } from "./rare-pages";
+import { RarePage, useOpenedRarePage } from "./rare-pages";
 import { ActionSheet } from "../mobile/action-sheet";
 
 /** Phones, which get the dialogs as sheets from the bottom of the screen, and the list as a phone's. */
@@ -161,8 +161,7 @@ export function ScheduledNotice({ messages, scheduled, disabled, onReturnFocus, 
   const phone = useMediaQuery(PHONE);
   const list = useRef<HTMLUListElement>(null);
   // The list loads with the pages the first time it opens, and stays to close as a dialog does.
-  const [listed, setListed] = useState(false);
-  if (open && !listed) setListed(true);
+  const [listed, listFailed] = useOpenedRarePage(open, () => setOpen(false));
   useEffect(() => {
     if (!deleted) return;
     const timer = setTimeout(() => setDeleted(null), UNDO_MS);
@@ -249,6 +248,7 @@ export function ScheduledNotice({ messages, scheduled, disabled, onReturnFocus, 
             />
           )}
           loading={null}
+          onFailed={listFailed}
         />
       )}
       {moving && (
