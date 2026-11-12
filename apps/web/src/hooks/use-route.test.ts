@@ -2,12 +2,14 @@ import { searchPath } from "@ember/protocol";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  goBack,
   guardLeaving,
   joinCodeFromPath,
   leave,
   messagePath,
   navigate,
   newRoomPath,
+  openOverlay,
   permalinkOf,
   roomIdFromPath,
   roomPath,
@@ -389,5 +391,50 @@ describe("Unsaved changes guard", () => {
     act(() => history.back());
     await waitFor(() => expect(result.current).toEqual({ page: "room", roomId: "general" }));
     stop();
+  });
+});
+
+describe("Back on a phone", () => {
+  it("goes back to the page the app opened this one from", async () => {
+    navigate("/rooms/general", { replace: true });
+    navigate("/rooms/general/@1/thread");
+    const { result } = renderHook(() => useRoute());
+    act(() => goBack("/rooms/random"));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
+    expect(result.current).toEqual({ page: "room", roomId: "general" });
+  });
+
+  it("goes to the page this one sits under when the app didn't open it", () => {
+    history.replaceState(null, "", "/rooms/general/@1/thread");
+    const { result } = renderHook(() => useRoute());
+    act(() => goBack("/rooms/general"));
+    expect(location.pathname).toBe("/rooms/general");
+    expect(result.current).toEqual({ page: "room", roomId: "general" });
+  });
+
+  it("closes an overlay on Back without going to another page or visiting this one again", async () => {
+    navigate("/rooms/general", { replace: true });
+    const { result } = renderHook(() => ({ route: useRoute(), visit: useVisit() }));
+    const visit = result.current.visit;
+    const close = vi.fn();
+    act(() => void openOverlay(close));
+    act(() => history.back());
+    await waitFor(() => expect(close).toHaveBeenCalledOnce());
+    expect(location.pathname).toBe("/rooms/general");
+    expect(result.current).toEqual({ route: { page: "room", roomId: "general" }, visit });
+  });
+
+  it("closes an overlay from the overlay itself by going back past its entry", async () => {
+    navigate("/rooms/general", { replace: true });
+    const close = vi.fn();
+    let closeOverlay = () => {};
+    act(() => void (closeOverlay = openOverlay(close)));
+    expect(history.state).toMatchObject({ overlay: true });
+    act(() => closeOverlay());
+    await waitFor(() => expect(close).toHaveBeenCalledOnce());
+    expect(history.state).not.toMatchObject({ overlay: true });
+    // Closing it again does nothing.
+    act(() => closeOverlay());
+    expect(close).toHaveBeenCalledOnce();
   });
 });

@@ -1,6 +1,6 @@
 import { SIGN_IN_REJECTED } from "@ember/protocol";
 import { ADMINISTRATOR, useOwnAddress } from "../../fixtures";
-import { expect, test } from "./fixtures";
+import { expect, hasPhoneLayout, test } from "./fixtures";
 
 test.beforeEach(({ page }) => useOwnAddress(page));
 
@@ -17,7 +17,8 @@ test("you can sign in with taps", async ({ page }) => {
   await page.getByLabel("Password").tap();
   await page.keyboard.type(ADMINISTRATOR.password);
   await page.getByRole("button", { name: "Sign in" }).tap();
-  await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
+  // In, at the room home goes to, or on a phone, Home's list.
+  await expect(hasPhoneLayout(page) ? page.getByRole("list", { name: "Shortcuts" }) : page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
 });
 
 test("why a sign-in was refused fits the phone", async ({ page, screenIsFine }) => {
@@ -35,7 +36,8 @@ test("you can join with just a name, with taps", async ({ page }) => {
   await page.getByLabel("Your name").tap();
   await page.keyboard.type("Pat on a phone");
   await page.getByRole("button", { name: "Join" }).tap();
-  await expect(page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
+  // In, at the room home goes to, or on a phone, Home's list.
+  await expect(hasPhoneLayout(page) ? page.getByRole("list", { name: "Shortcuts" }) : page.getByRole("textbox", { name: "Write a message" })).toBeVisible();
 });
 
 test("the page keeps zoom and lets the keyboard resize it", async ({ page }) => {

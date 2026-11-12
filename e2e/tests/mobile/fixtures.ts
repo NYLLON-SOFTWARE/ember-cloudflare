@@ -53,9 +53,17 @@ export const REACTION_PILLS = "[aria-label=Reactions] :is(button, a)";
  */
 export const SWITCHES = "[role=switch]";
 
-/** True when the page uses the drawer layout. */
-export function hasDrawerLayout(page: Page): boolean {
+/** True when the page uses the phone layout, 900px wide and below, with the tab bar along the bottom. */
+export function hasPhoneLayout(page: Page): boolean {
   return page.viewportSize()!.width <= 900;
+}
+
+/** The phone layout's tab bar. */
+export const tabBar = (page: Page) => page.getByRole("navigation", { name: "Tabs" });
+
+/** Goes to Home's list of conversations: the Home tab on a phone, where the sidebar shows them, and the room shown elsewhere. */
+export async function showConversations(page: Page): Promise<void> {
+  if (hasPhoneLayout(page)) await tabBar(page).getByRole("link", { name: "Home", exact: true }).tap();
 }
 
 /** Each page's DevTools session and the insets it reports right now. */

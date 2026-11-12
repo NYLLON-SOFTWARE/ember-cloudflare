@@ -1,0 +1,58 @@
+/*
+ * The phone layout's rules that utility classes can't say, since they hang on what's elsewhere on the
+ * page: the composer's room under the tab bar, and the composer as Slack's pill until it has focus.
+ */
+@media (width < 56.3125rem) {
+  /* While the tab bar shows, it keeps clear of the home indicator, so the composer above it needn't. */
+  body:has([data-tab-bar]:not([data-typing])) footer:has(> .composer) {
+    padding-bottom: 8px;
+  }
+
+  /*
+   * The composer, Slack's pill until it's used: "+" and the placeholder, or the first line of a draft,
+   * on one 44px line. Tapping the text gives it focus, and the card opens to its full size, with the
+   * formatting button and Send, as it stays while it has focus, its toolbar is open, files are picked to
+   * send, or the @ list is open, which a tap on takes focus from the text for a moment. Picking files from
+   * "+" leaves it a pill until they're picked.
+   */
+  body:not(:has(.lexxy-prompt-menu--visible)) .composer:not([data-toolbar], :has(:focus:not(input[type="file"])), :has(> div > button[aria-label^="Remove "])) {
+    [data-composer-card] {
+      align-items: center;
+      border-radius: 9999px;
+      flex-direction: row;
+      min-height: 0;
+      padding: 0 4px;
+    }
+
+    /* "+" first, then the text, and nothing else. */
+    [data-composer-card] > :last-child {
+      order: -1;
+
+      > :first-child {
+        border-radius: 9999px;
+      }
+
+      > :not(:first-child) {
+        display: none;
+      }
+    }
+
+    [data-composer-card] > :first-child {
+      min-width: 0;
+    }
+
+    /* The placeholder that stands in for the editor while its code loads, where the text will be. */
+    [data-composer-card] > :first-child > p {
+      min-height: 44px;
+      padding: 10px 14px 10px 4px;
+    }
+
+    .lexxy-editor__content {
+      margin: 0;
+      max-block-size: 44px;
+      min-block-size: 44px;
+      overflow: hidden;
+      padding: 10px 14px 10px 4px;
+    }
+  }
+}

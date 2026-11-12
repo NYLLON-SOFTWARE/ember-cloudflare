@@ -1,7 +1,6 @@
 import { REACTIONS, type Sidebar } from "@ember/protocol";
 import { isolateRoom, keepOtherRoomsOut, openRoom, signInAs } from "../../fixtures";
-import { settle } from "./audits";
-import { expect, hasDrawerLayout, REACTION_PILLS, test } from "./fixtures";
+import { expect, hasPhoneLayout, REACTION_PILLS, showConversations, test } from "./fixtures";
 
 test.beforeEach(async ({ page, session }) => {
   await signInAs(page, session);
@@ -54,16 +53,16 @@ test("a busy room fits the phone", async ({ page, room, participant, screenIsFin
 
   await openRoom(page, room);
   await expect(page.getByText("🔥🔥🔥")).toBeVisible();
-  // Four faces, then a count for everyone else, though up to 500px wide only screen readers hear who's here.
+  // Four faces, then a count for everyone else, though on a phone only screen readers hear who's here.
   const header = page.getByRole("navigation", { name: "Page" });
   await expect(header.getByText("7 here now")).toBeAttached();
-  if (page.viewportSize()!.width > 500) await expect(header.getByText("+3")).toBeVisible();
+  if (!hasPhoneLayout(page)) await expect(header.getByText("+3")).toBeVisible();
   // So the faces never squeeze out the room's name, which keeps its first few letters even 320px wide.
   expect((await header.getByRole("heading", { level: 1 }).boundingBox())!.width).toBeGreaterThan(40);
   await screenIsFine({ denseTargets: [REACTION_PILLS] });
 });
 
-test("the room's star, and a starred room's row in the drawer, fit the phone", async ({ page, room, screenIsFine }) => {
+test("the room's star, and a starred room's row on Home, fit the phone", async ({ page, room, screenIsFine }) => {
   await isolateRoom(page, room);
   await openRoom(page, room);
   const star = page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Star room" });
@@ -71,9 +70,9 @@ test("the room's star, and a starred room's row in the drawer, fit the phone", a
   await expect(star).toHaveAttribute("aria-pressed", "true");
   await screenIsFine();
 
-  if (!hasDrawerLayout(page)) return;
-  await page.getByRole("button", { name: "Open conversations" }).tap();
-  await expect(page.getByRole("dialog").getByRole("link", { name: room.name }).getByRole("img", { name: "Favorite" })).toBeVisible();
+  if (!hasPhoneLayout(page)) return;
+  await showConversations(page);
+  await expect(page.getByRole("main").getByRole("link", { name: room.name }).getByRole("img", { name: "Favorite" })).toBeVisible();
   await screenIsFine();
 });
 
@@ -95,23 +94,15 @@ test("long room names are truncated, not overflowing", async ({ page, room, scre
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
   await screenIsFine();
 
-  if (hasDrawerLayout(page)) {
-    await page.getByRole("button", { name: "Open conversations" }).tap();
-    await expect(page.getByRole("dialog")).toBeVisible();
-  }
+  await showConversations(page);
   await expect(page.getByRole("link", { name })).toBeVisible();
   await screenIsFine();
 });
 
-test("the rail's appearance menu fits the phone", async ({ page, room, screenIsFine }) => {
+test("the rail's appearance menu, or Home's top bar's on a phone, fits the phone", async ({ page, room, screenIsFine }) => {
   await openRoom(page, room);
-  const rail = page.getByRole("navigation", { name: "Workspace" });
-  if (hasDrawerLayout(page)) {
-    await page.getByRole("button", { name: "Open conversations" }).tap();
-    // Once it has slid in, as a person would wait: tapping a button that's still sliding in has
-    // Playwright scroll it into view first, which can move it up from the bottom of the screen.
-    await settle(page);
-  }
+  await showConversations(page);
+  const rail = page.getByRole("navigation", { name: hasPhoneLayout(page) ? "Page" : "Workspace" });
 
   // Where the rail scrolls, as on a phone in landscape, start with the button at the bottom of the
   // screen, where its menu is most likely to open under the home indicator.

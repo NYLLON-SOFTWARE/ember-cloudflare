@@ -12,6 +12,7 @@ import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-direct
 import { useDraftCount } from "@/hooks/use-draft-count";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useHuddle } from "@/hooks/use-huddle";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
 import { useSidebar } from "@/hooks/use-sidebar";
@@ -25,8 +26,14 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { apart, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
+import { dmPath, messagePath, navigate, pageMark, returnTo, roomPath, routeOf, useHash, usePath, useQuery, useRoute, type Route } from "@/hooks/use-route";
+import { ActivityPage } from "../mobile/activity-page";
+import { DmsPage } from "../mobile/dms-page";
+import { FilesPage } from "../mobile/files-page";
+import { HomePage } from "../mobile/home-page";
+import { TabBar, type TabNotices } from "../mobile/tab-bar";
+import { tabAt, tabOf, type Tab } from "../mobile/tabs";
 import { addressShowing } from "./room-tabs";
-import { dmPath, messagePath, navigate, pageMark, returnTo, roomPath, routeOf, useHash, useQuery, useRoute, type Route } from "@/hooks/use-route";
 import type { RoomGone } from "./composer";
 import { ActivityPage } from "./activity-page";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
@@ -141,6 +148,12 @@ const RAIL_PAGES = {
 /** The Home sidebar's link each of its pages marks. */
 const SIDEBAR_PAGES: Partial<Record<Route["page"], SidebarPage>> = { people: "people", drafts: "drafts", threads: "threads", saved: "saved" };
 
+/**
+ * The pages a phone shows the tab bar on, as Slack's does: the tabs' own, conversations, threads, people
+ * and search. Settings and forms, which have Go Back of their own, take the whole screen.
+ */
+const TAB_BAR_PAGES = new Set<Route["page"]>(["home", "newest-room", "room", "message", "room-of-kind", "person", "search"]);
+
 /** Loads the page shown again, for the Worker to answer it with Campfire's 404 page, as it does for someone nobody is. */
 const showNotFound = () => loadPage(location.pathname);
 
@@ -220,13 +233,15 @@ function directIn(rooms: Room[], roomId: RoomId): DirectRoom | null {
 
 /**
  * Where an address goes on to once someone's rooms are known, or null when it shows a page of its own:
- * home to the last room visited, `/rooms` to the newest room, a room's address for its kind to the
- * room's own, and a DM's settings home, unless it's theirs. New direct message's goes home too, under
- * the dialog it opens, and a message's own address goes on to its permalink.
+ * home to the last room visited, but on a phone, where home is the Home tab's list, `/rooms` to the
+ * newest room, a room's address for its kind to the room's own, and a DM's settings home, unless it's
+ * theirs. New direct message's goes home too, under the dialog it opens, and a message's own address goes
+ * on to its permalink.
  */
-function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
+function redirectOf(route: Route, rooms: SidebarRoom[], phone: boolean): Redirect | null {
   switch (route.page) {
     case "home": {
+      if (phone) return null;
       // Home lists no DMs, so it goes on to the last room visited that isn't one.
       const room = lastChannelVisited(rooms);
       return room && { path: roomPath(room.id) };
@@ -264,7 +279,8 @@ function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
 
 /**
  * The drawer layout: `max-md`, 900px wide and below, where the rail and sidebar move into a drawer
- * opened from the header, or on a page of community settings, the rail alone.
+ * opened from the header, or on a page of community settings, the rail alone. Phones, which take the
+ * same width, have the tab bar instead (`PHONE_LAYOUT`), so the drawer never opens there.
  */
 const DRAWER_LAYOUT = "(width < 56.3125rem)";
 
@@ -320,6 +336,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const roomView = useRef<RoomViewHandle>(null);
   const route = useRoute();
   const hash = useHash();
+  const phone = usePhoneLayout();
+  // On a phone, the tab whose page is shown, or the one the page shown was opened from.
+  const path = usePath();
+  const ownTab = phone ? tabAt(path) : null;
+  const [openedFromTab, setOpenedFromTab] = useState<Tab | null>(null);
+  if (ownTab && ownTab !== openedFromTab) setOpenedFromTab(ownTab);
   // On a page of community settings, the links to their sections take the conversations' place.
   const section = settingsSectionOf(route, hash);
   const administrator = me.administrator;
@@ -516,8 +538,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
 
   // Where the address goes on to, once the list it goes by has come.
   const goingOn = useMemo(
-    () => (rooms && !askingAgain && !goneRoom && !unansweredHere ? redirectOf(route, rooms) : null),
-    [rooms, askingAgain, goneRoom, unansweredHere, route],
+    () => (rooms && !askingAgain && !goneRoom && !unansweredHere ? redirectOf(route, rooms, phone) : null),
+    [rooms, askingAgain, goneRoom, unansweredHere, route, phone],
   );
   // Before the page paints, so a page that only goes on to another doesn't show.
   useLayoutEffect(() => {
@@ -726,6 +748,37 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const filesNav =
     route.page === "files" ? <RarePage show={({ FilesNav }) => <FilesNav me={me} place={route.place} />} loading={null} onFailed={failed} /> : null;
 
+  // On a phone, the tabs' pages, and what's waiting on each, which the tab bar marks.
+  const tabPage = (rooms: SidebarRoom[]) => {
+    switch (ownTab) {
+      case "dms":
+        return <DmsPage me={me} rooms={rooms} loaded onNewDirect={openNewDirect} />;
+      case "activity":
+        return <ActivityPage me={me} rooms={rooms} loaded />;
+      case "files":
+        return <FilesPage me={me} />;
+      default:
+        return (
+          <HomePage
+            me={me}
+            workspaceName={workspaceName}
+            sidebar={sidebar}
+            unread={activity.unread}
+            huddles={liveHuddles}
+            newRelease={newRelease}
+            onNewDirect={openNewDirect}
+          />
+        );
+    }
+  };
+  const unreadRooms = (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId));
+  const tabNotices: TabNotices = {
+    home: unreadRooms.some((r) => r.kind !== "direct") ? "Unread rooms" : undefined,
+    dms: unreadRooms.some((r) => r.kind === "direct") ? "Unread DMs" : undefined,
+    activity: activity.unread > 0 ? `${activity.unread} unread` : undefined,
+  };
+  const isDirect = (roomId: string) => rooms?.find((r) => r.id === roomId)?.kind === "direct";
+
   /**
    * One of the pages few visits need, as `show` makes it once they've loaded. Keyed by the page, so that going on
    * from one that couldn't load them to another tries again.
@@ -903,7 +956,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               onGone={roomGone}
             />
           );
-        if (route.page === "home" && rooms && !goingOn) return <WelcomePage me={me} />;
+        // On a phone, the tabs' pages, but Home for someone in no rooms yet, which has nothing to list.
+        if (route.page === "home" && rooms && !goingOn) return phone && (ownTab !== "home" || rooms.length > 0) ? tabPage(rooms) : <WelcomePage me={me} />;
         // Why the room can't show, kept where it would show rather than in an alert that fades, as a
         // browser's own page says when a server can't be reached. The header keeps the way to the other
         // rooms on a phone.
@@ -942,8 +996,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       <DrawerOpen value={drawerOpen}>
         <div
           className={cn(
-            "relative grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)]",
-            settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)]",
+            "relative grid h-dvh grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)] grid-rows-[var(--spacing-header)_minmax(0,1fr)] overflow-clip bg-surface max-md:grid-cols-[minmax(0,1fr)] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_minmax(0,1fr)_auto]",
+            settings && "[--spacing-sidebar:244px] max-md:grid-rows-[calc(56px+env(safe-area-inset-top))_auto_minmax(0,1fr)_auto]",
             // The DMs page's list, which shows each DM's latest message, is wider, as Slack's is.
             !settings && directsShown && "md:[--spacing-sidebar:340px]",
             // A thread or a profile open beside its room, from 1180px wide, which takes 420px of the room's
@@ -1004,6 +1058,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
 
           {page()}
           {room && profilePane?.userId && <ProfilePanel key={profilePane.userId} userId={profilePane.userId} me={me} pane={profilePane} placement="column" />}
+          {phone && TAB_BAR_PAGES.has(route.page) && <TabBar current={tabOf(path, openedFromTab, isDirect)} notices={tabNotices} roomId={currentRoomId} />}
           <MovedNotice />
           {newDirect && (
             <NewDirectDialog

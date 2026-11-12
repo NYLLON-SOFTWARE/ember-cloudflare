@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Download, ShareAndroid, Xmark } from "@/components/icons/iconoir";
 import { ShareButton } from "@/components/share-button";
+import { PHONE_LAYOUT } from "@/hooks/use-phone-layout";
+import { openOverlay } from "@/hooks/use-route";
 import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 
@@ -32,16 +34,26 @@ interface LightboxProps {
  */
 export function Lightbox({ src, alt = "", downloadUrl = src ?? undefined, filename, onClose }: LightboxProps) {
   const dialog = useRef<HTMLDialogElement>(null);
+  // On a phone, the viewer is a page of its own, which Back closes, as it does Slack's.
+  const closeOverlay = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    if (src && !dialog.current?.open) dialog.current?.showModal();
+    if (!src || dialog.current?.open) return;
+    dialog.current?.showModal();
+    if (matchMedia(PHONE_LAYOUT).matches) closeOverlay.current = openOverlay(() => dialog.current?.close());
   }, [src]);
+
+  const closed = () => {
+    closeOverlay.current?.();
+    closeOverlay.current = null;
+    onClose();
+  };
 
   return createPortal(
     <dialog
       ref={dialog}
       aria-label="Image Viewer (Press escape to close)"
-      onClose={onClose}
+      onClose={closed}
       className="inset-0 m-auto h-dvh max-h-none w-dvw max-w-none overflow-hidden bg-lightbox pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1ch,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1ch,env(safe-area-inset-left))] backdrop:backdrop-blur-[66px] open:grid open:grid-cols-1 open:grid-rows-1 open:place-items-center"
     >
       {src && <img src={src} alt={alt} className="max-h-full max-w-full [grid-area:1/1]" />}

@@ -70,8 +70,8 @@ describe("Workspace name", () => {
   it("heads the list with the workspace's name alone, leaving out its tagline", () => {
     const tagline = "Engines for every occasion";
     renderSidebar({ workspaceName: "Analytical Engines" }, { ...EMBER, tagline });
-    // Clear of the drawer's close button.
-    expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toHaveClass("max-md:pr-10");
+    // On a phone, Home's top bar has it instead.
+    expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toHaveClass("max-md:hidden");
     // It starts where the rows' icons and the sections' carets do, 9px in.
     expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toHaveClass("px-[9px]");
     expect(screen.getByRole("link", { name: "Threads" })).toHaveClass("px-[9px]");

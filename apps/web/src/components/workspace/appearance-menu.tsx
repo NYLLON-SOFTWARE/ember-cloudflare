@@ -16,7 +16,7 @@ const OPTIONS = [
  * elsewhere closes. Its icons are those an administrator chose in Community settings, or, like the
  * rail's, Iconoir's.
  */
-export function AppearanceMenu() {
+export function AppearanceMenu({ side = "right" }: { side?: "right" | "bottom" }) {
   const appearance = useAppearance();
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
@@ -24,7 +24,9 @@ export function AppearanceMenu() {
   const { label } = OPTIONS.find((option) => option.value === appearance)!;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    // Below Home's top bar on a phone it covers the conversations, so there it's modal: they take no
+    // taps until it's closed.
+    <Popover open={open} onOpenChange={setOpen} modal={side === "bottom"}>
       <PopoverTrigger
         ref={button}
         className="mt-auto flex size-9 shrink-0 items-center justify-center rounded-full border text-muted-foreground hover:bg-hover hover:text-foreground data-[state=open]:bg-hover data-[state=open]:text-foreground touch:size-11"
@@ -35,7 +37,7 @@ export function AppearanceMenu() {
       </PopoverTrigger>
       <PopoverContent
         aria-label="Appearance"
-        side="right"
+        side={side}
         align="end"
         sideOffset={8}
         className="w-[190px] rounded-[12px] bg-background p-2 shadow-[0_8px_24px_#0002]"

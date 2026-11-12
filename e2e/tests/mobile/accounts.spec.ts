@@ -6,7 +6,7 @@ import { THINKING_LEVELS, TOP_LEVELS, type AssistantSettings } from "@ember/prot
 import { AGENT_TEMPLATE } from "@ember/protocol/prompts";
 import { changeTheWorkspace, fakeTurnstile, isolateRoom, listing, openRoom, signInAs, signInAsAdministrator, TURNSTILE_WIDGET, useOwnAddress, type Passes } from "../../fixtures";
 import { auditScreen, settle } from "./audits";
-import { expect, hasDrawerLayout, SWITCHES, test } from "./fixtures";
+import { expect, hasPhoneLayout, showConversations, SWITCHES, test } from "./fixtures";
 
 /** A name as long as the server takes, with a run that only breaks anywhere. */
 const LONG_NAME = "The-Analytical-Engine-Appreciation-Society-of-Greater-Marylebone-and-the-Surrounding-Districts";
@@ -24,10 +24,10 @@ test("an administrator's workspace settings, with a long name, fit the phone", a
   await expect(page.getByRole("textbox", { name: "Community name" })).toHaveValue(LONG_NAME);
   await screenIsFine({ denseTargets: [SWITCHES] });
 
-  // Back in a room, the conversations under it, where the name wraps.
+  // Back in a room, the conversations under it, where the name wraps, or on a phone, Home, whose top bar cuts it short.
   await page.getByRole("link", { name: "Go Back" }).tap();
-  if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();
-  await expect(page.getByRole("heading", { level: 2, name: LONG_NAME })).toBeVisible();
+  await showConversations(page);
+  await expect(page.getByRole("heading", { level: hasPhoneLayout(page) ? 1 : 2, name: LONG_NAME })).toBeVisible();
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 
@@ -174,7 +174,7 @@ const linesOf = (text: Locator) =>
     return new Set([...range.getClientRects()].map((line) => Math.round(line.top))).size;
   });
 
-test("the longest tagline fits the phone under a long name, in a member's settings and the conversations, clear of the drawer's close button", async ({
+test("the longest tagline fits the phone under a long name, in a member's settings and the conversations, or Home's top bar on a phone", async ({
   page,
   room,
   session,
@@ -187,18 +187,23 @@ test("the longest tagline fits the phone under a long name, in a member's settin
   await expect(settingsName.locator("xpath=following-sibling::p")).toHaveText(LONGEST_TAGLINE);
   await screenIsFine();
 
-  // Community settings' links take the conversations' place, so they're a room's.
+  // Community settings' links take the conversations' place, so they're a room's, or on a phone, Home's,
+  // whose top bar has the name and tagline, each cut short on its line.
   await openRoom(page, room);
-  if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();
+  await showConversations(page);
+  if (hasPhoneLayout(page)) {
+    const top = page.getByRole("navigation", { name: "Page" }).locator("hgroup");
+    await expect(top.locator("h1")).toHaveText(LONG_NAME);
+    await expect(top.locator("p")).toHaveText(LONGEST_TAGLINE);
+    expect(await linesOf(top.locator("p"))).toBe(1);
+    await screenIsFine();
+    return;
+  }
   const conversations = page.getByRole("complementary", { name: "Conversations" });
   const tagline = conversations.locator("hgroup > h2 + p");
   await expect(tagline).toHaveText(LONGEST_TAGLINE);
   await screenIsFine();
-  if (hasDrawerLayout(page)) {
-    const [line, close] = [(await tagline.boundingBox())!, (await page.getByRole("dialog").getByRole("button", { name: "Close conversations" }).boundingBox())!];
-    expect(line.x + line.width <= close.x || line.y >= close.y + close.height, "the tagline is clear of the close button").toBe(true);
-  }
-  // A drawer with room for the sidebar's full 280px, from 376px wide, takes it on one line, as the desktop does.
+  // A sidebar with room for its full 280px takes it on one line, as the desktop does.
   if ((await conversations.evaluate((sidebar) => sidebar.getBoundingClientRect().width)) >= 280) expect(await linesOf(tagline)).toBe(1);
 });
 
@@ -421,15 +426,17 @@ test("@ember's page fits the phone", async ({ page, screenIsFine }) => {
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 
-test("your profile, opened from the rail, fits the phone with Log out in the top bar and a translation button by each field", async ({ page, room, session, screenIsFine }) => {
+test("your profile, opened from the rail, or Home's top bar on a phone, fits the phone with Log out in the top bar and a translation button by each field", async ({
+  page,
+  room,
+  session,
+  screenIsFine,
+}) => {
   await showTranslationButtons(page);
   await signInAs(page, session);
   await openRoom(page, room);
-  if (hasDrawerLayout(page)) {
-    await page.getByRole("button", { name: "Open conversations" }).tap();
-    await settle(page);
-  }
-  await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Your profile" }).tap();
+  await showConversations(page);
+  await page.getByRole("navigation", { name: hasPhoneLayout(page) ? "Page" : "Workspace" }).getByRole("link", { name: "Your profile" }).tap();
   await expect(page.getByLabel("Name", { exact: true })).toBeEnabled();
   await expect(page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Log out" })).toBeVisible();
   await expect(page.getByRole("main").locator("summary", { hasText: "Translate" })).toHaveCount(4);

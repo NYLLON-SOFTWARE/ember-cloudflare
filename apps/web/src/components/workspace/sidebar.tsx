@@ -127,11 +127,10 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
     />
   );
   return (
-    <div ref={scrollerRef} className="flex h-full flex-col gap-3.5 overflow-y-auto overflow-x-hidden bg-surface px-3 pt-5 pb-[max(20px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] narrow:px-2 max-md:gap-4 max-md:px-2.5 max-md:pt-4 max-md:pb-[max(16px,env(safe-area-inset-bottom))]">
-      {/* The workspace's name alone, without its tagline, which says nothing the list needs. At 900px and
-          below the drawer's close button sits at the end of its row. A long name wraps rather than running
-          under the sidebar's edge. */}
-      <h2 className="flex min-h-7 items-center gap-2 px-[9px] text-[17px] leading-6 font-[650] wrap-anywhere max-md:pr-10">{workspaceName}</h2>
+    <div ref={scrollerRef} className="flex h-full flex-col gap-3.5 overflow-y-auto overflow-x-hidden bg-surface px-3 pt-5 pb-[max(20px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] narrow:px-2 max-md:gap-4 max-md:px-2.5 max-md:pt-4 max-md:pb-24">
+      {/* The workspace's name alone, without its tagline, which says nothing the list needs. A long name
+          wraps rather than running under the sidebar's edge. On a phone, Home's top bar has it instead. */}
+      <h2 className="flex min-h-7 items-center gap-2 px-[9px] text-[17px] leading-6 font-[650] wrap-anywhere max-md:hidden">{workspaceName}</h2>
 
       <nav aria-label="Home" className="flex flex-col gap-[3px]">
         {LINKS.map(({ page, label, href, Icon }) => {

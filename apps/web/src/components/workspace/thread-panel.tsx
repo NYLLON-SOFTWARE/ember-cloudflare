@@ -1,6 +1,6 @@
 import { useEffect, useEffectEvent, useMemo, useRef } from "react";
 import type { Me, Message, Room } from "@ember/protocol";
-import { ArrowLeft, ChatBubbleEmpty, Xmark } from "@/components/icons/iconoir";
+import { ChatBubbleEmpty, Xmark } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useMessageEditors } from "@/hooks/use-message-editors";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { Composer, RoomGoneNotice, type ComposerHandle, type RoomGone } from "./composer";
 import { MessageItem, repliesLabel, type MessageActions, type MessageEditors, type ThreadPlace } from "./message-item";
 import { MessageList } from "./message-list";
+import { BackButton } from "../mobile/back-button";
 import { RoomNotice } from "./room-notice";
 import { SideColumnSeparator } from "./side-column";
 
@@ -101,11 +102,9 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
             <ArrowLeft className="size-[22px]" />
           </button>
         ) : (
-          <PageLink href={back} aria-label={`Back to ${name}`} className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex">
-            <ArrowLeft className="size-[22px]" />
-          </PageLink>
+          <BackButton fallback={back} label={`Back to ${name}`} className="hidden max-md:grid" />
         )}
-        <div className="flex min-w-0 items-center gap-2.5 max-md:flex-col max-md:items-start max-md:gap-0">
+        <div className="flex min-w-0 items-center gap-2.5 max-md:min-h-11 max-md:flex-col max-md:items-start max-md:justify-center max-md:gap-0 max-md:rounded-full max-md:border max-md:bg-surface max-md:px-4 max-md:py-1">
           <h2 className="shrink-0 text-[17px] leading-[1.4] font-[650] max-md:text-base max-md:leading-5">Thread</h2>
           {/* The room's name links to it, but on phones, as the line under Thread, too near the thread for a fingertip, it doesn't: Back does. */}
           <PageLink
