@@ -15,6 +15,7 @@ import { NotificationBell } from "./notification-bell";
 import { HEADER_BUTTON, PageHeader } from "./page-header";
 import { OpenSearchContext, opensSearch } from "./search-box";
 import { MembersButton } from "./room-members";
+import { SubRoomTitle } from "./sub-room-title";
 
 interface Props {
   room: Room;
@@ -67,7 +68,7 @@ export function RoomHeader({ room, me, name, present, status, offline, favorite,
               <span className="sr-only">Direct message with</span> {name}
             </>
           ) : (
-            name
+            <SubRoomTitle room={room} />
           )}
         </h1>
         {isWithAgent(room) && <AgentBadge />}
