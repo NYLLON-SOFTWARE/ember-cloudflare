@@ -840,7 +840,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           />
         ));
       case "todos":
-        return rarePage(({ TodosPage }) => <TodosPage itemId={route.itemId} me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
+        return rarePage(({ TodosPage }) => <TodosPage itemId={route.itemId} me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} onPaneStack={phone ? paneHistory : undefined} />);
       case "saved":
         return rarePage(({ SavedPage }) => (
           <SavedPage
@@ -848,6 +848,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             me={me}
             rooms={rooms ?? NO_ROOMS}
             onFailed={failed}
+            onPaneStack={phone ? paneHistory : undefined}
             renderRoom={(place, panes) => roomPane(rooms ?? NO_ROOMS, place, `saved/${route.itemId}`, panes)}
           />
         ));
