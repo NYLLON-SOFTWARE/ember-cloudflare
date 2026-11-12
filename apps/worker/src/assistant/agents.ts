@@ -27,7 +27,7 @@ import { anyOtherPage, formAnswer } from "../pages";
 import { asksModel, workspace, type AgentTrialAccess, type AskedModel } from "../workspace";
 import { answerOf, questionFor, waitFor } from "./answers";
 import { askInTurn, formatsFor, type Answered, type Gateway, type GatewayRefusal } from "./gateway";
-import { administratorOf, greetingFrom, searchedBy, TEST_QUESTION, WEB_TEST_QUESTION } from "./settings";
+import { administratorOf, greetingFrom, searchedBy, TEST_QUESTION, testedLevelsOf, WEB_TEST_QUESTION } from "./settings";
 
 // AI agents, as administrators make, change and delete them beside @ember on the AI assistant tab of
 // workspace settings, each with its own instructions and the model it answers with, which Ember AI asks
@@ -217,7 +217,7 @@ export async function deleteAgent(request: Request, env: Env, agentId: UserId): 
  * the format it takes the test question in and the levels of thinking it takes, unless that's known
  * already, and, while it's to search the web (`webSearch`), what it may do there, in the format it
  * searches in, which it's asked in from then on, as Grok is in xAI's own Responses (`searchFormatOf`),
- * or else why it can't, on the field it's about.
+ * with the levels of thinking it takes there, or else why it can't, on the field it's about.
  */
 async function askedModel(
   env: Env,
@@ -240,7 +240,9 @@ async function askedModel(
   if (!searchFormat) return formAnswer({ error: agentCannotSearchWith(modelName), field: "webSearch" }, 422);
   const searched = await searchedBy(env, { ...through, model, format: searchFormat, name: modelName }, webTestQuestionFor(name), agentAnsweredUnsearched);
   if ("refusal" in searched) return refused(searched, "webSearch");
-  return { model, modelName, format: searchFormat, thinkingLevels, webTools: searched.webTools, through };
+  // The levels of thinking it took in another format needn't be the ones it takes in this.
+  const levels = searchFormat === format ? thinkingLevels : await testedLevelsOf(env, { ...through, model, format: searchFormat }, testQuestionFor(name));
+  return { model, modelName, format: searchFormat, thinkingLevels: levels, webTools: searched.webTools, through };
 }
 
 /**

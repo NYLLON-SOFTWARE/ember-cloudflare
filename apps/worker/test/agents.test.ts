@@ -70,7 +70,7 @@ const RECAP: NewAgent = {
 interface Asked {
   url: string;
   authorization: string | null;
-  body: { model?: string; system?: string; tools?: Array<{ type: string }> };
+  body: { model?: string; system?: string; tools?: Array<{ type: string }>; reasoning?: { effort?: string } };
 }
 
 /** A page the model finds on the web, as Anthropic's Messages gives it, and its answer citing it. */
@@ -450,25 +450,31 @@ describe("AI agents", () => {
       expect(unthinking()[1]!.body).toMatchObject({ model: "grok-4.7", tools: [{ type: "web_search" }], store: false });
     });
 
-    it("moves a Grok agent onto the xAI endpoint once Search the web goes on, saying what the API token lacks until it can", async () => {
+    it("moves a Grok agent onto the xAI endpoint once Search the web goes on, at the levels of thinking it takes there, saying what the API token lacks until it can", async () => {
       vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
       const administrator = await setUp();
       // Made with an API token without AI Gateway Run, which Cloudflare's REST API asks Grok in Chat Completions with.
       answer = grokAnswering(true);
       const grok = await made(administrator, { name: "Grok", model: GROK });
-      expect(grok).toMatchObject({ format: "chat", webTools: [] });
+      expect(grok).toMatchObject({ format: "chat", webTools: [], thinkingLevels: [...THINKING_LEVELS] });
 
       asked.length = 0;
       expect(await refusalOf(await changeAgent(administrator, grok.id, { webSearch: true }))).toEqual([422, { error: `${XAI_TOKEN_REFUSED} Cloudflare says: Unauthorized`, field: "webSearch" }]);
       expect(asked.map(({ url }) => url)).toEqual([XAI_ENDPOINT]);
       expect(await shownAgent(administrator, grok.id)).toMatchObject({ format: "chat", webTools: [] });
 
-      // Once the token has it, Grok searches there, and is asked there from then on.
-      answer = grokAnswering();
+      // Once the token has it, Grok searches there, and is asked there from then on, at each level of
+      // thinking xAI's own Responses takes, which needn't be those Chat Completions took.
+      answer = (sent) =>
+        sent.body.reasoning?.effort === "none" ? Response.json({ code: "Client specified an invalid argument", error: "Model grok-4.7 does not support reasoning effort none." }, { status: 400 }) : grokAnswering()(sent);
       asked.length = 0;
-      expect(await agentOf(await changeAgent(administrator, grok.id, { webSearch: true }))).toMatchObject({ format: "xai", webTools: ["search"] });
-      expect(asked.map(({ url }) => url)).toEqual([XAI_ENDPOINT]);
-      expect(await workspaceSql("SELECT format, web_tools FROM agents WHERE user_id = ?", grok.id)).toEqual([{ format: "xai", web_tools: '["search"]' }]);
+      expect(await agentOf(await changeAgent(administrator, grok.id, { webSearch: true }))).toMatchObject({ format: "xai", webTools: ["search"], thinkingLevels: ["low", "medium", "high"] });
+      expect(unthinking().map(({ url }) => url)).toEqual([XAI_ENDPOINT]);
+      expect(asked.filter(thinks).map(({ url }) => url)).toEqual(THINKING_LEVELS.map(() => XAI_ENDPOINT));
+      expect(await workspaceSql("SELECT format, web_tools, thinking_levels FROM agents WHERE user_id = ?", grok.id)).toEqual([
+        { format: "xai", web_tools: '["search"]', thinking_levels: '["low","medium","high"]' },
+      ]);
     });
 
     it("refuses Search the web for a model that can't search, or that answered without searching, on its field", async () => {

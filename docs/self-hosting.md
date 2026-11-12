@@ -697,9 +697,11 @@ Ember AI to choose another model. Turning it on asks the model that answers ever
 to search the web for, and keeps the tools AI Gateway took, reading pages only if it took that tool
 too, and says what the model found; a model that answers without searching leaves it off. Grok is
 asked through the xAI endpoint then, even if Ember asked it through the REST API before, as it did
-while the token lacked AI Gateway Run, and once it searches there, Ember asks it there from then on,
-as it does the other Grok models people pick. While the token still lacks that permission, the switch
-says to add it. Choosing another model to answer everyone, under
+while the token lacked AI Gateway Run, and once it searches there, Ember asks it there from then on.
+Each other Grok model people pick is asked its test question there too, whichever model answers
+everyone, and moves there once it answers. A model that moves is asked again at each level of thinking,
+as the levels it takes there needn't be the ones it took before. While the token still lacks that
+permission, the switch says to add it. Choosing another model to answer everyone, under
 Models or in Set up Ember AI, or another Cloudflare account there, turns it off, as another model, or
 another account's AI Gateway, may not take the same tools, until it's turned on again. A model someone
 picks on their profile is given the same tools, of those its format has, so it searches too if it's

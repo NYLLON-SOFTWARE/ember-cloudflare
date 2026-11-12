@@ -74,7 +74,6 @@ import {
 } from "@ember/protocol";
 import {
   DEFAULT_LEVELS,
-  isXaiModel,
   MAX_ASSISTANT_MODELS,
   modelName,
   searchFormatOf,
@@ -319,6 +318,17 @@ const assistantSettingsOf = ({ assistant, assistantMost, assistantInstructions, 
  * API tokens asks.
  */
 type AskedAs = Pick<Gateway, "accountId" | "model" | "format">;
+
+/**
+ * A model that searches the web in another format than the one it was saved in, `from`, as Grok does in
+ * xAI's own Responses, with the levels of thinking it takes there, which asking it at each found.
+ */
+export interface MovedModel {
+  id: string;
+  from: ModelFormat;
+  format: ModelFormat;
+  thinkingLevels: ThinkingLevel[];
+}
 
 /** Whether Ember AI, as `saved`, answers everyone as `asked` says: through its account, with its model, in its format. */
 const isAskedAs = (saved: SavedAssistant, asked: AskedAs) => saved.accountId === asked.accountId && saved.model === asked.model && saved.format === asked.format;
@@ -1261,28 +1271,31 @@ export class Workspace extends DurableObject<Env> {
    * Changes what @ember may do on the web to `webTools`, as Search the web was asked to at `askedAt` while
    * Ember AI is on, as the administrator `credentials` signs in, answering Ember AI as the AI assistant tab
    * then shows it: "off" while it's off, "forbidden" for anyone else, and null without a valid session.
-   * The change, whose tools Search the web found the model `tested` took, in the format it searched in,
-   * `searchedIn`, which the model is asked in from then on, wherever people pick it, as the other Grok
-   * models people pick are once Grok has searched through xAI's endpoint, which they reach as it does,
-   * changes nothing ("changed") once Ember AI answers everyone through another account or with another
-   * model, or in another format than `tested`'s, or once a change to Search the web asked for after it
-   * has been saved, as when it's turned off while the model searched, which this change doesn't undo.
+   * The change, whose tools Search the web found the model `tested` took, asks the models `moved` in the
+   * formats they search in from then on, with the levels of thinking they take there, each that's still
+   * in the format it was tested from, and changes nothing ("changed") once Ember AI answers everyone
+   * through another account or with another model, or in another format than `tested`'s, or once a change
+   * to Search the web asked for after it has been saved, as when it's turned off while the model searched,
+   * which this change doesn't undo.
    */
   async changeAssistantWebTools(
     credentials: Credentials,
     webTools: WebTool[],
     tested: AskedAs | null,
     askedAt: string,
-    searchedIn: ModelFormat | null = null,
+    moved: readonly MovedModel[] = [],
   ): Promise<{ assistant: AssistantSettings } | "off" | "changed" | "forbidden" | null> {
     return this.administerAccount(credentials, async (account) => {
       const { assistant } = account;
       if (!assistant) return "off";
       if (tested && !isAskedAs(assistant, tested)) return "changed";
       if (assistant.webToolsAskedAt !== null && assistant.webToolsAskedAt > askedAt) return "changed";
-      const format = searchedIn ?? assistant.format;
-      const moves = (id: string) => id === assistant.model || (searchedIn === "xai" && isXaiModel(id));
-      const models = assistant.models.map((model) => (moves(model.id) ? { ...model, format } : model));
+      const moveOf = ({ id, format }: Pick<SavedModel, "id" | "format">) => moved.find((move) => move.id === id && move.from === format);
+      const models = assistant.models.map((model) => {
+        const move = moveOf(model);
+        return move ? { ...model, format: move.format, thinkingLevels: move.thinkingLevels } : model;
+      });
+      const format = moveOf({ id: assistant.model, format: assistant.format })?.format ?? assistant.format;
       return this.storeAssistant(account, { ...assistant, format, models, webTools, webToolsAskedAt: askedAt });
     });
   }
@@ -1422,6 +1435,11 @@ export class Workspace extends DurableObject<Env> {
     if (!assistant) return null;
     const gateway = await this.openedAssistant({ assistant });
     return gateway && { ...gateway, name: modelName(gateway.model, assistant.models) };
+  }
+
+  /** The models people can pick from while Ember AI is on, the one that answers everyone among them, or none while it's off. */
+  async assistantModels(): Promise<SavedModel[]> {
+    return (await this.joinableAccount())?.assistant?.models ?? [];
   }
 
   /** The text models Cloudflare's catalog last listed for the account `accountId`, and when, if they're the ones kept. */

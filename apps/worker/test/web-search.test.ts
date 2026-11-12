@@ -4,6 +4,7 @@ import {
   ASSISTANT_OFF,
   cannotSearchWith,
   PAGES_READ_PER_ANSWER,
+  THINKING_LEVELS,
   WEB_SEARCH_CHANGED,
   WEB_SEARCH_REFUSED,
   WEB_SEARCHES_PER_ANSWER,
@@ -48,7 +49,15 @@ interface Asked {
   url: string;
   authorization: string | null;
   aigAuthorization: string | null;
-  body: { tools?: unknown[]; system?: string; instructions?: string; max_tokens?: number; messages?: Array<{ role: string; content: unknown }> };
+  body: {
+    model?: string;
+    tools?: unknown[];
+    system?: string;
+    instructions?: string;
+    max_tokens?: number;
+    messages?: Array<{ role: string; content: unknown }>;
+    reasoning?: { effort?: string };
+  };
 }
 
 /** Stands in for AI Gateway, answering each request with `answer`, and keeping what it's sent. */
@@ -158,6 +167,16 @@ function searching({ url, ...asked }: Asked): Response {
   return url.endsWith("/responses") ? Response.json(RESPONSES_SEARCHED) : messagesAnswer([...SEARCHING, ...CITED]);
 }
 
+/** Models `searching`, of which Grok, in xAI's own Responses, refuses being told not to think, as xAI does for a model whose thinking can't be turned off. */
+const thinkingGrok = (asked: Asked) =>
+  toProvider(asked.url) && asked.body.reasoning?.effort === "none"
+    ? Response.json({ code: "Client specified an invalid argument", error: `Model ${asked.body.model} does not support reasoning effort none.` }, { status: 400 })
+    : searching(asked);
+
+/** The levels of thinking a model takes when it takes every one, and Grok's in xAI's own Responses (`thinkingGrok`). */
+const ALL_LEVELS = [...THINKING_LEVELS];
+const XAI_LEVELS = ["low", "medium", "high"];
+
 /** Sets Ember up with Ada as its administrator, signed in, and Ember AI on with `model`, as `setUpAssistant` sets it up. */
 async function setUp(model = MESSAGES_MODEL, setup: { withoutRun?: boolean } = {}): Promise<Session> {
   const response = await api("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" }) });
@@ -229,6 +248,12 @@ const storedAssistant = async () => {
 /** What Ember AI's model may do on the web, as the account's settings keep it. */
 const storedWebTools = async () => (await storedAssistant())?.web_tools;
 
+/** The format Ember AI asks the model that answers everyone in, and each model people can pick with the format and levels of thinking it's asked in, as the account's settings keep them. */
+const storedModels = async () => {
+  const { format, models } = (await storedAssistant()) as unknown as { format: string; models: Array<{ id: string; format: string; thinking_levels?: string[] }> };
+  return [format, models.map(({ id, format, thinking_levels }) => [id, format, thinking_levels])];
+};
+
 /** Ember AI as the workspace's settings show it to `session`. */
 const assistantSettings = async (session: Session) => ((await (await api("/api/account", { headers: { Cookie: session.cookie } })).json()) as WorkspaceSettings).assistant;
 
@@ -296,7 +321,7 @@ describe("Search the web", () => {
     expect(requests[0]!.body).toHaveProperty("max_tool_calls", WEB_SEARCHES_PER_ANSWER);
   });
 
-  it("turns on for Grok with xAI's web search, through AI Gateway's xAI endpoint, asking it and the other Grok models people pick there from then on", async () => {
+  it("turns on for Grok with xAI's web search, through AI Gateway's xAI endpoint, asking it and the other Grok models people pick there from then on, at the levels of thinking they take there", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     // An API token without AI Gateway Run, with which Ember asked Grok through Cloudflare's REST API, where it can't search.
     const ada = await setUp(GROK, { withoutRun: true });
@@ -305,12 +330,9 @@ describe("Search the web", () => {
     await changeModels(ada, "POST", MESSAGES_MODEL);
     vi.restoreAllMocks();
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const formats = async () => {
-      const stored = (await storedAssistant()) as unknown as { format: string; models: Array<{ id: string; format: string }> };
-      return [stored.format, stored.models.map(({ id, format }) => [id, format])];
-    };
+    vi.spyOn(console, "log").mockImplementation(() => {});
     expect(errors).toHaveBeenCalledWith(expect.stringContaining(`Asking ${GROK} through Cloudflare's REST API, as AI Gateway's xAI endpoint didn't let it through`));
-    expect(await formats()).toEqual(["chat", [[GROK, "chat"], [OTHER_GROK, "chat"], [MESSAGES_MODEL, "messages"]]]);
+    expect(await storedModels()).toEqual(["chat", [[GROK, "chat", ALL_LEVELS], [OTHER_GROK, "chat", ALL_LEVELS], [MESSAGES_MODEL, "messages", ALL_LEVELS]]]);
     expect((await assistantSettings(ada))!.webTools).toEqual([]);
 
     // Turning it on asks through the xAI endpoint, which says what the token lacks.
@@ -320,20 +342,52 @@ describe("Search the web", () => {
     expect(await response.json()).toEqual({ error: `${XAI_TOKEN_REFUSED} Cloudflare says: Unauthorized` });
     expect(refused.map(({ url }) => url)).toEqual([XAI_ENDPOINT]);
     expect(await storedWebTools()).toEqual([]);
-    expect(await formats()).toEqual(["chat", [[GROK, "chat"], [OTHER_GROK, "chat"], [MESSAGES_MODEL, "messages"]]]);
+    expect(await storedModels()).toEqual(["chat", [[GROK, "chat", ALL_LEVELS], [OTHER_GROK, "chat", ALL_LEVELS], [MESSAGES_MODEL, "messages", ALL_LEVELS]]]);
     vi.restoreAllMocks();
+    vi.spyOn(console, "log").mockImplementation(() => {});
 
     // Once the token has it, Grok searches there, with the API token as AI Gateway's alone, which xAI would take as its own key.
-    const requests = fakeGateway(searching);
+    const requests = fakeGateway(thinkingGrok);
     const { assistant, found } = await turnedWebSearch(ada, true);
     expect(assistant.webTools).toEqual(["search"]);
     expect(found).toBe(`${FOUND} [[1]](${DOCS.url})`);
-    expect(requests.map(({ url, authorization, aigAuthorization }) => [url, authorization, aigAuthorization])).toEqual([[XAI_ENDPOINT, null, `Bearer ${API_TOKEN}`]]);
+    expect(requests.map(({ url, authorization, aigAuthorization }) => [url, authorization, aigAuthorization])).toEqual(requests.map(() => [XAI_ENDPOINT, null, `Bearer ${API_TOKEN}`]));
     // Each of xAI's turns with its tools may search more than once, unless they take one at a time, and xAI keeps nothing.
     expect(requests[0]!.body).toMatchObject({ model: "grok-4.7", tools: [{ type: "web_search" }], max_turns: WEB_SEARCHES_PER_ANSWER, parallel_tool_calls: false, store: false });
     expect(requests[0]!.body).not.toHaveProperty("max_tool_calls");
+    // Then each Grok model at each level of thinking there, and the other Grok its test question, as Add a model would have asked it.
+    expect(requests.slice(1).map(({ body }) => [body.model, body.reasoning?.effort ?? null]).sort()).toEqual(
+      [...["grok-4.5", "grok-4.7"].flatMap((model) => ["high", "low", "medium", "none"].map((effort) => [model, effort])), ["grok-4.5", null]].sort(),
+    );
     expect(await storedWebTools()).toEqual(["search"]);
-    expect(await formats()).toEqual(["xai", [[GROK, "xai"], [OTHER_GROK, "xai"], [MESSAGES_MODEL, "messages"]]]);
+    expect(await storedModels()).toEqual(["xai", [[GROK, "xai", XAI_LEVELS], [OTHER_GROK, "xai", XAI_LEVELS], [MESSAGES_MODEL, "messages", ALL_LEVELS]]]);
+  });
+
+  it("asks the Grok models people pick through AI Gateway's xAI endpoint once Search the web is on, whatever answers everyone, while the endpoint takes Ember AI's API token", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    // Grok was picked while the token had no AI Gateway Run, so it was asked through Cloudflare's REST API, where it can't search.
+    const ada = await setUp(MESSAGES_MODEL);
+    greetingGateway(true);
+    await changeModels(ada, "POST", GROK);
+    vi.restoreAllMocks();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    expect(await storedModels()).toEqual(["messages", [[MESSAGES_MODEL, "messages", ALL_LEVELS], [GROK, "chat", ALL_LEVELS]]]);
+
+    // Claude searches, so Search the web turns on, but the xAI endpoint still doesn't take the token, so Grok stays where it is.
+    const refused = fakeGateway((asked) => (toProvider(asked.url) ? refusingRun() : searching(asked)));
+    expect((await turnedWebSearch(ada, true)).assistant.webTools).toEqual(["search", "read"]);
+    expect(refused.map(({ url, body }) => [url.split("/").at(-1), body.model])).toEqual([["messages", MESSAGES_MODEL], ["responses", "grok-4.7"]]);
+    expect(await storedModels()).toEqual(["messages", [[MESSAGES_MODEL, "messages", ALL_LEVELS], [GROK, "chat", ALL_LEVELS]]]);
+    await turnedWebSearch(ada, false);
+    vi.restoreAllMocks();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    // Once it takes it, turning Search the web on again asks Grok there, at each level of thinking too.
+    const requests = fakeGateway(thinkingGrok);
+    expect((await turnedWebSearch(ada, true)).assistant.webTools).toEqual(["search", "read"]);
+    expect(requests.filter(({ url }) => toProvider(url))).toHaveLength(1 + THINKING_LEVELS.length);
+    expect(await storedModels()).toEqual(["messages", [[MESSAGES_MODEL, "messages", ALL_LEVELS], [GROK, "xai", XAI_LEVELS]]]);
   });
 
   it("says a model that takes Chat Completions can't search, by its name, asking it nothing", async () => {
