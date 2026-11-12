@@ -15,7 +15,7 @@ describe("parseNewSavedItem", () => {
       fileIds: ["a", "b"],
       remindAt: "2030-01-01T09:00:00.000Z",
     });
-    expect(parseNewSavedItem({ list: "saved", body: "<p>x</p>" })).toBe("Only To-dos holds notes of your own");
+    expect(parseNewSavedItem({ list: "saved", body: "<p>x</p>" })).toBe("Add notes of your own to To-dos");
   });
 
   it("refuses anything else", () => {

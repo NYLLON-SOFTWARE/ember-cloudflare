@@ -83,6 +83,13 @@ describe("To-dos", () => {
     expect(await screen.findByRole("button", { name: /^Completed\s*\d/ })).toHaveTextContent("Completed1");
   });
 
+  it("moves a to-do of your own to Saved, as any to-do", async () => {
+    const fetch = showPage(TodosPage, [item("n", { kind: "note", roomId: undefined, messageId: undefined, body: "<p>Call Grace</p>", plainText: "Call Grace", files: [] })]);
+    const row = (await screen.findByText("Call Grace")).closest("li")!;
+    await userEvent.click(within(row).getByRole("button", { name: "Move to Saved" }));
+    expect(fetch).toHaveBeenCalledWith("/api/saved/n", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ list: "saved" }) }));
+  });
+
   it("says a deleted message was deleted, and a message out of sight is unavailable", async () => {
     showPage(TodosPage, [item("a", { message: null }), item("b", { unavailable: true })]);
     expect(await screen.findByText("This message was deleted")).toBeInTheDocument();

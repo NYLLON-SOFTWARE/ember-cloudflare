@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DirectRoom, Message, Room, SavedItem, SharedRoom } from "@ember/protocol";
-import { originOf, reminderChoices, shows, sorted, summaryOf } from "./kept";
+import { fileTypeLabel, originOf, reminderChoices, shows, sorted, summaryOf } from "./kept";
 
 const item = (changes: Partial<SavedItem>): SavedItem => ({
   id: "i",
@@ -80,5 +80,16 @@ describe("reminderChoices", () => {
     expect(twenty!.at.getTime() - now.getTime()).toBe(20 * 60_000);
     expect([tomorrow!.at.getDate(), tomorrow!.at.getHours()]).toEqual([13, 9]);
     expect([monday!.at.getDay(), monday!.at.getDate(), monday!.at.getHours()]).toEqual([1, 16, 9]);
+  });
+});
+
+describe("fileTypeLabel", () => {
+  it("names a file's type as people do, or by its extension", () => {
+    expect(fileTypeLabel({ contentType: "text/plain", name: "notes.txt" })).toBe("Text");
+    expect(fileTypeLabel({ contentType: "application/pdf", name: "deck.pdf" })).toBe("PDF");
+    expect(fileTypeLabel({ contentType: "image/png", name: "a.png" })).toBe("Image");
+    expect(fileTypeLabel({ contentType: "image/svg+xml", name: "logo.svg" })).toBe("SVG");
+    expect(fileTypeLabel({ contentType: "application/octet-stream", name: "build.dmg" })).toBe("DMG");
+    expect(fileTypeLabel({ contentType: "application/octet-stream", name: "README" })).toBe("File");
   });
 });
