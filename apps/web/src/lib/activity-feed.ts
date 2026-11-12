@@ -23,7 +23,9 @@ export type ActivityChange =
   | { type: "added"; items: ActivityItem[] }
   /** Items marked read or unread, or with `ids` null, every item read. */
   | { type: "marked"; ids: number[] | null; read: boolean }
-  | { type: "removed"; ids: number[] };
+  | { type: "removed"; ids: number[] }
+  /** Items that say what an edited message says now. */
+  | { type: "updated"; items: ActivityItem[] };
 
 const newestFirst = (a: ActivityItem, b: ActivityItem) => b.id - a.id;
 
@@ -59,6 +61,12 @@ export function activityReducer(feed: ActivityFeed, change: ActivityChange): Act
       const gone = feed.items.filter((item) => ids.has(item.id));
       if (gone.length === 0) return feed;
       return { ...feed, items: feed.items.filter((item) => !ids.has(item.id)), unread: Math.max(0, feed.unread - gone.filter((item) => !item.read).length) };
+    }
+    case "updated": {
+      // Only what they say changes: whether they're read is the marks' to say.
+      const previews = new Map(change.items.map((item) => [item.id, item.preview]));
+      if (!feed.items.some((item) => previews.has(item.id))) return feed;
+      return { ...feed, items: feed.items.map((item) => (previews.has(item.id) ? { ...item, preview: previews.get(item.id)! } : item)) };
     }
   }
 }

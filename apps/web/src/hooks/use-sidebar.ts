@@ -221,6 +221,7 @@ export function useSidebar(
         case "activity.added":
         case "activity.marked":
         case "activity.removed":
+        case "activity.updated":
           return activity(frame);
       }
     };

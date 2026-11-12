@@ -174,6 +174,30 @@ describe("Activity", () => {
     expect((await activityOf(grace)).items).toEqual([]);
   });
 
+  it("has everyone's items about an edited message say what it says now, telling their tabs, keeping nothing edited out", async () => {
+    const room = await freshRoom("editing");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await connect(room, "Grace", { visible: false });
+    const tab = await openWorkspaceSocket(grace.session);
+    const message = await post(ada, `${mention(grace.me)} my password is hunter2`);
+    await heardActivity(tab, room);
+    grace.send({ type: "boost.create", messageId: message.id, content: "🙈" });
+    await grace.next("boost.created");
+    await sleep(50);
+
+    ada.send({ type: "message.update", messageId: message.id, body: `${mention(grace.me)} (redacted)` });
+    await ada.next("message.updated");
+    await sleep(50);
+    const [updated] = await heardActivity(tab);
+    expect(updated).toEqual({ type: "activity.updated", items: [item({ kind: "mention", messageId: message.id, preview: expect.stringContaining("(redacted)") })] });
+    const [mentioned] = (await activityOf(grace.session)).items;
+    expect(mentioned!.preview).toContain("(redacted)");
+    expect(mentioned!.preview).not.toContain("hunter2");
+    // The author's reaction items say it too, and nobody's still holds the old text.
+    expect((await activityOf(ada.session)).items).toEqual([item({ kind: "reaction", preview: expect.stringContaining("(redacted)") })]);
+    expect(await workspaceSql("SELECT id FROM activity WHERE preview LIKE '%hunter2%'")).toEqual([]);
+  });
+
   it("records an invitation for whoever's added to a private room, but not its creator", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const tab = await openWorkspaceSocket(grace);

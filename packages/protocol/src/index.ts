@@ -1770,11 +1770,13 @@ export type WorkspaceServerFrame =
   | { type: "activity.marked"; ids: number[] | null; read: boolean }
   /** Items gone from their Activity, as a reaction taken back or a message deleted takes them. */
   | { type: "activity.removed"; ids: number[] }
+  /** Items of their Activity that say what an edited message says now. */
+  | { type: "activity.updated"; items: ActivityItem[] }
   | { type: "error"; message: string }
   | { type: "pong" };
 
 /** What the workspace socket says of someone's Activity. */
-export type ActivityFrame = Extract<WorkspaceServerFrame, { type: "activity.added" | "activity.marked" | "activity.removed" }>;
+export type ActivityFrame = Extract<WorkspaceServerFrame, { type: "activity.added" | "activity.marked" | "activity.removed" | "activity.updated" }>;
 
 /**
  * The revision of the room protocol the app speaks, which its room sockets' addresses name. The room

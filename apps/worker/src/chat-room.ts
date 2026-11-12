@@ -1112,6 +1112,8 @@ export class ChatRoom extends DurableObject<Env> {
     if (body.html === message.body && JSON.stringify(body.cards) === JSON.stringify(message.cards)) return message;
     const { message: edited, seq } = await store.updateBody(message, body, now);
     this.broadcast({ type: "message.updated", message: edited, seq });
+    // People's Activity says what it says now, so nothing edited out of it stays there.
+    this.ctx.waitUntil(workspace(this.env).messageEdited(store.roomId, edited.id, edited.plainText).catch(() => {}));
     this.couriersFor(store.roomId).index.deliver();
     return edited;
   }

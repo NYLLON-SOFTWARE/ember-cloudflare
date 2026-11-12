@@ -3809,6 +3809,14 @@ export class Workspace extends DurableObject<Env> {
     this.tellOfRemovedActivity(await this.activity.removeReaction(messageId, reactorId, content));
   }
 
+  /**
+   * Has everyone's Activity say what message `messageId` in room `roomId` says now, `plainText`, as the
+   * room asks once it's edited, so that nothing edited out of it stays there, telling each of them.
+   */
+  async messageEdited(roomId: RoomId, messageId: string, plainText: string): Promise<void> {
+    for (const [userId, items] of await this.activity.editMessage(roomId, messageId, plainText)) this.tell([userId], { type: "activity.updated", items });
+  }
+
   /** Takes out of everyone's Activity the items about message `messageId` in room `roomId`, as the room asks once it's deleted. */
   async messageDeleted(roomId: RoomId, messageId: string): Promise<void> {
     this.tellOfRemovedActivity(await this.activity.removeMessage(roomId, messageId));

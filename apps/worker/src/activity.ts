@@ -164,6 +164,9 @@ const RECORD_REACTION = `INSERT INTO activity (user_id, kind, room_id, message_i
 /** Removes the item for reaction ?3 by ?2 to message ?1, answering it. */
 const REMOVE_REACTION = `DELETE FROM activity WHERE message_id = ?1 AND kind = 'reaction' AND actor_id = ?2 AND content = ?3 RETURNING user_id, id`;
 
+/** Gives every item about message ?1 in room ?2 its text's start as it is now, ?3, answering those it changed. */
+const EDIT_MESSAGE = `UPDATE activity SET preview = ?3 WHERE message_id = ?1 AND room_id = ?2 AND preview IS NOT ?3 RETURNING user_id, ${COLUMNS}`;
+
 /** Removes every item about message ?1 in room ?2, answering them. */
 const REMOVE_MESSAGE = `DELETE FROM activity WHERE message_id = ?1 AND room_id = ?2 RETURNING user_id, id`;
 
@@ -210,6 +213,11 @@ export class ActivityStore {
 
   async removeReaction(messageId: string, reactorId: UserId, content: string): Promise<RemovedItems> {
     return removedItems(await this.db.all(REMOVE_REACTION, messageId, reactorId, content));
+  }
+
+  /** Has the items about message `messageId` in room `roomId` say what it says now, `plainText`, answering those it changed. */
+  async editMessage(roomId: RoomId, messageId: string, plainText: string): Promise<RecordedItems> {
+    return recordedItems(await this.db.all<RecordedRow>(EDIT_MESSAGE, messageId, roomId, previewOf(plainText)));
   }
 
   async removeMessage(roomId: RoomId, messageId: string): Promise<RemovedItems> {
