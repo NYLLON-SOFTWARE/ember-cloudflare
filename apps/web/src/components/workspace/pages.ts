@@ -20,4 +20,4 @@ export { WorkspaceSettingsPage } from "./workspace-settings-page";
 export { DraftsPage } from "./drafts-page";
 export { PeoplePage } from "./people-page";
 export { ThreadsPage } from "./threads-page";
-export { DirectsHome, DirectsPane } from "./directs-pane";
+export { DirectsColumn, DirectsHome } from "./directs-pane";

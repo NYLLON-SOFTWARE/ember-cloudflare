@@ -9,9 +9,9 @@ import { OpenSearchContext } from "./search-box";
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };
 
-/** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's. */
-const railAt = (current: RailPage, activity = activityOff, me = ada, newRelease: string | null = null) => (
-  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} newRelease={newRelease} />
+/** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's and `directsUnread` DMs unread. */
+const railAt = (current: RailPage, activity = activityOff, me = ada, newRelease: string | null = null, directsUnread = 0) => (
+  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} directsUnread={directsUnread} newRelease={newRelease} />
 );
 
 afterEach(() => history.replaceState(null, "", "/"));
@@ -157,6 +157,23 @@ describe("DMs page", () => {
     rerender(railAt("room"));
     expect(screen.getByRole("link", { name: "DMs" })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("counts the DMs marked unread in a pill at its corner, as Activity's, up to 9+, hidden at none", () => {
+    const { rerender } = render(railAt("room", activityOff, ada, null, 2));
+    const dms = screen.getByRole("link", { name: "DMs" });
+    expect(dms).toHaveAccessibleDescription("2 unread");
+    const pill = within(dms).getByText("2");
+    expect(pill).toHaveAttribute("aria-hidden", "true");
+    expect(pill).toHaveClass("absolute", "h-[17px]", "min-w-[17px]", "border-2", "border-surface", "bg-foreground", "text-[10px]", "text-background");
+
+    rerender(railAt("room", activityOff, ada, null, 12));
+    expect(dms).toHaveAccessibleDescription("9+ unread");
+    expect(within(dms).getByText("9+")).toBeInTheDocument();
+
+    rerender(railAt("room", activityOff, ada, null, 0));
+    expect(dms).not.toHaveAttribute("aria-description");
+    expect(dms).toHaveTextContent(/^DMs$/);
   });
 });
 

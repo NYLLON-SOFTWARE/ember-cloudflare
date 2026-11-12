@@ -153,8 +153,8 @@ const roomHeading = () => screen.findByRole("heading", { level: 1 });
 /** The rooms in the sidebar, in order. */
 /** The sidebar's rooms by name, with a ★ after each starred one. */
 const sidebarRooms = () =>
-  within(screen.getByRole("complementary", { name: "Conversations" })).getAllByRole("region", { name: /^(Starred|Rooms)$/ }).flatMap((region) => within(region).getAllByRole("link"))
-    .map((link) => link.textContent!.replace(/^#/, "") + (within(link).queryByRole("img", { name: "Favorite" }) ? "★" : ""));
+  within(screen.getByRole("complementary", { name: "Conversations" })).getAllByRole("region", { name: /^(Starred|Rooms)$/ }).flatMap((region) => within(region).queryAllByRole("link").map((link) => [link, region] as const))
+    .map(([link, region]) => link.textContent!.replace(/^#/, "") + (within(region).queryByRole("button", { name: "Starred" }) ? "★" : ""));
 /** The rail's links for the page shown, if any. */
 const railCurrent = () =>
   within(screen.getByRole("navigation", { name: "Workspace" }))
@@ -631,7 +631,8 @@ describe("DMs page", () => {
     expect(location.pathname).toBe("/dms");
     expect(screen.getByRole("link", { name: "DMs" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Home" })).not.toHaveAttribute("aria-current");
-    expect(screen.getByRole("heading", { level: 1, name: "Your direct messages" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Direct messages" })).toBeInTheDocument();
+    expect(screen.getByText(/^\d+ conversations?/)).toBeInTheDocument();
     expect(await within(dmsList()).findByText("You: see you at noon")).toBeInTheDocument();
 
     await user.click(within(dmsList()).getByRole("link", { name: "Direct message with Grace" }));
@@ -1351,8 +1352,8 @@ describe("Activity filter", () => {
   const activity = () => screen.getByRole("button", { name: "Activity" });
   // The sidebar's rooms, which workspace settings has a section named for too.
   const sidebarRooms = () =>
-    within(screen.getByRole("complementary", { name: "Conversations" })).getAllByRole("region", { name: /^(Starred|Rooms)$/ }).flatMap((region) => within(region).getAllByRole("link"))
-      .map((link) => link.textContent!.replace(/^#/, "") + (within(link).queryByRole("img", { name: "Favorite" }) ? "★" : ""));
+    within(screen.getByRole("complementary", { name: "Conversations" })).getAllByRole("region", { name: /^(Starred|Rooms)$/ }).flatMap((region) => within(region).queryAllByRole("link").map((link) => [link, region] as const))
+      .map(([link, region]) => link.textContent!.replace(/^#/, "") + (within(region).queryByRole("button", { name: "Starred" }) ? "★" : ""));
   const roomLink = (name: RegExp) => within(screen.getByRole("complementary", { name: "Conversations" })).getByRole("link", { name });
 
   /** A workspace socket that welcomes Ada, then says random has been marked unread for her. */
@@ -1595,7 +1596,7 @@ describe("Live sidebar updates", () => {
 
 describe("Star rooms", () => {
   const design: Room = { id: "design", name: "Design", kind: "open", icon: null };
-  const star = () => screen.getByRole("button", { name: "Favorite room" });
+  const star = () => screen.getByRole("button", { name: "Star room" });
 
   it("lists your starred rooms first, and stars the room shown from its header, moving it up", async () => {
     const answered = { rooms: ["random", "design"], version: 2 };
@@ -1620,7 +1621,7 @@ describe("Star rooms", () => {
 
     await user.click(star());
     expect(star().nextElementSibling).toHaveRole("status");
-    expect(star().nextElementSibling).toHaveTextContent("Couldn’t save your favorite. Please try again.");
+    expect(star().nextElementSibling).toHaveTextContent("Couldn’t save your star. Please try again.");
     expect(star()).toHaveAttribute("aria-pressed", "false");
     expect(sidebarRooms()).toEqual(["general", "random"]);
   });

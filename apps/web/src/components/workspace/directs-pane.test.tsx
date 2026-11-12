@@ -5,7 +5,7 @@ import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
 import { guardLeaving } from "@/hooks/use-route";
-import { DirectsPane } from "./directs-pane";
+import { DirectsPane, DirectsTitleContext, directsSummary } from "./directs-pane";
 
 type Props = ComponentProps<typeof DirectsPane>;
 
@@ -70,6 +70,9 @@ describe("DMs page", () => {
     renderPane();
     expect(screen.getByRole("heading", { level: 2, name: "Direct messages" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Unreads" })).not.toBeChecked();
+    // The 14px switch, after a semibold label in ink, as Activity's.
+    expect(screen.getByRole("switch", { name: "Unreads" })).toHaveClass("text-[14px]");
+    expect(screen.getByText("Unreads", { selector: "label" })).toHaveClass("text-[13px]", "font-semibold", "text-foreground");
     expect(screen.getByRole("link", { name: "New direct message" })).toHaveAttribute("href", "/rooms/directs/new");
     expect(screen.getByRole("searchbox", { name: "Find a DM" })).toHaveAttribute("placeholder", "Find a DM…");
   });
@@ -83,14 +86,37 @@ describe("DMs page", () => {
     expect(directRows()[2]).toHaveAccessibleName("Direct message with Ada (you)");
   });
 
-  it("shows the other person's avatar at 36px, or up to four of a group's", () => {
-    renderPane({ rooms: [direct("d1", [ada!, grace!], false, at(2)), direct("d2", [ada!, grace!, linus!, alan!, edsger!, barbara!], false, at(1))] });
-    const [one, group] = directRows();
+  it("shows the other person's avatar at 36px, two people's overlapped, or up to four of a group's filling the square", () => {
+    renderPane({
+      rooms: [direct("d1", [ada!, grace!], false, at(3)), direct("d2", [ada!, grace!, linus!], false, at(2)), direct("d3", [ada!, grace!, linus!, alan!, edsger!, barbara!], false, at(1))],
+      currentRoomId: "d2",
+    });
+    const [one, pair, group] = directRows();
     expect([...one!.querySelectorAll("img")].map((img) => img.getAttribute("class"))).toEqual([expect.stringContaining("size-9")]);
+
+    // The second in front, at the bottom right, ringed in the row's color, as Slack draws two.
+    const [back, front] = [...pair!.querySelectorAll("img")];
+    expect(back!.parentElement).toHaveAttribute("aria-hidden", "true");
+    expect(back!.parentElement).toHaveClass("relative", "size-9");
+    expect(back).toHaveClass("absolute", "top-0", "left-0", "size-6");
+    expect(front).toHaveClass("absolute", "right-0", "bottom-0", "size-6", "ring-2", "ring-surface", "group-hover/row:ring-hover", "group-aria-[current=page]/row:ring-hover");
+    expect(pair).toHaveClass("group/row");
+
     const faces = [...group!.querySelectorAll("img")];
     expect(faces).toHaveLength(4);
-    expect(faces[0]!.parentElement).toHaveAttribute("aria-hidden", "true");
-    expect(faces[0]!.parentElement).toHaveClass("size-9", "grid-cols-2");
+    expect(faces[0]!.parentElement).toHaveClass("size-9", "grid-cols-2", "grid-rows-2");
+    expect(faces[0]!.parentElement).not.toHaveClass("place-content-center");
+    expect(faces[0]).toHaveClass("size-full");
+  });
+
+  it("rings a row the keyboard's on inside its edges, which the list would clip", () => {
+    renderPane({ rooms: [direct("d1", [ada!, grace!])] });
+    expect(directRows()[0]).toHaveClass("outline-none", "focus-visible:ring-2", "focus-visible:ring-inset", "focus-visible:ring-ring");
+  });
+
+  it("shows one line of a DM's latest message beside the page, and two on phones", () => {
+    renderPane({ rooms: [direct("d1", [ada!, grace!])], previews: new Map([["d1", { roomId: "d1", latest: message("d1", grace!, "hello"), unread: 0 }]]) });
+    expect(within(directRows()[0]!).getByText("hello")).toHaveClass("line-clamp-2", "md:line-clamp-1");
   });
 
   it("badges a DM with an AI agent alone after its name, but not a group DM it's in, nor one with another bot", () => {
@@ -159,7 +185,8 @@ describe("DMs page", () => {
     expect(screen.getByRole("switch", { name: "Unreads" })).toBeChecked();
     expect(directRows()).toHaveLength(1);
     rerender({ unreadOnly: true, currentRoomId: "d1" });
-    expect(screen.getByText("You’re all caught up. No unread direct messages.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "You’re all caught up" })).toBeInTheDocument();
+    expect(screen.queryByText("No unread direct messages.")).not.toBeInTheDocument();
   });
 
   it("finds DMs by anyone's name in them, whatever its case", async () => {
@@ -169,7 +196,22 @@ describe("DMs page", () => {
     await userEvent.clear(screen.getByRole("searchbox", { name: "Find a DM" }));
     await userEvent.type(screen.getByRole("searchbox", { name: "Find a DM" }), "nobody");
     expect(directRows()).toEqual([]);
-    expect(screen.getByText("No DMs with anyone by that name.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "No matches" })).toBeInTheDocument();
+    expect(screen.queryByText("No DMs with anyone by that name.")).not.toBeInTheDocument();
+  });
+
+  it("clears Find a DM… with a button of its own, drawn in place of the browser's, which shows only while something's typed", async () => {
+    renderPane({ rooms: [direct("d1", [ada!, grace!], false, at(2)), direct("d2", [ada!, linus!], false, at(1))] });
+    const find = screen.getByRole("searchbox", { name: "Find a DM" });
+    expect(find).toHaveClass("[&::-webkit-search-cancel-button]:appearance-none");
+    expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument();
+    await userEvent.type(find, "lin");
+    expect(directRows()).toHaveLength(1);
+    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(find).toHaveValue("");
+    expect(find).toHaveFocus();
+    expect(directRows()).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument();
   });
 
   it("leaves out the DMs you've hidden", () => {
@@ -189,11 +231,65 @@ describe("DMs page", () => {
 
   it("says there are no DMs once the list has come with none, nor anyone to suggest", () => {
     const { rerender } = renderPane({ loaded: false });
-    expect(screen.queryByText("No direct messages yet.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "No direct messages yet" })).not.toBeInTheDocument();
     rerender({ loaded: true });
-    expect(screen.getByText("No direct messages yet.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "No direct messages yet" })).toBeInTheDocument();
     rerender({ suggestions: [grace!] });
-    expect(screen.queryByText("No direct messages yet.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "No direct messages yet" })).not.toBeInTheDocument();
+  });
+});
+
+describe("DMs page, minimally", () => {
+  it("offers All and Unreads as chips on phones, 44px tall, which show the same as the switch beside the page", async () => {
+    renderPane({ rooms: [direct("d1", [ada!, grace!], true, at(2)), direct("d2", [ada!, linus!], false, at(1))] });
+    const chips = screen.getByRole("group", { name: "Show" });
+    expect(chips).toHaveClass("md:hidden");
+    expect(screen.getByRole("switch", { name: "Unreads" }).closest(".max-md\\:hidden")).toBeInTheDocument();
+    const [all, unreads] = within(chips).getAllByRole("button");
+    expect(all).toHaveAccessibleName("All");
+    expect(all).toHaveAttribute("aria-pressed", "true");
+    expect(unreads).toHaveClass("min-h-11");
+    await userEvent.click(unreads!);
+    expect(unreads).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("switch", { name: "Unreads" })).toBeChecked();
+    expect(directRows()).toHaveLength(1);
+    await userEvent.click(all!);
+    expect(directRows()).toHaveLength(2);
+  });
+
+  it("leaves its title to screen readers where the page around it already has one", () => {
+    render(
+      <DirectsTitleContext value={false}>
+        <DirectsPane meId={ada!.id} rooms={[]} loaded previews={new Map()} suggestions={[]} currentRoomId={null} unreadOnly={false} onSelect={vi.fn()} onNewDirect={vi.fn()} onStartDirect={vi.fn(async () => true)} />
+      </DirectsTitleContext>,
+    );
+    expect(screen.getByRole("heading", { level: 2, name: "Direct messages" })).toHaveClass("sr-only");
+  });
+
+  it("centers a DM's name beside its avatar while nothing's been said in it, with no empty line under it", () => {
+    renderPane({ rooms: [direct("d1", [ada!, grace!], false, at(2)), direct("d2", [ada!, linus!], false, at(1))], previews: new Map([["d1", { roomId: "d1", latest: message("d1", grace!, "hi"), unread: 0 }]]) });
+    const [said, quiet] = directRows();
+    expect(said).toHaveClass("items-start", "min-h-[72px]");
+    expect(quiet).toHaveClass("items-center", "min-h-[72px]");
+    expect(quiet!.querySelector(".line-clamp-2")).toBeNull();
+  });
+
+  it("draws no rules between DMs", () => {
+    renderPane({ rooms: [direct("d1", [ada!, grace!], false, at(2)), direct("d2", [ada!, linus!], false, at(1))] });
+    for (const row of directRows()) expect(row.closest("li")).not.toHaveClass("border-b");
+  });
+
+  it("starts a suggestion's name where a DM's name starts, its avatar centered where theirs is", () => {
+    renderPane({ rooms: [direct("d1", [ada!, grace!])], suggestions: [alan!] });
+    const [suggestion] = suggestionRows();
+    expect(suggestion).toHaveClass("px-[18px]", "gap-3");
+    expect(directRows()[0]).toHaveClass("px-[18px]", "gap-3");
+    expect(suggestion!.querySelector("img")!.parentElement).toHaveClass("w-9", "justify-center");
+  });
+
+  it("sums up the DMs with none open: how many, and how many are unread", () => {
+    expect(directsSummary(1, 0)).toBe("1 conversation");
+    expect(directsSummary(3, 1)).toBe("3 conversations · 1 unread");
   });
 });
 

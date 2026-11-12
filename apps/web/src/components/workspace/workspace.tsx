@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useAccount } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
-import { useDirectPreviews } from "@/hooks/use-direct-previews";
 import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
+import { useDraftCount } from "@/hooks/use-draft-count";
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
@@ -21,7 +21,7 @@ import { lastChannelVisited, lastRoomVisited, rememberLastChannel } from "@/lib/
 import { takeMemberfulFlash } from "@/lib/memberful";
 import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
-import { markedUnread } from "@/lib/room-list";
+import { apart, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { afterNavigating, dmPath, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, type Route } from "@/hooks/use-route";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
@@ -639,17 +639,24 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // A DM, and its settings, show beside the DMs page's list, as the DMs page does, and the rail marks DMs
   // for them; any other page shows beside Home's, which goes back to the last room it showed.
   const directsShown = route.page === "dms" || route.page === "direct-settings" || room?.kind === "direct";
-  const previews = useDirectPreviews(rooms, directsShown, () => onSessionChanged(null));
   const channelShown = room && room.kind !== "direct" ? room.id : null;
   useEffect(() => {
     if (channelShown !== null) rememberLastChannel(channelShown);
   }, [channelShown]);
+  // How many DMs there are, but the hidden ones, and how many are unread, which DMs on the rail counts.
+  const directCounts = useMemo(() => {
+    if (rooms === null) return null;
+    const { directs } = apart(rooms);
+    return { conversations: directs.length, unread: directs.filter((r) => markedUnread(r, currentRoomId)).length };
+  }, [rooms, currentRoomId]);
+  const draftCount = useDraftCount(me.id);
   const rail = (
     <Rail
       me={me}
       workspaceName={workspaceName}
       current={room?.kind === "direct" ? "dms" : RAIL_PAGES[route.page]}
       activity={activity}
+      directsUnread={directCounts?.unread ?? 0}
       newRelease={newRelease}
     />
   );
@@ -657,12 +664,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // browser is idle, so it's there by the time DMs is followed; until then its column is blank.
   const directsPane = (
     <RarePage
-      show={({ DirectsPane }) => (
-        <DirectsPane
+      show={({ DirectsColumn }) => (
+        <DirectsColumn
           meId={me.id}
           rooms={rooms ?? NO_ROOMS}
           loaded={rooms !== null}
-          previews={previews}
+          onSignedOut={() => onSessionChanged(null)}
           suggestions={suggestions}
           currentRoomId={currentRoomId}
           unreadOnly={unreadOnly}
@@ -687,6 +694,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       huddles={huddlesOn ? liveHuddles : NO_HUDDLES}
       currentRoomId={currentRoomId}
       currentPage={SIDEBAR_PAGES[route.page] ?? null}
+      draftCount={draftCount}
       unreadOnly={unreadOnly}
       onSelect={select}
       onStarred={starredRooms}
@@ -786,7 +794,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       // The DMs page, with a DM picked there shown as a room's page shows it.
       case "dms":
       default:
-        if (route.page === "dms" && route.roomId === undefined) return rarePage(({ DirectsHome }) => <DirectsHome list={directsPane} />);
+        if (route.page === "dms" && route.roomId === undefined) return rarePage(({ DirectsHome }) => <DirectsHome list={directsPane} counts={directCounts} />);
         if (direct)
           return rarePage(({ DirectSettingsPage }) => (
             <DirectSettingsPage key={direct.id} room={direct} me={me} back={back} askForRoom={askForRoom} onMissing={missing} onFailed={failed} />

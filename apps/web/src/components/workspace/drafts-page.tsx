@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Me, Room, SearchMatch } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
 import { EditPencil, NavArrowRight, Trash } from "@/components/icons/iconoir";
@@ -86,7 +86,7 @@ function Drafts({ me, names }: { me: Me; names: SearchNames }) {
     discardDraft(draft);
     setDrafts((drafts) => drafts.filter((d) => d.key !== draft.key));
   };
-  if (shown.length === 0) return <Nothing title="No drafts">What you write in a room or thread and don’t send waits here.</Nothing>;
+  if (shown.length === 0) return <Nothing title="No drafts" />;
   return (
     <ul className="flex flex-col gap-3">
       {shown.map(({ draft, room, text }) => (
@@ -159,7 +159,7 @@ function Sent({ me, names, onFailed }: { me: Me; names: SearchNames; onFailed: (
     );
   };
   if (!page) return <p className="py-10 text-center text-muted-foreground">Loading…</p>;
-  if (page.matches.length === 0) return <Nothing title="Nothing sent yet">Messages you send show up here.</Nothing>;
+  if (page.matches.length === 0) return <Nothing title="Nothing sent yet" />;
   return (
     <>
       <ol className="flex flex-col gap-3">
@@ -209,13 +209,12 @@ function sentLabel(date: Date): string {
   return day === time ? time : `${day} at ${time}`;
 }
 
-/** What a tab says when it has nothing to list, under a faded pencil. */
-function Nothing({ title, children }: { title: string; children: ReactNode }) {
+/** What a tab says when it has nothing to list, under a faded pencil: its title alone. */
+function Nothing({ title }: { title: string }) {
   return (
     <div className={cn("grid justify-items-center px-6 pt-[8dvh] pb-6 text-center text-muted-foreground")}>
       <EditPencil className="mb-4 h-auto w-16 max-w-[25vw] text-foreground opacity-20" />
-      <h2 className="mb-1.5 text-xl font-bold text-foreground">{title}</h2>
-      <p>{children}</p>
+      <h2 className="text-xl font-bold text-foreground">{title}</h2>
     </div>
   );
 }

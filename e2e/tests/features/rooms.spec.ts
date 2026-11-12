@@ -151,14 +151,14 @@ test.describe("Star rooms", () => {
     const secondTab = await grace.page.context().newPage();
     await secondTab.goto(`/rooms/${rooms.general.id}`);
     const rows = (page: Page) => page.getByRole("region", { name: "Rooms" }).getByRole("link");
-    const star = grace.page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" });
+    const star = grace.page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Star room" });
     await expect.poll(() => rowsWithStars(rows(secondTab))).toEqual(["#general", "#random"]);
-    await expect(star).toHaveAttribute("title", "Add to favorites");
+    await expect(star).toHaveAttribute("title", "Star room");
     await expect(star.locator("svg path")).toHaveCSS("fill", "none");
 
     await star.click();
     await expect(star).toHaveAttribute("aria-pressed", "true");
-    await expect(star).toHaveAttribute("title", "Remove from favorites");
+    await expect(star).toHaveAttribute("title", "Unstar room");
     await expect(star.locator("svg path")).not.toHaveCSS("fill", "none");
     await expect(star).toBeFocused();
     for (const page of [grace.page, secondTab]) {
@@ -169,7 +169,7 @@ test.describe("Star rooms", () => {
     // The server keeps it.
     await secondTab.reload();
     await expect.poll(() => rowsWithStars(rows(secondTab))).toEqual(["#random★", "#general"]);
-    await expect(secondTab.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" })).toHaveAttribute("aria-pressed", "false");
+    await expect(secondTab.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Star room" })).toHaveAttribute("aria-pressed", "false");
 
     await star.click();
     await expect(star).toHaveAttribute("aria-pressed", "false");
@@ -179,10 +179,10 @@ test.describe("Star rooms", () => {
   test("says when a star can't be saved, under the star, and changes nothing", async ({ members, rooms }) => {
     const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
     await grace.page.route("**/api/rooms/*/favorite", (route) => route.fulfill({ status: 503, json: { error: "Workspace unavailable" } }));
-    const star = grace.page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" });
+    const star = grace.page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Star room" });
 
     await star.click();
-    const note = grace.page.getByRole("status").filter({ hasText: "Couldn’t save your favorite. Please try again." });
+    const note = grace.page.getByRole("status").filter({ hasText: "Couldn’t save your star. Please try again." });
     await expect(note).toBeVisible();
     await expect(note).toHaveCSS("width", "200px");
     // From the star's left edge, where there's room for it.

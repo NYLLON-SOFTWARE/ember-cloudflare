@@ -105,18 +105,18 @@ describe("Room header", () => {
 describe("Star rooms", () => {
   it("has a star after the room's name, pressed while it's starred", () => {
     const { unmount } = renderHeader();
-    const star = screen.getByRole("button", { name: "Favorite room" });
+    const star = screen.getByRole("button", { name: "Star room" });
     expect(star).toHaveAttribute("aria-pressed", "false");
     expect(star.compareDocumentPosition(screen.getByRole("heading", { level: 1 })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     unmount();
 
     renderHeader({ favorite: true });
-    expect(screen.getByRole("button", { name: "Favorite room" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Star room" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("has none in a DM, which can't be starred", () => {
     renderHeader({ room: adaDirect, name: "Ada" });
-    expect(screen.queryByRole("button", { name: "Favorite room" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Star room" })).not.toBeInTheDocument();
   });
 });
 

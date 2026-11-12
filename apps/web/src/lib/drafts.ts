@@ -1,4 +1,5 @@
 import type { RoomId, UserId } from "@ember/protocol";
+import { draftPrefixOf as prefixOf } from "./draft-keys";
 
 // The drafts the composer keeps in this browser for each person, of what they've written in a room, or
 // in one of its threads, and not sent (`draftKey` in composer.tsx), for Drafts & sent to list.
@@ -13,8 +14,6 @@ export interface Draft {
   body: string;
 }
 
-/** Where a draft of `userId`'s keys start: `composer-draft-<user id>-`, then the room's id, and `/threads/<id>` for a reply. */
-const prefixOf = (userId: UserId) => `composer-draft-${userId}-`;
 
 /** The draft kept under `key` with `body`, if it's `userId`'s and has something written in it. */
 export function draftOf(userId: UserId, key: string, body: string | null): Draft | null {

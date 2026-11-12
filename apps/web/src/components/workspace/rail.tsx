@@ -3,6 +3,7 @@ import type { Me, NavigationSlot } from "@ember/protocol";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
 import { DMS_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
+import { unreadBadge } from "@/lib/unread-badge";
 import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
 import { NavigationIcon } from "./navigation-icon";
@@ -14,6 +15,10 @@ const RAIL_LINK = cn(
   "hover:bg-hover hover:text-foreground aria-[current=page]:bg-hover aria-[current=page]:text-foreground",
 );
 
+/** The ink pill at a rail item's corner that counts what's unread there, as Activity's does. */
+const COUNT_BADGE =
+  "absolute top-px right-[5px] inline-flex h-[17px] min-w-[17px] items-center justify-center rounded-[12px] border-2 border-surface bg-foreground px-[3px] text-[10px] leading-none font-semibold text-background";
+
 interface RailLinkProps {
   slot: NavigationSlot;
   label: string;
@@ -21,16 +26,28 @@ interface RailLinkProps {
   current: boolean;
   /** What a dot at the icon's corner says is waiting there, said to screen readers as a description. */
   notice?: string;
+  /** How many are unread there, counted in a pill at the icon's corner up to 9+, hidden at none. */
+  unread?: number;
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
 }
 
-/** One of the rail's links, marked when it's the page shown, with a dot in ink when something's waiting there. */
-function RailLink({ slot, label, href, current, notice, onClick }: RailLinkProps) {
+/**
+ * One of the rail's links, marked when it's the page shown, with a dot in ink when something's waiting
+ * there, or a count of what's unread, said to screen readers as a description, as Activity's is.
+ */
+function RailLink({ slot, label, href, current, notice, unread = 0, onClick }: RailLinkProps) {
+  const description = unread > 0 ? `${unreadBadge(unread)} unread` : notice;
   return (
-    <PageLink href={href} aria-current={current ? "page" : undefined} aria-description={notice} onClick={onClick} className={RAIL_LINK}>
+    <PageLink href={href} aria-current={current ? "page" : undefined} aria-description={description} onClick={onClick} className={RAIL_LINK}>
       <NavigationIcon slot={slot} size={22} className="size-[22px]" />
       <span>{label}</span>
-      {notice && <span aria-hidden="true" className="absolute top-[5px] right-[13px] size-[11px] rounded-full border-2 border-surface bg-foreground" />}
+      {unread > 0 ? (
+        <span aria-hidden="true" className={COUNT_BADGE}>
+          {unreadBadge(unread)}
+        </span>
+      ) : (
+        notice && <span aria-hidden="true" className="absolute top-[5px] right-[13px] size-[11px] rounded-full border-2 border-surface bg-foreground" />
+      )}
     </PageLink>
   );
 }
@@ -62,7 +79,7 @@ function ActivityButton({ on, unread, onToggle }: Activity) {
       {unread > 0 && (
         <span
           aria-hidden="true"
-          className="absolute top-px right-[5px] inline-flex h-[17px] min-w-[17px] items-center justify-center rounded-[12px] border-2 border-surface bg-foreground px-[3px] text-[10px] leading-none font-semibold text-background"
+          className={COUNT_BADGE}
         >
           {unread}
         </span>
@@ -84,6 +101,8 @@ interface Props {
   workspaceName: string;
   current: RailPage;
   activity: Activity;
+  /** How many DMs are marked unread, which DMs counts. */
+  directsUnread: number;
   /** The release of Ember out since this one, such as "0.2", which Admin marks for an administrator, or null for none. */
   newRelease: string | null;
 }
@@ -93,7 +112,7 @@ interface Props {
  * else with Iconoir's, as the project's owner chose. Admin has a dot while a newer release of Ember is
  * out, which General, where it goes, tells of.
  */
-export function Rail({ me, workspaceName, current, activity, newRelease }: Props) {
+export function Rail({ me, workspaceName, current, activity, directsUnread, newRelease }: Props) {
   const { logo } = useAccount();
   const openSearch = useContext(OpenSearchContext);
   const marked = activity.on ? null : current;
@@ -118,7 +137,7 @@ export function Rail({ me, workspaceName, current, activity, newRelease }: Props
         )}
       </PageLink>
       <RailLink slot="home" label="Home" href="/" current={marked === "home" || marked === "room"} />
-      <RailLink slot="dms" label="DMs" href={DMS_PATH} current={marked === "dms"} />
+      <RailLink slot="dms" label="DMs" href={DMS_PATH} current={marked === "dms"} unread={directsUnread} />
       <ActivityButton {...activity} />
       {/* Opens the search box in place, for everything. */}
       <RailLink slot="search" label="Search" href={SEARCHES_PATH} current={marked === "search"} onClick={opensSearch(openSearch)} />

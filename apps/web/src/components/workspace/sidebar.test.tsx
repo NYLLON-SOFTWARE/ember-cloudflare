@@ -33,6 +33,7 @@ function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: read
     loaded: true,
     currentRoomId: null,
     currentPage: null,
+    draftCount: 0,
     unreadOnly: false,
     onSelect: vi.fn(),
     onStarred: vi.fn(),
@@ -62,22 +63,13 @@ const row = (name: string) => rows().find((link) => link.textContent === `#${nam
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("Workspace tagline", () => {
-  it("heads the list with the workspace's tagline in small type under its name, and nothing while it has none", () => {
+describe("Workspace name", () => {
+  it("heads the list with the workspace's name alone, leaving out its tagline", () => {
     const tagline = "Engines for every occasion";
-    const { rerender } = renderSidebar({ workspaceName: "Analytical Engines" }, { ...EMBER, tagline });
-    const name = screen.getByRole("heading", { level: 2, name: "Analytical Engines" });
-    // HTML's element for a heading and its tagline, which the drawer's close button stays clear of.
-    const heading = name.closest("hgroup")!;
-    expect(heading).toHaveClass("max-md:pr-10");
-    expect([...heading.children].map((child) => [child.tagName, child.textContent])).toEqual([
-      ["H2", "Analytical Engines"],
-      ["P", tagline],
-    ]);
-    expect(screen.getByText(tagline)).toHaveClass("text-[13px]", "text-muted-foreground");
-
-    rerender({}, EMBER);
-    expect([...heading.children].map((child) => child.tagName)).toEqual(["H2"]);
+    renderSidebar({ workspaceName: "Analytical Engines" }, { ...EMBER, tagline });
+    // Clear of the drawer's close button.
+    expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toHaveClass("max-md:pr-10");
+    expect(screen.queryByText(tagline)).not.toBeInTheDocument();
   });
 });
 
@@ -116,16 +108,34 @@ describe("Room icons", () => {
 });
 
 describe("Unread rooms", () => {
+  it("counts an unread room's messages in a pill in place of its dot, up to 9+, saying how many to screen readers", () => {
+    const { rerender } = renderSidebar({ rooms: [{ ...rooms[0]!, unread: true, unreadCount: 3 }, { ...rooms[1]!, unread: true, unreadCount: 10 }] });
+    const [general, random] = rows();
+    expect(general).toHaveClass("font-bold");
+    expect(general).toHaveAccessibleName("general");
+    expect(general).toHaveAccessibleDescription(`3 unread ${HELP}`);
+    expect(general!.lastElementChild).toHaveTextContent(/^3$/);
+    expect(general!.lastElementChild).toHaveAttribute("aria-hidden", "true");
+    expect(general!.lastElementChild).toHaveClass("ml-auto", "rounded-full", "bg-foreground", "text-background");
+    expect(general!.querySelector(".size-\\[7px\\]")).toBeNull();
+    expect(random!.lastElementChild).toHaveTextContent(/^9\+$/);
+    expect(random).toHaveAccessibleDescription(`9+ unread ${HELP}`);
+
+    // The room the tab shows is never marked, whatever it counted.
+    rerender({ currentRoomId: "general" });
+    expect(row("general").querySelector(".rounded-full")).toBeNull();
+  });
+
   it("makes an unread room's row bold, with a dot, and says so to screen readers", () => {
     renderSidebar({ rooms: [{ ...rooms[0]!, unread: true }, rooms[1]!] });
     const [general, random] = rows();
-    expect(general).toHaveClass("font-[650]");
+    expect(general).toHaveClass("font-bold");
     expect(general).toHaveAccessibleName("general");
     expect(general).toHaveAccessibleDescription(`Unread ${HELP}`);
     expect(general!.lastElementChild).toHaveAttribute("aria-hidden", "true");
     expect(general!.lastElementChild).toHaveClass("ml-auto", "size-[7px]", "rounded-full", "bg-foreground");
 
-    expect(random).not.toHaveClass("font-[650]");
+    expect(random).not.toHaveClass("font-bold");
     expect(random).toHaveAccessibleDescription(HELP);
     expect(random!.querySelector(".rounded-full")).toBeNull();
   });
@@ -133,7 +143,7 @@ describe("Unread rooms", () => {
   it("never marks the room the tab shows", () => {
     renderSidebar({ rooms: [{ ...rooms[0]!, unread: true }, rooms[1]!], currentRoomId: "general" });
     const general = screen.getByRole("link", { current: "page" });
-    expect(general).not.toHaveClass("font-[650]");
+    expect(general).not.toHaveClass("font-bold");
     expect(general).toHaveAccessibleDescription(HELP);
     expect(general.querySelector(".rounded-full")).toBeNull();
   });
@@ -189,31 +199,57 @@ describe("Shared room order", () => {
 });
 
 describe("Star rooms", () => {
-  it("ends a starred room's row with a star, after its unread dot, which screen readers hear as Favorite", () => {
+  it("draws a starred room's row with no star of its own, which Starred already says, nor a grip", () => {
     renderSidebar({ rooms: [rooms[0]!, { ...rooms[1]!, unread: true }], favorites: { rooms: ["general", "random"], version: 2 } });
     const [general, random] = rows();
-    const star = within(general!).getByRole("img", { name: "Favorite" });
-    expect(star).toHaveClass("iconoir-star-solid");
-    // Faded.
-    expect(star).toHaveClass("ml-auto", "size-3.5", "text-muted-foreground/65");
-    expect(general!.lastElementChild).toBe(star);
-    // With no grip before it.
-    expect(star.previousElementSibling).toHaveTextContent(/^general$/);
-    expect([...general!.querySelectorAll("svg")]).toEqual([star]);
+    expect(general!.querySelectorAll("svg")).toHaveLength(0);
+    expect(general!.lastElementChild).toHaveTextContent(/^general$/);
+    expect(within(general!).queryByRole("img")).not.toBeInTheDocument();
+    // An unread one ends with its dot.
+    expect(random!.lastElementChild).toHaveClass("ml-auto", "rounded-full");
+  });
+});
 
-    // The dot takes the space before the star.
-    const [name, dot, marker] = Array.from(random!.children).slice(-3);
-    expect(name).toHaveTextContent(/^random$/);
-    expect(dot).toHaveClass("ml-auto", "rounded-full");
-    expect(marker).toHaveAccessibleName("Favorite");
-    expect(marker).not.toHaveClass("ml-auto");
+describe("Selected room", () => {
+  it("fills the room the tab shows, without making it bold, which only unread rows are", () => {
+    renderSidebar({ currentRoomId: "general" });
+    expect(row("general")).toHaveClass("aria-[current=page]:bg-hover");
+    expect(row("general").className).not.toMatch(/font-semibold|font-bold/);
+  });
+});
+
+describe("Folding sections", () => {
+  beforeEach(() => localStorage.clear());
+  const more = [...rooms, { id: "design", name: "design", kind: "open" as const, icon: null, unread: true, involvement: "mentions" as const }, { id: "ops", name: "ops", kind: "open" as const, icon: null, unread: false, involvement: "mentions" as const }];
+  const stars: Favorites = { rooms: ["general", "ops"], version: 2 };
+
+  it("folds Starred and Rooms under their headings, with a caret before each, leaving the room shown and the unread ones", async () => {
+    renderSidebar({ rooms: more, favorites: stars, currentRoomId: "random" });
+    expect(listed()).toEqual(["#general", "#ops", "#design", "#random"]);
+    const starred = screen.getByRole("button", { name: "Starred" });
+    expect(starred).toHaveAttribute("aria-expanded", "true");
+    expect(starred.closest("h3")).toBeInTheDocument();
+    expect(starred.firstElementChild).toHaveClass("iconoir-nav-arrow-down", "size-3");
+
+    await userEvent.click(starred);
+    expect(starred).toHaveAttribute("aria-expanded", "false");
+    expect(starred.firstElementChild).toHaveClass("-rotate-90");
+    expect(listed()).toEqual(["#design", "#random"]);
+
+    await userEvent.click(screen.getByRole("button", { name: "Rooms" }));
+    expect(listed()).toEqual(["#design", "#random"]);
+    await userEvent.click(starred);
+    expect(listed()).toEqual(["#general", "#ops", "#design", "#random"]);
   });
 
-  it("leaves the other rows without one", () => {
-    renderSidebar({ favorites: { rooms: ["random"], version: 1 }, currentRoomId: "general" });
-    expect(within(row("general")).queryByRole("img")).not.toBeInTheDocument();
-    expect(row("general").querySelector("svg")).toBeNull();
-    expect(within(row("random")).getByRole("img", { name: "Favorite" })).toBeInTheDocument();
+  it("remembers in this browser which sections are folded", async () => {
+    const { unmount } = renderSidebar({ rooms: more, favorites: stars });
+    await userEvent.click(screen.getByRole("button", { name: "Rooms" }));
+    unmount();
+    renderSidebar({ rooms: more, favorites: stars });
+    expect(screen.getByRole("button", { name: "Rooms" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "Starred" })).toHaveAttribute("aria-expanded", "true");
+    expect(listed()).toEqual(["#general", "#ops", "#design"]);
   });
 });
 
@@ -574,6 +610,17 @@ describe("Home sidebar", () => {
     expect(listed()).toEqual(["#general", "#random"]);
     expect(screen.queryByRole("link", { name: /Direct message with/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "DMs" })).not.toBeInTheDocument();
+  });
+
+  it("counts the drafts at the end of Drafts & sent, and nothing at none", () => {
+    const { rerender } = renderSidebar({ draftCount: 3 });
+    const drafts = screen.getByRole("link", { name: "Drafts & sent" });
+    expect(drafts).toHaveAccessibleDescription("3 drafts");
+    expect(drafts.lastElementChild).toHaveTextContent("3");
+    expect(drafts.lastElementChild).toHaveAttribute("aria-hidden", "true");
+    rerender({ draftCount: 0 });
+    expect(drafts).toHaveTextContent(/^Drafts & sent$/);
+    expect(drafts).not.toHaveAttribute("aria-description");
   });
 
   it("links to Threads, Drafts & sent and People above the rooms, marking the one shown", () => {

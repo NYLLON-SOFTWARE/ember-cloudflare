@@ -11,6 +11,10 @@ export const PREVIEW_DELAY_MS = 700;
 
 const NO_PREVIEWS: ReadonlyMap<RoomId, DirectPreview> = new Map();
 
+// The previews last answered, which the DMs list starts from when it's shown again, rather than a moment
+// without them until the next answer.
+let kept = NO_PREVIEWS;
+
 /** What changes `rooms`' DMs' previews: each one's activity, and its mark. */
 const activityOf = (rooms: readonly SidebarRoom[]) =>
   rooms.flatMap((room) => (room.kind === "direct" ? [`${room.id}:${room.activeAt}:${room.unread ? (room.unreadSince ?? "") : "read"}`] : [])).join(" ");
@@ -18,10 +22,11 @@ const activityOf = (rooms: readonly SidebarRoom[]) =>
 /**
  * Each of `rooms`' DMs' latest message and how many are unread, by room, asked for once `enabled` and the
  * rooms have come, and again a moment after any DM is active or marked read or unread. Until the first
- * answer comes, and if one fails, the DMs show without them; `onSignedOut` hears of a session that has ended.
+ * answer comes the DMs show with the last ones answered, if any, and if one fails, with what they had;
+ * `onSignedOut` hears of a session that has ended.
  */
 export function useDirectPreviews(rooms: readonly SidebarRoom[] | null, enabled: boolean, onSignedOut: () => void): ReadonlyMap<RoomId, DirectPreview> {
-  const [previews, setPreviews] = useState(NO_PREVIEWS);
+  const [previews, setPreviews] = useState(kept);
   const activity = useMemo(() => (rooms === null ? null : activityOf(rooms)), [rooms]);
   const signedOut = useEffectEvent(onSignedOut);
   useEffect(() => {
@@ -29,7 +34,11 @@ export function useDirectPreviews(rooms: readonly SidebarRoom[] | null, enabled:
     let stopped = false;
     const ask = setTimeout(() => {
       fetchDirectPreviews().then(
-        ({ previews }) => !stopped && setPreviews(new Map(previews.map((preview) => [preview.roomId, preview]))),
+        ({ previews }) => {
+          if (stopped) return;
+          kept = new Map(previews.map((preview) => [preview.roomId, preview]));
+          setPreviews(kept);
+        },
         (error: unknown) => !stopped && isSignedOut(error) && signedOut(),
       );
     }, PREVIEW_DELAY_MS);
