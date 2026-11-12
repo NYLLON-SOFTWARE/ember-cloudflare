@@ -53,9 +53,9 @@ const files: LibraryFile[] = [
 ];
 
 /** Answers the page's requests: the files, and marks as they're sent. */
-function serve() {
+function serve(listed: LibraryFile[] = files) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
-    if (String(url) === "/api/files") return Response.json({ files, links: [] } satisfies Library);
+    if (String(url) === "/api/files") return Response.json({ files: listed, links: [] } satisfies Library);
     const sent = JSON.parse(String(init?.body)) as { starred?: boolean };
     return Response.json({ starred: sent.starred ?? false, viewedAt: null });
   });
@@ -88,7 +88,7 @@ describe("Files page", () => {
     await waitFor(() => expect(rows()).toEqual(["Budget.csv", "Moon landing.jpg", "Launch notes"]));
     expect(screen.getByRole("link", { name: "Budget.csv" })).toHaveAttribute("href", "/files/k1/sig/Budget.csv");
     expect(screen.getByRole("link", { name: "Launch notes" })).toHaveAttribute("href", "/rooms/general?tab=t1");
-    expect(screen.getAllByText("Grace Hopper")[0]).toBeInTheDocument();
+    expect(screen.getByText(/^Grace Hopper · # general · /)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Created by you" }));
     expect(rows()).toEqual(["Moon landing.jpg", "Launch notes"]);
@@ -141,7 +141,9 @@ describe("Files page", () => {
     await userEvent.keyboard("{Escape}");
     await userEvent.click(screen.getByRole("button", { name: "Shared with you" }));
     await userEvent.click(screen.getByRole("button", { name: "Filters" }));
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Date" }), "today");
+    await userEvent.click(screen.getByRole("button", { name: "Date Any time" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Today" }));
+    expect(screen.getByRole("button", { name: "Date Today" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Done" }));
     await userEvent.type(screen.getByRole("searchbox", { name: "Search files" }), "a");
     expect(screen.getByRole("button", { name: "Filters, 1 on" })).toBeInTheDocument();
@@ -154,5 +156,24 @@ describe("Files page", () => {
     expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("searchbox", { name: "Search files" })).toHaveValue("a");
     expect(rows()).toEqual(["Moon landing.jpg", "Launch notes"]);
+  });
+
+  it("says whose files there aren't yet with nothing searched for, and that nothing matches a search", async () => {
+    serve(files.filter((file) => file.owner.id !== ada.id));
+    renderPage();
+    await waitFor(() => expect(rows()).toEqual(["Budget.csv"]));
+    await userEvent.click(screen.getByRole("button", { name: "Created by you" }));
+    expect(screen.getByRole("heading", { name: "You haven’t shared any files yet" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "All" }));
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search files" }), "zebra");
+    expect(screen.getByRole("heading", { name: "No matches" })).toBeInTheDocument();
+  });
+
+  it("shows a picture's own thumbnail in its row", async () => {
+    serve();
+    renderPage();
+    await waitFor(() => expect(rows()).toHaveLength(3));
+    const moon = within(screen.getByRole("list", { name: "All files" })).getByRole("link", { name: "Moon landing.jpg" }).closest("li")!;
+    expect(moon.querySelector("img")).toHaveAttribute("src", "/files/k2/sig/Moon landing.jpg");
   });
 });

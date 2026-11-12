@@ -1,13 +1,13 @@
 import { useCallback, useMemo, useState } from "react";
 import type { FilesPlace, Me, Room } from "@ember/protocol";
-import { listFiles, NO_FILE_FILTERS, type FileFilters, type FileOwner, type FileSort, type LibraryFile } from "@ember/protocol/library";
+import { filtersOn, listFiles, NO_FILE_FILTERS, type FileFilters, type FileOwner, type FileSort, type LibraryFile } from "@ember/protocol/library";
 import { MainContent } from "@/components/main-content";
 import { fileOpened, starFile, useFiles } from "@/hooks/use-files";
 import { useTitle } from "@/hooks/use-title";
 import { cn } from "@/lib/utils";
-import { FileRow, FileSearch, FilterButton, FilterDialog, NothingHere, SortMenu, TypesMenu } from "./file-list";
+import { CONTROLS_ROW, FileRow, FileSearch, FilterButton, FilterDialog, LIST_CHIPS, NothingHere, SortMenu, TypesMenu } from "./file-list";
 import { PageHeader } from "./page-header";
-import { Chip, CHIPS_ROW, useSearchNames } from "./search-box";
+import { Chip, useSearchNames } from "./search-box";
 
 /** What each place on the Files page is called. */
 export const PLACE_TITLES: Record<FilesPlace, string> = { all: "All files", canvases: "Canvases", starred: "Starred" };
@@ -24,6 +24,15 @@ interface Props {
   /** The rooms the sidebar lists, which name each file's conversation and which "In" offers. */
   rooms: readonly Room[];
   onFailed: (error: unknown) => void;
+}
+
+/** What an empty list says: that nothing matches what's searched for, or else what there's none of yet. */
+function emptyTitle(place: FilesPlace, filters: FileFilters, files: LibraryFile[]): string {
+  if (filters.q.trim() !== "" || filters.types.length > 0 || filtersOn(filters) > 0) return "No matches";
+  if (place === "starred") return "No starred files";
+  if (filters.owner === "mine") return place === "canvases" ? "You haven’t made any canvases yet" : "You haven’t shared any files yet";
+  if (filters.owner === "shared") return place === "canvases" ? "Nobody has shared a canvas with you yet" : "Nobody has shared a file with you yet";
+  return files.length === 0 || place !== "canvases" ? "No files yet" : "No canvases yet";
 }
 
 /**
@@ -53,10 +62,10 @@ export function FilesPage({ me, place, rooms, onFailed }: Props) {
         aria-busy={files === null && !failed ? true : undefined}
         className="relative flex min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]"
       >
-        <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-3 px-[22px] pt-5 pb-[max(18px,env(safe-area-inset-bottom))] max-md:px-3 max-md:pt-3">
+        <div className="flex w-full max-w-[1040px] flex-col gap-3 px-[22px] pt-5 pb-[max(18px,env(safe-area-inset-bottom))] narrow:px-[18px] max-md:px-3 max-md:pt-3">
           <FileSearch value={filters.q} onChange={(q) => setFilters({ ...filters, q })} label={place === "canvases" ? "Search canvases" : "Search files"} />
-          <div className="flex items-start gap-2 max-md:flex-col max-md:items-stretch">
-            <div role="group" aria-label="Whose files" className={cn("flex min-w-0 flex-1 gap-2", CHIPS_ROW, "max-md:pl-0")}>
+          <div className={CONTROLS_ROW}>
+            <div role="group" aria-label="Whose files" className={LIST_CHIPS}>
               {OWNERS.map(({ owner, label }) => (
                 <Chip key={owner} pressed={filters.owner === owner} onClick={() => setFilters({ ...filters, owner })}>
                   {label}
@@ -84,11 +93,11 @@ export function FilesPage({ me, place, rooms, onFailed }: Props) {
               <NothingHere title="Files couldn’t load" />
             ) : null
           ) : shown.length === 0 ? (
-            <NothingHere title={place === "starred" && files!.every((file) => !file.starred) ? "No starred files" : files!.length === 0 ? "No files" : "No matches"} />
+            <NothingHere title={emptyTitle(place, filters, files!)} />
           ) : (
-            <ul aria-label={PLACE_TITLES[place]} className="flex flex-col">
+            <ul aria-label={PLACE_TITLES[place]} className="-mx-3 flex flex-col">
               {shown.map((file) => (
-                <FileRow key={file.id} file={file} room={roomsById.get(file.roomId) ?? null} names={names} showRoom onOpened={fileOpened} onStar={star} />
+                <FileRow key={file.id} file={file} room={roomsById.get(file.roomId) ?? null} names={names} showRoom sort={sort} onOpened={fileOpened} onStar={star} />
               ))}
             </ul>
           )}

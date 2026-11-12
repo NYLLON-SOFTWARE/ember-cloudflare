@@ -33,8 +33,8 @@ import { addFolderItem, addTab, fetchFiles, fetchRoomLibrary, markFile, openTab,
 import { dateLabel } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import { PageLink } from "@/components/page-link";
-import { FileRow, FileSearch, FileTypeIcon, FilterButton, FilterDialog, NothingHere, ROW_ACTIONS, sizeLabel, SortMenu, TypesMenu, useLongPress } from "./file-list";
-import { Chip, CHIPS_ROW, useSearchNames } from "./search-box";
+import { CONTROLS_ROW, FileRow, FileSearch, FileTypeIcon, FilterButton, FilterDialog, LIST_CHIPS, NothingHere, ROW_ACTIONS, sizeLabel, SortMenu, TypesMenu, useLongPress } from "./file-list";
+import { Chip, useSearchNames } from "./search-box";
 import { CanvasEditor, TAB_ICONS, type ShownTab } from "./room-tab-icons";
 
 // What a room's tabs show, and the dialogs that add and edit them, which load once a room's tab other than
@@ -205,8 +205,8 @@ function FilesAndLinks({ room, me, onFailed }: { room: Room; me: Me; onFailed: (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-3 px-[22px] pt-4 pb-[max(18px,env(safe-area-inset-bottom))] max-md:px-3">
         <FileSearch value={filters.q} onChange={(q) => setFilters({ ...filters, q })} label="Search files and links" />
-        <div className="flex items-start gap-2 max-md:flex-col max-md:items-stretch">
-          <div role="group" aria-label="Show" className={cn("flex min-w-0 flex-1 gap-2", CHIPS_ROW, "max-md:pl-0")}>
+        <div className={CONTROLS_ROW}>
+          <div role="group" aria-label="Show" className={LIST_CHIPS}>
             {SHELVES.map(({ shelf: each, label }) => (
               <Chip key={each} pressed={shelf === each} onClick={() => setShelf(each)}>
                 {label}
@@ -258,7 +258,7 @@ function FilesAndLinks({ room, me, onFailed }: { room: Room; me: Me; onFailed: (
           <ul aria-label="Files and links" className="flex flex-col">
             {shown.map((entry) =>
               "file" in entry ? (
-                <FileRow key={entry.file.id} file={entry.file} room={room} names={names} showRoom={false} onOpened={opened} onStar={star} />
+                <FileRow key={entry.file.id} file={entry.file} room={room} names={names} showRoom={false} sort={sort} onOpened={opened} onStar={star} />
               ) : (
                 <LinkRow key={entry.link.id} link={entry.link} names={names} />
               ),

@@ -5,8 +5,18 @@ import { PageLink } from "@/components/page-link";
 import { fileOpened, useFiles } from "@/hooks/use-files";
 import { navigate } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
-import { openAddress } from "./file-list";
+import { fileIconOf, openAddress } from "./file-list";
 import { PLACE_TITLES } from "./files-page";
+
+/** A starred file's kind, 16px, in the place of the 18px icons above, so the names line up. */
+function KindIcon({ file }: { file: Parameters<typeof fileIconOf>[0] }) {
+  const Glyph = fileIconOf(file);
+  return (
+    <span aria-hidden className="grid size-[18px] shrink-0 place-items-center text-muted-foreground">
+      <Glyph className="size-4" />
+    </span>
+  );
+}
 
 /** A link in the column, as the sidebar's rows are. */
 const ROW =
@@ -62,8 +72,9 @@ export function FilesNav({ place }: { me: Me; place: FilesPlace }) {
                   event.preventDefault();
                   navigate(openAddress(file));
                 }}
-                className={cn(ROW, "pl-[37px] text-muted-foreground hover:text-foreground")}
+                className={ROW}
               >
+                <KindIcon file={file} />
                 <span className="truncate">{file.name}</span>
               </a>
             </li>
