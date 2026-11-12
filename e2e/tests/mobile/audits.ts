@@ -65,11 +65,14 @@ function runAudits({ insets, denseTargets }: { insets: SafeArea; denseTargets: s
   const px = (value: number) => `${Math.round(value)}px`;
 
   const isShown = (element: Element) => element.checkVisibility({ opacityProperty: true, visibilityProperty: true });
-  // Screen-reader-only text is clipped to 1px on purpose.
+  // Screen-reader-only text is clipped to 1px on purpose, or clipped away whatever its size, as Tailwind's
+  // sr-only does where a min-height keeps it taller.
   const isVisuallyHidden = (element: Element) => {
     for (let node: Element | null = element; node; node = node.parentElement) {
       const rect = node.getBoundingClientRect();
-      if (rect.width <= 1 && rect.height <= 1 && getComputedStyle(node).overflow !== "visible") return true;
+      const style = getComputedStyle(node);
+      if (rect.width <= 1 && rect.height <= 1 && style.overflow !== "visible") return true;
+      if (style.position === "absolute" && style.overflow !== "visible" && (style.clipPath === "inset(50%)" || style.clip === "rect(0px, 0px, 0px, 0px)")) return true;
     }
     return false;
   };
