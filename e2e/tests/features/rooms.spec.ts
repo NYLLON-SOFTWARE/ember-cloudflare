@@ -1,6 +1,6 @@
 import type { Sidebar, WorkspaceServerFrame } from "@ember/protocol";
 import type { APIRequestContext, Page, WebSocketRoute } from "@playwright/test";
-import { administratorSession, connectWorkspace, cookieHeader, createRoom, invitation, keepOtherRoomsOut, listing, makeAdministrator, rowsWithStars, signInAs, WORKSPACE_SOCKET } from "../../fixtures";
+import { administratorSession, connectWorkspace, cookieHeader, createRoom, invitation, keepOtherRoomsOut, listing, makeAdministrator, rowsWithStars, sidebarRoomRows, signInAs, WORKSPACE_SOCKET } from "../../fixtures";
 import { expect, test, unique, type Member } from "./fixtures";
 
 test.describe("Conversations sidebar", () => {
@@ -99,7 +99,7 @@ test.describe("Unread rooms", () => {
 
     await ada.send("Lunch?");
     await expect(general(grace.page)).toHaveAccessibleDescription(/^Unread/);
-    await expect(general(grace.page)).toHaveCSS("font-weight", "650");
+    await expect(general(grace.page)).toHaveCSS("font-weight", "700");
     await expect(general(grace.page).locator("span").last()).toHaveCSS("width", "7px");
 
     // The server keeps the mark.
@@ -119,7 +119,7 @@ test.describe("Activity filter", () => {
     const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
     const activity = grace.page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Activity" });
     const rows = grace.page.getByRole("region", { name: "Rooms" }).getByRole("link");
-    const caughtUp = grace.page.getByText("You’re all caught up. No unread conversations.");
+    const caughtUp = grace.page.getByText("You’re all caught up. No unread rooms.");
     await expect(activity).toHaveAttribute("title", "Show unread conversations");
 
     await activity.click();
@@ -150,7 +150,7 @@ test.describe("Star rooms", () => {
     const grace = await members.signIn("Grace", { path: `/rooms/${rooms.random.id}` });
     const secondTab = await grace.page.context().newPage();
     await secondTab.goto(`/rooms/${rooms.general.id}`);
-    const rows = (page: Page) => page.getByRole("region", { name: "Rooms" }).getByRole("link");
+    const rows = sidebarRoomRows;
     const star = grace.page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Star room" });
     await expect.poll(() => rowsWithStars(rows(secondTab))).toEqual(["#general", "#random"]);
     await expect(star).toHaveAttribute("title", "Star room");
@@ -163,7 +163,8 @@ test.describe("Star rooms", () => {
     await expect(star).toBeFocused();
     for (const page of [grace.page, secondTab]) {
       await expect.poll(() => rowsWithStars(rows(page))).toEqual(["#random★", "#general"]);
-      await expect(rows(page).first()).toHaveAccessibleName("random Favorite");
+      // Under Starred, which says it's starred, with no star of its own.
+      await expect(rows(page).first()).toHaveAccessibleName("random");
     }
 
     // The server keeps it.
@@ -188,12 +189,12 @@ test.describe("Star rooms", () => {
     // From the star's left edge, where there's room for it.
     expect((await note.boundingBox())!.x).toBeCloseTo((await star.boundingBox())!.x, 0);
     await expect(star).toHaveAttribute("aria-pressed", "false");
-    await expect.poll(() => rowsWithStars(grace.page.getByRole("region", { name: "Rooms" }).getByRole("link"))).toEqual(["#general", "#random"]);
+    await expect.poll(() => rowsWithStars(sidebarRoomRows(grace.page))).toEqual(["#general", "#random"]);
   });
 });
 
 test.describe("Reorder starred rooms", () => {
-  const rows = (page: Page) => page.getByRole("region", { name: "Rooms" }).getByRole("link");
+  const rows = sidebarRoomRows;
   const status = (page: Page, text: string) => page.getByRole("status").filter({ hasText: text });
 
   /** Stars `roomIds` in turn, as the header's star does. */

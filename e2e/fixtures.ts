@@ -330,10 +330,13 @@ export async function nextSecond(): Promise<void> {
   await expect.poll(() => Math.floor(Date.now() / 1000), { intervals: [100] }).toBeGreaterThan(second);
 }
 
-/** How the sidebar's room rows read: each row's text, with a ★ after a starred room's, whose star is a picture. */
+/** The Home sidebar's room rows, top to bottom: the starred ones under Starred, then the rest under Rooms. */
+export const sidebarRoomRows = (page: Page) => page.getByRole("region", { name: /^(Starred|Rooms)$/ }).getByRole("link");
+
+/** How the sidebar's room rows read: each row's text, with a ★ after a starred room's, which Starred lists. */
 export function rowsWithStars(rows: Locator): Promise<string[]> {
   return rows.evaluateAll((links) =>
-    links.map((link) => `${link.textContent!.replace(/\s+/g, " ").trim()}${link.querySelector('[role="img"][aria-label="Favorite"]') ? "★" : ""}`),
+    links.map((link) => `${link.textContent!.replace(/\s+/g, " ").trim()}${link.closest("section")?.querySelector("h3")?.textContent?.trim() === "Starred" ? "★" : ""}`),
   );
 }
 
