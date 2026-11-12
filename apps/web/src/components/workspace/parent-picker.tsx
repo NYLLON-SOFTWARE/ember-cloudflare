@@ -32,6 +32,9 @@ const NONE = "";
 
 const NONE_LABEL = "None (a room of its own)";
 
+/** A room's icon in the field and its menu. */
+const ICON = "w-[18px] shrink-0 text-center text-[20px] leading-none text-muted-foreground";
+
 /**
  * The room forms' Parent room, a field the height of the others that opens a menu: None, for a room of
  * its own, then the rooms it could go under, with their icons. Below it, what going under one means, and
@@ -54,18 +57,26 @@ export function ParentPicker({ value, choices, onChange, locked, leaving = [], d
               FIELD_INPUT,
             )}
           >
-            {parent && <RoomIcon icon={parent.icon} size={18} className="w-[18px] shrink-0 text-center text-[20px] leading-none text-muted-foreground" />}
+            {parent && <RoomIcon icon={parent.icon} closed={!parent.everyone} size={18} className={ICON} />}
             <span className="min-w-0 flex-1 truncate">{parent?.name ?? NONE_LABEL}</span>
             <NavArrowDown aria-hidden className="size-4 shrink-0 text-muted-foreground" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-(--radix-dropdown-menu-trigger-width)">
+          {/* Short enough to open below the field, where it has the room, rather than over the page above it, scrolling
+              through the rest. */}
+          <DropdownMenuContent
+            align="start"
+            collisionPadding={8}
+            className="max-h-[min(var(--radix-dropdown-menu-content-available-height),20rem)] w-(--radix-dropdown-menu-trigger-width)"
+          >
             <DropdownMenuRadioGroup value={value ?? NONE} onValueChange={(picked) => onChange(picked || null)}>
               <DropdownMenuRadioItem value={NONE} className="text-base">
+                {/* Where the rooms have their icons, so every name starts in line. */}
+                <span aria-hidden="true" className="w-[18px] shrink-0" />
                 {NONE_LABEL}
               </DropdownMenuRadioItem>
               {choices.map((choice) => (
                 <DropdownMenuRadioItem key={choice.id} value={choice.id} className="text-base">
-                  <RoomIcon icon={choice.icon} size={18} className="w-[18px] shrink-0 text-center text-[20px] leading-none text-muted-foreground" />
+                  <RoomIcon icon={choice.icon} closed={!choice.everyone} size={18} className={ICON} />
                   <span className="min-w-0 truncate">{choice.name}</span>
                 </DropdownMenuRadioItem>
               ))}

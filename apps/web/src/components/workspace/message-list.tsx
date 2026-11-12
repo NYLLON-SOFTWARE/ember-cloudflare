@@ -180,7 +180,9 @@ export function MessageList({ roomName, direct = false, closed = false, parentNa
   // shows resizes while something's open in a message (`opened`). A short last page of later messages can leave them
   // at the end without scrolling them, so this asks again.
   const settle = useEffectEvent((contentResized = false) => {
-    const el = scroller.current!;
+    // A resize the browser saw as the timeline went, as when its room's deleted, can still be told after.
+    const el = scroller.current;
+    if (!el) return;
     const scroll = !contentResized || open.current === 0;
     if (scroll && atEnd.current) el.scrollTop = el.scrollHeight;
     else if (scroll && place.current) restore(el, place.current);
@@ -282,7 +284,8 @@ export function MessageList({ roomName, direct = false, closed = false, parentNa
   }, [state.messages]);
 
   const onScroll = () => {
-    const el = scroller.current!;
+    const el = scroller.current;
+    if (!el) return;
     // A resize scrolls the timeline to keep its end in view for a reader at it, and that scroll can arrive once
     // the timeline has resized again, before the resize observer has caught up, leaving them at the end of the
     // view as it was. They didn't move, so they're still at the end. Any other scroll is the reader's, even one

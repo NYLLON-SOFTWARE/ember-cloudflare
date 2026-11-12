@@ -372,9 +372,9 @@ interface IconTriggerProps {
   label: string;
   /** The icon chosen, drawn 23px wide. */
   preview: ReactNode;
-  /** The button's two lines. */
+  /** The button's line, and a second under it where there's more to say. */
   title: string;
-  subtitle: string;
+  subtitle?: string;
   disabled: boolean;
   onOpen: (trigger: HTMLButtonElement) => void;
 }
@@ -393,7 +393,7 @@ export function IconTrigger({ label, preview, title, subtitle, disabled, onOpen 
       <span className="flex size-[42px] flex-[0_0_42px] items-center justify-center rounded-[9px] bg-hover text-[26px] text-foreground">{preview}</span>
       <span className="grid min-w-0 flex-1 gap-[3px]">
         <strong className="text-sm font-medium wrap-anywhere">{title}</strong>
-        <span className="text-xs text-muted-foreground">{subtitle}</span>
+        {subtitle && <span className="text-xs text-muted-foreground">{subtitle}</span>}
       </span>
       <NavArrowRight className="size-[18px] flex-[0_0_18px] text-muted-foreground" />
     </button>
@@ -422,7 +422,6 @@ export function IconPicker({ icon, onChange, disabled = false, catalogUrl }: Pro
           label="Choose room icon"
           preview={<RoomIcon icon={icon} size={23} />}
           title={roomIconLabel(icon)}
-          subtitle="Choose from Lucide and Iconoir"
           disabled={disabled}
           onOpen={(trigger) => dialog.current?.open({ icon, defaultIcon: null, defaultLabel: "Default hashtag", apply: onChange, trigger })}
         />

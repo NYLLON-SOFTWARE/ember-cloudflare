@@ -147,7 +147,7 @@ function OrderRow({ room, helpId, sub = false, children }: { room: SharedRoom; h
       </button>
       {/* The room's settings, filling the row beside the grip, with who it's open to at its end. */}
       <PageLink href={roomSettingsPath(room.kind, room.id)} aria-label={`Settings for ${room.name}`} className="group flex min-w-0 flex-1 items-center gap-2.5 self-stretch">
-        <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
+        <RoomIcon icon={room.icon} closed={room.kind === "closed"} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
         <span className="min-w-0 truncate group-hover:underline">{room.name}</span>
         <span className="ml-auto max-w-[50%] shrink-0 truncate rounded-full border bg-hover px-2 py-[3px] text-[11px] whitespace-nowrap text-muted-foreground max-[379px]:hidden">
           {accessOf(room)}
