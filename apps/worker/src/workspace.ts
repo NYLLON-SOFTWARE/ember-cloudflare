@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  type ListedScheduledMessage,
   ASSISTANT_ID,
   ASSISTANT_NAME,
   CANT_SEND_EMAIL,
@@ -127,6 +128,7 @@ import { pictureObjects, type StoredPicture } from "./files/pictures";
 import type { SfuApp } from "./huddles/sfu";
 import { alphanumeric, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
+import { ScheduledListings, type ScheduledChange } from "./scheduled-listings";
 import {
   deployedMemberfulOf,
   memberfulApiOf,
@@ -992,6 +994,8 @@ export class Workspace extends DurableObject<Env> {
    * do again once it has recorded what rooms answered, which they may have answered before them.
    */
   private changedDuringBackfill: Array<() => Promise<void>> | null = null;
+  /** Everyone's scheduled messages across rooms, which each room sends as they change. */
+  private readonly scheduled: ScheduledListings;
   private readonly sessions = new SessionCache<StoredSession>(CACHED_SESSIONS);
   /**
    * The account once it exists. Renaming it and regenerating its join code keep this current, and
@@ -1050,6 +1054,7 @@ export class Workspace extends DurableObject<Env> {
     this.store = new WorkspaceStore(this.db);
     this.outside = new OutsideStore(this.db);
     this.activity = new ActivityStore(this.db);
+    this.scheduled = new ScheduledListings(this.db);
     // The outbox can hold revocations with no alarm set for them: the Workspace can stop after saving a
     // change but before setting the alarm, and an alarm that keeps failing is given up. So it looks
     // whenever it starts, before answering anything. A failure is only logged; the next change that
@@ -4838,6 +4843,21 @@ export class Workspace extends DurableObject<Env> {
   async searcher(credentials: Credentials, recording: string | null): Promise<Searcher | null> {
     const user = await this.authenticate(credentials);
     return user && { userId: user.id, ...(await this.store.searcherOf(user.id, recording)) };
+  }
+
+  /**
+   * Lists room `roomId`'s scheduled messages as `changes` has them now, or forgets those gone, as the room
+   * sends them whenever one is scheduled, moved, marked not sent, posted or deleted. Each is applied
+   * however often it's sent, and nothing of a deleted room's is kept.
+   */
+  async scheduledChanged(roomId: RoomId, changes: ScheduledChange[]): Promise<void> {
+    await this.scheduled.apply(roomId, changes, new Date().toISOString());
+  }
+
+  /** The scheduled messages of the person `credentials` signs in, in the rooms they're still in, soonest first, or null without a valid session. */
+  async scheduledMessages(credentials: Credentials): Promise<ListedScheduledMessage[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.scheduled.of(user.id);
   }
 
   /** Forgets the recent searches of the person `credentials` signs in, answering false without a valid session. */
