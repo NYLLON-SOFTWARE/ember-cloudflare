@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
-import { checkShare, forwardMessage } from "@/lib/api";
+import { ApiError, checkShare, forwardMessage } from "@/lib/api";
 import { ForwardDialog, matching, threadOfLink, type Destination } from "./forward-dialog";
 import { ConversationsContext } from "./quote-cite";
 
@@ -88,7 +88,7 @@ describe("Forward outside who can see the original", () => {
     vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 3 });
     const user = show("secret");
     await forwardTo(user, "general");
-    const warning = await screen.findByRole("alertdialog", { name: "Forward outside #secret?" });
+    const warning = await screen.findByRole("alertdialog", { name: /^Forward outside .*secret\?$/ });
     expect(checkShare).toHaveBeenCalledWith("secret", "general");
     expect(warning).toHaveTextContent("3 people in #general can't see the original.");
     expect(within(warning).getAllByRole("button").map((button) => button.textContent)).toEqual(["Cancel", "Forward"]);
@@ -103,11 +103,46 @@ describe("Forward outside who can see the original", () => {
     const user = show("dm1");
     await forwardTo(user, "general");
     const warning = await screen.findByRole("alertdialog", { name: "Forward outside your DM with Zan?" });
-    expect(warning).toHaveTextContent("1 person in #general can't see the original.");
+    expect(warning).toHaveTextContent("Ana will be able to see this message in #general.");
     await user.click(within(warning).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Forward message" })).toBeInTheDocument();
     expect(forwardMessage).not.toHaveBeenCalled();
+  });
+
+  it("asks again on Forward where who'd see it has changed since the warning opened", async () => {
+    vi.mocked(checkShare).mockResolvedValueOnce({ widens: true, newViewers: 1, names: ["Ana"] }).mockResolvedValue({ widens: true, newViewers: 2, names: ["Ana", "Bo"] });
+    const user = show("secret");
+    await forwardTo(user, "general");
+    const first = await screen.findByRole("alertdialog");
+    expect(first).toHaveTextContent("Ana will be able to see this message in #general.");
+    await user.click(within(first).getByRole("button", { name: "Forward" }));
+    await waitFor(() => expect(screen.getByRole("alertdialog")).toHaveTextContent("Ana and Bo will be able to see this message in #general."));
+    expect(forwardMessage).not.toHaveBeenCalled();
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Forward" }));
+    await waitFor(() => expect(forwardMessage).toHaveBeenCalledOnce());
+  });
+
+  it("hands focus back to Forward as the warning closes", async () => {
+    vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 1, names: ["Ana"] });
+    const user = show("secret");
+    await forwardTo(user, "general");
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Forward" })).toHaveFocus());
+  });
+
+  it("says so where either conversation, or the message, is no longer there for them", async () => {
+    vi.mocked(checkShare).mockResolvedValue({ widens: false, newViewers: 0, names: [] });
+    vi.mocked(forwardMessage).mockRejectedValue(new ApiError(404, "Room not found"));
+    const user = show("secret");
+    await forwardTo(user, "general");
+    expect(await screen.findByText("That conversation or message isn’t there for you any more.")).toBeInTheDocument();
+  });
+
+  it("marks a private room with a lock, and a room with its icon, without a #", () => {
+    show("general");
+    expect(screen.getByRole("option", { name: "secret" }).textContent).not.toContain("#");
+    expect(screen.getByRole("option", { name: "secret" }).querySelector("svg")).not.toBeNull();
   });
 
   it("forwards without asking where everyone there can see the original", async () => {

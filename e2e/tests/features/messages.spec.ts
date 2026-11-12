@@ -308,6 +308,8 @@ test.describe("Day separators", () => {
 
 test.describe("Message action bar", () => {
   const bar = (message: Locator) => message.getByRole("group", { name: "Message actions" });
+  /** Taps the corner of the timeline, which holds nothing to tap: a phone's room name opens its settings. */
+  const tapElsewhere = (member: Member) => member.timeline().tap({ position: { x: 4, y: 4 } });
 
   test("opens over the top edge of the message the pointer crosses, without moving anything, one at a time", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { viewport: { width: 1311, height: 900 } } });
@@ -327,8 +329,9 @@ test.describe("Message action bar", () => {
     const bounds = await box(bar(first));
     const row = await box(first);
     const pane = await box(ada.timeline());
-    // Three quick reactions, More reactions and Reply in thread, then Message options: Edit is in More actions.
-    expect(bounds).toMatchObject({ width: 202, height: 42 });
+    // Three quick reactions, More reactions, Reply in thread, Forward message and Add to to-dos, then Message
+    // options: Edit is in More actions.
+    expect(bounds).toMatchObject({ width: 266, height: 42 });
     expect(pane.x + pane.width - bounds.x - bounds.width).toBe(16);
     expect(row.y - bounds.y).toBe(17);
     // Message options is the bar's last button, and the bar overlaps the row rather than floating above it.
@@ -558,12 +561,12 @@ test.describe("Message action bar", () => {
       // It goes below Message options, or above when there's no room below, as here at the timeline's end.
       expect(trigger.y + trigger.height + bounds.height + 6).toBeGreaterThan(timeline.y + timeline.height - 8);
       expect(bounds.y + bounds.height).toBeLessThanOrEqual(trigger.y - 6);
-      await ada.page.getByRole("heading", { level: 1 }).tap();
+      await tapElsewhere(ada);
       await expect(bar(message)).toBeHidden();
     }
   });
 
-  test("lays the bar out in two rows of four on touch screens where a row of its buttons doesn't fit", async ({ members }) => {
+  test("lays the bar out in rows of four on touch screens where a row of its buttons doesn't fit", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { ...phone, viewport: { width: 320, height: 620 } } });
     // On a phone, Enter starts a new line, so Send Message sends it.
     await ada.composer().fill("Seven actions on a narrow phone");
@@ -572,17 +575,20 @@ test.describe("Message action bar", () => {
     await expect(message).not.toHaveAttribute("aria-busy");
     const options = message.getByRole("button", { name: "Message options" });
     await options.tap();
-    // The reactions go in the first row, and Reply in thread starts the second, then Quote and Copy link, and
-    // your own message's Edit and Delete message, which a mouse finds in More actions.
+    // The reactions go in the first row, and Reply in thread starts the second, then Forward message, Add to
+    // to-dos and Quote, then Copy link starts the third, with your own message's Edit and Delete message, which a
+    // mouse finds in More actions.
     const first = await box(bar(message).getByRole("button", { name: "Thumbs up" }));
     const more = await box(bar(message).getByRole("button", { name: "More reactions" }));
     const thread = await box(bar(message).getByRole("link", { name: "Reply in thread" }));
+    const quote = await box(bar(message).getByRole("button", { name: "Quote" }));
     const copy = await box(bar(message).getByRole("button", { name: "Copy link" }));
     await expect(bar(message).getByRole("button", { name: "Edit" })).toBeVisible();
     await expect(bar(message).getByRole("button", { name: "Delete message" })).toBeVisible();
     expect(more).toMatchObject({ x: first.x + 3 * 44, y: first.y });
     expect(thread).toMatchObject({ x: first.x, y: first.y + 44 });
-    expect(copy).toMatchObject({ x: first.x + 2 * 44, y: thread.y });
+    expect(quote).toMatchObject({ x: first.x + 3 * 44, y: thread.y });
+    expect(copy).toMatchObject({ x: first.x, y: thread.y + 44 });
     // Lined up with Message options' right edge, as far as the timeline lets it.
     const trigger = await box(options);
     expect(more.x + more.width + 5).toBe(Math.min(trigger.x + trigger.width, 320 - 8));
@@ -630,7 +636,7 @@ test.describe("Message action bar", () => {
 
     await options.tap();
     await expect(bar(message)).toBeVisible();
-    await ada.page.getByRole("heading", { level: 1 }).tap();
+    await tapElsewhere(ada);
     await expect(bar(message)).toBeHidden();
 
     await options.tap();
@@ -759,7 +765,7 @@ test.describe("Quote a message", () => {
     await expect(ada.message("Third time's a charm.").first()).toBeVisible();
   });
 
-  test("quotes from the bar on touch screens, where Quote follows Reply in thread", async ({ members, participant }) => {
+  test("quotes from the bar on touch screens, where Quote follows Reply in thread, Forward message and Add to to-dos", async ({ members, participant }) => {
     await (await participant("Grace")).say("Quote me by touch");
     const ada = await members.signIn("Ada", { context: phone });
     const message = ada.message("Quote me by touch");
@@ -767,7 +773,7 @@ test.describe("Quote a message", () => {
     const actions = message.getByRole("group", { name: "Message actions" });
     const thread = await box(actions.getByRole("link", { name: "Reply in thread" }));
     const quote = actions.getByRole("button", { name: "Quote" });
-    expect((await box(quote)).x).toBe(thread.x + thread.width);
+    expect((await box(quote)).x).toBe(thread.x + 3 * thread.width);
     await quote.tap();
     await expect(ada.composer().locator("blockquote")).toHaveText("Quote me by touch");
     await expect(ada.composer().locator("cite")).toHaveText(/^Grace · \d{1,2}:\d{2}\s?[AP]M #$/);
