@@ -30,7 +30,8 @@ export function useActivity(onFailed: (error: unknown) => void) {
       if (frame === null) return reload();
       if (frame.type === "activity.added") change({ type: "added", items: frame.items });
       else if (frame.type === "activity.marked") change({ type: "marked", ids: frame.ids, read: frame.read });
-      else change({ type: "removed", ids: frame.ids });
+      else if (frame.type === "activity.removed") change({ type: "removed", ids: frame.ids });
+      else change({ type: "updated", items: frame.items });
     },
     [reload],
   );

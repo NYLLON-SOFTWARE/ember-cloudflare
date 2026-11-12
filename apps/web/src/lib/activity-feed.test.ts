@@ -47,6 +47,12 @@ describe("activityReducer", () => {
     expect(feed.items.every((i) => i.read)).toBe(true);
   });
 
+  it("gives items what an edited message says now, keeping whether they're read", () => {
+    const feed = activityReducer(loaded([item(2), item(1, { read: true })]), { type: "updated", items: [item(1, { preview: "(redacted)", read: false }), item(9, { preview: "not loaded" })] });
+    expect(feed.items.map((i) => [i.preview, i.read])).toEqual([[item(2).preview, false], ["(redacted)", true]]);
+    expect(feed.unread).toBe(1);
+  });
+
   it("removes items, and their unread marks with them", () => {
     const feed = activityReducer(loaded([item(2), item(1, { read: true })]), { type: "removed", ids: [2, 1] });
     expect(feed).toMatchObject({ items: [], unread: 0 });
