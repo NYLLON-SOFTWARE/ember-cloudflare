@@ -101,7 +101,7 @@ interface Props {
   workspaceName: string;
   current: RailPage;
   activity: Activity;
-  /** How many DMs are marked unread, which DMs counts. */
+  /** How many unread messages the DMs have, which DMs counts, as Slack's does. */
   directsUnread: number;
   /** The release of Ember out since this one, such as "0.2", which Admin marks for an administrator, or null for none. */
   newRelease: string | null;
