@@ -4,7 +4,7 @@ import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { takeBack } from "@/lib/outbox";
 import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
-import { isPending } from "@/lib/room-state";
+import { isPending, UNSENT_KEPT_MS } from "@/lib/room-state";
 import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { VISIBILITY_CHANGE_DELAY_MS } from "@/lib/visibility";
 import { openRoomSocketAhead, useRoom } from "./use-room";
@@ -103,6 +103,7 @@ function joinGeneral({ connect = true, messages = [] as Message[], hasMore = fal
 
 beforeEach(() => {
   FakeSocket.all = [];
+  localStorage.clear();
   vi.stubGlobal("WebSocket", FakeSocket);
   // A socket that closes before opening makes the hook check the session; unless a test says
   // otherwise, that check finds the network down.
@@ -232,24 +233,61 @@ describe("Catch up after a reconnect", () => {
     expect(result.current.state).toMatchObject({ status: "open", offline: false });
   });
 
-  it("shows what was waiting to be sent as not sent once offline, and doesn't send it later", () => {
+  it("keeps what's written while the room is away waiting, through going offline, and sends it once as the room lets the page in", () => {
     const { result } = joinGeneral();
     socket().drop();
     act(() => result.current.postMessage("Hello?"));
-    expect(result.current.state.notice).toBeNull();
     wait(OFFLINE_AFTER_MS);
-    expect(result.current.state.messages[0]).toMatchObject({ body: "Hello?", pending: true, failed: true });
-    expect(result.current.state.notice).toBe("Not connected. Your message wasn't sent.");
-
-    // One written while offline doesn't wait at all.
-    act(() => result.current.dismissNotice());
+    expect(result.current.state.offline).toBe(true);
     act(() => result.current.postMessage("Anyone?"));
-    expect(result.current.state.messages[1]).toMatchObject({ body: "Anyone?", pending: true, failed: true });
-    expect(result.current.state.notice).toBe("Not connected. Your message wasn't sent.");
+    expect(result.current.state.messages).toMatchObject([
+      { body: "Hello?", pending: true, queued: true },
+      { body: "Anyone?", pending: true, queued: true },
+    ]);
+    expect(result.current.state.notice).toBeNull();
 
     socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.create").map((frame) => frame.body)).toEqual(["Hello?", "Anyone?"]);
     socket().receive({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0 });
-    expect(socket().sent).toEqual([]);
+    expect(socket().sentOfType("message.create")).toHaveLength(2);
+  });
+
+  it("keeps what's waiting through a reload, and sends it as the room's next view connects", () => {
+    const first = joinGeneral();
+    socket().drop();
+    act(() => first.result.current.postMessage("Before the reload"));
+    const [waiting] = first.result.current.state.messages;
+    first.unmount();
+    // A reload starts the page afresh: nothing left in memory, only what this browser kept.
+    takeBack("general", ada);
+
+    const { result } = joinGeneral();
+    expect(result.current.state.messages).toMatchObject([{ clientMessageId: waiting!.clientMessageId, body: "Before the reload", pending: true }]);
+    expect(socket().sentOfType("message.create")).toMatchObject([{ clientMessageId: waiting!.clientMessageId, body: "Before the reload" }]);
+    // The room had it already, from before the reload, and says so rather than posting it again.
+    socket().receive({ type: "message.checked", stored: [waiting!.clientMessageId], missing: [] });
+    expect(result.current.state.messages).toEqual([]);
+    expect(localStorage.getItem("unsent-u1-general")).toBeNull();
+  });
+
+  it(`shows what's waited ${UNSENT_KEPT_MS / 60_000} minutes without the room as not sent, which Retry sends`, () => {
+    const { result } = joinGeneral();
+    socket().drop();
+    act(() => result.current.postMessage("Hello?"));
+    wait(UNSENT_KEPT_MS - 1);
+    expect(result.current.state.messages[0]).toMatchObject({ queued: true });
+    wait(1);
+    const [failed] = result.current.state.messages;
+    expect(failed).toMatchObject({ body: "Hello?", pending: true, failed: true });
+
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.create")).toEqual([]);
+    act(() => result.current.messageActions.retry!(failed!.clientMessageId));
+    expect(socket().sentOfType("message.create")).toMatchObject([{ clientMessageId: failed!.clientMessageId, body: "Hello?" }]);
+    expect(result.current.state.messages[0]).toMatchObject({ pending: true });
+    expect(result.current.state.messages[0]).not.toHaveProperty("failed");
   });
 
   it("asks the room about the messages a closed socket never confirmed", () => {
@@ -553,15 +591,13 @@ describe("Leave a room with messages waiting", () => {
     expect(socket().sentOfType("message.create")).toHaveLength(1);
   });
 
-  it(`shows what couldn't be sent within ${OFFLINE_AFTER_MS / 1000} seconds of leaving as not sent once the room is opened again, without saying it's not connected`, async () => {
+  it(`still sends what couldn't be sent within ${OFFLINE_AFTER_MS / 1000} seconds of leaving, once the room is opened again`, async () => {
     const [written] = await leaveWhileAway("Written while away");
     wait(OFFLINE_AFTER_MS);
     const { result } = joinGeneral();
-    const [shown] = result.current.state.messages;
-    expect(shown).toMatchObject({ clientMessageId: written!.clientMessageId, pending: true, failed: true });
-    expect(shown).not.toHaveProperty("queued");
+    expect(result.current.state.messages[0]).toMatchObject({ clientMessageId: written!.clientMessageId, pending: true });
     expect(result.current.state.notice).toBeNull();
-    expect(socket().sent).toEqual([]);
+    expect(socket().sentOfType("message.create")).toMatchObject([{ clientMessageId: written!.clientMessageId }]);
   });
 });
 
@@ -848,10 +884,12 @@ describe("See your message before it's saved", () => {
     act(() => result.current.postMessage("Hello?"));
     expect(result.current.state.messages[0]).toMatchObject({ body: "Hello?", pending: true, queued: true });
     wait(OFFLINE_AFTER_MS);
+    expect(result.current.state.messages[0]).toMatchObject({ queued: true });
+    wait(UNSENT_KEPT_MS);
     expect(result.current.state.messages[0]).toMatchObject({ body: "Hello?", pending: true, failed: true });
-    expect(result.current.state.notice).toBe("Not connected. Your message wasn't sent.");
-    act(() => result.current.dismissNotice());
     expect(result.current.state.notice).toBeNull();
+    act(() => result.current.messageActions.discard!(result.current.state.messages[0]!.clientMessageId));
+    expect(result.current.state.messages).toEqual([]);
   });
 });
 

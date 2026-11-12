@@ -74,8 +74,6 @@ function connect(roomId: string, outbox: Outbox): void {
       const frame = parseServerFrame(data);
       if (frame) hear(roomId, outbox, frame);
     },
-    // As a view shows what was waiting as not sent once it's been without the room a while.
-    onOffline: (offline) => offline && giveUp(roomId, outbox),
     // A room that's gone for the person, or a person who has lost access, takes nothing more.
     onClose: (code) => {
       if (code !== CloseCode.Revoked && code !== CloseCode.NotFound) return true;
@@ -128,14 +126,15 @@ function deliver(outbox: Outbox): void {
 }
 
 /** What sends `message` as its view would have: a reply to its thread, and to the room too if it was asked to go there. */
-function createFrame({ clientMessageId, body, parentId, alsoSent }: PendingMessage): ClientFrame {
+export function createFrame({ clientMessageId, body, parentId, alsoSent }: PendingMessage): ClientFrame {
   if (parentId === undefined) return { type: "message.create", clientMessageId, body };
   return { type: "message.create", clientMessageId, body, parentId, alsoSend: alsoSent === true };
 }
 
 /**
- * Stops sending, as a view does once it's been without the room a while: what's waiting shows as not
- * sent, and what went, the view that takes it back asks about.
+ * Stops sending, as for a room that's gone for the person: what's waiting shows as not sent, and what
+ * went, the view that takes it back asks about. Without a connection, what's waiting waits on, as a view's
+ * does, kept in this browser too (unsent-store.ts).
  */
 function giveUp(roomId: string, outbox: Outbox): void {
   outbox.messages = notSent(outbox.messages);

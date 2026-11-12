@@ -18,13 +18,14 @@ import {
 import { writtenBody } from "@ember/richtext/dom";
 import type { MessageActions } from "@/components/workspace/message-item";
 import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
-import { handOver, leftUnsent, takeBack } from "@/lib/outbox";
+import { handOver, leftUnsent } from "@/lib/outbox";
 import { openAhead, reconnectingSocket, waitingAhead, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isPending, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
 import { isEmberFile, sendableFacts, shareFile, UPLOAD_FAILED, UploadError, uploadFile, type Sendable } from "@/lib/uploads";
 import { tellRoomMessagesChanged } from "@/lib/room-changes";
 import { settledVisibility } from "@/lib/visibility";
 import { useLatestReducer } from "./use-latest-reducer";
+import { takeBackUnsent as takeBackKept, useUnsent, type UnsentActions } from "./use-unsent";
 
 /** How long someone shows as typing after the room last heard them start, as Campfire's typing_tracker.js keeps them. */
 export const TYPING_TTL_MS = 5_000;
@@ -62,7 +63,7 @@ export interface RoomFrames {
  * so `warn` says when one couldn't go. An edit longer than the room takes isn't sent either, so its editor
  * keeps it.
  */
-export function messageActionsOf({ send, listen }: RoomFrames, warn: (message: string) => void): MessageActions {
+export function messageActionsOf({ send, listen }: RoomFrames, warn: (message: string) => void, unsent?: UnsentActions): MessageActions {
   const sendOrWarn = (frame: ClientFrame) => {
     const sent = send(frame);
     if (!sent) warn("Not connected. Try again once you're reconnected.");
@@ -77,6 +78,7 @@ export function messageActionsOf({ send, listen }: RoomFrames, warn: (message: s
     remove: (messageId) => sendOrWarn({ type: "message.delete", messageId }),
     boost: (messageId, content) => sendOrWarn({ type: "boost.create", messageId, content }),
     unboost: (boostId) => sendOrWarn({ type: "boost.delete", boostId }),
+    ...unsent,
     click: (messageId, { id: actionId, blockId, value }) => {
       const clickId = crypto.randomUUID();
       const button = { actionId, ...(blockId !== undefined && { blockId }), ...(value !== undefined && { value }) };
@@ -131,7 +133,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
   // What this page left unsent here when the room was last left waits in the timeline again, to go, or
   // show as not sent, as it would have had the room stayed open.
-  const takeBackUnsent = useEffectEvent(() => takeBack(roomId, me));
+  const takeBackUnsent = useEffectEvent(() => takeBackKept(roomId, me));
 
   // A message sent over the socket can lose its answer, where one posted over HTTP fails only when the
   // request does: the socket can close after the room stored a message but before the confirmation came
@@ -152,7 +154,9 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   // let the page in isn't in `state` yet, and a welcome brings a timeline of its own, such as the older
   // page a permalink opens.
   const sendQueued = useEffectEvent((room: ReconnectingSocket, opening: Extract<ServerFrame, { type: "welcome" | "resumed" }>) => {
-    const queued = state.messages.filter(isQueued);
+    // Those the room has among what it opened with, as when this browser kept them through a reload after
+    // they went, it has already.
+    const queued = state.messages.filter((m) => isQueued(m) && !opening.messages.some((had) => had.clientMessageId === m.clientMessageId && had.creator.id === m.creator.id));
     if (queued.length === 0) return;
     const hasNewer = opening.type === "welcome" ? opening.hasNewer : state.hasNewer;
     if (hasNewer && room.send({ type: "history.around" })) dispatch({ type: "loading-page" });
@@ -311,8 +315,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       }
       const message = pendingMessage(crypto.randomUUID(), roomId, me, body, text, mentions, new Date().toISOString());
       toNewest();
-      // Until the room has let a connection in, it waits, behind any already waiting, and shows as not
-      // sent once the page is offline.
+      // Until the room has let a connection in, it waits, behind any already waiting, as Slack's does.
       if (!send({ type: "message.create", clientMessageId: message.clientMessageId, body })) message.queued = true;
       dispatch({ type: "pending", message });
       return true;
@@ -390,7 +393,9 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     [send, state.messages, state.hasNewer, state.loadingPage],
   );
 
-  const messageActions = useMemo(() => messageActionsOf(frames, warn), [frames, warn]);
+  const latestMessages = useCallback(() => latest.current.messages, [latest]);
+  const unsent = useUnsent(roomId, me, undefined, state, dispatch, latestMessages, send);
+  const messageActions = useMemo(() => messageActionsOf(frames, warn, unsent), [frames, warn, unsent]);
 
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
 

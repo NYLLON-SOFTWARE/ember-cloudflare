@@ -228,16 +228,14 @@ describe("Send what was left unsent", () => {
 });
 
 describe("Stop sending what was left unsent", () => {
-  it(`shows what's waiting as not sent once it's been without the room ${OFFLINE_AFTER_MS / 1000} seconds, as a view does, and tries no more`, async () => {
-    handOver("general", [waiting("Written while away"), sent("in doubt")]);
+  it(`keeps trying to send what's waiting once it's been without the room ${OFFLINE_AFTER_MS / 1000} seconds, as a view does`, async () => {
+    handOver("general", [waiting("Written while away")]);
     await effectsRun();
     socket().drop();
-    wait(OFFLINE_AFTER_MS);
-    const sockets = FakeSocket.all.length;
-    wait(60_000);
-    expect(FakeSocket.all).toHaveLength(sockets);
-    // What went, the view that takes it back asks about.
-    expect(takeBack("general", ada)).toEqual([{ ...sent("Written while away"), failed: true }, sent("in doubt")]);
+    wait(OFFLINE_AFTER_MS + 60_000);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("message.create")).toMatchObject([{ body: "Written while away" }]);
   });
 
   it("sends nothing as someone else, whom another tab has signed this browser in as", async () => {
