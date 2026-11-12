@@ -2,11 +2,18 @@ import { useState, type RefObject } from "react";
 import { opensLink, sendsMessage } from "@/lib/keyboard";
 import { ComposerToolbar } from "./composer-toolbar";
 import type { RichTextEditorHandle } from "./editor";
-import { isDisabled, NO_FORMATS, type Formats } from "./formatting";
+import { isDisabled, NO_FORMATS, type Format, type Formats } from "./formatting";
 
 // The formatting a message is written with, as the composer has it and the message editor too, so that
 // writing a message and editing one look and work alike, as in Slack: the same toolbar, which shows what's
 // on at the cursor, and the same keys.
+
+/** What Lexical's Ctrl or Cmd+B, I and U turn on. */
+const SHORTCUT_FORMATS: Partial<Record<string, Format>> = { b: "bold", i: "italic", u: "underline" };
+
+/** The format a key pressed turns on, if it's one of those. */
+const formatShortcut = (event: KeyboardEvent): Format | null =>
+  event.ctrlKey !== event.metaKey && !event.altKey && !event.shiftKey ? (SHORTCUT_FORMATS[event.key.toLowerCase()] ?? null) : null;
 
 /** Ctrl or Cmd+Shift+X, Slack's Strikethrough. */
 const strikesThrough = (event: KeyboardEvent) => event.key.toLowerCase() === "x" && event.shiftKey && event.ctrlKey !== event.metaKey && !event.altKey;
@@ -28,6 +35,13 @@ export function useFormatting(editor: RefObject<RichTextEditorHandle | null>, { 
       if (isDisabled("link", formats)) return;
       onShowToolbar?.();
       setLinkOpen(true);
+      return;
+    }
+    // Lexical's own Ctrl or Cmd+B, I and U, which the toolbar's disabled buttons don't stop, inside code.
+    const shortcut = formatShortcut(event);
+    if (shortcut && isDisabled(shortcut, formats)) {
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
     if (strikesThrough(event)) {

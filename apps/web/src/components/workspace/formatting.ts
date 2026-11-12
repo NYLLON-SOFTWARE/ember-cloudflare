@@ -109,11 +109,13 @@ export const BLOCKS: { block: Block; label: string }[] = [
 /** What the link field takes as an address: one with a scheme, or a bare host, which gets https://. */
 export function linkAddress(typed: string): string | null {
   const address = typed.trim();
-  if (address === "") return null;
+  // A web address has no spaces, and a host with a dot in it, or is this computer's.
+  if (address === "" || /\s/.test(address)) return null;
   const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(address) ? address : `https://${address}`;
   try {
     const url = new URL(withScheme);
-    return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? withScheme : null;
+    if (!["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) return null;
+    return url.protocol.startsWith("http") && !url.hostname.includes(".") && url.hostname !== "localhost" ? null : withScheme;
   } catch {
     return null;
   }

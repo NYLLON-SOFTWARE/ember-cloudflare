@@ -1,8 +1,8 @@
 import { configure, Extension, Lexical, type ElementNode, type LexicalEditor, type LexicalNode } from "@37signals/lexxy";
-import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE } from "@ember/richtext/dom";
+import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, writtenBody } from "@ember/richtext/dom";
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
 import { HEADING_TAGS, NO_FORMATS, type Block, type Format, type Formats } from "./formatting";
-import { registerQuoteLines } from "./quote-lines";
+import { $isolateCaretLine, registerQuoteLines } from "./quote-lines";
 import "./rich-text-editor.css";
 
 // The editor, Lexxy 0.9.24, set up as Campfire sets it up. This is a chunk of its own, loaded as the
@@ -167,6 +167,32 @@ const COMMANDS: Record<Exclude<Format, "code" | "codeBlock">, string> = {
   divider: "insertHorizontalDivider",
 };
 
+/** Whether the selection, a cursor too, has `format` on, for what's typed next, inside a read of the editor's state. */
+function selectionHasFormat(format: string): boolean {
+  const selection = Lexical.$getSelection();
+  return Lexical.$isRangeSelection(selection) && selection.hasFormat(format);
+}
+
+/**
+ * `markup` without the empty paragraphs at its end, as leaving a list with Enter leaves one, which would send
+ * a blank line after the message.
+ */
+const withoutTrailingBlankLines = (markup: string) => markup.replace(/(?:<p>(?:<br>)?<\/p>)+$/, "");
+
+/**
+ * Whether `markup` holds nothing to send: no text, no divider and nothing attached, as an empty list that
+ * select-all and Delete leave, which Lexxy doesn't count as blank.
+ */
+const holdsNothing = (markup: string) => !/<(?:hr|img|action-text-attachment)\b/.test(markup) && writtenBody(markup).plainText.trim() === "";
+
+/** Puts the cursor where the selection ends, inside an update. */
+function collapseToEnd(): void {
+  const selection = Lexical.$getSelection();
+  if (!Lexical.$isRangeSelection(selection) || selection.isCollapsed()) return;
+  const end = selection.focus.getNode();
+  if (Lexical.$isTextNode(end)) end.select(selection.focus.offset, selection.focus.offset);
+}
+
 /** What the text at the cursor is, read inside the editor's state. */
 function formatsAt(lexxy: LexxyEditor): Formats {
   const format = lexxy.selection.getFormat();
@@ -178,7 +204,8 @@ function formatsAt(lexxy: LexxyEditor): Formats {
     italic: format.isItalic === true,
     underline: format.isUnderline === true,
     strikethrough: format.isStrikethrough === true,
-    code: format.isInCode === true && !codeBlock,
+    // Turned on at the cursor for what's typed next, as well as in code already.
+    code: (format.isInCode === true || selectionHasFormat("code")) && !codeBlock,
     link: format.isInLink === true,
     block,
     list: format.isInList ? (format.listType === "number" ? "number" : "bullet") : null,
@@ -198,7 +225,13 @@ function startCodeBlocks(lexxy: LexxyEditor): () => void {
     if (!Lexical.$isRangeSelection(selection) || !selection.isCollapsed() || selection.anchor.type !== "text") return null;
     const text = selection.anchor.getNode();
     const line = text.getParent();
-    const fenced = Lexical.$isTextNode(text) && Lexical.$isParagraphNode(line) && line.getTextContent() === "```" && selection.anchor.offset === 3;
+    // A line of its own, whichever of a paragraph's lines Shift+Enter broke it into.
+    const alone = (node: LexicalNode | null) => node === null || Lexical.$isLineBreakNode(node);
+    const atEnd = Lexical.$isTextNode(text) && selection.anchor.offset === text.getTextContent().length;
+    const fenced =
+      atEnd &&
+      Lexical.$isParagraphNode(line) &&
+      (line.getTextContent() === "```" || (text.getTextContent() === "```" && alone(text.getPreviousSibling()) && alone(text.getNextSibling())));
     return fenced ? text : null;
   };
   return lexxy.editor.registerUpdateListener(({ editorState }) => {
@@ -208,6 +241,13 @@ function startCodeBlocks(lexxy: LexxyEditor): () => void {
     lexxy.editor.update(() => {
       const text = fence();
       if (!text) return;
+      const line = text.getParent()!;
+      // Typing can leave the backticks in more than one piece of text, which all go.
+      if (line.getTextContent() === "```") {
+        for (const node of line.getChildren()) if (node !== text) node.remove();
+      } else {
+        $isolateCaretLine();
+      }
       text.setTextContent("");
       text.select(0, 0);
       lexxy.contents.toggleCodeBlock();
@@ -355,7 +395,7 @@ export default function RichTextEditor({
   const editor = useRef<LexxyEditor>(null);
 
   useImperativeHandle(ref, () => ({
-    value: () => editor.current?.value ?? "",
+    value: () => withoutTrailingBlankLines(editor.current?.value ?? ""),
     clear: () => {
       const lexxy = editor.current;
       if (!lexxy) return;
@@ -372,11 +412,17 @@ export default function RichTextEditor({
         { discrete: true },
       );
     },
-    isBlank: () => editor.current?.isBlank ?? true,
+    isBlank: () => {
+      const lexxy = editor.current;
+      return !lexxy || lexxy.isBlank || holdsNothing(lexxy.value);
+    },
     hasOpenPrompt: () => editor.current?.hasOpenPrompt ?? false,
     focus: () => editor.current?.focus(),
     format: (format) =>
       change((lexxy) => {
+        // A list, a quote or a code block takes just the line the caret's on, as Slack's buttons do, rather
+        // than every line Shift+Enter broke the paragraph into.
+        if (format === "numberedList" || format === "bulletList" || format === "quote" || format === "codeBlock") $isolateCaretLine();
         if (format === "code") lexxy.editor.dispatchCommand(Lexical.FORMAT_TEXT_COMMAND, "code");
         else if (format === "codeBlock") lexxy.contents.toggleCodeBlock();
         else lexxy.editor.dispatchCommand(COMMANDS[format]);
@@ -403,6 +449,9 @@ export default function RichTextEditor({
           }
         }
         lexxy.editor.dispatchCommand("link", url);
+        // The cursor goes after the link, rather than leaving it selected for the next key to replace, in an
+        // update of its own, after the one Lexxy's command queues to make the link.
+        lexxy.editor.update(collapseToEnd);
       }),
     linkDraft: () => {
       const lexxy = editor.current;
