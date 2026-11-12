@@ -241,15 +241,31 @@ describe("Who's in a parent decides who can be in its sub-rooms", () => {
     expect(await reconnecting(sales.id, grace)).toEqual(lostAccess);
   });
 
-  it("lets a sub-room's private list name only people in its parent", async () => {
+  it("refuses a sub-room's private list naming people who aren't in its parent, naming them, and changes nothing", async () => {
     const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
     const strata = await createRoom("Strata", { closedTo: [ada.user.id, grace.user.id], as: ada });
     const sales = await subRoom(ada, strata.id, "Sales", [ada.user.id]);
 
-    await change(sales.id, ada, { kind: "closed", memberIds: [ada.user.id, grace.user.id, linus.user.id] });
+    const refused = await change(sales.id, ada, { name: "Leads", kind: "closed", memberIds: [ada.user.id, grace.user.id, linus.user.id] });
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toEqual({ error: "Linus isn't in Strata, so can't be in its sub-rooms" });
+    expect(await membersOf(sales.id)).toEqual(ids(ada));
+    expect(await workspaceSql("SELECT name FROM rooms WHERE id = ?", sales.id)).toEqual([{ name: "Sales" }]);
+
+    expect((await change(sales.id, ada, { kind: "closed", memberIds: [ada.user.id, grace.user.id] })).status).toBe(200);
     expect(await membersOf(sales.id)).toEqual(ids(ada, grace));
     await change(sales.id, ada, { kind: "open" });
     expect(await membersOf(sales.id)).toEqual(ids(ada, grace));
+  });
+
+  it("still drops, rather than refuses, the people a room moving under a parent names who aren't in it", async () => {
+    const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
+    const strata = await createRoom("Strata", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const plans = await createRoom("Plans", { closedTo: [ada.user.id, linus.user.id], as: ada });
+
+    const moved = await change(plans.id, ada, { parentId: strata.id, kind: "closed", memberIds: [ada.user.id, linus.user.id] });
+    expect(moved.status).toBe(200);
+    expect(await membersOf(plans.id)).toEqual(ids(ada));
   });
 
   it("has the people of a renamed parent's sub-rooms read them again, with its new name", async () => {

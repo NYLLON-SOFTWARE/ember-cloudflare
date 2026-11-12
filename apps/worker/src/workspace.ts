@@ -3691,7 +3691,7 @@ export class Workspace extends DurableObject<Env> {
    * leaves their sidebars. Everyone in it sees it as it is now in theirs, or, when only who's in it
    * changed, the people it puts in do.
    */
-  async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<SharedRoom | "not found" | "forbidden" | "bad parent" | null> {
+  async changeRoom(credentials: Credentials, roomId: RoomId, changes: RoomChanges): Promise<SharedRoom | "not found" | "forbidden" | "bad parent" | { refused: string } | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.closingSockets(async () => {
@@ -3701,6 +3701,10 @@ export class Workspace extends DurableObject<Env> {
       const moving = changes.parentId !== undefined && changes.parentId !== (found.room.parent?.id ?? null);
       const parent = moving ? await this.parentFor(roomId, changes.parentId!, user.id) : (found.room.parent ?? null);
       if (parent === "bad parent") return parent;
+      // A sub-room staying under its parent only takes in the parent's people, so a list naming anyone else
+      // is refused, naming them, as making one is. One moving under a parent drops them, as its settings warn.
+      const outsiders = !moving && parent && changes.kind === "closed" ? await this.store.notInRoom(parent.id, changes.memberIds) : [];
+      if (parent && outsiders.length > 0) return { refused: notInParent(parent.name, outsiders) };
       // A room open to everyone it can take in takes in its new parent's people, or the workspace's.
       if (moving && !changes.kind && found.room.kind === "open") changes = { ...changes, kind: "open" };
       const { parent: _, ...unparented } = found.room;

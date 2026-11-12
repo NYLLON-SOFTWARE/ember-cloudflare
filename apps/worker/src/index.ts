@@ -954,6 +954,7 @@ async function changeRoom(request: Request, env: Env, roomId: RoomId): Promise<R
   if (room === "not found") return problem(404, ROOM_NOT_FOUND);
   if (room === "forbidden") return problem(403, "Only administrators and the room's creator can change it");
   if (room === "bad parent") return problem(422, SUB_ROOM_REFUSED);
+  if ("refused" in room) return problem(422, room.refused);
   return typeof changes === "string" ? problem(422, changes) : json({ room });
 }
 
