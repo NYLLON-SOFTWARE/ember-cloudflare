@@ -1394,12 +1394,13 @@ describe("Activity", () => {
 
   it("shows Activity at its address, in the conversations' place, marking it on the rail", async () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
-    serveActivity([item(2), item(1, { kind: "direct", roomId: withGrace.id, read: true })]);
+    serveActivity([item(2), item(1, { kind: "direct", roomId: withGrace.id, read: true })], { "GET /api/sidebar": () => Response.json(roomList([...rooms, withGrace])) });
     showWorkspace("/activity");
     expect(await screen.findByRole("heading", { level: 1, name: "Activity" })).toBeInTheDocument();
     await waitFor(() => expect(within(feed()).getAllByRole("button", { name: /Look at this/ })).toHaveLength(2));
-    expect(within(feed()).getByText("Mention in #random")).toBeInTheDocument();
-    expect(within(feed()).getByText("Direct message")).toBeInTheDocument();
+    // Each says the conversation it's from, but a DM with its author alone, which needs no naming again.
+    expect(within(feed()).getByRole("button", { name: /Look at this 2, Mention in #random$/ })).toHaveTextContent(/#random$/);
+    expect(within(feed()).getByRole("button", { name: /Look at this 1, Direct message in Grace$/ })).toHaveTextContent(/^Look at this 1$/);
     expect(screen.queryByRole("complementary", { name: "Conversations" })).not.toBeInTheDocument();
     // Its pill counts the unread item, which the description says.
     expect(railCurrent()).toEqual(["Activity1"]);
@@ -1497,6 +1498,37 @@ describe("Activity", () => {
     act(() => history.back());
     await waitFor(() => expect(location.pathname).toBe("/activity"));
     expect(screen.queryByRole("heading", { level: 1, name: "random" })).not.toBeInTheDocument();
+  });
+
+  it("closes what it opened by going back, so Back never opens it again", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(3, { kind: "thread", parentId: "m0", preview: "a reply" })]);
+    const { user } = showWorkspace("/activity");
+    await user.click(await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /a reply/ }));
+    expect(location.pathname).toBe("/activity/rooms/random/threads/m0/@m3");
+    await user.click(await screen.findByRole("button", { name: "Close thread" }));
+    // Opened from the feed, the thread closes into the conversation in its place, which Back closes too.
+    await waitFor(() => expect(location.pathname).toBe("/activity/rooms/random"));
+    act(() => history.back());
+    await waitFor(() => expect(location.pathname).toBe("/activity"));
+    expect(screen.queryByRole("heading", { level: 1, name: "random" })).not.toBeInTheDocument();
+  });
+
+  it("says a conversation its address names can't be opened, for a room you aren't in", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([]);
+    showWorkspace("/activity/rooms/elsewhere/@m1");
+    expect(await screen.findByText("You can’t open this conversation.")).toBeInTheDocument();
+  });
+
+  it("opens a profile beside the feed with nothing open, with no empty pane between", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(1)], { "GET /api/users/u2": () => Response.json({ person: grace }) });
+    const { user } = showWorkspace("/activity");
+    await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ });
+    await user.click(within(feed()).getAllByRole("link", { name: "Grace" })[1]!);
+    expect(await screen.findByRole("complementary", { name: "Profile" })).toBeInTheDocument();
+    expect(screen.getAllByRole("separator", { name: /^Resize/ }).map((separator) => separator.getAttribute("aria-label"))).toEqual(["Resize profile"]);
   });
 
   it("opens the conversation and thread its address names beside the feed, closing the thread back to the conversation", async () => {

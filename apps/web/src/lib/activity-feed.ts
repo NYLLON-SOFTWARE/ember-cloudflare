@@ -68,6 +68,9 @@ export function activityReducer(feed: ActivityFeed, change: ActivityChange): Act
       if (!feed.items.some((item) => previews.has(item.id))) return feed;
       return { ...feed, items: feed.items.map((item) => (previews.has(item.id) ? { ...item, preview: previews.get(item.id)! } : item)) };
     }
+    default:
+      // A change from a newer build than this tab's, say, leaves the feed as it was.
+      return feed;
   }
 }
 

@@ -127,7 +127,7 @@ test.describe("Activity", () => {
     await expect(grace.page).toHaveURL(/\/activity$/);
     await expect(activity).toHaveAttribute("aria-current", "page");
     const feed = grace.page.getByRole("list", { name: "Activity items" });
-    await expect(feed.getByText("Mention in #general")).toBeVisible();
+    await expect(feed.getByRole("button", { name: /Mention in #general/ })).toBeVisible();
 
     await feed.getByRole("button", { name: /@channel Lunch\?/ }).click();
     const general = grace.page.getByRole("heading", { level: 1, name: "general" });
@@ -137,14 +137,14 @@ test.describe("Activity", () => {
     await expect(activity).toHaveAttribute("aria-current", "page");
     // Opening it reads it, which leaves it in the feed.
     await expect(activity).not.toHaveAttribute("aria-description");
-    await expect(feed.getByText("Mention in #general")).toBeVisible();
+    await expect(feed.getByRole("button", { name: /Mention in #general/ })).toBeVisible();
     await expect(grace.page.getByRole("separator", { name: "Resize activity" })).toBeVisible();
     await grace.page.reload();
     await expect(general).toBeVisible();
     await grace.page.goBack();
     await expect(grace.page).toHaveURL(/\/activity$/);
     await expect(general).toBeHidden();
-    await expect(feed.getByText("Mention in #general")).toBeVisible();
+    await expect(feed.getByRole("button", { name: /Mention in #general/ })).toBeVisible();
   });
 });
 

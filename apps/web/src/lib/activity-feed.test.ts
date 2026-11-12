@@ -1,6 +1,6 @@
 import type { ActivityItem } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
-import { activityReducer, ALL_ACTIVITY, filterCount, NO_ACTIVITY, shows, type ActivityFeed, type ActivityNames } from "./activity-feed";
+import { activityReducer, type ActivityChange, ALL_ACTIVITY, filterCount, NO_ACTIVITY, shows, type ActivityFeed, type ActivityNames } from "./activity-feed";
 
 const item = (id: number, fields: Partial<ActivityItem> = {}): ActivityItem => ({
   id,
@@ -51,6 +51,11 @@ describe("activityReducer", () => {
     const feed = activityReducer(loaded([item(2), item(1, { read: true })]), { type: "updated", items: [item(1, { preview: "(redacted)", read: false }), item(9, { preview: "not loaded" })] });
     expect(feed.items.map((i) => [i.preview, i.read])).toEqual([[item(2).preview, false], ["(redacted)", true]]);
     expect(feed.unread).toBe(1);
+  });
+
+  it("leaves the feed as it was for a change it doesn't know", () => {
+    const feed = loaded([item(1)]);
+    expect(activityReducer(feed, { type: "reminded" } as unknown as ActivityChange)).toBe(feed);
   });
 
   it("removes items, and their unread marks with them", () => {
