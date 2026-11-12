@@ -311,6 +311,8 @@ export const MAX_CANVAS_LENGTH = 500_000;
 export const TAB_LIMIT_REACHED = `A room holds at most ${MAX_ROOM_TABS} tabs.`;
 export const FOLDER_FULL = `A folder holds at most ${MAX_FOLDER_ITEMS} files and links.`;
 export const CANVAS_TOO_LONG = "That canvas is too long to save.";
+/** Why the room refuses a canvas someone deleted, as it was being written. */
+export const CANVAS_GONE = "That canvas isn't there anymore";
 export const CANVAS_CHANGED = "Someone else changed this canvas. It shows their changes now.";
 
 export const roomTabsPath = (roomId: RoomId) => `/api/rooms/${encodeURIComponent(roomId)}/tabs`;

@@ -169,6 +169,22 @@ describe("Files page", () => {
     expect(screen.getByRole("heading", { name: "No matches" })).toBeInTheDocument();
   });
 
+  it("names a private room after a lock, not #", async () => {
+    const lab: Room = { id: "lab", name: "QA Lab", kind: "closed", icon: null };
+    serve([{ ...files[0]!, roomId: "lab" }]);
+    render(
+      <PeopleContext value={people}>
+        <Sheet>
+          <FilesPage me={ada} place="all" rooms={[general, lab]} onFailed={vi.fn()} />
+        </Sheet>
+      </PeopleContext>,
+    );
+    await waitFor(() => expect(rows()).toEqual(["Budget.csv"]));
+    const line = screen.getByText(/QA Lab/);
+    expect(line.textContent).not.toContain("# QA Lab");
+    expect(line.querySelector("svg")).not.toBeNull();
+  });
+
   it("shows a picture's own thumbnail in its row", async () => {
     serve();
     renderPage();

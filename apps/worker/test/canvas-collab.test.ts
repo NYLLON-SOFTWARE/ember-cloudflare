@@ -115,6 +115,21 @@ describe("Writing a canvas together", () => {
     expect(textOf((await saved(ada, room, tabId)).body)).toBe("Hi!");
   });
 
+  it("tells everyone writing a canvas that's deleted meanwhile that it's gone, once the room saves it", async () => {
+    const room = await freshRoom("canvas-deleted");
+    const ada = await signIn("Ada");
+    const tabId = await canvasIn(room, ada);
+    const adas = await connect(room, ada);
+    await joining(adas, tabId);
+    adas.send({ type: "canvas.steps", tabId, version: 0, clientId: "ada-1", steps: [typing(1, "Lost")] });
+    await adas.next("canvas.steps");
+    expect((await asking(ada, roomTabPath(room, tabId), "DELETE")).status).toBe(204);
+
+    expect(await ringAt(room, Date.now() + LET_GO_AFTER_MS)).toBeNull();
+    expect(await adas.next("canvas.refused")).toMatchObject({ tabId, message: "That canvas isn't there anymore" });
+    expect((await canvasesOf(room)).canvases?.holds(tabId)).toBe(false);
+  });
+
   it("sends a writer who connects again the steps they missed, or the canvas whole once it can't", async () => {
     const room = await freshRoom("canvas-catch-up");
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];

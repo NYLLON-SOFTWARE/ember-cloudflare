@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext, type People } from "@/hooks/use-directory";
-import { MembersButton } from "./room-members";
+import { MembersButton, MembersPage } from "./room-members";
 
 const ada: Me = { id: "ada", name: "Ada Lovelace", administrator: false };
 const grace = { id: "grace", name: "Grace Hopper" };
@@ -157,5 +157,30 @@ describe("Members", () => {
     expect(screen.getByRole("dialog", { name: "Grace Hopper" })).toBeInTheDocument();
     expect(within(screen.getByRole("list", { name: "Members" })).getAllByRole("link")).toHaveLength(2);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("marks a private room without an icon with a lock, not #", async () => {
+    serve(settings(false));
+    renderButton(plans);
+    await userEvent.click(await screen.findByRole("button", { name: "View members, 2 members" }));
+    const dialog = screen.getByRole("dialog", { name: "plans" });
+    expect(within(dialog).queryByText("#")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "plans" }).previousElementSibling?.tagName).toBe("svg");
+  });
+
+  it("lists the members as a page of its own, with Back, for a phone to push", async () => {
+    serve(settings(true));
+    const back = vi.fn();
+    render(
+      <PeopleContext value={people}>
+        <MembersPage room={plans} me={ada} present={[grace]} onBack={back} onFailed={vi.fn()} />
+      </PeopleContext>,
+    );
+    expect(await screen.findByText("2 members")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Members" })).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Members" })).getAllByRole("link")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Add people" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(back).toHaveBeenCalledOnce();
   });
 });

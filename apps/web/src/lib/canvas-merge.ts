@@ -117,3 +117,24 @@ export function mergeCanvas(base: string, mine: string, theirs: string): CanvasM
   const doc: CanvasDoc = { type: "doc", content: merged.map((block) => JSON.parse(block) as unknown) };
   return { body: JSON.stringify(doc), conflicts };
 }
+
+/** How much of what's around a change is looked for with it in another version. */
+const AROUND = 16;
+
+/**
+ * Whether `theirs` already holds the change from `base` to `mine`, as a version saved over it does: what
+ * `mine` wrote, after what it was written after, and none of what it took out. The change is taken as
+ * one stretch, from the first difference to the last.
+ */
+export function holdsChange(base: string, mine: string, theirs: string): boolean {
+  if (mine === base) return true;
+  let start = 0;
+  while (start < base.length && start < mine.length && base[start] === mine[start]) start++;
+  let end = 0;
+  while (end < base.length - start && end < mine.length - start && base[base.length - 1 - end] === mine[mine.length - 1 - end]) end++;
+  const before = base.slice(Math.max(0, start - AROUND), start);
+  const removed = base.slice(start, base.length - end);
+  const written = mine.slice(start, mine.length - end);
+  if (written !== "" && !theirs.includes(before + written)) return false;
+  return removed === "" || !theirs.includes(before + removed);
+}

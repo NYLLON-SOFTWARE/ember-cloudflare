@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeCanvas } from "./canvas-merge";
+import { holdsChange, mergeCanvas } from "./canvas-merge";
 
 const paragraph = (text: string) => ({ type: "paragraph", content: [{ type: "text", text }] });
 /** A canvas whose blocks are paragraphs of `texts`. */
@@ -94,5 +94,27 @@ describe("mergeCanvas", () => {
 
   it("takes either when you both made the same change", () => {
     expect(mergeCanvas(doc("a"), doc("b"), doc("b"))).toEqual({ body: doc("b"), conflicts: 0 });
+  });
+});
+
+describe("holdsChange", () => {
+  it("finds a change a later version saved over it holds, with more written after it (E-R5-31)", () => {
+    const base = doc("Alpha", "Bravo", "Charlie");
+    const mine = doc("Alpha", "Bravo MAYA", "Charlie");
+    expect(holdsChange(base, mine, doc("Alpha", "Bravo MAYA SAM", "Charlie"))).toBe(true);
+    expect(holdsChange(base, mine, doc("Alpha", "Bravo MAYA", "Charlie", "Delta"))).toBe(true);
+  });
+
+  it("doesn't where the change never arrived", () => {
+    const base = doc("Alpha", "Bravo", "Charlie");
+    expect(holdsChange(base, doc("Alpha", "Bravo MAYA", "Charlie"), doc("Alpha", "Bravo SAM", "Charlie"))).toBe(false);
+    expect(holdsChange(base, doc("Alpha", "Bravo MAYA", "Charlie"), base)).toBe(false);
+  });
+
+  it("finds a deletion held only where what it took out is gone", () => {
+    const base = doc("Alpha", "Bravo old", "Charlie");
+    const mine = doc("Alpha", "Bravo", "Charlie");
+    expect(holdsChange(base, mine, doc("Alpha", "Bravo SAM", "Charlie"))).toBe(true);
+    expect(holdsChange(base, mine, doc("Alpha", "Bravo old SAM", "Charlie"))).toBe(false);
   });
 });

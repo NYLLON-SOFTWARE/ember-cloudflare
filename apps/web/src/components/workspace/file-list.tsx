@@ -1,4 +1,4 @@
-import { useContext, useId, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { Fragment, useContext, useId, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { isWebImage, type Me, type Room, type RoomId, type StoredFile, type UserId } from "@ember/protocol";
 import {
   ANY_TIME,
@@ -19,6 +19,7 @@ import {
   EmptyPage,
   FilterList,
   JournalPage,
+  Lock,
   MediaImage,
   MediaVideo,
   MoreHoriz,
@@ -229,6 +230,13 @@ function Choice({ id, label, value, options, onChange }: { id: string; label: st
  * Filter by: whose files, in which room, and when they were sent, with Done, as Slack's dialog has them,
  * and Clear filters, which takes every filter off at once and closes it.
  */
+/**
+ * The dialog's own ×, as Ember's other dialogs have it: a 32px square, 44px for fingers, 12px from the
+ * edge and centred on the title's line, under the dialog's 24px padding, with the hover's fill.
+ */
+const CLOSE_BY_TITLE =
+  "[&>[data-slot=dialog-close]]:top-[38px] [&>[data-slot=dialog-close]]:right-3 [&>[data-slot=dialog-close]]:grid [&>[data-slot=dialog-close]]:size-8 [&>[data-slot=dialog-close]]:-translate-y-1/2 [&>[data-slot=dialog-close]]:place-items-center [&>[data-slot=dialog-close]]:rounded-[9px] [&>[data-slot=dialog-close]]:opacity-100 [&>[data-slot=dialog-close]]:hover:bg-hover [&>[data-slot=dialog-close]]:touch:size-11 [&>[data-slot=dialog-close]_svg]:size-4";
+
 export function FilterDialog({ open, onOpenChange, me, filters, rooms, names, onApply, onClear }: FilterDialogProps) {
   const people = useContext(PeopleContext);
   const [from, setFrom] = useState<UserId | "">(filters.from ?? "");
@@ -253,7 +261,7 @@ export function FilterDialog({ open, onOpenChange, me, filters, rooms, names, on
         onOpenChange(opening);
       }}
     >
-      <DialogContent className="max-w-[480px] gap-5 [&>[data-slot=dialog-close]_svg]:size-4">
+      <DialogContent className={cn("max-w-[480px] gap-5", CLOSE_BY_TITLE)}>
         <DialogTitle className="text-xl font-bold">Filter by</DialogTitle>
         <DialogDescription className="sr-only">Whose files, in which conversation, and when they were shared.</DialogDescription>
         <Choice
@@ -435,10 +443,10 @@ export function FileRow({ file, room, names, showRoom, sort, onOpened, onStar }:
   };
   const viewed = sort === "viewed" && file.viewedAt ? new Date(file.viewedAt) : null;
   const when = viewed ? `Viewed ${shortDateLabel(viewed)}` : shortDateLabel(created);
-  const where = room ? (room.kind === "direct" ? names.roomName(room) : `# ${names.roomName(room)}`) : "A conversation you’ve left";
+  const where = room ? <ConversationLabel room={room} name={names.roomName(room)} /> : "A conversation you’ve left";
   const owner = names.person(file.owner.id) === "Someone" ? file.owner.name : names.person(file.owner.id);
   // One line, cut short at its end: on a phone, where it is and when, and on a computer who shared it too, and its size.
-  const subline = [...(phone ? [] : [owner]), ...(showRoom ? [where] : []), when, ...(file.file && !phone ? [sizeLabel(file.file.byteSize)] : [])].join(" · ");
+  const subline: ReactNode[] = [...(phone ? [] : [owner]), ...(showRoom ? [where] : []), when, ...(file.file && !phone ? [sizeLabel(file.file.byteSize)] : [])];
   const star = (
     <button type="button" aria-pressed={file.starred} title={file.starred ? "Unstar" : "Star"} onClick={() => onStar(file, !file.starred)} className={ROW_BUTTON}>
       {file.starred ? <StarSolid /> : <Star />}
@@ -463,10 +471,15 @@ export function FileRow({ file, room, names, showRoom, sort, onOpened, onStar }:
           {file.name}
         </a>
         <p title={dateTimeLabel(viewed ?? created)} className="truncate text-[13px] text-muted-foreground">
-          {subline}
+          {subline.map((part, at) => (
+            <Fragment key={at}>
+              {at > 0 && " · "}
+              {part}
+            </Fragment>
+          ))}
         </p>
       </div>
-      <div className={cn("flex shrink-0 items-center justify-end gap-0.5", compact ? (phone ? "w-[4.5rem]" : "w-7") : "w-[8.5rem]")}>
+      <div className={cn("flex shrink-0 items-center justify-end gap-0.5", compact ? (touch ? "w-7" : "w-[4.5rem]") : "w-[8.5rem]")}>
         {!compact && (
           <div className={cn("flex items-center gap-0.5", ROW_ACTIONS)}>
             <a
@@ -490,12 +503,12 @@ export function FileRow({ file, room, names, showRoom, sort, onOpened, onStar }:
         )}
         {file.starred && (compact ? <StarSolid aria-label="Starred" className="mx-1 size-[18px] text-muted-foreground" /> : star)}
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-          {/* On a phone, one muted ⋯ opens it, as holding the row does; on a larger touch screen, holding the
-              row opens it, and it's only there to place the menu. */}
+          {/* On a touch screen, holding the row opens it, as Slack's does, and it's only there to place the
+              menu; in a window as narrow as a phone's, without one, it's a muted ⋯. */}
           <DropdownMenuTrigger
             title="More actions"
-            tabIndex={touch && !phone ? -1 : undefined}
-            className={cn(ROW_BUTTON, !phone && ROW_ACTIONS, touch && !phone && "pointer-events-none w-0")}
+            tabIndex={touch ? -1 : undefined}
+            className={cn(ROW_BUTTON, !compact && ROW_ACTIONS, touch && "pointer-events-none w-0")}
           >
             <MoreHoriz />
             <span className="sr-only">More actions for {file.name}</span>
@@ -520,6 +533,17 @@ export function FileRow({ file, room, names, showRoom, sort, onOpened, onStar }:
         </DropdownMenu>
       </div>
     </li>
+  );
+}
+
+/** A conversation as a row names it: a DM by its people, a private room after a lock, and an open one after `#`. */
+function ConversationLabel({ room, name }: { room: Room; name: string }) {
+  if (room.kind === "direct") return name;
+  if (room.kind === "open") return `# ${name}`;
+  return (
+    <>
+      <Lock aria-hidden="true" className="inline size-[0.95em] align-[-0.125em]" /> {name}
+    </>
   );
 }
 
