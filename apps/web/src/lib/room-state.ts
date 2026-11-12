@@ -133,6 +133,8 @@ export type RoomAction =
   | { type: "retry"; clientMessageId: string }
   /** Forgets a message shown as not sent, as Delete does, or as Edit does, which writes it in the composer again. */
   | { type: "discard"; clientMessageId: string }
+  /** Forgets messages another tab has sent, or deleted, which it took out of what this browser keeps. */
+  | { type: "taken-elsewhere"; clientMessageIds: string[] }
   | { type: "dismiss-notice" };
 
 export const initialRoomState: RoomState = {
@@ -383,6 +385,10 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
       };
     case "discard":
       return { ...state, messages: state.messages.filter((m) => !(isPending(m) && m.failed && m.clientMessageId === action.clientMessageId)) };
+    case "taken-elsewhere": {
+      const taken = (m: Message | PendingMessage) => isPending(m) && !m.upload && action.clientMessageIds.includes(m.clientMessageId);
+      return state.messages.some(taken) ? { ...state, messages: state.messages.filter((m) => !taken(m)) } : state;
+    }
     case "sent": {
       const sent = (m: Message | PendingMessage): m is PendingMessage => isQueued(m) && action.clientMessageIds.includes(m.clientMessageId);
       return { ...state, messages: state.messages.map((m) => (sent(m) ? { ...dequeued(m), sentOver: state.connections } : m)) };
