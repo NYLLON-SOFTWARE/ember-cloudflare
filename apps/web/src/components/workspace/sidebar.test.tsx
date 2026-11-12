@@ -105,6 +105,18 @@ describe("Room icons", () => {
     expect(coffee!.querySelector('[data-icon="coffee"]')).toHaveStyle({ width: "19px", height: "19px" });
     expect(random).toHaveTextContent("#random");
   });
+
+  it("shows a lock before a private room's name in place of `#`, but its own icon when it has one", () => {
+    const secret = { id: "secret", name: "secret", kind: "closed" as const, icon: null, unread: false, involvement: "mentions" as const };
+    renderSidebar({ rooms: [secret, { ...secret, id: "vault", name: "vault", icon: "coffee" }] });
+    expect(row("secret")).toBeUndefined();
+    const [locked, vault] = rows();
+    expect(locked).toHaveTextContent(/^secret$/);
+    expect(locked).toHaveAccessibleName("secret");
+    expect(locked!.querySelector("svg")).toHaveClass("iconoir-lock");
+    expect(vault!.querySelector('[data-icon="coffee"]')).toBeInTheDocument();
+    expect(vault!.querySelector(".iconoir-lock")).toBeNull();
+  });
 });
 
 describe("Unread rooms", () => {
