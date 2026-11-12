@@ -9,6 +9,7 @@ import {
   PASSWORD_RESET_CODE_TRIES,
   RECENT_SEARCHES,
   SUGGESTED_PEOPLE,
+  UNREAD_COUNT_CAP,
   emailDomainOf,
   isHost,
   isRoomIcon,
@@ -537,6 +538,8 @@ export interface SavedRoomChange {
 export interface AppliedEvents {
   /** Whose unread marks changed, and when the message each is now marked unread as of came, or null for one now read. */
   marks: Map<UserId, string | null>;
+  /** Whose unread counts changed, with when their mark is as of and their count now (`COUNT_UNREAD`). */
+  counts: Map<UserId, { at: string; count: number }>;
   /** When messages came in a DM, when the latest did and everyone in the DM; null otherwise. */
   active: { at: string; userIds: UserId[] } | null;
   /** The new messages' pushes, oldest message first, when they were asked for. */
@@ -1299,6 +1302,7 @@ interface SidebarRow extends HuddleRow {
   active_at: string;
   unread: number;
   unread_since: string | null;
+  unread_count: number;
   involvement: Involvement;
   shared_position: number | null;
 }
@@ -1319,6 +1323,12 @@ interface UserIdRow {
 }
 
 const userIdsOf = (rows: UserIdRow[]) => rows.map((row) => row.user_id);
+
+/** Someone a message was counted unread for, as `COUNT_UNREAD` answers them. */
+interface CountedRow extends UserIdRow {
+  unread_at: string;
+  unread_count: number;
+}
 
 /** A new message's pushes, from the subscriptions `MESSAGE_PUSHES` found for it: none when it found none. */
 function messagePushes(roomId: RoomId, { message }: RoomEvent, rows: PushRow[]): MessagePush[] {
@@ -1348,6 +1358,7 @@ const sidebarRoom = (row: SidebarRow, members?: DirectMemberRow[]): SidebarRoom 
   ...roomOf(row, members),
   unread: row.unread === 1,
   ...(row.unread_since !== null && { unreadSince: row.unread_since }),
+  ...(row.unread === 1 && row.unread_count > 0 && { unreadCount: row.unread_count }),
   involvement: row.involvement,
 });
 
@@ -1372,7 +1383,7 @@ const ACTIVE_AT = `coalesce(rooms.last_message_at, rooms.created_at) AS active_a
  * they were listed.
  */
 export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}, memberships.unread_at IS NOT NULL AS unread,
-    memberships.unread_at AS unread_since, memberships.involvement, rooms.shared_position, rooms.huddle_started_at, rooms.huddle_user_ids
+    memberships.unread_at AS unread_since, memberships.unread_count, memberships.involvement, rooms.shared_position, rooms.huddle_started_at, rooms.huddle_user_ids
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? ORDER BY rooms.created_at, rooms.id`;
 
@@ -1617,8 +1628,22 @@ export const MARK_UNREAD = `UPDATE memberships SET unread_at = ?1
     AND user_id NOT IN (SELECT value FROM json_each(?4)) AND ?5 > (SELECT applied_seq FROM rooms WHERE id = ?2)
   RETURNING user_id`;
 
-/** Clears someone's unread mark on a room, answering a row if there was one, once for each event. */
-export const MARK_READ = `UPDATE memberships SET unread_at = NULL
+/**
+ * Counts a message, numbered ?5, by ?2 in room ?1, for the members it's marked unread for, but those a
+ * JSON list ?3 names, who are viewing it, and those who follow the room at @mentions or not at all whom it
+ * doesn't mention, as a JSON list ?4 names whom it does, up to `UNREAD_COUNT_CAP`, answering each one it
+ * counts for, when their mark is as of and their count. It follows `MARK_UNREAD` for the same message, so a
+ * mark it makes counts the message, and it changes nothing once the Workspace has applied the message.
+ */
+export const COUNT_UNREAD = `UPDATE memberships SET unread_count = unread_count + 1
+  WHERE room_id = ?1 AND unread_at IS NOT NULL AND unread_count < ${UNREAD_COUNT_CAP} AND involvement <> 'invisible' AND user_id <> ?2
+    AND user_id NOT IN (SELECT value FROM json_each(?3))
+    AND (involvement = 'everything' OR user_id IN (SELECT value FROM json_each(?4)))
+    AND ?5 > (SELECT applied_seq FROM rooms WHERE id = ?1)
+  RETURNING user_id, unread_at, unread_count`;
+
+/** Clears someone's unread mark on a room, and its count, answering a row if there was one, once for each event. */
+export const MARK_READ = `UPDATE memberships SET unread_at = NULL, unread_count = 0
   WHERE room_id = ?1 AND user_id = ?2 AND unread_at IS NOT NULL AND ?3 > (SELECT applied_seq FROM rooms WHERE id = ?1)
   RETURNING user_id`;
 
@@ -3547,28 +3572,37 @@ export class WorkspaceStore {
       const mark = isNewMessage(event) ? (event.threadOnly ? null : statement(MARK_UNREAD, at, roomId, userId, seeing, seq)) : statement(MARK_READ, roomId, userId, seq);
       const marks = mark && statements.push(mark) - 1;
       const mentions = event.message ? JSON.stringify(event.message.mentionIds) : null;
+      const counts = isNewMessage(event) && !event.threadOnly ? statements.push(statement(COUNT_UNREAD, roomId, userId, seeing, mentions ?? "[]", seq)) - 1 : null;
       const followers = JSON.stringify(event.message?.followerIds ?? []);
       const inRoom = event.threadOnly ? 0 : 1;
       const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, seeing, mentions, seq, guests ? 1 : 0, inRoom, followers)) - 1 : null;
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it, nor is
       // @ember's answer, which is a reply too.
       const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq)) - 1 : null;
-      return { event, marks, pushes, bots };
+      return { event, marks, counts, pushes, bots };
     });
     const told = statements.length;
     statements.push(...(message ? [statement(TOLD_OF_DIRECT_MESSAGE, roomId, message.seq), statement(APPLIED_WITH_MESSAGE, last, roomId, messageAt!)] : [statement(APPLIED, last, roomId)]));
     const results = await this.db.batch(statements);
     const marks = new Map<UserId, string | null>();
-    for (const { event, marks: at } of applied) {
-      if (at === null) continue;
-      for (const { user_id } of results[at] as UserIdRow[]) marks.set(user_id, isNewMessage(event) ? event.at : null);
+    // Each count as of the last message that changed it, but none for someone who's read the room since.
+    const counts = new Map<UserId, { at: string; count: number }>();
+    for (const { event, marks: at, counts: counted } of applied) {
+      if (at !== null) {
+        for (const { user_id } of results[at] as UserIdRow[]) {
+          marks.set(user_id, isNewMessage(event) ? event.at : null);
+          if (!isNewMessage(event)) counts.delete(user_id);
+        }
+      }
+      if (counted === null) continue;
+      for (const row of results[counted] as CountedRow[]) counts.set(row.user_id, { at: row.unread_at, count: row.unread_count });
     }
     const pushes = applied.flatMap(({ event, pushes: at }) => (at === null ? [] : messagePushes(roomId, event, results[at] as PushRow[])));
     const deliveries = applied.flatMap(({ event, bots: at }) => (at === null ? [] : messageDeliveries(event, results[at] as MessageBotRow[])));
     const webhooks = deliveries.flatMap(({ answers, ...delivery }) => (answers ? [] : [delivery]));
     const asks = deliveries.flatMap(({ answers, ...ask }) => (answers ? [ask] : []));
     const toldIds = message ? userIdsOf(results[told] as UserIdRow[]) : [];
-    return { marks, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks, asks };
+    return { marks, counts, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks, asks };
   }
 
   /** Whether push subscription `id` is still saved, for someone active. */
