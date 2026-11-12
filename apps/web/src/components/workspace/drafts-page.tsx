@@ -21,6 +21,8 @@ const BUTTON = "inline-flex cursor-pointer items-center justify-center gap-[0.5e
 
 const TABS = [
   { tab: "drafts", label: "Drafts", href: DRAFTS_PATH },
+  // Not in the tabs until it can list every room's, from GET /api/scheduled: until then it would list only the
+  // rooms this tab has opened, looking complete when it isn't. Its address still shows it.
   { tab: "scheduled", label: "Scheduled", href: SCHEDULED_PATH },
   { tab: "sent", label: "Sent", href: SENT_PATH },
 ] as const;
@@ -49,7 +51,7 @@ export function DraftsPage({ me, tab, rooms, onFailed }: Props) {
       </PageHeader>
       <MainContent className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         <nav aria-label="Drafts and sent" className="flex flex-none gap-1 border-b px-[22px] max-md:px-3">
-          {TABS.map(({ tab: shown, label, href }) => (
+          {TABS.filter(({ tab: listed }) => listed !== "scheduled").map(({ tab: shown, label, href }) => (
             <PageLink
               key={shown}
               href={href}
