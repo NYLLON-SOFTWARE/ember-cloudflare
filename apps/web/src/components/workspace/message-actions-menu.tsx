@@ -15,7 +15,7 @@ import {
 } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash } from "@/components/icons/iconoir";
+import { ArrowRight, ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, QuoteMessage, ShareAndroid, Trash } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -75,6 +75,8 @@ interface Props {
   onDelete: () => boolean;
   /** Opens the message's Custom reaction form, from New boost. */
   onNewBoost: () => void;
+  /** Opens Forward message for the message, given what opened it, or left out where it can't be forwarded. */
+  onForward?: (opener: HTMLElement) => void;
   ref?: Ref<MessageActionsHandle>;
 }
 
@@ -90,7 +92,7 @@ export interface MessageActionsHandle {
 
 /**
  * The message actions: Message options, which opens a bar of three quick reactions, More reactions, whose
- * tray holds the other reactions and New boost, Reply in thread, a file message's Download, and Edit, in the
+ * tray holds the other reactions and New boost, Reply in thread, Forward message, a file message's Download, and Edit, in the
  * order Slack's bar has them. With a mouse, hovering the message opens the bar too, laid over the message's
  * top edge at the timeline's right, with Message options pinned as its last button, and each button names
  * itself in a tooltip as the pointer reaches it. On touch screens it opens beside Message options, with
@@ -100,7 +102,7 @@ export interface MessageActionsHandle {
  * With a mouse, Message options then opens More actions under the bar, as Slack's does: Quote, Copy text,
  * Copy link, and on messages you can change, Edit message and Delete message.
  */
-export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, onReact, onQuote, onEdit, onDelete, onNewBoost, ref }: Props) {
+export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, onReact, onQuote, onEdit, onDelete, onNewBoost, onForward, ref }: Props) {
   const [open, setOpen] = useState(false);
   const [trayOpen, setTrayOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -164,6 +166,13 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   const edit = () => {
     close();
     onEdit();
+  };
+
+  // Forward message closes the bar too, and the dialog it opens takes focus, handing it back to Message
+  // options as it closes.
+  const forward = () => {
+    close();
+    onForward?.(trigger.current!);
   };
 
   // New boost closes the bar too, and the form it opens takes focus.
@@ -440,6 +449,14 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </PageLink>
               </ActionTooltip>
             )}
+            {/* Slack's order after the reactions: Forward message, then Add to to-dos. */}
+            {onForward && (
+              <ActionTooltip label="Forward message…">
+                <button type="button" aria-label="Forward message…" className={ACTION} onClick={forward}>
+                  <ArrowRight />
+                </button>
+              </ActionTooltip>
+            )}
             {/* More actions holds Quote and Copy link with a mouse. */}
             {message.attachment ? (
               <FileActions file={message.attachment} />
@@ -627,7 +644,7 @@ function QuoteButton({ message, nodes, onQuote, onClick, ...props }: QuoteButton
     onClick?.(event);
     const link = new URL(permalinkOf(message), document.baseURI).href;
     const mentioned = (userId: string) => mentionedPerson(people, message.mentions, userId)?.name ?? UNKNOWN_PERSON;
-    onQuote(replyQuote(nodes, nameOf(message.creator), link, mentioned));
+    onQuote(replyQuote(nodes, { author: nameOf(message.creator), createdAt: message.createdAt, link }, mentioned));
   };
   return <button type="button" onClick={quote} {...props} />;
 }

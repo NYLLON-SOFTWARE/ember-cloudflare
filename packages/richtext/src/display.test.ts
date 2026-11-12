@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { autoLink } from "./autolink";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, RenderError } from "./attachments";
 import { bodyFromPlainText, plainText, prepareBody, type PreparedBody } from "./body";
-import { displayBody, displayMarkup, type DisplayNode } from "./display";
+import { displayBody, displayMarkup, quoteMarkup, type DisplayNode } from "./display";
 import { MAX_TREE_DEPTH, ParseLimitError } from "./markup";
 import { mentionSgid } from "./mentions";
 import { parseHtml } from "./parse";
@@ -182,6 +182,19 @@ describe("Reply with a quote", () => {
     expect(displayMarkup(nodes, ({ userId }) => `<${userId}>`)).toBe(
       '<p>Hi &lt;0123456789abcdef&gt; &amp; <a href="/x?a=1&amp;b=&lt;">"you"</a> at&nbsp;<a href="https://example.com">https://example.com</a><br>bye</p><hr>',
     );
+  });
+
+  it("quotes what a message shows, citing its author, when they wrote it and a link to it, which a message keeps and shows", () => {
+    const nodes = display(`<p>Hi <action-text-attachment ${MENTION} sgid="0123456789abcdef"></action-text-attachment></p>`);
+    const citation = { author: "Ada & co", createdAt: "2026-11-11T19:30:00.000Z", when: "Nov 11, 7:30 PM", link: "https://ember.test/rooms/general/@m1" };
+    const quote = quoteMarkup(nodes, citation, () => "Grace");
+    expect(quote).toBe(
+      '<blockquote><p>Hi Grace</p></blockquote><cite>Ada &amp; co · <time datetime="2026-11-11T19:30:00.000Z">Nov 11, 7:30 PM</time> <a href="https://ember.test/rooms/general/@m1">#</a></cite>',
+    );
+    const kept = prepareBody(parseHtml, quote, () => undefined)!;
+    expect(kept.plainText).toContain("Ada & co · Nov 11, 7:30 PM #");
+    const cite = display(kept.html, kept.plainText).find((node) => node.kind === "element" && node.name === "cite");
+    expect(cite).toMatchObject({ children: [{ value: "Ada & co · " }, { name: "time", attrs: { datetime: citation.createdAt } }, { value: " " }, { name: "a" }] });
   });
 
   it("writes every corpus body as it shows", { timeout: 30_000 }, () => {
