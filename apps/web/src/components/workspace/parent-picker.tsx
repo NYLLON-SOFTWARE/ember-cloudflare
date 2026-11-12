@@ -1,11 +1,11 @@
 import { useId } from "react";
 import type { ParentChoice, RoomId } from "@ember/protocol";
 import { FIELD_INPUT, Field } from "@/components/field";
+import { NavArrowDown } from "@/components/icons/iconoir";
+import { RoomIcon } from "@/components/icons/room-icon";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toSentence } from "@/lib/directs";
 import { cn } from "@/lib/utils";
-
-/** A select as the settings pages draw theirs. */
-const SELECT = cn("w-full min-w-0 border outline-none dark:bg-input/30", FIELD_INPUT);
 
 /** What the room forms' Parent room field shows and changes. */
 export interface ParentField {
@@ -27,9 +27,15 @@ export const parentChoice = (choices: ParentChoice[], parentId: RoomId | null) =
 export const leavingWarning = (parent: string, leaving: string[]) =>
   `Moving this room under ${parent} removes ${toSentence(leaving)}, who ${leaving.length === 1 ? "isn’t" : "aren’t"} in ${parent}.`;
 
+/** The value the radio group gives None, a room of its own. */
+const NONE = "";
+
+const NONE_LABEL = "None (a room of its own)";
+
 /**
- * The room forms' Parent room: None, for a room of its own, or a room it goes under as a sub-room. Below
- * it, a warning names whoever the room would lose, not being in the parent picked.
+ * The room forms' Parent room, a field the height of the others that opens a menu: None, for a room of
+ * its own, then the rooms it could go under, with their icons. Below it, what going under one means, and
+ * a warning naming whoever the room would lose, not being in the parent picked.
  */
 export function ParentPicker({ value, choices, onChange, locked, leaving = [], disabled }: ParentField & { disabled: boolean }) {
   const hintId = useId();
@@ -38,24 +44,37 @@ export function ParentPicker({ value, choices, onChange, locked, leaving = [], d
   return (
     <div className="mt-[22px]">
       <Field id="room_parent" label="Parent room">
-        <select
-          id="room_parent"
-          value={value ?? ""}
-          disabled={disabled || locked !== undefined}
-          aria-describedby={cn(hintId, leaving.length > 0 && parent && warningId)}
-          onChange={(event) => onChange(event.target.value || null)}
-          className={SELECT}
-        >
-          <option value="">None, a room of its own</option>
-          {choices.map((choice) => (
-            <option key={choice.id} value={choice.id}>
-              {choice.name}
-            </option>
-          ))}
-        </select>
+        <DropdownMenu modal={false}>
+          <DropdownMenuTrigger
+            id="room_parent"
+            disabled={disabled || locked !== undefined}
+            aria-describedby={cn(hintId, leaving.length > 0 && parent && warningId)}
+            className={cn(
+              "flex w-full min-w-0 cursor-pointer items-center gap-2.5 border text-start disabled:cursor-not-allowed disabled:opacity-50",
+              FIELD_INPUT,
+            )}
+          >
+            {parent && <RoomIcon icon={parent.icon} size={18} className="w-[18px] shrink-0 text-center text-[20px] leading-none text-muted-foreground" />}
+            <span className="min-w-0 flex-1 truncate">{parent?.name ?? NONE_LABEL}</span>
+            <NavArrowDown aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-(--radix-dropdown-menu-trigger-width)">
+            <DropdownMenuRadioGroup value={value ?? NONE} onValueChange={(picked) => onChange(picked || null)}>
+              <DropdownMenuRadioItem value={NONE} className="text-base">
+                {NONE_LABEL}
+              </DropdownMenuRadioItem>
+              {choices.map((choice) => (
+                <DropdownMenuRadioItem key={choice.id} value={choice.id} className="text-base">
+                  <RoomIcon icon={choice.icon} size={18} className="w-[18px] shrink-0 text-center text-[20px] leading-none text-muted-foreground" />
+                  <span className="min-w-0 truncate">{choice.name}</span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </Field>
       <p id={hintId} className="mt-2 text-xs text-muted-foreground">
-        {locked ?? "A sub-room is listed under its room, and only people in that room can be in it."}
+        {locked ?? "Only the parent’s people can be in a sub-room."}
       </p>
       {leaving.length > 0 && parent && (
         <p id={warningId} role="status" className="mt-2 text-xs text-negative wrap-anywhere">

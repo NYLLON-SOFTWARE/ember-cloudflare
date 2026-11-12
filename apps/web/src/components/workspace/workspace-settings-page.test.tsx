@@ -2470,7 +2470,7 @@ describe("Only administrators create rooms (setting)", () => {
 });
 
 describe("Shared room order", () => {
-  const HELP = "Drag a room to reorder your community sidebar. Click a room to set its permissions.";
+  const HELP = "Drag a room, or press Alt and Up or Down, to reorder the sidebar.";
   const orderList = () => screen.getByRole("list", { name: "Room order" });
   const orderRows = () => within(orderList()).getAllByRole("listitem");
   /** The room a row is for, by the name its link to the room's settings has. */
@@ -2500,7 +2500,7 @@ describe("Shared room order", () => {
     act(() => sidebarSays([...adasRooms, shared("annex", "Annex")], ["random"]));
     expect(ordered()).toEqual(["random", "Design", "general", "Annex"]);
 
-    expect(screen.getByText(HELP)).toBeInTheDocument();
+    expect(screen.getByText(HELP)).toHaveClass("sr-only");
     for (const row of orderRows()) {
       expect(row).toHaveAccessibleDescription(HELP);
       expect(row).toHaveAttribute("tabindex", "0");

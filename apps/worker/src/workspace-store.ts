@@ -1721,11 +1721,12 @@ const BETWEEN = `SELECT 1 FROM rooms WHERE id = ?1 AND kind = 'direct' AND (SELE
     WHERE memberships.room_id = ?1 AND memberships.user_id IN (?2, ?3) AND users.status = ${ACTIVE}) = 2`;
 
 /**
- * Whether someone is in a room, and whether a ban blocks the IP address they come from, in one go,
- * asked on every room socket's upgrade.
+ * Whether someone is in a room, whether the room is there at all, and whether a ban blocks the IP address
+ * they come from, in one go, asked on every room socket's upgrade.
  */
-export const ROOM_ACCESS = `SELECT EXISTS (SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?) AS member,
-  EXISTS (SELECT 1 FROM bans WHERE ip_address = ?) AS banned`;
+export const ROOM_ACCESS = `SELECT EXISTS (SELECT 1 FROM memberships WHERE room_id = ?1 AND user_id = ?2) AS member,
+  EXISTS (SELECT 1 FROM rooms WHERE id = ?1) AS found,
+  EXISTS (SELECT 1 FROM bans WHERE ip_address = ?3) AS banned`;
 
 /**
  * Marks a room unread, as of a message, for its members who aren't marked already, haven't hidden it,
@@ -2561,6 +2562,11 @@ const GRANT_SUB_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, crea
   SELECT ?1, users.id, ?2, ?2 FROM users WHERE users.id IN (SELECT value FROM json_each(?3))
     AND EXISTS (SELECT 1 FROM rooms JOIN memberships ON memberships.room_id = rooms.parent_id WHERE rooms.id = ?1 AND memberships.user_id = users.id)
   ON CONFLICT DO NOTHING RETURNING user_id`;
+
+/** The names of the people the JSON list ?2 names who aren't in room ?1, by name. */
+const NOT_IN_ROOM = `SELECT users.name FROM users WHERE users.id IN (SELECT value FROM json_each(?2))
+    AND NOT EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)
+  ORDER BY users.name`;
 
 /** Who's in room ?1's sub-rooms, once each. */
 const SUB_ROOM_PEOPLE = `SELECT DISTINCT user_id FROM memberships WHERE room_id IN (SELECT id FROM rooms WHERE parent_id = ?1)`;
@@ -4054,10 +4060,10 @@ export class WorkspaceStore {
     return (await this.db.all(BETWEEN, roomId, userId, otherId)).length > 0;
   }
 
-  /** Whether `userId` is in room `roomId`, and whether a ban blocks `ipAddress`, if there is one. */
-  async roomAccess(roomId: RoomId, userId: UserId, ipAddress: string | null): Promise<{ member: boolean; banned: boolean }> {
-    const [row] = await this.db.all<{ member: number; banned: number }>(ROOM_ACCESS, roomId, userId, ipAddress);
-    return { member: row!.member === 1, banned: row!.banned === 1 };
+  /** Whether `userId` is in room `roomId`, whether the room is there, and whether a ban blocks `ipAddress`, if there is one. */
+  async roomAccess(roomId: RoomId, userId: UserId, ipAddress: string | null): Promise<{ member: boolean; found: boolean; banned: boolean }> {
+    const [row] = await this.db.all<{ member: number; found: number; banned: number }>(ROOM_ACCESS, roomId, userId, ipAddress);
+    return { member: row!.member === 1, found: row!.found === 1, banned: row!.banned === 1 };
   }
 
   /** Everyone active, by name. */
@@ -4794,6 +4800,12 @@ export class WorkspaceStore {
   async parentChoice(parentId: RoomId, userId: UserId): Promise<RoomParent | null> {
     const [row] = await this.db.all<RoomParent>(PARENT_CHOICE, parentId, userId);
     return row ? { id: row.id, name: row.name } : null;
+  }
+
+  /** The names of the people `userIds` names who aren't in room `roomId`, by name. */
+  async notInRoom(roomId: RoomId, userIds: UserId[]): Promise<string[]> {
+    const rows = await this.db.all<{ name: string }>(NOT_IN_ROOM, roomId, JSON.stringify(userIds));
+    return rows.map((row) => row.name);
   }
 
   /** How many sub-rooms room `roomId` has. */

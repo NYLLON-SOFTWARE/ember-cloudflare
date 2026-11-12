@@ -631,15 +631,18 @@ function useToolbarShown(byDefault: boolean): [boolean, (shown: boolean, keep?: 
 
 /** Cmd+Shift+X, or Ctrl+Shift+X, which strikes through, as Slack's does. */
 
+/** Why a room's gone for this person: deleted, or still there with them no longer in it or its parent. */
+export type RoomGone = "deleted" | "lost access";
+
 /**
- * What stands in the composer's place in a room that's gone: deleted, or no longer this person's. Its
- * span is inline, so its width, centering and shake don't take; this has them, as its classes mean.
+ * What stands in the composer's place in a room that's gone, saying why. Its span is inline, so its
+ * width, centering and shake don't take; this has them, as its classes mean.
  */
-export function RoomDeleted() {
+export function RoomGoneNotice({ gone }: { gone: RoomGone }) {
   return (
     <footer className={FOOTER}>
       <p role="alert" className="rounded-lg border border-negative px-[0.8em] py-[0.5em] text-center text-base text-negative motion-safe:animate-shake">
-        This room was deleted.
+        {gone === "lost access" ? "You no longer have access to this room." : "This room was deleted."}
       </p>
     </footer>
   );

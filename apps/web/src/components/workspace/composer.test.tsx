@@ -8,7 +8,7 @@ import type { RoomFrames } from "@/hooks/use-room";
 import { dateValue } from "@/lib/schedule-times";
 import type { Sendable } from "@/lib/uploads";
 import { createRef } from "react";
-import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
+import { Composer, RoomGoneNotice, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
 import { UNDO_MS } from "./schedule-send";
 
@@ -869,11 +869,16 @@ describe("Typing indicator", () => {
 
 describe("Only members see a room", () => {
   it("says a room that's gone was deleted, in red, shaking once where motion is welcome", () => {
-    render(<RoomDeleted />);
+    render(<RoomGoneNotice gone="deleted" />);
     const notice = screen.getByRole("alert");
     expect(notice).toHaveTextContent("This room was deleted.");
     expect(notice).toHaveClass("text-negative", "border-negative", "motion-safe:animate-shake");
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("says someone taken out of a room that's still there no longer has access to it", () => {
+    render(<RoomGoneNotice gone="lost access" />);
+    expect(screen.getByRole("alert")).toHaveTextContent("You no longer have access to this room.");
   });
 });
 

@@ -9,7 +9,7 @@ import { roomPath, useVisit } from "@/hooks/use-route";
 import { useThread } from "@/hooks/use-thread";
 import { isPending, type ConnectionStatus } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
-import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
+import { Composer, RoomGoneNotice, type ComposerHandle, type RoomGone } from "./composer";
 import { MessageItem, repliesLabel, type MessageActions, type MessageEditors, type ThreadPlace } from "./message-item";
 import { MessageList } from "./message-list";
 import { RoomNotice } from "./room-notice";
@@ -31,8 +31,8 @@ interface Props {
   frames: RoomFrames;
   status: ConnectionStatus;
   offline: boolean;
-  /** Whether the room has gone for this person, whose thread then stays as it is. */
-  deleted: boolean;
+  /** Why the room has gone for this person, whose thread then stays as it is, or null while it hasn't. */
+  gone: RoomGone | null;
   /** What the room has to say while the thread covers it, as why it refused something done in the thread. */
   roomNotice: string | null;
   onDismissRoomNotice: () => void;
@@ -51,7 +51,7 @@ interface Props {
  * the room's right, below that it covers the room, and on phones the whole page, with Back in its header
  * in Close thread's place.
  */
-export function ThreadPanel({ room, name, me, parentId, replyId, frames, status, offline, deleted, roomNotice, onDismissRoomNotice, placement = "column", onClose }: Props) {
+export function ThreadPanel({ room, name, me, parentId, replyId, frames, status, offline, gone, roomNotice, onDismissRoomNotice, placement = "column", onClose }: Props) {
   const thread = useThread(room.id, frames, status, offline, me, parentId, replyId);
   const { parent, replies } = thread.state;
   // Replying tells nobody you're typing, so only @ember shows as typing here, as it answers in the thread.
@@ -59,7 +59,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
   const direct = room.kind === "direct";
   const composer = useRef<ComposerHandle>(null);
   const { editing, editors } = useMessageEditors(composer);
-  const actions = deleted ? null : thread.messageActions;
+  const actions = gone ? null : thread.messageActions;
 
   // Following a reply's permalink in the thread goes to it, or the thread's own link to its end, as a
   // room's permalinks do.
@@ -150,8 +150,8 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
         onDropFiles={(files) => composer.current?.addFiles(files)}
         thread={{ header: <ThreadParent parent={parent} me={me} editing={editing} actions={actions} editors={editors} place={place} />, place }}
       />
-      {deleted ? (
-        <RoomDeleted />
+      {gone ? (
+        <RoomGoneNotice gone={gone} />
       ) : (
         parent !== null && (
           <Composer

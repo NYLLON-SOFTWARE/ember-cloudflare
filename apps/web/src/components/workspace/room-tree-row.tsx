@@ -47,9 +47,9 @@ interface Props<T extends SharedRoom> {
 
 /**
  * A room in the sidebar's tree: its row, and for a parent, an arrow at the row's end that expands or
- * collapses its sub-rooms, indented under it. Following the parent's name opens its room, as any row's
- * does. Collapsed, the parent shows unread while any of its sub-rooms is, and the sub-room the tab shows
- * stays under it.
+ * collapses its sub-rooms, indented under it, shown at rest only while they're collapsed. Following the
+ * parent's name opens its room, as any row's does. Collapsed, the parent shows unread while any of its
+ * sub-rooms is, and the sub-room the tab shows stays under it.
  */
 export function RoomTreeRow<T extends SharedRoom>({ branch, label, row, isUnread, currentRoomId, collapsed, onToggle }: Props<T>) {
   const groupId = useId();
@@ -59,7 +59,7 @@ export function RoomTreeRow<T extends SharedRoom>({ branch, label, row, isUnread
   const unread = isUnread(room) || (collapsed && subRooms.some(isUnread));
   return (
     <>
-      <div className="relative">
+      <div className="group/tree relative">
         {row(room, { label, unread, className: "pr-10 touch:pr-12" })}
         <button
           type="button"
@@ -68,7 +68,12 @@ export function RoomTreeRow<T extends SharedRoom>({ branch, label, row, isUnread
           aria-label={`${collapsed ? "Show" : "Hide"} ${room.name}’s sub-rooms`}
           title={collapsed ? "Show sub-rooms" : "Hide sub-rooms"}
           onClick={() => onToggle(room.id)}
-          className="absolute inset-y-0 right-0 flex w-9 cursor-pointer items-center justify-center rounded-lg text-muted-foreground hover:bg-hover hover:text-foreground touch:w-11"
+          className={cn(
+            "absolute inset-y-0 right-0 flex w-9 cursor-pointer items-center justify-center rounded-lg text-muted-foreground hover:bg-hover hover:text-foreground touch:w-11",
+            // Expanded, it shows with a pointer only as the row is hovered or has focus; collapsed, it stays, so the
+            // sub-rooms folded away can be found, and fingers, which can't hover, always have it.
+            !collapsed && "opacity-0 group-hover/tree:opacity-100 group-focus-within/tree:opacity-100 touch:opacity-100",
+          )}
         >
           <NavArrowRight className={cn("size-4 transition-transform motion-reduce:transition-none", !collapsed && "rotate-90")} />
         </button>

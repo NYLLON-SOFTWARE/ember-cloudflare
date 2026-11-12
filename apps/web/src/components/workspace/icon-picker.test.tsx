@@ -61,7 +61,7 @@ describe("Room icon picker", () => {
     expect(trigger()).toHaveTextContent("Break RoomChoose from Lucide and Iconoir");
     expect(trigger()).toHaveAttribute("aria-haspopup", "dialog");
     expect(trigger().querySelector('[data-icon="coffee"]')).toBeInTheDocument();
-    expect(screen.getByText("Shown beside this room for everyone in the workspace.")).toBeInTheDocument();
+    expect(screen.queryByText("Shown beside this room for everyone in the workspace.")).not.toBeInTheDocument();
   });
 
   it("credits Iconoir's icons, and says Default hashtag for a room with `#`", () => {

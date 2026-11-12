@@ -60,6 +60,13 @@ describe("Sub-rooms in the sidebar", () => {
     expect(within(screen.getByRole("group", { name: "Strata’s sub-rooms" })).getAllByRole("link")).toHaveLength(3);
   });
 
+  it("shows the arrow to a pointer only as its row is hovered or has focus while expanded, and always while collapsed", async () => {
+    renderSidebar();
+    expect(toggle()).toHaveClass("opacity-0", "group-hover/tree:opacity-100", "touch:opacity-100");
+    await userEvent.click(toggle());
+    expect(toggle()).not.toHaveClass("opacity-0");
+  });
+
   it("collapses them with the arrow, which the parent's name doesn't, showing their unread mark on the parent, and remembers it", async () => {
     const onSelect = vi.fn();
     const { unmount } = renderSidebar({ onSelect });

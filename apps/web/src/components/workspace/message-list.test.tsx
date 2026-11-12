@@ -223,9 +223,18 @@ describe("Open a room", () => {
 });
 
 describe("Empty room", () => {
-  it("welcomes people to a room with no messages yet", () => {
+  it("welcomes people to a room with no messages yet, with nothing more to say", () => {
     render(list({ messages: [] }));
     expect(screen.getByRole("heading", { name: "Welcome to #general" })).toBeInTheDocument();
+    expect(screen.queryByText(/very beginning/)).not.toBeInTheDocument();
+  });
+
+  it("says what a sub-room with no messages yet is a sub-room of", () => {
+    render(
+      <MessageList roomName="Strata – Sales" parentName="Strata" invitation={null} onDismissInvitation={vi.fn()} state={{ ...initialRoomState, status: "open", messages: [] }} me={ada} actions={actions} editing={new Set()} editors={editors} onLoadOlder={vi.fn()} onLoadNewer={vi.fn()} onJumpToNewest={vi.fn()} />,
+    );
+    expect(screen.getByRole("heading", { name: "Welcome to #Strata – Sales" })).toBeInTheDocument();
+    expect(screen.getByText("A sub-room of Strata")).toBeInTheDocument();
   });
 
   it("welcomes people to a private room after a lock rather than a `#`", () => {

@@ -4,6 +4,7 @@ import {
   HISTORY_PAGE_SIZE,
   isInRoom,
   isMessageTooLong,
+  LOST_ACCESS,
   MAX_CHECKED_MESSAGES,
   MAX_MESSAGE_HTML_LENGTH,
   MESSAGE_TOO_LONG,
@@ -221,19 +222,19 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       for (const listener of listeners.current) listener(frame);
     };
 
-    const onClose = (code: number, opened: boolean) => {
+    const onClose = (code: number, opened: boolean, reason: string) => {
       // The person lost access for good, removed from the workspace or banned, which ends all their
       // sessions, so they connect again only if the browser is still signed in as them.
       if (code === CloseCode.Revoked) {
         unlessSessionChanged(() => room.retry());
         return false;
       }
-      // The room isn't there for whoever the browser is signed in as: deleted, or no longer theirs. If
-      // that's still this person, there's nothing to connect to.
+      // The room isn't there for whoever the browser is signed in as: deleted, or no longer theirs, as
+      // the reason says. If that's still this person, there's nothing to connect to.
       if (code === CloseCode.NotFound) {
         unlessSessionChanged(() => {
           room.close();
-          dispatch({ type: "status", status: "gone" });
+          dispatch({ type: "status", status: "gone", lostAccess: reason === LOST_ACCESS });
         });
         return false;
       }

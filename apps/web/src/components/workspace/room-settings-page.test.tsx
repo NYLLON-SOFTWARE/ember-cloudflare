@@ -96,7 +96,7 @@ describe("Room settings page", () => {
     expect(await roomName()).toHaveValue("Design");
     expect(document.title).toBe("Edit settings for Design");
     expect(screen.getByRole("heading", { level: 1, name: "Room settings" })).toBeInTheDocument();
-    expect(screen.getByText("Manage the room name, access, and members.")).toBeInTheDocument();
+    expect(screen.queryByText("Manage the room name, access, and members.")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/edit#channel-settings");
   });
 
@@ -654,16 +654,22 @@ describe("Unsaved changes guard", () => {
 
 describe("Parent room", () => {
   const strata = { id: "strata", name: "Strata", icon: null, everyone: false, memberIds: [ada.id] };
-  const parentPicker = () => screen.getByRole("combobox", { name: "Parent room" });
+  const parentPicker = () => screen.getByRole("button", { name: "Parent room" });
+  /** Picks `name` from the Parent room's menu. */
+  const pick = async (user: ReturnType<typeof showPage>["user"], name: string) => {
+    await user.click(parentPicker());
+    await user.click(await screen.findByRole("menuitemradio", { name }));
+  };
 
   it("moves a room under a parent, offering only its people, once you confirm whom it takes out", async () => {
     serve({ ...openSettings(), parents: [strata] }, { saved: { ...design, parent: { id: "strata", name: "Strata" } } });
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const { user } = showPage(design);
     await roomName();
-    expect(parentPicker()).toHaveValue("");
+    expect(parentPicker()).toHaveTextContent("None (a room of its own)");
 
-    await user.selectOptions(parentPicker(), "Strata");
+    await pick(user, "Strata");
+    expect(parentPicker()).toHaveTextContent("Strata");
     const warning = "Moving this room under Strata removes Grace Hopper and Linus Torvalds, who aren’t in Strata.";
     expect(screen.getByText(warning)).toBeInTheDocument();
     expect(names()).toEqual(["Everyone in Strata", "Ada Lovelace"]);
@@ -677,7 +683,7 @@ describe("Parent room", () => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
     const { user } = showPage(design);
     await roomName();
-    await user.selectOptions(parentPicker(), "Strata");
+    await pick(user, "Strata");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
   });

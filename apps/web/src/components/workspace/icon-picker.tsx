@@ -427,7 +427,6 @@ export function IconPicker({ icon, onChange, disabled = false, catalogUrl }: Pro
           onOpen={(trigger) => dialog.current?.open({ icon, defaultIcon: null, defaultLabel: "Default hashtag", apply: onChange, trigger })}
         />
       </div>
-      <p className="mt-2 text-xs text-muted-foreground">Shown beside this room for everyone in the workspace.</p>
       <IconDialog
         ref={dialog}
         context="room"

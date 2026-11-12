@@ -1,4 +1,4 @@
-import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type Message, type ServerFrame, type User } from "@ember/protocol";
+import { CloseCode, LOST_ACCESS, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -57,10 +57,10 @@ class FakeSocket {
   }
 
   /** Closes as the network or the room does: 1006 when the connection drops. */
-  drop(code = 1006) {
+  drop(code = 1006, reason = "") {
     act(() => {
       this.readyState = FakeSocket.CLOSED;
-      this.onclose?.(new CloseEvent("close", { code }));
+      this.onclose?.(new CloseEvent("close", { code, reason }));
     });
   }
 
@@ -1384,9 +1384,18 @@ describe("Only members see a room", () => {
     await vi.waitFor(() => expect(result.current.state.status).toBe("gone"));
     expect(fetch).toHaveBeenCalledOnce();
     expect(result.current.state.present).toEqual([]);
+    expect(result.current.state.lostAccess).toBe(false);
     wait(60_000);
     expect(FakeSocket.all).toHaveLength(1);
     expect(onSessionChanged).not.toHaveBeenCalled();
+  });
+
+  it("says whether the room's still there for others, with this person no longer in it", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ user: ada })));
+    const { result } = joinGeneral();
+    socket().drop(CloseCode.NotFound, LOST_ACCESS);
+    await vi.waitFor(() => expect(result.current.state.status).toBe("gone"));
+    expect(result.current.state.lostAccess).toBe(true);
   });
 
   it("shows what was waiting to be sent as not sent once the room turns out to be gone", async () => {

@@ -190,7 +190,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
     // Go Back returns to Rooms and permissions.
     <SettingsPage back={workspaceSectionPath("channel-settings")}>
       <Panel aria-busy={settings === null}>
-        <PageHeading title="Room settings">Manage the room name, access, and members.</PageHeading>
+        <PageHeading title="Room settings" />
         {settings && (
           <RoomForm
             canAdminister={settings.canAdminister}
@@ -201,7 +201,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
             // The private form has the Everyone row only for whoever can change the room.
             everyone={
               settings.canAdminister || open
-                ? { on: open, ...(settings.canAdminister && { onFlip: flip }), ...(parent && !parent.everyone && { label: `Everyone in ${parent.name}` }) }
+                ? { on: open, ...(settings.canAdminister && { onFlip: flip }), ...(parent && { label: `Everyone in ${parent.name}` }) }
                 : null
             }
             parent={{

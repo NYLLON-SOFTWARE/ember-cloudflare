@@ -131,7 +131,7 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
             everyone={{
               on: access === "open",
               onFlip: () => navigate(newRoomPath(access === "open" ? "closed" : "open"), { replace: true }),
-              ...(parent && !parent.everyone && { label: `Everyone in ${parent.name}` }),
+              ...(parent && { label: `Everyone in ${parent.name}` }),
             }}
             parent={{ value: parent?.id ?? null, choices: parents, onChange: setParentId }}
             groups={[peopleIn(people, parent)]}

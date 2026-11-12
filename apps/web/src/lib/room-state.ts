@@ -52,6 +52,8 @@ export const UNSENT_KEPT_MS = 5 * 60_000;
 
 export interface RoomState {
   status: ConnectionStatus;
+  /** Once the room's "gone", whether it's still there and this person is no longer in it, rather than deleted. */
+  lostAccess: boolean;
   /** Whether the room has been without a connection for 5 seconds, which stops sending until it's back. */
   offline: boolean;
   /** The timeline's messages, oldest first, followed by those this page sent that the room hasn't confirmed. */
@@ -108,7 +110,7 @@ export interface RoomState {
 
 export type RoomAction =
   | { type: "reset" }
-  | { type: "status"; status: ConnectionStatus }
+  | { type: "status"; status: ConnectionStatus; lostAccess?: boolean }
   | { type: "offline"; offline: boolean }
   | { type: "frame"; frame: ServerFrame; now: number }
   | { type: "pending"; message: PendingMessage }
@@ -139,6 +141,7 @@ export type RoomAction =
 
 export const initialRoomState: RoomState = {
   status: "connecting",
+  lostAccess: false,
   offline: false,
   messages: [],
   present: [],
@@ -353,7 +356,7 @@ export function roomReducer(state: RoomState, action: RoomAction): RoomState {
       // Nobody shows as here with this person in a room that's gone, which nothing connects to again, so
       // what was waiting for a connection shows as not sent.
       return action.status === "gone"
-        ? { ...state, status: action.status, offline: false, present: [], typing: {}, messages: notSent(state.messages) }
+        ? { ...state, status: action.status, lostAccess: action.lostAccess ?? false, offline: false, present: [], typing: {}, messages: notSent(state.messages) }
         : { ...state, status: action.status };
     // What's waiting for a connection keeps waiting, to go once the room lets one in.
     case "offline":

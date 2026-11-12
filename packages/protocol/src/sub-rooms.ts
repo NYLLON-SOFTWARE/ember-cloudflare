@@ -33,6 +33,15 @@ export const SUB_ROOM_SEPARATOR = " – ";
 export const SUB_ROOM_REFUSED = "A room can only go under a room you're in that isn't a sub-room itself, and a room with sub-rooms can't become one";
 
 /**
+ * What the server says when a private sub-room is made with people `names` lists, who aren't in its
+ * parent, `parentName`: "Leo isn't in Strata, so can't be in its sub-rooms".
+ */
+export function notInParent(parentName: string, names: string[]): string {
+  const people = names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
+  return `${people} ${names.length === 1 ? "isn't" : "aren't"} in ${parentName}, so can't be in its sub-rooms`;
+}
+
+/**
  * A shared room's name as it reads on its own, outside its parent's list: "Strata – Sales" for a
  * sub-room, and its own name for any other. `parentName` gives the parent's name as it is now, when the
  * reader knows it, in place of the name the room was read with.

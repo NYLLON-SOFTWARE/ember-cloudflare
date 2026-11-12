@@ -41,6 +41,19 @@ describe("Sub-rooms in the room order", () => {
     expect(screen.getByRole("button", { name: "Hide Strata’s 3 sub-rooms" })).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("says an open sub-room is open to everyone in its parent", async () => {
+    renderOrder();
+    await userEvent.click(screen.getByRole("button", { name: /^Show Strata/ }));
+    expect(within(subList()).getByRole("link", { name: "Settings for Sales" })).toHaveTextContent("Everyone in Strata");
+    expect(screen.getByRole("link", { name: "Settings for general" })).toHaveTextContent(/Everyone$/);
+  });
+
+  it("shows each row's grip and New sub-room to a pointer only as the row is hovered or has focus", () => {
+    renderOrder();
+    for (const control of [screen.getByRole("button", { name: "Move general" }), screen.getByRole("link", { name: "New sub-room in general" })])
+      expect(control).toHaveClass("opacity-0", "group-hover/row:opacity-100", "group-focus-within/row:opacity-100", "touch:opacity-100");
+  });
+
   it("moves a sub-room among its parent's others, and a parent with its sub-rooms, saving each parent's after it", async () => {
     const saved = renderOrder();
     await userEvent.click(screen.getByRole("button", { name: /^Show Strata/ }));
