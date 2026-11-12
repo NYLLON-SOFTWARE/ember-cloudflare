@@ -237,14 +237,17 @@ interface RoomRowProps {
 
 /**
  * A room's row, in Starred or Rooms: its icon and name, then, when it's unread, how many messages are, as
- * Slack counts them, up to "9+", or a dot where none are counted. It carries `data-room-id`, by which
+ * Slack counts them, up to "9+", or a dot where none are counted. A room followed not at all is grey, and
+ * shows only what mentions you, as Slack's muted channels do. It carries `data-room-id`, by which
  * `useStarOrder` drags it.
  */
 export function RoomRow({ room, current, unread, count = room.unreadCount ?? 0, mentioned = room.unreadMentioned ?? false, starred, moving, huddle, meId, unreadId, helpId, onClick }: RoomRowProps) {
   // The words for who's in the room's huddle, which come with its mark.
   const huddleId = useId();
   const countId = useId();
-  const counted = unread && count > 0;
+  const muted = room.involvement === "nothing";
+  const showsUnread = unread && (!muted || count > 0);
+  const counted = showsUnread && count > 0;
   return (
     <a
       data-room-id={room.id}
@@ -253,13 +256,14 @@ export function RoomRow({ room, current, unread, count = room.unreadCount ?? 0, 
       aria-current={current ? "page" : undefined}
       // Every row says how the stars are reordered, and a marked one says it's unread, and how many, which
       // the eye sees by its weight and its dot or count.
-      aria-describedby={[huddle && huddleId, counted ? `${countId} ${helpId}` : unread ? `${unreadId} ${helpId}` : helpId].filter(Boolean).join(" ")}
+      aria-describedby={[huddle && huddleId, counted ? `${countId} ${helpId}` : showsUnread ? `${unreadId} ${helpId}` : helpId].filter(Boolean).join(" ")}
       aria-keyshortcuts={starred ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
       onClick={onClick}
       className={cn(
         ROW,
         "[-webkit-touch-callout:none]",
-        unread && "font-bold",
+        showsUnread && "font-bold",
+        muted && !showsUnread && "text-muted-foreground",
         starred && "cursor-grab",
         moving && "relative z-[1] cursor-grabbing bg-background! shadow-[0_4px_14px_var(--color-drag-shadow)] outline outline-muted-foreground",
       )}
@@ -289,7 +293,7 @@ export function RoomRow({ room, current, unread, count = room.unreadCount ?? 0, 
           </span>
         </>
       ) : (
-        unread && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full bg-foreground", !huddle && "ml-auto")} />
+        showsUnread && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full bg-foreground", !huddle && "ml-auto")} />
       )}
     </a>
   );

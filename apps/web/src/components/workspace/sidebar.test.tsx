@@ -142,6 +142,20 @@ describe("Unread rooms", () => {
     expect(row("general").querySelector(".rounded-full")).toBeNull();
   });
 
+  it("keeps a room followed not at all grey, without bold or a dot, until a message mentions you, which its pill counts", () => {
+    const muted = { ...rooms[0]!, involvement: "nothing" as const, unread: true };
+    const { rerender } = renderSidebar({ rooms: [muted, rooms[1]!] });
+    expect(row("general")).toHaveClass("text-muted-foreground");
+    expect(row("general")).not.toHaveClass("font-bold");
+    expect(row("general").querySelector(".rounded-full")).toBeNull();
+    expect(row("general")).toHaveAccessibleDescription(HELP);
+
+    rerender({ rooms: [{ ...muted, unreadCount: 1, unreadMentioned: true }, rooms[1]!] });
+    expect(rows()[0]).toHaveClass("font-bold");
+    expect(rows()[0]!.lastElementChild).toHaveTextContent(/^1$/);
+    expect(rows()[0]!.lastElementChild).toHaveClass("bg-foreground");
+  });
+
   it("draws the pill strong, in ink, where a message it counts mentions you, and says so", () => {
     renderSidebar({ rooms: [{ ...rooms[0]!, unread: true, unreadCount: 2, unreadMentioned: true }, rooms[1]!] });
     const [general] = rows();
