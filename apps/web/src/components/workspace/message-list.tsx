@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { joinsWithLink, type Invitation, type Me } from "@ember/protocol";
-import { ArrowDown } from "@/components/icons/iconoir";
+import { ArrowDown, Lock } from "@/components/icons/iconoir";
 import { useAccount } from "@/hooks/use-account";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { ScrollIntoViewContext } from "@/hooks/use-scroll-into-view";
@@ -109,6 +109,8 @@ interface Props {
   roomName: string;
   /** Whether the room is a DM, which a timeline is "with" rather than "in". */
   direct?: boolean;
+  /** Whether the room is private, whose welcome names it after a lock rather than a `#`. */
+  closed?: boolean;
   /** The welcome card's invitation, when this is the room it's in. */
   invitation: Invitation | null;
   /** Dismisses the welcome card for good, settling once it's gone, or failed to go. */
@@ -145,7 +147,7 @@ interface Props {
  * else, it keeps the reader's place, loads the pages before and after as they near either end, and
  * offers Jump to newest message when new ones come.
  */
-export function MessageList({ roomName, direct = false, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {}, thread, openThread, newSince = null }: Props) {
+export function MessageList({ roomName, direct = false, closed = false, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {}, thread, openThread, newSince = null }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -326,7 +328,18 @@ export function MessageList({ roomName, direct = false, invitation, onDismissInv
 
                 {!thread && state.status === "open" && items.length === 0 && !state.hasMore && !state.hasNewer && !welcomeCard && (
                   <div className="p-6 text-center text-muted-foreground">
-                    <h2 className="mb-1.5 text-xl text-foreground">{direct ? roomName : `Welcome to #${roomName}`}</h2>
+                    <h2 className="mb-1.5 text-xl text-foreground">
+                      {direct ? (
+                        roomName
+                      ) : closed ? (
+                        <>
+                          Welcome to <Lock aria-hidden="true" className="inline size-[0.85em] align-[-0.08em]" />
+                          {roomName}
+                        </>
+                      ) : (
+                        `Welcome to #${roomName}`
+                      )}
+                    </h2>
                     <p>{direct ? "This is the very beginning of your direct messages." : "This is the very beginning of the room. Say hello!"}</p>
                   </div>
                 )}
