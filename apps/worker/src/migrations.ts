@@ -66,6 +66,7 @@ import scheduledFailures from "../migrations/0071_scheduled_failures.sql";
 import scheduledListings from "../migrations/0072_scheduled_listings.sql";
 import scheduledChanges from "../migrations/0073_scheduled_changes.sql";
 import subRooms from "../migrations/0075_sub_rooms.sql";
+import forwards from "../migrations/0080_forwards.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -160,6 +161,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0072_scheduled_listings.sql", scope: "workspace", sql: scheduledListings },
   { name: "0073_scheduled_changes.sql", scope: "room", sql: scheduledChanges },
   { name: "0075_sub_rooms.sql", scope: "workspace", sql: subRooms },
+  { name: "0080_forwards.sql", scope: "room", sql: forwards },
 ];
 
 /**

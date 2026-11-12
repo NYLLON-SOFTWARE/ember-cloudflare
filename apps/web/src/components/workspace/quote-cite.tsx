@@ -3,6 +3,7 @@ import { workspacePageOf, type Room, type RoomId, type UserId } from "@ember/pro
 import type { DisplayElement, DisplayNode } from "@ember/richtext/dom";
 import { useNameOf } from "@/hooks/use-directory";
 import { roomName } from "@/lib/directs";
+import { roomDisplayName } from "@/lib/sub-rooms";
 import { dateTimeLabel, quotedTimeLabel } from "@/lib/messages";
 import { MessageLink } from "./message-body";
 
@@ -37,9 +38,10 @@ const isText = (node: DisplayNode | undefined, value: string) => node?.kind === 
  * A quote's `<cite>`, as Quote and Forward write it: `Ada · <time> #`. The time shows in the reader's time
  * zone, and the "#" linking to the quoted message stays "#" for a message from the conversation the quote's
  * in. For one from elsewhere it names that conversation instead, and the thread, if it's in one, as Slack's
- * forwarded messages do: "Ada · Nov 11, 7:30 PM · #Portside › thread", or "· DM with Zan". Only a conversation
- * the reader is in is named and linked; another is "another conversation", so a forward from a private room or
- * a DM tells those who aren't in it nothing of it beyond what was forwarded. `render` draws the rest.
+ * forwarded messages do: "Ada · Nov 11, 7:30 PM · #Portside › thread", "· #Engineering – Backend" for a
+ * sub-room, or "· DM with Zan". Only a conversation the reader is in is named and linked; another is "another
+ * conversation", so a forward from a private room or a DM tells those who aren't in it nothing of it beyond
+ * what was forwarded. `render` draws the rest.
  */
 export function QuoteCite({ cite, props, render }: { cite: DisplayElement; props: Record<string, string>; render: (node: DisplayNode) => ReactNode }) {
   return createElement(
@@ -72,7 +74,7 @@ function CitedPlace({ href, roomId, inThread, fallback }: { href: string; roomId
   if (roomId === quoting) return fallback;
   const room = conversations?.rooms.find((r) => r.id === roomId);
   if (!room) return <span className="font-normal text-muted-foreground">· another conversation</span>;
-  const name = room.kind === "direct" ? `DM with ${roomName(room, conversations!.meId, nameOf)}` : `#${room.name}`;
+  const name = room.kind === "direct" ? `DM with ${roomName(room, conversations!.meId, nameOf)}` : `#${roomDisplayName(room, conversations!.rooms)}`;
   return (
     <>
       {"· "}

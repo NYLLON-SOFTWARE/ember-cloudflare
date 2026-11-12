@@ -77,6 +77,25 @@ interface BoostRow {
 export const STORED_CLIENT_MESSAGE_IDS = `SELECT client_message_id FROM messages
   WHERE room_id = ? AND creator_id = ? AND client_message_id IN (SELECT value FROM json_each(?))`;
 
+/** Someone's message by the id the app gave it, through the same index. */
+const SENT_AS = `SELECT id FROM messages WHERE room_id = ? AND creator_id = ? AND client_message_id = ? LIMIT 1`;
+
+/** A forward whose original here was deleted: where it is, for that room to hear. */
+export interface OrphanedForward {
+  toRoomId: RoomId;
+  forwardId: string;
+}
+
+const ORPHANED_FORWARDS = `SELECT to_room_id AS toRoomId, forward_id AS forwardId FROM forwards
+  WHERE room_id = ? AND orphaned_at IS NOT NULL ORDER BY orphaned_at LIMIT ?`;
+
+/**
+ * What marks the forwards of the messages a JSON list names orphaned, at `now`, for the batch that deletes
+ * them, so the room tells each forward's room (migrations/0080_forwards.sql).
+ */
+const orphaningForwardsOf = (roomId: RoomId, listed: string, now: string): Statement =>
+  statement(`UPDATE forwards SET orphaned_at = ? WHERE room_id = ? AND message_id IN (SELECT value FROM json_each(?)) AND orphaned_at IS NULL`, now, roomId, listed);
+
 /**
  * Up to a number of someone's messages, in no particular order, read through the same index as the above.
  * One deleted already, kept for its thread, is left out, so deleting them all comes to an end.
@@ -613,6 +632,61 @@ export class MessageStore {
     return { message: body.cards ? { ...edited, cards: body.cards } : edited, seq };
   }
 
+  /** `creator`'s message here that the app named `clientMessageId`, if the room has it, as a forward sent again finds it. */
+  async findSent(creator: User, clientMessageId: string): Promise<Message | null> {
+    const [row] = await this.db.all<Pick<MessageRow, "id">>(SENT_AS, this.roomId, creator.id, clientMessageId);
+    return row ? this.find(row.id) : null;
+  }
+
+  /**
+   * Takes what forward `message` quotes away, its original having been deleted: its text becomes `body`, and
+   * its plain text `body`'s, and its copy of the original's file goes, marked deleted for the room to purge.
+   * It isn't marked edited, as its forwarder changed nothing. The search index and its thread's replies
+   * hear, as for an edit.
+   */
+  async orphanForward(message: Message, body: PreparedBody, now: string): Promise<{ message: Message; seq: number }> {
+    const seq = await this.change((seq) => [
+      // First, while the message still names the file it had.
+      ...(message.attachment ? [deletingFilesOf(this.roomId, JSON.stringify([message.id]), now)] : []),
+      statement(
+        `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, attachment = NULL, updated_at = ?, change_seq = ? WHERE room_id = ? AND id = ?`,
+        body.html,
+        body.plainText,
+        JSON.stringify(body.mentions),
+        now,
+        seq,
+        this.roomId,
+        message.id,
+      ),
+      logIndexing(this.roomId, message.id),
+      ...logIndexingRepliesTo(this.roomId, message, body.plainText),
+    ]);
+    const { attachment: _, ...rest } = message;
+    return { message: { ...rest, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now }, seq };
+  }
+
+  /** Records that `messageId` here was forwarded as message `forwardId` in room `toRoomId`, at `now`. */
+  async recordForward(messageId: string, toRoomId: RoomId, forwardId: string, now: string): Promise<void> {
+    await this.db.run(
+      `INSERT INTO forwards (room_id, message_id, to_room_id, forward_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+      this.roomId,
+      messageId,
+      toRoomId,
+      forwardId,
+      now,
+    );
+  }
+
+  /** Up to `limit` forwards whose originals here have been deleted, which their rooms are yet to hear of. */
+  async orphanedForwards(limit: number): Promise<OrphanedForward[]> {
+    return this.db.all<OrphanedForward>(ORPHANED_FORWARDS, this.roomId, limit);
+  }
+
+  /** Forgets forward `forwardId` in room `toRoomId`, whose room has heard its original went. */
+  async forgetForward({ toRoomId, forwardId }: OrphanedForward): Promise<void> {
+    await this.db.run(`DELETE FROM forwards WHERE room_id = ? AND to_room_id = ? AND forward_id = ?`, this.roomId, toRoomId, forwardId);
+  }
+
   /**
    * Gives `message` the file `posted` brings, in place of any it had, or takes its file away with null,
    * as a bot's edit does, marking it edited, as a change to its text does, and the file it had deleted,
@@ -659,7 +733,7 @@ export class MessageStore {
    * boosts, and a message kept that way already. One kept that way goes once its last reply does, and the
    * parents whose threads lose replies change too, each change numbered after the deletions. Boosts go
    * with their messages, through ON DELETE CASCADE, so a failure keeps both, and the messages' files are
-   * marked deleted first, for the room to purge. The ids deleted stay with their deletions' numbers, and
+   * marked deleted first, for the room to purge, and their forwards marked orphaned, for the room to tell. The ids deleted stay with their deletions' numbers, and
    * the deletions that fall out of the latest `CHANGES_KEPT` go, and the messages deleted, kept or changed
    * are logged for the search index, with the replies to those kept, whose results show none of their
    * text now. The ids go as JSON values, which a page of them can fill.
@@ -686,6 +760,7 @@ export class MessageStore {
       (seq) => [
         // First, while the messages kept still name their files.
         deletingFilesOf(this.roomId, goneOrKept, now),
+        orphaningForwardsOf(this.roomId, goneOrKept, now),
         statement(`DELETE FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`, this.roomId, deletedList),
         statement(`INSERT INTO message_deletions (room_id, seq, message_id) SELECT ?, ? + key, value FROM json_each(?)`, this.roomId, seq, deletedList),
         statement(`DELETE FROM message_deletions WHERE room_id = ? AND seq <= ?`, this.roomId, seq + count - 1 - CHANGES_KEPT),
@@ -715,6 +790,7 @@ export class MessageStore {
     await this.changingMessages(() =>
       this.db.batch([
         deletingFilesOf(this.roomId, listed, now),
+        orphaningForwardsOf(this.roomId, listed, now),
         statement(`DELETE FROM messages WHERE room_id = ? AND id IN (SELECT value FROM json_each(?))`, this.roomId, listed),
         ...(left ? [] : [deletingAllFiles(this.roomId, now), statement(`DELETE FROM message_deletions WHERE room_id = ?`, this.roomId)]),
       ]),

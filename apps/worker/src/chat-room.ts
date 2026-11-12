@@ -176,16 +176,27 @@ export interface KeptFile {
   file: StreamedFile;
 }
 
-/** A forward for `ChatRoom.postForward` to post: its markup, the thread it goes in, if any, and the copy of the forwarded file, if any. */
+/**
+ * A forward for `ChatRoom.postForward` to post: the id its original's room recorded it by, its markup and
+ * its plain text, the thread it goes in, if any, and the copy of the forwarded file, if any.
+ */
 export interface PostedForward {
+  id: string;
   clientMessageId: string;
   markup: string;
+  /** What Activity, search and pushes read of it: its note and whose message it forwards, or what it quotes. */
+  plainText: string;
   parentId?: string;
   kept?: KeptFile;
 }
 
+/** What a forward quotes once its original has been deleted, in place of the quote. */
+export const ORIGINAL_DELETED = "Original message was deleted";
+
 /** How `ChatRoom.create` posts a message: as a bot's reply to a webhook delivery, with a file, or in a thread. */
 interface Posting {
+  /** Its id, where it has one already, as a forward does, which its original's room records it by. */
+  id?: string;
   kind?: "message" | "reply";
   posted?: PostedFile;
   inThread?: InThread;
@@ -305,6 +316,8 @@ interface Couriers {
   index: Courier;
   /** Has R2 delete the files the room has marked deleted. */
   files: Courier;
+  /** Tells the rooms of the forwards of messages deleted here, which take what they quote away. */
+  forwards: Courier;
   /** Sends the Workspace the scheduled messages changed here, which it lists across rooms. */
   scheduled: Courier;
 }
@@ -487,6 +500,7 @@ export class ChatRoom extends DurableObject<Env> {
     await this.ctx.storage.put(DELETED_ROOM, roomId);
     await this.ctx.storage.setAlarm(Date.now() + REVOCATIONS_KEPT_MS);
     this.couriersFor(roomId).files.deliver();
+    this.couriersFor(roomId).forwards.deliver();
   }
 
   /**
@@ -527,7 +541,7 @@ export class ChatRoom extends DurableObject<Env> {
     // Whatever is left to send after this says when it's due.
     await this.serially(() => this.ctx.storage.delete(LOGS_DUE));
     const couriers = this.couriersFor(roomId);
-    await Promise.all([couriers.workspace.retry(), couriers.index.retry(), couriers.files.retry(), couriers.scheduled.retry()]);
+    await Promise.all([couriers.workspace.retry(), couriers.index.retry(), couriers.files.retry(), couriers.forwards.retry(), couriers.scheduled.retry()]);
     // Whatever the couriers came to, so that a call is forgotten in time while a delivery keeps failing.
     const nextLateCall = await this.forgetLateCalls(roomId);
     // Kept until then, so an alarm cut off as it sends, as a deploy can do, sends the rest when it's
@@ -554,9 +568,10 @@ export class ChatRoom extends DurableObject<Env> {
    * to exist. Until R2 has, the alarm tries again later, since the room's record of its files goes too.
    */
   private async erase(roomId: RoomId): Promise<void> {
-    const { workspace, index, files, scheduled } = this.couriersFor(roomId);
-    await files.retry();
-    if (files.failing) return this.ctx.storage.setAlarm(Date.now() + ERASE_RETRY_MS);
+    const { workspace, index, files, forwards, scheduled } = this.couriersFor(roomId);
+    // The rooms of the forwards of its messages hear first, as the record of them goes too.
+    await Promise.all([files.retry(), forwards.retry()]);
+    if (files.failing || forwards.failing) return this.ctx.storage.setAlarm(Date.now() + ERASE_RETRY_MS);
     // A call still out would read its log once the tables are gone, which makes them again.
     await Promise.all([workspace.settled(), index.settled(), scheduled.settled()]);
     await this.serially(async () => {
@@ -583,6 +598,7 @@ export class ChatRoom extends DurableObject<Env> {
       const couriers = this.couriersFor(roomId);
       couriers.index.deliver();
       couriers.files.deliver();
+      couriers.forwards.deliver();
       return ids.length > limit;
     });
   }
@@ -872,25 +888,78 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Posts `person`'s forward, `markup` quoting the message forwarded, as their message, with the copy of
-   * its file R2 keeps here, `kept`, if it had one, in the thread of the message `parentId` if that's
-   * given, as a socket's message.create posts one. Answers the message, why the room keeps nothing of
-   * it, `MESSAGE_GONE` when it has no such thread, or null when the room turns them away, as it does an
-   * upload, or has no such copy.
+   * Records that `person` is forwarding the message `messageId` here as message `forwardId` in room
+   * `toRoomId`, so its deletion takes what the forward quotes away (`originDeleted`), answering whether the
+   * room still has the message, or null when it turns them away, as it does an upload.
    */
-  async postForward(roomId: RoomId, person: Uploader, { clientMessageId, markup, parentId, kept }: PostedForward): Promise<Message | string | null> {
+  async recordForward(roomId: RoomId, person: Uploader, messageId: string, toRoomId: RoomId, forwardId: string): Promise<boolean | null> {
+    return this.serially(async () => {
+      if (await this.revocationsFor(roomId).refuse(person.tags, person.authorizedAt)) return null;
+      const store = this.storeFor(roomId);
+      if (!(await this.findUndeleted(store, messageId))) return false;
+      await store.recordForward(messageId, toRoomId, forwardId, new Date().toISOString());
+      return true;
+    });
+  }
+
+  /**
+   * `person`'s message here that the app named `clientMessageId`, if the room has it, as a forward sent
+   * again, whose answer was lost, finds the one it posted.
+   */
+  async sentAlready(roomId: RoomId, person: Uploader, clientMessageId: string): Promise<Message | null> {
+    return this.serially(() => this.storeFor(roomId).findSent(person.user, clientMessageId));
+  }
+
+  /**
+   * Posts `person`'s forward, `markup` quoting the message forwarded, as their message `id`, with `plainText`
+   * as its plain text, and the copy of its file R2 keeps here, `kept`, if it had one, in the thread of the
+   * message `parentId` if that's given, as a socket's message.create posts one. Answers the message, or the
+   * one this forward posted already, when it's sent again, why the room keeps nothing of it,
+   * `MESSAGE_GONE` when it has no such thread, or null when the room turns them away, as it does an upload,
+   * or has no such copy. How long a forward can be is its note's to say: what it quotes was a message once.
+   */
+  async postForward(roomId: RoomId, person: Uploader, { id, clientMessageId, markup, plainText, parentId, kept }: PostedForward): Promise<Message | string | null> {
     return this.serially(async () => {
       const now = new Date().toISOString();
       if (await this.revocationsFor(roomId).refuse(person.tags, person.authorizedAt)) return null;
       const store = this.storeFor(roomId);
+      const sent = await store.findSent(person.user, clientMessageId);
+      if (sent) return sent;
       const inThread = parentId === undefined ? undefined : await this.inThread(store, parentId, false);
       if (inThread === null) return MESSAGE_GONE;
-      const body = await this.prepare(markup);
-      if (typeof body === "string") return body;
-      if (!kept) return this.create(store, person.user, clientMessageId, body, now, { inThread });
+      const prepared = this.prepareAnyLength(markup);
+      if (prepared === null) return UNREADABLE;
+      const body = { ...prepared, plainText };
+      if (!kept) return this.create(store, person.user, clientMessageId, body, now, { id, inThread });
       const blob = await this.blobsFor(roomId).find(kept.key);
       if (blob?.uploaderId !== person.user.id) return null;
-      return this.create(store, person.user, clientMessageId, body, now, { inThread, posted: this.streamed(roomId, blob, kept.file, now) });
+      return this.create(store, person.user, clientMessageId, body, now, { id, inThread, posted: this.streamed(roomId, blob, kept.file, now) });
+    });
+  }
+
+  /**
+   * Takes what forward `forwardId` here quotes away, its original having been deleted, as Slack's do: its
+   * forwarder's note stays, and the quote says the original was deleted, without the original's text, its
+   * author or its time, in the room, the search index and Activity, and its copy of the original's file is
+   * deleted. A forward that's gone, or deleted since, stays as it is.
+   */
+  async originDeleted(roomId: RoomId, forwardId: string): Promise<void> {
+    await this.serially(async () => {
+      if (await this.isDeleted()) return;
+      const store = this.storeFor(roomId);
+      const message = await this.findUndeleted(store, forwardId);
+      if (!message) return;
+      // The note comes first, as plain paragraphs, which can't hold a quote, then the quote.
+      const quoteAt = message.body.indexOf("<blockquote");
+      const note = quoteAt === -1 ? message.body : message.body.slice(0, quoteAt);
+      const body = this.prepareAnyLength(`${note}<blockquote><p>${ORIGINAL_DELETED}</p></blockquote>`);
+      if (!body) return;
+      const { message: orphaned, seq } = await store.orphanForward(message, body, new Date().toISOString());
+      this.broadcast({ type: "message.updated", message: orphaned, seq });
+      const couriers = this.couriersFor(roomId);
+      couriers.index.deliver();
+      if (message.attachment) couriers.files.deliver();
+      this.ctx.waitUntil(workspace(this.env).messageRetold(roomId, forwardId, body.plainText).catch(() => {}));
     });
   }
 
@@ -1297,10 +1366,10 @@ export class ChatRoom extends DurableObject<Env> {
    * now for a reply in a thread, and sends the Workspace and the search index their logs, which the
    * message is in, answering it.
    */
-  private async create(store: MessageStore, user: User, clientMessageId: string, body: StoredBody, now: string, { kind, posted, inThread }: Posting = {}): Promise<Message> {
+  private async create(store: MessageStore, user: User, clientMessageId: string, body: StoredBody, now: string, { id, kind, posted, inThread }: Posting = {}): Promise<Message> {
     // Before the batch, which on D1 may save the message even when it fails.
     if (!inThread || inThread.alsoSend) this.readers.clear();
-    const { message, seq, parent } = await store.create(sortableId(), clientMessageId, user, body, now, kind, posted, inThread);
+    const { message, seq, parent } = await store.create(id ?? sortableId(), clientMessageId, user, body, now, kind, posted, inThread);
     if (!inThread || inThread.alsoSend) this.seenBy.set(message.id, viewersOf(this.ctx));
     this.broadcast({ type: "message.created", message, seq });
     if (parent) this.broadcast({ type: "message.updated", ...parent });
@@ -1379,6 +1448,7 @@ export class ChatRoom extends DurableObject<Env> {
     for (const messageId of new Set([message.id, ...deletion.deletedIds])) this.ctx.waitUntil(workspace(this.env).messageDeleted(store.roomId, messageId).catch(() => {}));
     const couriers = this.couriersFor(store.roomId);
     couriers.index.deliver();
+    couriers.forwards.deliver();
     if (message.attachment) couriers.files.deliver();
   }
 
@@ -1463,6 +1533,14 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
+   * What the room keeps of a forward's markup, which the Worker wrote, naming nobody, its people as the
+   * text they were named by: as `prepare` keeps a body, at any length, or null when it can't keep it.
+   */
+  private prepareAnyLength(markup: string): PreparedBody | null {
+    return prepareBody(markup, () => undefined);
+  }
+
+  /**
    * What the room keeps of a bot's message with `cards`: its text, as `prepare` keeps a body, though it may
    * be empty once the room keeps a card, and the cards, as `keptCards` keeps them, whose plain text
    * follows the text's, together no longer than a message's, or why it keeps nothing.
@@ -1530,7 +1608,24 @@ export class ChatRoom extends DurableObject<Env> {
       index: new Courier(() => this.sendMessages(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s messages to the search index`, true),
       files: new Courier(() => this.purgeFiles(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s deleted files to R2`, true),
       scheduled: new Courier(() => this.sendScheduled(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s scheduled messages to the Workspace`),
+      forwards: new Courier(() => this.tellForwards(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s deleted originals to their forwards' rooms`, true),
     });
+  }
+
+  /**
+   * Tells the rooms of up to a call's worth of forwards whose originals here were deleted, each of which
+   * takes what its forward quotes away (`originDeleted`), forgetting each once its room has heard, and
+   * answers how many it told. One whose room can't be reached stays for the next try.
+   */
+  private async tellForwards(roomId: RoomId): Promise<number> {
+    const orphaned = await this.serially(() => this.storeFor(roomId).orphanedForwards(ENTRIES_PER_CALL));
+    const told = await Promise.allSettled(orphaned.map(({ toRoomId, forwardId }) => this.env.CHAT_ROOM.getByName(toRoomId).originDeleted(toRoomId, forwardId)));
+    const heard = orphaned.filter((_, index) => told[index]!.status === "fulfilled");
+    await this.serially(async () => {
+      for (const forward of heard) await this.storeFor(roomId).forgetForward(forward);
+    });
+    if (heard.length < orphaned.length) throw new Error(`${orphaned.length - heard.length} forwards' rooms couldn't hear`);
+    return orphaned.length;
   }
 
   /**

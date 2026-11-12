@@ -14,7 +14,7 @@ const general: Room = { id: "general", kind: "open", name: "general", icon: null
 const rooms = [portside, general];
 
 describe("Forward message's destinations", () => {
-  const destinations: Destination[] = [portside, general].map((room) => ({ room, name: `#${room.name}` }));
+  const destinations: Destination[] = [portside, general].map((room) => ({ room, name: room.name }));
 
   it("finds conversations by any part of their name, ignoring case and a leading #", () => {
     expect(matching(destinations, "PORT").map(({ room }) => room.id)).toEqual(["portside"]);
@@ -30,6 +30,21 @@ describe("Forward message's destinations", () => {
     expect(threadOfLink("portside", rooms)).toBeNull();
     expect(threadOfLink("https://elsewhere.example/rooms/portside/@m1", rooms)).toBeNull();
   });
+});
+
+/** A message in room `roomId`, by Zan. */
+const messageIn = (roomId: string): Message => ({
+  id: "m1",
+  clientMessageId: "c1",
+  roomId,
+  creator: { id: "zan", name: "Zan" },
+  body: "<p>Between us</p>",
+  plainText: "Between us",
+  mentions: [],
+  createdAt: "2026-11-11T19:30:00Z",
+  updatedAt: "2026-11-11T19:30:00Z",
+  editedAt: null,
+  boosts: [],
 });
 
 describe("Forward outside who can see the original", () => {
@@ -72,7 +87,7 @@ describe("Forward outside who can see the original", () => {
   it("asks first where the conversation picked has people who can't see the original, and forwards once you say so", async () => {
     vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 3 });
     const user = show("secret");
-    await forwardTo(user, "#general");
+    await forwardTo(user, "general");
     const warning = await screen.findByRole("alertdialog", { name: "Forward outside #secret?" });
     expect(checkShare).toHaveBeenCalledWith("secret", "general");
     expect(warning).toHaveTextContent("3 people in #general can't see the original.");
@@ -86,7 +101,7 @@ describe("Forward outside who can see the original", () => {
   it("forwards nothing on Cancel, leaving Forward message open", async () => {
     vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 1 });
     const user = show("dm1");
-    await forwardTo(user, "#general");
+    await forwardTo(user, "general");
     const warning = await screen.findByRole("alertdialog", { name: "Forward outside your DM with Zan?" });
     expect(warning).toHaveTextContent("1 person in #general can't see the original.");
     await user.click(within(warning).getByRole("button", { name: "Cancel" }));
@@ -98,8 +113,29 @@ describe("Forward outside who can see the original", () => {
   it("forwards without asking where everyone there can see the original", async () => {
     vi.mocked(checkShare).mockResolvedValue({ widens: false, newViewers: 0 });
     const user = show("secret");
-    await forwardTo(user, "#general");
+    await forwardTo(user, "general");
     await waitFor(() => expect(forwardMessage).toHaveBeenCalled());
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 });
+
+describe("Forward message's list of conversations", () => {
+  const me = { id: "ada", name: "Ada" };
+  const engineering: Room = { id: "engineering", kind: "open", name: "Engineering", icon: null };
+  const backend: Room = { id: "backend", kind: "open", name: "Backend", icon: null, parent: { id: "engineering", name: "Engineering" } };
+
+  it("names a sub-room after its parent, finds it by either, and marks each room once, with its icon", async () => {
+    render(
+      <FlashProvider>
+        <ConversationsContext value={{ rooms: [engineering, backend], meId: me.id }}>
+          <ForwardDialog message={{ ...messageIn("engineering") }} opener={null} onClose={() => {}} />
+        </ConversationsContext>
+      </FlashProvider>,
+    );
+    const option = screen.getByRole("option", { name: "Engineering – Backend" });
+    expect(option.textContent!.match(/#/g)).toHaveLength(1);
+    await userEvent.setup().type(screen.getByRole("combobox"), "backend");
+    expect(screen.getAllByRole("option").map((row) => row.getAttribute("aria-label") ?? row.textContent!.replace("#", ""))).toEqual(["Engineering – Backend"]);
+  });
+});
+

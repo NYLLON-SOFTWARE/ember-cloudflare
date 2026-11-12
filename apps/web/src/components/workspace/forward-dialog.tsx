@@ -1,12 +1,14 @@
 import { useContext, useEffect, useEffectEvent, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { workspacePageOf, type Message, type Room, type ShareWidening } from "@ember/protocol";
 import { Xmark } from "@/components/icons/iconoir";
+import { RoomIcon } from "@/components/icons/room-icon";
 import { useFlash } from "@/components/flash";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, forwardMessage, isSignedOut } from "@/lib/api";
 import { roomName } from "@/lib/directs";
+import { roomDisplayName } from "@/lib/sub-rooms";
 import { cn } from "@/lib/utils";
 import { returnFocus } from "./new-direct-dialog";
 import { ConversationsContext } from "./quote-cite";
@@ -25,7 +27,10 @@ const FOOTER_BUTTON = "min-h-[42px] px-4 py-2.5 touch:min-h-11 upto-500px:min-h-
 /** How many conversations it lists at a time. */
 const LISTED = 20;
 
-/** Where a forward goes: a conversation, as it's named to the reader, or a thread in one. */
+/**
+ * Where a forward goes: a conversation, as it's named to the reader, without the `#` a room's icon draws in
+ * the list, "Engineering – Backend" for a sub-room, or a thread in one.
+ */
 export interface Destination {
   room: Room;
   name: string;
@@ -91,11 +96,13 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
 
   const rooms = conversations?.rooms ?? [];
   const meId = conversations?.meId ?? "";
-  const named = (room: Room) => (room.kind === "direct" ? roomName(room, meId, nameOf) : `#${room.name}`);
+  // A conversation's name, and as text names it elsewhere, with a room's `#`.
+  const named = (room: Room) => (room.kind === "direct" ? roomName(room, meId, nameOf) : roomDisplayName(room, rooms));
+  const labeled = (room: Room) => (room.kind === "direct" ? named(room) : `#${named(room)}`);
   const destinations = useMemo(() => rooms.map((room) => ({ room, name: named(room) })), [rooms, meId, nameOf]);
   const linked = threadOfLink(typed, rooms);
   const options: Destination[] = linked
-    ? [{ room: linked.room, name: `Thread in ${named(linked.room)}`, parentId: linked.parentId }]
+    ? [{ room: linked.room, name: `Thread in ${labeled(linked.room)}`, parentId: linked.parentId }]
     : matching(destinations, typed).slice(0, LISTED);
   const optionId = (destination: Destination) => `${listId}-${destinationKey(destination)}`;
 
@@ -150,7 +157,7 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
   };
 
   /** Where a conversation is, as the warning names it: "#design", or a DM's people. */
-  const place = (room: Room): SharePlace => ({ label: named(room), direct: room.kind === "direct" });
+  const place = (room: Room): SharePlace => ({ label: labeled(room), direct: room.kind === "direct" });
 
   const failed = (error: unknown) => {
     if (isSignedOut(error)) flash("alert", "You’ve been signed out.");
@@ -164,7 +171,7 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
     setFailure(null);
     try {
       await forwardMessage(message.roomId, message.id, { to: to.room.id, parentId: to.parentId, note, clientMessageId: crypto.randomUUID() });
-      flash("notice", to.parentId ? `Message forwarded to a thread in ${named(to.room)}` : `Message forwarded to ${to.name}`);
+      flash("notice", to.parentId ? `Message forwarded to a thread in ${labeled(to.room)}` : `Message forwarded to ${labeled(to.room)}`);
       if (mounted.current) {
         setSending(false);
         setOpen(false);
@@ -225,11 +232,11 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
             <div className="mx-6 flex min-h-[46px] items-center upto-500px:mx-4">
               <button
                 type="button"
-                aria-label={`Remove ${picked.name}`}
+                aria-label={`Remove ${picked.parentId ? picked.name : labeled(picked.room)}`}
                 onClick={unpick}
                 className="inline-flex min-h-9 max-w-full cursor-pointer items-center gap-1 rounded-[20px] border bg-surface py-[7px] ps-3 pe-2.5 text-[13px] text-foreground wrap-anywhere touch:min-h-11"
               >
-                {picked.name}
+                {picked.parentId ? picked.name : labeled(picked.room)}
                 <Xmark className="size-4 flex-none" />
               </button>
             </div>
@@ -271,6 +278,9 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
                     onClick={() => pick(option)}
                     className="flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-[9px] px-2 py-2 text-start text-foreground hover:bg-hover aria-selected:bg-hover"
                   >
+                    {option.parentId === undefined && option.room.kind !== "direct" && (
+                      <RoomIcon icon={option.room.icon} size={18} className="w-[18px] shrink-0 text-center text-[20px] leading-none text-muted-foreground" />
+                    )}
                     <span className="min-w-0 wrap-anywhere">{option.name}</span>
                   </button>
                 ))}
