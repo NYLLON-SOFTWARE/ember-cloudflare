@@ -211,7 +211,11 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
         panes={panes}
         onCollapsed={setHiddenPanes}
         onLayout={onPaneStack}
-        className={cn("col-start-2 col-end-[-1] row-span-2 row-start-1 bg-background max-md:col-start-1", !conversation && "max-md:row-span-1 max-md:row-start-2")}
+        // On a phone on its side, clear of the notch.
+        className={cn(
+          "col-start-2 col-end-[-1] row-span-2 row-start-1 bg-background max-md:col-start-1 max-md:pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]",
+          !conversation && "max-md:row-span-1 max-md:row-start-2",
+        )}
       />
     </>
   );

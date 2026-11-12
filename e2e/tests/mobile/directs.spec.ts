@@ -1,7 +1,7 @@
 import type { Sidebar } from "@ember/protocol";
 import { openRoom, signInAs } from "../../fixtures";
 import { settle } from "./audits";
-import { expect, hasPhoneLayout, showConversations, tabBar, test } from "./fixtures";
+import { expect, hasPhoneLayout, tabBar, test } from "./fixtures";
 
 test.beforeEach(async ({ page, session, room }) => {
   await signInAs(page, session);
@@ -40,7 +40,7 @@ test.describe("New direct message dialog", () => {
 });
 
 test.describe("Suggested people", () => {
-  test("the people suggested for DMs fit under the DMs on the DMs page, and are easy to tap", async ({ page, room, screenIsFine }) => {
+  test("the people suggested for DMs fit under the DMs on the DMs page page's list, and are easy to tap", async ({ page, room, screenIsFine }) => {
     // The server's suggestions, the oldest accounts, with only this test's room.
     await page.route("**/api/sidebar", async (route) => {
       const { suggestions } = (await (await route.fetch()).json()) as Sidebar;

@@ -29,6 +29,11 @@ interface Props {
 export function TabBar({ current, notices, roomId }: Props) {
   const openSearch = useContext(OpenSearchContext);
   const typing = useTyping();
+  // The page knows too, so what else makes way for the keyboard, such as a room's tabs, can (mobile.css).
+  useEffect(() => {
+    document.documentElement.toggleAttribute("data-typing", typing);
+    return () => document.documentElement.removeAttribute("data-typing");
+  }, [typing]);
   return (
     <nav
       aria-label="Tabs"

@@ -458,15 +458,16 @@ export function FileRow({ file, room, names, showRoom, sort, onOpened, onStar }:
   return (
     <li
       {...holding}
-      className="group flex min-h-[68px] items-center gap-3 rounded-lg px-3 py-2 [-webkit-touch-callout:none] hover:bg-hover"
+      className="group relative flex min-h-[68px] items-center gap-3 rounded-lg px-3 py-2 [-webkit-touch-callout:none] hover:bg-hover"
     >
       <FileTypeIcon file={file} />
+      {/* For fingers, the name's link takes taps anywhere on the row but its buttons, which sit over it. */}
       <div className="min-w-0 flex-1">
         <a
           href={openAddress(file)}
           onClick={opened}
           {...(!canvas && { target: "_blank", rel: "noopener" })}
-          className="block truncate text-[15px] font-semibold text-foreground hover:underline"
+          className="block truncate text-[15px] font-semibold text-foreground hover:underline touch:after:absolute touch:after:inset-0 touch:after:rounded-lg"
         >
           {file.name}
         </a>
@@ -479,7 +480,7 @@ export function FileRow({ file, room, names, showRoom, sort, onOpened, onStar }:
           ))}
         </p>
       </div>
-      <div className={cn("flex shrink-0 items-center justify-end gap-0.5", compact ? (touch ? "w-7" : "w-[4.5rem]") : "w-[8.5rem]")}>
+      <div className={cn("relative z-[1] flex shrink-0 items-center justify-end gap-0.5", compact ? (touch ? "w-7" : "w-[4.5rem]") : "w-[8.5rem]")}>
         {!compact && (
           <div className={cn("flex items-center gap-0.5", ROW_ACTIONS)}>
             <a

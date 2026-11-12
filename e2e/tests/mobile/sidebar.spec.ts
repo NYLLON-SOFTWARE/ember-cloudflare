@@ -24,7 +24,9 @@ test.describe("Reorder starred rooms", () => {
     await showConversations(page);
     const rows = sidebarRoomRows(page);
     await expect.poll(() => rowsWithStars(rows)).toEqual(["#general★", "#random★"]);
-    // Where the finger goes down is measured once the page has settled, as a person would wait.
+    // Where the finger goes down is measured once the page has settled, as a person would wait, with the
+    // rows in view, as Home's cards over them can leave them below the fold on a phone on its side.
+    await rows.last().scrollIntoViewIfNeeded();
     await settle(page);
 
     // Playwright's touchscreen only taps, so the finger goes down, moves and lifts through DevTools.

@@ -13,6 +13,26 @@
   }
 
   /*
+   * A room's tabs make way for the on-screen keyboard, and on a short screen, a phone on its side, aren't
+   * shown at all, so the conversation keeps the height it has.
+   */
+  html[data-typing] [role="tablist"][aria-label="Room tabs"] {
+    display: none;
+  }
+
+
+  /* In a thread, Also send to the room takes a line of its own over the buttons, where it has room to say so. */
+  .composer:not([data-toolbar]) [data-composer-row]:has(> label) {
+    flex-wrap: wrap;
+
+    > label {
+      flex-basis: 100%;
+      margin-inline: 0;
+      order: -1;
+    }
+  }
+
+  /*
    * The composer in use, Slack's: a rounded box with the text over one row of buttons, the text growing
    * to five lines and then scrolling inside the box, and Send the arrow alone, dimmed until there's
    * something to send.
@@ -82,5 +102,15 @@
       overflow: hidden;
       padding: 10px 14px 10px 4px;
     }
+  }
+}
+
+/*
+ * On a short touch screen, a phone on its side whatever its width, a room's tabs aren't shown, so the
+ * conversation keeps the little height there is, under the on-screen keyboard too.
+ */
+@media (height < 37.5rem) and (pointer: coarse) {
+  [role="tablist"][aria-label="Room tabs"] {
+    display: none;
   }
 }
