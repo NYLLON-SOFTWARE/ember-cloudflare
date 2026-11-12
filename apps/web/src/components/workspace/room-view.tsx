@@ -5,7 +5,9 @@ import { MainContent } from "@/components/main-content";
 import { useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
-import { useMessageEditors } from "@/hooks/use-message-editors";
+import { composerEdit, useMessageEditors } from "@/hooks/use-message-editors";
+import { EditingBar } from "../mobile/editing-bar";
+import { useMessageSheets } from "../mobile/message-sheet";
 import { useRoom } from "@/hooks/use-room";
 import { useShowPresence } from "@/hooks/use-shown-presence";
 import { useQuery, useVisit } from "@/hooks/use-route";
@@ -111,8 +113,10 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
     .map((t) => t.user)
     .filter((u) => u.id !== me.id);
   const composer = useRef<ComposerHandle>(null);
-  const { editing, editors } = useMessageEditors(composer);
+  // A phone edits a message in the composer, as Slack iOS does, rather than in the timeline.
+  const { editing, editors, editedHere, doneHere } = useMessageEditors(composer, useMessageSheets());
   useImperativeHandle(ref, () => ({ focusComposer: editors.returnFocus }), [editors]);
+  const edit = composerEdit(editedHere, state.messages, whyGone ? null : messageActions, doneHere);
   // A thread that covers the room leaves nothing of it to reach until it's closed.
   const covered = useMediaQuery(THREAD_COVERS_ROOM) && threadId !== undefined && !panes;
   // In panes, the thread goes in its own, once it's there.
@@ -147,6 +151,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
             onSessionChanged={onSessionChanged}
             onFailed={onFailed}
           />
+          {edit && <EditingBar onCancel={edit.onCancel} />}
           {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
           <MainContent className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
             <RoomTabs room={room} me={me} state={tabs} onFailed={onFailed} />
@@ -169,6 +174,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
               onDropFiles={(files) => composer.current?.addFiles(files)}
               openThread={threadId}
               newSince={newSince}
+              editing={edit}
             />
             {whyGone ? (
               <RoomGoneNotice gone={whyGone} />

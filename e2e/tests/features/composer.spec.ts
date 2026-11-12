@@ -108,20 +108,32 @@ test.describe("Composer", () => {
     expect(await room()).toBe(256);
   });
 
-  test("takes a tap anywhere above its buttons in the text", async ({ members }) => {
+  test("is Slack's pill on a phone until it's used, and takes a tap anywhere past + in the text, opening with Send", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: phone });
-    const cardBox = await box(card(ada));
-    const sendBox = await box(ada.page.getByRole("button", { name: "Send Message" }));
-    await ada.page.touchscreen.tap(cardBox.x + 2, cardBox.y + 2);
+    const send = ada.page.getByRole("button", { name: "Send Message" });
+    const pill = await box(card(ada));
+    const plus = await box(ada.page.locator("form.composer").getByRole("button", { name: "Attach", exact: true }));
+    await expect(send).toBeHidden();
+    // Its far end.
+    await ada.page.touchscreen.tap(pill.x + pill.width - 4, pill.y + pill.height / 2);
     await expect(ada.composer()).toBeFocused();
+    await expect(send).toBeVisible();
     await ada.composer().blur();
-    await ada.page.touchscreen.tap(cardBox.x + cardBox.width - 2, sendBox.y - 1);
+    await expect(send).toBeHidden();
+    // And right after +, once the tab bar, which makes way for the keyboard, is back under it.
+    await expect(ada.page.getByRole("navigation", { name: "Tabs" })).toBeVisible();
+    const again = await box(card(ada));
+    await ada.page.touchscreen.tap(plus.x + plus.width + 4, again.y + again.height / 2);
     await expect(ada.composer()).toBeFocused();
   });
 
-  test("is at least 100px tall on phones", async ({ members }) => {
+  test("is a fingertip tall on phones as a pill, and opens taller for writing", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: phone });
-    expect((await box(card(ada))).height).toBeGreaterThanOrEqual(100);
+    const pill = (await box(card(ada))).height;
+    expect(pill).toBeGreaterThanOrEqual(44);
+    expect(pill).toBeLessThan(50);
+    await ada.composer().tap();
+    expect((await box(card(ada))).height).toBeGreaterThanOrEqual(80);
   });
 });
 
@@ -336,13 +348,16 @@ test.describe("Formatting toolbar", () => {
     await expect(grace.message("Above").locator(".message-content hr")).toHaveCount(1);
   });
 
-  test("scrolls sideways on the narrowest screen rather than wrapping", async ({ members }) => {
+  test("scrolls sideways on the narrowest screen rather than wrapping, in place of the buttons under the text", async ({ members }) => {
     const ada = await members.signIn("Ada", { context: { ...phone, viewport: { width: 320, height: 568 } } });
+    // A phone's pill shows its buttons once the text has focus, and Aa swaps them for a phone's tools.
+    await ada.composer().tap();
     await formattingOptions(ada).tap();
-    expect((await box(tool(ada, "Divider"))).y).toBe((await box(tool(ada, "Bold"))).y);
+    const [first, last] = [tool(ada, "Bold"), tool(ada, "Bulleted list")];
+    expect((await box(last)).y).toBe((await box(first)).y);
     expect(await toolbar(ada).evaluate((bar) => bar.scrollWidth > bar.clientWidth)).toBe(true);
-    await tool(ada, "Divider").scrollIntoViewIfNeeded();
-    await expect(tool(ada, "Divider")).toBeInViewport();
+    await last.scrollIntoViewIfNeeded();
+    await expect(last).toBeInViewport();
   });
 });
 

@@ -26,7 +26,7 @@ export function YouSheet({ me, newRelease, onClose }: Props) {
       side="bottom"
       showCloseButton={false}
       className={cn(
-        "mx-auto max-h-[calc(100dvh-env(safe-area-inset-top)-8px)] max-w-[560px] gap-1 overflow-y-auto overscroll-contain rounded-t-[20px] border-x px-2 pt-2 pb-[max(12px,env(safe-area-inset-bottom))]",
+        "mx-auto max-h-[calc(100dvh-env(safe-area-inset-top)-48px)] max-w-[560px] gap-1 overflow-y-auto overscroll-contain rounded-t-[20px] border-x px-2 pt-2 pb-[max(12px,env(safe-area-inset-bottom))] outline-none",
         "pr-[max(8px,env(safe-area-inset-right))] pl-[max(8px,env(safe-area-inset-left))]",
       )}
     >

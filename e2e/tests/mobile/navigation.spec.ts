@@ -120,7 +120,7 @@ test("room, thread and profile open one over another, and Back returns the way t
   await thread.getByRole("article").filter({ hasText: "I'll bring fruit" }).getByRole("link", { name: "Ada" }).first().tap();
   await expect(page).toHaveURL(/\/users\/[^/]+$/);
   await expect(page.getByRole("heading", { level: 1, name: "Ada" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Ping Ada" })).toContainText("Message");
+  await expect(page.getByRole("button", { name: "Message" })).toBeVisible();
   await screenIsFine();
 
   await page.getByRole("navigation", { name: "Page" }).getByRole("link", { name: "Back" }).tap();

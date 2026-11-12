@@ -1,7 +1,7 @@
 /*
  * The phone layout's rules that utility classes can't say, since they hang on what's elsewhere on the
  * page: the composer's room above the keyboard, and the composer as Slack's pill until it has focus.
- * Conversations have no tab bar, so the composer is at the foot of the screen.
+ * In a conversation the composer sits on the tab bar, which makes way for the keyboard.
  */
 @media (width < 56.3125rem) {
   /* Right above the on-screen keyboard, which covers the home indicator, the composer needn't keep clear of it. */
@@ -69,7 +69,7 @@
     }
   }
 
-  .composer:has(lexxy-editor.lexxy-editor--empty):not(:has(> div > button[aria-label^="Remove "])) button[type="submit"] {
+  .composer:has(lexxy-editor.lexxy-editor--empty):not(:has(ul[aria-label="Files to send"])) button[type="submit"] {
     opacity: 0.4;
   }
 
@@ -77,18 +77,18 @@
    * The composer, Slack's pill until it's used: "+" and the placeholder, or the first line of a draft,
    * on one 44px line. Tapping the text gives it focus, and the card opens to its full size, with the
    * buttons and Send, as it stays while it has focus, its formatting tools are showing, one of its menus
-   * is open, files are picked to send, or the @ list is open, which a tap on takes focus from the text
-   * for a moment.
+   * is open, files are picked to send, a message is being edited, or the @ list is open, which a tap on
+   * takes focus from the text for a moment.
    */
   body:not(:has(.lexxy-prompt-menu--visible))
-    .composer:not([data-toolbar], :has(:focus:not(input[type="file"])), :has([data-composer-row] [data-state="open"]), :has(> div > button[aria-label^="Remove "])) {
+    .composer:not([data-toolbar], [data-editing], :has(:focus:not(input[type="file"])), :has([data-composer-row] [data-state="open"]), :has(ul[aria-label="Files to send"])) {
     /* 46px tall, so "+", against its start, is inset 5px all round, its circle concentric with the pill's end. */
     [data-composer-card] {
       align-items: center;
       border-radius: 9999px;
       flex-direction: row;
       min-height: 0;
-      padding: 0 4px 0 0;
+      padding: 0;
     }
 
     /* "+" first, then the text, and nothing else. */
@@ -107,15 +107,16 @@
     /* The placeholder that stands in for the editor while its code loads, where the text will be. */
     [data-composer-card] > :first-child > p {
       min-height: 44px;
-      padding: 10px 14px 10px 4px;
+      padding: 10px 18px 10px 4px;
     }
 
+    /* The text takes the rest of the pill, to its end, so a tap anywhere past "+" is in it. */
     .lexxy-editor__content {
       margin: 0;
       max-block-size: 44px;
       min-block-size: 44px;
       overflow: hidden;
-      padding: 10px 14px 10px 4px;
+      padding: 10px 18px 10px 4px;
     }
   }
 }

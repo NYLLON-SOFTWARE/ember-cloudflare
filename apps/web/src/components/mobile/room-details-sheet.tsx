@@ -1,10 +1,10 @@
 import { useContext, useRef, useState, type ComponentType, type MouseEvent, type ReactNode } from "react";
 import type { Involvement, Room } from "@ember/protocol";
 import type { RoomTab } from "@ember/protocol/library";
-import { ChatLines, CheckCircleSolid, Link, MultiplePages, Plus, Search, Settings, User as UserIcon, type IconoirIconProps } from "@/components/icons/iconoir";
+import { ChatLines, CheckCircleSolid, Group, Link, MultiplePages, Plus, Search, Settings, User as UserIcon, type IconoirIconProps } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { usePush } from "@/hooks/use-push";
-import { personPath, roomSettingsPath, SEARCHES_PATH } from "@/hooks/use-route";
+import { openOverlay, personPath, roomSettingsPath, SEARCHES_PATH } from "@/hooks/use-route";
 import { setInvolvement } from "@/lib/api";
 import { pushAllowed } from "@/lib/push";
 import { cn } from "@/lib/utils";
@@ -12,7 +12,7 @@ import { FavoriteButton } from "../workspace/favorite-button";
 import { BELLS } from "../workspace/involvement-button";
 import { NotificationBell } from "../workspace/notification-bell";
 import type { RoomHeaderProps } from "../workspace/room-header";
-import { MembersButton } from "../workspace/room-members";
+import { RarePage } from "../workspace/rare-pages";
 import { TAB_ICONS, type ShownTab } from "../workspace/room-tab-icons";
 import { ADDABLE, RoomTabsContext } from "../workspace/room-tabs";
 import { OpenSearchContext, opensSearch } from "../workspace/search-box";
@@ -28,7 +28,7 @@ interface Props extends RoomHeaderProps {
 const ICON = "grid size-6 shrink-0 place-items-center text-muted-foreground [&>svg]:size-5";
 
 /**
- * A row around one of a room's own controls, the star, the bell or the members button, which keep what
+ * A row around one of a room's own controls, the star or the bell, which keep what
  * they do and say to screen readers: the control covers the row, its icon where a row's goes, and the
  * row's text, which it covers, says what it is to the eye.
  */
@@ -56,6 +56,8 @@ export function RoomDetailsSheet({ open, onOpenChange, room, me, name, present, 
   const Bell = BELLS[involvement];
   const [adding, setAdding] = useState(false);
   const [pickingLevel, setPickingLevel] = useState(false);
+  const [membersShown, setMembersShown] = useState(false);
+  const closeMembers = useRef(() => {});
   // Whether what was picked takes focus itself, as the search box and Add a tab do, rather than the pill getting it back.
   const handedOver = useRef(false);
   const direct = room.kind === "direct";
@@ -152,11 +154,21 @@ export function RoomDetailsSheet({ open, onOpenChange, room, me, name, present, 
             View profile
           </PageLink>
         ) : (
-          // Choosing someone in the members list goes to their profile, from the room this sheet's over.
-          <div className={cn(CONTROL_ROW, "[&_button:first-child>span]:ml-auto")} onClick={(event) => (event.target as Element).closest("a[href]") && close()}>
-            <MembersButton room={room} me={me} present={present} onFailed={onFailed} />
-            <Label>Members</Label>
-          </div>
+          // A page of its own, over the room, as Slack's is, which Back closes.
+          <button
+            type="button"
+            onClick={() => {
+              handOver();
+              setMembersShown(true);
+              closeMembers.current = openOverlay(() => setMembersShown(false));
+            }}
+            className={ROW}
+          >
+            <span className={ICON}>
+              <Group />
+            </span>
+            Members
+          </button>
         )}
         <PageLink href={SEARCHES_PATH} onClick={searchHere} className={cn(ROW, "text-foreground no-underline")}>
           <span className={ICON}>
@@ -171,7 +183,24 @@ export function RoomDetailsSheet({ open, onOpenChange, room, me, name, present, 
           Settings
         </PageLink>
       </BottomSheet>
-      <LevelSheet open={pickingLevel} onOpenChange={setPickingLevel} room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} />
+      {/* Picking a level, or putting the levels away, goes back to the room's details, where they came from. */}
+      {membersShown && (
+        // Choosing someone goes to their profile, from the room it's over.
+        <div className="fixed inset-0 z-40 bg-background" onClick={(event) => (event.target as Element).closest("a[href]") && setMembersShown(false)}>
+          <RarePage show={({ MembersPage }) => <MembersPage room={room} me={me} present={present} onBack={() => closeMembers.current()} onFailed={onFailed} />} loading={null} />
+        </div>
+      )}
+      <LevelSheet
+        open={pickingLevel}
+        onOpenChange={(open) => {
+          setPickingLevel(open);
+          if (!open) onOpenChange(true);
+        }}
+        room={room}
+        involvement={involvement}
+        askForRoom={askForRoom}
+        onFailed={onFailed}
+      />
       {tabs && (
         <ActionSheet
           open={adding}

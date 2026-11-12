@@ -1420,10 +1420,12 @@ describe("Edit a message in the composer", () => {
   async function editing({ saves = true, message: edited = mine } = {}) {
     const onSave = vi.fn((_body: string) => saves);
     const onCancel = vi.fn();
-    let edit = () => {};
+    let edit = (_next: Message) => {};
+    let stop = () => {};
     function Room() {
       const [message, setMessage] = useState<Message | null>(null);
-      edit = () => setMessage(edited);
+      edit = (next) => setMessage(next);
+      stop = () => setMessage(null);
       const done = () => setMessage(null);
       const editing: ComposerEdit | null = message && {
         message,
@@ -1441,7 +1443,7 @@ describe("Edit a message in the composer", () => {
     }
     render(<Room />);
     const input = await screen.findByRole("textbox", { name: "Write a message" });
-    return { input, onSave, onCancel, edit: () => act(edit), user: userEvent.setup() };
+    return { input, onSave, onCancel, edit: (next = edited) => act(() => edit(next)), stop: () => act(() => stop()), user: userEvent.setup() };
   }
 
   it("writes the message in place of what's written, saves on Enter, and gives what was written back", async () => {
@@ -1458,6 +1460,20 @@ describe("Edit a message in the composer", () => {
     expect(onSave).toHaveBeenCalledExactlyOnceWith("<p>Hello again</p>");
     await vi.waitFor(() => expect(input).toHaveValue("Draft"));
     expect(screen.getByRole("button", { name: "Send Message" })).toBeInTheDocument();
+  });
+
+  it("edits a message again as it says now, after an edit, and gives what was written back when its page stops the edit", async () => {
+    const { input, edit, stop, user } = await editing();
+    await user.type(input, "Draft");
+    edit();
+    await vi.waitFor(() => expect(input).toHaveValue("Hello"));
+    await user.type(input, " again{Enter}");
+    await vi.waitFor(() => expect(input).toHaveValue("Draft"));
+    edit({ ...mine, body: "<p>Hello again</p>", plainText: "Hello again" });
+    await vi.waitFor(() => expect(input).toHaveValue("Hello again"));
+    // As a phone's Cancel over the composer does.
+    stop();
+    await vi.waitFor(() => expect(input).toHaveValue("Draft"));
   });
 
   it("edits only a forward's note, keeping its quote", async () => {
