@@ -62,9 +62,13 @@ export function sendTimeLabel(sendAt: number, now: Date): string {
 /** `sendTimeLabel` within a sentence, as "1 scheduled message, tomorrow at 9:00 AM": only today and tomorrow aren't names. */
 export const sendTimeInSentence = (sendAt: number, now: Date) => sendTimeLabel(sendAt, now).replace(/^(Today|Tomorrow)\b/, (word) => word.toLowerCase());
 
-/** When a scheduled message goes, as a phone's notice says it, short enough to fit: Mon, Nov 16, 9:00 AM. */
+/**
+ * When a scheduled message goes, as a phone's notice says it, short enough to fit: Today or Tomorrow at
+ * 9:00 AM, as the list says them, or Mon, Nov 16, 9:00 AM.
+ */
 export function shortSendTime(sendAt: number, now: Date): string {
   const at = new Date(sendAt);
+  if (daysAhead(at, now) <= 1 && daysAhead(at, now) >= 0) return sendTimeLabel(sendAt, now);
   return at.toLocaleString(undefined, {
     weekday: "short",
     month: "short",

@@ -18,7 +18,7 @@ import { useFormatting } from "./composer-formatting";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
 import { FilesPicker } from "./files-picker";
 import { ScheduledNotice } from "./schedule-send";
-import { uploadSize } from "./upload-card";
+import { fileSize } from "./upload-card";
 
 /**
  * The typing indicator (Campfire's typing_tracker.js and composer.css): the names of whoever is typing,
@@ -213,7 +213,7 @@ function FileChip({ file, onRemove }: { file: Sendable; onRemove: () => void }) 
       <span className="min-w-0">
         <span className="block truncate text-[13px] font-semibold">{name}</span>
         <span className="block truncate text-[12px] text-muted-foreground">
-          {fileType(name)} · {size < 1000 ? `${size} B` : uploadSize(size)}
+          {fileType(name)} · {fileSize(size)}
         </span>
       </span>
       {remove}

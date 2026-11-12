@@ -9,7 +9,7 @@ import { roomName } from "@/lib/directs";
 import { cn } from "@/lib/utils";
 import { shareWidening, ShareWarning, type SharePlace } from "./share-warning";
 import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE } from "./unsaved-changes";
-import { uploadSize } from "./upload-card";
+import { fileSize } from "./upload-card";
 
 /** A file shared in a room, as the picker offers it. */
 export interface SharedFile {
@@ -185,7 +185,7 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
                         {[
                           shared.roomLabel,
                           shared.uploader,
-                          uploadSize(shared.file.byteSize),
+                          fileSize(shared.file.byteSize),
                           new Date(shared.sharedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }),
                         ]
                           .filter(Boolean)
