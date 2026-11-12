@@ -1,7 +1,5 @@
-import { Suspense, useContext, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { Suspense, useImperativeHandle, useRef, useState, type Ref } from "react";
 import type { Message } from "@ember/protocol";
-import { editableBody } from "@ember/richtext/dom";
-import { DirectoryLoaded, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { mentionPromptSrc } from "@/lib/api";
 import { hasTouchKeyboard, pressedAlone } from "@/lib/keyboard";
@@ -9,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { COMPOSER_CARD } from "./composer-buttons";
 import { useFormatting } from "./composer-formatting";
 import { RichTextEditor, type RichTextEditorHandle } from "./editor";
-import { avatarUrlOf } from "./user-avatar";
+import { useEditableBody } from "./editable-body";
 
 interface Props {
   message: Message;
@@ -38,23 +36,7 @@ const ACTION = "h-8 cursor-pointer rounded-[7px] px-3 text-[13px] font-semibold 
 export function MessageEditor({ message, onSave, onClose, ref }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const container = useRef<HTMLDivElement>(null);
-  const people = useContext(PeopleContext);
-  // The editable body: its mentions as the editor draws them, of the people as they are now, and its link previews
-  // as the message shows them here. It drops a mention of no one, and a message from before messages named the
-  // people they mention knows them only from the directory, so for such a message the editor waits for the
-  // directory to load, when it lists everyone.
-  const knowsMentions = useContext(DirectoryLoaded) || message.mentions.every((person) => person.name !== "");
-  const editableNow = () =>
-    editableBody(
-      message.body,
-      (userId) => {
-        const person = mentionedPerson(people, message.mentions, userId);
-        return person && { id: person.id, name: person.name, avatarUrl: avatarUrlOf(people, person) };
-      },
-      location.hostname,
-    );
-  const [editable, setEditable] = useState(() => (knowsMentions ? editableNow() : null));
-  if (editable === null && knowsMentions) setEditable(editableNow());
+  const editable = useEditableBody(message);
   const { onFormats, keyDown, toolbar } = useFormatting(editor);
   // Phones' keyboards leave no room for it, as the composer hides it there until Aa shows it.
   const [toolbarShown] = useState(() => !hasTouchKeyboard());

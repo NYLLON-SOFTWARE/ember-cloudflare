@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { flushSync } from "react-dom";
-import { isWebImage, MAX_FILE_SIZE, type ShareWidening, type User } from "@ember/protocol";
+import { isWebImage, MAX_FILE_SIZE, type Message, type ShareWidening, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
 import { Page, Plus, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
@@ -17,6 +17,7 @@ import { AttachMenu, EmojiButton, FormattingToggle, MentionButton, SendButton } 
 import { useFormatting } from "./composer-formatting";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
 import { ScheduledNotice } from "./schedule-send";
+import { useEditableBody } from "./editable-body";
 import { RarePage } from "./rare-pages";
 import { fileSize } from "./upload-card";
 
@@ -277,7 +278,22 @@ interface Props {
   extraButtons?: ReactNode;
   /** Whether the editor takes focus as it shows, except on touch screens, as it does unless something else is to have it. */
   autoFocus?: boolean;
+  /** A message being edited here, as a phone edits one, in place of what's written, which comes back after. */
+  editing?: ComposerEdit | null;
   ref?: Ref<ComposerHandle>;
+}
+
+/**
+ * A message the composer edits, as Slack iOS edits one in its composer: what's written is kept aside and
+ * the message's text written in its place. Enter or Send saves it, with `onSave`, which answers whether the
+ * change went (one that didn't stays to try again), and Escape cancels, with `onCancel`, as does saving it
+ * unchanged or blank. Either way the parent clears `editing`, and what was written comes back. Files and
+ * scheduling wait meanwhile.
+ */
+export interface ComposerEdit {
+  message: Message;
+  onSave: (body: string) => boolean;
+  onCancel: () => void;
 }
 
 export interface ComposerHandle {
@@ -313,6 +329,7 @@ export function Composer({
   onTyping,
   onEditLastMessage,
   autoFocus = true,
+  editing = null,
   ref,
 }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
@@ -351,8 +368,10 @@ export function Composer({
   const replied = useRef(false);
   const placeholder = threadId !== undefined ? "Reply…" : `Message ${direct || closed ? "" : "#"}${roomName}`;
 
-  // What's written changed, to `body`, or to nothing: the room hears whether you're typing, and it's kept.
+  // What's written changed, to `body`, or to nothing: the room hears whether you're typing, and it's kept,
+  // but for a message being edited, which isn't a draft, nor typing anything new.
   const wrote = (body: string | null) => {
+    if (heldDraft.current !== undefined) return setBlank(body === null);
     if (body !== null) onTyping(true);
     else if (!wasBlank.current) onTyping(false);
     wasBlank.current = body === null;
@@ -404,6 +423,34 @@ export function Composer({
     setAlsoSend(false);
   };
 
+  // While a message is edited here: what was written before, kept aside to come back, or null for nothing.
+  const heldDraft = useRef<string | null | undefined>(undefined);
+  const editable = useEditableBody(editing?.message ?? null);
+  useEffect(() => {
+    const text = editor.current;
+    if (!text) return;
+    if (editing && editable !== null) {
+      if (heldDraft.current === undefined) heldDraft.current = text.isBlank() ? null : text.value();
+      text.replace(editable);
+    } else if (!editing && heldDraft.current !== undefined) {
+      const draft = heldDraft.current;
+      heldDraft.current = undefined;
+      if (draft === null) {
+        text.clear();
+        text.focus();
+      } else text.replace(draft);
+    }
+    // Once for each message edited, and as it's done with.
+  }, [editing?.message.id, editable]);
+
+  // Saves the message edited, or cancels an edit that changes nothing, as the message editor does.
+  const saveEdit = ({ message, onSave, onCancel }: ComposerEdit) => {
+    const text = editor.current;
+    const body = text && !text.isBlank() ? text.value() : null;
+    if (body === null || body === message.body) return onCancel();
+    onSave(body);
+  };
+
   // A file from Files in Ember that would now reach more people than when it was attached, as the room it
   // was in, or this one, changed since, while the warning asks again.
   const [sendWarning, setSendWarning] = useState<{ shared: EmberFile; widening: ShareWidening } | null>(null);
@@ -421,6 +468,7 @@ export function Composer({
   // screens too. While the room is away what's written goes, to wait for it, and the files stay. Before the
   // editor shows, as its code loads, only the files go.
   const submit = (checked = false) => {
+    if (editing) return saveEdit(editing);
     const shared = picked.files.flatMap(({ file }) => (isEmberFile(file) && file.roomId !== roomId ? [file] : []));
     if (!checked && !disabled && shared.length > 0) return void checkThenSubmit(shared);
     setScheduleRefusal(null);
@@ -465,7 +513,14 @@ export function Composer({
 
   // The toolbar shows for the Link field, though Aa had hidden it.
   const { onFormats, keyDown: formattingKeyDown, toolbar } = useFormatting(editor, { onShowToolbar: () => flushSync(() => setToolbarShown(true, false)) });
-  const keyDown = (event: KeyboardEvent) => formattingKeyDown(event, submit);
+  const keyDown = (event: KeyboardEvent) => {
+    // Lexxy's lists, such as the people to mention, take Escape for themselves first.
+    if (editing && pressedAlone(event, "Escape") && !editor.current?.hasOpenPrompt()) {
+      event.preventDefault();
+      return editing.onCancel();
+    }
+    formattingKeyDown(event, submit);
+  };
 
   const placeholderToolbar = toolbarShown && !(editorShown && editorReady);
 
@@ -476,6 +531,7 @@ export function Composer({
         ref={form}
         noValidate
         className="composer relative min-w-0 [contain:inline-size]"
+        data-editing={editing ? "" : undefined}
         data-toolbar={toolbarShown || undefined}
         onSubmit={(event) => {
           event.preventDefault();
@@ -561,7 +617,7 @@ export function Composer({
               }}
               className="sr-only"
             />
-            <AttachMenu disabled={disabled} onUpload={() => fileField.current?.click()} onFilesInEmber={() => setFilesOpen(true)} onReturnFocus={() => editor.current?.focus()} />
+            <AttachMenu disabled={disabled || !!editing} onUpload={() => fileField.current?.click()} onFilesInEmber={() => setFilesOpen(true)} onReturnFocus={() => editor.current?.focus()} />
             <FormattingToggle
               shown={toolbarShown}
               onToggle={() => {
@@ -594,7 +650,13 @@ export function Composer({
               </label>
             )}
             {/* Files picked go at once, so they can't be scheduled. */}
-            <SendButton disabled={false} empty={blank && picked.files.length === 0} cannotSchedule={disabled || !frames || blank || picked.files.length > 0} onSchedule={schedule} />
+            <SendButton
+              disabled={false}
+              saves={!!editing}
+              empty={blank && picked.files.length === 0}
+              cannotSchedule={disabled || !!editing || !frames || blank || picked.files.length > 0}
+              onSchedule={schedule}
+            />
           </div>
         </div>
       </form>

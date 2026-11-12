@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { ArrowUp, AtSign, Emoji, Laptop, Page, Plus } from "@/components/icons/iconoir";
+import { ArrowUp, AtSign, CheckCircle, Emoji, Laptop, Page, Plus } from "@/components/icons/iconoir";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { ATTACH_BUTTON, ICON_BUTTON, SEND_HALF } from "./composer-buttons";
@@ -108,6 +108,8 @@ interface SendButtonProps {
   cannotSchedule: boolean;
   /** Schedules what's written for `at`. */
   onSchedule: (at: Date) => void;
+  /** Whether it saves a message being edited, which it says, with a check, rather than send. */
+  saves?: boolean;
 }
 
 /**
@@ -115,7 +117,7 @@ interface SendButtonProps {
  * Schedule message. Holding the arrow down opens Schedule message too, rather than sending, and keeps the
  * phone's own long-press menu away.
  */
-export function SendButton({ disabled, empty = false, cannotSchedule, onSchedule }: SendButtonProps) {
+export function SendButton({ disabled, empty = false, cannotSchedule, onSchedule, saves = false }: SendButtonProps) {
   const [scheduling, setScheduling] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Whether the press that's ending was long, so its click doesn't send too.
@@ -127,7 +129,7 @@ export function SendButton({ disabled, empty = false, cannotSchedule, onSchedule
       <button
         type="submit"
         disabled={disabled}
-        title="Send message"
+        title={saves ? "Save" : "Send message"}
         // Keep focus in the editor, so a phone's keyboard stays up between messages.
         onMouseDown={(event) => event.preventDefault()}
         onPointerDown={(event) => {
@@ -149,8 +151,8 @@ export function SendButton({ disabled, empty = false, cannotSchedule, onSchedule
         }}
         className={cn(SEND_HALF, "w-9 touch:w-11")}
       >
-        <ArrowUp className="size-[18px]" />
-        <span className="sr-only">Send Message</span>
+        {saves ? <CheckCircle className="size-[18px]" /> : <ArrowUp className="size-[18px]" />}
+        <span className="sr-only">{saves ? "Save" : "Send Message"}</span>
       </button>
       <span aria-hidden="true" className="h-8 w-px bg-background/30 group-data-empty/send:bg-border touch:h-11" />
       <ScheduleMenu disabled={disabled || cannotSchedule} onSchedule={onSchedule} open={scheduling} onOpenChange={setScheduling} />
