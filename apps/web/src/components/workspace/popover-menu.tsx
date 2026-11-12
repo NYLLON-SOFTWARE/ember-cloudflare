@@ -41,6 +41,8 @@ interface Props {
   align?: "start" | "end";
   /** Where focus goes once it closes, rather than back to its button, as the composer keeps it in the text. */
   onCloseFocus?: () => void;
+  /** Whether it's open, for a menu something besides its button opens, as a long press on Send opens Schedule message. */
+  open?: boolean;
   onOpenChange?: (open: boolean) => void;
   className?: string;
 }
@@ -50,8 +52,9 @@ interface Props {
  * Up and Down Arrow, Home and End move between, and Enter or a click chooses, closing it. Built on the
  * popover the app has already, rather than a dropdown menu of its own.
  */
-export function PopoverMenu({ trigger, label, heading = false, items, more, side = "top", align = "start", onCloseFocus, onOpenChange, className }: Props) {
-  const [open, setOpen] = useState(false);
+export function PopoverMenu({ trigger, label, heading = false, items, more, side = "top", align = "start", onCloseFocus, open: shown, onOpenChange, className }: Props) {
+  const [openHere, setOpen] = useState(false);
+  const open = shown ?? openHere;
   const change = (next: boolean) => {
     setOpen(next);
     onOpenChange?.(next);

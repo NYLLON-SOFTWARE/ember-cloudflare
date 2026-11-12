@@ -1,8 +1,8 @@
-import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
+import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { flushSync } from "react-dom";
 import { MAX_FILE_SIZE, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
-import { ArrowUp, AtSign, Page, XmarkCircle } from "@/components/icons/iconoir";
+import { Page, XmarkCircle } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import type { RoomFrames } from "@/hooks/use-room";
 import { useScheduled } from "@/hooks/use-scheduled";
@@ -12,13 +12,12 @@ import { hasTouchKeyboard, opensLink, pressedAlone, sendsMessage } from "@/lib/k
 import { tellDraftsChanged } from "@/lib/draft-keys";
 import { tooLargeToAttach } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
-import { ICON_BUTTON, SEND_HALF } from "./composer-buttons";
-import { AttachMenu, EmojiButton } from "./composer-menus";
+import { AttachMenu, EmojiButton, FormattingToggle, MentionButton, SendButton } from "./composer-menus";
 import { ComposerToolbar } from "./composer-toolbar";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
 import { FilesPicker } from "./files-picker";
 import { isDisabled, NO_FORMATS, type Formats } from "./formatting";
-import { ScheduledNotice, ScheduleMenu } from "./schedule-send";
+import { ScheduledNotice } from "./schedule-send";
 
 /**
  * The typing indicator (Campfire's typing_tracker.js and composer.css): the names of whoever is typing,
@@ -247,6 +246,13 @@ interface Props {
   onTyping: (active: boolean) => void;
   /** Opens the editor on your newest message, for Up Arrow. */
   onEditLastMessage?: () => void;
+  /**
+   * Whether the formatting toolbar shows until Aa says otherwise in this browser: by default on screens with
+   * a mouse and not on touch screens. A phone's layout can hide it, leaving Aa to show it on demand.
+   */
+  toolbarByDefault?: boolean;
+  /** Buttons after @ in the bottom row, before Send, such as a phone layout's own. */
+  extraButtons?: ReactNode;
   /** Whether the editor takes focus as it shows, except on touch screens, as it does unless something else is to have it. */
   autoFocus?: boolean;
   ref?: Ref<ComposerHandle>;
@@ -267,11 +273,30 @@ export interface ComposerHandle {
  * next message, under a notice of the messages you've scheduled here. What's written is kept as a draft
  * until it's sent. A thread's has Also send to the room before Send.
  */
-export function Composer({ roomId, roomName, direct = false, closed = false, userId, typing, disabled, deferEditor = false, threadId, frames, onSend, onSendFiles, onTyping, onEditLastMessage, autoFocus = true, ref }: Props) {
+export function Composer({
+  roomId,
+  roomName,
+  direct = false,
+  closed = false,
+  userId,
+  typing,
+  disabled,
+  deferEditor = false,
+  threadId,
+  frames,
+  toolbarByDefault = !hasTouchKeyboard(),
+  extraButtons,
+  onSend,
+  onSendFiles,
+  onTyping,
+  onEditLastMessage,
+  autoFocus = true,
+  ref,
+}: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const form = useRef<HTMLFormElement>(null);
   const fileField = useRef<HTMLInputElement>(null);
-  const [toolbarShown, setToolbarShown] = useToolbarShown();
+  const [toolbarShown, setToolbarShown] = useToolbarShown(toolbarByDefault);
   const [formats, setFormats] = useState<Formats>(NO_FORMATS);
   const [linkOpen, setLinkOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -521,34 +546,17 @@ export function Composer({ roomId, roomName, direct = false, closed = false, use
               className="sr-only"
             />
             <AttachMenu disabled={disabled} onUpload={() => fileField.current?.click()} onFilesInEmber={() => setFilesOpen(true)} onReturnFocus={() => editor.current?.focus()} />
-            <button
-              type="button"
+            <FormattingToggle
               disabled={disabled}
-              title={toolbarShown ? "Hide formatting" : "Show formatting"}
-              aria-pressed={toolbarShown}
-              // Keep focus in the editor, so a phone's keyboard stays up, as Send does.
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => {
+              shown={toolbarShown}
+              onToggle={() => {
                 setToolbarShown(!toolbarShown);
                 editor.current?.focus();
               }}
-              className={cn(ICON_BUTTON, "text-[15px] leading-none font-semibold underline underline-offset-2")}
-            >
-              <span aria-hidden="true">Aa</span>
-              <span className="sr-only">Formatting</span>
-            </button>
+            />
             <EmojiButton disabled={disabled} onPick={(emoji) => editor.current?.insertText(emoji)} onReturnFocus={() => editor.current?.focus()} />
-            <button
-              type="button"
-              disabled={disabled}
-              title="Mention someone"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => editor.current?.startMention()}
-              className={ICON_BUTTON}
-            >
-              <AtSign className="size-[18px]" />
-              <span className="sr-only">Mention someone</span>
-            </button>
+            <MentionButton disabled={disabled} onMention={() => editor.current?.startMention()} />
+            {extraButtons}
             {/* For fingers, the box sits far enough into its label for a fingertip on it to land on the label. */}
             {threadId !== undefined && (
               <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm">
@@ -570,22 +578,8 @@ export function Composer({ roomId, roomName, direct = false, closed = false, use
                 </span>
               </label>
             )}
-            {/* Send, and its chevron, which schedules what's written; files picked go at once, so they can't be scheduled. */}
-            <div className="ml-auto flex shrink-0 items-center overflow-hidden rounded-[8px]">
-              <button
-                type="submit"
-                disabled={disabled}
-                title="Send message"
-                // Keep focus in the editor, so a phone's keyboard stays up between messages.
-                onMouseDown={(event) => event.preventDefault()}
-                className={cn(SEND_HALF, "w-9 touch:w-11")}
-              >
-                <ArrowUp className="size-[18px]" />
-                <span className="sr-only">Send Message</span>
-              </button>
-              <span aria-hidden="true" className="h-8 w-px bg-background/30 touch:h-11" />
-              <ScheduleMenu disabled={disabled || !frames || blank || picked.files.length > 0} onSchedule={schedule} />
-            </div>
+            {/* Files picked go at once, so they can't be scheduled. */}
+            <SendButton disabled={disabled} cannotSchedule={!frames || blank || picked.files.length > 0} onSchedule={schedule} />
           </div>
         </div>
       </form>
@@ -607,11 +601,10 @@ export function Composer({ roomId, roomName, direct = false, closed = false, use
 const TOOLBAR_KEY = "composer-toolbar";
 
 /**
- * Whether the formatting toolbar shows: as Aa last left it in this browser, or else as Slack shows it, on
- * screens with a mouse and not on touch screens, where it would crowd the keyboard. Showing it for the
- * Link field doesn't change what's kept.
+ * Whether the formatting toolbar shows: as Aa last left it in this browser, or else `byDefault`. Showing
+ * it for the Link field doesn't change what's kept.
  */
-function useToolbarShown(): [boolean, (shown: boolean, keep?: boolean) => void] {
+function useToolbarShown(byDefault: boolean): [boolean, (shown: boolean, keep?: boolean) => void] {
   const [shown, setShown] = useState(() => {
     try {
       const kept = localStorage.getItem(TOOLBAR_KEY);
@@ -619,7 +612,7 @@ function useToolbarShown(): [boolean, (shown: boolean, keep?: boolean) => void] 
     } catch {
       // Storage can be unavailable, as in some private windows.
     }
-    return !hasTouchKeyboard();
+    return byDefault;
   });
   const change = (next: boolean, keep = true) => {
     setShown(next);
