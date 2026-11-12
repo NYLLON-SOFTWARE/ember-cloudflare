@@ -35,7 +35,7 @@ test.describe("React to a message", () => {
     await expect(reactions(grace, text).getByRole("button", { name: "👍" })).toBeVisible();
   });
 
-  test("adds the other reactions from the tray", async ({ members }) => {
+  test("adds any emoji from the tray's picker", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
     const text = "Party?";
@@ -43,8 +43,9 @@ test.describe("React to a message", () => {
 
     await (await grace.actions(text)).getByRole("button", { name: "More reactions" }).click();
     const tray = grace.message(text).getByRole("group", { name: "More reactions" });
-    await expect(tray.getByRole("button")).toHaveText(["💪Muscle", "❤️Red heart", "😂Face with tears of joy", "🎉Party popper", "🔥Fire", "New boost"]);
-    await tray.getByRole("button", { name: "Party popper" }).click();
+    await expect(tray.getByRole("button", { name: "New boost" })).toBeVisible();
+    await tray.getByRole("searchbox", { name: "Search emoji" }).fill("tada");
+    await tray.getByRole("button", { name: "🎉", exact: true }).first().click();
     await expect(reactions(ada, text).getByRole("img", { name: "Grace boosted 🎉" })).toBeVisible();
   });
 

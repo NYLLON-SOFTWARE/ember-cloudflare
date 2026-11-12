@@ -27,6 +27,7 @@ import {
   Download,
   Edit,
   Emoji,
+  Link,
   MessageText,
   MoreHoriz,
   QuoteMessage,
@@ -200,8 +201,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   };
 
   // Delete message asks first, in the app's own dialog. The composer takes focus as the message goes, or
-  // the message's row does where the deletion can't be sent, or the dialog's cancelled, rather than Message
-  // options, which shows only while the pointer's over the message.
+  // Message options does where the deletion can't be sent, or the dialog's cancelled.
   const [deleting, setDeleting] = useState(false);
   const confirmed = useRef(false);
   const deleteMessage = () => {
@@ -212,7 +212,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   const closedDialog = () => {
     const sent = confirmed.current && onDelete();
     confirmed.current = false;
-    if (!sent && row.current) focusRow(row.current);
+    if (!sent) trigger.current?.focus({ preventScroll: true });
   };
 
   // With a mouse, the picker's search, or else its first emoji, so a touch screen's keyboard stays down.
@@ -474,7 +474,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             {!overlapping && (
               <ActionTooltip label="Copy link">
                 <button type="button" aria-label="Copy link" className={ACTION} onClick={(event) => void copyLink(event, message)}>
-                  <Copy />
+                  <Link />
                 </button>
               </ActionTooltip>
             )}
@@ -537,7 +537,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
               </button>
             )}
             <button type="button" className={ITEM} onClick={(event) => void copyLink(event, message)}>
-              <Copy />
+              <Link />
               Copy link
             </button>
             {/* The bar has Add to to-dos, and a file's Save. */}
@@ -719,12 +719,11 @@ function copyLink(event: MouseEvent<HTMLButtonElement>, message: Message) {
   return copyWithSuccess(event.currentTarget, messageAddress(message));
 }
 
-/** Focuses the message's row, which takes focus only until it loses it, so a click on its text doesn't focus it. */
-function focusRow(row: HTMLElement) {
-  row.tabIndex = -1;
-  row.addEventListener("blur", () => row.removeAttribute("tabindex"), { once: true });
-  row.focus({ preventScroll: true });
-}
+/**
+ * The least height the tray or More actions keeps where it gives some up to open below or above Message
+ * options rather than beside it: the picker's search, its categories, two rows of emoji and New boost.
+ */
+const MIN_PANEL_HEIGHT = 5 * 44 + 16;
 
 /** The top of the highest of `row`'s Copy code buttons between `left` and `right`, or Infinity. */
 function copyCodeTop(row: HTMLElement, left: number, right: number): number {
@@ -804,8 +803,8 @@ function placeMenu({ row, container, trigger, menu, bar, panel, overlapping }: P
     const spotFor = ({ width, height }: DOMRect) => {
       const below = triggerBox.bottom + 6;
       const above = triggerBox.top - height - 6;
-      if (below + height <= bounds.bottom) return { y: below, right: triggerBox.right, fits: true };
-      if (above >= bounds.top) return { y: above, right: triggerBox.right, fits: true };
+      if (below + height <= bounds.bottom) return { y: below, right: triggerBox.right, fits: true, beside: false };
+      if (above >= bounds.top) return { y: above, right: triggerBox.right, fits: true, beside: false };
       // With room neither below nor above, as on a phone held sideways with the tray open, it opens to the
       // left of Message options, or to its right where only that has room.
       const roomLeft = triggerBox.left - 6 - bounds.left >= width;
@@ -814,13 +813,32 @@ function placeMenu({ row, container, trigger, menu, bar, panel, overlapping }: P
         y: Math.max(bounds.top, Math.min(triggerBox.top, bounds.bottom - height)),
         right: roomRight && !roomLeft ? triggerBox.right + 6 + width : triggerBox.left - 6,
         fits: roomLeft || roomRight,
+        beside: true,
       };
     };
+    // The tray or More actions gives up height to fit: first to the larger room below or above Message
+    // options, where it keeps enough to use, or else to the timeline's height, beside it.
+    const fitPanel = (room: number) => {
+      const others = menu.getBoundingClientRect().height - panel.getBoundingClientRect().height;
+      panel.style.maxHeight = `${Math.max(0, room - others)}px`;
+      return menu.getBoundingClientRect();
+    };
     let spot = spotFor(menuBox);
+    if (spot.beside && !panel.hidden) {
+      const room = Math.max(bounds.bottom - triggerBox.bottom - 6, triggerBox.top - 6 - bounds.top);
+      if (room - (menuBox.height - panel.getBoundingClientRect().height) >= MIN_PANEL_HEIGHT) {
+        menuBox = fitPanel(room);
+        spot = spotFor(menuBox);
+      }
+    }
     const [first, last] = [bar.firstElementChild as HTMLElement, bar.lastElementChild as HTMLElement];
     if (!spot.fits || last.offsetTop > first.offsetTop) {
       menu.setAttribute("data-two-rows", "");
       menuBox = menu.getBoundingClientRect();
+      spot = spotFor(menuBox);
+    }
+    if (!panel.hidden && menuBox.height > bounds.bottom - bounds.top) {
+      menuBox = fitPanel(bounds.bottom - bounds.top);
       spot = spotFor(menuBox);
     }
     ({ y, right } = spot);

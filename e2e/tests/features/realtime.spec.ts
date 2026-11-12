@@ -169,9 +169,9 @@ test.describe("Catch up after a reconnect", () => {
 
     await cut();
     await expect(ada.connection()).toHaveText("Reconnecting…", { timeout: 10_000 });
-    await expect(ada.page.getByRole("button", { name: "Send Message" })).toBeDisabled();
     await ada.composer().fill("Typed while offline");
-    await expect(ada.page.getByRole("button", { name: "Send Message" })).toBeDisabled();
+    // Send stays ready while the connection's away, as what's sent waits to go.
+    await expect(ada.page.getByRole("button", { name: "Send Message" })).toBeEnabled();
 
     await grace.send("Sent while Ada was away");
     await expect(grace.message("Sent while Ada was away")).not.toHaveAttribute("aria-busy");

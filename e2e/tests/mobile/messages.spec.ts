@@ -97,7 +97,9 @@ test("message actions open with a tap on Message options and fit a wider touch s
   const tray = page.getByRole("group", { name: "More reactions" });
   await expect(tray).toBeVisible();
   await screenIsFine();
-  await tray.getByRole("button", { name: "Fire" }).tap();
+  await expect(tray.getByRole("button", { name: "New boost" })).toBeInViewport();
+  await tray.getByRole("searchbox", { name: "Search emoji" }).fill("fire");
+  await tray.getByRole("button", { name: "🔥", exact: true }).first().tap();
   await expect(message.getByRole("list", { name: "Reactions" }).getByRole("button", { name: "🔥" })).toBeVisible();
   // A reaction closes the bar, and focus goes back to Message options.
   await expect(actions).toBeHidden();

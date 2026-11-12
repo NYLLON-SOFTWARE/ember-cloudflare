@@ -877,8 +877,7 @@ describe("More actions on a message", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(actions.remove).not.toHaveBeenCalled();
-    // The message's row, rather than Message options, which shows only while the pointer's over the message.
-    expect(article).toHaveFocus();
+    expect(optionsOn("Hello")).toHaveFocus();
 
     await openMoreActions(user, article);
     await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
@@ -888,7 +887,7 @@ describe("More actions on a message", () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
-  it("hands focus to the message's row after Cancel, or when the deletion can't be sent, which a click then doesn't", async () => {
+  it("hands focus back to Message options after Cancel, or when the deletion can't be sent", async () => {
     withMouse();
     const { actions, article, editors, user } = show(message(), { sent: false });
     await openMoreActions(user, article);
@@ -896,15 +895,12 @@ describe("More actions on a message", () => {
     await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete" }));
     expect(actions.remove).toHaveBeenCalledWith("m1");
     expect(editors.returnFocus).not.toHaveBeenCalled();
-    expect(article).toHaveFocus();
+    expect(optionsOn("Hello")).toHaveFocus();
 
     await openMoreActions(user, article);
     await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
     await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }));
-    expect(article).toHaveFocus();
-    // It takes focus only until it loses it.
-    act(() => optionsOn("Hello").focus());
-    expect(article).not.toHaveAttribute("tabindex");
+    expect(optionsOn("Hello")).toHaveFocus();
   });
 
   it("closes on Escape, handing focus to Message options, then the bar", async () => {
