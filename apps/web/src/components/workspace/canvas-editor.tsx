@@ -10,6 +10,8 @@ import { CanvasConflict, openTab, saveCanvas, saveCanvasOnLeaving } from "@/lib/
 import { dateTimeLabel } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import { FROM_ROOM, MERGED, showDocument, useLiveCanvas } from "./canvas-live";
+import { TOOL, TOOL_ICON } from "./composer-buttons";
+import type { Tool as ComposerTool } from "./formatting";
 import { RoomFramesContext } from "./room-tab-icons";
 
 // A canvas: a document a room's members write together, with Tiptap's StarterKit, through Tiptap's core rather than
@@ -351,60 +353,37 @@ const DOCUMENT = cn(
 /** The formatting toolbar: marks, headings, lists, a quote, code, and undo and redo. */
 function Toolbar({ editor }: { editor: Editor }) {
   const active = useActive(editor, (editor) => ({
-      bold: editor.isActive("bold"),
-      italic: editor.isActive("italic"),
-      strike: editor.isActive("strike"),
-      code: editor.isActive("code"),
-      h1: editor.isActive("heading", { level: 1 }),
-      h2: editor.isActive("heading", { level: 2 }),
-      bullets: editor.isActive("bulletList"),
-      numbers: editor.isActive("orderedList"),
-      quote: editor.isActive("blockquote"),
-      codeBlock: editor.isActive("codeBlock"),
-      undo: editor.can().undo(),
-      redo: editor.can().redo(),
+    bold: editor.isActive("bold"),
+    italic: editor.isActive("italic"),
+    strikethrough: editor.isActive("strike"),
+    heading: editor.isActive("heading", { level: 1 }),
+    subheading: editor.isActive("heading", { level: 2 }),
+    numberedList: editor.isActive("orderedList"),
+    bulletList: editor.isActive("bulletList"),
+    quote: editor.isActive("blockquote"),
+    code: editor.isActive("code"),
+    codeBlock: editor.isActive("codeBlock"),
   }));
   const chain = () => editor.chain().focus();
+  const rule = <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />;
   return (
-    <div role="toolbar" aria-label="Formatting" className="flex flex-none flex-wrap items-center gap-0.5 border-b px-[18px] py-1.5 max-md:px-2">
-      <Mark label="Bold" pressed={active.bold} onClick={() => chain().toggleBold().run()}>
-        <b>B</b>
-      </Mark>
-      <Mark label="Italic" pressed={active.italic} onClick={() => chain().toggleItalic().run()}>
-        <i className="font-serif">I</i>
-      </Mark>
-      <Mark label="Strikethrough" pressed={active.strike} onClick={() => chain().toggleStrike().run()}>
-        <s>S</s>
-      </Mark>
-      <Mark label="Code" pressed={active.code} onClick={() => chain().toggleCode().run()}>
-        <span className="font-mono text-[13px]">{"<>"}</span>
-      </Mark>
-      <span aria-hidden className="mx-1 h-5 w-px bg-border" />
-      <Mark label="Heading" pressed={active.h1} onClick={() => chain().toggleHeading({ level: 1 }).run()}>
+    <div role="toolbar" aria-label="Formatting" className="flex flex-none items-center gap-0.5 overflow-x-auto border-b px-[18px] py-1.5 [scrollbar-width:none] max-md:px-2">
+      <Tool tool="bold" label="Bold" pressed={active.bold} onClick={() => chain().toggleBold().run()} />
+      <Tool tool="italic" label="Italic" pressed={active.italic} onClick={() => chain().toggleItalic().run()} />
+      <Tool tool="strikethrough" label="Strikethrough" pressed={active.strikethrough} onClick={() => chain().toggleStrike().run()} />
+      {rule}
+      <Tool label="Heading" pressed={active.heading} onClick={() => chain().toggleHeading({ level: 1 }).run()}>
         H1
-      </Mark>
-      <Mark label="Subheading" pressed={active.h2} onClick={() => chain().toggleHeading({ level: 2 }).run()}>
+      </Tool>
+      <Tool label="Subheading" pressed={active.subheading} onClick={() => chain().toggleHeading({ level: 2 }).run()}>
         H2
-      </Mark>
-      <Mark label="Bulleted list" pressed={active.bullets} onClick={() => chain().toggleBulletList().run()}>
-        •≡
-      </Mark>
-      <Mark label="Numbered list" pressed={active.numbers} onClick={() => chain().toggleOrderedList().run()}>
-        1≡
-      </Mark>
-      <Mark label="Quote" pressed={active.quote} onClick={() => chain().toggleBlockquote().run()}>
-        ❝
-      </Mark>
-      <Mark label="Code block" pressed={active.codeBlock} onClick={() => chain().toggleCodeBlock().run()}>
-        <span className="font-mono text-[13px]">{"{}"}</span>
-      </Mark>
-      <span aria-hidden className="mx-1 h-5 w-px bg-border" />
-      <Mark label="Undo" disabled={!active.undo} onClick={() => chain().undo().run()}>
-        ↶
-      </Mark>
-      <Mark label="Redo" disabled={!active.redo} onClick={() => chain().redo().run()}>
-        ↷
-      </Mark>
+      </Tool>
+      <Tool tool="numberedList" label="Numbered list" pressed={active.numberedList} onClick={() => chain().toggleOrderedList().run()} />
+      <Tool tool="bulletList" label="Bulleted list" pressed={active.bulletList} onClick={() => chain().toggleBulletList().run()} />
+      {rule}
+      <Tool tool="quote" label="Blockquote" pressed={active.quote} onClick={() => chain().toggleBlockquote().run()} />
+      <Tool tool="code" label="Code" pressed={active.code} onClick={() => chain().toggleCode().run()} />
+      <Tool tool="codeBlock" label="Code block" pressed={active.codeBlock} onClick={() => chain().toggleCodeBlock().run()} />
     </div>
   );
 }
@@ -420,19 +399,14 @@ function useActive<T>(editor: Editor, select: (editor: Editor) => T): T {
   return select(editor);
 }
 
-function Mark({ label, pressed, disabled, onClick, children }: { label: string; pressed?: boolean; disabled?: boolean; onClick: () => void; children: ReactNode }) {
+/**
+ * A toolbar button, the composer's own (composer-toolbar.tsx): its Iconoir icon for `tool`, or for a
+ * heading, which the composer has no button for, its label.
+ */
+function Tool({ tool, label, pressed, onClick, children }: { tool?: ComposerTool; label: string; pressed: boolean; onClick: () => void; children?: ReactNode }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      aria-pressed={pressed}
-      disabled={disabled}
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={onClick}
-      className="grid h-8 min-w-8 cursor-pointer place-items-center rounded-md px-1.5 text-[14px] text-muted-foreground hover:bg-hover hover:text-foreground disabled:cursor-default disabled:opacity-40 aria-pressed:bg-hover aria-pressed:text-foreground touch:size-11"
-    >
-      {children}
+    <button type="button" aria-label={label} title={label} aria-pressed={pressed} onMouseDown={(event) => event.preventDefault()} onClick={onClick} className={cn(TOOL, "text-[13px] font-semibold")}>
+      {tool ? <span aria-hidden="true" data-icon={tool} className={TOOL_ICON} /> : children}
     </button>
   );
 }

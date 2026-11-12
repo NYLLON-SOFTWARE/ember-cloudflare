@@ -142,6 +142,17 @@ describe("Canvas", () => {
     expect(localStorage.getItem("ember:canvas-unsaved:t1")).toBeNull();
   });
 
+  it("formats with the composer's own toolbar buttons and icons, no text glyphs", () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(opened(doc())));
+    renderCanvas(doc({ type: "paragraph" }));
+    const toolbar = screen.getByRole("toolbar", { name: "Formatting" });
+    const icons = ["bold", "italic", "strikethrough", "numberedList", "bulletList", "quote", "code", "codeBlock"];
+    expect([...toolbar.querySelectorAll("[data-icon]")].map((icon) => icon.getAttribute("data-icon"))).toEqual(icons);
+    expect(toolbar).not.toHaveTextContent(/[•≡❝↶↷<>{}]/);
+    act(() => screen.getByRole("button", { name: "Bold" }).click());
+    expect(screen.getByRole("button", { name: "Bold" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("writes only what the server takes as a canvas, whatever the toolbar makes", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(opened(doc())));
     renderCanvas(doc({ type: "paragraph" }));

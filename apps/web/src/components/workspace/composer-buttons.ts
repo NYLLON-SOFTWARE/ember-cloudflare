@@ -49,3 +49,14 @@ export const SCHEDULE_HALF = cn(
  */
 export const COMPOSER_CARD =
   "flex min-w-0 flex-col rounded-[12px] border border-input bg-surface p-3 focus-within:border-ring focus-within:shadow-[0_0_0_1px_var(--ring)] max-md:p-2.5";
+
+/**
+ * A toolbar button, as Slack's: a 28px square, or a fingertip's 44px on touch screens, that's tinted while
+ * its format is on at the cursor and faded while it can't be used there. It keeps focus in the text, so a
+ * phone's keyboard stays up.
+ */
+export const TOOL =
+  "flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[5px] text-muted-foreground touch:size-11 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-foreground aria-pressed:bg-hover aria-pressed:text-foreground disabled:pointer-events-none disabled:opacity-35";
+
+/** A toolbar button's Iconoir icon, its `data-icon` the tool's, painted from its file (rich-text-editor.css). */
+export const TOOL_ICON = "composer-tool-icon size-[18px]";
