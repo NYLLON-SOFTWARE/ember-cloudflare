@@ -181,6 +181,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
                 deferEditor={state.status === "connecting" && !state.offline}
                 // The thread open beside the room takes focus as it opens.
                 autoFocus={threadId === undefined}
+                frames={frames}
                 onSend={postMessage}
                 onSendFiles={postFiles}
                 onTyping={typing}

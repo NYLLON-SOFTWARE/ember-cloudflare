@@ -1605,12 +1605,17 @@ export type ClientFrame =
   /** Says the tab has been shown, or hidden, for a few seconds, since the socket's address or the last of these said otherwise. */
   | { type: "presence.visible"; visible: boolean }
   /**
-   * A click on a button that acts, on one of a bot's message's cards: the button `actionId` names there, in the
-   * block `blockId` names when it has one, with the `value` it has, which tells apart two that share a name.
-   * The room reports it to the bot, and answers `card.clicked`, or an `error`, with `clickId`, which the tab
-   * makes up.
+   * A message to send later, at `sendAt` (milliseconds since the epoch), as `message.create` would send it
+   * then: the room keeps it, and its alarm posts it as its author at that time, if they're still in the
+   * room. Its author's sockets hear of it with `scheduled`.
    */
-  | { type: "card.click"; clickId: string; messageId: string; actionId: string; blockId?: string; value?: string }
+  | { type: "scheduled.create"; clientMessageId: string; body: string; sendAt: number; parentId?: string; alsoSend?: boolean }
+  /** Moves one of your scheduled messages to another time. */
+  | { type: "scheduled.update"; id: string; sendAt: number }
+  /** Sends one of your scheduled messages now. */
+  | { type: "scheduled.send"; id: string }
+  /** Deletes one of your scheduled messages, unsent. */
+  | { type: "scheduled.delete"; id: string }
   /**
    * Starts writing a canvas tab of the room's together with whoever else is, in place of any canvas the
    * socket wrote before: from `version`, where the tab's editor has one, which the room answers with the
@@ -1625,7 +1630,35 @@ export type ClientFrame =
   | { type: "canvas.steps"; tabId: string; version: number; clientId: string; steps: unknown[] }
   /** Stops writing the canvas, as its tab closes. */
   | { type: "canvas.leave"; tabId: string }
+  /**
+   * A click on a button that acts, on one of a bot's message's cards: the button `actionId` names there, in the
+   * block `blockId` names when it has one, with the `value` it has, which tells apart two that share a name.
+   * The room reports it to the bot, and answers `card.clicked`, or an `error`, with `clickId`, which the tab
+   * makes up.
+   */
+  | { type: "card.click"; clickId: string; messageId: string; actionId: string; blockId?: string; value?: string }
   | { type: "ping" };
+
+/**
+ * A message waiting to be sent at `sendAt`, as its author's tabs list it: only they hear of it, until it's
+ * posted, when it becomes a message like any other.
+ */
+export interface ScheduledMessage {
+  id: string;
+  /** Its body markup, as the composer wrote it. */
+  body: string;
+  /** When the room is to post it, in milliseconds since the epoch. */
+  sendAt: number;
+  /** The message whose thread it's a reply in, which `alsoSend` sends to the room too. */
+  parentId?: string;
+  alsoSend?: boolean;
+}
+
+/** How far ahead a message can be scheduled, as Slack allows: 120 days. */
+export const MAX_SCHEDULE_AHEAD_MS = 120 * 24 * 60 * 60 * 1000;
+
+/** How many messages one person can have waiting in a room. */
+export const MAX_SCHEDULED_MESSAGES = 50;
 
 /**
  * A page of a room's messages that takes the timeline's place: the newest, or the one around a message.
@@ -1706,6 +1739,11 @@ export type ServerFrame =
   | { type: "canvas.steps"; tabId: string; version: number; steps: unknown[]; clientIds: string[]; updatedBy: User; updatedAt: string }
   /** Why the room took none of a writer's steps, or can't let them write the canvas, which may be gone. */
   | { type: "canvas.refused"; tabId: string; message: string }
+  /**
+   * The messages you've scheduled in the room, soonest first: sent to each of your sockets as it opens and
+   * whenever the list changes, and only to yours.
+   */
+  | { type: "scheduled"; messages: ScheduledMessage[] }
   | { type: "pong" };
 
 /**
@@ -1936,6 +1974,8 @@ const pageLimit = (v: unknown) => (typeof v === "number" ? Math.min(Math.max(1, 
 const userIds = (v: unknown): v is UserId[] => Array.isArray(v) && v.length <= MAX_LISTED_USERS && v.every(id);
 
 /** Markup no longer than `MAX_MESSAGE_HTML_LENGTH`, or null. Whether it holds a message is the room's to read. */
+/** A time to send a scheduled message at: a whole number of milliseconds since the epoch, which the room checks is ahead. */
+const sendTime = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 const markup = (v: unknown): string | null => (typeof v === "string" && v.length <= MAX_MESSAGE_HTML_LENGTH ? v : null);
 
 /** Trimmed, non-empty text no longer than `max`, or null. */
@@ -2009,13 +2049,18 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       return id(f.parentId) && id(f.before) ? { type: f.type, parentId: f.parentId, before: f.before, limit: pageLimit(f.limit) } : null;
     case "presence.visible":
       return typeof f.visible === "boolean" ? { type: f.type, visible: f.visible } : null;
-    case "card.click": {
-      if (!id(f.clickId) || !id(f.messageId) || !isActionId(f.actionId)) return null;
-      if (f.blockId !== undefined && !isActionId(f.blockId)) return null;
-      if (f.value !== undefined && !isActionValue(f.value)) return null;
-      const { blockId, value } = f;
-      return { type: f.type, clickId: f.clickId, messageId: f.messageId, actionId: f.actionId, ...(blockId !== undefined && { blockId }), ...(value !== undefined && { value }) };
+    case "scheduled.create": {
+      const body = markup(f.body);
+      if (!id(f.clientMessageId) || body === null || !sendTime(f.sendAt)) return null;
+      const scheduled = { type: f.type, clientMessageId: f.clientMessageId, body, sendAt: f.sendAt };
+      if (f.parentId === undefined) return scheduled;
+      return id(f.parentId) ? { ...scheduled, parentId: f.parentId, alsoSend: f.alsoSend === true } : null;
     }
+    case "scheduled.update":
+      return id(f.id) && sendTime(f.sendAt) ? { type: f.type, id: f.id, sendAt: f.sendAt } : null;
+    case "scheduled.send":
+    case "scheduled.delete":
+      return id(f.id) ? { type: f.type, id: f.id } : null;
     case "canvas.join":
       return id(f.tabId) && (f.version === undefined || canvasVersion(f.version)) ? { type: f.type, tabId: f.tabId, ...(f.version !== undefined && { version: f.version }) } : null;
     case "canvas.steps":
@@ -2024,6 +2069,13 @@ export function parseClientFrame(raw: string): ClientFrame | null {
         : null;
     case "canvas.leave":
       return id(f.tabId) ? { type: f.type, tabId: f.tabId } : null;
+    case "card.click": {
+      if (!id(f.clickId) || !id(f.messageId) || !isActionId(f.actionId)) return null;
+      if (f.blockId !== undefined && !isActionId(f.blockId)) return null;
+      if (f.value !== undefined && !isActionValue(f.value)) return null;
+      const { blockId, value } = f;
+      return { type: f.type, clickId: f.clickId, messageId: f.messageId, actionId: f.actionId, ...(blockId !== undefined && { blockId }), ...(value !== undefined && { value }) };
+    }
     case "typing.start":
     case "typing.stop":
     case "ping":

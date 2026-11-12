@@ -528,6 +528,13 @@ export interface RoomAccess {
   authorizedAt: number;
 }
 
+/** Someone the Workspace found active in a room, as it posts a message they scheduled there. */
+export interface AuthorAccess {
+  user: User;
+  /** When the Workspace checked, in milliseconds since the epoch, as a room's socket has it. */
+  authorizedAt: number;
+}
+
 /** What the Workspace says about a bot API key it found an active bot in a room for. */
 export interface BotAccess {
   bot: User;
@@ -4159,6 +4166,18 @@ export class Workspace extends DurableObject<Env> {
       const assistant = { ...movedIn(changed.assistant, moves), providerEndpointsTriedAt: done ? triedAt : null };
       await this.storeAccount({ ...changed, assistant }, () => this.store.moveModels(assistant, moves));
     });
+  }
+
+  /**
+   * The author of a message scheduled in room `roomId`, as the room posts it, with when this checked:
+   * null once they're no longer active or in the room, so that removing, banning or taking someone out
+   * of a room stops what they scheduled there.
+   */
+  async scheduledAuthor(roomId: RoomId, userId: UserId): Promise<AuthorAccess | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const user = await this.store.activeMember(roomId, userId);
+    return user && { user, authorizedAt };
   }
 
   /**

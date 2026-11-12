@@ -49,6 +49,7 @@ declare module "@37signals/lexxy" {
     isCollapsed(): boolean;
     setFormat(format: number): void;
     setStyle(style: string): void;
+    insertText(text: string): void;
   }
 
   /** A command an editor carries out, as a key that it hears. */
@@ -77,6 +78,7 @@ declare module "@37signals/lexxy" {
     COMMAND_PRIORITY_HIGH: number;
     KEY_BACKSPACE_COMMAND: LexicalCommand<KeyboardEvent | null>;
     KEY_SPACE_COMMAND: LexicalCommand<KeyboardEvent>;
+    FORMAT_TEXT_COMMAND: LexicalCommand<string>;
   };
 
   /** What an editor allows and holds beyond Lexxy's own. */

@@ -1276,6 +1276,34 @@ describe("Set up the workspace", () => {
   });
 });
 
+describe("Scheduled messages", () => {
+  it("schedules a message, or a reply in a thread, at a whole number of milliseconds", () => {
+    const sendAt = Date.UTC(2026, 10, 12, 9);
+    expect(parse({ type: "scheduled.create", clientMessageId: "c1", body: "<p>Hi</p>", sendAt })).toEqual({ type: "scheduled.create", clientMessageId: "c1", body: "<p>Hi</p>", sendAt });
+    expect(parse({ type: "scheduled.create", clientMessageId: "c1", body: "x", sendAt, parentId: "m1", alsoSend: true })).toEqual({
+      type: "scheduled.create",
+      clientMessageId: "c1",
+      body: "x",
+      sendAt,
+      parentId: "m1",
+      alsoSend: true,
+    });
+    for (const at of [undefined, "1", 0, -5, 1.5, Number.NaN, Infinity, 2 ** 60]) {
+      expect(parse({ type: "scheduled.create", clientMessageId: "c1", body: "x", sendAt: at }), String(at)).toBeNull();
+    }
+    expect(parse({ type: "scheduled.create", clientMessageId: "", body: "x", sendAt })).toBeNull();
+    expect(parse({ type: "scheduled.create", clientMessageId: "c1", body: "x", sendAt, parentId: "" })).toBeNull();
+  });
+
+  it("moves, sends and deletes a scheduled message by its id", () => {
+    expect(parse({ type: "scheduled.update", id: "s1", sendAt: 5 })).toEqual({ type: "scheduled.update", id: "s1", sendAt: 5 });
+    expect(parse({ type: "scheduled.update", id: "s1" })).toBeNull();
+    expect(parse({ type: "scheduled.send", id: "s1" })).toEqual({ type: "scheduled.send", id: "s1" });
+    expect(parse({ type: "scheduled.delete", id: "s1" })).toEqual({ type: "scheduled.delete", id: "s1" });
+    for (const type of ["scheduled.send", "scheduled.delete"]) expect(parse({ type, id: "" })).toBeNull();
+  });
+});
+
 describe("Check for updates", () => {
   it("puts a beta after the release before it and before its own, as copies take it", () => {
     for (const [later, earlier] of [

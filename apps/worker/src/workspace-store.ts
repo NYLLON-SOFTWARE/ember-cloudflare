@@ -1649,6 +1649,10 @@ const RETRY_DOUBLINGS = 10;
 /** Whether someone is in a room. */
 export const MEMBERSHIP = `SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?`;
 
+/** Someone active, by their id, if they're in a room, by its id. */
+export const ACTIVE_MEMBER = `SELECT users.id, users.name FROM memberships JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ? AND users.id = ? AND users.status = ${ACTIVE}`;
+
 /**
  * Whether someone is in a room, and whether a ban blocks the IP address they come from, in one go,
  * asked on every room socket's upgrade.
@@ -3674,6 +3678,12 @@ export class WorkspaceStore {
   /** Forgets the push subscriptions with `ids`, which the push service has said are gone or can never be pushed to. */
   async forgetPushSubscriptions(ids: number[]): Promise<void> {
     await this.db.run(`DELETE FROM push_subscriptions WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(ids));
+  }
+
+  /** `userId`, if they're active and in room `roomId`, as a scheduled message of theirs is posted. */
+  async activeMember(roomId: RoomId, userId: UserId): Promise<User | null> {
+    const [user] = await this.db.all<User>(ACTIVE_MEMBER, roomId, userId);
+    return user ?? null;
   }
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {

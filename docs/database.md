@@ -5,10 +5,10 @@ How Ember stores its data, and how its schema compares with Campfire's.
 ## Where the data lives
 
 `STORAGE_BACKEND` in `wrangler.jsonc` picks the backend. With `do-sqlite` (the default), each room's
-messages, boosts, recent revocations and deletions, its files' records, and the changes the
-Workspace and the search index have yet to hear of live in that room's Durable Object SQLite
-storage, and the account, people, their sessions and linked accounts elsewhere, browsers' push
-subscriptions, bots' webhooks, bans and recent searches, rooms, memberships and the outbox of
+messages, boosts, recent revocations and deletions, its files' records, the messages people have
+scheduled there, and the changes the Workspace and the search index have yet to hear of live in
+that room's Durable Object SQLite storage, and the account, people, their sessions and linked
+accounts elsewhere, browsers' push subscriptions, bots' webhooks, bans and recent searches, rooms, memberships and the outbox of
 revocations, purges and reindexes in the Workspace object's. With `d1`, all of them live in one D1
 database. Both backends use the schema in `apps/worker/migrations/` and the queries in
 `apps/worker/src/store.ts`, run through the driver in `apps/worker/src/db.ts`. The search index is
@@ -29,7 +29,7 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 `SEARCH_MIGRATIONS`.
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
-`message_deletions`, `blobs` and `waiting_calls`, the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
+`message_deletions`, `blobs`, `waiting_calls` and `scheduled_messages`, the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
 `bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`,
 `memberships`, `favorites`, `activity`, `pending_revocations`, `pending_purges`, `pending_reindexes`,

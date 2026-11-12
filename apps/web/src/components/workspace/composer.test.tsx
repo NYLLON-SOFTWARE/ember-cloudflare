@@ -1,12 +1,14 @@
-import { MAX_FILE_SIZE, type LinkPreview, type User } from "@ember/protocol";
+import { MAX_FILE_SIZE, type ClientFrame, type LinkPreview, type ServerFrame, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext } from "@/hooks/use-directory";
+import type { RoomFrames } from "@/hooks/use-room";
 import { createRef } from "react";
 import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
 import { editorLoaded } from "./editor";
+import { fileLink } from "./files-picker";
 
 // The editor here is test-setup.ts's stand-in for Lexxy, a text box whose lines are one paragraph,
 // and every test starts before its code has loaded.
@@ -44,7 +46,7 @@ function touchScreen() {
 }
 
 const sendButton = () => screen.getByRole("button", { name: "Send Message" });
-const formattingOptions = () => screen.getByRole("button", { name: "Rich text" });
+const formattingOptions = () => screen.getByRole("button", { name: /Formatting/ });
 const attachFiles = () => screen.getByLabelText("Attach a file");
 
 afterEach(() => {
@@ -58,12 +60,30 @@ describe("Composer", () => {
     expect(input).toHaveAttribute("placeholder", "Message general");
   });
 
-  it("has the text box on top, with Attach files, Formatting options and Send below", async () => {
-    const { input } = await showComposer();
+  it("has the formatting toolbar on top, then the text box, then +, Aa, Emoji and @, and Send with its schedule menu", async () => {
+    const { input, view } = await showComposer();
     expect(input).toHaveAttribute("placeholder", "Message #general");
-    expect(attachFiles().closest("label")).toHaveAttribute("title", "Attach files");
-    expect(formattingOptions()).toHaveAttribute("title", "Formatting options");
+    const toolbar = screen.getByRole("toolbar", { name: "Formatting" });
+    expect(toolbar.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(toolbar).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Bold",
+      "Italic",
+      "Underline",
+      "Strikethrough",
+      "Paragraph style",
+      "Link",
+      "Numbered list",
+      "Bulleted list",
+      "Blockquote",
+      "Code",
+      "Code block",
+      "Divider",
+    ]);
+    const below = [...view.container.querySelectorAll("form button")].filter((button) => !toolbar.contains(button)).map((button) => button.textContent);
+    expect(below).toEqual(["Attach", "AaFormatting", "Emoji", "Mention someone", "Send Message", "Schedule for later"]);
+    expect(formattingOptions()).toHaveAttribute("title", "Hide formatting");
     expect(sendButton()).toHaveAttribute("title", "Send message");
+    expect(attachFiles()).toHaveAttribute("type", "file");
   });
 
   it("focuses the text box as the room opens", async () => {
@@ -127,17 +147,116 @@ describe("Group DMs and DM names", () => {
 });
 
 describe("Formatting toolbar", () => {
-  it("shows the toolbar while Formatting options is pressed, keeping focus in the text", async () => {
+  const tool = (name: string) => within(screen.getByRole("toolbar", { name: "Formatting" })).getByRole("button", { name });
+
+  it("shows the toolbar until Aa hides it, keeping focus in the text, and remembers that in this browser", async () => {
     const { input, user, view } = await showComposer();
     const form = view.container.querySelector("form")!;
-    await user.click(formattingOptions());
     expect(formattingOptions()).toHaveAttribute("aria-pressed", "true");
     expect(form).toHaveAttribute("data-toolbar");
-    expect(input).toHaveFocus();
 
     await user.click(formattingOptions());
     expect(formattingOptions()).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
     expect(form).not.toHaveAttribute("data-toolbar");
+    expect(input).toHaveFocus();
+
+    view.unmount();
+    await showComposer();
+    expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
+  });
+
+  it("hides the toolbar on touch screens until Aa shows it", async () => {
+    touchScreen();
+    const { user } = await showComposer();
+    expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
+    await user.click(formattingOptions());
+    expect(screen.getByRole("toolbar", { name: "Formatting" })).toBeInTheDocument();
+  });
+
+  it("turns formats on and off, showing which are on at the cursor, and keeps focus in the text", async () => {
+    const { input, user } = await showComposer();
+    for (const name of ["Bold", "Italic", "Underline", "Strikethrough", "Blockquote", "Bulleted list"]) {
+      expect(tool(name)).toHaveAttribute("aria-pressed", "false");
+      await user.click(tool(name));
+      expect(tool(name), name).toHaveAttribute("aria-pressed", "true");
+      expect(input).toHaveFocus();
+    }
+    await user.click(tool("Numbered list"));
+    expect(tool("Numbered list")).toHaveAttribute("aria-pressed", "true");
+    expect(tool("Bulleted list")).toHaveAttribute("aria-pressed", "false");
+    expect(tool("Bold")).toHaveAttribute("title", "Bold (Ctrl+B)");
+  });
+
+  it("strikes through on Ctrl+Shift+X", async () => {
+    const { user } = await showComposer();
+    await user.keyboard("{Control>}{Shift>}x{/Shift}{/Control}");
+    expect(tool("Strikethrough")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("turns the lines at the cursor into a heading from the paragraph style menu", async () => {
+    const { user } = await showComposer();
+    await user.click(tool("Paragraph style"));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Heading" }));
+    expect(tool("Paragraph style")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("leaves only the button that turns code off working inside code, where it shows code as on", async () => {
+    const { user } = await showComposer();
+    await user.click(tool("Code block"));
+    expect(tool("Code block")).toHaveAttribute("aria-pressed", "true");
+    for (const name of ["Bold", "Link", "Code", "Bulleted list", "Divider"]) expect(tool(name), name).toBeDisabled();
+    await user.click(tool("Code block"));
+    expect(tool("Bold")).toBeEnabled();
+
+    await user.click(tool("Code"));
+    expect(tool("Code")).toHaveAttribute("aria-pressed", "true");
+    for (const name of ["Bold", "Italic", "Code block", "Blockquote"]) expect(tool(name), name).toBeDisabled();
+    expect(tool("Code")).toBeEnabled();
+  });
+
+  it("starts a new line on Enter in a code block, where Ctrl+Enter sends, and sends on Enter from a list", async () => {
+    const { onSend, input, user } = await showComposer();
+    await user.click(tool("Code block"));
+    await user.type(input, "one{Enter}two");
+    expect(onSend).not.toHaveBeenCalled();
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>one<br>two</p>", false);
+
+    await user.click(tool("Code block"));
+    await user.click(tool("Bulleted list"));
+    await user.type(input, "a{Enter}");
+    expect(onSend).toHaveBeenCalledTimes(2);
+  });
+
+  it("links what's selected to an address from Link, or Ctrl+K, giving one without a scheme https://", async () => {
+    const { input, user } = await showComposer();
+    await user.keyboard("{Control>}k{/Control}");
+    const field = await screen.findByRole("textbox", { name: "Link" });
+    await user.type(field, "not an address{Enter}");
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a web address");
+
+    await user.clear(field);
+    await user.type(field, "example.com/a{Enter}");
+    expect(screen.queryByRole("textbox", { name: "Link" })).not.toBeInTheDocument();
+    expect(input).toHaveAttribute("data-link", "https://example.com/a");
+    expect(tool("Link")).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(tool("Link"));
+    await user.click(await screen.findByRole("button", { name: "Remove link" }));
+    expect(input).toHaveAttribute("data-link", "");
+  });
+});
+
+describe("Insert", () => {
+  it("writes an emoji at the cursor from Emoji, and an @ from Mention someone", async () => {
+    const { input, user } = await showComposer();
+    await user.type(input, "Hi ");
+    await user.click(screen.getByRole("button", { name: "Emoji" }));
+    await user.click(within(await screen.findByRole("group", { name: "Emoji" })).getAllByRole("button")[0]!);
+    await user.click(screen.getByRole("button", { name: "Mention someone" }));
+    expect(input).toHaveValue("Hi 👍@");
+    expect(input).toHaveFocus();
   });
 });
 
@@ -160,15 +279,11 @@ describe("Send from the keyboard", () => {
     expect(onSend).toHaveBeenCalledWith("<p>line one<br>line two</p>", false);
   });
 
-  it("starts a new line on Enter while the toolbar shows, sends on Ctrl+Enter, and then hides the toolbar", async () => {
+  it("sends on Enter while the toolbar shows, as Slack does, and keeps the toolbar", async () => {
     const { onSend, input, user } = await showComposer();
-    await user.click(formattingOptions());
-    await user.type(input, "one{Enter}two");
-    expect(onSend).not.toHaveBeenCalled();
-
-    await user.keyboard("{Control>}{Enter}{/Control}");
-    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>one<br>two</p>", false);
-    expect(formattingOptions()).toHaveAttribute("aria-pressed", "false");
+    await user.type(input, "one{Enter}");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>one</p>", false);
+    expect(formattingOptions()).toHaveAttribute("aria-pressed", "true");
   });
 
   it("sends only from the Send button on touch screens", async () => {
@@ -676,5 +791,145 @@ describe("Only members see a room", () => {
     expect(notice).toHaveTextContent("This room was deleted.");
     expect(notice).toHaveClass("text-negative", "border-negative", "motion-safe:animate-shake");
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+});
+
+/** A room's socket as the composer hears it: what it sends, and frames for it to hear. */
+function roomFrames() {
+  const listeners = new Set<(frame: ServerFrame) => void>();
+  const send = vi.fn((_frame: ClientFrame) => true);
+  const frames: RoomFrames = { send, listen: (listener) => (listeners.add(listener), () => void listeners.delete(listener)) };
+  const hear = (frame: ServerFrame) => act(() => listeners.forEach((listener) => listener(frame)));
+  return { frames, send, hear };
+}
+
+async function showScheduling({ roomId, threadId }: { roomId: string; threadId?: string }) {
+  const { frames, send, hear } = roomFrames();
+  const onSend = vi.fn(() => true);
+  render(
+    <Composer roomId={roomId} roomName="general" userId="u1" typing={[]} disabled={false} threadId={threadId} frames={frames} onSend={onSend} onSendFiles={() => {}} onTyping={() => {}} />,
+  );
+  const input = await screen.findByRole("textbox", { name: threadId === undefined ? "Write a message" : "Write a reply" });
+  return { send, hear, onSend, input, user: userEvent.setup() };
+}
+
+const scheduleMenu = () => screen.getByRole("button", { name: "Schedule for later" });
+
+describe("Attach", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("offers Upload from your computer, which opens the browser's file picker, and Files in Ember", async () => {
+    const { user } = await showComposer();
+    const picker = vi.spyOn(attachFiles(), "click").mockImplementation(() => {});
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual(["Upload from your computer", "Files in Ember"]);
+    await user.click(screen.getByRole("menuitem", { name: "Upload from your computer" }));
+    expect(picker).toHaveBeenCalledOnce();
+  });
+
+  it("links a file shared in a room you're in, picked from Files in Ember, in what's written", async () => {
+    const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/rails/active_storage/blobs/f1/plan.pdf", downloadUrl: "/d" };
+    const fetch = vi.fn(async (_path: string) =>
+      Response.json({
+        search: { q: "", hasFile: true },
+        matches: [{ message: { id: "m1", roomId: "r9", attachment: file, createdAt: "2026-11-01T10:00:00Z" }, words: [] }],
+        next: null,
+        rooms: [{ id: "r9", kind: "open", name: "design", icon: null }],
+        recent: [],
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const { input, user } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
+    const dialog = await screen.findByRole("dialog", { name: "Files in Ember" });
+    const pick = await within(dialog).findByRole("button", { name: /plan\.pdf/ });
+    expect(pick).toHaveTextContent("#design");
+    expect(fetch.mock.calls[0]![0]).toContain("has=file");
+
+    await user.click(pick);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(input).toHaveValue("plan.pdf");
+  });
+
+  it("writes a picked file's link to its address on this server", () => {
+    const file = { id: "f1", name: 'a "b" <c>.pdf', contentType: "", byteSize: 1, url: "/files/f1", downloadUrl: "/d" };
+    expect(fileLink(file, "https://ember.test")).toBe('<a href="https://ember.test/files/f1">a &quot;b&quot; &lt;c&gt;.pdf</a>');
+  });
+});
+
+describe("Schedule for later", () => {
+  it("schedules what's written for tomorrow at 9:00 AM, taking it out of the box", async () => {
+    const { send, input, user, onSend } = await showScheduling({ roomId: "s1" });
+    expect(scheduleMenu()).toBeDisabled();
+    await user.type(input, "Morning all");
+    await user.click(scheduleMenu());
+    await user.click(await screen.findByRole("menuitem", { name: /^Tomorrow at 9:00/ }));
+
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    expect(send).toHaveBeenCalledExactlyOnceWith({ type: "scheduled.create", clientMessageId: expect.any(String) as string, body: "<p>Morning all</p>", sendAt: tomorrow.getTime() });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("schedules a reply in its thread, and puts back what the room wouldn't schedule, saying why", async () => {
+    const { send, hear, input, user } = await showScheduling({ roomId: "s2", threadId: "m1" });
+    await user.type(input, "Later");
+    await user.click(scheduleMenu());
+    await user.click(await screen.findByRole("menuitem", { name: "Custom time" }));
+    const dialog = await screen.findByRole("dialog", { name: "Schedule message" });
+    // Date and time fields take a value whole, as their pickers give it.
+    fireEvent.change(within(dialog).getByLabelText("Date"), { target: { value: "2020-01-01" } });
+    await user.click(within(dialog).getByRole("button", { name: "Schedule message" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Pick a time in the future.");
+
+    fireEvent.change(within(dialog).getByLabelText("Date"), { target: { value: "2099-03-04" } });
+    fireEvent.change(within(dialog).getByLabelText("Time"), { target: { value: "14:30" } });
+    await user.click(within(dialog).getByRole("button", { name: "Schedule message" }));
+    const frame = send.mock.calls[0]![0] as Extract<ClientFrame, { type: "scheduled.create" }>;
+    expect(frame).toMatchObject({ body: "<p>Later</p>", sendAt: new Date(2099, 2, 4, 14, 30).getTime(), parentId: "m1", alsoSend: false });
+    expect(input).toHaveValue("");
+
+    hear({ type: "error", message: "Pick a time in the next 120 days.", clientMessageId: frame.clientMessageId, failed: "scheduled.create" });
+    expect(input).toHaveValue("Later");
+    expect(screen.getByRole("alert")).toHaveTextContent("Pick a time in the next 120 days.");
+  });
+
+  it("says how many messages are scheduled here, listing them to send now, move or delete", async () => {
+    const { send, hear } = await showScheduling({ roomId: "s3" });
+    const user = userEvent.setup();
+    const sendAt = new Date(2099, 0, 5, 9).getTime();
+    hear({
+      type: "scheduled",
+      messages: [
+        { id: "a", body: "<p>First</p>", sendAt },
+        { id: "b", body: "<p>Second</p>", sendAt: sendAt + 1000 },
+        { id: "c", body: "<p>In a thread</p>", sendAt, parentId: "m1", alsoSend: false },
+      ],
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("2 scheduled messages");
+
+    await user.click(screen.getByRole("button", { name: "See all" }));
+    const dialog = await screen.findByRole("dialog", { name: "Scheduled messages" });
+    const items = within(dialog).getAllByRole("listitem");
+    expect(items.map((item) => item.querySelector("p:nth-child(2)")!.textContent)).toEqual(["First", "Second"]);
+    await user.click(within(items[0]!).getByRole("button", { name: "Send now" }));
+    await user.click(within(items[1]!).getByRole("button", { name: "Delete" }));
+    expect(send.mock.calls.map(([frame]) => frame)).toEqual([
+      { type: "scheduled.send", id: "a" },
+      { type: "scheduled.delete", id: "b" },
+    ]);
+
+    await user.click(within(items[0]!).getByRole("button", { name: "Edit time" }));
+    const moving = await screen.findByRole("dialog", { name: "Edit time" });
+    fireEvent.change(within(moving).getByLabelText("Time"), { target: { value: "10:15" } });
+    await user.click(within(moving).getByRole("button", { name: "Save" }));
+    expect(send).toHaveBeenLastCalledWith({ type: "scheduled.update", id: "a", sendAt: new Date(2099, 0, 5, 10, 15).getTime() });
+
+    // Opening the room again says nothing until it hears what's scheduled.
+    hear({ type: "welcome", you: { id: "u1", name: "Ada" }, present: [], seq: 0, messages: [], hasMore: false, hasNewer: false, around: null });
+    expect(screen.queryByText(/scheduled message/)).not.toBeInTheDocument();
   });
 });

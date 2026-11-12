@@ -6,6 +6,8 @@ import {
   isMessageTooLong,
   MAX_BOOST_LENGTH,
   MAX_MESSAGE_HTML_LENGTH,
+  MAX_SCHEDULE_AHEAD_MS,
+  MAX_SCHEDULED_MESSAGES,
   MESSAGE_TOO_LONG,
   parseClientFrame,
   parseRoomSocketParams,
@@ -65,6 +67,7 @@ import { sendPushes } from "./push/delivery";
 import { urlOf } from "./request-url";
 import { addressTag, EVERYONE, REVOCATIONS_KEPT_MS, Revocations, sessionTag, type Revocation } from "./revocations";
 import { RoomLog, type RoomEvent } from "./room-log";
+import { POSTED_AT_ONCE, ScheduledMessages, type DueMessage } from "./scheduled";
 import { searchIndex } from "./search-index";
 import { CLOSE_REASONS, closedAtOnce, closeTooLarge, isTooLarge, MAX_ROOM_FRAME_SIZE, RESERVED_CLOSE_CODES } from "./sockets";
 import { MessageStore, type Deletion, type InThread, type PageCursor, type PostedFile, type StoredBody } from "./store";
@@ -109,6 +112,16 @@ const UNDELIVERED_ROOM = "undeliveredRoom";
  * sooner than that, to check the huddle.
  */
 const LOGS_DUE = "logsDue";
+/** What it keeps while it has messages scheduled to post: the room's id, which its alarm posts them in. */
+const SCHEDULED_ROOM = "scheduledRoom";
+/** How long the alarm waits to post a scheduled message again when it couldn't ask the Workspace about its author. */
+const SCHEDULED_RETRY_MS = 60 * 1000;
+/** Why the room keeps no scheduled message for a time that's passed, or too far ahead. */
+const BAD_SEND_TIME = "Pick a time in the next 120 days.";
+/** Why it keeps no more of someone's scheduled messages. */
+const TOO_MANY_SCHEDULED = `You can schedule up to ${MAX_SCHEDULED_MESSAGES} messages in a conversation.`;
+/** Why it changes nothing of a scheduled message that's been sent or deleted. */
+const SCHEDULED_GONE = "That scheduled message has already been sent or deleted.";
 
 /** Why the room keeps nothing of a message: it couldn't show it, or there's nothing in it. `MESSAGE_TOO_LONG` says when there's too much. */
 const UNREADABLE = "That message couldn't be saved.";
@@ -125,7 +138,18 @@ const BANNED = "Request failed (429)";
 /** Why the room takes no steps to a canvas from a socket that isn't writing it. */
 const NOT_WRITING = "Open the canvas again to keep writing.";
 /** The frames that change something, which a banned address's sockets can't send. */
-const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete", "canvas.steps", "card.click"]);
+const CHANGES = new Set<ClientFrame["type"]>([
+  "message.create",
+  "message.update",
+  "message.delete",
+  "boost.create",
+  "boost.delete",
+  "scheduled.create",
+  "scheduled.update",
+  "scheduled.send",
+  "canvas.steps",
+  "card.click",
+]);
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
 
@@ -281,6 +305,7 @@ export class ChatRoom extends DurableObject<Env> {
   private revocations: Revocations | null = null;
   private log: RoomLog | null = null;
   private blobs: Blobs | null = null;
+  private scheduled: ScheduledMessages | null = null;
   private waitingCalls: WaitingCalls | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private couriers: Couriers | null = null;
@@ -345,6 +370,9 @@ export class ChatRoom extends DurableObject<Env> {
       server.serializeAttachment({ user, roomId, visible, protocol, heardAt: Date.now(), ...(banned && { banned }) } satisfies Attachment);
 
       this.send(server, { ...opening, you: user, present: this.present() });
+      // The messages they've scheduled here, which only their own tabs hear of.
+      const scheduled = await this.scheduledFor(roomId).of(user.id);
+      if (scheduled.length > 0) this.send(server, { type: "scheduled", messages: scheduled });
       // A tab running an older app hears at once that it has to reload, rather than once it sends something.
       if (protocol < ROOM_PROTOCOL) this.send(server, { type: "error", message: OUTDATED });
       // Everyone else has the list from their own welcome, so they only hear who's new.
@@ -436,6 +464,8 @@ export class ChatRoom extends DurableObject<Env> {
     this.canvases?.forget();
     for (const socket of this.roomSockets()) this.close(socket, code);
     while (await this.storeFor(roomId).deleteMessages(MESSAGES_DELETED_AT_ONCE));
+    await this.scheduledFor(roomId).forget();
+    await this.ctx.storage.delete(SCHEDULED_ROOM);
     await this.logFor(roomId).forget();
     await this.waitingCallsFor(roomId).forget();
     while (await searchIndex(this.env).forget(roomId, MESSAGES_DELETED_AT_ONCE));
@@ -456,6 +486,8 @@ export class ChatRoom extends DurableObject<Env> {
       Promise.all([this.ctx.storage.get<RoomId>(DELETED_ROOM), this.ctx.storage.get<RoomId>(UNDELIVERED_ROOM), this.ctx.storage.get<number>(LOGS_DUE)]),
     );
     if (deleted !== undefined) return this.erase(deleted);
+    const scheduledRoom = await this.serially(() => this.ctx.storage.get<RoomId>(SCHEDULED_ROOM));
+    if (scheduledRoom !== undefined) await this.postScheduled(scheduledRoom);
     const canvases = this.canvases;
     const nextCanvas = canvases ? await this.serially(() => canvases.ring()) : null;
     const nextCheck = await this.huddle.check().catch((error: unknown) => {
@@ -516,7 +548,7 @@ export class ChatRoom extends DurableObject<Env> {
       await this.revocationsFor(roomId).forget();
       await this.ctx.storage.deleteAll();
       // Its tables went too, so anything after this would open the database afresh, making them again.
-      this.db = this.store = this.revocations = this.log = this.blobs = this.waitingCalls = null;
+      this.db = this.store = this.revocations = this.log = this.blobs = this.scheduled = this.waitingCalls = null;
       this.erased = true;
     });
   }
@@ -982,17 +1014,11 @@ export class ChatRoom extends DurableObject<Env> {
         if (frame.visible) await this.read(store.roomId, user.id);
         return;
       }
-      case "card.click": {
-        const message = await this.findUndeleted(store, frame.messageId);
-        const button = message?.cards && actingButton(message.cards, clickedIn(frame));
-        const waiting = this.clicking.get(user.id) ?? 0;
-        const refused = !button ? BUTTON_GONE : waiting >= CLICKS_WAITING_EACH ? TOO_MANY_CLICKS : null;
-        if (refused) return this.send(ws, { type: "error", message: refused, clickId: frame.clickId, failed: frame.type });
-        this.clicking.set(user.id, waiting + 1);
-        // The bot answers in its own time, which nothing else in the room waits for.
-        this.ctx.waitUntil(this.deliverClick(store.roomId, ws, user, frame));
-        return;
-      }
+      case "scheduled.create":
+      case "scheduled.update":
+      case "scheduled.send":
+      case "scheduled.delete":
+        return this.handleScheduled(ws, user, store, frame);
       case "canvas.join": {
         const { canvas: previous, ...attachment } = ws.deserializeAttachment() as Attachment;
         ws.serializeAttachment({ ...attachment, canvas: frame.tabId } satisfies Attachment);
@@ -1010,6 +1036,17 @@ export class ChatRoom extends DurableObject<Env> {
         if (canvas !== frame.tabId) return;
         ws.serializeAttachment(attachment satisfies Attachment);
         return this.canvasesFor(store.roomId).left(canvas);
+      }
+      case "card.click": {
+        const message = await this.findUndeleted(store, frame.messageId);
+        const button = message?.cards && actingButton(message.cards, clickedIn(frame));
+        const waiting = this.clicking.get(user.id) ?? 0;
+        const refused = !button ? BUTTON_GONE : waiting >= CLICKS_WAITING_EACH ? TOO_MANY_CLICKS : null;
+        if (refused) return this.send(ws, { type: "error", message: refused, clickId: frame.clickId, failed: frame.type });
+        this.clicking.set(user.id, waiting + 1);
+        // The bot answers in its own time, which nothing else in the room waits for.
+        this.ctx.waitUntil(this.deliverClick(store.roomId, ws, user, frame));
+        return;
       }
       case "ping":
         return this.send(ws, { type: "pong" });
@@ -1040,6 +1077,111 @@ export class ChatRoom extends DurableObject<Env> {
    */
   async saveCanvas(roomId: RoomId, tabId: string, actor: User, save: CanvasSave): Promise<CanvasAnswer> {
     return this.serially(() => this.canvasesFor(roomId).saveWhole(tabId, actor, save));
+  }
+
+  /**
+   * Schedules a message to send later, moves one, sends it now or deletes it, as its author asks, then
+   * tells their sockets here what they have scheduled. A message is checked as it's scheduled, as one
+   * sent now would be, and again as it's posted. Only its author can change it.
+   */
+  private async handleScheduled(
+    ws: WebSocket,
+    user: User,
+    store: MessageStore,
+    frame: Extract<ClientFrame, { type: "scheduled.create" | "scheduled.update" | "scheduled.send" | "scheduled.delete" }>,
+  ): Promise<void> {
+    const scheduled = this.scheduledFor(store.roomId);
+    const refuse = (message: string) => this.send(ws, { type: "error", message, failed: frame.type, ...(frame.type === "scheduled.create" && { clientMessageId: frame.clientMessageId }) });
+    if (frame.type === "scheduled.create" || frame.type === "scheduled.update") {
+      const now = Date.now();
+      if (frame.sendAt <= now || frame.sendAt > now + MAX_SCHEDULE_AHEAD_MS) return refuse(BAD_SEND_TIME);
+    }
+    switch (frame.type) {
+      case "scheduled.create": {
+        if (isOutdated(ws)) return refuse(OUTDATED);
+        if (frame.parentId !== undefined && (await this.inThread(store, frame.parentId, false)) === null) return refuse(MESSAGE_GONE);
+        const body = await this.prepare(frame.body);
+        if (typeof body === "string") return refuse(body);
+        const { clientMessageId, sendAt, parentId, alsoSend } = frame;
+        const kept = await scheduled.add(sortableId(), { authorId: user.id, clientMessageId, body: frame.body, sendAt, parentId, alsoSend }, new Date().toISOString());
+        if (!kept) return refuse(TOO_MANY_SCHEDULED);
+        await this.wakeToPostBy(store.roomId, sendAt);
+        break;
+      }
+      case "scheduled.update": {
+        if (!(await scheduled.move(frame.id, user.id, frame.sendAt))) return refuse(SCHEDULED_GONE);
+        await this.wakeToPostBy(store.roomId, frame.sendAt);
+        break;
+      }
+      case "scheduled.send":
+      case "scheduled.delete": {
+        const message = await scheduled.find(frame.id);
+        if (!message || message.authorId !== user.id || !(await scheduled.remove(message.id))) return refuse(SCHEDULED_GONE);
+        if (frame.type === "scheduled.send") {
+          const refused = await this.postAs(store, user, message);
+          if (refused) refuse(refused);
+        }
+        break;
+      }
+    }
+    await this.tellScheduled(store.roomId, user.id);
+  }
+
+  /** Tells each of `userId`'s sockets here what they have scheduled now. */
+  private async tellScheduled(roomId: RoomId, userId: UserId): Promise<void> {
+    const sockets = this.roomSockets(userId);
+    if (sockets.length === 0) return;
+    const frame: ServerFrame = { type: "scheduled", messages: await this.scheduledFor(roomId).of(userId) };
+    for (const socket of sockets) this.send(socket, frame);
+  }
+
+  /**
+   * Posts `message` as `author`'s, as message.create would have posted it: in its thread, if it's a reply
+   * and its parent is still here. Answers why the room keeps nothing of it, if it doesn't.
+   */
+  private async postAs(store: MessageStore, author: User, message: DueMessage): Promise<string | null> {
+    const inThread = message.parentId === undefined ? undefined : await this.inThread(store, message.parentId, message.alsoSend === true);
+    if (inThread === null) return MESSAGE_GONE;
+    const body = await this.prepare(message.body);
+    if (typeof body === "string") return body;
+    await this.create(store, author, message.clientMessageId, body, new Date().toISOString(), { inThread });
+    return null;
+  }
+
+  /**
+   * Posts room `roomId`'s scheduled messages that are due, each as its author's if the Workspace says
+   * they're still active and in the room, and nothing has revoked their access since, then sets the alarm
+   * for the next. One whose author can't post here any longer is dropped, as is one the room can no longer
+   * keep, as when its thread's message was deleted. When the Workspace can't be asked, the alarm tries
+   * again shortly.
+   */
+  private async postScheduled(roomId: RoomId): Promise<void> {
+    const scheduled = this.scheduledFor(roomId);
+    let due: DueMessage[];
+    do {
+      due = await this.serially(() => scheduled.due(Date.now()));
+      for (const message of due) {
+        const access = await workspace(this.env)
+          .scheduledAuthor(roomId, message.authorId)
+          .catch((error: unknown) => {
+            console.error("Could not check a scheduled message's author:", error instanceof Error ? error.name : "unknown error");
+            return undefined;
+          });
+        if (access === undefined) return this.serially(() => this.wakeToPostBy(roomId, Date.now() + SCHEDULED_RETRY_MS));
+        await this.serially(async () => {
+          if (!(await scheduled.remove(message.id))) return;
+          const allowed = access !== null && !(await this.revocationsFor(roomId).refuse([access.user.id], access.authorizedAt));
+          const refused = allowed ? await this.postAs(this.storeFor(roomId), access.user, message) : "the author can no longer post here";
+          if (refused) console.warn(`A scheduled message in room ${roomId} wasn't posted: ${refused}`);
+          await this.tellScheduled(roomId, message.authorId);
+        });
+      }
+    } while (due.length === POSTED_AT_ONCE);
+    await this.serially(async () => {
+      const next = await scheduled.next();
+      if (next === null) await this.ctx.storage.delete(SCHEDULED_ROOM);
+      else await this.wakeToPostBy(roomId, next);
+    });
   }
 
   /**
@@ -1247,6 +1389,10 @@ export class ChatRoom extends DurableObject<Env> {
 
   private blobsFor(roomId: RoomId): Blobs {
     return (this.blobs ??= new Blobs(this.dbFor(), roomId));
+  }
+
+  private scheduledFor(roomId: RoomId): ScheduledMessages {
+    return (this.scheduled ??= new ScheduledMessages(this.dbFor(), roomId));
   }
 
   private waitingCallsFor(roomId: RoomId): WaitingCalls {
@@ -1889,6 +2035,17 @@ export class ChatRoom extends DurableObject<Env> {
       if (alarm === null || alarm > time) await this.ctx.storage.setAlarm(time);
       return true;
     });
+  }
+
+  /**
+   * Sets the alarm to post the room's scheduled messages by `time`, unless it's set for sooner, as
+   * `ringBy` sets it, keeping the room's id for the alarm. Runs within an event of the room's own.
+   */
+  private async wakeToPostBy(roomId: RoomId, time: number): Promise<void> {
+    if (await this.isDeleted()) return;
+    await this.ctx.storage.put(SCHEDULED_ROOM, roomId);
+    const alarm = await this.ctx.storage.getAlarm();
+    if (alarm === null || alarm > time) await this.ctx.storage.setAlarm(time);
   }
 
   /**

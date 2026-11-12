@@ -1,5 +1,6 @@
 import { bodyFromPlainText, writtenBody } from "@ember/richtext/dom";
 import { createElement, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type ComponentProps } from "react";
+import { NO_FORMATS, type Formats } from "../formatting";
 import type Editor from "../rich-text-editor";
 
 /** What Lexxy holds while nothing's written. */
@@ -21,9 +22,10 @@ const attachmentMarkup = ({ contentType, html }: Attachment) =>
  * Lexxy's stand-in in unit tests, which test-setup.ts swaps in because Lexxy doesn't keep what's
  * written under jsdom: a text box whose lines are one paragraph of Lexxy's markup, which tells of
  * changes and keys as the editor does, and of addresses pasted in it, below which it shows what's
- * added. The browser tests in e2e/ write in Lexxy itself.
+ * added. Formatting turns on and off as the toolbar asks, for the whole text, which it tells `onFormats` of,
+ * and links are kept as `links`. The browser tests in e2e/ write in Lexxy itself.
  */
-export default function RichTextEditor({ label, placeholder, rows, initialValue, autoFocus, onChange, onKeyDown, onLinkPasted, ref }: ComponentProps<typeof Editor>) {
+export default function RichTextEditor({ label, placeholder, rows, initialValue, autoFocus, onChange, onKeyDown, onLinkPasted, onFormats, ref }: ComponentProps<typeof Editor>) {
   const box = useRef<HTMLTextAreaElement>(null);
   // Read as soon as they change, as Lexxy's are, and shown once React renders them.
   const attachments = useRef<Attachment[]>([]);
@@ -31,6 +33,19 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
   const attach = (added: Attachment[]) => {
     attachments.current = added;
     show(added);
+  };
+
+  const formats = useRef<Formats>(NO_FORMATS);
+  const reformat = (changes: Partial<Formats>) => {
+    formats.current = { ...formats.current, ...changes };
+    onFormats?.(formats.current);
+  };
+  /** Writes `text` where the cursor is, as typing it would. */
+  const insert = (text: string) => {
+    const field = box.current!;
+    field.focus();
+    field.setRangeText(text, field.selectionStart, field.selectionEnd, "end");
+    onChange?.();
   };
 
   useImperativeHandle(ref, () => ({
@@ -52,6 +67,22 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
       text.focus();
       text.setSelectionRange(text.value.length, text.value.length);
     },
+    format: (format) => {
+      const now = formats.current;
+      if (format === "numberedList" || format === "bulletList") {
+        const list = format === "numberedList" ? "number" : "bullet";
+        reformat({ list: now.list === list ? null : list });
+      } else if (format !== "divider") reformat({ [format]: !now[format] });
+      box.current?.focus();
+    },
+    setBlock: (block) => reformat({ block }),
+    link: (url) => {
+      box.current!.dataset.link = url ?? "";
+      reformat({ link: url !== null });
+    },
+    insertText: insert,
+    insertHtml: (markup) => insert(writtenBody(markup).plainText),
+    startMention: () => insert("@"),
   }));
 
   const keyPressed = useEffectEvent((event: KeyboardEvent) => onKeyDown?.(event));

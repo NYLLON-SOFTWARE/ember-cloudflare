@@ -23,10 +23,10 @@ describe("sendsMessage", () => {
     expect(sendsMessage(press("Enter"))).toBe(false);
   });
 
-  it("starts a new paragraph on Enter while the formatting toolbar is open", () => {
+  it("starts a new line on Enter in a code block, where Ctrl+Enter still sends", () => {
     pointer(false);
-    expect(sendsMessage(press("Enter"), { toolbarOpen: true })).toBe(false);
-    expect(sendsMessage(press("Enter", { ctrlKey: true }), { toolbarOpen: true })).toBe(true);
+    expect(sendsMessage(press("Enter"), { inCodeBlock: true })).toBe(false);
+    expect(sendsMessage(press("Enter", { ctrlKey: true }), { inCodeBlock: true })).toBe(true);
   });
 
   it("sends on Cmd+Enter or Ctrl+Enter everywhere", () => {
