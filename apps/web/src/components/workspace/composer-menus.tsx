@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { useSheetColumns } from "@/components/emoji-columns";
-import { ArrowUp, AtSign, CheckCircle, Emoji, Laptop, Page, Plus } from "@/components/icons/iconoir";
+import { ArrowUp, AtSign, Attachment, CheckCircle, Emoji, Laptop, Page, Plus } from "@/components/icons/iconoir";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { cn } from "@/lib/utils";
@@ -13,8 +13,67 @@ import { ScheduleMenu } from "./schedule-send";
 // needs: +, Aa, Emoji, @ and Send with its schedule menu. Each keeps focus in the text, so a phone's
 // keyboard stays up, and is a fingertip's 44px on touch screens.
 
-/** +, Slack's attach menu: Upload from your computer, which opens the browser's file picker, and Files in Ember. */
+/**
+ * +, Slack's attach menu: Upload from your computer, which opens the browser's file picker, and Files in
+ * Ember. On phones it's an action sheet, as Slack iOS's is, saying Upload a file.
+ */
 export function AttachMenu({ disabled, onUpload, onFilesInEmber, onReturnFocus }: { disabled: boolean; onUpload: () => void; onFilesInEmber: () => void; onReturnFocus: () => void }) {
+  const phone = usePhoneLayout();
+  const [open, setOpen] = useState(false);
+  const [opened, failed] = useOpenedRarePage(open, () => setOpen(false));
+  // Whether one of its actions was chosen, which goes on from there, so the text doesn't take focus back,
+  // raising the keyboard over the file picker or Files in Ember.
+  const chose = useRef(false);
+  if (phone) {
+    const choosing = (then: () => void) => () => {
+      chose.current = true;
+      then();
+    };
+    return (
+      <>
+        <button
+          type="button"
+          disabled={disabled}
+          title="Attach"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          data-state={open ? "open" : "closed"}
+          onMouseDown={(event) => event.preventDefault()}
+          onPointerDown={preloadRarePages}
+          onClick={() => {
+            chose.current = false;
+            setOpen(true);
+          }}
+          className={ATTACH_BUTTON}
+        >
+          <Plus className="size-[18px]" />
+          <span className="sr-only">Attach</span>
+        </button>
+        {opened && (
+          <RarePage
+            show={({ ActionSheet }) => (
+              <ActionSheet
+                open={open}
+                onOpenChange={setOpen}
+                title="Attach"
+                titleHidden
+                onCloseAutoFocus={(event) => {
+                  event.preventDefault();
+                  if (!chose.current) onReturnFocus();
+                }}
+                actions={[
+                  { label: "Upload a file", icon: <Attachment className="size-5" />, onSelect: choosing(onUpload) },
+                  { label: "Files in Ember", icon: <Page className="size-5" />, onSelect: choosing(onFilesInEmber) },
+                ]}
+              />
+            )}
+            loading={null}
+            onFailed={failed}
+          />
+        )}
+      </>
+    );
+  }
   return (
     <PopoverMenu
       label="Attach"
