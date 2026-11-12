@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloseCode, EMAIL_LINK_GONE, SIGN_IN_REJECTED, type Account, type AccountChanges, type Bootstrap, type Message, type WorkspaceSettings } from "@ember/protocol";
 import type { HuddlesSetup } from "@ember/protocol/huddles";
 import { QUESTION } from "@/components/setup-huddles";
@@ -9,6 +9,7 @@ import { loadPage } from "@/lib/page";
 import { setPrefersDark } from "@/test-media";
 import { CHROME_MAC } from "@/test-platforms";
 import { App } from "./App";
+import { loadPageAhead } from "./components/workspace/workspace";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 
@@ -235,6 +236,10 @@ async function openYourProfile() {
 }
 
 const logOut = () => userEvent.setup().click(screen.getByRole("button", { name: "Log out" }));
+
+// The pages few visits need load apart from the app, and transforming them cold takes seconds on a busy
+// machine, past findByRole's one: load them once, before the tests that open one.
+beforeAll(() => loadPageAhead("/account/edit"), 30_000);
 
 beforeEach(() => {
   vi.stubGlobal("WebSocket", QuietSocket);
