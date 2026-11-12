@@ -5,7 +5,8 @@ import { EditPencil, Trash } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { useMounted } from "@/hooks/use-mounted";
-import { DRAFTS_PATH, permalinkOf, roomPath, SENT_PATH, threadPath } from "@/hooks/use-route";
+import { DRAFTS_PATH, permalinkOf, roomPath, SCHEDULED_PATH, SENT_PATH, threadPath } from "@/hooks/use-route";
+import { useAllScheduled } from "@/hooks/use-scheduled";
 import { useTitle } from "@/hooks/use-title";
 import { fetchSearch, isSignedOut } from "@/lib/api";
 import { discardDraft, draftsOf, type Draft } from "@/lib/drafts";
@@ -20,12 +21,13 @@ const BUTTON = "inline-flex cursor-pointer items-center justify-center gap-[0.5e
 
 const TABS = [
   { tab: "drafts", label: "Drafts", href: DRAFTS_PATH },
+  { tab: "scheduled", label: "Scheduled", href: SCHEDULED_PATH },
   { tab: "sent", label: "Sent", href: SENT_PATH },
 ] as const;
 
 interface Props {
   me: Me;
-  tab: "drafts" | "sent";
+  tab: "drafts" | "scheduled" | "sent";
   /** The rooms the sidebar lists, which drafts and messages are named by. */
   rooms: readonly Room[];
   /** Says why loading failed, as the workspace's alerts do. */
@@ -39,7 +41,7 @@ interface Props {
  */
 export function DraftsPage({ me, tab, rooms, onFailed }: Props) {
   const names = useSearchNames(me, rooms);
-  useTitle(tab === "drafts" ? "Drafts" : "Sent");
+  useTitle(TABS.find((shown) => shown.tab === tab)!.label);
   return (
     <>
       <PageHeader>
@@ -60,7 +62,7 @@ export function DraftsPage({ me, tab, rooms, onFailed }: Props) {
           ))}
         </nav>
         <section className="min-h-0 flex-1 basis-0 overflow-x-hidden overflow-y-auto overscroll-contain px-[22px] pt-4 pb-[max(18px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] max-md:px-0 max-md:pt-3">
-          {tab === "drafts" ? <Drafts me={me} names={names} /> : <Sent me={me} names={names} onFailed={onFailed} />}
+          {tab === "drafts" ? <Drafts me={me} names={names} /> : tab === "scheduled" ? <Scheduled names={names} /> : <Sent me={me} names={names} onFailed={onFailed} />}
         </section>
       </MainContent>
     </>
@@ -117,8 +119,10 @@ interface ItemRowProps {
   /** Whether it's a reply in one of the room's threads. */
   threadReply: boolean;
   href: string;
-  /** When it was sent, if it was. */
+  /** When it was sent, if it was, or is to be. */
   at?: Date;
+  /** How that's said, when it's sent: its day, and its time after any day but today. */
+  atLabel?: string;
   text: string;
   /** What the row offers besides opening it, shown on hover, and always on touch screens. */
   action?: ReactNode;
@@ -129,7 +133,7 @@ interface ItemRowProps {
  * and "· Thread reply" for a reply, when it was sent at the right edge, and a line or two of what it
  * says, the whole row opening where it is.
  */
-function ItemRow({ room, roomName, threadReply, href, at, text, action }: ItemRowProps) {
+function ItemRow({ room, roomName, threadReply, href, at, atLabel = at && sentLabel(at), text, action }: ItemRowProps) {
   return (
     <div className="group/item relative flex items-start hover:bg-hover">
       <PageLink
@@ -147,7 +151,7 @@ function ItemRow({ room, roomName, threadReply, href, at, text, action }: ItemRo
             </span>
             {at && (
               <time dateTime={at.toISOString()} title={dateTimeLabel(at)} className="shrink-0 text-[12px] text-muted-foreground">
-                {sentLabel(at)}
+                {atLabel}
               </time>
             )}
           </span>
@@ -156,6 +160,42 @@ function ItemRow({ room, roomName, threadReply, href, at, text, action }: ItemRo
       </PageLink>
       {action && <span className="self-center pr-3">{action}</span>}
     </div>
+  );
+}
+
+/**
+ * What you've scheduled to send later, soonest first, read only, as each room's composer has it: in the
+ * rooms this tab has opened, each with when it's to go, or that it couldn't, opening where it is to go,
+ * where its composer can send it now, move it or delete it.
+ */
+function Scheduled({ names }: { names: SearchNames }) {
+  const scheduled = useAllScheduled();
+  const shown = useMemo(
+    () =>
+      scheduled.flatMap(({ roomId, message }) => {
+        const room = names.room(roomId);
+        const text = writtenBody(message.body).plainText.replace(/\s+/g, " ").trim();
+        return room && text ? [{ room, message, text }] : [];
+      }),
+    [scheduled, names],
+  );
+  if (shown.length === 0) return <Nothing title="Nothing scheduled" />;
+  return (
+    <ul className="flex flex-col">
+      {shown.map(({ room, message, text }) => (
+        <li key={message.id}>
+          <ItemRow
+            room={room}
+            roomName={names.roomName(room)}
+            threadReply={message.parentId !== undefined}
+            href={message.parentId ? threadPath(room.id, message.parentId) : roomPath(room.id)}
+            at={new Date(message.sendAt)}
+            atLabel={message.failed ? "Not sent" : scheduledLabel(new Date(message.sendAt))}
+            text={text}
+          />
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -258,6 +298,24 @@ function sentLabel(date: Date): string {
   const day = activityLabel(date);
   const time = timeLabel(date);
   return day === time ? time : `${day} at ${time}`;
+}
+
+const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: "long" });
+const monthDayFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+
+/**
+ * When a scheduled message is to go: its time today, "Tomorrow at" its time, its weekday within the week
+ * ahead, and else its date.
+ */
+export function scheduledLabel(date: Date, now = new Date()): string {
+  const time = timeLabel(date);
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  const weekAhead = new Date(now);
+  weekAhead.setDate(now.getDate() + 7);
+  if (date.toDateString() === now.toDateString()) return time;
+  if (date.toDateString() === tomorrow.toDateString()) return `Tomorrow at ${time}`;
+  return `${(date < weekAhead ? weekdayFormat : monthDayFormat).format(date)} at ${time}`;
 }
 
 /** What a tab says when it has nothing to list, under a faded pencil: its title alone. */

@@ -70,7 +70,7 @@ export type WorkspacePage =
   /** Everyone in the workspace, at `/people`, to find someone by name. */
   | { page: "people" }
   /** What you've written and not sent, at `/drafts`, or what you've sent lately, at `/drafts/sent`. */
-  | { page: "drafts"; tab: "drafts" | "sent" }
+  | { page: "drafts"; tab: "drafts" | "scheduled" | "sent" }
   /** The threads you follow, at `/threads`, latest active first, each with a box to reply in. */
   | { page: "threads" }
   /** The workspace's files, at `/files`, its canvases at `/files/canvases`, or the files you've starred at `/files/starred`. */
@@ -107,6 +107,7 @@ export const DMS_PATH = "/dms";
 export const PEOPLE_PATH = "/people";
 export const DRAFTS_PATH = "/drafts";
 export const SENT_PATH = "/drafts/sent";
+export const SCHEDULED_PATH = "/drafts/scheduled";
 export const THREADS_PATH = "/threads";
 
 /** A DM open beside the DMs page's list. */
@@ -117,6 +118,7 @@ const LIST_PAGES = new Map<string, WorkspacePage>([
   [DMS_PATH, { page: "dms" }],
   [PEOPLE_PATH, { page: "people" }],
   [DRAFTS_PATH, { page: "drafts", tab: "drafts" }],
+  [SCHEDULED_PATH, { page: "drafts", tab: "scheduled" }],
   [SENT_PATH, { page: "drafts", tab: "sent" }],
   [THREADS_PATH, { page: "threads" }],
 ]);

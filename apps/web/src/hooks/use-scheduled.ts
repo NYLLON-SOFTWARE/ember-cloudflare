@@ -70,3 +70,30 @@ export function useScheduled(roomId: RoomId, frames: RoomFrames | undefined, onR
     remove: (id) => send({ type: "scheduled.delete", id }),
   };
 }
+
+/** A message you've scheduled, with the room it's in. */
+export interface RoomScheduled {
+  roomId: RoomId;
+  message: ScheduledMessage;
+}
+
+const NO_ROOM_SCHEDULED: RoomScheduled[] = [];
+let all: RoomScheduled[] = NO_ROOM_SCHEDULED;
+let allOf: Map<RoomId, ScheduledMessage[]> | null = null;
+
+/** Every room's scheduled messages this tab has heard of, soonest first, kept as one list while none change. */
+function everyScheduled(): RoomScheduled[] {
+  const current = new Map(lists);
+  if (allOf && allOf.size === current.size && [...current].every(([roomId, messages]) => allOf!.get(roomId) === messages)) return all;
+  allOf = current;
+  all = [...current].flatMap(([roomId, messages]) => messages.map((message) => ({ roomId, message }))).sort((a, b) => a.message.sendAt - b.message.sendAt);
+  return all;
+}
+
+/**
+ * Every message you've scheduled that this tab has heard of, in the rooms it has opened, soonest first,
+ * read only, for Drafts & sent's Scheduled to list. A room's are known once its socket tells of them.
+ */
+export function useAllScheduled(): RoomScheduled[] {
+  return useSyncExternalStore(subscribe, everyScheduled);
+}

@@ -39,6 +39,7 @@ describe("DMs page and the Home sidebar's pages", () => {
     expect(workspacePageOf("/people")).toEqual({ page: "people" });
     expect(workspacePageOf("/drafts")).toEqual({ page: "drafts", tab: "drafts" });
     expect(workspacePageOf("/drafts/sent")).toEqual({ page: "drafts", tab: "sent" });
+    expect(workspacePageOf("/drafts/scheduled")).toEqual({ page: "drafts", tab: "scheduled" });
     expect(workspacePageOf("/threads")).toEqual({ page: "threads" });
   });
 
