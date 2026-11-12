@@ -90,6 +90,24 @@ describe("To-dos", () => {
     expect(fetch).toHaveBeenCalledWith("/api/saved/n", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ list: "saved" }) }));
   });
 
+  it("says an overdue to-do is overdue first, in place of its date, and a note of your own shows no face", async () => {
+    showPage(TodosPage, [item("a", { message: message("m-a", "Ship the deck"), remindAt: "2026-11-02T09:00:00.000Z", reminded: true }), item("n", { kind: "note", roomId: undefined, messageId: undefined, body: "<p>Call Grace</p>", plainText: "Call Grace", files: [] })]);
+    const row = (await screen.findByText("Ship the deck")).closest("li")!;
+    expect(within(row).getByText(/^Overdue ·/)).toHaveClass("text-negative");
+    expect(within(row).queryByRole("time")).not.toBeInTheDocument();
+    expect(within(screen.getByText("Call Grace").closest("li")!).queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("filters by the chips over the list", async () => {
+    showPage(TodosPage, [item("a", { message: message("m-a", "Ship the deck") }), item("n", { kind: "note", roomId: undefined, messageId: undefined, body: "<p>Call Grace</p>", plainText: "Call Grace", files: [] })]);
+    await screen.findByText("Ship the deck");
+    const chips = within(screen.getByRole("group", { name: "Filter" }));
+    expect(chips.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(chips.getByRole("button", { name: "Your own" }));
+    expect(screen.queryByText("Ship the deck")).not.toBeInTheDocument();
+    expect(screen.getByText("Call Grace")).toBeInTheDocument();
+  });
+
   it("says a deleted message was deleted, and a message out of sight is unavailable", async () => {
     showPage(TodosPage, [item("a", { message: null }), item("b", { unavailable: true })]);
     expect(await screen.findByText("This message was deleted")).toBeInTheDocument();
