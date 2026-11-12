@@ -340,7 +340,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
         // messages in a row don't overlap.
         !sheets && "touch:min-h-11",
         // A long press opens the sheet, rather than selecting text or the phone's own menu for a link.
-        sheets && "select-none [-webkit-touch-callout:none]",
+        sheets && "select-none [-webkit-touch-callout:none] data-sheet-open:bg-hover",
         pending && !upload && "opacity-60",
         open && "bg-hover",
       )}

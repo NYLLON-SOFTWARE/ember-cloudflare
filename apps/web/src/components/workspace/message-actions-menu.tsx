@@ -813,6 +813,7 @@ function placeMenu({ row, container, trigger, menu, bar, panel, overlapping }: P
   let right: number;
   let barTop = 0;
   let barHeight = 0;
+  let leftmost = bounds.left;
   if (overlapping) {
     barHeight = bar.getBoundingClientRect().height;
     // Overlapping the row by more than half the bar leaves the pointer a way across to it. Over a code
@@ -832,6 +833,9 @@ function placeMenu({ row, container, trigger, menu, bar, panel, overlapping }: P
     right = bounds.right - 8;
   } else {
     menu.removeAttribute("data-panel-above");
+    // Beside Message options it keeps off the author's avatar, a link of its own a fingertip reaches
+    // around, so it stays over the message's body.
+    const bodyLeft = Math.max(bounds.left, row.querySelector("[data-body-content]")?.getBoundingClientRect().left ?? bounds.left);
     const spotFor = ({ width, height }: DOMRect) => {
       const below = triggerBox.bottom + 6;
       const above = triggerBox.top - height - 6;
@@ -839,7 +843,7 @@ function placeMenu({ row, container, trigger, menu, bar, panel, overlapping }: P
       if (above >= bounds.top) return { y: above, right: triggerBox.right, fits: true, beside: false };
       // With room neither below nor above, as on a phone held sideways with the tray open, it opens to the
       // left of Message options, or to its right where only that has room.
-      const roomLeft = triggerBox.left - 6 - bounds.left >= width;
+      const roomLeft = triggerBox.left - 6 - bodyLeft >= width;
       const roomRight = bounds.right - triggerBox.right - 6 >= width;
       return {
         y: Math.max(bounds.top, Math.min(triggerBox.top, bounds.bottom - height)),
@@ -874,8 +878,9 @@ function placeMenu({ row, container, trigger, menu, bar, panel, overlapping }: P
       spot = spotFor(menuBox);
     }
     ({ y, right } = spot);
+    if (spot.beside) leftmost = bodyLeft;
   }
-  const x = Math.max(bounds.left, Math.min(right - menuBox.width, bounds.right - menuBox.width));
+  const x = Math.max(leftmost, Math.min(right - menuBox.width, bounds.right - menuBox.width));
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
   if (overlapping) {

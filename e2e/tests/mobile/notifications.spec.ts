@@ -56,7 +56,8 @@ test.describe("Notification levels", () => {
     await screenIsFine();
     await levels.getByRole("radio", { name: "All messages" }).tap();
     await expect(levels).toBeHidden();
-    await expect((await roomDetails(page, LONG_NAME)).getByRole("button", { name: "Notifications" })).toHaveAccessibleDescription("All messages");
+    // Back in the room's details, which say the new level.
+    await expect(notifications).toHaveAccessibleDescription("All messages");
   });
 });
 

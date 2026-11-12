@@ -1,4 +1,4 @@
-import { useImperativeHandle, useRef, useState, type Ref, type RefObject } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type Ref, type RefObject } from "react";
 import { type Message } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
 import { Copy, Edit } from "@/components/icons/iconoir";
@@ -74,6 +74,12 @@ export function MessageSheet({ row, ref, ...props }: Props) {
   };
 
   useLongPress(row, () => show("actions", null));
+  // The message whose sheet is open stands out under it, as Slack's does, so it's plain which one it's for.
+  useEffect(() => {
+    const element = row.current;
+    element?.toggleAttribute("data-sheet-open", shown !== null);
+    return () => element?.removeAttribute("data-sheet-open");
+  }, [row, shown]);
 
   useImperativeHandle(ref, () => ({
     focus: () => options.current?.focus({ preventScroll: true }),

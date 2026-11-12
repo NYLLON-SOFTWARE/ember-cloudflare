@@ -3,7 +3,9 @@ import type { Me, Message, Room } from "@ember/protocol";
 import { ArrowLeft, ChatBubbleEmpty, Xmark } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
-import { useMessageEditors } from "@/hooks/use-message-editors";
+import { composerEdit, useMessageEditors } from "@/hooks/use-message-editors";
+import { EditingBar } from "../mobile/editing-bar";
+import { useMessageSheets } from "../mobile/message-sheet";
 import type { RoomFrames } from "@/hooks/use-room";
 import { roomPath, useVisit } from "@/hooks/use-route";
 import { useThread } from "@/hooks/use-thread";
@@ -60,8 +62,10 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
   const typing = useMemo(() => Object.values(replies.typing).map((t) => t.user), [replies.typing]);
   const direct = room.kind === "direct";
   const composer = useRef<ComposerHandle>(null);
-  const { editing, editors } = useMessageEditors(composer);
+  // A phone edits a message in the composer, as Slack iOS does, rather than in the thread.
+  const { editing, editors, editedHere, doneHere } = useMessageEditors(composer, useMessageSheets());
   const actions = gone ? null : thread.messageActions;
+  const edit = composerEdit(editedHere, parent && parent.id === editedHere ? [parent] : replies.messages, actions, doneHere);
 
   // Following a reply's permalink in the thread goes to it, or the thread's own link to its end, as a
   // room's permalinks do.
@@ -152,6 +156,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
         onDropFiles={(files) => composer.current?.addFiles(files)}
         thread={{ header: <ThreadParent parent={parent} me={me} editing={editing} actions={actions} editors={editors} place={place} />, place }}
       />
+      {edit && <EditingBar onCancel={edit.onCancel} />}
       {gone ? (
         <RoomGoneNotice gone={gone} />
       ) : (
@@ -171,6 +176,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
             onSendFiles={(files, alsoSend) => void thread.postFiles(files, alsoSend)}
             onTyping={ignore}
             onEditLastMessage={editLastReply}
+            editing={edit}
           />
         )
       )}

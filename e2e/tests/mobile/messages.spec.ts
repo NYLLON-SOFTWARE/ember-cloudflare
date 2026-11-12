@@ -211,7 +211,47 @@ test("tapping outside a message's sheet closes it", async ({ page, room, partici
   await expect(sheet).toBeHidden();
 });
 
-test("your own messages can be edited on a phone", async ({ page, room, screenIsFine }) => {
+test("a phone edits your own message in the composer, as Slack's does, keeping what was written there for after", async ({ page, room, screenIsFine }) => {
+  test.skip(!hasPhoneLayout(page), "Wider touch screens edit in place");
+  await openRoom(page, room);
+  const composer = editorField(page, "Write a message");
+  await composer.tap();
+  await page.keyboard.type("A message to edit");
+  await page.getByRole("button", { name: "Send Message" }).tap();
+  const message = page.getByRole("article").filter({ hasText: "A message to edit" });
+  await expect(message).not.toHaveAttribute("aria-busy");
+  await page.keyboard.type("A draft");
+
+  const edit = async () => (await openActions(page, message, "A message to edit")).getByRole("button", { name: "Edit message", exact: true }).tap();
+  await edit();
+  await expect(composer).toHaveText("A message to edit");
+  await expect(page.getByText("Editing message", { exact: true })).toBeVisible();
+  // Nothing opens in the timeline.
+  await expect(message.getByRole("textbox")).toHaveCount(0);
+  await composer.tap();
+  await screenIsFine();
+
+  // Enter starts a new line, as it does in the composer, so Send's place is Save's.
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("with a second line");
+  await page.getByRole("button", { name: "Save", exact: true }).tap();
+  await expect(message.getByText("(edited)")).toBeVisible();
+  await expect(message.locator(".message-content")).toContainText("A message to edit\nwith a second line", { useInnerText: true });
+  await expect(composer).toHaveText("A draft");
+  await expect(page.getByText("Editing message", { exact: true })).toBeHidden();
+
+  // Cancel goes back to what was written too.
+  await composer.blur();
+  await expect(tabBar(page)).toBeVisible();
+  await edit();
+  await expect(composer).toContainText("with a second line");
+  await page.getByRole("button", { name: "Cancel editing" }).tap();
+  await expect(composer).toHaveText("A draft");
+});
+
+test("your own messages can be edited in place on a wider touch screen", async ({ page, room, screenIsFine }) => {
+  test.skip(hasPhoneLayout(page), "A phone edits in the composer");
   await openRoom(page, room);
   const composer = editorField(page, "Write a message");
   await composer.tap();
@@ -220,14 +260,13 @@ test("your own messages can be edited on a phone", async ({ page, room, screenIs
 
   const message = page.getByRole("article").filter({ hasText: "A message to edit" });
   await expect(message).not.toHaveAttribute("aria-busy");
-  // Without a mouse, Edit is on the bar that Message options opens.
-  await message.getByRole("button", { name: "Message options" }).tap();
-  await message.getByRole("button", { name: "Edit", exact: true }).tap();
+  const edit = async () => (await openActions(page, message, "A message to edit")).getByRole("button", { name: "Edit", exact: true }).tap();
+  await edit();
   const field = editorField(message, "Edit message");
   await expect(field).toBeFocused();
   await screenIsFine();
 
-  // On a phone, Enter starts a new line, as it does in the composer, so Save and Cancel are buttons under the editor.
+  // With fingers, Enter starts a new line, so Save and Cancel are buttons under the editor.
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
   await page.keyboard.type("with a second line");
@@ -235,8 +274,6 @@ test("your own messages can be edited on a phone", async ({ page, room, screenIs
   await expect(message.getByText("(edited)")).toBeVisible();
   await expect(message.locator(".message-content")).toContainText("A message to edit\nwith a second line", { useInnerText: true });
 
-  // The tab bar comes back as the keyboard goes, moving the room under a finger that's already down.
-  if (hasPhoneLayout(page)) await expect(tabBar(page)).toBeVisible();
   await message.getByRole("button", { name: "Message options" }).tap();
   await message.getByRole("button", { name: "Edit", exact: true }).tap();
   await message.getByRole("button", { name: "Cancel", exact: true }).tap();

@@ -2,12 +2,11 @@ import { type RefObject } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type SavedList } from "@ember/protocol";
 import { useOptionalFlash } from "@/components/flash";
 import { ArrowRight, Bookmark, BookmarkSolid, CheckCircle, CheckCircleSolid, Copy, Edit, Link, MessageText, Plus, QuoteMessage, Trash } from "@/components/icons/iconoir";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { messageAddress, useQuote } from "@/components/workspace/message-actions-menu";
-import { DIALOG, DIALOG_BACKDROP, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "@/components/workspace/dialog-styles";
+import { DeleteMessageDialog } from "@/components/workspace/confirm-dialog";
+import { hasEditableText } from "@/lib/messages";
 import { navigate } from "@/hooks/use-route";
 import { toggleKept, useSavedMark } from "@/lib/saved";
-import { cn } from "@/lib/utils";
 import { ActionSheet, type SheetAction } from "./action-sheet";
 import { CHOICE, ReactionSheet } from "./reaction-sheet";
 
@@ -70,8 +69,8 @@ export function MessageSheets({ message, nodes, editable, threadPath, onReact, o
     },
   );
   const changes: SheetAction[] = [];
-  // The text of a file message, or of a bot's cards, can't be changed, so their editor would offer only Delete.
-  if (editable && !message.attachment && !message.cards) changes.push({ label: "Edit message", icon: <Edit className="size-5" />, onSelect: onEdit });
+  // The text of a file message, a bot's cards or a forward without a note of its own can't be changed.
+  if (editable && hasEditableText(message)) changes.push({ label: "Edit message", icon: <Edit className="size-5" />, onSelect: onEdit });
   if (editable) changes.push({ label: "Delete message", icon: <Trash className="size-5" />, negative: true, onSelect: () => afterClosing(() => onShow("delete")) });
 
   return (
@@ -106,27 +105,18 @@ export function MessageSheets({ message, nodes, editable, threadPath, onReact, o
         more={changes}
       />
       <ReactionSheet open={shown === "reactions"} onOpenChange={closeOn} onCloseAutoFocus={onCloseAutoFocus} onReact={onReact} onNewBoost={() => afterClosing(onNewBoost)} />
-      <Dialog open={shown === "delete"} onOpenChange={closeOn}>
-        <DialogContent role="alertdialog" showCloseButton={false} overlayClassName={DIALOG_BACKDROP} onCloseAutoFocus={onCloseAutoFocus} className={DIALOG}>
-          <DialogTitle className={DIALOG_TITLE}>Delete message?</DialogTitle>
-          <DialogDescription className="leading-[1.65]">This can’t be undone.</DialogDescription>
-          <div className="mt-[26px] flex justify-end gap-2.5">
-            <button type="button" onClick={() => onShow(null)} className={OTHER_ACTION}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                onShow(null);
-                onDelete();
-              }}
-              className={cn(MAIN_ACTION, "bg-negative-button text-white")}
-            >
-              Delete
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Desktop's question, with the message as it'll go. */}
+      {shown === "delete" && (
+        <DeleteMessageDialog
+          message={message}
+          onDelete={() => {
+            onShow(null);
+            onDelete();
+          }}
+          onCancel={() => onShow(null)}
+          onClosed={() => onCloseAutoFocus(new Event("close"))}
+        />
+      )}
     </>
   );
 }

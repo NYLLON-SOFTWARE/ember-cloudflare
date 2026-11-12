@@ -118,7 +118,7 @@ describe("Room details on a phone", () => {
     expect(within(sheet).getByRole("button", { name: "Messages" })).toHaveAttribute("aria-current", "true");
     expect(within(sheet).getByRole("button", { name: "Star room" })).toHaveAttribute("aria-pressed", "false");
     expect(within(sheet).getByRole("button", { name: "Notifications" })).toHaveAccessibleDescription("@ mentions");
-    expect(await within(sheet).findByRole("button", { name: "View members, 9 members" })).toBeInTheDocument();
+    expect(within(sheet).getByRole("button", { name: "Members" })).toBeInTheDocument();
     expect(within(sheet).getByRole("link", { name: "Search in conversation" })).toBeInTheDocument();
     expect(within(sheet).getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/rooms/closeds/backend/edit");
 
@@ -159,7 +159,19 @@ describe("Room details on a phone", () => {
     await userEvent.click(within(levels).getByRole("radio", { name: "All messages" }));
     expect(fetched).toHaveBeenCalledWith("/api/rooms/backend/involvement", expect.objectContaining({ method: "PUT", body: JSON.stringify({ involvement: "everything" }) }));
     expect(answered).toHaveBeenCalledWith({ type: "involved", roomId: "backend", involvement: "everything" });
+    // Back to the room's details, which the levels came from.
+    expect(await screen.findByRole("dialog", { name: "Engineering – Backend" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Notifications" })).not.toBeInTheDocument();
+  });
+
+  it("shows the members on a page of their own over the room, which Back closes", async () => {
+    renderHeader();
+    await userEvent.click(within(header()).getByRole("button", { name: /^Backend/ }));
+    await userEvent.click(within(details()).getByRole("button", { name: "Members" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Members" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    await vi.waitFor(() => expect(screen.queryByRole("heading", { level: 1, name: "Members" })).not.toBeInTheDocument());
   });
 
   it("adds a tab from a sheet of its own", async () => {
@@ -175,7 +187,7 @@ describe("Room details on a phone", () => {
     renderHeader({ room: adaDirect, name: "Ada" });
     await userEvent.click(within(header()).getByRole("button", { name: /^Direct message with Ada/ }));
     expect(within(details()).getByRole("link", { name: "View profile" })).toHaveAttribute("href", "/users/ada");
-    expect(within(details()).queryByRole("button", { name: /^View members/ })).not.toBeInTheDocument();
+    expect(within(details()).queryByRole("button", { name: "Members" })).not.toBeInTheDocument();
     expect(within(details()).queryByRole("button", { name: "Star room" })).not.toBeInTheDocument();
   });
 });
