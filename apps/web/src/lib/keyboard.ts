@@ -77,14 +77,6 @@ export function sendsMessage(event: KeyboardEvent, { inCodeBlock = false, inList
   return !event.shiftKey && !inCodeBlock && !inList && !hasTouchKeyboard();
 }
 
-/**
- * Ctrl+Enter, or Cmd+Enter on a Mac, which saves a message's edit, as Campfire's edit form takes them
- * (messages/edit.html.erb, `keydown.ctrl+enter` and `keydown.meta+enter`): with no other modifier held.
- */
-export function savesEdit(event: KeyboardEvent): boolean {
-  return event.key === "Enter" && !event.isComposing && event.ctrlKey !== event.metaKey && !event.altKey && !event.shiftKey;
-}
-
 /** Whether `key` was pressed with no modifier held, as Stimulus's key filters such as `keydown.esc` take it. */
 export function pressedAlone(event: KeyboardEvent, key: string): boolean {
   return event.key === key && !event.isComposing && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;

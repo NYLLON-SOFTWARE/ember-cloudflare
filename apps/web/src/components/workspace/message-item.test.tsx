@@ -69,7 +69,7 @@ function show(
   let setMessage: (message: Message | PendingMessage) => void = () => {};
   let setConnections: (update: (connections: number) => number) => void = () => {};
   let setRefusals: (update: (refusals: number) => number) => void = () => {};
-  const editors = { open: vi.fn(() => setEditing(true)), close: vi.fn(() => setEditing(false)), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
+  const editors = { open: vi.fn((_messageId: string) => setEditing(true)), close: vi.fn((_messageId: string) => setEditing(false)), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
   function Room() {
     const [editing, set] = useState(false);
     const [shown, setShown] = useState(m);
@@ -181,7 +181,7 @@ describe("Image, video and file previews", () => {
     }
   });
 
-  it("shows a picture message's thumbnail and a video message's player in place of its text, and in its editor", async () => {
+  it("shows a picture message's thumbnail and a video message's player in place of its text", async () => {
     const moon: StoredFile = { ...report, name: "moon.jpg", contentType: "image/jpeg", width: 640, height: 480, previewUrl: "/previews/k1/s1/moon.jpg" };
     for (const threaded of [false, true]) {
       const { article } = show(fileMessage({ plainText: moon.name, attachment: moon }), { threaded });
@@ -191,12 +191,8 @@ describe("Image, video and file previews", () => {
     }
 
     const launch: StoredFile = { ...report, name: "launch.mp4", contentType: "video/mp4", width: 1280, height: 720, previewUrl: "/previews/k1/s1/launch.mp4" };
-    const { article, user } = show(fileMessage({ plainText: launch.name, attachment: launch }));
+    const { article } = show(fileMessage({ plainText: launch.name, attachment: launch }));
     expect(article.querySelector("video")).toHaveAttribute("poster", launch.previewUrl);
-    await user.click(within(article).getByRole("button", { name: "Message options" }));
-    await user.click(within(actionBar()).getByRole("button", { name: "Edit" }));
-    expect(screen.getByRole("button", { name: "Delete message" })).toHaveFocus();
-    expect(article.querySelector("video")).toHaveAttribute("src", launch.url);
   });
 });
 
@@ -269,40 +265,13 @@ describe("Download and share files", () => {
 });
 
 describe("Edit a message", () => {
-  it("edits a file message as its file and Delete message alone, which it focuses as it opens, and the room as it would the text", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
-    const { actions, editors, user, article } = show(fileMessage());
-    await pressAction(user, "Edit", "Q3 report.pdf");
+  it("has no editor for a file message, whose text can't change, nor Edit in its actions", async () => {
+    const { editors, user, article } = show(fileMessage());
+    await user.click(within(article).getByRole("button", { name: "Message options" }));
+    expect(within(actionBar()).queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    act(() => editors.open("m1"));
     expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
-    expect(within(article).getByText("Q3 report.pdf")).toBeInTheDocument();
     expect(within(article).getByRole("link", { name: "Download Q3 report.pdf" })).toBeInTheDocument();
-
-    const remove = screen.getByRole("button", { name: "Delete message" });
-    expect(remove).toHaveFocus();
-    act(() => remove.blur());
-    expect(editors.attach).toHaveBeenLastCalledWith("m1", expect.anything());
-    act(() => editors.attach.mock.lastCall![1].focus());
-    expect(remove).toHaveFocus();
-    await user.click(remove);
-    expect(confirm).toHaveBeenCalledWith("Are you sure you want to delete this message?");
-    expect(actions.remove).not.toHaveBeenCalled();
-    await user.click(remove);
-    expect(actions.remove).toHaveBeenCalledWith("m1");
-    expect(editors.returnFocus).toHaveBeenCalled();
-  });
-
-  it("closes a file message's editor on Escape or Close editor and discard changes", async () => {
-    const { editors, user } = show(fileMessage());
-    await pressAction(user, "Edit", "Q3 report.pdf");
-    await user.click(screen.getByRole("button", { name: "Close editor and discard changes" }));
-    expect(editors.close).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("button", { name: "Delete message" })).not.toBeInTheDocument();
-
-    await pressAction(user, "Edit", "Q3 report.pdf");
-    await user.keyboard("{Escape}");
-    expect(editors.close).toHaveBeenCalledTimes(2);
-    expect(editors.attach).toHaveBeenLastCalledWith("m1", null);
   });
 });
 
@@ -463,84 +432,91 @@ describe("Edit a message", () => {
     expect(within(actionBar()).queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
-  it("puts Edit last, as Slack does, and Delete in the editor", async () => {
+  it("has Edit and Delete message on the bar without a mouse, which can't open More actions, where a mouse has them, as Slack does", async () => {
     const { user } = show(message({ creator: grace }), { administrator: true });
     await user.click(optionsOn("Hello"));
-    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link", "Edit"]);
+    expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link", "Edit", "Delete message"]);
   });
 
-  it("edits in place of the message, starting from its text, and Ctrl or Cmd+Enter saves", async () => {
+  it("edits in place of the message's text, under its author and time, starting from its text, where Enter saves", async () => {
     const { actions, editors, user, article } = show(message({ boosts: [boost("b1", grace, "👍")] }));
-    await pressAction(user, "Edit");
-    expect(editors.open).toHaveBeenCalledWith("m1");
+    act(() => editors.open("m1"));
     const editor = await editBox();
     expect(editor).toHaveValue("Hello");
     expect(editor).toHaveFocus();
-    // It takes the place of the author, the time and the reactions too.
-    expect(within(article).queryByText("Ada")).not.toBeInTheDocument();
-    expect(article.querySelector("time")).not.toBeInTheDocument();
+    // The author and the time stay, so the row doesn't jump, and the reactions go.
+    expect(within(article).getByText("Ada")).toBeInTheDocument();
+    expect(article.querySelector("time")).toBeInTheDocument();
     expect(within(article).queryByRole("list", { name: "Reactions" })).not.toBeInTheDocument();
     expect(within(article).queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
+    // The composer's toolbar, and no Delete.
+    expect(within(article).getByRole("toolbar", { name: "Formatting" })).toBeInTheDocument();
+    expect(within(article).queryByRole("button", { name: /Delete/ })).not.toBeInTheDocument();
 
     await user.clear(editor);
-    await user.type(editor, "Hello again{Control>}{Enter}{/Control}");
+    await user.type(editor, "Hello again{Enter}");
     expect(actions.edit).toHaveBeenCalledWith("m1", "<p>Hello again</p>");
     expect(editors.close).toHaveBeenCalledWith("m1");
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
 
-    await pressAction(user, "Edit");
+    act(() => editors.open("m1"));
     await user.type(await editBox(), " there{Meta>}{Enter}{/Meta}");
     expect(actions.edit).toHaveBeenLastCalledWith("m1", "<p>Hello there</p>");
   });
 
-  it("starts a new line on Enter, and saves from Save changes too", async () => {
-    const { actions, user } = show(message());
-    await pressAction(user, "Edit");
-    await user.type(await editBox(), "{Enter}again");
+  it("starts a new line on Shift+Enter, and saves from Save too", async () => {
+    const { actions, editors, user } = show(message());
+    act(() => editors.open("m1"));
+    await user.type(await editBox(), "{Shift>}{Enter}{/Shift}again");
     expect(actions.edit).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(actions.edit).toHaveBeenCalledWith("m1", "<p>Hello<br>again</p>");
   });
 
-  it("discards an edit on Escape or Close editor and discard changes, and ignores unchanged or blank edits", async () => {
+  it("discards an edit on Escape or Cancel, and ignores unchanged or blank edits", async () => {
     const { actions, editors, user } = show(message());
-    await pressAction(user, "Edit");
+    act(() => editors.open("m1"));
     await user.type(await editBox(), " more{Escape}");
     expect(screen.getByText("Hello")).toBeInTheDocument();
     expect(editors.close).toHaveBeenCalledTimes(1);
 
-    await pressAction(user, "Edit");
+    act(() => editors.open("m1"));
     await user.type(await editBox(), " more");
-    await user.click(screen.getByRole("button", { name: "Close editor and discard changes" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByText("Hello")).toBeInTheDocument();
 
-    await pressAction(user, "Edit");
-    await user.type(await editBox(), "{Control>}{Enter}{/Control}");
-    await pressAction(user, "Edit");
+    act(() => editors.open("m1"));
+    await user.type(await editBox(), "{Enter}");
+    act(() => editors.open("m1"));
     await user.clear(await editBox());
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(actions.edit).not.toHaveBeenCalled();
   });
 
-  it("marks an edited message, including one grouped under the message before it", () => {
+  it("marks an edited message after its text, as Slack does, with when in its tooltip", () => {
     const edited = message({ updatedAt: "2026-10-12T10:05:00.000Z", editedAt: "2026-10-12T10:05:00.000Z" });
-    expect(within(show(edited).article).getByText("(edited)")).toBeInTheDocument();
-    // A grouped message has no header to hold the mark, so it ends the message's text.
-    expect(within(show(edited, { threaded: true }).article).getByText("(edited)").closest("p")).toHaveTextContent("Hello (edited)");
+    for (const threaded of [false, true]) {
+      const mark = within(show(edited, { threaded }).article).getByText("(edited)");
+      expect(mark.closest("h3")).toBeNull();
+      expect(mark.closest("p")).toHaveTextContent("Hello (edited)");
+      expect(mark.title).not.toBe("");
+      cleanup();
+    }
   });
 
-  it("marks a file message whose file a bot replaced, after the file when it's grouped", () => {
+  it("marks a file message whose file a bot replaced after the file", () => {
     const replaced = fileMessage({ updatedAt: "2026-10-12T10:05:00.000Z", editedAt: "2026-10-12T10:05:00.000Z" });
-    expect(within(show(replaced).article).getByText("(edited)").closest("h3")).not.toBeNull();
-    const grouped = show(replaced, { threaded: true }).article;
-    expect(within(grouped).getByText("(edited)").previousElementSibling).toHaveTextContent(report.name);
+    for (const threaded of [false, true]) {
+      expect(within(show(replaced, { threaded }).article).getByText("(edited)").previousElementSibling).toHaveTextContent(report.name);
+      cleanup();
+    }
     expect(within(show(fileMessage()).article).queryByText("(edited)")).not.toBeInTheDocument();
   });
 
   it("keeps the editor and what's written when the edit can't be sent", async () => {
     const { actions, editors, user } = show(message(), { sent: false });
-    await pressAction(user, "Edit");
+    act(() => editors.open("m1"));
     await user.clear(await editBox());
     await user.type(await editBox(), "hello{Control>}{Enter}{/Control}");
     expect(actions.edit).toHaveBeenCalledWith("m1", "<p>hello</p>");
@@ -550,7 +526,7 @@ describe("Edit a message", () => {
 
   it("hands the room its open editor, to focus again with what's written as Up Arrow does, until it closes", async () => {
     const { editors, user } = show(message());
-    await pressAction(user, "Edit");
+    act(() => editors.open("m1"));
     await user.type(await editBox(), " there");
     expect(editors.attach).toHaveBeenLastCalledWith("m1", expect.anything());
 
@@ -683,9 +659,9 @@ describe("Message action bar", () => {
 
   it("opens as the pointer first moves over a message whose editor just shut under it, which it never left", async () => {
     withMouse();
-    const { article, user } = show(message());
-    await pressAction(user, "Edit");
-    await user.click(screen.getByRole("button", { name: "Close editor and discard changes" }));
+    const { article, editors, user } = show(message());
+    act(() => editors.open("m1"));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     const options = optionsOn("Hello");
     expect(options).toHaveAttribute("aria-expanded", "false");
     fireEvent.pointerMove(article, { pointerType: "mouse" });
@@ -717,8 +693,8 @@ describe("Message action bar", () => {
   });
 
   it("has no actions while the message's editor is open", async () => {
-    const { user } = show(message());
-    await pressAction(user, "Edit");
+    const { editors, user } = show(message());
+    act(() => editors.open("m1"));
     expect(screen.queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
   });
 
@@ -738,7 +714,7 @@ describe("Message action bar", () => {
       await user.hover(control);
       named.push(screen.getByRole("tooltip").textContent);
     }
-    expect(named).toEqual(["Thumbs up", "Clapping", "Waving hand", "More reactions", "Reply in thread", "Edit", "More actions"]);
+    expect(named).toEqual(["Thumbs up", "Clapping", "Waving hand", "More reactions", "Reply in thread", "More actions"]);
     await user.unhover(optionsOn("Hello"));
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
 
@@ -840,28 +816,34 @@ describe("More actions on a message", () => {
     expect(await editBox()).toHaveFocus();
   });
 
-  it("deletes from Delete message after asking, handing focus to the composer", async () => {
+  it("deletes from Delete message after asking in the app's own dialog, showing the message, handing focus to the composer", async () => {
     withMouse();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { actions, article, editors, user } = show(message({ creator: grace }), { administrator: true });
     await openMoreActions(user, article);
     await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
-    expect(confirm).toHaveBeenCalledWith("Are you sure you want to delete this message?");
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete message?" });
+    expect(dialog).toHaveTextContent("Grace");
+    expect(dialog).toHaveTextContent("Hello");
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(actions.remove).not.toHaveBeenCalled();
-    expect(moreActions()).toBeVisible();
 
+    await openMoreActions(user, article);
     await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete" }));
     expect(actions.remove).toHaveBeenCalledWith("m1");
     expect(editors.returnFocus).toHaveBeenCalled();
-    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("hands focus back to Message options when the deletion can't be sent", async () => {
     withMouse();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const { actions, article, editors, user } = show(message(), { sent: false });
     await openMoreActions(user, article);
     await user.click(within(moreActions()).getByRole("button", { name: "Delete message" }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete" }));
     expect(actions.remove).toHaveBeenCalledWith("m1");
     expect(editors.returnFocus).not.toHaveBeenCalled();
     expect(optionsOn("Hello")).toHaveFocus();
@@ -1102,32 +1084,6 @@ describe("Copy a link to a message", () => {
   });
 });
 
-describe("Delete a message", () => {
-  it("deletes from the editor, after asking, and hands focus back", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
-    const { actions, editors, user } = show(message({ creator: grace }), { administrator: true });
-    await pressAction(user, "Edit");
-    await user.click(screen.getByRole("button", { name: "Delete message" }));
-    expect(confirm).toHaveBeenCalledWith("Are you sure you want to delete this message?");
-    expect(actions.remove).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Delete message" }));
-    expect(actions.remove).toHaveBeenCalledWith("m1");
-    expect(editors.returnFocus).toHaveBeenCalled();
-    // The editor stays until the message goes.
-    expect(editors.close).not.toHaveBeenCalled();
-    expect(await editBox()).toBeInTheDocument();
-  });
-
-  it("keeps focus in the editor when the deletion can't be sent", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    const { actions, editors, user } = show(message(), { sent: false });
-    await pressAction(user, "Edit");
-    await user.click(screen.getByRole("button", { name: "Delete message" }));
-    expect(actions.remove).toHaveBeenCalledWith("m1");
-    expect(editors.returnFocus).not.toHaveBeenCalled();
-  });
-});
-
 describe("React to a message", () => {
   it("offers three quick reactions on every message", async () => {
     const { actions, user } = show(message(), { me: grace });
@@ -1274,14 +1230,14 @@ describe("Custom reactions", () => {
   });
 
   it("keeps what's written as others edit or react to the message, and goes as its editor opens", async () => {
-    const { update, user } = show(message());
+    const { editors, update, user } = show(message());
     await newBoost(user);
     await user.type(customField(), "Wow");
     update(message({ plainText: "Hello, edited", boosts: [boost("b1", grace, "👍")] }));
     expect(customField()).toHaveValue("Wow");
     expect(customField()).toHaveFocus();
 
-    await pressAction(user, "Edit", "Hello, edited");
+    act(() => editors.open("m1"));
     expect(await editBox()).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Custom reaction" })).not.toBeInTheDocument();
     await user.keyboard("{Escape}");
@@ -1508,18 +1464,4 @@ describe("Bot cards", () => {
     expect(withText.editors.reply).toHaveBeenCalledWith(`<blockquote><p>Nightly report</p></blockquote>${cite}`);
   });
 
-  it("edits a message with cards as it shows, with Delete message alone, as a file message's editor does", async () => {
-    const { actions, user, article } = show(message({ plainText: "Nightly report", cards: [deployCard] }));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    await pressAction(user, "Edit", "Nightly report");
-    expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
-    expect(within(article).getByText("Nightly report")).toBeInTheDocument();
-    expect(within(article).getByRole("article", { name: "Deployed 🚀" })).toBeInTheDocument();
-
-    const remove = screen.getByRole("button", { name: "Delete message" });
-    expect(remove).toHaveFocus();
-    await user.click(remove);
-    expect(actions.remove).toHaveBeenCalledWith("m1");
-  });
 });

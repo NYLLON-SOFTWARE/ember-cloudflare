@@ -68,6 +68,14 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
   const fieldId = useId();
 
   const send = ({ roomId, file }: SharedFile) => onPick({ roomId, file });
+  // Asked again as Share is pressed, as who's in the room may have changed while the warning was open: a new
+  // count shows in the warning, to share on, and none at all, or the same, shares.
+  const share = async ({ shared, newViewers }: { shared: SharedFile; newViewers: number }) => {
+    const now = await shareWidening(shared.roomId, roomId).catch(() => undefined);
+    if (now?.widens && now.newViewers !== newViewers) return setWarning({ shared, newViewers: now.newViewers });
+    setWarning(null);
+    send(shared);
+  };
   // Warns first, as Slack does, where the file would reach anyone who can't see the room it was shared in.
   const pick = async (shared: SharedFile) => {
     picking.current = shared;
@@ -195,7 +203,7 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
             newViewers={warning.newViewers}
             onCancel={() => setWarning(null)}
             onReturnFocus={() => picked.current?.focus()}
-            onShare={() => send(warning.shared)}
+            onShare={() => void share(warning)}
           />
         )}
       </DialogContent>

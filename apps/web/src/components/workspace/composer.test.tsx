@@ -953,6 +953,24 @@ describe("Attach", () => {
     expect(chips()).toEqual(["Remove plan.pdf"]);
   });
 
+  it("asks again as Share is pressed, showing a new count where the room's people changed", async () => {
+    const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/files/f1/plan.pdf", downloadUrl: "/d" };
+    const fetch = filesInEmber(file, { widens: true, newViewers: 2 }, { kind: "closed" });
+    const { user } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
+    await user.click(await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /plan\.pdf/ }));
+    await screen.findByRole("alertdialog");
+
+    filesInEmber(file, { widens: true, newViewers: 3 }, { kind: "closed" });
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Share" }));
+    expect(await screen.findByRole("alertdialog")).toHaveAccessibleDescription("3 people in #general can't see the original.");
+    expect(chips()).toEqual([]);
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Share" }));
+    expect(await screen.findByRole("button", { name: "Remove plan.pdf" })).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalled();
+  });
+
   it("attaches a file from the room it's for without asking, and says so when it can't check who'd see one", async () => {
     const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/files/f1/plan.pdf", downloadUrl: "/d" };
     const fetch = filesInEmber(file, null, { roomId: "r1" });
@@ -970,6 +988,17 @@ describe("Attach", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't check who can see that file. Try again.");
     await user.keyboard("{Escape}");
     expect(chips()).toEqual(["Remove plan.pdf"]);
+  });
+
+  it("shows an SVG picked from Files in Ember by its icon, as it's served as a download", async () => {
+    filesInEmber({ id: "f3", name: "logo.svg", contentType: "image/svg+xml", byteSize: 1, url: "/files/f3/logo.svg", downloadUrl: "/d" }, { widens: false, newViewers: 0 });
+    const { user } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
+    await user.click(await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /logo\.svg/ }));
+    const chip = (await screen.findByRole("button", { name: "Remove logo.svg" })).closest("li")!;
+    expect(chip.querySelector("img")).toBeNull();
+    expect(chip).toHaveTextContent("SVG · 1 KB");
   });
 
   it("shows a picture picked from Files in Ember by its preview", async () => {
