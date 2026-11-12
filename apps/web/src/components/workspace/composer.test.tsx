@@ -1426,3 +1426,31 @@ describe("Edit a message in the composer", () => {
     expect(input).toHaveValue("Hello!");
   });
 });
+
+describe("Compact composer", () => {
+  it("is one line with Send's arrow in the box and nothing else, sending on Enter", async () => {
+    const onSend = vi.fn(() => true);
+    const { container } = render(
+      <Composer roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} threadId="m1" compact onSend={onSend} onSendFiles={() => {}} onTyping={() => {}} />,
+    );
+    const input = await screen.findByRole("textbox", { name: "Write a reply" });
+    expect(input).toHaveAttribute("rows", "1");
+    expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
+    for (const name of ["Attach", "Emoji", "Mention someone", "Schedule for later"]) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    expect(container.querySelector("form")).toHaveAttribute("data-compact");
+    const user = userEvent.setup();
+    await user.type(input, "Sounds good{Enter}");
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>Sounds good</p>", false);
+    expect(screen.getByRole("button", { name: "Send Message" })).toBeVisible();
+  });
+});
+
+describe("Also send to the room", () => {
+  it("names a private room after its lock, rather than a #", async () => {
+    render(<Composer roomId="r1" roomName="QA Lab" closed userId="u1" typing={[]} disabled={false} threadId="m1" onSend={() => true} onSendFiles={() => {}} onTyping={() => {}} />);
+    await screen.findByRole("textbox", { name: "Write a reply" });
+    const label = screen.getByRole("checkbox").closest("label")!;
+    expect(label).toHaveTextContent(/^Also send to QA Lab$/);
+    expect(label.querySelector("strong svg")).toBeInTheDocument();
+  });
+});

@@ -598,6 +598,13 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
     }
   }
 
+  /* One line, beside its Send, as the compact composer is. */
+  &[data-compact] .lexxy-editor__content {
+    --composer-text-top: 6px;
+
+    min-block-size: calc(22px + var(--composer-text-top) + 4px);
+  }
+
   /* Under the toolbar, the text keeps to its own space, rather than the card's padding the toolbar is in. */
   &[data-toolbar] .lexxy-editor__content {
     --composer-text-top: 6px;

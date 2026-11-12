@@ -2,8 +2,9 @@ import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffe
 import { flushSync } from "react-dom";
 import { isWebImage, MAX_FILE_SIZE, type Message, type ShareWidening, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
-import { Page, Plus, Xmark } from "@/components/icons/iconoir";
+import { ArrowUp, Lock, Page, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import type { RoomFrames } from "@/hooks/use-room";
 import { useScheduled } from "@/hooks/use-scheduled";
 import { dropTarget } from "@/lib/drop-target";
@@ -12,10 +13,11 @@ import { hasTouchKeyboard, pressedAlone } from "@/lib/keyboard";
 import { isEmberFile, sendableFacts, tooLargeToAttach, type EmberFile, type Sendable } from "@/lib/uploads";
 import { tellDraftsChanged } from "@/lib/draft-keys";
 import { cn } from "@/lib/utils";
-import { COMPOSER_CARD } from "./composer-buttons";
+import { COMPOSER_CARD, ICON_BUTTON } from "./composer-buttons";
 import { AttachMenu, EmojiButton, FormattingToggle, MentionButton, SendButton } from "./composer-menus";
 import { useFormatting } from "./composer-formatting";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
+import { PHONE_TOOL_GROUPS } from "./formatting";
 import { ScheduledNotice } from "./schedule-send";
 import { useEditableBody } from "./editable-body";
 import { RarePage } from "./rare-pages";
@@ -280,6 +282,12 @@ interface Props {
   autoFocus?: boolean;
   /** A message being edited here, as a phone edits one, in place of what's written, which comes back after. */
   editing?: ComposerEdit | null;
+  /**
+   * One line, as a phone's composer at rest is, with Send's bare arrow inside the box and nothing else: no
+   * toolbar, files, emoji, @ or scheduling. For replying where a full composer is too much, as the Threads
+   * page's cards do. What's written is still rich text, from Markdown and the keyboard's shortcuts.
+   */
+  compact?: boolean;
   ref?: Ref<ComposerHandle>;
 }
 
@@ -330,6 +338,7 @@ export function Composer({
   onEditLastMessage,
   autoFocus = true,
   editing = null,
+  compact = false,
   ref,
 }: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
@@ -512,7 +521,7 @@ export function Composer({
   };
 
   // The toolbar shows for the Link field, though Aa had hidden it.
-  const { onFormats, keyDown: formattingKeyDown, toolbar } = useFormatting(editor, { onShowToolbar: () => flushSync(() => setToolbarShown(true, false)) });
+  const { onFormats, keyDown: formattingKeyDown, toolbarWith } = useFormatting(editor, { onShowToolbar: () => flushSync(() => setToolbarShown(true, false)) });
   const keyDown = (event: KeyboardEvent) => {
     // Lexxy's lists, such as the people to mention, take Escape for themselves first.
     if (editing && pressedAlone(event, "Escape") && !editor.current?.hasOpenPrompt()) {
@@ -523,6 +532,10 @@ export function Composer({
   };
 
   const placeholderToolbar = toolbarShown && !(editorShown && editorReady);
+  // On a phone, Aa swaps the buttons for the formatting tools in place, as Slack's does, rather than
+  // adding a row over the text, so the box keeps its height.
+  const phone = usePhoneLayout();
+  const toolbar = (className?: string) => toolbarWith({ groups: phone ? PHONE_TOOL_GROUPS : undefined, className });
 
   return (
     // A thread's panel is narrower than its room, and its composer keeps closer to its sides.
@@ -532,7 +545,8 @@ export function Composer({
         noValidate
         className="composer relative min-w-0 [contain:inline-size]"
         data-editing={editing ? "" : undefined}
-        data-toolbar={toolbarShown || undefined}
+        data-toolbar={(toolbarShown && !compact) || undefined}
+        data-compact={compact || undefined}
         onSubmit={(event) => {
           event.preventDefault();
           submit();
@@ -541,9 +555,9 @@ export function Composer({
         // what was said about files too large.
         onPaste={(event) => {
           if (event.clipboardData.files.length > 0) event.preventDefault();
-          picked.add(event.clipboardData.files);
+          if (!compact) picked.add(event.clipboardData.files);
         }}
-        {...dropTarget(picked.add)}
+        {...(!compact && dropTarget(picked.add))}
       >
         <TypingIndicator typists={typing} />
         <ScheduledNotice messages={scheduledHere} scheduled={scheduled} disabled={disabled} onReturnFocus={() => editor.current?.focus()} onEdit={(body) => editor.current?.replace(body)} />
@@ -552,14 +566,12 @@ export function Composer({
             {scheduleRefusal}
           </p>
         )}
-        <div data-composer-card className={cn(COMPOSER_CARD, "min-h-[108px] max-md:min-h-[100px]")}>
+        <div data-composer-card className={cn(COMPOSER_CARD, compact ? "flex-row items-end gap-1 py-1.5 max-md:py-1.5" : "min-h-[108px] max-md:min-h-[100px]")}>
           {toolbarShown &&
+            !phone &&
+            !compact &&
             // Its place is kept while the editor loads, whose stylesheet paints its icons, so the text doesn't move down as it shows.
-            (placeholderToolbar ? (
-              <div aria-hidden="true" className="h-[34px] shrink-0 touch:h-[50px]" />
-            ) : (
-              toolbar
-            ))}
+            (placeholderToolbar ? <div aria-hidden="true" className="h-[34px] shrink-0 touch:h-[50px]" /> : toolbar())}
           {/* The editor takes the card's padding and fills this, all the card above the buttons (rich-text-editor.css). */}
           <div className="flex min-w-0 flex-1 flex-col">
             <Suspense fallback={<LoadingEditor placeholder={placeholder} />}>
@@ -568,7 +580,7 @@ export function Composer({
                   ref={editor}
                   label={threadId !== undefined ? "Write a reply" : "Write a message"}
                   placeholder={placeholder}
-                  rows={2}
+                  rows={compact ? 1 : 2}
                   initialValue={draft}
                   mentionsFrom={mentionPromptSrc(roomId)}
                   // Under the text on touch screens are the keyboard and the home indicator.
@@ -588,8 +600,20 @@ export function Composer({
               )}
             </Suspense>
           </div>
+          {compact && (
+            <button
+              type="submit"
+              title="Send message"
+              // Keep focus in the editor, so a phone's keyboard stays up between messages.
+              onMouseDown={(event) => event.preventDefault()}
+              className={cn(ICON_BUTTON, "self-end", !blank && "text-foreground")}
+            >
+              <ArrowUp className="size-[18px]" />
+              <span className="sr-only">Send Message</span>
+            </button>
+          )}
           {/* The files picked, under the text, as Slack's composer has them, and those too large to send. */}
-          {picked.files.length > 0 && (
+          {!compact && picked.files.length > 0 && (
             <ul aria-label="Files to send" className="flex flex-wrap items-end gap-2.5 pt-2 pb-2.5">
               {picked.files.map(({ key, file }, index) => (
                 <FileChip key={key} file={file} onRemove={() => removePicked(key, index)} />
@@ -601,63 +625,90 @@ export function Composer({
               {picked.errors.join(" ")}
             </p>
           )}
-          <div className="flex flex-none items-center gap-0.5">
-            {/* The browser's file picker, which Upload from your computer opens. */}
-            <input
-              ref={fileField}
-              type="file"
-              multiple
-              disabled={disabled}
-              aria-label="Attach a file"
-              tabIndex={-1}
-              onChange={(event) => {
-                picked.add(event.target.files ?? []);
-                // So picking the same file again is a change.
-                event.target.value = "";
-              }}
-              className="sr-only"
-            />
-            <AttachMenu disabled={disabled || !!editing} onUpload={() => fileField.current?.click()} onFilesInEmber={() => setFilesOpen(true)} onReturnFocus={() => editor.current?.focus()} />
-            <FormattingToggle
-              shown={toolbarShown}
-              onToggle={() => {
-                setToolbarShown(!toolbarShown);
-                editor.current?.focus();
-              }}
-            />
-            <EmojiButton onPick={(emoji) => editor.current?.insertText(emoji)} onReturnFocus={() => editor.current?.focus()} />
-            <MentionButton onMention={() => editor.current?.startMention()} />
-            {extraButtons}
-            {/* For fingers, the box sits far enough into its label for a fingertip on it to land on the label. */}
-            {threadId !== undefined && (
-              <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm">
-                <input
-                  type="checkbox"
-                  checked={alsoSend}
-                  disabled={disabled}
-                  onChange={(event) => setAlsoSend(event.target.checked)}
-                  className="m-0 size-4 flex-none cursor-pointer accent-foreground"
-                />
-                <span className="truncate">
-                  {direct ? (
-                    "Also send as direct message"
-                  ) : (
-                    <>
-                      Also send to <strong className="font-semibold text-message-ink">#{roomName}</strong>
-                    </>
+          {!compact && (
+            <div data-composer-row className="flex min-w-0 flex-none items-center gap-0.5">
+              {/* The browser's file picker, which Upload from your computer opens. */}
+              <input
+                ref={fileField}
+                type="file"
+                multiple
+                disabled={disabled}
+                aria-label="Attach a file"
+                tabIndex={-1}
+                onChange={(event) => {
+                  picked.add(event.target.files ?? []);
+                  // So picking the same file again is a change.
+                  event.target.value = "";
+                }}
+                className="sr-only"
+              />
+              {phone && toolbarShown ? (
+                <>
+                  <button
+                    type="button"
+                    title="Hide formatting"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setToolbarShown(false);
+                      editor.current?.focus();
+                    }}
+                    // A 36px circle in a 44px target, as "+" is, whose place it takes.
+                    className="relative isolate grid size-11 shrink-0 cursor-pointer place-items-center text-primary-foreground before:absolute before:inset-1 before:-z-10 before:rounded-full before:bg-primary"
+                  >
+                    <Xmark className="size-5" />
+                    <span className="sr-only">Hide formatting</span>
+                  </button>
+                  {/* Between × and Send, the tools scroll sideways where they don't fit. */}
+                  {toolbar("mx-0 min-w-0 flex-1 pb-0")}
+                </>
+              ) : (
+                <>
+                  <span data-composer-plus className="contents">
+                    <AttachMenu disabled={disabled || !!editing} onUpload={() => fileField.current?.click()} onFilesInEmber={() => setFilesOpen(true)} onReturnFocus={() => editor.current?.focus()} />
+                  </span>
+                  <FormattingToggle
+                    shown={toolbarShown}
+                    onToggle={() => {
+                      setToolbarShown(!toolbarShown);
+                      editor.current?.focus();
+                    }}
+                  />
+                  <EmojiButton onPick={(emoji) => editor.current?.insertText(emoji)} onReturnFocus={() => editor.current?.focus()} />
+                  <MentionButton onMention={() => editor.current?.startMention()} />
+                  {extraButtons}
+                  {/* For fingers, the box sits far enough into its label for a fingertip on it to land on the label. */}
+                  {threadId !== undefined && (
+                    <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm">
+                      <input
+                        type="checkbox"
+                        checked={alsoSend}
+                        disabled={disabled}
+                        onChange={(event) => setAlsoSend(event.target.checked)}
+                        className="m-0 size-4 flex-none cursor-pointer accent-foreground"
+                      />
+                      <span className="truncate">
+                        {direct ? (
+                          "Also send as direct message"
+                        ) : (
+                          <>
+                            Also send to <strong className="font-semibold text-message-ink">{closed ? <Lock className="me-0.5 inline size-[0.85em] align-baseline" /> : "#"}{roomName}</strong>
+                          </>
+                        )}
+                      </span>
+                    </label>
                   )}
-                </span>
-              </label>
-            )}
-            {/* Files picked go at once, so they can't be scheduled. */}
-            <SendButton
-              disabled={false}
-              saves={!!editing}
-              empty={blank && picked.files.length === 0}
-              cannotSchedule={disabled || !!editing || !frames || blank || picked.files.length > 0}
-              onSchedule={schedule}
-            />
-          </div>
+                </>
+              )}
+              {/* Files picked go at once, so they can't be scheduled. */}
+              <SendButton
+                disabled={false}
+                saves={!!editing}
+                empty={blank && picked.files.length === 0}
+                cannotSchedule={disabled || !!editing || !frames || blank || picked.files.length > 0}
+                onSchedule={schedule}
+              />
+            </div>
+          )}
         </div>
       </form>
       {filesOpen && (
@@ -666,7 +717,7 @@ export function Composer({
             <FilesPicker
               meId={userId}
               roomId={roomId}
-              room={{ label: direct ? roomName : `#${roomName}`, direct }}
+              room={{ label: direct ? roomName : `#${roomName}`, direct, closed }}
               onClose={() => setFilesOpen(false)}
               onPick={(shared) => {
                 setFilesOpen(false);
@@ -683,7 +734,7 @@ export function Composer({
           show={({ ShareWarning }) => (
             <ShareWarning
               source={sendWarning.shared.source ?? { label: "", direct: false }}
-              target={{ label: direct ? roomName : `#${roomName}`, direct }}
+              target={{ label: direct ? roomName : `#${roomName}`, direct, closed }}
               widening={sendWarning.widening}
               confirm="Send"
               onShare={() => {
