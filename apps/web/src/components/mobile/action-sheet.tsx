@@ -38,6 +38,12 @@ export function BottomSheet({ open, onOpenChange, title, titleHidden = false, de
       <SheetContent
         side="bottom"
         showCloseButton={false}
+        // A finger opens it, so focus goes to the sheet itself rather than ringing its first button, which
+        // would read as picked already; Tab goes on from there.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          (event.currentTarget as HTMLElement).focus({ preventScroll: true });
+        }}
         onCloseAutoFocus={onCloseAutoFocus}
         className={cn(
           "mx-auto max-h-[calc(100dvh-env(safe-area-inset-top)-8px)] max-w-[560px] gap-1 overflow-y-auto overscroll-contain rounded-t-[20px] border-x px-2 pt-2 pb-[max(12px,env(safe-area-inset-bottom))]",

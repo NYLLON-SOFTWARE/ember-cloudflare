@@ -52,6 +52,8 @@ test("a long press opens a message's actions in a sheet that fits the phone, wit
 
   const sheet = await openActions(page, message, "Hold this message");
   await expect(sheet.getByRole("button", { name: "Reply in thread" })).toBeVisible();
+  // The sheet has focus, rather than its first reaction, which a ring would mark as picked already.
+  await expect(sheet).toBeFocused();
   await screenIsFine();
 
   // Add reaction opens a sheet of reactions in its place.
