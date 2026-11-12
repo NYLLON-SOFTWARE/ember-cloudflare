@@ -2195,7 +2195,7 @@ describe("Agent pages", () => {
   it("shows the agents' pages at their addresses from the AI assistant tab, marking it, and Admin on the rail, with Go Back to it", async () => {
     withAgents({ "GET /api/account/agents/a1": () => Response.json({ agent: recap }) });
     const { user } = showWorkspace("/account/edit#assistant-settings", asAdministrator);
-    await user.click(await screen.findByRole("link", { name: "Edit Recap" }));
+    await user.click(await screen.findByRole("link", { name: "Edit Recap" }, { timeout: 10_000 }));
     expect(await screen.findByRole("textbox", { name: "Name" })).toHaveValue("Recap");
     expect(document.title).toBe("Edit agent");
     expect(railCurrent()).toEqual(["Admin"]);

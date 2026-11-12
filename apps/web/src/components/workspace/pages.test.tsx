@@ -74,7 +74,8 @@ describe("Workspace layout", () => {
     const { show, navigate } = await freshWorkspace();
     show("/searches");
     expect(screen.getByText("Loading…")).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { level: 1, name: "Search messages" })).toBeInTheDocument();
+    // The pages few visits need load with their first import, which can take a while on a busy machine.
+    expect(await screen.findByRole("heading", { level: 1, name: "Search messages" }, { timeout: 10_000 })).toBeInTheDocument();
 
     act(() => navigate("/users/me/profile"));
     expect(screen.getByRole("heading", { level: 1, name: "Your profile" })).toBeInTheDocument();

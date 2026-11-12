@@ -1,6 +1,6 @@
 import { useContext, useId, useMemo, useState, type ComponentType, type MouseEvent, type ReactNode } from "react";
 import type { Favorites, LiveHuddle, Me, RoomId, SidebarRoom, UserId } from "@ember/protocol";
-import { EditPencil, Group, Headset, MultiBubble, NavArrowDown, type IconoirIconProps } from "@/components/icons/iconoir";
+import { EditPencil, Group, Headset, Lock, MultiBubble, NavArrowDown, type IconoirIconProps } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { DRAFTS_PATH, PEOPLE_PATH, roomPath, THREADS_PATH } from "@/hooks/use-route";
@@ -259,7 +259,12 @@ export function RoomRow({ room, current, unread, count = room.unreadCount ?? 0, 
         moving && "relative z-[1] cursor-grabbing bg-background! shadow-[0_4px_14px_var(--color-drag-shadow)] outline outline-muted-foreground",
       )}
     >
-      <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
+      {/* A private room without an icon of its own has a lock where an open one has `#`, as Slack's have. */}
+      {room.icon === null && room.kind === "closed" ? (
+        <Lock aria-hidden="true" className="size-[18px] shrink-0 text-muted-foreground" />
+      ) : (
+        <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
+      )}
       <span className="truncate">{room.name}</span>
       {huddle && <HuddleMark huddle={huddle} meId={meId} wordsId={huddleId} className="ml-auto" />}
       {/* Starred says a room's starred, so its row has no star of its own, as Slack's have none. */}
