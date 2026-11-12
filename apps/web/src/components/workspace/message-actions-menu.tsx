@@ -49,7 +49,7 @@ import { DeleteMessageDialog } from "./confirm-dialog";
 import { UNKNOWN_PERSON } from "./message-body";
 
 /** With a mouse, the bar overlaps its message. */
-const OVERLAPPING = "(hover: hover) and (pointer: fine)";
+export const OVERLAPPING = "(hover: hover) and (pointer: fine)";
 
 /** How long a bar that hovering opened stays after the pointer leaves it, so the pointer can cross to it. */
 const LEAVE_DELAY_MS = 180;
@@ -64,7 +64,7 @@ const ACTION =
   "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-[6px] text-[0.8rem] font-medium text-message-muted transition-colors duration-150 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground touch:size-11 [&_svg]:size-4";
 
 /** The bar and the tray of more reactions. */
-const PANEL = "rounded-[11px] border border-message-border bg-background shadow-[0_1px_3px_#0000001a]";
+export const PANEL = "rounded-[11px] border border-message-border bg-background shadow-[0_1px_3px_#0000001a]";
 
 /** An item of More actions: its icon, as the bar draws it, then its name, the panel's whole width. */
 const ITEM =
@@ -99,11 +99,6 @@ interface Props {
 }
 
 export interface MessageActionsHandle {
-  /**
-   * Opens the bar with More reactions showing and focuses the first of them, as Add a boost does.
-   * Clicking `from` again leaves the bar open, and Escape hands focus back to it.
-   */
-  openReactions: (from: HTMLElement) => void;
   /** Focuses Message options, as sending a reaction does. */
   focus: () => void;
 }
@@ -128,9 +123,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   // Whether hovering opened the bar, which leaving then closes, unless Message options pinned it.
   const hoverOpened = useRef(false);
   const leaveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  // The Add a boost that opened the bar, if one did and More actions hasn't opened since.
-  const boostTrigger = useRef<HTMLElement | null>(null);
-  // Whether the tray's first reaction is still to be focused, as Add a boost or More reactions opens it.
+  // Whether the tray's first reaction is still to be focused, as More reactions opens it.
   const focusingTray = useRef(false);
   // Whether More actions' first item is still to be focused, as it opens.
   const focusingActions = useRef(false);
@@ -160,7 +153,6 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   const close = () => {
     clearTimeout(leaveTimer.current);
     hoverOpened.current = false;
-    boostTrigger.current = null;
     setOpen(false);
     setTrayOpen(false);
     setActionsOpen(false);
@@ -241,31 +233,16 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     setTrayOpen(!trayOpen);
   };
 
-  // Opening More actions keeps the bar open and makes it Message options' bar, so Escape shuts More
-  // actions first even where Add a boost opened the bar.
+  // Opening More actions keeps the bar open.
   const toggleActions = () => {
     clearTimeout(leaveTimer.current);
     hoverOpened.current = false;
-    boostTrigger.current = null;
     focusingActions.current = !actionsOpen;
     setTrayOpen(false);
     setActionsOpen(!actionsOpen);
   };
 
   useImperativeHandle(ref, () => ({
-    // As the controller's click on `.message__boost-inline .boost__action` does.
-    openReactions: (from) => {
-      clearTimeout(leaveTimer.current);
-      hoverOpened.current = false;
-      boostTrigger.current = from;
-      focusingTray.current = true;
-      setRendered(true);
-      setOpen(true);
-      setActionsOpen(false);
-      setTrayOpen(true);
-      // An open bar with its tray showing doesn't render again, so its reaction is focused here.
-      if (open && trayOpen) focusFirstReaction();
-    },
     focus: () => trigger.current?.focus({ preventScroll: true }),
   }));
 
@@ -280,10 +257,8 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     // The bar can leave the page, with its message or as the message's editor opens, a moment before what
     // watches the page for it stops.
     if (!open || !container.current) return;
-    // Add a boost goes if the message's last reaction does while the bar is open.
-    const anchor = boostTrigger.current?.isConnected ? boostTrigger.current : trigger.current!;
     const panel = actionsOpen ? actionsPanel.current! : tray.current!;
-    if (!placeMenu({ row: row.current!, container: container.current, trigger: trigger.current!, anchor, menu: menu.current!, bar: bar.current!, panel, overlapping })) close();
+    if (!placeMenu({ row: row.current!, container: container.current, trigger: trigger.current!, menu: menu.current!, bar: bar.current!, panel, overlapping })) close();
   };
 
   const hovered = useEffectEvent((event: PointerEvent) => {
@@ -317,8 +292,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   }, [row]);
 
   const clickedElsewhere = useEffectEvent((event: Event) => {
-    const target = event.target as Node;
-    if (!container.current?.contains(target) && !boostTrigger.current?.contains(target)) close();
+    if (!container.current?.contains(event.target as Node)) close();
   });
 
   // Focus leaving the bar closes it, rather than focus landing anywhere else, which would shut a bar the
@@ -327,18 +301,11 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     if (event.relatedTarget && !container.current?.contains(event.relatedTarget as Node)) close();
   });
 
-  // Escape closes a bar Add a boost opened, handing focus back to it. Otherwise it closes the tray first,
-  // handing focus to More reactions, or More actions, handing it to Message options, then the bar, handing
-  // it to Message options. While you're elsewhere, as in the composer under a bar the pointer opened, it
-  // only closes the bar.
+  // Escape closes the tray first, handing focus to More reactions, or More actions, handing it to Message
+  // options, then the bar, handing it to Message options. While you're elsewhere, as in the composer under a
+  // bar the pointer opened, it only closes the bar.
   const keyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.key !== "Escape" || event.defaultPrevented) return;
-    const from = boostTrigger.current;
-    if (from) {
-      event.preventDefault();
-      close();
-      return (from.isConnected ? from : trigger.current)?.focus({ preventScroll: true });
-    }
     if (!container.current?.contains(document.activeElement)) return close();
     event.preventDefault();
     if (trayOpen) {
@@ -530,17 +497,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             className={cn(PANEL, "w-max max-w-full justify-self-end overflow-y-auto overscroll-contain p-2 group-data-[panel-above]/menu:-order-1")}
           >
             <span className="mx-[3px] mb-[5px] block text-[11px] leading-normal font-medium text-muted-foreground">More reactions</span>
-            <div className="flex flex-wrap">
-              {REACTIONS.slice(QUICK_REACTION_COUNT).map(([emoji, title]) => (
-                <Reaction key={emoji} emoji={emoji} title={title} onClick={() => react(emoji)} />
-              ))}
-              <ActionTooltip label="New boost">
-                <button type="button" className={ACTION} onClick={newBoost}>
-                  <ChatPlusIn />
-                  <span className="sr-only">New boost</span>
-                </button>
-              </ActionTooltip>
-            </div>
+            <ReactionChoices reactions={REACTIONS.slice(QUICK_REACTION_COUNT)} onReact={react} onNewBoost={newBoost} />
           </div>
           <div
             ref={actionsPanel}
@@ -644,6 +601,26 @@ function KeepButton({ list, kept, onKeep }: { list: SavedList; kept: SavedList |
   );
 }
 
+/**
+ * Reactions to choose from, then New boost, which opens the Custom reaction form: the bar's tray of more
+ * reactions, and the picker a message's Add reaction opens with a mouse.
+ */
+export function ReactionChoices({ reactions, onReact, onNewBoost }: { reactions: readonly (readonly [string, string])[]; onReact: (emoji: string) => void; onNewBoost: () => void }) {
+  return (
+    <div className="flex flex-wrap">
+      {reactions.map(([emoji, title]) => (
+        <Reaction key={emoji} emoji={emoji} title={title} onClick={() => onReact(emoji)} />
+      ))}
+      <ActionTooltip label="New boost">
+        <button type="button" className={ACTION} onClick={onNewBoost}>
+          <ChatPlusIn />
+          <span className="sr-only">New boost</span>
+        </button>
+      </ActionTooltip>
+    </div>
+  );
+}
+
 /** One of the reactions: the emoji, named by its title. */
 function Reaction({ emoji, title, onClick }: { emoji: string; title: string; onClick: () => void }) {
   return (
@@ -689,25 +666,38 @@ interface QuoteButtonProps extends ComponentProps<"button"> {
 }
 
 /**
- * Quote, which writes a reply quoting the message in the composer. It reads the people directory only
- * while the bar's in the page, so a change to the directory doesn't render every message's actions again.
- * As a tooltip's trigger, it's handed the tooltip's `onClick`, which a click calls first.
+ * Writes a quote of the message for a reply, citing its author, and those it mentions, as the people
+ * directory lists them now. Only what's in the page while its actions are reads the directory, so a change
+ * to the directory doesn't render every message's actions again.
  */
-function QuoteButton({ message, nodes, onQuote, onClick, ...props }: QuoteButtonProps) {
+export function useQuote(message: Message, nodes: DisplayNode[]): () => string {
   const people = useContext(PeopleContext);
   const nameOf = useNameOf();
+  return () => {
+    const mentioned = (userId: string) => mentionedPerson(people, message.mentions, userId)?.name ?? UNKNOWN_PERSON;
+    return replyQuote(nodes, { author: nameOf(message.creator), createdAt: message.createdAt, link: messageAddress(message) }, mentioned);
+  };
+}
+
+/**
+ * Quote, which writes a reply quoting the message in the composer. As a tooltip's trigger, it's handed the
+ * tooltip's `onClick`, which a click calls first.
+ */
+function QuoteButton({ message, nodes, onQuote, onClick, ...props }: QuoteButtonProps) {
+  const quoted = useQuote(message, nodes);
   const quote = (event: MouseEvent<HTMLButtonElement>) => {
     onClick?.(event);
-    const link = new URL(permalinkOf(message), document.baseURI).href;
-    const mentioned = (userId: string) => mentionedPerson(people, message.mentions, userId)?.name ?? UNKNOWN_PERSON;
-    onQuote(replyQuote(nodes, { author: nameOf(message.creator), createdAt: message.createdAt, link }, mentioned));
+    onQuote(quoted());
   };
   return <button type="button" onClick={quote} {...props} />;
 }
 
-/** Copies the message's address, as Copy link does. Pages carry only the path, made absolute against the page. */
+/** The message's address, as Copy link copies it. Pages carry only the path, made absolute against the page. */
+export const messageAddress = (message: Message) => new URL(permalinkOf(message), document.baseURI).href;
+
+/** Copies the message's address, as Copy link does. */
 function copyLink(event: MouseEvent<HTMLButtonElement>, message: Message) {
-  return copyWithSuccess(event.currentTarget, new URL(permalinkOf(message), document.baseURI).href);
+  return copyWithSuccess(event.currentTarget, messageAddress(message));
 }
 
 /** The top of the highest of `row`'s Copy code buttons between `left` and `right`, or Infinity. */
@@ -724,8 +714,6 @@ interface Placed {
   row: HTMLElement;
   container: HTMLElement;
   trigger: HTMLElement;
-  /** What the bar opens beside for fingers: Message options, or Add a boost when that opened it. */
-  anchor: HTMLElement;
   menu: HTMLElement;
   bar: HTMLElement;
   /** What opens under the bar, or over it: More actions while it's open, or else the tray of more reactions. */
@@ -738,13 +726,13 @@ interface Placed {
  * mouse, it overlaps the row, its top 17px above the row's, or higher to keep clear of a code block's
  * Copy code, and its right 16px in from the timeline's,
  * with Message options pinned as its last button, and the tray or More actions opens below it, or above
- * when there's more room there. For fingers, it opens 6px below its anchor, lined up with its right
- * edge, or above when it doesn't fit, or beside it when it fits neither, so it doesn't cover what opened
- * it, nor Message options. Its buttons then go in two rows of four, where a row of them would wrap or
- * doesn't fit beside its anchor. Answers false, placing nothing, once the row is out of the timeline's
+ * when there's more room there. For fingers, it opens 6px below Message options, lined up with its right
+ * edge, or above when it doesn't fit, or beside it when it fits neither, so it doesn't cover Message
+ * options. Its buttons then go in two rows of four, where a row of them would wrap or doesn't fit beside
+ * Message options. Answers false, placing nothing, once the row is out of the timeline's
  * sight, when the bar should close.
  */
-function placeMenu({ row, container, trigger, anchor, menu, bar, panel, overlapping }: Placed): boolean {
+function placeMenu({ row, container, trigger, menu, bar, panel, overlapping }: Placed): boolean {
   const viewport = window.visualViewport;
   const top = viewport?.offsetTop || 0;
   const left = viewport?.offsetLeft || 0;
@@ -787,21 +775,18 @@ function placeMenu({ row, container, trigger, anchor, menu, bar, panel, overlapp
     right = bounds.right - 8;
   } else {
     menu.removeAttribute("data-panel-above");
-    const anchorBox = anchor.getBoundingClientRect();
-    // Beside Add a boost, it keeps clear of Message options at the message's right too.
-    const rightmost = anchor === trigger ? bounds.right : Math.min(bounds.right, triggerBox.left - 6);
     const spotFor = ({ width, height }: DOMRect) => {
-      const below = anchorBox.bottom + 6;
-      const above = anchorBox.top - height - 6;
-      if (below + height <= bounds.bottom) return { y: below, right: anchorBox.right, fits: true };
-      if (above >= bounds.top) return { y: above, right: anchorBox.right, fits: true };
+      const below = triggerBox.bottom + 6;
+      const above = triggerBox.top - height - 6;
+      if (below + height <= bounds.bottom) return { y: below, right: triggerBox.right, fits: true };
+      if (above >= bounds.top) return { y: above, right: triggerBox.right, fits: true };
       // With room neither below nor above, as on a phone held sideways with the tray open, it opens to the
-      // left of its anchor, clear of Message options, or to its right where only that has room.
-      const roomLeft = anchorBox.left - 6 - bounds.left >= width;
-      const roomRight = rightmost - anchorBox.right - 6 >= width;
+      // left of Message options, or to its right where only that has room.
+      const roomLeft = triggerBox.left - 6 - bounds.left >= width;
+      const roomRight = bounds.right - triggerBox.right - 6 >= width;
       return {
-        y: Math.max(bounds.top, Math.min(anchorBox.top, bounds.bottom - height)),
-        right: roomRight && !roomLeft ? anchorBox.right + 6 + width : anchorBox.left - 6,
+        y: Math.max(bounds.top, Math.min(triggerBox.top, bounds.bottom - height)),
+        right: roomRight && !roomLeft ? triggerBox.right + 6 + width : triggerBox.left - 6,
         fits: roomLeft || roomRight,
       };
     };

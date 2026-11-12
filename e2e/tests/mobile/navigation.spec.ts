@@ -36,7 +36,7 @@ test("Home is the list of conversations rather than the room last visited, and a
 
   await page.getByRole("main").getByRole("link", { name: room.name }).tap();
   await expect(page).toHaveURL(new RegExp(`/rooms/${room.id}$`));
-  // The tab it was opened from stays marked.
+  // The tab it was opened from stays marked, in the tab bar under the composer, as in Slack's.
   await expect(tabBar(page).getByRole("link", { name: "Home", exact: true })).toHaveAttribute("aria-current", "page");
   await page.getByRole("navigation", { name: "Page" }).getByRole("link", { name: "Back" }).tap();
   await expect(page).toHaveURL(/\/$/);
@@ -51,6 +51,12 @@ test("Home's cards, what's above the rooms on the desktop, scroll sideways and e
   await page.goto("/");
   const cards = page.getByRole("list", { name: "Shortcuts" });
   await expect(cards.getByRole("link")).toHaveText([/^Threads/, /^Drafts & sent/, /^People/, /^Saved/, /^To-dos/]);
+  // Under its name, a card says how much is there only when it has a count: Threads never does.
+  await expect(cards.getByRole("link", { name: /^Threads/ })).toHaveText("Threads");
+  await expect(cards.getByRole("link", { name: /^People/ })).toHaveText(/^People\d+ (person|people)$/);
+  // Each the same height, with a count or without.
+  const heights = await cards.getByRole("link").evaluateAll((links) => links.map((link) => link.getBoundingClientRect().height));
+  expect(new Set(heights).size).toBe(1);
   // Wider than a phone held upright, where the row scrolls rather than squeezing them.
   const { width, height } = page.viewportSize()!;
   if (width < height) expect(await cards.evaluate((row) => row.scrollWidth > row.clientWidth)).toBe(true);
@@ -63,16 +69,40 @@ test("Home's cards, what's above the rooms on the desktop, scroll sideways and e
   await expect(page).toHaveURL(/\/$/);
 });
 
-test("a room's top bar is Back, its name with how many are in it, and its buttons, and fits the phone", async ({ page, room, screenIsFine }) => {
+test("a room's top bar is Back and its name with how many are in it, which opens its details, and fits the phone", async ({ page, room, screenIsFine }) => {
   await openRoom(page, room);
   const header = page.getByRole("navigation", { name: "Page" });
   await expect(header.getByRole("link", { name: "Back" })).toBeVisible();
-  const details = header.getByRole("link", { name: new RegExp(`${room.name}.*members?`) });
-  await expect(details).toBeVisible();
-  await expect(header.getByRole("button", { name: "Favorite room" })).toBeVisible();
+  const pill = header.getByRole("button", { name: new RegExp(`${room.name}.*members?`) });
+  await expect(pill).toBeVisible();
+  // Back and the pill are capsules of one height, round at their ends.
+  for (const capsule of [header.getByRole("link", { name: "Back" }), pill.locator("..")]) {
+    expect((await capsule.boundingBox())!.height).toBe(44);
+    expect(await capsule.evaluate((element) => parseFloat(getComputedStyle(element).borderTopLeftRadius))).toBeGreaterThanOrEqual(22);
+  }
+  // The star and the bell are in its details, with the room's tabs, which have no strip on a phone.
+  await expect(header.getByRole("button", { name: "Favorite room" })).toHaveCount(0);
+  await expect(page.getByRole("tablist", { name: "Room tabs" })).toBeHidden();
   await screenIsFine();
-  await details.tap();
+
+  await pill.tap();
+  const details = page.getByRole("dialog", { name: room.name });
+  await expect(details.getByRole("button", { name: "Messages" })).toHaveAttribute("aria-current", "true");
+  await expect(details.getByRole("button", { name: "Favorite room" })).toBeVisible();
+  await screenIsFine();
+  await details.getByRole("link", { name: "Settings" }).tap();
   await expect(page).toHaveURL(new RegExp(`/rooms/(opens|closeds)/${room.id}/edit$`));
+});
+
+test("Back from a thread a link opened goes up to its room, and then home, never back into the thread", async ({ page, room, participant }) => {
+  const ada = await participant("Ada");
+  const parent = await ada.say("Where's the standup today?");
+  await page.goto(`/rooms/${room.id}/threads/${parent.id}`);
+  const thread = page.getByRole("complementary", { name: "Thread" });
+  await thread.getByRole("link", { name: `Back to ${room.name}` }).tap();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${room.id}$`));
+  await page.getByRole("navigation", { name: "Page" }).getByRole("link", { name: "Back" }).tap();
+  await expect(page).toHaveURL(/\/$/);
 });
 
 test("room, thread and profile open one over another, and Back returns the way they came", async ({ page, room, participant, screenIsFine }) => {
@@ -144,21 +174,56 @@ test("a picture opens over the room, and Back closes it there", async ({ page, r
   await expect(page).not.toHaveURL(new RegExp(`/rooms/${room.id}$`));
 });
 
-test("Activity's feed takes the whole screen under its top bar, with its filters, and fits the phone", async ({ page, room, screenIsFine }) => {
-  await openRoom(page, room);
+test("Activity's feed takes the whole screen under its top bar, with its filters, and fits the phone", async ({ page, room: _, screenIsFine }) => {
+  await page.goto("/");
   await tabBar(page).getByRole("link", { name: "Activity", exact: true }).tap();
   await expect(page).toHaveURL(/\/activity$/);
   await expect(page.getByRole("navigation", { name: "Activity" })).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Page" }).getByRole("link", { name: "Your profile" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "You" })).toBeVisible();
   await screenIsFine();
 });
 
-test("turning a phone on its side past 900px swaps the tab bar for the rail", async ({ page, room }) => {
-  await openRoom(page, room);
+test("Home's top bar is the workspace's name and your avatar, which opens the You sheet, and fits the phone", async ({ page, room: _, session, screenIsFine }) => {
+  await page.goto("/");
+  const top = page.getByRole("navigation", { name: "Page" });
+  await expect(top.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(top.getByRole("link")).toHaveCount(0);
+  await expect(top.getByRole("button")).toHaveText([""]);
+  await top.getByRole("button", { name: "You" }).tap();
+  const you = page.getByRole("dialog", { name: session.user.name });
+  await expect(you.getByRole("link")).toHaveText(["Your profile", "Workspace"]);
+  await expect(you.getByRole("group", { name: "Appearance" }).getByRole("radio")).toHaveCount(3);
+  await screenIsFine();
+  await you.getByRole("link", { name: "Your profile" }).tap();
+  await expect(page).toHaveURL(/\/users\/me\/profile$/);
+  await expect(you).toBeHidden();
+});
+
+test("the tab bar floats over Home's list, which scrolls clear of it and New direct message, both as far from the edge", async ({ page, room: _ }) => {
+  await page.goto("/");
+  const search = (await tabBar(page).getByRole("link", { name: "Search" }).boundingBox())!;
+  const newDirect = (await page.getByRole("main").getByRole("link", { name: "New direct message" }).boundingBox())!;
+  expect(Math.round(newDirect.x + newDirect.width)).toBe(Math.round(search.x + search.width));
+  expect(newDirect.y + newDirect.height).toBeLessThan(search.y);
+  // The list runs on to the bottom of the screen, under the tab bar.
+  const list = page.getByRole("main").locator("div.overflow-y-auto").first();
+  const listBox = (await list.boundingBox())!;
+  expect(listBox.y + listBox.height).toBeGreaterThan(search.y + search.height);
+  // And can scroll its last room clear of New direct message.
+  const last = await list.evaluate((scroller) => {
+    scroller.scrollTop = scroller.scrollHeight;
+    return [...scroller.querySelectorAll("a")].at(-1)!.getBoundingClientRect().bottom;
+  });
+  expect(last).toBeLessThan(newDirect.y);
+});
+
+test("turning a phone on its side past 900px swaps the tab bar for the rail", async ({ page, room: _ }) => {
+  await page.goto("/");
   const [short, long] = await page.evaluate(() => [Math.min(screen.width, screen.height), Math.max(screen.width, screen.height)]);
   const { width, height } = page.viewportSize()!;
   await page.setViewportSize(width < height ? { width: long, height: short } : { width: short, height: long });
-  if (hasPhoneLayout(page)) await expect(tabBar(page)).toBeVisible();
+  // Over Home the bar takes no height, so it's its tabs that show.
+  if (hasPhoneLayout(page)) await expect(tabBar(page).getByRole("link", { name: "Home", exact: true })).toBeVisible();
   else {
     await expect(tabBar(page)).toHaveCount(0);
     await expect(page.getByRole("navigation", { name: "Workspace" })).toBeVisible();

@@ -243,13 +243,41 @@ export function afterNavigating(then: () => void): void {
   else followUp = then;
 }
 
+/** An address's path, without its query string or fragment. */
+const pathOf = (address: string) => address.split(/[?#]/, 1)[0]!;
+
+/** The conversation a room's or DM's own page shows, but not its thread's or huddle's, or null. */
+function conversationOf(path: string): RoomId | null {
+  const page = workspacePageOf(path);
+  if (page?.page === "room" && page.threadId === undefined && !page.huddle) return page.roomId;
+  return page?.page === "dms" ? (page.roomId ?? null) : null;
+}
+
+/**
+ * Whether `address` is a page under `page`: further down its path, as a room's thread is under the room,
+ * or another of the conversation's pages, as a DM's thread and settings are under the DM.
+ */
+export function isUnder(address: string, page: string): boolean {
+  const path = pathOf(address);
+  const top = pathOf(page);
+  if (path === top) return false;
+  if (path.startsWith(top.endsWith("/") ? top : `${top}/`)) return true;
+  const conversation = conversationOf(top);
+  const inner = workspacePageOf(path);
+  return conversation !== null && inner !== null && "roomId" in inner && inner.roomId === conversation;
+}
+
 /**
  * Goes back the way the person came, as a phone's Back button does: to the entry before this one, when the
- * app opened this one, or else to `fallback`, the page this one sits under, such as a thread's room.
+ * app opened this one from a page that isn't under it, or else up to `fallback`, the page this one sits
+ * under, such as a thread's room, in this one's place. Going up never returns to a page under the one it
+ * leaves, so Back from a thread opened by a link goes to its room and then home, rather than back and
+ * forth between the two.
  */
 export function goBack(fallback: string): void {
-  if (openedFrom(history.state) !== null) history.back();
-  else navigate(fallback);
+  const from = openedFrom(history.state);
+  if (from !== null && !isUnder(from, shownAddress())) history.back();
+  else navigate(fallback, { replace: true });
 }
 
 /**

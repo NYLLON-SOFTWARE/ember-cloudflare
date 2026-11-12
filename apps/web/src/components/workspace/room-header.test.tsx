@@ -56,12 +56,27 @@ function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, on
   );
 }
 
+/** Ada, Grace and Linus's DM, as Linus reads it. */
+const groupDirect: Room = { ...adaDirect, id: "direct-2", members: [...adaDirect.members, { id: "grace", name: "Grace" }] };
+
 describe("Members", () => {
-  it("shows a person and how many are in a DM in place of who's here, which never lists the reader alone", () => {
-    renderHeader({ room: adaDirect, name: "Ada", present: [{ id: "linus", name: "Linus" }] });
-    expect(screen.getByRole("button", { name: "View members, 2 members" })).toHaveTextContent("2");
+  it("shows a person and how many are in a group DM in place of who's here, which never lists the reader alone", () => {
+    renderHeader({ room: groupDirect, name: "Ada and Grace", present: [{ id: "linus", name: "Linus" }] });
+    expect(screen.getByRole("button", { name: "View members, 3 members" })).toHaveTextContent("3");
     expect(screen.queryByText(/here now/)).not.toBeInTheDocument();
     expect(document.querySelector("nav img")).toBeNull();
+  });
+
+  it("has none in a DM with one person, whose avatar takes the chat bubble's place, dotted while they're here", () => {
+    const { unmount } = renderHeader({ room: adaDirect, name: "Ada" });
+    expect(screen.queryByRole("button", { name: /^View members/ })).not.toBeInTheDocument();
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.previousElementSibling?.querySelector("img")).toBeInTheDocument();
+    expect(heading.previousElementSibling?.querySelector(".bg-positive")).toBeNull();
+    unmount();
+
+    renderHeader({ room: adaDirect, name: "Ada", present: [{ id: "ada", name: "Ada" }] });
+    expect(screen.getByRole("heading", { level: 1 }).previousElementSibling?.querySelector(".bg-positive")).toBeInTheDocument();
   });
 });
 
@@ -104,10 +119,10 @@ describe("Star rooms", () => {
 });
 
 describe("Group DMs and DM names", () => {
-  it("shows a DM's name after a chat bubble, saying to screen readers whom it's with", () => {
-    renderHeader({ room: adaDirect, name: "Ada" });
+  it("shows a group DM's name after a chat bubble, saying to screen readers whom it's with", () => {
+    renderHeader({ room: groupDirect, name: "Ada and Grace" });
     const heading = screen.getByRole("heading", { level: 1 });
-    expect(heading).toHaveTextContent(/^Direct message with Ada$/);
+    expect(heading).toHaveTextContent(/^Direct message with Ada and Grace$/);
     expect(heading.previousElementSibling).toHaveClass("iconoir-chat-bubble-empty");
     expect(screen.getByRole("navigation", { name: "Page" })).not.toHaveTextContent("#");
   });

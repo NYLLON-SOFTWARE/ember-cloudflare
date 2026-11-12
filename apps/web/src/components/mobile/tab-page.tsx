@@ -1,13 +1,28 @@
 import type { ComponentProps, MouseEvent, ReactNode } from "react";
-import type { Me } from "@ember/protocol";
 import { Plus } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
-import { NEW_DIRECT_PATH, PROFILE_PATH } from "@/hooks/use-route";
+import { NEW_DIRECT_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 import { opensNewDirect } from "../workspace/new-direct-dialog";
 import { PageHeader } from "../workspace/page-header";
-import { UserAvatar } from "../workspace/user-avatar";
+
+export { YouButton as YouLink } from "./you-sheet";
+
+/**
+ * Marks a phone page's `<main>` as one the tab bar floats over, fading the page out behind it rather than
+ * ending it at a band of its own (tab-bar.css). Every TabPage has it; another page spreads it on its own
+ * `<main>`, and then pads the end of what scrolls in it, so its last row can be scrolled clear, by one of
+ * the two lengths tab-bar.css sets on such a `<main>`, which are only set there:
+ *
+ * - `--mobile-tab-bar-inset`, what the tab bar covers, the home indicator under it too, for a page
+ *   without the floating New direct message button;
+ * - `--mobile-bottom-inset`, the whole floating stack, the tab bar and that button over it, with 16px to
+ *   spare, as `pb-[var(--mobile-bottom-inset,0px)]`.
+ *
+ * Neither is set while the on-screen keyboard is up, when the tab bar makes way for it.
+ */
+export const UNDER_TAB_BAR = { "data-under-tab-bar": "" } as const;
 
 interface TabPageProps {
   /** What heads the page in its top bar, its title or, on Home, the workspace's. */
@@ -30,7 +45,7 @@ export function TabPage({ heading, actions, children, floating }: TabPageProps) 
         <div className="flex min-w-0 flex-1 items-center gap-2.5 pl-2">{heading}</div>
         <div className="flex shrink-0 items-center gap-1">{actions}</div>
       </PageHeader>
-      <MainContent className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
+      <MainContent {...UNDER_TAB_BAR} className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
         {children}
         {floating}
       </MainContent>
@@ -43,18 +58,9 @@ export function TabTitle({ children }: { children: ReactNode }) {
   return <h1 className="truncate text-[22px] leading-7 font-bold">{children}</h1>;
 }
 
-/** Your avatar, at the top right of a tab's page, which goes to your profile. */
-export function YouLink({ me }: { me: Me }) {
-  return (
-    <PageLink href={PROFILE_PATH} aria-label="Your profile" title={me.name} className="grid size-11 shrink-0 place-items-center rounded-full">
-      <UserAvatar user={me} className="size-9" />
-    </PageLink>
-  );
-}
-
 /**
- * New direct message, Slack's floating "+" at the bottom right of Home and DMs, which opens the dialog
- * in place.
+ * New direct message, Slack's floating "+" at the bottom right of Home and DMs, 16px over the tab bar and
+ * in line with its Search, which opens the dialog in place.
  */
 export function NewMessageButton({ onNewDirect }: { onNewDirect: (opener: HTMLElement) => void }) {
   return (
@@ -63,7 +69,7 @@ export function NewMessageButton({ onNewDirect }: { onNewDirect: (opener: HTMLEl
       aria-label="New direct message"
       title="New direct message"
       onClick={opensNewDirect(onNewDirect)}
-      className="absolute right-[max(16px,env(safe-area-inset-right))] bottom-4 z-[2] grid size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-[0_4px_14px_var(--color-drag-shadow)] hover:brightness-90"
+      className="absolute right-[max(16px,env(safe-area-inset-right))] bottom-[calc(var(--mobile-tab-bar-inset,0px)+16px)] z-[2] grid size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-[0_4px_14px_var(--color-drag-shadow)] hover:brightness-90"
     >
       <Plus className="size-6" />
     </a>
@@ -102,9 +108,9 @@ export function Chips<T extends string>({ label, chips, value, onChange }: Chips
   );
 }
 
-/** A list on a tab's page, which scrolls under its chips, clear of the floating button at its end. */
+/** A list on a tab's page, which scrolls under its chips, and behind the tab bar and floating button, clear of them at its end. */
 export function TabList({ className, ...props }: ComponentProps<"ul">) {
-  return <ul className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain pb-24", className)} {...props} />;
+  return <ul className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[var(--mobile-bottom-inset,6rem)]", className)} {...props} />;
 }
 
 interface RowProps {

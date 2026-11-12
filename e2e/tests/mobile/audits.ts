@@ -19,7 +19,8 @@ export interface AuditResults {
 /** Waits for transitions such as the drawer sliding in, so the audits see where things land. */
 export async function settle(page: Page): Promise<void> {
   await page.evaluate(async () => {
-    const finite = document.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity);
+    // Those that run in time, not on scrolling, as a scroller's fading edges do, which never finish.
+    const finite = document.getAnimations().filter((animation) => animation.timeline instanceof DocumentTimeline && animation.effect?.getTiming().iterations !== Infinity);
     await Promise.all(finite.map((animation) => animation.finished.catch(() => undefined)));
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });

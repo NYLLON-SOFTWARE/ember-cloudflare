@@ -1,25 +1,13 @@
 /*
  * The phone layout's rules that utility classes can't say, since they hang on what's elsewhere on the
- * page: the composer's room under the tab bar, and the composer as Slack's pill until it has focus.
+ * page: the composer's room above the keyboard, and the composer as Slack's pill until it has focus.
+ * Conversations have no tab bar, so the composer is at the foot of the screen.
  */
 @media (width < 56.3125rem) {
-  /*
-   * While the tab bar shows, it keeps clear of the home indicator, so the composer above it needn't, and
-   * neither does it right above the on-screen keyboard, which covers the home indicator.
-   */
-  body:has([data-tab-bar]:not([data-typing])) footer:has(> .composer),
+  /* Right above the on-screen keyboard, which covers the home indicator, the composer needn't keep clear of it. */
   html[data-keyboard] footer:has(> .composer) {
     padding-bottom: 8px;
   }
-
-  /*
-   * A room's tabs make way for the on-screen keyboard, and on a short screen, a phone on its side, aren't
-   * shown at all, so the conversation keeps the height it has.
-   */
-  html[data-typing] :has(> [role="tablist"][aria-label="Room tabs"]) {
-    display: none;
-  }
-
 
   /* In a thread, Also send to the room takes a line of its own over the buttons, where it has room to say so. */
   .composer:not([data-toolbar]) [data-composer-row]:has(> label) {
@@ -34,21 +22,50 @@
 
   /*
    * The composer in use, Slack's: a rounded box with the text over one row of buttons, the text growing
-   * to five lines and then scrolling inside the box, and Send the arrow alone, dimmed until there's
-   * something to send.
+   * to five lines and then scrolling inside the box, and Send dimmed until there's something to send.
    */
   .composer {
     [data-composer-card] {
       border-radius: 22px;
     }
 
-    .lexxy-editor__content {
-      max-block-size: calc(5lh + var(--composer-padding) + 4px);
+    /* "+" is a 36px circle in its 44px target, as × is in its place while the formatting tools show. */
+    [data-composer-plus] button {
+      background: transparent;
+      isolation: isolate;
+      position: relative;
+
+      &::before {
+        background: var(--color-hover);
+        border-radius: 9999px;
+        content: "";
+        inset: 4px;
+        position: absolute;
+        z-index: -1;
+      }
     }
 
-    button[type="submit"] {
-      background: transparent;
-      color: var(--foreground);
+    /*
+     * The tools Aa shows scroll sideways between × and Send where they don't all fit, as on a phone
+     * held upright they don't, and fade out at an end that has more past it.
+     */
+    [role="toolbar"][aria-label="Formatting"] {
+      animation: formatting-tools-fade linear both;
+      animation-timeline: scroll(self inline);
+      mask-image: linear-gradient(to right, transparent, black var(--tools-fade-start), black calc(100% - var(--tools-fade-end)), transparent);
+    }
+
+    /*
+     * Aa swaps the buttons for the tools in place, under the text rather than over it, so the text keeps
+     * the card's padding, and the box its height.
+     */
+    &[data-toolbar] [data-composer-card] .lexxy-editor__content {
+      margin-block-start: calc(-1 * var(--composer-padding));
+      padding-block-start: var(--composer-padding);
+    }
+
+    .lexxy-editor__content {
+      max-block-size: calc(5lh + var(--composer-padding) + 4px);
     }
   }
 
@@ -59,28 +76,26 @@
   /*
    * The composer, Slack's pill until it's used: "+" and the placeholder, or the first line of a draft,
    * on one 44px line. Tapping the text gives it focus, and the card opens to its full size, with the
-   * formatting button and Send, as it stays while it has focus, its toolbar is open, files are picked to
-   * send, or the @ list is open, which a tap on takes focus from the text for a moment. Picking files from
-   * "+" leaves it a pill until they're picked.
+   * buttons and Send, as it stays while it has focus, its formatting tools are showing, one of its menus
+   * is open, files are picked to send, or the @ list is open, which a tap on takes focus from the text
+   * for a moment.
    */
-  body:not(:has(.lexxy-prompt-menu--visible)) .composer:not([data-toolbar], :has(:focus:not(input[type="file"])), :has(> div > button[aria-label^="Remove "])) {
+  body:not(:has(.lexxy-prompt-menu--visible))
+    .composer:not([data-toolbar], :has(:focus:not(input[type="file"])), :has([data-composer-row] [data-state="open"]), :has(> div > button[aria-label^="Remove "])) {
+    /* 46px tall, so "+", against its start, is inset 5px all round, its circle concentric with the pill's end. */
     [data-composer-card] {
       align-items: center;
       border-radius: 9999px;
       flex-direction: row;
       min-height: 0;
-      padding: 0 4px;
+      padding: 0 4px 0 0;
     }
 
     /* "+" first, then the text, and nothing else. */
-    [data-composer-card] > :last-child {
+    [data-composer-row] {
       order: -1;
 
-      > :first-child {
-        border-radius: 9999px;
-      }
-
-      > :not(:first-child) {
+      > :not([data-composer-plus]) {
         display: none;
       }
     }
@@ -112,5 +127,36 @@
 @media (height < 37.5rem) and (pointer: coarse) {
   :has(> [role="tablist"][aria-label="Room tabs"]) {
     display: none;
+  }
+}
+
+/* How far the formatting tools fade at each end, which their scrolling moves from the end to the start. */
+@property --tools-fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --tools-fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes formatting-tools-fade {
+  from {
+    --tools-fade-start: 0px;
+    --tools-fade-end: 28px;
+  }
+
+  15%,
+  85% {
+    --tools-fade-start: 28px;
+    --tools-fade-end: 28px;
+  }
+
+  to {
+    --tools-fade-start: 28px;
+    --tools-fade-end: 0px;
   }
 }

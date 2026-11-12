@@ -74,14 +74,19 @@ function restore(scroller: HTMLElement, { row, offset }: Place) {
 }
 
 /**
- * The day separator: a heading over the first message of a day, with the day's date written out and, on
- * hover, the message's date and time.
+ * The day separator: a heading over the first message of a day, with the day's date written out in a
+ * pill on a rule, or on a phone at the rule's start, and, on hover, the message's date and time.
  */
 function DaySeparator({ at }: { at: string }) {
   const date = new Date(at);
   return (
-    <h2 className="mt-[13px] mb-6 flex items-center gap-3 text-sm leading-5 font-bold text-message-ink before:flex-1 before:border-t before:border-message-divider after:flex-1 after:border-t after:border-message-divider max-md:mb-[18px] max-md:gap-2">
-      <time dateTime={at} title={dateTimeLabel(date)} className="rounded-[14px] border border-message-border bg-background px-4 py-[3px]">
+    <h2 className="mt-[13px] mb-6 flex items-center gap-3 text-sm leading-5 font-bold text-message-ink before:flex-1 before:border-t before:border-message-divider after:flex-1 after:border-t after:border-message-divider max-md:mb-[18px] max-md:gap-2 max-md:pl-3 max-md:before:hidden">
+      {/* On a phone, a plain label at the start of the rule, as Slack's phone app has it, not a pill on it. */}
+      <time
+        dateTime={at}
+        title={dateTimeLabel(date)}
+        className="rounded-[14px] border border-message-border bg-background px-4 py-[3px] max-md:rounded-none max-md:border-0 max-md:bg-transparent max-md:p-0"
+      >
         {dateLabel(date)}
       </time>
     </h2>

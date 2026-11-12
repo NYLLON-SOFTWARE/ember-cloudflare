@@ -97,6 +97,8 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
     >
       {placement === "column" && <SideColumnSeparator label="Resize thread" />}
       <header className="flex min-h-header items-center gap-2.5 border-b py-2.5 pr-3.5 pl-5 max-md:min-h-[calc(56px+env(safe-area-inset-top))] max-md:gap-1.5 max-md:px-2 max-md:pt-[env(safe-area-inset-top)] max-md:pb-0">
+        {/* On a phone, Back goes back the way the person came, wherever the thread was opened from, or up to its
+            room, or in panes closes the thread's, in Close thread's place. Back and the pill are the top bar's 44px capsules. */}
         {onClose ? (
           <button type="button" aria-label={`Back to ${name}`} onClick={onClose} className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex">
             <ArrowLeft className="size-[22px]" />
@@ -104,7 +106,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
         ) : (
           <BackButton fallback={back} label={`Back to ${name}`} className="hidden max-md:grid" />
         )}
-        <div className="flex min-w-0 items-center gap-2.5 max-md:min-h-11 max-md:flex-col max-md:items-start max-md:justify-center max-md:gap-0 max-md:rounded-full max-md:border max-md:bg-surface max-md:px-4 max-md:py-1">
+        <div className="flex min-w-0 items-center gap-2.5 max-md:h-11 max-md:flex-col max-md:items-start max-md:justify-center max-md:gap-0 max-md:rounded-full max-md:border max-md:bg-surface max-md:px-4 max-md:py-1">
           <h2 className="shrink-0 text-[17px] leading-[1.4] font-[650] max-md:text-base max-md:leading-5">Thread</h2>
           {/* The room's name links to it, but on phones, as the line under Thread, too near the thread for a fingertip, it doesn't: Back does. */}
           <PageLink

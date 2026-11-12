@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   goBack,
   guardLeaving,
+  isUnder,
   joinCodeFromPath,
   leave,
   messagePath,
@@ -412,6 +413,35 @@ describe("Back on a phone", () => {
     expect(result.current).toEqual({ page: "room", roomId: "general" });
   });
 
+  it("goes up from a thread a link opened to its room and then home, never back into the thread", () => {
+    history.replaceState(null, "", "/rooms/general/threads/1");
+    act(() => goBack("/rooms/general"));
+    expect(location.pathname).toBe("/rooms/general");
+    act(() => goBack("/"));
+    expect(location.pathname).toBe("/");
+  });
+
+  it("goes up from a room the app opened from its own thread, rather than back into the thread", () => {
+    navigate("/rooms/general/threads/1", { replace: true });
+    navigate("/rooms/general");
+    act(() => goBack("/"));
+    expect(location.pathname).toBe("/");
+  });
+
+  it("goes up from a DM opened from its thread to the DMs", () => {
+    navigate("/rooms/d1/threads/1", { replace: true });
+    navigate("/dms/d1");
+    act(() => goBack("/dms"));
+    expect(location.pathname).toBe("/dms");
+  });
+
+  it("goes back to a page that isn't under this one, such as another room's thread", async () => {
+    navigate("/rooms/random/threads/1", { replace: true });
+    navigate("/rooms/general");
+    act(() => goBack("/"));
+    await waitFor(() => expect(location.pathname).toBe("/rooms/random/threads/1"));
+  });
+
   it("closes an overlay on Back without going to another page or visiting this one again", async () => {
     navigate("/rooms/general", { replace: true });
     const { result } = renderHook(() => ({ route: useRoute(), visit: useVisit() }));
@@ -436,5 +466,17 @@ describe("Back on a phone", () => {
     // Closing it again does nothing.
     act(() => closeOverlay());
     expect(close).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Pages under a page", () => {
+  it("are further down its path or another of its conversation's pages", () => {
+    expect(isUnder("/rooms/general/threads/1", "/rooms/general")).toBe(true);
+    expect(isUnder("/rooms/d1/threads/1?x=1#y", "/dms/d1")).toBe(true);
+    expect(isUnder(roomSettingsPath("open", "general"), "/rooms/general")).toBe(true);
+    expect(isUnder("/rooms/general", "/rooms/general")).toBe(false);
+    expect(isUnder("/rooms/random/threads/1", "/rooms/general")).toBe(false);
+    expect(isUnder("/rooms/general", "/rooms/general/threads/1")).toBe(false);
+    expect(isUnder("/activity", "/rooms/general")).toBe(false);
   });
 });

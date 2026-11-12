@@ -16,6 +16,7 @@ import { HEADER_BUTTON, PageHeader } from "./page-header";
 import { OpenSearchContext, opensSearch } from "./search-box";
 import { MembersButton } from "./room-members";
 import { SubRoomTitle } from "./sub-room-title";
+import { DirectAvatar, personOfDirect } from "../mobile/direct-person";
 
 export interface RoomHeaderProps {
   room: Room;
@@ -44,17 +45,21 @@ export interface RoomHeaderProps {
  * The room header: the room's name, its star, how many are in it, which lists them, the huddle button once huddles are on, Search,
  * which opens the search box in the room, the bell, which turns notifications on until they're on and
  * is then your notification level's, and its settings. A DM's has a chat bubble in place of the room's
- * icon, and no star or huddle button, and a DM with an AI agent alone the agent badge after its name.
+ * icon, and no star or huddle button, and a DM with an AI agent alone the agent badge after its name. A DM
+ * with one person has their avatar in the chat bubble's place, and no members button, as they're all it has.
  */
 export function RoomHeader({ room, me, name, present, status, offline, favorite, onStarred, involvement, askForRoom, onSessionChanged, onFailed }: RoomHeaderProps) {
   const isWithAgent = useIsWithAgent();
   const openSearch = useContext(OpenSearchContext);
   const direct = room.kind === "direct";
   const huddles = useAccount().huddles && !direct;
+  const person = personOfDirect(room, me.id);
   return (
     <PageHeader>
       <div className="flex min-w-0 flex-1 items-center gap-2.5 max-md:gap-[7px]">
-        {direct ? (
+        {person ? (
+          <DirectAvatar person={person} here={present.some((user) => user.id === person.id)} className="size-6" />
+        ) : direct ? (
           <ChatBubbleEmpty className="size-5 shrink-0" />
         ) : room.kind === "closed" && room.icon === null ? (
           // A private room without an icon of its own has a lock where an open one has `#`, as in the sidebar.
@@ -82,9 +87,11 @@ export function RoomHeader({ room, me, name, present, status, offline, favorite,
       </div>
 
       {/* How many are in the room, which opens who they are, as Slack's channel details do. */}
-      <div className="ml-auto flex shrink-0 items-center">
-        <MembersButton room={room} me={me} present={present} onFailed={onFailed} />
-      </div>
+      {!person && (
+        <div className="ml-auto flex shrink-0 items-center">
+          <MembersButton room={room} me={me} present={present} onFailed={onFailed} />
+        </div>
+      )}
 
       {/* The room's actions, 6px apart, and touching at 900px and below. */}
       <div className="flex shrink-0 items-center gap-1.5 max-md:gap-0">

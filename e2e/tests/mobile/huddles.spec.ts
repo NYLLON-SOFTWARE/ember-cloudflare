@@ -42,7 +42,7 @@ async function standInHuddle(page: Page, you: User, others: User[] = []): Promis
 test("a room's huddle button fits the phone", async ({ page, room, screenIsFine }) => {
   await openRoomWithHuddlesOn(page, room);
   await expect(header(page).getByRole("button", { name: "Start huddle", exact: true })).toBeVisible();
-  // A phone has Search in the tab bar rather than the header.
+  // A phone has Search in the room's details rather than the header, which is Back, the room's pill and this.
   await expect(header(page).getByRole("link", { name: "Search messages" })).toBeVisible({ visible: !hasPhoneLayout(page) });
   // And the room's name keeps its first few letters even 320px wide.
   expect((await header(page).getByRole("heading", { level: 1 }).boundingBox())!.width).toBeGreaterThan(40);

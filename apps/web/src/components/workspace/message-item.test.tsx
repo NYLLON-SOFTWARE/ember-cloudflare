@@ -1,11 +1,13 @@
-import type { Boost, Card, DirectoryUser, Message, StoredFile, User } from "@ember/protocol";
+import { REACTIONS, type Boost, type Card, type DirectoryUser, type Message, type StoredFile, type User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
+import { LONG_PRESS_MS } from "@/components/mobile/use-long-press";
 import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
+import { PHONE_LAYOUT } from "@/hooks/use-phone-layout";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
 import { quotedTimeLabel, timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
@@ -118,6 +120,9 @@ const barNames = () => barControls().map((control) => control.getAttribute("aria
 
 /** The reactions under the one message shown. */
 const reactions = () => within(screen.getByRole("list", { name: "Reactions" }));
+
+/** The pills of the reactions under the one message shown, without the Add reaction after them. */
+const pills = () => reactions().getAllByRole("listitem").filter((item) => !within(item).queryByRole("button", { name: "Add reaction" }));
 
 /** The Custom reaction form's field. */
 const customField = () => screen.getByRole("textbox", { name: "Custom reaction" });
@@ -893,24 +898,6 @@ describe("More actions on a message", () => {
     expect(optionsOn("Hello")).toHaveFocus();
   });
 
-  it("closes on Escape as Message options opened it on a bar Add a boost opened, rather than closing the bar", async () => {
-    withMouse();
-    const { user } = show(message({ boosts: [boost("b1", grace, "👍")] }));
-    await user.click(screen.getByRole("button", { name: "Add a boost" }));
-    await user.click(optionsOn("Hello"));
-    expect(within(moreActions()).getByRole("button", { name: "Quote" })).toHaveFocus();
-    expect(screen.queryByRole("group", { name: "More reactions" })).not.toBeInTheDocument();
-
-    await user.keyboard("{Escape}");
-    expect(screen.queryByRole("group", { name: "More actions" })).not.toBeInTheDocument();
-    expect(optionsOn("Hello")).toHaveFocus();
-    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "true");
-
-    await user.keyboard("{Escape}");
-    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
-    expect(optionsOn("Hello")).toHaveFocus();
-  });
-
   it("opens from the keyboard once Message options has opened the bar", async () => {
     withMouse();
     const { user } = show(message());
@@ -1163,42 +1150,52 @@ describe("React to a message", () => {
 
   it("lists reactions oldest first, each with its booster's avatar, and emoji larger than words", () => {
     show(message({ boosts: [boost("b1", grace, "👍"), boost("b2", ada, "🎉"), boost("b3", grace, "Nice one!"), boost("b4", ada, "👍")] }));
-    const pills = reactions().getAllByRole("listitem");
-    expect(pills.map((pill) => within(pill).getByRole("img").getAttribute("alt"))).toEqual([
+    const shown = pills();
+    expect(shown.map((pill) => within(pill).getByRole("img").getAttribute("alt"))).toEqual([
       "Grace boosted 👍",
       "Ada boosted 🎉",
       "Grace boosted Nice one!",
       "Ada boosted 👍",
     ]);
-    expect(pills.map((pill) => pill.textContent)).toEqual(["👍", "🎉", "Nice one!", "👍"]);
-    expect(within(pills[0]!).getByText("👍")).toHaveClass("text-base");
-    expect(within(pills[2]!).getByText("Nice one!")).toHaveClass("text-[0.8rem]");
+    expect(shown.map((pill) => pill.textContent)).toEqual(["👍", "🎉", "Nice one!", "👍"]);
+    expect(within(shown[0]!).getByText("👍")).toHaveClass("text-base");
+    expect(within(shown[2]!).getByText("Nice one!")).toHaveClass("text-[0.8rem]");
   });
 
-  it("opens the bar with More reactions from Add a boost, focusing the first, and Escape hands focus back", async () => {
+  it("opens a picker of every reaction alone from Add reaction, after the reactions, focusing the first, and Escape hands focus back", async () => {
     const { actions, user } = show(message({ boosts: [boost("b1", grace, "👍")] }));
-    const add = screen.getByRole("button", { name: "Add a boost" });
+    const add = reactions().getByRole("button", { name: "Add reaction" });
     await user.click(add);
-    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "true");
-    expect(within(screen.getByRole("group", { name: "More reactions" })).getByRole("button", { name: "Muscle" })).toHaveFocus();
-    // Clicking it again leaves them open.
-    await user.click(add);
-    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "true");
+    const picker = screen.getByRole("dialog", { name: "Add reaction" });
+    expect(within(picker).getAllByRole("button").map((button) => button.textContent)).toEqual([...REACTIONS.map(([emoji, title]) => emoji + title), "New boost"]);
+    expect(within(picker).getByRole("button", { name: "Thumbs up" })).toHaveFocus();
+    // Nothing else the bar offers opens with it.
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+    expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
 
     await user.keyboard("{Escape}");
-    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(add).toHaveFocus();
 
     await user.click(add);
-    await user.click(screen.getByRole("button", { name: "Party popper" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Party popper" }));
     expect(actions.boost).toHaveBeenCalledWith("m1", "🎉");
-    expect(optionsOn("Hello")).toHaveFocus();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(add).toHaveFocus();
   });
 
-  it("shows Add a boost only once a message has a reaction", () => {
+  it("opens New boost's form from Add reaction's picker", async () => {
+    const { user } = show(message({ boosts: [boost("b1", grace, "👍")] }));
+    await user.click(screen.getByRole("button", { name: "Add reaction" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "New boost" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(customField()).toHaveFocus();
+  });
+
+  it("shows Add reaction only once a message has a reaction", () => {
     show(message());
     expect(screen.queryByRole("list", { name: "Reactions" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Add a boost" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add reaction" })).not.toBeInTheDocument();
   });
 
   it("lists reactions, but offers nothing, where nothing can be done, as in a room that's gone", () => {
@@ -1262,8 +1259,8 @@ describe("Custom reactions", () => {
   it("cancels on its X or Escape, handing focus to Message options", async () => {
     const { actions, user } = show(message({ boosts: [boost("b1", grace, "👍")] }));
     await newBoost(user);
-    // The form takes Add a boost's place.
-    expect(screen.queryByRole("button", { name: "Add a boost" })).not.toBeInTheDocument();
+    // The form takes Add reaction's place.
+    expect(screen.queryByRole("button", { name: "Add reaction" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(optionsOn("Hello")).toHaveFocus();
@@ -1271,7 +1268,7 @@ describe("Custom reactions", () => {
     await newBoost(user);
     await user.type(customField(), "Nope{Escape}");
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add a boost" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add reaction" })).toBeInTheDocument();
     expect(optionsOn("Hello")).toHaveFocus();
     expect(actions.boost).not.toHaveBeenCalled();
   });
@@ -1312,8 +1309,8 @@ describe("Custom reactions", () => {
 describe("Take back a reaction", () => {
   it("reveals Delete this boost as you click your own reaction, or press Enter on it, focusing it", async () => {
     const { user } = show(message({ boosts: [boost("b1", grace, "👍"), boost("b2", ada, "🎉")] }));
-    // Only your own reactions do anything.
-    expect(reactions().getAllByRole("button").map((b) => b.textContent)).toEqual(["🎉"]);
+    // Only your own reactions do anything, and Add reaction after them.
+    expect(reactions().getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual(["🎉", "Add reaction"]);
     const mine = reactions().getByRole("button", { name: "🎉" });
     expect(mine).toHaveAccessibleDescription("Press enter to delete this boost");
     expect(mine).toHaveAttribute("aria-expanded", "false");
@@ -1334,7 +1331,7 @@ describe("Take back a reaction", () => {
     await user.click(reactions().getByRole("button", { name: "👍" }));
     await user.click(reactions().getByRole("button", { name: "Delete this boost" }));
     expect(actions.unboost).toHaveBeenCalledWith("b1");
-    expect(reactions().getByRole("listitem")).toHaveClass("animate-scale-fade-out");
+    expect(pills()[0]).toHaveClass("animate-scale-fade-out");
     expect(optionsOn("Hello")).toHaveFocus();
   });
 
@@ -1345,26 +1342,26 @@ describe("Take back a reaction", () => {
     const remove = reactions().getByRole("button", { name: "Delete this boost" });
     await user.click(remove);
     expect(actions.unboost).toHaveBeenCalledWith("b1");
-    expect(reactions().getByRole("listitem")).not.toHaveClass("animate-scale-fade-out");
+    expect(pills()[0]).not.toHaveClass("animate-scale-fade-out");
     expect(remove).toHaveFocus();
 
     // Sent, but lost, as when the connection drops before the room hears of it.
     actions.unboost.mockReturnValue(true);
     await user.click(remove);
-    expect(reactions().getByRole("listitem")).toHaveClass("animate-scale-fade-out");
+    expect(pills()[0]).toHaveClass("animate-scale-fade-out");
     // Someone editing the message doesn't bring it back, while the room may still delete it.
     update(message({ plainText: "Hello, edited", boosts: [{ ...mine }] }));
-    expect(reactions().getByRole("listitem")).toHaveClass("animate-scale-fade-out");
+    expect(pills()[0]).toHaveClass("animate-scale-fade-out");
     // A reconnect that doesn't delete it does, even when the room's copy of the message is the same object.
     reconnect();
-    expect(reactions().getByRole("listitem")).not.toHaveClass("animate-scale-fade-out");
+    expect(pills()[0]).not.toHaveClass("animate-scale-fade-out");
     expect(reactions().getByRole("button", { name: "Delete this boost" })).toBeInTheDocument();
   });
 
   it("brings your reactions back when the room refuses to delete one, as it doesn't say which", async () => {
     const { refuse, user } = show(message({ boosts: [boost("b1", ada, "👍"), boost("b2", ada, "🎉")] }));
-    const going = () => reactions().getAllByRole("listitem").map((pill) => pill.classList.contains("animate-scale-fade-out"));
-    for (const pill of reactions().getAllByRole("listitem")) {
+    const going = () => pills().map((pill) => pill.classList.contains("animate-scale-fade-out"));
+    for (const pill of pills()) {
       await user.click(within(pill).getByRole("button", { name: pill.textContent! }));
       await user.click(within(pill).getByRole("button", { name: "Delete this boost" }));
     }
@@ -1519,4 +1516,190 @@ describe("Bot cards", () => {
     expect(withText.editors.reply).toHaveBeenCalledWith(`<blockquote><p>Nightly report</p></blockquote>${cite}`);
   });
 
+});
+
+describe("Message actions on a phone", () => {
+  /** Answers media queries as a phone does: its layout, and a finger rather than a mouse. */
+  const onPhone = () => {
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === PHONE_LAYOUT, media, addEventListener() {}, removeEventListener() {} }));
+  };
+
+  /** Rests a finger on `target` for `ms`, then lifts it unless `lift` is false. */
+  function press(target: Element, { ms = LONG_PRESS_MS, lift = true, pointerType = "touch" } = {}) {
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(target, { pointerType, isPrimary: true, clientX: 10, clientY: 10 });
+      act(() => vi.advanceTimersByTime(ms));
+      if (lift) fireEvent.pointerUp(target, { pointerType, isPrimary: true, clientX: 10, clientY: 10 });
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  const sheet = () => screen.getByRole("dialog", { name: "Message actions" });
+  /** The names of the sheet's buttons, in order: its quick reactions, then its list. */
+  const sheetNames = () => within(sheet()).getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? button.textContent);
+
+  it("has no Message options showing, but one for screen readers and keyboards", () => {
+    onPhone();
+    show(message());
+    expect(optionsOn("Hello")).toHaveClass("sr-only");
+    expect(optionsOn("Hello")).toHaveAttribute("aria-haspopup", "dialog");
+  });
+
+  it("opens the message's actions in a sheet on a long press: its quick reactions and Add reaction, then a list", () => {
+    onPhone();
+    show(message({ creator: grace }));
+    press(screen.getByText("Hello"));
+    expect(sheetNames()).toEqual(["Thumbs up", "Clapping", "Waving hand", "Add reaction", "Reply in thread", "Forward message", "Quote", "Copy text", "Copy link", "Save", "Add to to-dos"]);
+    expect(within(sheet()).getByRole("group", { name: "Quick reactions" })).toBeInTheDocument();
+    // Nothing opens over the message itself.
+    expect(screen.queryByRole("group", { name: "Message actions" })).not.toBeInTheDocument();
+  });
+
+  it("offers Edit message and Delete message last on messages you can change, and no Quote or Copy text on a file", () => {
+    onPhone();
+    show(message());
+    press(screen.getByText("Hello"));
+    expect(sheetNames().slice(-2)).toEqual(["Edit message", "Delete message"]);
+    expect(within(sheet()).getByRole("button", { name: "Delete message" })).toHaveClass("text-negative");
+    cleanup();
+
+    show(fileMessage());
+    press(screen.getByRole("article"));
+    expect(sheetNames()).not.toContain("Quote");
+    expect(sheetNames()).not.toContain("Copy text");
+    expect(sheetNames()).not.toContain("Edit message");
+    expect(sheetNames()).toContain("Delete message");
+  });
+
+  it("opens nothing on a press that's too short, that moves or scrolls, or that a mouse makes", () => {
+    onPhone();
+    const { article } = show(message());
+    press(screen.getByText("Hello"), { ms: LONG_PRESS_MS - 100 });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    vi.useFakeTimers();
+    fireEvent.pointerDown(article, { pointerType: "touch", isPrimary: true, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(article, { pointerType: "touch", isPrimary: true, clientX: 10, clientY: 40 });
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS));
+    vi.useRealTimers();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    // The timeline scrolling under the finger.
+    vi.useFakeTimers();
+    fireEvent.pointerDown(article, { pointerType: "touch", isPrimary: true, clientX: 10, clientY: 10 });
+    fireEvent.scroll(document);
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS));
+    vi.useRealTimers();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    press(screen.getByText("Hello"), { pointerType: "mouse" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("swallows the tap a long press ends with, so a link held doesn't open, and keeps the phone's own menu away", () => {
+    onPhone();
+    show(message());
+    const text = screen.getByText("Hello");
+    press(text);
+    expect(fireEvent.click(text)).toBe(false);
+    // The next tap is a tap.
+    expect(fireEvent.click(text)).toBe(true);
+    expect(fireEvent.contextMenu(text)).toBe(false);
+  });
+
+  it("reacts from the sheet's quick reactions, closing it", async () => {
+    onPhone();
+    const { actions, user } = show(message());
+    press(screen.getByText("Hello"));
+    await user.click(within(sheet()).getByRole("button", { name: "Clapping" }));
+    expect(actions.boost).toHaveBeenCalledWith("m1", "👏");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("opens a sheet of reactions alone from Add reaction, the frequent first, then every one and New boost", async () => {
+    onPhone();
+    const { actions, user } = show(message({ boosts: [boost("b1", grace, "👍")] }));
+    await user.click(reactions().getByRole("button", { name: "Add reaction" }));
+    const picker = screen.getByRole("dialog", { name: "Add reaction" });
+    expect(screen.queryByRole("dialog", { name: "Message actions" })).not.toBeInTheDocument();
+    const named = (group: string) => within(within(picker).getByRole("group", { name: group })).getAllByRole("button").map((button) => button.getAttribute("aria-label"));
+    expect(named("Frequently used")).toEqual(["Thumbs up", "Clapping", "Waving hand"]);
+    expect(named("All reactions")).toEqual([...REACTIONS.map(([, title]) => title), "New boost"]);
+
+    await user.click(within(within(picker).getByRole("group", { name: "All reactions" })).getByRole("button", { name: "Fire" }));
+    expect(actions.boost).toHaveBeenCalledWith("m1", "🔥");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    // The long press's sheet opens it too.
+    press(screen.getByText("Hello"));
+    // Each sheet opens once the one before has gone, as an open sheet keeps focus in itself.
+    await user.click(within(sheet()).getByRole("button", { name: "Add reaction" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "Add reaction" })).getByRole("button", { name: "New boost" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(customField()).toHaveFocus());
+  });
+
+  it("deletes your message once you say so in the app's own dialog, rather than the browser's", async () => {
+    onPhone();
+    const confirm = vi.spyOn(window, "confirm");
+    const { actions, editors, user } = show(message());
+    press(screen.getByText("Hello"));
+    await user.click(within(sheet()).getByRole("button", { name: "Delete message" }));
+    const question = await screen.findByRole("alertdialog", { name: "Delete message?" });
+    expect(question).toHaveAccessibleDescription("This can’t be undone.");
+    await user.click(within(question).getByRole("button", { name: "Cancel" }));
+    expect(actions.remove).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+
+    press(screen.getByText("Hello"));
+    await user.click(within(sheet()).getByRole("button", { name: "Delete message" }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete" }));
+    expect(actions.remove).toHaveBeenCalledWith("m1");
+    expect(confirm).not.toHaveBeenCalled();
+    // The composer doesn't take focus, which would raise the keyboard.
+    expect(editors.returnFocus).not.toHaveBeenCalled();
+  });
+
+  it("edits from Edit message and quotes from Quote, closing the sheet", async () => {
+    onPhone();
+    const { editors, user } = show(message());
+    press(screen.getByText("Hello"));
+    await user.click(within(sheet()).getByRole("button", { name: "Quote" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(editors.reply).toHaveBeenCalledWith(expect.stringContaining("Hello")));
+
+    press(screen.getByText("Hello"));
+    await user.click(within(sheet()).getByRole("button", { name: "Edit message" }));
+    expect(editors.open).toHaveBeenCalledWith("m1");
+    expect(await editBox()).toHaveFocus();
+  });
+
+  it("copies the message's link, flashing that it did, as the sheet has gone", async () => {
+    onPhone();
+    const { user } = show(message());
+    press(screen.getByText("Hello"));
+    await user.click(within(sheet()).getByRole("button", { name: "Copy link" }));
+    expect(await navigator.clipboard.readText()).toBe(`${location.origin}/rooms/general/@m1`);
+    expect(await screen.findByText("Link copied")).toBeInTheDocument();
+  });
+
+  it("opens the same sheet from Message options, handing focus back to it as the sheet closes", async () => {
+    onPhone();
+    const { user } = show(message());
+    act(() => optionsOn("Hello").focus());
+    await user.keyboard("{Enter}");
+    expect(sheet()).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(optionsOn("Hello")).toHaveFocus());
+  });
+
+  it("leaves a message the room of the 44px Message options wider screens give fingers", () => {
+    onPhone();
+    const { article } = show(message());
+    expect(article).not.toHaveClass("touch:min-h-11");
+    expect(article.querySelector(".touch\\:pr-8")).toBeNull();
+  });
 });

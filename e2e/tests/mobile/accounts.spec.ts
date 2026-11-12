@@ -174,7 +174,7 @@ const linesOf = (text: Locator) =>
     return new Set([...range.getClientRects()].map((line) => Math.round(line.top))).size;
   });
 
-test("the longest tagline fits the phone under a long name, in a member's settings and the conversations, or Home's top bar on a phone", async ({
+test("the longest tagline fits the phone under a long name, in a member's settings and the conversations, and a long name in Home's top bar on a phone", async ({
   page,
   room,
   session,
@@ -188,14 +188,14 @@ test("the longest tagline fits the phone under a long name, in a member's settin
   await screenIsFine();
 
   // Community settings' links take the conversations' place, so they're a room's, or on a phone, Home's,
-  // whose top bar has the name and tagline, each cut short on its line.
+  // whose top bar has the name alone, cut short on its line, as Slack's has.
   await openRoom(page, room);
   await showConversations(page);
   if (hasPhoneLayout(page)) {
-    const top = page.getByRole("navigation", { name: "Page" }).locator("hgroup");
-    await expect(top.locator("h1")).toHaveText(LONG_NAME);
-    await expect(top.locator("p")).toHaveText(LONGEST_TAGLINE);
-    expect(await linesOf(top.locator("p"))).toBe(1);
+    const name = page.getByRole("navigation", { name: "Page" }).getByRole("heading", { level: 1 });
+    await expect(name).toHaveText(LONG_NAME);
+    expect(await linesOf(name)).toBe(1);
+    await expect(page.getByText(LONGEST_TAGLINE).filter({ visible: true })).toHaveCount(0);
     await screenIsFine();
     return;
   }
@@ -426,7 +426,7 @@ test("@ember's page fits the phone", async ({ page, screenIsFine }) => {
   await screenIsFine({ denseTargets: [SWITCHES] });
 });
 
-test("your profile, opened from the rail, or Home's top bar on a phone, fits the phone with Log out in the top bar and a translation button by each field", async ({
+test("your profile, opened from the rail, or the You sheet on a phone, fits the phone with Log out in the top bar and a translation button by each field", async ({
   page,
   room,
   session,
@@ -436,7 +436,10 @@ test("your profile, opened from the rail, or Home's top bar on a phone, fits the
   await signInAs(page, session);
   await openRoom(page, room);
   await showConversations(page);
-  await page.getByRole("navigation", { name: hasPhoneLayout(page) ? "Page" : "Workspace" }).getByRole("link", { name: "Your profile" }).tap();
+  if (hasPhoneLayout(page)) {
+    await page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "You" }).tap();
+    await page.getByRole("dialog").getByRole("link", { name: "Your profile" }).tap();
+  } else await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Your profile" }).tap();
   await expect(page.getByLabel("Name", { exact: true })).toBeEnabled();
   await expect(page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Log out" })).toBeVisible();
   await expect(page.getByRole("main").locator("summary", { hasText: "Translate" })).toHaveCount(4);

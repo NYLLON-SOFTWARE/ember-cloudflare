@@ -31,6 +31,7 @@ import { ActivityPage } from "../mobile/activity-page";
 import { DmsPage } from "../mobile/dms-page";
 import { FilesPage } from "../mobile/files-page";
 import { HomePage } from "../mobile/home-page";
+import { NewReleaseContext } from "../mobile/you-sheet";
 import { TabBar, type TabNotices } from "../mobile/tab-bar";
 import { KeyboardInset } from "../mobile/keyboard-inset";
 import { tabAt, tabOf, type Tab } from "../mobile/tabs";
@@ -150,8 +151,9 @@ const RAIL_PAGES = {
 const SIDEBAR_PAGES: Partial<Record<Route["page"], SidebarPage>> = { people: "people", drafts: "drafts", threads: "threads", saved: "saved" };
 
 /**
- * The pages a phone shows the tab bar on, as Slack's does: the tabs' own, conversations, threads, people
- * and search. Settings and forms, which have Go Back of their own, take the whole screen.
+ * The pages a phone shows the tab bar on, as Slack's does: the tabs' own, conversations, whose composer
+ * sits on it, people, search, and the pages Home's cards open. Threads, settings and forms take the
+ * whole screen, with Back of their own.
  */
 const TAB_BAR_PAGES = new Set<Route["page"]>(["home", "newest-room", "room", "message", "room-of-kind", "person", "search"]);
 
@@ -1105,7 +1107,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           <OpenSearchContext value={openSearch}>
             <HuddlesContext value={huddles}>
               <ProfilePaneContext value={profilePane}>
-                <ConversationsContext value={conversations}>{layout}</ConversationsContext>
+                <ConversationsContext value={conversations}>
+                  {/* For the phone's "You" sheet on every tab, which tells an administrator of a newer Ember. */}
+                  <NewReleaseContext value={newRelease}>{layout}</NewReleaseContext>
+                </ConversationsContext>
               </ProfilePaneContext>
             </HuddlesContext>
           </OpenSearchContext>
