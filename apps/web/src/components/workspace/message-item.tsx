@@ -17,6 +17,7 @@ import { MessageBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
 import { MessageEditor, type MessageEditorHandle } from "./message-editor";
 import { RarePage } from "./rare-pages";
+import { ForwardContext } from "./forward-context";
 import { UploadCard } from "./upload-card";
 import { AvatarLink, UserAvatar, userTitle } from "./user-avatar";
 
@@ -269,6 +270,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
   const [customizing, setCustomizing] = useState(false);
   // What opened Forward message, while it's open.
   const [forwarding, setForwarding] = useState<HTMLElement | null>(null);
+  const forwardInWorkspace = useContext(ForwardContext);
   const customField = useRef<HTMLInputElement>(null);
   // The Custom reaction form goes as the editor opens, as the editor replaces the whole message.
   if (customizing && (editing || !actions)) setCustomizing(false);
@@ -330,7 +332,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
     onQuote: editors.reply,
     onEdit: () => editors.open(message.id),
     onNewBoost: newBoost,
-    onForward: setForwarding,
+    onForward: (opener: HTMLElement) => (forwardInWorkspace ? forwardInWorkspace({ message, opener }) : setForwarding(opener)),
   };
 
   if (message.deleted) return <DeletedMessage message={message} thread={thread} open={open} />;

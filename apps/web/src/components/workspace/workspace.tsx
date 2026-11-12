@@ -45,6 +45,7 @@ import { OpenSearchContext, type SearchBoxOptions } from "./search-box";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
 import { Sidebar, type SidebarPage } from "./sidebar";
 import { WelcomePage } from "./welcome-page";
+import { ForwardContext, type Forwarding } from "./forward-context";
 import { ConversationsContext } from "./quote-cite";
 import { loadRarePages, RarePage, type RarePages } from "./rare-pages";
 
@@ -371,6 +372,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const [huddlePreview, setHuddlePreview] = useState<RoomId | null>(null);
   // Whether the keyboard shortcuts dialog is open.
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Forward message, open on a message, which stays should the message go.
+  const [forwarding, setForwarding] = useState<Forwarding | null>(null);
   // Whether the keyboard shortcuts have opened yet, which loads them.
   const [shortcutsShown, setShortcutsShown] = useState(false);
   if (shortcutsOpen && !shortcutsShown) setShortcutsShown(true);
@@ -1048,6 +1051,15 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           {shortcutsShown && (
             <RarePage show={({ KeyboardShortcutsDialog }) => <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />} loading={null} onFailed={failed} />
           )}
+          {forwarding && (
+            <RarePage
+              show={({ ForwardDialog }) => (
+                <ForwardDialog key={forwarding.message.id} message={forwarding.message} opener={forwarding.opener} onClose={() => setForwarding(null)} />
+              )}
+              loading={null}
+              onFailed={failed}
+            />
+          )}
           {searchBox && (
             <RarePage
               show={({ SearchBox }) => <SearchBox {...searchBox} me={me} rooms={rooms ?? NO_ROOMS} onClose={() => setSearchBox(null)} onFailed={failed} />}
@@ -1081,8 +1093,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             <HuddlesContext value={huddles}>
               <ProfilePaneContext value={profilePane}>
                 <ConversationsContext value={conversations}>
-                  {/* For the phone's "You" sheet on every tab, which tells an administrator of a newer Ember. */}
-                  <NewReleaseContext value={newRelease}>{layout}</NewReleaseContext>
+                  <ForwardContext value={setForwarding}>
+                    {/* For the phone's "You" sheet on every tab, which tells an administrator of a newer Ember. */}
+                    <NewReleaseContext value={newRelease}>{layout}</NewReleaseContext>
+                  </ForwardContext>
                 </ConversationsContext>
               </ProfilePaneContext>
             </HuddlesContext>

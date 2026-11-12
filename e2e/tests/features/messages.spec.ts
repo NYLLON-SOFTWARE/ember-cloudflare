@@ -731,6 +731,22 @@ test.describe("More actions on a message", () => {
     await expect(message).toHaveCount(0);
     await expect(ada.composer()).toBeFocused();
   });
+
+  test("says in Forward message, open on a message, that it's been deleted, keeping the note written", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await ada.send("Gone while forwarded");
+    await (await grace.actions("Gone while forwarded")).getByRole("button", { name: "Forward message…" }).click();
+    const forward = grace.page.getByRole("dialog", { name: "Forward message" });
+    await forward.getByRole("textbox", { name: "Note" }).fill("Worth a look");
+
+    await (await ada.moreActions("Gone while forwarded")).getByRole("button", { name: "Delete message" }).click();
+    await ada.deleteDialog().getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(grace.message("Gone while forwarded")).toHaveCount(0);
+    await expect(forward.getByRole("status")).toHaveText("This message was deleted.");
+    await expect(forward.getByRole("textbox", { name: "Note" })).toHaveValue("Worth a look");
+    await expect(forward.getByRole("button", { name: "Forward", exact: true })).toHaveAttribute("aria-disabled", "true");
+  });
 });
 
 test.describe("Quote a message", () => {
