@@ -1,15 +1,16 @@
-import type { Account, Favorites, SidebarRoom } from "@ember/protocol";
+import type { Account, Favorites, SharedRoom, SidebarRoom } from "@ember/protocol";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
+import { RoomTreeRow, type TreeRowOptions } from "./room-tree-row";
 import { Sidebar } from "./sidebar";
 
 const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: true, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false };
 const unstarred: Favorites = { rooms: [], version: 0 };
 
-const shared = (id: string, name: string, parent?: string, unread = false): SidebarRoom => ({
+const shared = (id: string, name: string, parent?: string, unread = false): SidebarRoom & SharedRoom => ({
   id,
   name,
   kind: "open",
@@ -87,5 +88,42 @@ describe("Sub-rooms in the sidebar", () => {
     renderSidebar({ favorites: { rooms: ["sales"], version: 1 } });
     expect(listed()[0]).toBe("#Strata – Sales");
     expect(listed()).not.toContain("#Sales");
+  });
+});
+
+describe("A collapsed parent's unread count", () => {
+  type Counted = SharedRoom & { unread: boolean; unreadCount?: number };
+  const counted = (room: Counted, unreadCount: number): Counted => ({ ...room, unread: true, unreadCount });
+  /** The options the tree gives each room's row, by room. */
+  function optionsOf(parent: Counted, subs: Counted[], collapsed: boolean) {
+    const given = new Map<string, TreeRowOptions>();
+    render(
+      <RoomTreeRow
+        branch={{ room: parent, subRooms: subs }}
+        label={parent.name}
+        row={(room, options) => {
+          given.set(room.id, options);
+          return <a key={room.id} href={`#${room.id}`}>{options.label}</a>;
+        }}
+        isUnread={(room) => room.unread}
+        currentRoomId={null}
+        collapsed={collapsed}
+        onToggle={vi.fn()}
+      />,
+    );
+    return given;
+  }
+
+  it("counts the parent's and its unread sub-rooms' messages, up to the cap, while collapsed", () => {
+    const given = optionsOf(counted(strata, 2), [counted(subRooms[0]!, 3), { ...subRooms[2]!, unreadCount: 4 }], true);
+    // Inventory, not marked unread, counts nothing.
+    expect(given.get("strata")).toMatchObject({ unread: true, count: 5 });
+    expect(optionsOf(counted(strata, 6), [counted(subRooms[0]!, 9)], true).get("strata")).toMatchObject({ count: 10 });
+  });
+
+  it("leaves an expanded parent, and one with nothing counted, its own count", () => {
+    expect(optionsOf(counted(strata, 2), [counted(subRooms[0]!, 3)], false).get("strata")).not.toHaveProperty("count");
+    expect(optionsOf(strata, [subRooms[1]!], true).get("strata")).toMatchObject({ unread: true });
+    expect(optionsOf(strata, [subRooms[1]!], true).get("strata")).not.toHaveProperty("count");
   });
 });
