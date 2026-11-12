@@ -1,5 +1,5 @@
 import type { RoomId, ServerFrame, User } from "@ember/protocol";
-import { CANVAS_TOO_LONG, MAX_CANVAS_LENGTH, type Canvas, type CanvasSave } from "@ember/protocol/library";
+import { CANVAS_GONE, CANVAS_TOO_LONG, MAX_CANVAS_LENGTH, type Canvas, type CanvasSave } from "@ember/protocol/library";
 import type { CanvasDoc, CanvasEditing } from "./canvas-schema";
 
 // People writing a canvas together, through the room's object, which is the one authority on the canvas
@@ -27,7 +27,6 @@ const KEPT_STEPS = 1_000;
 /** How big a document can grow, in ProseMirror's positions, about a character each, well inside `MAX_CANVAS_LENGTH`'s JSON. */
 const MAX_CANVAS_SIZE = 100_000;
 
-export const CANVAS_GONE = "That canvas isn't there anymore";
 const CANT_APPLY = "That change couldn't be made to the canvas";
 
 /** What saving a canvas sent whole answers: the canvas as it is now, or as it was saved since the version it went over. */
@@ -171,6 +170,7 @@ export class CanvasSessions {
     for (const [tabId, session] of [...this.sessions]) {
       const quiet = now - session.changedAt >= LET_GO_AFTER_MS;
       if (session.unsavedSince !== null && (quiet || now - session.unsavedSince >= SAVE_AT_LEAST_EVERY_MS)) await this.keep(tabId);
+      if (!this.sessions.has(tabId)) continue;
       if (quiet && session.saved === session.version) {
         this.sessions.delete(tabId);
         continue;
@@ -197,7 +197,9 @@ export class CanvasSessions {
     session.unsavedSince = null;
     try {
       // Too long to keep, as only marks on marks make it: what's saved stays, and the room keeps the rest while it can.
-      if (body.length <= MAX_CANVAS_LENGTH) await this.room.keep(tabId, body, version, session.updatedBy);
+      const kept = body.length > MAX_CANVAS_LENGTH || (await this.room.keep(tabId, body, version, session.updatedBy));
+      // Deleted as people wrote it: they hear so, and stop.
+      if (!kept && !(await this.room.load(tabId))) return this.gone(tabId);
       session.saved = version;
     } catch (error) {
       console.error("Couldn't keep a canvas", error instanceof Error ? error.message : error);
@@ -220,7 +222,7 @@ export class CanvasSessions {
     const steps = tools.stepsBetween(session.doc, doc);
     if (steps.length > 0) await this.advance(tabId, session, doc, steps, `whole-${actor.id}`, actor);
     await this.keep(tabId);
-    return { canvas: this.canvasOf(session) };
+    return this.sessions.has(tabId) ? { canvas: this.canvasOf(session) } : "not found";
   }
 
   /** Saves canvas `tabId` and lets it go, once nobody's writing it but `leaving`, which is on its way out. */
@@ -229,6 +231,12 @@ export class CanvasSessions {
     await this.keep(tabId);
     const session = this.sessions.get(tabId);
     if (session?.saved === session?.version) this.sessions.delete(tabId);
+  }
+
+  /** Lets go of canvas `tabId`, which is gone, telling everyone writing it. */
+  private gone(tabId: string): void {
+    this.sessions.delete(tabId);
+    for (const writer of this.room.writers(tabId)) this.room.send(writer, { type: "canvas.refused", tabId, message: CANVAS_GONE });
   }
 
   /** Forgets every canvas, unsaved, as the room is deleted. */

@@ -1567,6 +1567,16 @@ describe("Live sidebar updates", () => {
     expect(location.pathname).toBe("/rooms/random");
   });
 
+  it("drops the tab from the address of a room that's gone while a tab of it is shown (E-R5-18)", async () => {
+    serve({ "GET /api/rooms/random/library": () => Response.json({ files: [], links: [] }) });
+    showWorkspace("/rooms/random?tab=files");
+    await roomHeading();
+    await screen.findByRole("tabpanel", { name: "Files & links" }, { timeout: 5000 });
+    await workspaceSends({ type: "room.gone", roomId: "random" });
+    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
+    await waitFor(() => expect(location.pathname + location.search).toBe("/rooms/random"));
+  });
+
   it("shows a room said to be gone as it is once the workspace socket brings it back, as when someone is put back in it", async () => {
     showWorkspace("/rooms/random");
     await roomHeading();

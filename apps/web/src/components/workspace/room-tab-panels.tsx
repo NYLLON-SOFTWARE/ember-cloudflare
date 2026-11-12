@@ -88,7 +88,7 @@ function AddedTab({ room, me, tabId, onTabChanged, onTabGone, onFailed }: { room
   if (tab.kind === "canvas")
     return (
       <Suspense fallback={null}>
-        <CanvasEditor room={room} me={me} opened={opened} onSaved={changed} onFailed={onFailed} />
+        <CanvasEditor room={room} me={me} opened={opened} onSaved={changed} onFailed={onFailed} onGone={onTabGone} />
       </Suspense>
     );
   if (tab.kind === "folder") return <FolderPanel room={room} me={me} opened={opened} onChanged={changed} onFailed={onFailed} />;

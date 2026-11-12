@@ -1,11 +1,11 @@
 import { useContext, useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import type { Me } from "@ember/protocol";
-import { CANVAS_TOO_LONG, MAX_CANVAS_LENGTH, type OpenedTab } from "@ember/protocol/library";
+import { CANVAS_GONE, CANVAS_TOO_LONG, MAX_CANVAS_LENGTH, type OpenedTab } from "@ember/protocol/library";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { useNameOf } from "@/hooks/use-directory";
-import type { Room } from "@/lib/api";
-import { mergeCanvas } from "@/lib/canvas-merge";
+import { ApiError, type Room } from "@/lib/api";
+import { holdsChange, mergeCanvas } from "@/lib/canvas-merge";
 import { CanvasConflict, openTab, saveCanvas, saveCanvasOnLeaving } from "@/lib/library";
 import { dateTimeLabel } from "@/lib/messages";
 import { cn } from "@/lib/utils";
@@ -54,7 +54,12 @@ interface Props {
   /** Called with the tab and canvas as each save leaves them. */
   onSaved: (opened: OpenedTab) => void;
   onFailed: (error: unknown) => void;
+  /** Called once the canvas turns out to have been deleted, after `onFailed` has said so. */
+  onGone?: () => void;
 }
+
+/** Whether a failure is the canvas having been deleted. */
+const isGone = (error: unknown) => error instanceof ApiError && error.status === 404;
 
 /** The document as a canvas keeps it. */
 const bodyOf = (editor: Editor) => JSON.stringify(editor.getJSON());
@@ -90,7 +95,7 @@ function takeUnsaved(tabId: string): Unsaved | null {
   }
 }
 
-export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
+export function CanvasEditor({ room, opened, onSaved, onFailed, onGone }: Props) {
   const nameOf = useNameOf();
   const canvas = opened.canvas!;
   /** The version last saved, which saves go over, and what it holds: where a merge begins. */
@@ -101,6 +106,8 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
   const [status, setStatus] = useState<Status>("saved");
   const [merged, setMerged] = useState<Merged | null>(null);
   const [lastSaved, setLastSaved] = useState({ by: canvas.updatedBy, at: canvas.updatedAt, version: canvas.version });
+  /** Whether the canvas has been deleted, leaving nothing to save or keep. */
+  const deleted = useRef(false);
 
   const host = useRef<HTMLDivElement>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -116,7 +123,20 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
     version: canvas.version,
     onEdited: setLastSaved,
     onMerged: (conflicts) => setMerged(conflicts > 0 ? "both kept" : "merged"),
-    onRefused: (message) => setStatus(message === CANVAS_TOO_LONG ? "too long" : "failed"),
+    onRefused: (message) => {
+      if (message === CANVAS_GONE) gone(new ApiError(404, message));
+      else setStatus(message === CANVAS_TOO_LONG ? "too long" : "failed");
+    },
+  });
+  /** Stops writing a canvas that's been deleted, saying so, for the room to leave it. */
+  const gone = useEffectEvent((error: ApiError) => {
+    if (deleted.current) return;
+    deleted.current = true;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    if (editor && !editor.isDestroyed) editor.setEditable(false);
+    onFailed(error);
+    onGone?.();
   });
   // Made once, in the element it edits, when the canvas opens. A canvas holding what the editor can't
   // show would open empty, and saving that would lose it, so it opens read-only.
@@ -146,6 +166,8 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
     const unsaved = takeUnsaved(opened.tab.id);
     if (!unsaved) return;
     const now = bodyOf(editor);
+    // The save the page sent as it went arrived, and the canvas has moved on from it.
+    if (holdsChange(unsaved.base, unsaved.body, now)) return;
     const merge = mergeCanvas(unsaved.base, unsaved.body, now);
     if (merge.body === now) return;
     showDocument(editor, merge.body, MERGED);
@@ -190,6 +212,7 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
       setLastSaved({ by: answer.canvas!.updatedBy, at: answer.canvas!.updatedAt, version: answer.canvas!.version });
       onSaved(answer);
     } catch (error) {
+      if (isGone(error)) return gone(error as ApiError);
       // A canvas closed since keeps what it couldn't save in this browser, to merge in as it next opens.
       if (editor.isDestroyed) return keepUnsaved(opened.tab.id, { base: saved.current, body });
       if (error instanceof CanvasConflict) takeIn(error.canvas);
@@ -237,7 +260,7 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
     void save();
   });
   const leaving = useEffectEvent(() => {
-    if (!editor || status === "unreadable") return;
+    if (!editor || status === "unreadable" || deleted.current) return;
     // Written together, what's waiting goes over the socket, and whole too, in case the socket goes first:
     // the room takes whichever comes first, and refuses the other, as it's over a version it's past.
     // This browser keeps it too, for the canvas to merge in as it next opens.
@@ -273,7 +296,10 @@ export function CanvasEditor({ room, opened, onSaved, onFailed }: Props) {
   // Others' saves, while nothing here waits to be saved.
   const refresh = useEffectEvent(async () => {
     if (live || timer.current || saving.current || document.hidden || status === "unreadable") return;
-    const latest = await openTab(room.id, opened.tab.id).catch(() => null);
+    const latest = await openTab(room.id, opened.tab.id).catch((error: unknown) => {
+      if (isGone(error)) gone(error as ApiError);
+      return null;
+    });
     if (!latest?.canvas || latest.canvas.version <= version.current || timer.current || saving.current) return;
     takeIn(latest.canvas);
   });

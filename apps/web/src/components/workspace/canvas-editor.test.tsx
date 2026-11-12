@@ -115,6 +115,33 @@ describe("Canvas", () => {
     expect(localStorage.getItem("ember:canvas-unsaved:t1")).toBeNull();
   });
 
+  it("lets go of what it kept as the page went once the canvas holds it, as when that save arrived and more was written since (E-R5-31)", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(opened(doc())));
+    const base = doc(paragraph("Alpha"), paragraph("Bravo"), paragraph("Charlie"));
+    localStorage.setItem("ember:canvas-unsaved:t1", JSON.stringify({ base, body: doc(paragraph("Alpha"), paragraph("Bravo MAYA"), paragraph("Charlie")) }));
+    const now = doc(paragraph("Alpha"), paragraph("Bravo MAYA SAM"), paragraph("Charlie"));
+    render(<CanvasEditor room={room} me={maya} opened={{ ...opened(now), canvas: canvas(now, 3, sam) }} onSaved={vi.fn()} onFailed={vi.fn()} />);
+    expect(editorOf().getText()).toBe("Alpha\n\nBravo MAYA SAM\n\nCharlie");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(localStorage.getItem("ember:canvas-unsaved:t1")).toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(saves()).toHaveLength(0);
+  });
+
+  it("says a canvas deleted as you write it is gone, and stops, keeping nothing", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ error: "That tab isn't there anymore" }, { status: 404 }));
+    const [failed, gone] = [vi.fn(), vi.fn()];
+    const { unmount } = render(<CanvasEditor room={room} me={maya} opened={opened(doc(paragraph("intro")))} onSaved={vi.fn()} onFailed={failed} onGone={gone} />);
+    typeAtEnd("LOST");
+    await waitFor(() => expect(gone).toHaveBeenCalledOnce(), { timeout: 5000 });
+    expect(failed).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }));
+    expect(editorOf().isEditable).toBe(false);
+    expect(screen.getByRole("status")).not.toHaveTextContent("Couldn’t save");
+    window.dispatchEvent(new Event("pagehide"));
+    unmount();
+    expect(localStorage.getItem("ember:canvas-unsaved:t1")).toBeNull();
+  });
+
   it("writes only what the server takes as a canvas, whatever the toolbar makes", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(opened(doc())));
     renderCanvas(doc({ type: "paragraph" }));

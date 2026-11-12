@@ -23,17 +23,24 @@ const paragraph = (text: string) => ({ type: "paragraph", content: [{ type: "tex
 class Socket {
   readonly listeners = new Set<(frame: ServerFrame) => void>();
   open = true;
+  /** How long a frame takes each way, in milliseconds. */
+  latency = 0;
   constructor(
     readonly room: FakeRoom,
     readonly user: User,
   ) {}
+  private later(work: () => void) {
+    if (this.latency > 0) setTimeout(work, this.latency);
+    else queueMicrotask(work);
+  }
   deliver(frame: ServerFrame) {
-    if (this.open) queueMicrotask(() => act(() => this.listeners.forEach((listener) => listener(frame))));
+    if (this.open) this.later(() => act(() => this.listeners.forEach((listener) => listener(frame))));
   }
   readonly frames: RoomFrames = {
     send: (frame: ClientFrame) => {
       if (!this.open) return false;
-      void this.room.handle(this, frame);
+      if (this.latency > 0) this.later(() => void this.room.handle(this, frame));
+      else void this.room.handle(this, frame);
       return true;
     },
     listen: (listener) => {
@@ -169,6 +176,24 @@ describe("Writing a canvas together", () => {
     await waitFor(() => expect(fake.sessions["sessions"].get("t1")?.doc.textContent).toContain("SAM OFFLINE"), { timeout: 3000 });
     expect(sams!.getText()).toContain("SAVED");
     expect(sams!.getText()).toContain("SAM OFFLINE");
+  });
+
+  it("keeps each person's run of typing whole as two type at the same spot", async () => {
+    const { sockets, editors } = writeTogether();
+    await waitFor(() => expect(editors()).toHaveLength(2));
+    const [mayas, sams] = editors();
+    for (const socket of sockets) socket.latency = 120;
+    typeAtEnd(mayas!, "Bravo");
+    await waitFor(() => expect(sams!.getText()).toContain("Bravo"));
+    for (const editor of [mayas!, sams!]) act(() => void editor.commands.setTextSelection(editor.state.doc.content.size - 1));
+    // A key each 100 ms, with steps crossing on the way to the room and back.
+    for (let key = 0; key < 12; key++) {
+      act(() => void mayas!.commands.insertContent("m"));
+      act(() => void sams!.commands.insertContent("s"));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    await waitFor(() => expect(mayas!.getText()).toBe(sams!.getText()), { timeout: 3000 });
+    expect(mayas!.getText()).toMatch(/Bravo(m{12}s{12}|s{12}m{12})/);
   });
 
   it("applies steps in the editor's schema on the room, configured as the editor configures it", () => {
