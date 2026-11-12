@@ -197,14 +197,16 @@ test.describe("Link to a message", () => {
     await expect(roomLink(ada)).toHaveAttribute("aria-current", "page");
   });
 
-  test("opens the newest messages for a message the room doesn't have, and goes home for a room you can't see", async ({ members }) => {
+  test("opens the newest messages for a message the room doesn't have, and says so for a room you can't see, with the way back", async ({ members }) => {
     const room = encodeURIComponent(posted[0]!.roomId);
     const ada = await members.signIn("Ada", { path: `/rooms/${room}/@no-such-message` });
     await expect(ada.message(body(COUNT))).toBeInViewport();
     await expect(ada.message(body(COUNT - HISTORY_PAGE_SIZE))).toHaveCount(0);
 
     await ada.page.goto(`/rooms/nowhere/@${encodeURIComponent(posted[0]!.id)}`);
-    await expect(ada.page.getByRole("alert")).toHaveText("Room not found or inaccessible");
+    await expect(ada.page.getByRole("alert")).toHaveText("You don’t have access to this room");
+    // Its way on is to the room they were in.
+    await ada.page.getByRole("button", { name: /^Go to / }).click();
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${room}$`));
   });
 

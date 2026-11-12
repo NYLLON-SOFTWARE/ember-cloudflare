@@ -271,10 +271,13 @@ test.describe("Open a room", () => {
     await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("random");
   });
 
-  test("goes home with an alert for an address naming a room that doesn't exist", async ({ members, rooms }) => {
-    const ada = await members.signIn("Ada", { path: "/rooms/nowhere" });
-    await expect(ada.page.getByRole("alert")).toHaveText("Room not found or inaccessible");
-    // Home, which is their oldest room, since this browser has shown them none yet.
+  test("says so in the room's place for an address naming a room that doesn't exist, with the way to the room you were in", async ({ members, rooms }) => {
+    const ada = await members.signIn("Ada");
+    await ada.page.goto("/rooms/nowhere");
+    await expect(ada.page.getByRole("alert")).toHaveText("You don’t have access to this room");
+    await expect(ada.page).toHaveURL(/\/rooms\/nowhere$/);
+    // The room they were in, which is their oldest, since this browser had shown them none before.
+    await ada.page.getByRole("button", { name: "Go to #general" }).click();
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(ada.page.getByRole("heading", { level: 1 })).toHaveText("general");
     await expect(ada.page).toHaveTitle("general");
@@ -327,8 +330,10 @@ test.describe("Room addresses", () => {
   });
 
   test("reads /rooms/opens as a room's address, naming none", async ({ members, rooms }) => {
-    const ada = await members.signIn("Ada", { path: "/rooms/opens" });
-    await expect(ada.page.getByRole("alert")).toHaveText("Room not found or inaccessible");
+    const ada = await members.signIn("Ada");
+    await ada.page.goto("/rooms/opens");
+    await expect(ada.page.getByRole("alert")).toHaveText("You don’t have access to this room");
+    await ada.page.getByRole("button", { name: "Go to #general" }).click();
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
   });
 });

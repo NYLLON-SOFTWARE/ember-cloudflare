@@ -4,12 +4,13 @@ import { Button } from "@/components/ui/button";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, roomPath, roomSettingsPath, type Access } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
-import { LogOut, Trash } from "@/components/icons/iconoir";
+import { Trash } from "@/components/icons/iconoir";
+import { LogOut } from "@/components/icons/iconoir-more";
 import { ApiError, changeRoom, deleteRoom, fetchRoomSettings, isSignedOut, leaveRoom } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
 import { leavingFor, peopleIn } from "@/lib/sub-rooms";
 import { useConfirm } from "./confirm-dialog";
-import { leavingLine, parentChoice } from "./parent-picker";
+import { leavingWarning, parentChoice } from "./parent-picker";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
 import { workspaceSectionPath } from "./settings-navigation";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
@@ -18,14 +19,11 @@ import { UnsavedChanges } from "./unsaved-changes";
 /** Whether `error` says the room isn't there for this person. */
 export const isMissing = (error: unknown) => error instanceof ApiError && error.status === 404;
 
-/** A room as its confirmations name it: an open one after a #, as Slack names a channel, and a private one alone. */
-export const roomLabel = ({ name, open }: { name: string; open: boolean }) => (open ? `#${name}` : name);
+/** What Delete asks first. */
+export const CONFIRM_DELETE = "Are you sure you want to delete this room and all messages in it? This can’t be undone.";
 
-/** What Delete asks first, of the room `room` names. */
-export const confirmDelete = (room: string) => ({ title: `Delete ${room}`, body: "Its messages go with it. This can’t be undone." });
-
-/** What Leave asks first, of the room `room` names. */
-export const confirmLeave = (room: string) => ({ title: `Leave ${room}`, body: "Only someone in it who can change it can add you back." });
+/** What Leave asks first. */
+export const CONFIRM_LEAVE = "Are you sure you want to leave this room? Only someone in it who can change it can add you back.";
 
 const membersOf = (settings: RoomSettings) => new Set(settings.people.flatMap((person) => (person.member ? [person.id] : [])));
 
@@ -152,10 +150,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   };
 
   const save = async () => {
-    if (leavingNames.length > 0 && parent) {
-      const title = `Move ${named} under ${roomLabel({ name: parent.name, open: parent.everyone })}`;
-      if (!(await confirmFirst(title, { body: leavingLine(parent.name, leavingNames), confirm: "Move", destructive: true }))) return;
-    }
+    if (leavingNames.length > 0 && parent && !(await confirmFirst(`${leavingWarning(parent.name, leavingNames)} Save anyway?`, { confirm: "Save", destructive: true }))) return;
     setBusy(true);
     send().then((left) => {
       if (!mounted.current) return;
@@ -165,9 +160,9 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
     }, failed);
   };
 
-  /** Once `asked` is confirmed with `confirm`, has `go` take the room from this person, then from the sidebar. */
-  const goOnceConfirmed = async (asked: { title: string; body: string }, confirm: string, go: (roomId: RoomId) => Promise<void>) => {
-    if (!(await confirmFirst(asked.title, { body: asked.body, confirm, destructive: true }))) return;
+  /** Once `question` is confirmed with `confirm`, has `go` take the room from this person, then from the sidebar. */
+  const goOnceConfirmed = async (question: string, confirm: string, go: (roomId: RoomId) => Promise<void>) => {
+    if (!(await confirmFirst(question, { confirm, destructive: true }))) return;
     setBusy(true);
     const answered = askForRoom();
     go(roomId).then(() => {
@@ -178,8 +173,6 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
   };
 
   const open = access === "open";
-  // The room as its confirmations name it, as it's saved.
-  const named = settings ? roomLabel({ name: settings.room.name, open: settings.room.kind === "open" }) : "";
   const choices = settings ? parentChoices(settings) : [];
   const parent = parentChoice(choices, parentId);
   const people = settings ? peopleIn(settings.people, parent) : [];
@@ -239,7 +232,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
       </Panel>
       {settings && !settings.canAdminister && settings.room.kind === "closed" && (
         <Panel>
-          <Button type="button" variant="outline" disabled={busy} onClick={() => goOnceConfirmed(confirmLeave(settings.room.name), "Leave", leaveRoom)} className="max-w-full touch:h-11">
+          <Button type="button" variant="outline" disabled={busy} onClick={() => goOnceConfirmed(CONFIRM_LEAVE, "Leave", leaveRoom)} className="max-w-full touch:h-11">
             <LogOut className="size-[1.3em] shrink-0" />
             <span className="truncate">Leave {settings.room.name}</span>
           </Button>
@@ -247,7 +240,7 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
       )}
       {settings?.canAdminister && (
         <Panel>
-          <DeleteButton label={`Delete ${settings.room.name}`} text={settings.room.name} disabled={busy} onClick={() => goOnceConfirmed(confirmDelete(named), "Delete", deleteRoom)} />
+          <DeleteButton label={`Delete ${settings.room.name}`} text={settings.room.name} disabled={busy} onClick={() => goOnceConfirmed(CONFIRM_DELETE, "Delete", deleteRoom)} />
         </Panel>
       )}
       <UnsavedChanges changed={changed} stays={stays} onSave={send} form={roomForm} />
