@@ -40,9 +40,9 @@ function placeName({ label, closed }: SharePlace): ReactNode {
   );
 }
 
-/** The warning's title: outside the room it's from, or the DM. */
-export function shareWarningTitle(source: SharePlace): ReactNode {
-  return source.direct ? `Share outside your DM with ${source.label}?` : <>Share outside {placeName(source)}?</>;
+/** The warning's title, for the action that shares, "Share" or "Forward": outside the room it's from, or the DM. */
+export function shareWarningTitle(source: SharePlace, action = "Share"): ReactNode {
+  return source.direct ? `${action} outside your DM with ${source.label}?` : <>{action} outside {placeName(source)}?</>;
 }
 
 /** What's shared, as the warning says what they'll do with it. */
@@ -77,6 +77,8 @@ interface Props {
   subject?: ShareSubject;
   /** What the button that goes ahead says: Share, or Attach where that only adds the file to what's written. */
   confirm?: string;
+  /** What its title calls sharing: "Share", or "Forward" for Forward message. */
+  action?: string;
   onShare: () => void;
   /** Cancel, Escape or the backdrop, which share nothing. */
   onCancel: () => void;
@@ -90,7 +92,7 @@ interface Props {
  * Asks before sharing beyond who can see the original: an alert dialog, which phones show as a sheet from
  * the bottom of the screen, with Cancel, which has focus, and the button that goes ahead.
  */
-export function ShareWarning({ source, target, widening, subject = "file", confirm = "Share", onShare, onCancel, onReturnFocus, overlayClassName = DIALOG_BACKDROP }: Props) {
+export function ShareWarning({ source, target, widening, subject = "file", confirm = "Share", action = "Share", onShare, onCancel, onReturnFocus, overlayClassName = DIALOG_BACKDROP }: Props) {
   return (
     <Dialog open onOpenChange={(open) => open || onCancel()}>
       <DialogContent
@@ -107,7 +109,7 @@ export function ShareWarning({ source, target, widening, subject = "file", confi
           "max-md:top-auto max-md:bottom-0 max-md:left-0 max-md:w-full max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none max-md:pb-[max(24px,env(safe-area-inset-bottom))] max-md:sm:max-w-none",
         )}
       >
-        <DialogTitle className={DIALOG_TITLE}>{shareWarningTitle(source)}</DialogTitle>
+        <DialogTitle className={DIALOG_TITLE}>{shareWarningTitle(source, action)}</DialogTitle>
         <DialogDescription className="text-sm text-muted-foreground max-md:text-[15px]">{shareWarningLine(widening, source, target, subject)}</DialogDescription>
         <div className="mt-5 flex flex-wrap justify-end gap-2 max-md:text-[17px]">
           <button type="button" onClick={onCancel} className={OTHER_ACTION}>
