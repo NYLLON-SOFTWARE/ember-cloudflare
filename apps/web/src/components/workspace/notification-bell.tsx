@@ -7,7 +7,7 @@ import { INVOLVEMENT_LABELS } from "@/lib/involvement";
 import type { PushNotice } from "@/lib/push";
 import { cn } from "@/lib/utils";
 import { InvolvementButton } from "./involvement-button";
-import { NotificationHelp } from "./notification-help";
+import { RarePage } from "./rare-pages";
 import { HEADER_BUTTON } from "./page-header";
 
 /** A notice the dialog shows, numbered, so the same one again opens the help afresh. */
@@ -165,7 +165,7 @@ function NotificationSetup({ shown }: { shown: Shown | null }) {
             {shown?.notice.message}
           </p>
           <div hidden={!shown?.notice.help} className="mt-4 text-start">
-            <NotificationHelp key={shown?.count} platform={platform} />
+            {shown?.notice.help && <RarePage show={({ NotificationHelp }) => <NotificationHelp key={shown.count} platform={platform} />} loading={null} />}
           </div>
         </section>
         <button ref={close} type="button" onClick={() => dialog.current?.close()} className={cn(HEADER_BUTTON, "absolute top-6 right-4 cursor-pointer")}>

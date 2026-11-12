@@ -4,7 +4,7 @@ import { MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { NEW_DIRECT_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
-import { opensNewDirect } from "../workspace/new-direct-dialog";
+import { opensNewDirect } from "../workspace/dialog-openers";
 import { PageHeader } from "../workspace/page-header";
 
 export { YouButton as YouLink } from "./you-sheet";

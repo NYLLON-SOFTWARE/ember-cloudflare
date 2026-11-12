@@ -26,3 +26,20 @@ export { FilesNav } from "./files-nav";
 export { FilesPage } from "./files-page";
 export { AddTabDialog, EditTabsDialog, RoomTabPanel } from "./room-tab-panels";
 export { EmojiPicker } from "@/components/emoji-picker";
+// Dialogs and panels few visits open, which load with the pages.
+export { ActivityPage } from "./activity-page";
+export { ForwardDialog } from "./forward-dialog";
+export { FilesPicker } from "./files-picker";
+export { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
+export { MembersDialog } from "./members-dialog";
+export { NewDirectDialog } from "./new-direct-dialog";
+export { NotificationHelp } from "./notification-help";
+export { ProfilePanel } from "./profile-panel";
+export { SearchBox } from "./search-dialog";
+export { TimeDialog } from "./time-dialog";
+// The pages before a workspace but for signing in (signed-out-page.tsx).
+export { EmailSignUpPage } from "../email-sign-up-page";
+export { InvitationPage } from "../invitation-page";
+export { JoinPage } from "../join-page";
+export { PasswordResetPage } from "../password-reset-page";
+export { SetupPage } from "../setup-page";

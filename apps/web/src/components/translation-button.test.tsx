@@ -1,4 +1,5 @@
-import { TRANSLATIONS, type Account } from "@ember/protocol";
+import type { Account } from "@ember/protocol";
+import { TRANSLATIONS } from "@ember/protocol/translations";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -39,6 +40,8 @@ describe("Translation buttons", () => {
     await user.click(globe());
     await waitFor(() => expect(isOpen()).toBe(true));
     const list = globe().closest("details")!.querySelector("dl")!;
+    // The translations load as the globe first opens.
+    await waitFor(() => expect(list.querySelectorAll("dt")).toHaveLength(7));
     expect([...list.querySelectorAll("dt")].map((flag) => flag.textContent)).toEqual(["🇺🇸", "🇪🇸", "🇫🇷", "🇮🇳", "🇩🇪", "🇧🇷", "🇯🇵"]);
     expect([...list.querySelectorAll("dd")].map((text) => text.textContent)).toEqual(TRANSLATIONS.account_name.map(([, text]) => text));
     expect(list).toHaveTextContent("Name this account");

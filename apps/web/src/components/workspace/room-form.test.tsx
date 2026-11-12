@@ -1,5 +1,6 @@
-import { MAX_ROOM_NAME_LENGTH, TRANSLATIONS, type User } from "@ember/protocol";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { MAX_ROOM_NAME_LENGTH, type User } from "@ember/protocol";
+import { TRANSLATIONS } from "@ember/protocol/translations";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -149,10 +150,12 @@ describe("Room settings page", () => {
 });
 
 describe("Translation buttons", () => {
-  it("has a translation button by the room's name once an administrator shows them", () => {
+  it("has a translation button by the room's name once an administrator shows them", async () => {
     renderForm({}, ({ children }) => <AccountContext value={{ name: "Ember", tagline: "", hideTranslationButtons: false, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false }}>{children}</AccountContext>);
     expect(screen.getByText("Translate")).toBeInTheDocument();
-    expect(screen.getByText(TRANSLATIONS.room_name[0][1])).toBeInTheDocument();
+    // The translations load as the globe first opens.
+    fireEvent.click(screen.getByText("Translate"));
+    expect(await screen.findByText(TRANSLATIONS.room_name[0][1])).toBeInTheDocument();
   });
 });
 

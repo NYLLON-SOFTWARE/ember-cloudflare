@@ -10,6 +10,7 @@ import { FilesRailLink } from "./files-rail-link";
 import { NavigationIcon } from "./navigation-icon";
 import { OpenSearchContext, opensSearch } from "./search-box";
 import { UserAvatar } from "./user-avatar";
+import { preloadRarePages } from "./rare-pages";
 
 const RAIL_LINK = cn(
   "relative flex size-14 shrink-0 flex-col items-center justify-center gap-[5px] rounded-[10px] px-[3px] py-1.5 text-[11px] text-muted-foreground",
@@ -116,8 +117,11 @@ export function Rail({ me, workspaceName, current, activity, directsUnread, newR
   const marked = current;
   return (
     // Scrolls when a short screen (a phone in landscape) can't fit it all; widens by the notch's inset.
+    // Pointing at or tabbing to a link starts loading the pages few visits need, so they're there as it's followed.
     <nav
       aria-label="Workspace"
+      onPointerEnter={preloadRarePages}
+      onFocus={preloadRarePages}
       className="flex h-full w-[calc(var(--spacing-rail)+env(safe-area-inset-left))] flex-col items-center gap-3 overflow-y-auto overscroll-contain border-r bg-surface pt-4 pr-3 pb-[max(16px,env(safe-area-inset-bottom))] pl-[calc(12px+env(safe-area-inset-left))] [scrollbar-width:none]"
     >
       <PageLink

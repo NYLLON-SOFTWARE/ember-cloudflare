@@ -157,7 +157,8 @@ export {
   type SavedPushSubscription,
   type SignOut,
 } from "./push.ts";
-export { TRANSLATIONS, type TranslationKey } from "./translations.ts";
+// The translations themselves are `@ember/protocol/translations`, which the app loads as a translate button opens.
+export type { TranslationKey } from "./translations.ts";
 export { dmPath, DMS_PATH, DRAFTS_PATH, PEOPLE_PATH, SENT_PATH, THREADS_PATH } from "./pages.ts";
 export { THREAD_CONTEXT, THREADS_LIMIT, type DirectPreview, type DirectPreviews, type ListedThread, type ListedThreads } from "./conversations.ts";
 export {

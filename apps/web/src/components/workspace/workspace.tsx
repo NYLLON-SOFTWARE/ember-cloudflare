@@ -34,39 +34,18 @@ import { KeyboardInset } from "../mobile/keyboard-inset";
 import { tabOf, type Tab } from "../mobile/tabs";
 import { addressShowing } from "./room-tabs";
 import type { RoomGone } from "./composer";
-import { ActivityPage } from "./activity-page";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
-import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
-import { NewDirectDialog } from "./new-direct-dialog";
-import { opensProfile, PROFILE_PARAM, ProfilePaneContext, ProfilePanel, type ProfilePane } from "./profile-pane";
+import { opensProfile, PROFILE_PARAM, ProfilePaneContext, type ProfilePane } from "./profile-pane";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
-import { RoomView, type RoomPanes, type RoomViewHandle } from "./room-view";
+import { OpenSearchContext, type SearchBoxOptions } from "./search-box";
 import { RoomUnavailable } from "./room-unavailable";
-import { OpenSearchContext, SearchBox, type SearchBoxOptions } from "./search-box";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
 import { Sidebar, type SidebarPage } from "./sidebar";
 import { WelcomePage } from "./welcome-page";
 import { ConversationsContext } from "./quote-cite";
-
-type RarePages = typeof import("./pages");
-
-let rarePages: RarePages | undefined;
-let loadingRarePages: Promise<RarePages> | undefined;
-
-/** The pages few visits need (pages.ts), which load together, apart from the rest of the app. */
-function loadRarePages(): Promise<RarePages> {
-  loadingRarePages ??= import("./pages").then(
-    (pages) => (rarePages = pages),
-    (error: unknown) => {
-      // The next page that needs them tries again.
-      loadingRarePages = undefined;
-      throw error;
-    },
-  );
-  return loadingRarePages;
-}
+import { loadRarePages, RarePage, type RarePages } from "./rare-pages";
 
 /** What an address shows when it's one of the pages few visits need. */
 const RARE_PAGES = new Set<Route["page"]>([
@@ -91,6 +70,7 @@ const RARE_PAGES = new Set<Route["page"]>([
   "drafts",
   "threads",
   "files",
+  "activity",
   "todos",
   "saved",
 ]);
@@ -189,33 +169,6 @@ const SETTINGS_LOADING = (
     <MainContent className="flex items-center justify-center bg-background text-muted-foreground">Loading…</MainContent>
   </>
 );
-
-interface RarePageProps {
-  show: (pages: RarePages) => ReactNode;
-  loading: ReactNode;
-  onFailed: (error: unknown) => void;
-}
-
-/**
- * What `show` makes of the pages few visits need, once they've loaded, and `loading` until then. They aren't
- * `lazy` components, each of which shows its fallback the first time it shows, however long ago its code
- * loaded, and React then keeps showing that for 300 ms.
- */
-function RarePage({ show, loading, onFailed }: RarePageProps) {
-  const [pages, setPages] = useState(rarePages);
-  useEffect(() => {
-    if (pages) return;
-    let current = true;
-    loadRarePages().then(
-      (loaded) => current && setPages(loaded),
-      (error: unknown) => current && onFailed(error),
-    );
-    return () => {
-      current = false;
-    };
-  }, [pages, onFailed]);
-  return pages ? show(pages) : loading;
-}
 
 /** Where someone goes from a room they can't see. */
 const ROOM_NOT_FOUND: Redirect = { path: "/", alert: "Room not found or inaccessible" };
@@ -412,6 +365,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const [huddlePreview, setHuddlePreview] = useState<RoomId | null>(null);
   // Whether the keyboard shortcuts dialog is open.
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Whether the keyboard shortcuts have opened yet, which loads them.
+  const [shortcutsShown, setShortcutsShown] = useState(false);
+  if (shortcutsOpen && !shortcutsShown) setShortcutsShown(true);
   const closeHuddlePreview = useCallback(() => setHuddlePreview(null), []);
   const liveHuddles = list?.huddles ?? NO_HUDDLES;
   const huddles = useMemo<Huddles>(() => ({ live: liveHuddles, preview: setHuddlePreview }), [liveHuddles]);
@@ -873,7 +829,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ ThreadsPage }) => <ThreadsPage me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
       case "activity":
         if (!rooms) return LOADING;
-        return (
+        return rarePage(({ ActivityPage }) => (
           <ActivityPage
             me={me}
             place={route.roomId === undefined ? null : { roomId: route.roomId, messageId: route.messageId, threadId: route.threadId, replyId: route.replyId }}
@@ -881,7 +837,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             activity={activityFeed}
             renderRoom={(place, panes) => roomPane(rooms, place, "activity", panes)}
           />
-        );
+        ));
       case "todos":
         return rarePage(({ TodosPage }) => <TodosPage itemId={route.itemId} me={me} rooms={rooms ?? NO_ROOMS} onFailed={failed} />);
       case "saved":
@@ -1047,27 +1003,48 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           </SheetContent>
 
           {page()}
-          {room && profilePane?.userId && <ProfilePanel key={profilePane.userId} userId={profilePane.userId} me={me} pane={profilePane} placement="column" />}
+          {room && profilePane?.userId && (
+            <RarePage
+              show={({ ProfilePanel }) => <ProfilePanel key={profilePane.userId} userId={profilePane.userId!} me={me} pane={profilePane} placement="column" />}
+              loading={null}
+              onFailed={failed}
+            />
+          )}
           {phone && <KeyboardInset />}
           {phone && TAB_BAR_PAGES.has(route.page) && <TabBar current={tabOf(ownTab, openedFromTab, room?.kind === "direct")} notices={tabNotices} roomId={currentRoomId} />}
           <MovedNotice />
           {newDirect && (
-            <NewDirectDialog
-              opener={newDirect.opener}
-              meId={me.id}
-              reloadPeople={directory.reload}
-              askForRoom={askForRoom}
-              onClose={(startedShown) => {
-                setNewDirect(null);
-                // The DM shown stays as it is when it's the one started, so its composer takes focus, as
-                // opening it would.
-                if (startedShown) roomView.current?.focusComposer();
-              }}
+            <RarePage
+              show={({ NewDirectDialog }) => (
+                <NewDirectDialog
+                  opener={newDirect.opener}
+                  meId={me.id}
+                  reloadPeople={directory.reload}
+                  askForRoom={askForRoom}
+                  onClose={(startedShown) => {
+                    setNewDirect(null);
+                    // The DM shown stays as it is when it's the one started, so its composer takes focus, as
+                    // opening it would.
+                    if (startedShown) roomView.current?.focusComposer();
+                  }}
+                  onFailed={failed}
+                />
+              )}
+              loading={null}
               onFailed={failed}
             />
           )}
-          <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
-          {searchBox && <SearchBox {...searchBox} me={me} rooms={rooms ?? NO_ROOMS} onClose={() => setSearchBox(null)} onFailed={failed} />}
+          {/* Once opened, it stays in the page, so it can animate as it shuts. */}
+          {shortcutsShown && (
+            <RarePage show={({ KeyboardShortcutsDialog }) => <KeyboardShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />} loading={null} onFailed={failed} />
+          )}
+          {searchBox && (
+            <RarePage
+              show={({ SearchBox }) => <SearchBox {...searchBox} me={me} rooms={rooms ?? NO_ROOMS} onClose={() => setSearchBox(null)} onFailed={failed} />}
+              loading={null}
+              onFailed={failed}
+            />
+          )}
           {previewed && (
             <RarePage
               show={({ HuddlePreview }) => <HuddlePreview key={previewed.id} room={previewed} me={me} live={liveHuddles[previewed.id]} onClose={closeHuddlePreview} />}

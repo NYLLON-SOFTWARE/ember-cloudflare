@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { AgentBadge, useIsWithAgent } from "./agent-badge";
 import { DirectAvatars } from "./direct-avatars";
 import { ListEmptyState } from "./list-empty-state";
-import { opensNewDirect } from "./new-direct-dialog";
+import { opensNewDirect } from "./dialog-openers";
 import { PageHeader } from "./page-header";
 import { SearchField } from "./search-field";
 import { UnreadsSwitch } from "./unreads-switch";

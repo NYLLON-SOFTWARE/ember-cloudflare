@@ -1,5 +1,5 @@
-import { TRANSLATIONS } from "@ember/protocol";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { TRANSLATIONS } from "@ember/protocol/translations";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
@@ -143,14 +143,16 @@ describe("QR codes for links", () => {
 });
 
 describe("Translation buttons", () => {
-  it("has a translation button for its invitation once an administrator shows them", () => {
+  it("has a translation button for its invitation once an administrator shows them", async () => {
     render(
       <AccountContext value={{ name: "Ember", tagline: "", hideTranslationButtons: false, customStyles: "", restrictRoomCreation: false, logo: null, customDomain: null, joinLink: true, openSignUp: false, memberfulJoin: false, memberfulSignIn: false, emailDomainSignUp: false, emailDomains: [], navigationIcons: {}, huddles: false }}>
         <InvitationCard joinCode={JOIN_CODE} onDismiss={dismiss} />
       </AccountContext>,
     );
     expect(screen.getByText("Translate")).toBeInTheDocument();
-    expect(screen.getByText(TRANSLATIONS.invite_message[0][1])).toBeInTheDocument();
+    // The translations load as the globe first opens.
+    fireEvent.click(screen.getByText("Translate"));
+    expect(await screen.findByText(TRANSLATIONS.invite_message[0][1])).toBeInTheDocument();
   });
 });
 
