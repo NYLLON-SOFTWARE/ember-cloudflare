@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isRemindableAt, MAX_NOTE_FILES, MAX_REMIND_AHEAD_MS, parseNewSavedItem, parseSavedChange, savedPath } from "./index";
+import { isRemindableAt, MAX_NOTE_FILES, MAX_REMIND_AHEAD_MS, parseNewSavedItem, parseSavedChange, REMINDER_NOT_IN_SAVED, savedPath } from "./index";
 
 describe("parseNewSavedItem", () => {
   it("takes a message to keep in either list, by its room and id", () => {
@@ -34,6 +34,12 @@ describe("parseSavedChange", () => {
     expect(parseSavedChange({ list: "saved" })).toEqual({ list: "saved" });
     expect(parseSavedChange({ completed: true, remindAt: null })).toEqual({ completed: true, remindAt: null });
     expect(parseSavedChange({ body: "<p>x</p>", fileIds: [] })).toEqual({ body: "<p>x</p>", fileIds: [] });
+    expect(parseSavedChange({ list: "todo", remindAt: "2030-01-01T09:00:00.000Z" })).toEqual({ list: "todo", remindAt: "2030-01-01T09:00:00.000Z" });
+    expect(parseSavedChange({ list: "saved", remindAt: null })).toEqual({ list: "saved", remindAt: null });
+  });
+
+  it("refuses a reminder for an item moving to Saved, which keeps none", () => {
+    expect(parseSavedChange({ list: "saved", remindAt: "2030-01-01T09:00:00.000Z" })).toBe(REMINDER_NOT_IN_SAVED);
   });
 
   it("refuses an empty or malformed change", () => {

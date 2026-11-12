@@ -1,5 +1,6 @@
 import type { Room, SavedItem, SavedList, User, UserId } from "@ember/protocol";
 import { membersShown, toSentence } from "./directs";
+import { timeLabel } from "./messages";
 
 // What the To-dos and Saved pages make of their items: what each row says, which ones a filter shows, in
 // what order, and the times a reminder can be set for.
@@ -112,29 +113,15 @@ export function localInputValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** What people call files of each type, by the types' starts or whole names. */
-const TYPE_LABELS: Array<[RegExp, string]> = [
-  [/^text\/plain$/, "Text"],
-  [/^text\/csv$/, "CSV"],
-  [/^text\/markdown$/, "Markdown"],
-  [/^text\/html$/, "HTML"],
-  [/^application\/pdf$/, "PDF"],
-  [/^application\/json$/, "JSON"],
-  [/^application\/(zip|x-zip-compressed)$/, "ZIP"],
-  [/^image\/svg\+xml$/, "SVG"],
-  [/^image\/gif$/, "GIF"],
-  [/^image\//, "Image"],
-  [/^video\//, "Video"],
-  [/^audio\//, "Audio"],
-  [/(msword|wordprocessingml)/, "Word document"],
-  [/(ms-excel|spreadsheetml)/, "Spreadsheet"],
-  [/(ms-powerpoint|presentationml)/, "Presentation"],
-];
+const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+const monthDay = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+const monthDayYear = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" });
 
-/** A file's type as a person reads it: "Text", "PDF", "Image", or else its name's extension, or "File". */
-export function fileTypeLabel({ contentType, name }: { contentType: string; name: string }): string {
-  const known = TYPE_LABELS.find(([type]) => type.test(contentType));
-  if (known) return known[1];
-  const extension = /\.([a-z0-9]{1,8})$/i.exec(name)?.[1];
-  return extension ? extension.toUpperCase() : "File";
+/** A row's date, short, as of `now`: today's time, "Yesterday", "Nov 3" this year, or "Nov 3, 2025". */
+export function shortDateLabel(date: Date, now = new Date()): string {
+  if (sameDay(date, now)) return timeLabel(date);
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay(date, yesterday)) return "Yesterday";
+  return (date.getFullYear() === now.getFullYear() ? monthDay : monthDayYear).format(date);
 }

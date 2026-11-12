@@ -70,6 +70,9 @@ export function useSavedMark(messageId: string): SavedMark | undefined {
 }
 
 /** How many to-dos are in progress and overdue, and how many items are saved, for the cards that link to their pages. */
+/** Whether `counts` were heard from the server, rather than the zeros that stand in until they are. */
+export const countsKnown = (counts: KeptCounts) => counts !== NO_COUNTS;
+
 export function useKeptCounts(): KeptCounts {
   return useSyncExternalStore(subscribe, () => state.counts);
 }

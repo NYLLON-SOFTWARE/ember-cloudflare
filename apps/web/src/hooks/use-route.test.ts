@@ -14,6 +14,7 @@ import {
   permalinkOf,
   roomIdFromPath,
   roomPath,
+  returnTo,
   roomSettingsPath,
   routeOf,
   SEARCHES_PATH,
@@ -411,6 +412,27 @@ describe("Back on a phone", () => {
     act(() => goBack("/rooms/general"));
     expect(location.pathname).toBe("/rooms/general");
     expect(result.current).toEqual({ page: "room", roomId: "general" });
+  });
+
+  it("returns to the page under this one back through the history when it came from there, so the two don't loop", async () => {
+    navigate("/todos", { replace: true });
+    navigate("/todos/a");
+    const length = history.length;
+    act(() => returnTo("/todos"));
+    await waitFor(() => expect(location.pathname).toBe("/todos"));
+    expect(history.length).toBe(length);
+    // Forward, then Back, leaves the to-do again rather than opening it once more.
+    act(() => history.forward());
+    await waitFor(() => expect(location.pathname).toBe("/todos/a"));
+  });
+
+  it("returns to the page under this one in this one's place when it came from elsewhere", () => {
+    navigate("/activity", { replace: true });
+    navigate("/todos/a");
+    const length = history.length;
+    act(() => returnTo("/todos"));
+    expect(location.pathname).toBe("/todos");
+    expect(history.length).toBe(length);
   });
 
   it("goes up from a thread a link opened to its room and then home, never back into the thread", () => {

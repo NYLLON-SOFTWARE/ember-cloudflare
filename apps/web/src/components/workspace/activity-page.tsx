@@ -491,7 +491,9 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
   const people = useContext(PeopleContext);
   const { icon: Icon, word } = KINDS[item.kind];
   const where = names.roomNameOf(item.roomId);
-  const author = names.nameOf(item.actorId);
+  // A reminder is your own, so it names itself rather than you.
+  const reminder = item.kind === "reminder";
+  const author = reminder ? "Reminder" : names.nameOf(item.actorId);
   const actor = { id: item.actorId, name: author, avatarUrl: people.get(item.actorId)?.avatarUrl };
   const date = new Date(item.at);
   const sameDay = date.toDateString() === new Date().toDateString();
@@ -561,7 +563,13 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
       )}
     >
       {/* The avatar and name open the author's profile, as a message's do, over the button that covers the row. */}
-      <AvatarLink user={actor} square reach="none" className="z-[1] mt-0.5 size-9" />
+      {reminder ? (
+        <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg bg-hover">
+          <Clock className="size-5" />
+        </span>
+      ) : (
+        <AvatarLink user={actor} square reach="none" className="z-[1] mt-0.5 size-9" />
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 pr-8 touch:pr-0">
           <PageLink href={personPath(item.actorId)} className={cn("relative z-[1] truncate text-[15px] hover:underline", item.read ? "font-medium" : "font-bold")}>
@@ -621,7 +629,7 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
 /** What an item's row says it is. */
 function preview(item: ActivityItem): string {
   if (item.kind === "invitation") return "Added you";
-  if (item.kind === "reminder") return `Reminder: ${item.preview || "a message"}`;
+  if (item.kind === "reminder") return item.preview || "A to-do";
   if (item.kind === "reaction") return `Reacted ${item.content ?? ""} to “${item.preview}”`;
   return item.preview || "(a file)";
 }

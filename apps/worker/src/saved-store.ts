@@ -147,7 +147,7 @@ const MOVE = `UPDATE saved_items SET list = ?3, updated_at = ?4,
     AND (SELECT count(*) FROM saved_items WHERE user_id = ?1 AND list = ?3) < ?5`;
 
 const COMPLETE = `UPDATE saved_items SET completed_at = ?3, updated_at = ?4 WHERE id = ?2 AND user_id = ?1`;
-/** Saved has no reminders, so only a to-do takes one. */
+/** Saved has no reminders, so only a to-do takes one; the Worker refuses one for an item in Saved. */
 const REMIND = `UPDATE saved_items SET remind_at = ?3, reminded_at = NULL, updated_at = ?4 WHERE id = ?2 AND user_id = ?1 AND list = 'todo'`;
 const REWRITE_NOTE = `UPDATE saved_items SET body = ?3, plain_text = ?4, updated_at = ?5 WHERE id = ?2 AND user_id = ?1 AND kind = 'note'`;
 const REFILE_NOTE = `UPDATE saved_items SET files = ?3, updated_at = ?4 WHERE id = ?2 AND user_id = ?1 AND kind = 'note'`;
@@ -290,12 +290,13 @@ export class SavedStore {
    * list it's to move to has no room for it, having changed nothing.
    */
   async change(userId: UserId, id: string, change: StoredSavedChange, now: string): Promise<StoredSavedItem | "full" | null> {
+    // It moves first, so a reminder set as it moves to To-dos is kept, as only a to-do takes one.
     const changes = [
+      ...(change.list ? [statement(MOVE, userId, id, change.list, now, MAX_SAVED_ITEMS)] : []),
       ...(change.completedAt !== undefined ? [statement(COMPLETE, userId, id, change.completedAt, now)] : []),
       ...(change.remindAt !== undefined ? [statement(REMIND, userId, id, change.remindAt, now)] : []),
       ...(change.note ? [statement(REWRITE_NOTE, userId, id, change.note.body, change.note.plainText, now)] : []),
       ...(change.files ? [statement(REFILE_NOTE, userId, id, filesJson(change.files), now)] : []),
-      ...(change.list ? [statement(MOVE, userId, id, change.list, now, MAX_SAVED_ITEMS)] : []),
     ];
     const results = await this.db.batch([...changes, statement(ITEM, userId, id)]);
     const [row] = results.at(-1) as SavedRow[];

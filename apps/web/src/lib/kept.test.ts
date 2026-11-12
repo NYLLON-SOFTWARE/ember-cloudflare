@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DirectRoom, Message, Room, SavedItem, SharedRoom } from "@ember/protocol";
-import { fileTypeLabel, originOf, reminderChoices, shows, sorted, summaryOf } from "./kept";
+import { originOf, reminderChoices, shortDateLabel, shows, sorted, summaryOf } from "./kept";
+import { timeLabel } from "./messages";
 
 const item = (changes: Partial<SavedItem>): SavedItem => ({
   id: "i",
@@ -83,13 +84,13 @@ describe("reminderChoices", () => {
   });
 });
 
-describe("fileTypeLabel", () => {
-  it("names a file's type as people do, or by its extension", () => {
-    expect(fileTypeLabel({ contentType: "text/plain", name: "notes.txt" })).toBe("Text");
-    expect(fileTypeLabel({ contentType: "application/pdf", name: "deck.pdf" })).toBe("PDF");
-    expect(fileTypeLabel({ contentType: "image/png", name: "a.png" })).toBe("Image");
-    expect(fileTypeLabel({ contentType: "image/svg+xml", name: "logo.svg" })).toBe("SVG");
-    expect(fileTypeLabel({ contentType: "application/octet-stream", name: "build.dmg" })).toBe("DMG");
-    expect(fileTypeLabel({ contentType: "application/octet-stream", name: "README" })).toBe("File");
+describe("shortDateLabel", () => {
+  it("says today's time, Yesterday, a day this year without its year, and an older one with it", () => {
+    const now = new Date(2026, 10, 12, 15, 0);
+    const today = new Date(2026, 10, 12, 0, 49);
+    expect(shortDateLabel(today, now)).toBe(timeLabel(today));
+    expect(shortDateLabel(new Date(2026, 10, 11, 23, 0), now)).toBe("Yesterday");
+    expect(shortDateLabel(new Date(2026, 10, 3), now)).not.toMatch(/2026/);
+    expect(shortDateLabel(new Date(2025, 10, 3), now)).toMatch(/2025/);
   });
 });

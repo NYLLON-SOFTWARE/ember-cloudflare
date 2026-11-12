@@ -281,6 +281,16 @@ export function goBack(fallback: string): void {
 }
 
 /**
+ * Returns to `path`, as a page's own Back does when the page sits under it: back through the history
+ * when the entry before this one is `path`, so Back and Forward don't loop between the two, or else to
+ * `path` in this entry's place.
+ */
+export function returnTo(path: string): void {
+  if (openedFrom(history.state)?.split("#", 1)[0] === path) history.back();
+  else navigate(path, { replace: true });
+}
+
+/**
  * Adds an entry to the history for an overlay that covers the page, such as the image viewer on a phone,
  * so that Back closes it, calling `close`, rather than leaving the page. The function returned closes it
  * from the overlay itself, going back past its entry while that's the one shown.
