@@ -146,7 +146,7 @@ export function DirectsPane({ meId, rooms, loaded, previews, suggestions, curren
       <span id={unreadId} hidden>
         Unread
       </span>
-      <section aria-label="Direct messages" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-[max(16px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable]">
+      <section aria-label="Direct messages" className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-[max(16px,env(safe-area-inset-bottom))] max-md:pb-[calc(112px+env(safe-area-inset-bottom))] [scrollbar-gutter:stable]">
         <ul className="flex flex-col">
           {listed.map((room) => (
             <li key={room.id}>
@@ -261,10 +261,10 @@ function DirectRow({ room, meId, preview, current, unreadId, onClick }: DirectRo
       aria-describedby={unreadId ? `${unreadId} ${aboutId}` : aboutId}
       onClick={onClick}
       // The ring is inset, so the list's edges, which the row runs to, don't clip it. A DM with nothing
-      // said in it yet has its name centered beside the avatar, in a row as tall as the others.
+      // said in it yet has its name centered beside the avatar, in a row as tall as the avatar and its padding.
       className={cn(
-        "group/row flex min-h-[72px] gap-3 px-[18px] py-3 text-foreground no-underline outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-[current=page]:bg-hover",
-        latest ? "items-start" : "items-center",
+        "group/row flex gap-3 px-[18px] py-3 text-foreground no-underline outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset aria-[current=page]:bg-hover",
+        latest ? "min-h-[72px] items-start" : "min-h-[60px] items-center",
       )}
     >
       <DirectAvatars members={members} ringClassName="ring-surface group-hover/row:ring-hover group-aria-[current=page]/row:ring-hover" />

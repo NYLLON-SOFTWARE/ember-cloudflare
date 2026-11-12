@@ -69,6 +69,10 @@ describe("Workspace name", () => {
     renderSidebar({ workspaceName: "Analytical Engines" }, { ...EMBER, tagline });
     // Clear of the drawer's close button.
     expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toHaveClass("max-md:pr-10");
+    // It starts where the rows' icons and the sections' carets do, 9px in.
+    expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toHaveClass("px-[9px]");
+    expect(screen.getByRole("link", { name: "Threads" })).toHaveClass("px-[9px]");
+    expect(screen.getByRole("button", { name: "Rooms" })).toHaveClass("px-[9px]");
     expect(screen.queryByText(tagline)).not.toBeInTheDocument();
   });
 });
