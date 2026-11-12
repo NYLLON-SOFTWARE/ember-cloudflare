@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { ASSISTANT_ID, searchOfQuery, startingInvolvement, type Account, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User, type UserId } from "@ember/protocol";
+import { ASSISTANT_ID, searchOfQuery, startingInvolvement, type Account, type DirectRoom, type Favorites, type Me, type Room, type RoomId, type SidebarRoom, type User } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { Xmark } from "@/components/icons/iconoir";
 import { MainContent, SkipLink } from "@/components/main-content";
@@ -25,13 +25,13 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { apart, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { dmPath, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, type Route } from "@/hooks/use-route";
+import { dmPath, messagePath, navigate, pageMark, returnTo, roomPath, routeOf, useHash, useQuery, useRoute, type Route } from "@/hooks/use-route";
 import { ActivityPage } from "./activity-page";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
 import { NewDirectDialog } from "./new-direct-dialog";
-import { opensProfile, ProfilePaneContext, ProfilePanel, type ProfilePane } from "./profile-pane";
+import { opensProfile, PROFILE_PARAM, ProfilePaneContext, ProfilePanel, type ProfilePane } from "./profile-pane";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
 import { RoomView, type RoomViewHandle } from "./room-view";
@@ -558,14 +558,17 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const currentRoomId = room?.id ?? null;
   const unreadConversations = (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length;
 
-  // Someone's profile, open beside the room or Activity's conversation, until another page shows.
-  const [profileOpen, setProfileOpen] = useState<{ userId: UserId; route: Route } | null>(null);
+  // Someone's profile, open beside the room or Activity's conversation, as the address's `profile` says,
+  // so a reload keeps it and Back closes it. Another profile takes its place in the history, and closing
+  // it goes back, as Back would, to the page it opened on.
+  const query = useQuery();
+  const profileId = new URLSearchParams(query).get(PROFILE_PARAM);
   const profilePane: ProfilePane | null =
     route.page === "room" || route.page === "activity"
       ? {
-          userId: profileOpen?.route === route ? profileOpen.userId : null,
-          open: (userId) => setProfileOpen({ userId, route }),
-          close: () => setProfileOpen(null),
+          userId: profileId || null,
+          open: (userId) => navigate(`${location.pathname}?${new URLSearchParams({ [PROFILE_PARAM]: userId })}`, { replace: profileId !== null }),
+          close: () => returnTo(location.pathname),
           startDirect: startDirectWith,
         }
       : null;
@@ -788,6 +791,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return (
           <ActivityPage
             me={me}
+            place={route.roomId === undefined ? null : { roomId: route.roomId, messageId: route.messageId, threadId: route.threadId, replyId: route.replyId }}
             rooms={rooms}
             activity={activityFeed}
             renderRoom={(place, panes) => {
@@ -795,7 +799,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               return (
                 shown && (
                   <RoomView
-                    key={`${shown.id}/${place.itemId}`}
+                    key={shown.id}
                     room={shown}
                     messageId={place.messageId}
                     threadId={place.threadId}

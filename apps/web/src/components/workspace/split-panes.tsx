@@ -36,6 +36,11 @@ export interface Pane {
   defaultShare: number;
   /** Closes it, which a back button does while it's the deepest; the first pane usually has none. */
   onClose?: () => void;
+  /**
+   * Whether the separator before it sizes it, as a thread's or a profile's beside a conversation does,
+   * rather than the pane before it, as the feed's does: what its value says, and how far Home and End go.
+   */
+  sizedBySeparator?: boolean;
 }
 
 interface Props {
@@ -81,13 +86,17 @@ export function SplitPanes({ layoutKey, panes, className, onCollapsed, onLayout 
   const onePane = useMediaQuery(ONE_PANE);
   const shown = onePane ? 1 : width > 0 ? fittingCount(minWidths, width) : panes.length;
   const hidden = panes.length - shown;
-  useLayoutEffect(() => onCollapsed?.(hidden), [hidden, onCollapsed]);
+  useLayoutEffect(() => {
+    onCollapsed?.(hidden);
+  }, [hidden, onCollapsed]);
   const deepest = panes.at(-1);
   const stack: PaneStack = { open: panes.map((pane) => pane.id), shown: panes.slice(hidden).map((pane) => pane.id), back: deepest?.onClose ?? null };
   const stackKey = `${stack.open.join()}|${stack.shown.join()}|${stack.back !== null}`;
   const latest = useRef(stack);
   latest.current = stack;
-  useLayoutEffect(() => onLayout?.(latest.current), [stackKey, onLayout]);
+  useLayoutEffect(() => {
+    onLayout?.(latest.current);
+  }, [stackKey, onLayout]);
 
   // The widths of the panes shown, shared as they were last, or as they start.
   const visibleMins = minWidths.slice(hidden);
@@ -95,8 +104,8 @@ export function SplitPanes({ layoutKey, panes, className, onCollapsed, onLayout 
   const visibleShares = normalized(all.slice(hidden), defaults.slice(hidden));
   const shares = width > 0 ? fitted(visibleShares, width - SEPARATORS_PX * (shown - 1), visibleMins) : visibleShares;
 
+  const available = width - SEPARATORS_PX * (shown - 1);
   const resize = (index: number, deltaPx: number) => {
-    const available = width - SEPARATORS_PX * (shown - 1);
     const next = moved(shares, index, deltaPx, available, visibleMins);
     // Hidden panes keep the shares they had.
     const whole = hidden === 0 ? next : [...all.slice(0, hidden), ...next.map((share) => share * all.slice(hidden).reduce((sum, s) => sum + s, 0))];
@@ -116,10 +125,9 @@ export function SplitPanes({ layoutKey, panes, className, onCollapsed, onLayout 
               {visible && index > hidden && (
                 <PaneSeparator
                   label={pane.label}
-                  widthPx={shares[index - hidden - 1]! * width}
-                  minPx={visibleMins[index - hidden - 1]!}
-                  maxPx={(shares[index - hidden - 1]! + share) * width - visibleMins[index - hidden]!}
+                  {...separatorRange(pane.sizedBySeparator ?? false, shares[index - hidden - 1]! * available, share * available, visibleMins[index - hidden - 1]!, pane.minWidth)}
                   onResize={(delta) => resize(index - hidden - 1, delta)}
+                  sizesNext={pane.sizedBySeparator}
                 />
               )}
               <div className="flex min-h-0 min-w-0 flex-col" style={{ flex: `${share} 1 0px`, minWidth: visible ? Math.min(pane.minWidth, width) : 0 }} hidden={!visible}>
@@ -131,6 +139,16 @@ export function SplitPanes({ layoutKey, panes, className, onCollapsed, onLayout 
       </div>
     </PaneStackContext>
   );
+}
+
+/**
+ * The width a separator's value says, and how narrow and wide it goes, for the separator between panes
+ * `beforePx` and `afterPx` wide, of minimum widths `beforeMin` and `afterMin`: the width of the pane
+ * after it when `sizesAfter`, or else of the pane before it.
+ */
+function separatorRange(sizesAfter: boolean, beforePx: number, afterPx: number, beforeMin: number, afterMin: number) {
+  const pair = beforePx + afterPx;
+  return sizesAfter ? { widthPx: afterPx, minPx: afterMin, maxPx: pair - beforeMin } : { widthPx: beforePx, minPx: beforeMin, maxPx: pair - afterMin };
 }
 
 /** A pane and the separator before it, which hold their place in the row whether they show or not. */

@@ -208,9 +208,15 @@ describe("Search page", () => {
 });
 
 describe("Activity page", () => {
-  it("shows Activity at `/activity`, and nothing under it", () => {
+  it("shows Activity at `/activity`, with the conversation and thread open beside it that a room's address after it names", () => {
     expect(workspacePageOf("/activity")).toEqual({ page: "activity" });
     expect(isAppPage("/activity")).toBe(true);
-    for (const path of ["/activity/", "/activity/1", "/activities"]) expect(workspacePageOf(path), path).toBeNull();
+    expect(workspacePageOf("/activity/rooms/r1")).toEqual({ page: "activity", roomId: "r1" });
+    expect(workspacePageOf("/activity/rooms/r1/@m1")).toEqual({ page: "activity", roomId: "r1", messageId: "m1" });
+    expect(workspacePageOf("/activity/rooms/r1/threads/m1")).toEqual({ page: "activity", roomId: "r1", threadId: "m1" });
+    expect(workspacePageOf("/activity/rooms/r1/threads/m1/@m2")).toEqual({ page: "activity", roomId: "r1", threadId: "m1", replyId: "m2" });
+    expect(isAppPage("/activity/rooms/r1/threads/m1/@m2")).toBe(true);
+    for (const path of ["/activity/", "/activity/1", "/activities", "/activity/rooms", "/activity/rooms/r1/huddle", "/activity/rooms/r1/messages/m1", "/activity/rooms/opens/r1/edit", "/activity/users/u1"])
+      expect(workspacePageOf(path), path).toBeNull();
   });
 });

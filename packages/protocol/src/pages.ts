@@ -75,8 +75,12 @@ export type WorkspacePage =
   | { page: "threads" }
   /** The workspace's files, at `/files`, its canvases at `/files/canvases`, or the files you've starred at `/files/starred`. */
   | { page: "files"; place: FilesPlace }
-  /** Activity, at `/activity`: mentions, DMs, thread replies, reactions and invitations, newest first. */
-  | { page: "activity" };
+  /**
+   * Activity, at `/activity`: mentions, DMs, thread replies, reactions and invitations, newest first. With
+   * a conversation open beside it, the room's address follows, as `/activity/rooms/<id>/@<message id>`,
+   * and with a thread open too, `/activity/rooms/<id>/threads/<message id>/@<reply id>`.
+   */
+  | { page: "activity"; roomId?: RoomId; messageId?: string; threadId?: string; replyId?: string };
 
 /** Which of the workspace's files the Files page lists. */
 export type FilesPlace = "all" | "canvases" | "starred";
@@ -168,6 +172,7 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   const files = pathname.match(/^\/files(?:\/(canvases|starred))?$/);
   if (files) return { page: "files", place: (files[1] as FilesPlace | undefined) ?? "all" };
   if (pathname === ACTIVITY_PATH) return { page: "activity" };
+  if (pathname.startsWith(`${ACTIVITY_PATH}/rooms/`)) return activityPageOf(pathname.slice(ACTIVITY_PATH.length));
   if (/^\/users\/[^/]+\/profile$/.test(pathname)) return { page: "profile" };
   if (/^\/users\/[^/]+\/push_subscriptions$/.test(pathname)) return { page: "push-subscriptions" };
   const person = pathname.match(/^\/users\/([^/]+)$/);
@@ -213,6 +218,14 @@ function threadPageOf(roomSegment: string, threadSegment: string, replySegment: 
   if (!isMessageId(threadId)) return { page: "room", roomId };
   const replyId = replySegment === undefined ? null : decoded(replySegment);
   return isMessageId(replyId) ? { page: "room", roomId, threadId, replyId } : { page: "room", roomId, threadId };
+}
+
+/** Activity with the conversation `roomPath`, a room's own address, names open beside it, or null where it names none. */
+function activityPageOf(roomPath: string): WorkspacePage | null {
+  const room = workspacePageOf(roomPath);
+  if (room?.page !== "room" || room.huddle) return null;
+  const { page: _, ...place } = room;
+  return { page: "activity", ...place };
 }
 
 /** A room's page at its huddle's link, from the address's room segment. */

@@ -44,6 +44,26 @@ describe("SplitPanes", () => {
     expect(flexOf("a")).toBeCloseTo(1 / 3);
   });
 
+  it("sizes the pane after it where that pane says so, as a thread's beside a conversation, Home and End going as far as it goes", async () => {
+    const panes = [pane("feed", 200, 0.3), pane("room", 300, 0.4), { ...pane("thread", 250, 0.3), sizedBySeparator: true }];
+    rowWidth = 1002;
+    render(<SplitPanes layoutKey="side" panes={panes} />);
+    const separator = screen.getByRole("separator", { name: "Resize thread" });
+    // The row's 1000px between its two separators: the thread's 300, room and thread 700 between them.
+    expect(separator).toHaveAttribute("aria-valuenow", "300");
+    expect(separator).toHaveAttribute("aria-valuemin", "250");
+    expect(separator).toHaveAttribute("aria-valuemax", "400");
+    separator.focus();
+    await userEvent.keyboard("{Home}");
+    expect(separator).toHaveAttribute("aria-valuenow", "250");
+    await userEvent.keyboard("{End}");
+    expect(separator).toHaveAttribute("aria-valuenow", "400");
+    expect(flexOf("room")).toBeCloseTo(0.3);
+    // The keys move the line: Left widens the pane after it.
+    await userEvent.keyboard("{ArrowRight}");
+    expect(separator).toHaveAttribute("aria-valuenow", "384");
+  });
+
   it("follows a pointer dragging it", () => {
     render(<SplitPanes layoutKey="drag" panes={[pane("feed", 300, 0.5), pane("room", 300, 0.5)]} />);
     const separator = screen.getByRole("separator");

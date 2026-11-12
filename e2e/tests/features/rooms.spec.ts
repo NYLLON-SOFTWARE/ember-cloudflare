@@ -130,12 +130,21 @@ test.describe("Activity", () => {
     await expect(feed.getByText("Mention in #general")).toBeVisible();
 
     await feed.getByRole("button", { name: /@channel Lunch\?/ }).click();
-    await expect(grace.page.getByRole("heading", { level: 1, name: "general" })).toBeVisible();
-    await expect(grace.page).toHaveURL(/\/activity$/);
+    const general = grace.page.getByRole("heading", { level: 1, name: "general" });
+    await expect(general).toBeVisible();
+    // The address says what's open beside the feed, so a reload keeps it, and Back closes it.
+    await expect(grace.page).toHaveURL(new RegExp(`/activity/rooms/${rooms.general.id}/@[^/]+$`));
+    await expect(activity).toHaveAttribute("aria-current", "page");
     // Opening it reads it, which leaves it in the feed.
     await expect(activity).not.toHaveAttribute("aria-description");
     await expect(feed.getByText("Mention in #general")).toBeVisible();
     await expect(grace.page.getByRole("separator", { name: "Resize activity" })).toBeVisible();
+    await grace.page.reload();
+    await expect(general).toBeVisible();
+    await grace.page.goBack();
+    await expect(grace.page).toHaveURL(/\/activity$/);
+    await expect(general).toBeHidden();
+    await expect(feed.getByText("Mention in #general")).toBeVisible();
   });
 });
 

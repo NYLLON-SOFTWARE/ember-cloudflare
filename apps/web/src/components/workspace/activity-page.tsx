@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { workspacePageOf, type ActivityItem, type Me, type RoomId, type SidebarRoom, type UserId } from "@ember/protocol";
 import {
   ArrowLeft,
@@ -6,17 +6,21 @@ import {
   ChatBubbleEmpty,
   CheckCircle,
   Emoji,
+  EyeClosed,
   FilterList,
   MessageText,
+  MoreHoriz,
   Search,
   UserPlus,
   Xmark,
 } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
+import { PageLink } from "@/components/page-link";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Switch } from "@/components/ui/switch";
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { activityPath, navigate, personPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import type { ActivityState } from "@/hooks/use-activity";
 import { ALL_ACTIVITY, filterCount, shows, type ActivityFilter, type ActivityFilterKind, type ActivityNames, type ActivityTab } from "@/lib/activity-feed";
@@ -27,14 +31,16 @@ import { PageHeader } from "./page-header";
 import { ProfilePanel, useProfilePane } from "./profile-pane";
 import type { RoomPanes } from "./room-view";
 import { ONE_PANE, SplitPanes, type Pane, type PaneStack } from "./split-panes";
-import { UserAvatar } from "./user-avatar";
+import { AvatarLink } from "./user-avatar";
 
 // Activity, as Slack's is: a feed of what's happened to you beside the conversation an item opens, with
 // its thread, or the profile of someone in it, in a third pane, each pane as wide as you drag it.
 
-/** Where an item opened: its room, around its message, with its thread when it's a reply, or one opened since. */
+/**
+ * The conversation open beside the feed, as the address says: its room, around a message, with a thread
+ * open, at a reply in it when an item that's a reply opened it.
+ */
 export interface ActivityPlace {
-  itemId: number;
   roomId: RoomId;
   messageId?: string;
   threadId?: string;
@@ -43,6 +49,8 @@ export interface ActivityPlace {
 
 interface Props {
   me: Me;
+  /** The conversation the address opens beside the feed, or null. */
+  place: ActivityPlace | null;
   rooms: SidebarRoom[];
   activity: ActivityState;
   /** The room `place` names, shown in a pane, its thread put in another by `panes`. */
@@ -69,36 +77,34 @@ const FILTERS: Array<{ kind: ActivityFilterKind; label: string }> = [
 
 /** Where an item opens its conversation: at its message, and a reply in its thread, at the reply. */
 export function placeOf(item: ActivityItem): ActivityPlace {
-  const place: ActivityPlace = { itemId: item.id, roomId: item.roomId };
+  const place: ActivityPlace = { roomId: item.roomId };
   if (item.messageId === null) return place;
-  if (item.parentId !== null) return { ...place, messageId: item.parentId, threadId: item.parentId, replyId: item.messageId };
+  if (item.parentId !== null) return { ...place, threadId: item.parentId, replyId: item.messageId };
   return { ...place, messageId: item.messageId };
 }
 
-export function ActivityPage({ me, rooms, activity, renderRoom, onPaneStack }: Props) {
+export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneStack }: Props) {
   useTitle("Activity");
   const { feed, loadOlder, mark, markAllRead } = activity;
   const profile = useProfilePane();
   const [filter, setFilter] = useState<ActivityFilter>(ALL_ACTIVITY);
-  const [place, setPlace] = useState<ActivityPlace | null>(null);
   const [threadPane, setThreadPane] = useState<HTMLElement | null>(null);
-  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  const [searching, setSearching] = useState(false);
   const [hiddenPanes, setHiddenPanes] = useState(0);
   const names = useActivityNames(rooms, me);
   const shown = useMemo(() => feed.items.filter((item) => shows(filter, item, names)), [feed.items, filter, names]);
   const roomOpen = place !== null && rooms.some((room) => room.id === place.roomId);
   const conversation = place !== null && roomOpen;
 
+  // The panes open are the address's, so a reload keeps them, and Back closes the one opened last.
   const open = (item: ActivityItem) => {
-    setPlace(placeOf(item));
-    profile?.close();
+    navigate(activityPath(placeOf(item)));
     if (!item.read) mark([item.id], true);
   };
-  const closeThread = useCallback(() => setPlace((place) => place && { ...place, threadId: undefined, replyId: undefined }), []);
-  const closeConversation = () => {
-    setPlace(null);
-    profile?.close();
+  const closeThread = () => {
+    if (place) navigate(activityPath({ roomId: place.roomId, messageId: place.messageId }));
   };
+  const closeConversation = () => navigate(activityPath(null));
 
   // A thread opened from the conversation shown opens in the pane beside it, as Slack's do, rather than
   // going to the room's page; anything else the conversation links to goes there.
@@ -109,13 +115,26 @@ export function ActivityPage({ me, rooms, activity, renderRoom, onPaneStack }: P
     const target = workspacePageOf(link.pathname);
     if (target?.page !== "room" || target.roomId !== place.roomId || target.threadId === undefined) return;
     event.preventDefault();
-    profile?.close();
-    setPlace({ ...place, threadId: target.threadId, replyId: target.replyId });
+    navigate(activityPath({ ...place, threadId: target.threadId, replyId: target.replyId }));
   };
 
   const side = profile?.userId ? "profile" : place?.threadId !== undefined ? "thread" : null;
   // On phones, the feed shows alone until an item opens, rather than the bubble that waits for one.
   const phone = useMediaQuery(ONE_PANE);
+  // Filter, search and Mark all read, in the page's header: the feed's own beside the panes, and the
+  // phone's over it.
+  const tools = (
+    <FeedTools
+      filter={filter}
+      onFilter={setFilter}
+      rooms={rooms}
+      me={me}
+      searching={searching}
+      onSearching={setSearching}
+      anyUnread={feed.unread > 0}
+      onMarkAllRead={markAllRead}
+    />
+  );
   const panes: Pane[] = [
     {
       id: "feed",
@@ -124,19 +143,17 @@ export function ActivityPage({ me, rooms, activity, renderRoom, onPaneStack }: P
       defaultShare: side ? 0.3 : 0.42,
       content: (
         <Feed
-          me={me}
           shown={shown}
           activity={activity}
           filter={filter}
           onFilter={setFilter}
-          rooms={rooms}
+          tools={phone ? null : tools}
+          searching={searching}
+          onSearching={setSearching}
           names={names}
-          openedId={place?.itemId ?? null}
-          selected={selected}
-          onSelected={setSelected}
+          openedId={place && (shown.find((item) => opens(item, place))?.id ?? null)}
           onOpen={open}
           onLoadOlder={loadOlder}
-          onMarkAllRead={markAllRead}
         />
       ),
     },
@@ -160,9 +177,9 @@ export function ActivityPage({ me, rooms, activity, renderRoom, onPaneStack }: P
   ];
   if (phone && !conversation) panes.pop();
   if (side === "thread" && roomOpen)
-    panes.push({ id: "thread", label: "Resize thread", minWidth: 300, defaultShare: 0.3, onClose: closeThread, content: <div ref={setThreadPane} className="h-full min-h-0" /> });
+    panes.push({ id: "thread", label: "Resize thread", minWidth: 300, defaultShare: 0.3, sizedBySeparator: true, onClose: closeThread, content: <div ref={setThreadPane} className="h-full min-h-0" /> });
   if (side === "profile" && profile)
-    panes.push({ id: "profile", label: "Resize profile", minWidth: 300, defaultShare: 0.3, onClose: profile.close, content: <ProfilePanel userId={profile.userId!} me={me} pane={profile} placement="pane" /> });
+    panes.push({ id: "profile", label: "Resize profile", minWidth: 300, defaultShare: 0.3, sizedBySeparator: true, onClose: profile.close, content: <ProfilePanel userId={profile.userId!} me={me} pane={profile} placement="pane" /> });
 
   return (
     <>
@@ -174,6 +191,7 @@ export function ActivityPage({ me, rooms, activity, renderRoom, onPaneStack }: P
           <span aria-hidden="true" className="text-base font-[650]">
             Activity
           </span>
+          {phone && <div className="ml-auto flex items-center">{tools}</div>}
         </PageHeader>
       </div>
       <SplitPanes
@@ -185,6 +203,14 @@ export function ActivityPage({ me, rooms, activity, renderRoom, onPaneStack }: P
       />
     </>
   );
+}
+
+/** Whether `item` opened `place`, or opens it, a thread opened in its conversation since included. */
+function opens(item: ActivityItem, place: ActivityPlace): boolean {
+  const its = placeOf(item);
+  if (its.roomId !== place.roomId) return false;
+  if (its.replyId !== undefined) return its.threadId === place.threadId && its.replyId === place.replyId;
+  return its.messageId === place.messageId && (its.messageId !== undefined || place.threadId === undefined);
 }
 
 /** Who an item is from and where it happened, by name, for the feed and its search. */
@@ -205,14 +231,9 @@ function useActivityNames(rooms: SidebarRoom[], me: Me): ActivityNames {
   }, [rooms, me.id, people, nameOf]);
 }
 
-/** Slack's chat bubble where the conversation goes until an item opens one. */
+/** Where the conversation goes until an item opens one: the page's content, quiet. */
 function NothingOpen() {
-  return (
-    <MainContent className="grid h-full place-content-center justify-items-center gap-3 border-l bg-background p-6 text-center text-muted-foreground">
-      <ChatBubbleEmpty className="size-24 text-hover" strokeWidth={1} />
-      <p className="text-sm">Pick something from your activity to see it here.</p>
-    </MainContent>
-  );
+  return <MainContent className="h-full border-l bg-background" />;
 }
 
 function BackToActivity({ onClick }: { onClick: () => void }) {
@@ -225,28 +246,26 @@ function BackToActivity({ onClick }: { onClick: () => void }) {
 }
 
 interface FeedProps {
-  me: Me;
   shown: ActivityItem[];
   activity: ActivityState;
   filter: ActivityFilter;
   onFilter: (filter: ActivityFilter) => void;
-  rooms: SidebarRoom[];
+  /** Filter, search and Mark all read, beside the title, unless the phone's header has them. */
+  tools: ReactNode;
+  searching: boolean;
+  onSearching: (searching: boolean) => void;
   names: ActivityNames;
   openedId: number | null;
-  selected: ReadonlySet<number>;
-  onSelected: (selected: ReadonlySet<number>) => void;
   onOpen: (item: ActivityItem) => void;
   onLoadOlder: () => void;
-  onMarkAllRead: () => void;
 }
 
 /**
- * The feed: Activity's title and tabs, the tools that select, mark, filter and search it, and its items,
- * newest first, under the day each came, with older ones loading as it's scrolled to its end.
+ * The feed: Activity's title and tools, its tabs and Unreads, and its items, newest first, under the day
+ * each came, with older ones loading as it's scrolled to its end.
  */
-function Feed({ me, shown, activity, filter, onFilter, rooms, names, openedId, selected, onSelected, onOpen, onLoadOlder, onMarkAllRead }: FeedProps) {
+function Feed({ shown, activity, filter, onFilter, tools, searching, onSearching, names, openedId, onOpen, onLoadOlder }: FeedProps) {
   const { feed, mark } = activity;
-  const [searching, setSearching] = useState(false);
   const search = useRef<HTMLInputElement>(null);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -262,89 +281,39 @@ function Feed({ me, shown, activity, filter, onFilter, rooms, names, openedId, s
     return () => observer.disconnect();
   }, [feed.more, onLoadOlder]);
 
-  const allSelected = shown.length > 0 && shown.every((item) => selected.has(item.id));
-  const selectAll = () => onSelected(allSelected ? new Set() : new Set(shown.map((item) => item.id)));
-  const markSelected = (read: boolean) => {
-    const ids = shown.filter((item) => selected.has(item.id)).map((item) => item.id);
-    if (ids.length === 0) return read ? onMarkAllRead() : undefined;
-    for (let start = 0; start < ids.length; start += 500) mark(ids.slice(start, start + 500), read);
-    onSelected(new Set());
-  };
-  const toggle = (id: number) => {
-    const next = new Set(selected);
-    if (!next.delete(id)) next.add(id);
-    onSelected(next);
-  };
-
   return (
     <section aria-labelledby="activity-title" className="flex h-full min-h-0 flex-col bg-surface">
-      <header className="shrink-0 border-b px-4 pt-3.5 max-md:pt-1">
-        <div className="flex items-center gap-2 max-md:sr-only">
-          <h1 id="activity-title" className="text-[19px] leading-tight font-bold">
+      <header className="shrink-0 border-b px-4 pt-3 max-md:pt-1">
+        <div className="flex min-h-8 items-center gap-1 max-md:sr-only">
+          <h1 id="activity-title" className="mr-auto text-[19px] leading-tight font-bold">
             Activity
           </h1>
           {feed.unread > 0 && <span className="sr-only">{feed.unread} unread</span>}
+          {tools}
         </div>
-        <nav aria-label="Activity" className="mt-2 flex gap-1 overflow-x-auto [scrollbar-width:none]">
+        <nav aria-label="Activity" className="mt-1.5 flex items-center gap-1 overflow-x-auto [scrollbar-width:none]">
           {TABS.map(({ tab, label }) => (
             <button
               key={tab}
               type="button"
               aria-pressed={filter.tab === tab}
               onClick={() => onFilter({ ...filter, tab })}
-              className="relative flex shrink-0 items-center gap-1.5 px-2 pt-1 pb-2.5 text-sm font-semibold touch:min-h-11 touch:min-w-11 touch:justify-center text-muted-foreground hover:text-foreground aria-pressed:text-foreground aria-pressed:after:absolute aria-pressed:after:inset-x-1 aria-pressed:after:bottom-0 aria-pressed:after:h-0.5 aria-pressed:after:rounded-full aria-pressed:after:bg-foreground"
+              className="relative flex shrink-0 items-center px-2 pt-1 pb-2.5 text-sm font-semibold touch:min-h-11 touch:min-w-11 touch:justify-center text-muted-foreground hover:text-foreground aria-pressed:text-foreground aria-pressed:after:absolute aria-pressed:after:inset-x-1 aria-pressed:after:bottom-0 aria-pressed:after:h-0.5 aria-pressed:after:rounded-full aria-pressed:after:bg-foreground"
             >
               {label}
-              {tab === "all" && feed.unread > 0 && <span aria-hidden="true" className="size-1.5 rounded-full bg-foreground" />}
             </button>
           ))}
-        </nav>
-      </header>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2">
-        <input
-          type="checkbox"
-          aria-label={allSelected ? "Deselect all" : "Select all"}
-          checked={allSelected}
-          onChange={selectAll}
-          // Fingers mark all read with the button beside it, as Slack's phones have no checkboxes.
-          className="size-4 accent-foreground touch:hidden"
-        />
-        <button
-          type="button"
-          onClick={() => markSelected(true)}
-          title={selected.size > 0 ? "Mark selected as read" : "Mark all as read"}
-          className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[13px] font-semibold whitespace-nowrap hover:bg-hover touch:min-h-11"
-        >
-          <CheckCircle className="size-4" />
-          {selected.size > 0 ? `Mark ${selected.size} read` : "Mark all read"}
-        </button>
-        {selected.size > 0 && (
+          {/* A chip that says itself whether it's on, filled while it is. */}
           <button
             type="button"
-            onClick={() => markSelected(false)}
-            className="inline-flex min-h-8 items-center rounded-lg border px-2.5 text-[13px] font-semibold hover:bg-hover touch:min-h-11"
+            aria-pressed={filter.unreadOnly}
+            onClick={() => onFilter({ ...filter, unreadOnly: !filter.unreadOnly })}
+            className="mb-1.5 ml-auto shrink-0 rounded-full border px-2.5 py-0.5 text-[13px] font-semibold text-muted-foreground hover:text-foreground aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:text-background touch:min-h-11 touch:px-3.5"
           >
-            Mark unread
+            Unreads
           </button>
-        )}
-        <label className="ml-auto flex items-center gap-2 text-[13px] font-semibold">
-          Unreads
-          <Switch checked={filter.unreadOnly} onCheckedChange={(unreadOnly) => onFilter({ ...filter, unreadOnly })} />
-        </label>
-        <FilterPopover filter={filter} onFilter={onFilter} rooms={rooms} me={me} />
-        <button
-          type="button"
-          aria-label="Search activity"
-          aria-pressed={searching}
-          onClick={() => {
-            if (searching) onFilter({ ...filter, query: "" });
-            setSearching(!searching);
-          }}
-          className="grid size-8 shrink-0 place-items-center rounded-lg border hover:bg-hover aria-pressed:bg-hover touch:size-11"
-        >
-          <Search className="size-4" />
-        </button>
-      </div>
+        </nav>
+      </header>
       {searching && (
         <div className="shrink-0 border-b px-4 py-2">
           <input
@@ -355,7 +324,7 @@ function Feed({ me, shown, activity, filter, onFilter, rooms, names, openedId, s
             onKeyDown={(event) => {
               if (event.key !== "Escape") return;
               onFilter({ ...filter, query: "" });
-              setSearching(false);
+              onSearching(false);
             }}
             placeholder="Search activity"
             aria-label="Search activity"
@@ -367,7 +336,7 @@ function Feed({ me, shown, activity, filter, onFilter, rooms, names, openedId, s
         {!feed.loaded ? (
           <li className="p-6 text-sm text-muted-foreground">Loading…</li>
         ) : shown.length === 0 ? (
-          <li className="p-6 text-sm text-muted-foreground">{feed.items.length === 0 ? "Nothing’s happened yet. Mentions, DMs, thread replies and reactions will show up here." : "Nothing matches."}</li>
+          <li className="p-6 text-sm text-muted-foreground">{emptyFeedLine(feed.items.length > 0, filter)}</li>
         ) : (
           withDays(shown).map((entry) =>
             entry.type === "day" ? (
@@ -380,8 +349,6 @@ function Feed({ me, shown, activity, filter, onFilter, rooms, names, openedId, s
                 item={entry.item}
                 names={names}
                 opened={entry.item.id === openedId}
-                selected={selected.has(entry.item.id)}
-                onSelect={() => toggle(entry.item.id)}
                 onOpen={() => onOpen(entry.item)}
                 onMark={(read) => mark([entry.item.id], read)}
               />
@@ -391,6 +358,52 @@ function Feed({ me, shown, activity, filter, onFilter, rooms, names, openedId, s
         <div ref={end} aria-hidden="true" className="h-px" />
       </ol>
     </section>
+  );
+}
+
+/** An icon button in the page's header, with nothing around it until a pointer's over it. */
+const TOOL = "relative grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-hover hover:text-foreground aria-pressed:bg-hover aria-pressed:text-foreground data-[state=open]:bg-hover touch:size-11";
+
+interface ToolsProps {
+  filter: ActivityFilter;
+  onFilter: (filter: ActivityFilter) => void;
+  rooms: SidebarRoom[];
+  me: Me;
+  searching: boolean;
+  onSearching: (searching: boolean) => void;
+  anyUnread: boolean;
+  onMarkAllRead: () => void;
+}
+
+/** Filter by, Search, and ⋯ with Mark all read. */
+function FeedTools({ filter, onFilter, rooms, me, searching, onSearching, anyUnread, onMarkAllRead }: ToolsProps) {
+  return (
+    <>
+      <FilterPopover filter={filter} onFilter={onFilter} rooms={rooms} me={me} />
+      <button
+        type="button"
+        aria-label="Search activity"
+        aria-pressed={searching}
+        onClick={() => {
+          if (searching) onFilter({ ...filter, query: "" });
+          onSearching(!searching);
+        }}
+        className={TOOL}
+      >
+        <Search className="size-[18px]" />
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger aria-label="More activity actions" className={TOOL}>
+          <MoreHoriz className="size-[18px]" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem disabled={!anyUnread} onSelect={onMarkAllRead}>
+            <CheckCircle />
+            Mark all read
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }
 
@@ -413,88 +426,171 @@ export function withDays(items: ActivityItem[], now = new Date()): FeedEntry[] {
   return entries;
 }
 
+/** What the feed says with nothing to show: one line, saying why. */
+function emptyFeedLine(anyItems: boolean, filter: ActivityFilter): string {
+  if (!anyItems) return "No activity yet.";
+  const onlyUnreads = filter.unreadOnly && filter.tab === "all" && filter.kinds.size === 0 && filter.roomId === null && filter.query.trim() === "";
+  return onlyUnreads ? "You’re all caught up." : "Nothing matches.";
+}
+
 /** What an item is, in a word or two, and the icon by its source. */
 const KINDS: Record<ActivityItem["kind"], { icon: typeof AtSign; source: (where: string) => string }> = {
   mention: { icon: AtSign, source: (where) => `Mention in ${where}` },
   direct: { icon: ChatBubbleEmpty, source: () => "Direct message" },
   thread: { icon: MessageText, source: (where) => `Thread in ${where}` },
   reaction: { icon: Emoji, source: (where) => `Reaction in ${where}` },
-  invitation: { icon: UserPlus, source: (where) => `Added you to ${where}` },
+  invitation: { icon: UserPlus, source: (where) => where },
 };
 
 interface RowProps {
   item: ActivityItem;
   names: ActivityNames;
   opened: boolean;
-  selected: boolean;
-  onSelect: () => void;
   onOpen: () => void;
   onMark: (read: boolean) => void;
 }
 
+/** How long a finger holds an item for its menu, and how far it can stray meanwhile. */
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_SLOP_PX = 10;
+
 /**
- * An item: who it's from, when, what it says and where it came from, bold with a dot while it's unread.
- * Pressing it opens its conversation beside the feed; its checkbox selects it, and its button marks it
- * read or unread, both showing as a pointer passes or it has focus.
+ * An item: who it's from, when, what it says and where it came from, on a brighter surface with its
+ * author in bold while it's unread. Pressing it opens its conversation beside the feed, which reads it.
+ * Its one button, marking it read or unread, shows only as a pointer passes or it has focus; U does the
+ * same, and its menu, which a right click, the menu key or a long press opens, has it too.
  */
-function ActivityRow({ item, names, opened, selected, onSelect, onOpen, onMark }: RowProps) {
+function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
   const people = useContext(PeopleContext);
   const { icon: Icon, source } = KINDS[item.kind];
   const where = names.roomNameOf(item.roomId);
   const author = names.nameOf(item.actorId);
+  const actor = { id: item.actorId, name: author, avatarUrl: people.get(item.actorId)?.avatarUrl };
   const date = new Date(item.at);
   const sameDay = date.toDateString() === new Date().toDateString();
+  const markLabel = item.read ? "Mark unread" : "Mark read";
+  const toggle = () => onMark(!item.read);
+
+  // The menu opens where it was asked for, at the pointer, or by the item's start for the menu key.
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const press = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const pressed = useRef(false);
+  const openMenu = (event: MouseEvent<HTMLLIElement>) => {
+    event.preventDefault();
+    const box = event.currentTarget.getBoundingClientRect();
+    const byKey = event.clientX === 0 && event.clientY === 0;
+    setMenuAt(byKey ? { x: 48, y: 16 } : { x: event.clientX - box.left, y: event.clientY - box.top });
+  };
+  const pointerDown = (event: PointerEvent<HTMLLIElement>) => {
+    if (event.pointerType !== "touch") return;
+    const box = event.currentTarget.getBoundingClientRect();
+    const at = { x: event.clientX - box.left, y: event.clientY - box.top };
+    pressed.current = false;
+    press.current = {
+      ...at,
+      timer: setTimeout(() => {
+        pressed.current = true;
+        setMenuAt(at);
+      }, LONG_PRESS_MS),
+    };
+  };
+  const pointerMove = (event: PointerEvent<HTMLLIElement>) => {
+    const started = press.current;
+    if (!started) return;
+    const box = event.currentTarget.getBoundingClientRect();
+    if (Math.hypot(event.clientX - box.left - started.x, event.clientY - box.top - started.y) > LONG_PRESS_SLOP_PX) endPress();
+  };
+  const endPress = () => {
+    if (press.current) clearTimeout(press.current.timer);
+    press.current = null;
+  };
+  useEffect(() => endPress, []);
+  const keyDown = (event: KeyboardEvent) => {
+    if (event.key.toLowerCase() !== "u" || event.metaKey || event.ctrlKey || event.altKey) return;
+    event.preventDefault();
+    toggle();
+  };
+
   return (
     <li
       data-unread={!item.read || undefined}
       aria-current={opened || undefined}
+      onContextMenu={openMenu}
+      onPointerDown={pointerDown}
+      onPointerMove={pointerMove}
+      onPointerUp={endPress}
+      onPointerCancel={endPress}
+      // A long press opened the menu, which the press's click mustn't open the item behind.
+      onClickCapture={(event) => {
+        if (!pressed.current) return;
+        pressed.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
       className={cn(
-        "group relative flex gap-3 border-b px-4 py-3 hover:bg-hover aria-[current=true]:bg-hover",
+        "group relative flex gap-3 border-b px-4 py-3 [-webkit-touch-callout:none] hover:bg-hover aria-[current=true]:bg-hover touch:select-none",
+        !item.read && "bg-activity-unread",
         opened && "shadow-[inset_3px_0_0_var(--color-foreground)]",
       )}
     >
-      <input
-        type="checkbox"
-        aria-label={`Select ${author}’s ${item.kind}`}
-        checked={selected}
-        onChange={onSelect}
-        className={cn("mt-2 size-4 shrink-0 accent-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 touch:hidden", selected && "opacity-100")}
-      />
-      <UserAvatar user={{ id: item.actorId, name: author, avatarUrl: people.get(item.actorId)?.avatarUrl }} square className="mt-0.5 size-9 shrink-0" />
-      <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset">
-        <span className="flex items-baseline gap-2">
-          <span className={cn("truncate text-[15px]", item.read ? "font-semibold" : "font-bold")}>{author}</span>
+      {/* The avatar and name open the author's profile, as a message's do, over the button that covers the row. */}
+      <AvatarLink user={actor} square reach="none" className="z-[1] mt-0.5 size-9" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2 pr-8 touch:pr-0">
+          <PageLink href={personPath(item.actorId)} className={cn("relative z-[1] truncate text-[15px] hover:underline", item.read ? "font-medium" : "font-bold")}>
+            {author}
+          </PageLink>
           <time dateTime={item.at} className="shrink-0 text-xs text-muted-foreground">
             {sameDay ? timeLabel(date) : dateLabel(date)}
           </time>
-        </span>
-        <span className={cn("line-clamp-2 text-[15px] leading-snug wrap-anywhere", item.read ? "text-muted-foreground" : "text-foreground")}>
-          {preview(item)}
-        </span>
-        <span className="mt-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
-          <Icon className="size-3.5 shrink-0" />
-          <span className="truncate">{source(where)}</span>
-        </span>
-      </button>
-      <span className="relative z-[1] flex shrink-0 flex-col items-end gap-1">
-        {!item.read && <span aria-label="Unread" className="mt-2 size-2.5 rounded-full bg-foreground" />}
+        </div>
         <button
           type="button"
-          onClick={() => onMark(!item.read)}
-          title={item.read ? "Mark unread" : "Mark read"}
-          aria-label={item.read ? `Mark unread: ${author}` : `Mark read: ${author}`}
-          className="grid size-7 place-items-center rounded-md border bg-background opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-hover touch:size-11 touch:opacity-100"
+          onClick={onOpen}
+          onKeyDown={keyDown}
+          aria-keyshortcuts="U"
+          // Who it's from, whether it's unread, what it says and where, as separate words, which the
+          // lines it shows them in wouldn't keep apart.
+          aria-label={`${author}${item.read ? "" : ", unread"}: ${preview(item)}, ${source(where)}`}
+          className="block w-full text-left outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
         >
-          {item.read ? <span className="size-2.5 rounded-full border-2 border-foreground" /> : <CheckCircle className="size-4" />}
+          <span className={cn("line-clamp-2 text-[15px] leading-snug wrap-anywhere", item.read ? "text-muted-foreground" : "text-foreground")}>{preview(item)}</span>
+          <span className="mt-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+            <Icon className="size-3.5 shrink-0" />
+            <span className="truncate">{source(where)}</span>
+          </span>
         </button>
-      </span>
+      </div>
+      <button
+        type="button"
+        onClick={toggle}
+        title={markLabel}
+        aria-label={`${markLabel}: ${author}`}
+        className="absolute top-2.5 right-3 z-[1] grid size-7 place-items-center rounded-md text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-background hover:text-foreground touch:hidden"
+      >
+        {item.read ? <EyeClosed className="size-4" /> : <CheckCircle className="size-4" />}
+      </button>
+      <DropdownMenu open={menuAt !== null} onOpenChange={(open) => !open && setMenuAt(null)}>
+        <DropdownMenuTrigger aria-hidden tabIndex={-1} className="pointer-events-none absolute size-px" style={menuAt ? { left: menuAt.x, top: menuAt.y } : undefined} />
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem onSelect={onOpen}>
+            <Icon />
+            Open
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={toggle}>
+            {item.read ? <EyeClosed /> : <CheckCircle />}
+            {markLabel}
+            <kbd className="ml-auto pl-4 text-xs text-muted-foreground">U</kbd>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </li>
   );
 }
 
 /** What an item's row says it is. */
 function preview(item: ActivityItem): string {
-  if (item.kind === "invitation") return "Added you to a private room";
+  if (item.kind === "invitation") return "Added you";
   if (item.kind === "reaction") return `Reacted ${item.content ?? ""} to “${item.preview}”`;
   return item.preview || "(a file)";
 }
@@ -520,9 +616,9 @@ function FilterPopover({ filter, onFilter, rooms, me }: FilterProps) {
     <Popover>
       <PopoverTrigger
         aria-label={count > 0 ? `Filter, ${count} on` : "Filter"}
-        className={cn("relative grid size-8 shrink-0 place-items-center rounded-lg border hover:bg-hover touch:size-11", count > 0 && "bg-hover")}
+        className={cn(TOOL, count > 0 && "text-foreground")}
       >
-        <FilterList className="size-4" />
+        <FilterList className="size-[18px]" />
         {count > 0 && (
           <span aria-hidden="true" className="absolute -top-1.5 -right-1.5 grid size-4 place-items-center rounded-full bg-foreground text-[10px] font-bold text-background">
             {count}

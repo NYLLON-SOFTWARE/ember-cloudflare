@@ -1384,8 +1384,9 @@ describe("Activity", () => {
   const activityLink = () => within(screen.getByRole("navigation", { name: "Workspace" })).getByRole("link", { name: "Activity" });
   const feed = () => screen.getByRole("list", { name: "Activity items" });
   const grace: DirectoryUser = { id: "u2", name: "Grace", bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" };
-  const serveActivity = (items: ActivityItem[]) =>
+  const serveActivity = (items: ActivityItem[], responses: Parameters<typeof serve>[0] = {}) =>
     serve({
+      ...responses,
       "GET /api/users": () => Response.json({ users: [grace] }),
       "GET /api/activity": () => Response.json({ items, unread: items.filter((i) => !i.read).length, more: false }),
       "POST /api/activity/marks": () => new Response(null, { status: 204 }),
@@ -1428,9 +1429,11 @@ describe("Activity", () => {
     await user.click(screen.getByRole("button", { name: "Threads" }));
     expect(previews()).toEqual([expect.stringContaining("a reply")]);
     await user.click(screen.getByRole("button", { name: "All" }));
-    await user.click(screen.getByRole("switch"));
+    const unreads = screen.getByRole("button", { name: "Unreads", pressed: false });
+    await user.click(unreads);
+    expect(unreads).toHaveAttribute("aria-pressed", "true");
     expect(previews()).toHaveLength(2);
-    await user.click(screen.getByRole("switch"));
+    await user.click(unreads);
     await user.click(screen.getByRole("button", { name: "Search activity" }));
     await user.type(screen.getByRole("searchbox", { name: "Search activity" }), "lunch");
     expect(previews()).toEqual([expect.stringContaining("lunch?")]);
@@ -1440,15 +1443,90 @@ describe("Activity", () => {
     expect(within(feed()).getByRole("button", { name: "Mark unread: Grace" })).toBeInTheDocument();
   });
 
+  it("shows an unread item by its row alone, marking it with U or its menu, and everything from ⋯", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(2), item(1, { read: true })]);
+    const { user } = showWorkspace("/activity");
+    const row = async (preview: string) => (await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: new RegExp(preview) })).closest("li")!;
+    const unread = await row("Look at this 2");
+    expect(unread).toHaveClass("bg-activity-unread");
+    expect(await row("Look at this 1")).not.toHaveClass("bg-activity-unread");
+    expect(within(unread).getByRole("button", { name: /Look at this 2/ })).toHaveAccessibleName(/^Grace, unread: /);
+    // No dots, and the tabs have none either: the rail's count says there's something unread.
+    expect(within(feed()).queryByLabelText("Unread")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All" })).toHaveTextContent(/^All$/);
+
+    within(unread).getByRole("button", { name: /Look at this 2/ }).focus();
+    await user.keyboard("u");
+    expect(fetch).toHaveBeenCalledWith("/api/activity/marks", expect.objectContaining({ body: JSON.stringify({ ids: [2], read: true }) }));
+    expect(unread).not.toHaveClass("bg-activity-unread");
+
+    fireEvent.contextMenu(unread, { clientX: 40, clientY: 20 });
+    await user.click(await screen.findByRole("menuitem", { name: /^Mark unread/ }));
+    expect(fetch).toHaveBeenCalledWith("/api/activity/marks", expect.objectContaining({ body: JSON.stringify({ ids: [2], read: false }) }));
+    expect(unread).toHaveClass("bg-activity-unread");
+
+    await user.click(screen.getByRole("button", { name: "More activity actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Mark all read" }));
+    expect(fetch).toHaveBeenCalledWith("/api/activity/marks", expect.objectContaining({ body: JSON.stringify({ all: true, read: true }) }));
+  });
+
+  it("says in one line why the feed's empty", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(1, { read: true })]);
+    const { user } = showWorkspace("/activity");
+    await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ });
+    await user.click(screen.getByRole("button", { name: "Unreads" }));
+    expect(within(feed()).getByRole("listitem")).toHaveTextContent(/^You’re all caught up\.$/);
+    await user.click(screen.getByRole("button", { name: "Search activity" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search activity" }), "nothing like it");
+    expect(within(feed()).getByRole("listitem")).toHaveTextContent(/^Nothing matches\.$/);
+  });
+
   it("opens an item's room beside the feed at its message, reading the item", async () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
     serveActivity([item(1)]);
     const { user } = showWorkspace("/activity");
     await user.click(await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ }));
     expect(await screen.findByRole("heading", { level: 1, name: "random" })).toBeInTheDocument();
-    expect(location.pathname).toBe("/activity");
+    // The address says what's open, so a reload keeps it, and Back closes it.
+    expect(location.pathname).toBe("/activity/rooms/random/@m1");
     expect(fetch).toHaveBeenCalledWith("/api/activity/marks", expect.objectContaining({ body: JSON.stringify({ ids: [1], read: true }) }));
     expect(screen.getAllByRole("separator", { name: "Resize activity" })).toHaveLength(1);
+    expect(within(feed()).getAllByRole("listitem").find((row) => row.getAttribute("aria-current") === "true")).toHaveTextContent("Look at this 1");
+    act(() => history.back());
+    await waitFor(() => expect(location.pathname).toBe("/activity"));
+    expect(screen.queryByRole("heading", { level: 1, name: "random" })).not.toBeInTheDocument();
+  });
+
+  it("opens the conversation and thread its address names beside the feed, closing the thread back to the conversation", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(3, { kind: "thread", parentId: "m0", preview: "a reply" })]);
+    const { user } = showWorkspace("/activity/rooms/random/threads/m0/@m3");
+    expect(await screen.findByRole("heading", { level: 1, name: "random" })).toBeInTheDocument();
+    expect(await screen.findByRole("separator", { name: "Resize thread" })).toBeInTheDocument();
+    await waitFor(() => expect(within(feed()).getAllByRole("listitem").find((row) => row.getAttribute("aria-current") === "true")).toHaveTextContent("a reply"));
+    await user.click(await screen.findByRole("button", { name: "Close thread" }));
+    expect(location.pathname).toBe("/activity/rooms/random");
+    expect(screen.queryByRole("separator", { name: "Resize thread" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "random" })).toBeInTheDocument();
+  });
+
+  it("opens an item's author's profile beside the feed from their name or avatar, without opening the item", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(1)], { "GET /api/users/u2": () => Response.json({ person: { ...grace, bio: "Wrote the first compiler" } }) });
+    const { user } = showWorkspace("/activity");
+    await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ });
+    const [avatar, name] = within(feed()).getAllByRole("link", { name: "Grace" });
+    expect(avatar).toHaveAttribute("href", "/users/u2");
+    await user.click(name!);
+    const profile = screen.getByRole("complementary", { name: "Profile" });
+    expect(await within(profile).findByRole("heading", { name: "Grace" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/activity");
+    expect(fetch).not.toHaveBeenCalledWith("/api/activity/marks", expect.anything());
+    await user.click(within(profile).getByRole("button", { name: "Close profile" }));
+    await user.click(avatar!);
+    expect(screen.getByRole("complementary", { name: "Profile" })).toBeInTheDocument();
   });
 });
 
@@ -1473,8 +1551,28 @@ describe("Profile pane", () => {
     expect(within(profile).getByText("Wrote the first compiler")).toBeInTheDocument();
     expect(within(profile).getByText(/local time$/)).toBeInTheDocument();
     expect(within(profile).getByRole("button", { name: "Message" })).toBeInTheDocument();
-    expect(within(profile).getByRole("link", { name: "View full profile" })).toHaveAttribute("href", "/users/u2");
+    expect(within(profile).getByRole("button", { name: "More actions" })).toBeInTheDocument();
     await user.click(within(profile).getByRole("button", { name: "Close profile" }));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Profile" })).not.toBeInTheDocument());
+    expect(location.pathname + location.search).toBe("/rooms/general");
+  });
+
+  it("keeps the profile open in the address, through a reload, Back closing it", async () => {
+    serve({ "GET /api/users/u2": () => Response.json({ person: { id: "u2", name: "Grace", bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" } }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(personLink("u2"));
+    expect(location.pathname + location.search).toBe("/rooms/general?profile=u2");
+    act(() => history.back());
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Profile" })).not.toBeInTheDocument());
+    expect(location.search).toBe("");
+    cleanup();
+
+    showWorkspace("/rooms/general?profile=u2");
+    expect(await within(await screen.findByRole("complementary", { name: "Profile" })).findByRole("heading", { name: "Grace" })).toBeInTheDocument();
+    // Closed on a page it didn't open on, it goes, leaving nothing for Back to open again.
+    await user.click(screen.getByRole("button", { name: "Close profile" }));
+    expect(location.pathname + location.search).toBe("/rooms/general");
     expect(screen.queryByRole("complementary", { name: "Profile" })).not.toBeInTheDocument();
   });
 
