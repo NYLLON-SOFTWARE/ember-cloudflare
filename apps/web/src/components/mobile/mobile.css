@@ -16,7 +16,7 @@
    * A room's tabs make way for the on-screen keyboard, and on a short screen, a phone on its side, aren't
    * shown at all, so the conversation keeps the height it has.
    */
-  html[data-typing] [role="tablist"][aria-label="Room tabs"] {
+  html[data-typing] :has(> [role="tablist"][aria-label="Room tabs"]) {
     display: none;
   }
 
@@ -110,7 +110,7 @@
  * conversation keeps the little height there is, under the on-screen keyboard too.
  */
 @media (height < 37.5rem) and (pointer: coarse) {
-  [role="tablist"][aria-label="Room tabs"] {
+  :has(> [role="tablist"][aria-label="Room tabs"]) {
     display: none;
   }
 }
