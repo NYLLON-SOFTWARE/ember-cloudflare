@@ -16,8 +16,8 @@ import { mergeCanvas } from "@/lib/canvas-merge";
 // that restarted, sends the canvas whole, which what's here is merged into (canvas-merge.ts), so nothing
 // written is lost while the socket is away. Steps wait while it is, and go once it's back.
 
-/** How long the editor gathers steps before it sends them. */
-const SEND_EVERY_MS = 100;
+/** How long the editor gathers steps before it sends them: a few keys a message, which each wakes the room. */
+const SEND_EVERY_MS = 250;
 /** How long a send waits for the room before the editor sends again, as one lost with its socket may have been. */
 const CONFIRM_WITHIN_MS = 5_000;
 /** Marks the transactions that take in what the room sends, which aren't this person's writing. */

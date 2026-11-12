@@ -314,7 +314,7 @@ export class ChatRoom extends DurableObject<Env> {
     super(ctx, env);
     // Heartbeats are answered by the runtime without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'));
-    this.huddle = new Huddle(ctx, env, (time) => this.serially(() => this.checkHuddleBy(time)));
+    this.huddle = new Huddle(ctx, env, (time) => this.serially(() => this.ringBy(time)));
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -371,7 +371,7 @@ export class ChatRoom extends DurableObject<Env> {
     return this.serially(async () => {
       if (await this.revocationsFor(roomId).refuse(tags, authorizedAt)) return closedAtOnce(CloseCode.Reconnect);
       const response = await this.huddle.join(user, roomId, tags, muted);
-      if (this.huddle.live) await this.checkHuddleBy(Date.now() + HUDDLE_CHECK_MS);
+      if (this.huddle.live) await this.ringBy(Date.now() + HUDDLE_CHECK_MS);
       return response;
     });
   }
@@ -445,8 +445,9 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Erases what's left of a deleted room, once R2 has deleted its files. Otherwise, checks the room's
-   * huddle, and comes back to check it while one goes on, and sends the room's logs. While a huddle
+   * Erases what's left of a deleted room, once R2 has deleted its files. Otherwise, saves and lets go of
+   * the canvases people have stopped writing, checks the room's huddle, and comes back to check it while
+   * one goes on, and sends the room's logs. While a huddle
    * goes on, the alarm rings far more often than a log that failed is sent again, so the logs wait
    * until they're due.
    */
@@ -455,6 +456,8 @@ export class ChatRoom extends DurableObject<Env> {
       Promise.all([this.ctx.storage.get<RoomId>(DELETED_ROOM), this.ctx.storage.get<RoomId>(UNDELIVERED_ROOM), this.ctx.storage.get<number>(LOGS_DUE)]),
     );
     if (deleted !== undefined) return this.erase(deleted);
+    const canvases = this.canvases;
+    const nextCanvas = canvases ? await this.serially(() => canvases.ring()) : null;
     const nextCheck = await this.huddle.check().catch((error: unknown) => {
       console.error("Checking the room's huddle failed:", error instanceof Error ? error.name : "unknown error");
       return Date.now() + HUDDLE_CHECK_MS;
@@ -462,7 +465,9 @@ export class ChatRoom extends DurableObject<Env> {
     const logsWait = nextCheck !== null && logsDue !== undefined && logsDue > Date.now();
     if (undelivered !== undefined && !logsWait) await this.sendLogs(undelivered);
     // Logs that waited are due before the huddle's next check, or after it. Logs just sent have set the alarm for whatever is left of them.
-    if (nextCheck !== null) await this.serially(() => this.checkHuddleBy(logsWait ? Math.min(nextCheck, logsDue) : nextCheck));
+    const huddleBy = nextCheck === null ? null : logsWait ? Math.min(nextCheck, logsDue) : nextCheck;
+    const next = [huddleBy, nextCanvas].filter((time) => time !== null);
+    if (next.length > 0) await this.serially(() => this.ringBy(Math.min(...next)));
   }
 
   /**
@@ -1016,7 +1021,7 @@ export class ChatRoom extends DurableObject<Env> {
       roomId,
       writers: (tabId) => this.roomSockets().filter((socket) => socket.readyState === WebSocket.OPEN && (socket.deserializeAttachment() as Attachment).canvas === tabId),
       send: (ws, frame) => this.send(ws, frame),
-      serially: (work) => this.serially(work),
+      ringBy: (time) => this.ringBy(time),
       load: (tabId) => workspace(this.env).roomCanvas(roomId, tabId),
       keep: (tabId, body, version, by) => workspace(this.env).keepRoomCanvas(roomId, tabId, body, version, by),
       save: async (tabId, actor, save) => {
@@ -1875,11 +1880,11 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Sets the alarm to check the room's huddle by `time`, unless it's set for sooner. A deleted room's
+   * Sets the alarm to ring by `time`, to check the room's huddle or save its canvases, unless it's set for sooner. A deleted room's
    * alarm is left as it is, as `wakeAt` leaves it, and like it this runs one event at a time with
    * deleting the room.
    */
-  private async checkHuddleBy(time: number): Promise<void> {
+  private async ringBy(time: number): Promise<void> {
     if (await this.isDeleted()) return;
     const alarm = await this.ctx.storage.getAlarm();
     if (alarm === null || alarm > time) await this.ctx.storage.setAlarm(time);

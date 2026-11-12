@@ -1,8 +1,11 @@
 import type { RoomId } from "@ember/protocol";
 import { EMPTY_CANVAS, roomTabPath, roomTabsPath, type OpenedTab } from "@ember/protocol/library";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { canvasEditing } from "../src/canvas-schema";
-import { api, closeOf, connect, createRoom, freshDeploy, freshRoom, signIn, type Client, type Session } from "./support";
+import { LET_GO_AFTER_MS, type CanvasSessions } from "../src/canvas-sessions";
+import type { ChatRoom } from "../src/chat-room";
+import { api, closeOf, connect, createRoom, freshDeploy, freshRoom, roomStub, signIn, type Client, type Session } from "./support";
 
 // People writing a canvas together over the room's socket, the room's object applying their steps in turn
 // (canvas-sessions.ts).
@@ -35,6 +38,16 @@ async function joining(client: Client, tabId: string) {
 /** The canvas as the Workspace has saved it. */
 const saved = async (as: Session, room: RoomId, tabId: string) => (await ok<OpenedTab>(await asking(as, roomTabPath(room, tabId)))).canvas!;
 
+/** The canvases room `room`'s object holds in memory, with its alarm. */
+const canvasesOf = (room: RoomId) =>
+  runInDurableObject(roomStub(room), async (instance: ChatRoom, state: DurableObjectState) => ({
+    canvases: (instance as unknown as { canvases: CanvasSessions | null }).canvases,
+    alarm: await state.storage.getAlarm(),
+  }));
+
+/** Rings room `room`'s canvases as its alarm would at `now`, answering when they'd have it ring next. */
+const ringAt = (room: RoomId, now: number) => runInDurableObject(roomStub(room), (instance: ChatRoom) => (instance as unknown as { canvases: CanvasSessions }).canvases.ring(now));
+
 beforeEach(freshDeploy);
 
 describe("Writing a canvas together", () => {
@@ -64,6 +77,42 @@ describe("Writing a canvas together", () => {
     graces.close();
     await expect.poll(async () => (await saved(ada, room, tabId)).version).toBe(2);
     expect(textOf((await saved(ada, room, tabId)).body)).toBe("AG");
+  });
+
+  it("saves a canvas and lets it go once writing stops, by the room's alarm, and loads it again for the next change", async () => {
+    const room = await freshRoom("canvas-idle");
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const tabId = await canvasIn(room, ada);
+    const [adas, graces] = [await connect(room, ada), await connect(room, grace)];
+    await joining(adas, tabId);
+    await joining(graces, tabId);
+    const typedAt = Date.now();
+    adas.send({ type: "canvas.steps", tabId, version: 0, clientId: "ada-1", steps: [typing(1, "Hi")] });
+    await adas.next("canvas.steps");
+    await graces.next("canvas.steps");
+
+    // The alarm, not a timer, comes back for it, and while the writing is recent it only rings again.
+    const writing = await canvasesOf(room);
+    expect(writing.canvases?.holds(tabId)).toBe(true);
+    expect(writing.alarm).toBeGreaterThanOrEqual(typedAt + LET_GO_AFTER_MS);
+    expect(writing.alarm).toBeLessThanOrEqual(Date.now() + LET_GO_AFTER_MS);
+    expect(await runDurableObjectAlarm(roomStub(room))).toBe(true);
+    expect((await canvasesOf(room)).canvases?.holds(tabId)).toBe(true);
+    expect((await saved(ada, room, tabId)).version).toBe(0);
+
+    // Once it's quiet, the canvas is saved and nothing of it is left in memory, so the object can hibernate.
+    expect(await ringAt(room, Date.now() + LET_GO_AFTER_MS)).toBeNull();
+    expect((await canvasesOf(room)).canvases?.holds(tabId)).toBe(false);
+    expect(textOf((await saved(ada, room, tabId)).body)).toBe("Hi");
+    expect((await saved(ada, room, tabId)).version).toBe(1);
+
+    // The next change loads it from the Workspace, and goes on from the version both writers have.
+    graces.send({ type: "canvas.steps", tabId, version: 1, clientId: "grace-1", steps: [typing(3, "!")] });
+    expect(await adas.next("canvas.steps")).toMatchObject({ version: 1, clientIds: ["grace-1"] });
+    expect(await graces.next("canvas.steps")).toMatchObject({ version: 1, clientIds: ["grace-1"] });
+    expect((await canvasesOf(room)).canvases?.holds(tabId)).toBe(true);
+    expect(await ringAt(room, Date.now() + LET_GO_AFTER_MS)).toBeNull();
+    expect(textOf((await saved(ada, room, tabId)).body)).toBe("Hi!");
   });
 
   it("sends a writer who connects again the steps they missed, or the canvas whole once it can't", async () => {
