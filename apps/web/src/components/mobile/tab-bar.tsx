@@ -5,7 +5,7 @@ import { SEARCHES_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 import { NavigationIcon } from "../workspace/navigation-icon";
 import { preloadRarePages } from "../workspace/rare-pages";
-import { OpenSearchContext, opensSearch } from "../workspace/search-box";
+import { OpenSearchContext, opensSearch } from "../workspace/open-search";
 import { TAB_PATHS, type Tab } from "./tabs";
 import "./mobile.css";
 import "./tab-bar.css";

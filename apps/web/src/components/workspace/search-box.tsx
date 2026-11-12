@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, type MouseEvent, type ReactNode } from "react";
+import { useContext, useMemo, type ReactNode } from "react";
 import {
   hasFilters,
   SEARCH_FLAGS,
@@ -22,37 +22,11 @@ import { cn } from "@/lib/utils";
 // The search box, after Slack's: Cmd+F or Ctrl+F, or Search in the rail or a room's header, opens it over
 // the page, and a search in it opens its results (search-page.tsx).
 
-/** What the search box opens with. */
-export interface SearchBoxOptions {
-  /** The link that opened it, which gets focus back as it closes, or null when a key did. */
-  opener: HTMLElement | null;
-  /** The search in it, as the results page has it. */
-  search?: Search;
-  /** How the results it opens are sorted. */
-  sort?: SearchSort;
-  /** The room it was opened in, which "In this room" names, and which a box opened without a search starts in. */
-  roomId?: RoomId | null;
-}
-
-export type OpenSearch = (options: SearchBoxOptions) => void;
-
-/** Opens the search box, for the rail, a room's header and the results page. */
-export const OpenSearchContext = createContext<OpenSearch>(() => {});
+// Opening it is in open-search.ts, which the app's script has without the box. It's said again here.
+export { OpenSearchContext, opensSearch, type OpenSearch, type SearchBoxOptions } from "./open-search";
 
 /** The title of what the box and the results page ask before they clear your recent searches. */
 export const CONFIRM_CLEAR_SEARCHES = "Clear recent searches";
-
-/**
- * A link's click that opens the search box in place, as Search does in the rail and a room's header,
- * leaving one with a modifier key to follow the link, as into a new tab.
- */
-export function opensSearch(open: OpenSearch, options: Omit<SearchBoxOptions, "opener"> = {}) {
-  return (event: MouseEvent<HTMLAnchorElement>) => {
-    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    event.preventDefault();
-    open({ ...options, opener: event.currentTarget });
-  };
-}
 
 /** Each filter's icon, as the project's owner chose them. */
 export const FLAG_ICONS: Record<SearchFlag, (props: { className?: string }) => ReactNode> = {

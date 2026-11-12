@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { AppearanceMenu } from "./appearance-menu";
 import { FilesRailLink } from "./files-rail-link";
 import { NavigationIcon } from "./navigation-icon";
-import { OpenSearchContext, opensSearch } from "./search-box";
+import { OpenSearchContext, opensSearch } from "./open-search";
 import { UserAvatar } from "./user-avatar";
 import { preloadRarePages } from "./rare-pages";
 
