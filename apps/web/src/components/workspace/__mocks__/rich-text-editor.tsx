@@ -23,7 +23,7 @@ const attachmentMarkup = ({ contentType, html }: Attachment) =>
  * written under jsdom: a text box whose lines are one paragraph of Lexxy's markup, which tells of
  * changes and keys as the editor does, and of addresses pasted in it, below which it shows what's
  * added. Formatting turns on and off as the toolbar asks, for the whole text, which it tells `onFormats` of,
- * and links are kept as `links`. The browser tests in e2e/ write in Lexxy itself.
+ * and clearing it turns off, and links are kept as `links`. The browser tests in e2e/ write in Lexxy itself.
  */
 export default function RichTextEditor({ label, placeholder, rows, initialValue, autoFocus, onChange, onKeyDown, onLinkPasted, onFormats, ref }: ComponentProps<typeof Editor>) {
   const box = useRef<HTMLTextAreaElement>(null);
@@ -51,6 +51,11 @@ export default function RichTextEditor({ label, placeholder, rows, initialValue,
   useImperativeHandle(ref, () => ({
     value: () => (box.current?.value ? bodyFromPlainText(box.current.value) : EMPTY) + attachments.current.map(attachmentMarkup).join(""),
     clear: () => {
+      // As Lexxy does, the empty paragraph it leaves has no format, nor code, at the cursor.
+      if (formats.current !== NO_FORMATS) {
+        formats.current = NO_FORMATS;
+        onFormats?.(NO_FORMATS);
+      }
       if (!box.current?.value && attachments.current.length === 0) return;
       box.current!.value = "";
       attach([]);

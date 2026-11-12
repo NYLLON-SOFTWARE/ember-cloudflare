@@ -215,6 +215,35 @@ describe("Formatting toolbar", () => {
     expect(tool("Code")).toBeEnabled();
   });
 
+  it("has every button working again once code is sent, in the empty box left", async () => {
+    const { onSend, input, user } = await showComposer();
+    const everyTool = () => within(screen.getByRole("toolbar", { name: "Formatting" })).getAllByRole("button");
+    await user.click(tool("Code block"));
+    await user.type(input, "let a = 1;{Control>}{Enter}{/Control}");
+    expect(onSend).toHaveBeenCalledOnce();
+    expect(input).toHaveValue("");
+    for (const button of everyTool()) {
+      expect(button, button.getAttribute("aria-label")!).toBeEnabled();
+      expect(button, button.getAttribute("aria-label")!).not.toHaveAttribute("aria-pressed", "true");
+    }
+
+    await user.click(tool("Code"));
+    await user.type(input, "x{Enter}");
+    expect(onSend).toHaveBeenCalledTimes(2);
+    for (const button of everyTool()) expect(button, button.getAttribute("aria-label")!).toBeEnabled();
+    await user.type(input, "plain");
+    expect(tool("Bold")).toBeEnabled();
+  });
+
+  it("keeps formatting what's written while the room is disconnected, which holds it to send", async () => {
+    const { input, user } = await showComposer({ disabled: true });
+    await user.click(tool("Bold"));
+    expect(tool("Bold")).toHaveAttribute("aria-pressed", "true");
+    expect(input).toHaveFocus();
+    for (const name of ["Formatting", "Emoji", "Mention someone"]) expect(screen.getByRole("button", { name: new RegExp(name) }), name).toBeEnabled();
+    for (const name of ["Attach", "Send Message", "Schedule for later"]) expect(screen.getByRole("button", { name }), name).toBeDisabled();
+  });
+
   it("starts a new line on Enter in a code block, where Ctrl+Enter sends, and sends on Enter from a list", async () => {
     const { onSend, input, user } = await showComposer();
     await user.click(tool("Code block"));
@@ -222,8 +251,8 @@ describe("Formatting toolbar", () => {
     expect(onSend).not.toHaveBeenCalled();
     await user.keyboard("{Control>}{Enter}{/Control}");
     expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>one<br>two</p>", false);
+    expect(tool("Code block")).toHaveAttribute("aria-pressed", "false");
 
-    await user.click(tool("Code block"));
     await user.click(tool("Bulleted list"));
     await user.type(input, "a{Enter}");
     expect(onSend).toHaveBeenCalledTimes(2);
@@ -872,6 +901,19 @@ describe("Schedule for later", () => {
     expect(send).toHaveBeenCalledExactlyOnceWith({ type: "scheduled.create", clientMessageId: expect.any(String) as string, body: "<p>Morning all</p>", sendAt: tomorrow.getTime() });
     expect(onSend).not.toHaveBeenCalled();
     expect(input).toHaveValue("");
+  });
+
+  it("has every formatting button working again once code is scheduled", async () => {
+    const { input, user } = await showScheduling({ roomId: "s4" });
+    const tool = (name: string) => within(screen.getByRole("toolbar", { name: "Formatting" })).getByRole("button", { name });
+    await user.click(tool("Code block"));
+    await user.type(input, "later();");
+    expect(tool("Bold")).toBeDisabled();
+    await user.click(scheduleMenu());
+    await user.click(await screen.findByRole("menuitem", { name: /^Tomorrow at 9:00/ }));
+    expect(input).toHaveValue("");
+    expect(tool("Bold")).toBeEnabled();
+    expect(tool("Code block")).toHaveAttribute("aria-pressed", "false");
   });
 
   it("schedules a reply in its thread, and puts back what the room wouldn't schedule, saying why", async () => {

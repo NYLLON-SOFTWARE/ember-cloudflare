@@ -33,7 +33,7 @@ export function AttachMenu({ disabled, onUpload, onFilesInEmber, onReturnFocus }
 }
 
 /** Emoji, which offers the reactions' emoji to write at the cursor. */
-export function EmojiButton({ disabled, onPick, onReturnFocus }: { disabled: boolean; onPick: (emoji: string) => void; onReturnFocus: () => void }) {
+export function EmojiButton({ disabled = false, onPick, onReturnFocus }: { disabled?: boolean; onPick: (emoji: string) => void; onReturnFocus: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -75,7 +75,7 @@ export function EmojiButton({ disabled, onPick, onReturnFocus }: { disabled: boo
 }
 
 /** Aa, which shows and hides the formatting toolbar, as Slack's does. */
-export function FormattingToggle({ disabled, shown, onToggle }: { disabled: boolean; shown: boolean; onToggle: () => void }) {
+export function FormattingToggle({ disabled = false, shown, onToggle }: { disabled?: boolean; shown: boolean; onToggle: () => void }) {
   return (
     <button
       type="button"
@@ -93,7 +93,7 @@ export function FormattingToggle({ disabled, shown, onToggle }: { disabled: bool
 }
 
 /** @, which writes an @ at the cursor, opening the list of people to mention. */
-export function MentionButton({ disabled, onMention }: { disabled: boolean; onMention: () => void }) {
+export function MentionButton({ disabled = false, onMention }: { disabled?: boolean; onMention: () => void }) {
   return (
     <button type="button" disabled={disabled} title="Mention someone" onMouseDown={(event) => event.preventDefault()} onClick={onMention} className={ICON_BUTTON}>
       <AtSign className="size-[18px]" />
