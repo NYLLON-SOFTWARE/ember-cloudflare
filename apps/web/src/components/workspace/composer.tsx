@@ -21,6 +21,7 @@ import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandl
 import { PHONE_TOOL_GROUPS } from "./formatting";
 import { ScheduledNotice } from "./schedule-send";
 import { useEditableBody } from "./editable-body";
+import { ForwardQuote } from "./message-body";
 import { RarePage } from "./rare-pages";
 import { fileSize } from "./upload-card";
 
@@ -85,7 +86,7 @@ function keepDraft(key: string, body: string | null) {
  */
 function LoadingEditor({ placeholder }: { placeholder: string }) {
   return (
-    <p aria-hidden="true" className="min-h-11 text-[15px] leading-[22px] opacity-66 max-md:min-h-[34px] touch:text-[16px]">
+    <p aria-hidden="true" className="min-h-11 truncate text-[15px] leading-[22px] opacity-66 max-md:min-h-[34px] touch:text-[16px]">
       {placeholder}
     </p>
   );
@@ -602,6 +603,8 @@ export function Composer({
               )}
             </Suspense>
           </div>
+          {/* A forward's quote, under its note as it's edited, scrolling rather than pushing the note off a phone's screen. */}
+          {editing && <ForwardQuote message={editing.message} className="max-h-[25dvh] overflow-y-auto pb-2.5" />}
           {compact && (
             <button
               type="submit"

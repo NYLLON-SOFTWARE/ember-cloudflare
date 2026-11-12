@@ -1344,6 +1344,8 @@ describe("Schedule for later", () => {
 
     await user.click(screen.getByRole("button", { name: "See all" }));
     const list = await screen.findByRole("dialog", { name: "Scheduled messages" });
+    // The sheet itself takes focus, rather than ringing its first row.
+    expect(list).toHaveFocus();
     expect(within(list).queryByRole("button", { name: "Send now" })).not.toBeInTheDocument();
     await user.click(within(list).getByRole("button", { name: /^Morning/ }));
     const sheet = await screen.findByRole("dialog", { name: "Morning" });
@@ -1463,8 +1465,15 @@ describe("Edit a message in the composer", () => {
     const { input, onSave, edit, user } = await editing({ message: { ...mine, body: `<p>See this</p>${quote}` } });
     edit();
     await vi.waitFor(() => expect(input).toHaveValue("See this"));
+    // The quote and its cite show under the note, to read rather than edit, until the edit's done.
+    const form = input.closest("form")!;
+    expect(form.querySelector(".message-content blockquote")).toHaveTextContent("Lunch at noon?");
+    expect(form.querySelector(".message-content cite")).toHaveTextContent(/^Grace · /);
+    expect(input).not.toContainElement(form.querySelector("blockquote"));
     await user.type(input, " now{Enter}");
     expect(onSave).toHaveBeenCalledExactlyOnceWith(`<p>See this now</p>${quote}`);
+    await vi.waitFor(() => expect(input).toHaveValue(""));
+    expect(form.querySelector("blockquote")).not.toBeInTheDocument();
   });
 
   it("cancels on Escape, or as it's saved unchanged, and stays where the change didn't go", async () => {

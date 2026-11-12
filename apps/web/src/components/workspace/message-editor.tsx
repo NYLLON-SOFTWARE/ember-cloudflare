@@ -9,6 +9,7 @@ import { COMPOSER_CARD, TEXT_BUTTON } from "./composer-buttons";
 import { useFormatting } from "./composer-formatting";
 import { RichTextEditor, type RichTextEditorHandle } from "./editor";
 import { useEditableBody } from "./editable-body";
+import { ForwardQuote } from "./message-body";
 
 interface Props {
   message: Message;
@@ -87,6 +88,7 @@ export function MessageEditor({ message, onSave, onClose, ref }: Props) {
           )}
         </Suspense>
       </div>
+      <ForwardQuote message={message} className="pt-2" />
       <div className="flex justify-end gap-2 pt-2">
         <button type="button" title="Esc" onClick={onClose} className={cn(TEXT_BUTTON, "border bg-background hover:bg-hover")}>
           Cancel
