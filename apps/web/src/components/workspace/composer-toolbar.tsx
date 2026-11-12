@@ -24,7 +24,7 @@ const keysOf = (keys: string) => (appleKeyboard() ? `⌘${keys}` : `Ctrl+${keys.
 
 interface Props {
   formats: Formats;
-  disabled: boolean;
+  disabled?: boolean;
   onFormat: (format: Format) => void;
   onBlock: (block: Block) => void;
   /** Links what's selected, or with null unlinks the link at the cursor. */
@@ -42,7 +42,7 @@ interface Props {
  * from the next. Each shows whether its format is on at the cursor, and inside code only the button
  * that turns the code off works. It scrolls sideways where it doesn't fit.
  */
-export function ComposerToolbar({ formats, disabled, onFormat, onBlock, onLink, linkOpen, onLinkOpenChange, onReturnFocus }: Props) {
+export function ComposerToolbar({ formats, disabled = false, onFormat, onBlock, onLink, linkOpen, onLinkOpenChange, onReturnFocus }: Props) {
   return (
     <div
       role="toolbar"

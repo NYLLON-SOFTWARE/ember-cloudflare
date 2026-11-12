@@ -225,6 +225,7 @@ interface Props {
   /** Who's writing, whose drafts are their own. */
   userId: string;
   typing: User[];
+  /** While the room's been away a while: nothing's sent or uploaded, but what's written can still be formatted. */
   disabled: boolean;
   /**
    * Holds back the editor's code while the room's first messages are on their way, and until they're
@@ -492,7 +493,6 @@ export function Composer({
             ) : (
               <ComposerToolbar
                 formats={formats}
-                disabled={disabled}
                 onFormat={(format) => editor.current?.format(format)}
                 onBlock={(block) => editor.current?.setBlock(block)}
                 onLink={(url) => editor.current?.link(url)}
@@ -547,15 +547,14 @@ export function Composer({
             />
             <AttachMenu disabled={disabled} onUpload={() => fileField.current?.click()} onFilesInEmber={() => setFilesOpen(true)} onReturnFocus={() => editor.current?.focus()} />
             <FormattingToggle
-              disabled={disabled}
               shown={toolbarShown}
               onToggle={() => {
                 setToolbarShown(!toolbarShown);
                 editor.current?.focus();
               }}
             />
-            <EmojiButton disabled={disabled} onPick={(emoji) => editor.current?.insertText(emoji)} onReturnFocus={() => editor.current?.focus()} />
-            <MentionButton disabled={disabled} onMention={() => editor.current?.startMention()} />
+            <EmojiButton onPick={(emoji) => editor.current?.insertText(emoji)} onReturnFocus={() => editor.current?.focus()} />
+            <MentionButton onMention={() => editor.current?.startMention()} />
             {extraButtons}
             {/* For fingers, the box sits far enough into its label for a fingertip on it to land on the label. */}
             {threadId !== undefined && (
