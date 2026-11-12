@@ -195,12 +195,15 @@ describe("Open a room", () => {
     await waitFor(() => expect(document.title).toBe("random"));
   });
 
-  it("goes home with an alert from a room you can't see, once the list, asked again, hasn't got it either", async () => {
-    showWorkspace("/rooms/secret");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+  it("says so in the room's place at a room you can't see, once the list, asked again, hasn't got it either, with a way to a room you can", async () => {
+    const { user } = showWorkspace("/rooms/secret");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to this room");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("You don't have access to this room");
+    expect(location.pathname).toBe("/rooms/secret");
+    expect(roomListRequests()).toBe(2);
+    await user.click(screen.getByRole("button", { name: "Go to #general" }));
     expect(await roomHeading()).toHaveTextContent("general");
     expect(location.pathname).toBe("/rooms/general");
-    expect(roomListRequests()).toBe(2);
   });
 
   it("opens a room made since the list came, which the list asked again has", async () => {
@@ -216,10 +219,11 @@ describe("Open a room", () => {
   it("asks for the list again each time the address names a room it hasn't got", async () => {
     const { user } = showWorkspace("/rooms/secret");
     await screen.findByRole("alert");
-    await roomHeading();
+    act(() => navigate("/rooms/general"));
+    expect(await roomHeading()).toHaveTextContent("general");
     act(() => navigate("/rooms/secret"));
     await waitFor(() => expect(roomListRequests()).toBe(3));
-    expect(await roomHeading()).toHaveTextContent("general");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to this room");
     // A room it has asks nothing.
     await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /random/ }));
     expect(await roomHeading()).toHaveTextContent("random");
@@ -338,10 +342,10 @@ describe("Room addresses", () => {
     await waitFor(() => expect(location.pathname).toBe("/rooms/random"));
   });
 
-  it("goes home with the alert from the address for a kind of room you can't see", async () => {
+  it("goes from the address for a kind of room you can't see to the room's own, which says so", async () => {
     showWorkspace("/rooms/closeds/secret");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
-    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to this room");
+    expect(location.pathname).toBe("/rooms/secret");
   });
 
   it("goes from a direct message's address to the room's own without looking, which then looks", async () => {
@@ -352,8 +356,8 @@ describe("Room addresses", () => {
 
   it("reads /rooms/opens as a room's id", async () => {
     showWorkspace("/rooms/opens");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
-    await waitFor(() => expect(location.pathname).toBe("/rooms/general"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to this room");
+    expect(location.pathname).toBe("/rooms/opens");
   });
 });
 
@@ -478,14 +482,16 @@ describe("Add and remove private room members", () => {
 });
 
 describe("Only members see a room", () => {
-  it("keeps a room that's gone on screen, saying it was deleted, and takes it out of the sidebar", async () => {
+  it("says in its place that a room that's gone was deleted, and takes it out of the sidebar", async () => {
     vi.stubGlobal("WebSocket", goneRoom("random"));
     serve({ "GET /api/me": () => Response.json({ user: ada }) });
     const { user } = showWorkspace("/rooms/random");
     await waitFor(() => expect(sidebarRooms()).toEqual(["general"]));
-    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("random");
+    expect(screen.getByRole("alert")).toHaveTextContent("#random was deleted");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("#random was deleted");
     expect(screen.queryByRole("textbox", { name: "Write a message" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Star/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Go to #general" })).toBeInTheDocument();
 
     vi.stubGlobal("WebSocket", OpenRoomSocket);
     await user.click(within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: /general/ }));
@@ -493,15 +499,14 @@ describe("Only members see a room", () => {
     expect(await screen.findByRole("textbox", { name: "Write a message" })).toHaveAttribute("placeholder", "Message #general");
   });
 
-  it("leaves the messages of a room that's gone with nothing to do to them", async () => {
+  it("takes away the messages of a room that's gone", async () => {
     const said: Message = { id: "m1", clientMessageId: "c1", roomId: "random", creator: ada, body: "<p>Before it went</p>", plainText: "Before it went", mentions: [], createdAt: "2026-10-14T08:00:00.000Z", updatedAt: "2026-10-14T08:00:00.000Z", editedAt: null, boosts: [] };
     vi.stubGlobal("WebSocket", goneRoom("random", [said]));
     serve({ "GET /api/me": () => Response.json({ user: ada }) });
     showWorkspace("/rooms/random");
     await waitFor(() => expect(sidebarRooms()).toEqual(["general"]));
-    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
-    const article = screen.getByText("Before it went").closest("article")!;
-    expect(within(article).queryByRole("button", { name: "Message options" })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("#random was deleted");
+    expect(screen.queryByText("Before it went")).not.toBeInTheDocument();
   });
 
   it("keeps a room / went to on screen when it goes, without asking for the list again", async () => {
@@ -509,8 +514,7 @@ describe("Only members see a room", () => {
     serve({ "GET /api/me": () => Response.json({ user: ada }) });
     showWorkspace("/");
     await waitFor(() => expect(sidebarRooms()).toEqual(["random"]));
-    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("general");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("#general was deleted");
     expect(location.pathname).toBe("/rooms/general");
     expect(roomListRequests()).toBe(1);
   });
@@ -606,14 +610,14 @@ describe("Link to a message", () => {
     expect(railCurrent()).toEqual(["Home"]);
   });
 
-  it("goes from the address of a message with a malformed id to its room, and from one in a room you can't see home with the alert", async () => {
+  it("goes from the address of a message with a malformed id to its room, and says so at one in a room you can't see", async () => {
     showWorkspace("/rooms/random/messages/%FF");
     expect(await roomHeading()).toHaveTextContent("random");
     expect(location.pathname).toBe("/rooms/random");
 
     act(() => navigate("/rooms/secret/messages/m1"));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
-    await waitFor(() => expect(location.pathname).toBe("/rooms/random"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to this room");
+    expect(location.pathname).toBe("/rooms/secret/@m1");
   });
 });
 
@@ -1661,8 +1665,7 @@ describe("Live sidebar updates", () => {
     await roomHeading();
     await workspaceSends({ type: "room.gone", roomId: "random" });
     expect(sidebarRooms()).toEqual(["general"]);
-    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("random");
+    expect(screen.getByRole("alert")).toHaveTextContent("#random was deleted");
     expect(screen.queryByRole("textbox", { name: "Write a message" })).not.toBeInTheDocument();
     expect(location.pathname).toBe("/rooms/random");
   });
@@ -1677,11 +1680,21 @@ describe("Live sidebar updates", () => {
     await waitFor(() => expect(location.pathname + location.search).toBe("/rooms/random"));
   });
 
+  it("says someone taken out of a room that's still there no longer has access to it, rather than that it was deleted", async () => {
+    showWorkspace("/rooms/random");
+    await roomHeading();
+    await workspaceSends({ type: "room.gone", roomId: "random", lostAccess: true });
+    expect(sidebarRooms()).toEqual(["general"]);
+    expect(screen.getByRole("alert")).toHaveTextContent("You no longer have access to #random");
+    expect(screen.queryByRole("textbox", { name: "Write a message" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Go to #general" })).toBeInTheDocument();
+  });
+
   it("shows a room said to be gone as it is once the workspace socket brings it back, as when someone is put back in it", async () => {
     showWorkspace("/rooms/random");
     await roomHeading();
     await workspaceSends({ type: "room.gone", roomId: "random" });
-    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
+    expect(screen.getByRole("alert")).toHaveTextContent("#random was deleted");
 
     await workspaceSends({ type: "room.saved", room: rooms[1]! });
     expect(sidebarRooms()).toEqual(["general", "random"]);
@@ -1708,7 +1721,7 @@ describe("Live sidebar updates", () => {
     vi.stubGlobal("WebSocket", ReturningRoom);
     serve({ "GET /api/me": () => Response.json({ user: ada }) });
     showWorkspace("/rooms/random");
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted."));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("#random was deleted"));
     // The page takes the room out of the sidebar in an effect, just after it says so.
     await waitFor(() => expect(sidebarRooms()).toEqual(["general"]));
 
@@ -2647,9 +2660,9 @@ describe("Huddles", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("goes home from the huddle's link of a room that isn't this person's", async () => {
+  it("says the room isn't this person's at the huddle's link of a room that isn't", async () => {
     showWorkspace("/rooms/secret/huddle", ada, HUDDLES_ON);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to this room");
     expect(preview()).not.toBeInTheDocument();
   });
 

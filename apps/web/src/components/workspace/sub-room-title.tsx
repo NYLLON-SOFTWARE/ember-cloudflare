@@ -14,7 +14,6 @@ export function SubRoomTitle({ room }: { room: SharedRoom }) {
     <span className="flex min-w-0 items-baseline">
       <PageLink
         href={roomPath(room.parent.id)}
-        title={`Go to ${room.parent.name}`}
         className="min-w-[3ch] shrink-[4] truncate text-muted-foreground no-underline hover:text-foreground hover:underline max-[429px]:hidden"
       >
         {room.parent.name}

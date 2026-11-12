@@ -12,6 +12,7 @@ import {
   INVITATION_PATH,
   LOGO_PATH,
   LOGO_TOO_LARGE,
+  LOST_ACCESS,
   MAX_EMAIL_ADDRESS_LENGTH,
   MEMBERFUL_CALLBACK_PATH,
   MEMBERFUL_CONNECTIONS_PATH,
@@ -906,6 +907,7 @@ async function createRoom(request: Request, env: Env): Promise<Response> {
   const created = await workspace(env).createRoom(credentials, room);
   if (!created) return problem(401, "Not signed in");
   if (created === "bad parent") return problem(422, SUB_ROOM_REFUSED);
+  if (typeof created === "object" && "refused" in created) return problem(422, created.refused);
   return created === "forbidden" ? problem(403, ROOM_CREATION_FORBIDDEN) : json({ room: created }, { status: 201 });
 }
 
@@ -1099,8 +1101,10 @@ async function connectToRoom(request: Request, env: Env, roomId: RoomId, huddle 
   const access = credentials && (await workspace(env).roomAccess(credentials, roomId));
   if (!access) return problem(401, "Sign in first");
   // Without waking the room's object, so a room nobody may open is never created. The app hears
-  // that the room is gone for this person, deleted or theirs no longer, and stops connecting.
-  if (!access.member || (huddle && access.banned)) return closedAtOnce(CloseCode.NotFound);
+  // that the room is gone for this person, deleted or theirs no longer, which the reason tells apart,
+  // and stops connecting.
+  if (!access.member) return closedAtOnce(CloseCode.NotFound, access.found ? LOST_ACCESS : undefined);
+  if (huddle && access.banned) return closedAtOnce(CloseCode.NotFound);
 
   const headers = new Headers(request.headers);
   headers.set(USER_HEADER, JSON.stringify(access.user));

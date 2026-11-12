@@ -17,6 +17,7 @@ import {
   isRoomId,
   mailboxOf,
   mailboxUnder,
+  notInParent,
   NAVIGATION_SLOTS,
   othersAfterMove,
   parseWorkspaceClientFrame,
@@ -526,6 +527,8 @@ export interface RoomAccess {
   user: User;
   sessionId: string;
   member: boolean;
+  /** Whether the room is there, so that someone who isn't in it hears they've lost access rather than that it was deleted. */
+  found: boolean;
   /** Whether a ban blocks the IP address the socket comes from, which lets it read but not change anything. */
   banned: boolean;
   /** When the Workspace checked, in milliseconds since the epoch. */
@@ -2708,13 +2711,17 @@ export class Workspace extends DurableObject<Env> {
    * null without a valid session. Everyone it puts in sees it in their sidebars at once, and nobody else
    * hears of it. A sub-room goes under a room they could put it under, or is refused as "bad parent".
    */
-  async createRoom(credentials: Credentials, room: NewRoom): Promise<SharedRoom | "forbidden" | "bad parent" | null> {
+  async createRoom(credentials: Credentials, room: NewRoom): Promise<SharedRoom | "forbidden" | "bad parent" | { refused: string } | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     if (!(await this.mayCreateRoomsAs(user.id))) return "forbidden";
     return this.oneAtATime(async () => {
       const parent = room.parentId ? await this.store.parentChoice(room.parentId, user.id) : null;
       if (room.parentId && !parent) return "bad parent";
+      // A private sub-room is only for people in its parent, so one naming anyone else is refused, naming
+      // them, rather than made without them, as New room only offers the parent's people.
+      const outsiders = parent && room.kind === "closed" ? await this.store.notInRoom(parent.id, room.memberIds) : [];
+      if (parent && outsiders.length > 0) return { refused: notInParent(parent.name, outsiders) };
       const created: SharedRoom = { id: sortableId(), kind: room.kind, name: room.name, icon: room.icon || null, ...(parent && { parent }) };
       const at = new Date().toISOString();
       const memberIds = await this.store.createRoom(created, user.id, room.kind === "closed" ? room.memberIds : null, at);
@@ -3716,8 +3723,8 @@ export class Workspace extends DurableObject<Env> {
       } finally {
         if (queued) await this.revocationsQueued(now);
       }
-      this.tell(saved.removedIds, { type: "room.gone", roomId });
-      for (const left of saved.subRoomsLeft) this.tell([left.userId], { type: "room.gone", roomId: left.roomId });
+      this.tell(saved.removedIds, { type: "room.gone", roomId, lostAccess: true });
+      for (const left of saved.subRoomsLeft) this.tell([left.userId], { type: "room.gone", roomId: left.roomId, lostAccess: true });
       // The sub-rooms' people read the room's name with theirs, and whoever joined them reads them anew.
       const reread = new Set([...saved.subRoomsJoinedIds, ...(saved.roomChanged && changes.name ? saved.subRoomPeople : [])]);
       if (reread.size > 0) this.tell([...reread], { type: "rooms.reordered" });
@@ -3769,7 +3776,7 @@ export class Workspace extends DurableObject<Env> {
         await this.revocationsQueued(now);
       }
       // Access to a sub-room needs access to its parent, so they leave its sub-rooms too.
-      for (const id of [roomId, ...subRoomIds]) this.tell([user.id], { type: "room.gone", roomId: id });
+      for (const id of [roomId, ...subRoomIds]) this.tell([user.id], { type: "room.gone", roomId: id, lostAccess: true });
       return "left";
     });
   }
@@ -4267,8 +4274,8 @@ export class Workspace extends DurableObject<Env> {
     const session = await this.session(credentials);
     if (!session) return null;
     // From the database rather than what `isBanned` keeps, which a ban saving now hasn't changed yet.
-    const { member, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip);
-    return { user: session.user, sessionId: session.id, member, banned, authorizedAt };
+    const { member, found, banned } = await this.store.roomAccess(roomId, session.user.id, credentials.client.ip);
+    return { user: session.user, sessionId: session.id, member, found, banned, authorizedAt };
   }
 
   /**

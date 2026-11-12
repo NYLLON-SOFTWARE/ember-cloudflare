@@ -81,15 +81,16 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * say. The people `directory` loads again each time the sidebar does by itself, and hears whoever the
  * socket says has changed. `onAccountChanged` hears the workspace as the socket says it is, each time
  * it connects and whenever an administrator changes it. `onGone` hears of each room the socket says is
- * gone as it leaves the list. `onActivity` hears what the socket says of the person's Activity, and null
- * each time it connects, for Activity to load again.
+ * gone as it leaves the list, and whether it's still there with this person no longer in it.
+ * `onActivity` hears what the socket says of the person's Activity, and null each time it connects, for
+ * Activity to load again.
  */
 export function useSidebar(
   me: Me,
   onSessionChanged: (me: Me | null) => void,
   directory: Directory = NO_DIRECTORY,
   onAccountChanged: (account: Account) => void = () => {},
-  onGone: (roomId: RoomId) => void = () => {},
+  onGone: (roomId: RoomId, lostAccess: boolean) => void = () => {},
   onActivity: (frame: ActivityFrame | null) => void = () => {},
 ) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
@@ -186,7 +187,7 @@ export function useSidebar(
           return change({ type: "saved", room: frame.room });
         case "room.gone":
           heardOf(frame.roomId);
-          gone(frame.roomId);
+          gone(frame.roomId, frame.lostAccess ?? false);
           return change({ type: "gone", roomId: frame.roomId });
         case "room.unread":
           return change({ type: "marked", roomId: frame.roomId, at: frame.at, count: frame.count, mentioned: frame.mentioned });

@@ -54,7 +54,7 @@ export {
 // and the web app's main chunk, which imports this, would otherwise cost the app one more script to load
 // (`oneAppScript` in apps/web/vite.config.ts says why).
 export type { Bot, BotAnswer, BotChanges, BotRoom, Bots, BotSettings, NewBot } from "./bots.ts";
-export { SUB_ROOM_REFUSED, SUB_ROOM_SEPARATOR, subRoomName, type ParentChoice, type RoomParent } from "./sub-rooms.ts";
+export { notInParent, SUB_ROOM_REFUSED, SUB_ROOM_SEPARATOR, subRoomName, type ParentChoice, type RoomParent } from "./sub-rooms.ts";
 // So is the rest of assistant.ts, from "@ember/protocol/assistant", which only Ember AI's settings, its dials and the Worker's assistant use.
 export type {
   AnswerLength,
@@ -1483,6 +1483,13 @@ export const CloseCode = {
 export type CloseCode = (typeof CloseCode)[keyof typeof CloseCode];
 
 /**
+ * The reason a `NotFound` close gives when the room is still there but this person isn't in it, taken out
+ * of it or of its parent, rather than its having been deleted, which a `NotFound` close with any other
+ * reason says, as one from before this did.
+ */
+export const LOST_ACCESS = "LostAccess";
+
+/**
  * The shortest new password Ember takes, in characters rather than bytes.
  */
 export const MIN_PASSWORD_LENGTH = 8;
@@ -1817,8 +1824,11 @@ export type WorkspaceServerFrame =
    * when it's started. A room they have keeps its mark, and one new to them starts read.
    */
   | { type: "room.saved"; room: Room }
-  /** A room that's no longer theirs: deleted, or they've been taken out of it. Nobody else hears of it. */
-  | { type: "room.gone"; roomId: RoomId }
+  /**
+   * A room that's no longer theirs: deleted, or, with `lostAccess`, they've been taken out of it or of its
+   * parent, or left it. Nobody else hears of it.
+   */
+  | { type: "room.gone"; roomId: RoomId; lostAccess?: true }
   /**
    * A message came in a DM of theirs at `at`, which lists it first among their DMs, unless they've heard
    * of a later one. Sent to everyone in the DM, its author included, as the Workspace applies the message.

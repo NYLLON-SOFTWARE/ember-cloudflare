@@ -109,6 +109,8 @@ interface Props {
   roomName: string;
   /** Whether the room is a DM, which a timeline is "with" rather than "in". */
   direct?: boolean;
+  /** A sub-room's parent's name, which its welcome names. */
+  parentName?: string;
   /** Whether the room is private, whose welcome names it after a lock rather than a `#`. */
   closed?: boolean;
   /** The welcome card's invitation, when this is the room it's in. */
@@ -147,7 +149,7 @@ interface Props {
  * else, it keeps the reader's place, loads the pages before and after as they near either end, and
  * offers Jump to newest message when new ones come.
  */
-export function MessageList({ roomName, direct = false, closed = false, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {}, thread, openThread, newSince = null }: Props) {
+export function MessageList({ roomName, direct = false, closed = false, parentName, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {}, thread, openThread, newSince = null }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -340,7 +342,7 @@ export function MessageList({ roomName, direct = false, closed = false, invitati
                         `Welcome to #${roomName}`
                       )}
                     </h2>
-                    <p>{direct ? "This is the very beginning of your direct messages." : "This is the very beginning of the room. Say hello!"}</p>
+                    {direct ? <p>This is the very beginning of your direct messages.</p> : parentName && <p>A sub-room of {parentName}</p>}
                   </div>
                 )}
 

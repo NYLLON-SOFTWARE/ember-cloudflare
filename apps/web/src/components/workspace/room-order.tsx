@@ -60,15 +60,16 @@ export function RoomOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Pro
 
   return (
     <div className="border-t">
-      <p id={helpId} className="my-[1em] text-[0.8em] text-muted-foreground">
-        Drag a room to reorder your community sidebar. Click a room to set its permissions.
+      {/* The grips and the rows say what they do as they're reached, so this is for screen readers alone. */}
+      <p id={helpId} className="sr-only">
+        Drag a room, or press Alt and Up or Down, to reorder the sidebar.
       </p>
       <div
         ref={listRef}
         {...listProps}
         role="list"
         aria-label="Room order"
-        className={cn("max-h-[360px] overflow-y-auto overscroll-contain rounded-[10px] border bg-background", moving && "select-none")}
+        className={cn("mt-[1em] max-h-[360px] overflow-y-auto overscroll-contain rounded-[10px] border bg-background", moving && "select-none")}
       >
         {tree.map((branch) => (
           <ParentRow
@@ -108,10 +109,28 @@ export function RoomOrder({ rooms, sharedOrder, onSaved, onSessionChanged }: Pro
 /** How a row being dragged stands out. */
 const MOVING = "bg-hover shadow-[inset_3px_0_var(--color-foreground)]";
 
-/** A room's row in the order: its grip, then a link to its settings, saying who it's open to. */
+/** A row's actions, shown with a pointer as the row is hovered or has focus, and always to fingers. */
+const ON_HOVER = "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 focus-visible:opacity-100 touch:opacity-100";
+
+/** Each of a row's two trailing slots, New sub-room and the sub-rooms' arrow, kept where neither applies so who it's open to lines up. */
+const SLOT = "size-9 shrink-0 touch:size-11";
+
+/** A slot's control. */
+const SLOT_CONTROL = cn(SLOT, "inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground");
+
+/** Who a room in the order is open to: for an open sub-room, its parent's people. */
+function accessOf(room: SharedRoom): string {
+  if (room.kind === "closed") return "Selected people";
+  return room.parent ? `Everyone in ${room.parent.name}` : "Everyone";
+}
+
+/**
+ * A room's row in the order: its grip, then a link to its settings, saying who it's open to, then its two
+ * trailing slots, which `children` fills.
+ */
 function OrderRow({ room, helpId, sub = false, children }: { room: SharedRoom; helpId: string; sub?: boolean; children?: ReactNode }) {
   return (
-    <div className={cn("flex min-h-[52px] items-center gap-2.5 py-1 pr-3 pl-1", sub && "pl-6")}>
+    <div className={cn("group/row flex min-h-[52px] items-center gap-2.5 py-1 pr-3 pl-1", sub && "pl-6")}>
       {/* The grip, 44px wide, so a fingertip on it doesn't land on the row around it instead. */}
       <button
         type="button"
@@ -119,7 +138,10 @@ function OrderRow({ room, helpId, sub = false, children }: { room: SharedRoom; h
         aria-label={`Move ${room.name}`}
         aria-describedby={helpId}
         title="Drag to reorder, or press Alt + Up / Down"
-        className="inline-flex min-h-11 min-w-9 shrink-0 cursor-grab touch-none items-center justify-center rounded-md p-2 text-muted-foreground touch:min-w-11 hover:bg-hover hover:text-foreground"
+        className={cn(
+          "inline-flex min-h-11 min-w-9 shrink-0 cursor-grab touch-none items-center justify-center rounded-md p-2 text-muted-foreground touch:min-w-11 hover:bg-hover hover:text-foreground",
+          ON_HOVER,
+        )}
       >
         <DotsGrid3x3 className="size-[18px]" />
       </button>
@@ -127,11 +149,16 @@ function OrderRow({ room, helpId, sub = false, children }: { room: SharedRoom; h
       <PageLink href={roomSettingsPath(room.kind, room.id)} aria-label={`Settings for ${room.name}`} className="group flex min-w-0 flex-1 items-center gap-2.5 self-stretch">
         <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
         <span className="min-w-0 truncate group-hover:underline">{room.name}</span>
-        <span className="ml-auto shrink-0 rounded-full border bg-hover px-2 py-[3px] text-[11px] whitespace-nowrap text-muted-foreground max-[379px]:hidden">
-          {room.kind === "closed" ? "Selected people" : "Everyone"}
+        <span className="ml-auto max-w-[50%] shrink-0 truncate rounded-full border bg-hover px-2 py-[3px] text-[11px] whitespace-nowrap text-muted-foreground max-[379px]:hidden">
+          {accessOf(room)}
         </span>
       </PageLink>
-      {children}
+      {children ?? (
+        <>
+          <span aria-hidden className={SLOT} />
+          <span aria-hidden className={SLOT} />
+        </>
+      )}
     </div>
   );
 }
@@ -172,18 +199,20 @@ function ParentRow({ branch, helpId, moving, expanded, onToggle, drag: options }
           href={newSubRoomPath(room.id)}
           title={`New sub-room in ${room.name}`}
           aria-label={`New sub-room in ${room.name}`}
-          className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground touch:size-11"
+          className={cn(SLOT_CONTROL, ON_HOVER)}
         >
           <Plus className="size-[18px]" />
         </PageLink>
-        {subRooms.length > 0 && (
+        {subRooms.length === 0 ? (
+          <span aria-hidden className={SLOT} />
+        ) : (
           <button
             type="button"
             aria-expanded={expanded}
             aria-controls={groupId}
             aria-label={`${expanded ? "Hide" : "Show"} ${room.name}’s ${subRooms.length} sub-room${subRooms.length === 1 ? "" : "s"}`}
             onClick={onToggle}
-            className="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground touch:size-11"
+            className={cn(SLOT_CONTROL, "cursor-pointer")}
           >
             <NavArrowRight className={cn("size-4 transition-transform motion-reduce:transition-none", expanded && "rotate-90")} />
           </button>

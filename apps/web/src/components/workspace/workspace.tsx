@@ -25,7 +25,7 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { apart, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { dmPath, messagePath, navigate, pageMark, returnTo, roomPath, routeOf, useHash, useQuery, useRoute, type Route } from "@/hooks/use-route";
+import type { RoomGone } from "./composer";
 import { ActivityPage } from "./activity-page";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
@@ -34,6 +34,7 @@ import { NewDirectDialog } from "./new-direct-dialog";
 import { opensProfile, PROFILE_PARAM, ProfilePaneContext, ProfilePanel, type ProfilePane } from "./profile-pane";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
+import { RoomUnavailable } from "./room-unavailable";
 import { RoomView, type RoomViewHandle } from "./room-view";
 import { OpenSearchContext, SearchBox, type SearchBoxOptions } from "./search-box";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
@@ -229,11 +230,13 @@ function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
     case "room-of-kind": {
       // A direct message's goes on without looking, and the room's own address checks it.
       if (route.kind === "direct") return { path: roomPath(route.roomId) };
+      // A room this person can't see says so at its own address.
       const room = rooms.find((r) => r.id === route.roomId);
-      return room && room.kind !== "direct" ? { path: roomPath(room.id) } : ROOM_NOT_FOUND;
+      return room?.kind === "direct" ? ROOM_NOT_FOUND : { path: roomPath(route.roomId) };
     }
     case "room":
-      return rooms.some((r) => r.id === route.roomId) ? null : ROOM_NOT_FOUND;
+      // A room this person can't see says so in its place.
+      return null;
     // A DM beside the DMs page's list: a room that isn't a DM goes on to its own address.
     case "dms": {
       if (route.roomId === undefined) return null;
@@ -447,12 +450,13 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // A room found gone while it's shown stays on screen to say so until another page shows, whether its
   // own socket finds it gone or the workspace socket, which can hear first, says so. A DM's settings
   // stay too, which go home once their own deletion answers, as the workspace socket can tell of it first.
-  const [gone, setGone] = useState<{ room: Room; route: Route } | null>(null);
-  const roomGone = (room: Room) => {
-    setGone({ room, route });
+  const [gone, setGone] = useState<{ room: Room; route: Route; why: RoomGone } | null>(null);
+  const roomGone = (room: Room, why: RoomGone) => {
+    setGone({ room, route, why });
     unlistRoom(room.id);
   };
-  const goneRoom = gone?.route === route ? gone.room : null;
+  const goneHere = gone?.route === route ? gone : null;
+  const goneRoom = goneHere?.room ?? null;
   // A room shown as gone that's listed again, as when someone is put back in it, shows as it is on a page
   // started afresh, since its own socket may have stopped. `returns` counts the rooms that came back so.
   const [returns, setReturns] = useState(0);
@@ -519,9 +523,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   const direct = route.page !== "direct-settings" || goingOn || !rooms ? null : directIn(goneRoom ? [goneRoom] : rooms, route.roomId);
   // The workspace socket's news that a room is gone takes it out of the list, and the room or the DM's
   // settings shown stay. Declared as a function, so that `useSidebar` above can take it.
-  function shownRoomGone(roomId: RoomId) {
+  function shownRoomGone(roomId: RoomId, lostAccess: boolean) {
     const shown = room ?? direct;
-    if (shown?.id === roomId) setGone({ room: shown, route });
+    if (shown?.id === roomId) setGone({ room: shown, route, why: lostAccess ? "lost access" : "deleted" });
   }
   // Go Back on the settings pages returns to the last room visited, or home when there's none.
   const lastRoom = rooms && lastRoomVisited(rooms);
@@ -843,6 +847,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           return rarePage(({ DirectSettingsPage }) => (
             <DirectSettingsPage key={direct.id} room={direct} me={me} back={back} askForRoom={askForRoom} onMissing={missing} onFailed={failed} />
           ));
+        // A room that's gone, or an address naming one this person can't see, says so in the room's place.
+        if (route.page === "room" && goneHere) return <RoomUnavailable room={goneHere.room} gone={goneHere.why} goTo={lastRoom} me={me} />;
+        if (route.page === "room" && !room && rooms && !askingAgain && !unansweredHere) return <RoomUnavailable room={null} gone="lost access" goTo={lastRoom} me={me} />;
         if (room)
           return (
             <RoomView
@@ -856,7 +863,6 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               onDismissInvitation={dismissCard}
               me={me}
               favorite={starred.has(room.id)}
-              gone={goneRoom !== null}
               onStarred={starredRooms}
               // As the list has it, or as it starts once the room has gone from the list.
               involvement={rooms?.find((r) => r.id === room.id)?.involvement ?? startingInvolvement(room)}

@@ -1,4 +1,4 @@
-import { CloseCode, SUB_ROOM_REFUSED, type RoomId, type RoomSettings, type SharedRoom, type Sidebar, type UserId } from "@ember/protocol";
+import { CloseCode, LOST_ACCESS, SUB_ROOM_REFUSED, type RoomId, type RoomSettings, type SharedRoom, type Sidebar, type UserId } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { WorkspaceServerFrame } from "@ember/protocol";
 import { api, closeOf, connect, createRoom, direct, freshDeploy, openWorkspaceSocket, signIn, upgrade, workspaceSql, type Session, type WorkspaceSocket } from "./support";
@@ -37,8 +37,8 @@ const ids = (...sessions: Session[]) => sessions.map((session) => session.user.i
 
 const sidebarOf = async (session: Session) => (await (await api("/api/sidebar", as(session))).json()) as Sidebar;
 
-/** What becomes of a new socket into a room as `session`'s person: let in, or the code it's closed with at once. */
-async function reconnect(roomId: RoomId, session: Session): Promise<"welcome" | number> {
+/** What becomes of a new socket into a room as `session`'s person: let in, or the code and reason it's closed with at once. */
+async function reconnecting(roomId: RoomId, session: Session): Promise<"welcome" | { code: number; reason: string }> {
   const ws = (await api(`/api/rooms/${roomId}/socket`, upgrade(session.cookie))).webSocket!;
   ws.accept();
   return new Promise((resolve) => {
@@ -46,9 +46,18 @@ async function reconnect(roomId: RoomId, session: Session): Promise<"welcome" | 
       resolve("welcome");
       ws.close(1000);
     });
-    ws.addEventListener("close", (event) => resolve(event.code));
+    ws.addEventListener("close", ({ code, reason }) => resolve({ code, reason }));
   });
 }
+
+/** What becomes of a new socket into a room as `session`'s person: let in, or the code it's closed with at once. */
+async function reconnect(roomId: RoomId, session: Session): Promise<"welcome" | number> {
+  const found = await reconnecting(roomId, session);
+  return found === "welcome" ? found : found.code;
+}
+
+/** How a room turns away someone who's no longer in it, though it's still there. */
+const lostAccess = { code: CloseCode.NotFound, reason: LOST_ACCESS };
 
 describe("Creating a sub-room", () => {
   it("puts a room under a room, naming its parent wherever the room is read", async () => {
@@ -81,12 +90,25 @@ describe("Creating a sub-room", () => {
     expect(await membersOf(sales.id)).toEqual(ids(ada, grace, linus));
   });
 
-  it("takes into a private sub-room only the people named who are in its parent", async () => {
-    const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
+  it("takes into a private sub-room the people named, who are all in its parent", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const strata = await createRoom("Strata", { closedTo: [ada.user.id, grace.user.id], as: ada });
-    const titling = await subRoom(ada, strata.id, "Titling", [ada.user.id, grace.user.id, linus.user.id]);
+    const titling = await subRoom(ada, strata.id, "Titling", [ada.user.id, grace.user.id]);
 
     expect(await membersOf(titling.id)).toEqual(ids(ada, grace));
+  });
+
+  it("refuses a private sub-room naming people who aren't in its parent, naming them, and makes nothing", async () => {
+    const [ada, grace, linus, alan] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus"), await signIn("Alan")];
+    const strata = await createRoom("Strata", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const before = await workspaceSql("SELECT count(*) AS n FROM rooms");
+
+    const one = await createSubRoom(ada, strata.id, { kind: "closed", name: "Titling", memberIds: [ada.user.id, linus.user.id] });
+    expect(one.status).toBe(422);
+    expect(await one.json()).toEqual({ error: "Linus isn't in Strata, so can't be in its sub-rooms" });
+    const two = await createSubRoom(ada, strata.id, { kind: "closed", name: "Titling", memberIds: [linus.user.id, grace.user.id, alan.user.id] });
+    expect(await two.json()).toEqual({ error: "Alan and Linus aren't in Strata, so can't be in its sub-rooms" });
+    expect(await workspaceSql("SELECT count(*) AS n FROM rooms")).toEqual(before);
   });
 
   it("refuses a parent that's a sub-room, a DM, or a room its maker isn't in or can't change, making nothing", async () => {
@@ -126,8 +148,8 @@ describe("Moving a room under a parent, or out", () => {
     expect(await response.json()).toEqual({ room: { ...inventory, parent: { id: strata.id, name: "Strata" } } });
     expect(await membersOf(inventory.id)).toEqual(ids(ada, grace));
     expect(await closed).toMatchObject({ code: CloseCode.Reconnect });
-    expect(await frameOf(gone, "room.gone")).toEqual({ type: "room.gone", roomId: inventory.id });
-    expect(await reconnect(inventory.id, linus)).toBe(CloseCode.NotFound);
+    expect(await frameOf(gone, "room.gone")).toEqual({ type: "room.gone", roomId: inventory.id, lostAccess: true });
+    expect(await reconnecting(inventory.id, linus)).toEqual(lostAccess);
   });
 
   it("opens a room taken out from under its parent to everyone, when it's open to everyone it can take in", async () => {
@@ -192,7 +214,9 @@ describe("Who's in a parent decides who can be in its sub-rooms", () => {
     expect(await closed).toMatchObject({ code: CloseCode.Reconnect });
     const frames = [await frameOf(told, "room.gone"), await frameOf(told, "room.gone"), await frameOf(told, "room.gone")];
     expect(frames.map((frame) => (frame as { roomId: RoomId }).roomId).sort()).toEqual([strata.id, sales.id, titling.id].sort());
-    expect(await reconnect(sales.id, grace)).toBe(CloseCode.NotFound);
+    expect(frames.every((frame) => (frame as { lostAccess?: true }).lostAccess)).toBe(true);
+    expect(await reconnecting(sales.id, grace)).toEqual(lostAccess);
+    expect(await reconnecting(titling.id, grace)).toEqual(lostAccess);
   });
 
   it("puts a parent's new people in its open sub-rooms, but not its private ones", async () => {
@@ -214,6 +238,7 @@ describe("Who's in a parent decides who can be in its sub-rooms", () => {
 
     expect((await api(`/api/rooms/${strata.id}/membership`, { method: "DELETE", headers: { Cookie: grace.cookie } })).status).toBeLessThan(300);
     expect(await membersOf(sales.id)).toEqual(ids(ada));
+    expect(await reconnecting(sales.id, grace)).toEqual(lostAccess);
   });
 
   it("lets a sub-room's private list name only people in its parent", async () => {
@@ -255,6 +280,17 @@ describe("Deleting a parent", () => {
     expect(await membersOf(titling.id)).toEqual(ids(ada));
     await frameOf(told, "rooms.reordered");
     expect((await sidebarOf(grace)).rooms.find((room) => room.id === sales.id)).not.toHaveProperty("parent");
+  });
+
+  it("tells its people it was deleted, rather than that they lost access", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const strata = await createRoom("Strata", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    await subRoom(ada, strata.id, "Sales");
+    const told = await openWorkspaceSocket(grace);
+
+    await api(`/api/rooms/${strata.id}`, { method: "DELETE", headers: { Cookie: ada.cookie } });
+    expect(await frameOf(told, "room.gone")).toEqual({ type: "room.gone", roomId: strata.id });
+    expect(await reconnecting(strata.id, grace)).toEqual({ code: CloseCode.NotFound, reason: "NotFound" });
   });
 
   it("keeps an open parent's open sub-rooms open", async () => {

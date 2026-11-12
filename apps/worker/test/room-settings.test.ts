@@ -218,7 +218,7 @@ describe("Leave a private room", () => {
 
     expect((await leave(room.id, grace)).status).toBe(204);
     expect(await membersOf(room.id)).toEqual(ids(ada, linus));
-    expect(await gracesTab.next()).toEqual({ type: "room.gone", roomId: room.id });
+    expect(await gracesTab.next()).toEqual({ type: "room.gone", roomId: room.id, lostAccess: true });
     expect(await closed).toMatchObject({ code: CloseCode.Reconnect, reason: "Reconnect" });
     expect(await linusInRoom.next("presence.left")).toEqual({ type: "presence.left", userId: grace.user.id });
     expect((await post(linusInRoom, "Still here")).body).toBe("Still here");

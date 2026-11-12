@@ -255,7 +255,9 @@ describe("Live sidebar updates", () => {
     await settle();
     socket().receive({ type: "room.gone", roomId: design.id });
     expect(result.current.list?.rooms).toEqual([general]);
-    expect(onGone).toHaveBeenCalledExactlyOnceWith(design.id);
+    expect(onGone).toHaveBeenCalledExactlyOnceWith(design.id, false);
+    socket().receive({ type: "room.gone", roomId: general.id, lostAccess: true });
+    expect(onGone).toHaveBeenLastCalledWith(general.id, true);
   });
 
   it("lists a room as the server answers a change to it, unless the workspace socket has said what became of it since", async () => {

@@ -14,7 +14,7 @@ import { roomName } from "@/lib/directs";
 import { rememberLastRoom } from "@/lib/last-room";
 import type { RoomAnswer } from "@/lib/room-list";
 import { isPending } from "@/lib/room-state";
-import { Composer, RoomDeleted, type ComposerHandle } from "./composer";
+import { Composer, RoomGoneNotice, type ComposerHandle, type RoomGone } from "./composer";
 import { MessageList } from "./message-list";
 import { RoomHeader } from "./room-header";
 import { RoomNotice } from "./room-notice";
@@ -40,8 +40,6 @@ interface Props {
   me: Me;
   /** Whether this person has starred the room. */
   favorite: boolean;
-  /** Whether the workspace socket has said the room is gone for this person, as it can before the room's own socket does. */
-  gone: boolean;
   /** Called with this person's stars once the room's star saves them. */
   onStarred: (favorites: Favorites) => void;
   /** This person's notification level in the room. */
@@ -54,7 +52,7 @@ interface Props {
   /** Says why the room's bell couldn't save a level, as the workspace's alerts do. */
   onFailed: (error: unknown) => void;
   /** When the room turns out to be gone for this person: deleted, or no longer theirs. */
-  onGone: (room: Room) => void;
+  onGone: (room: Room, gone: RoomGone) => void;
   /** Shows the room in a pane, and its thread in another, as Activity does, rather than in the page's grid. */
   panes?: RoomPanes;
   ref?: Ref<RoomViewHandle>;
@@ -71,7 +69,7 @@ export interface RoomViewHandle {
   focusComposer(): void;
 }
 
-export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, askForRoom, onSessionChanged, onFailed, onGone, panes, ref }: Props) {
+export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, onStarred, involvement, newSince = null, askForRoom, onSessionChanged, onFailed, onGone, panes, ref }: Props) {
   const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId);
   // What's beside the room, such as someone's profile, says who's in it.
   useShowPresence(state.present);
@@ -81,12 +79,13 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   useTitle(name);
   // The room shown is remembered, for home and Go Back to return to.
   useEffect(() => rememberLastRoom(room.id), [room.id]);
-  const foundGone = state.status === "gone";
-  const roomGone = useEffectEvent(() => onGone(room));
+  const foundGone: RoomGone | null = state.status !== "gone" ? null : state.lostAccess ? "lost access" : "deleted";
+  const roomGone = useEffectEvent((found: RoomGone) => onGone(room, found));
   useEffect(() => {
-    if (foundGone) roomGone();
+    if (foundGone) roomGone(foundGone);
   }, [foundGone]);
-  const deleted = gone || foundGone;
+  // The page shows why in the room's place once it hears, which is just after this.
+  const whyGone = foundGone;
   const tabs = useRoomTabs(room, deleted, onFailed);
 
   // The room opens at the message its address names. Following its permalink, or one to another message
@@ -150,12 +149,13 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
             <MessageList
               roomName={name}
               direct={direct}
+              parentName={room.kind === "direct" ? undefined : room.parent?.name}
               closed={room.kind === "closed"}
               invitation={invitation}
               onDismissInvitation={onDismissInvitation}
               state={state}
               me={me}
-              actions={deleted ? null : messageActions}
+              actions={whyGone ? null : messageActions}
               editing={editing}
               editors={editors}
               onLoadOlder={loadOlder}
@@ -165,8 +165,8 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
               openThread={threadId}
               newSince={newSince}
             />
-            {deleted ? (
-              <RoomDeleted />
+            {whyGone ? (
+              <RoomGoneNotice gone={whyGone} />
             ) : (
               <Composer
                 ref={composer}
@@ -202,7 +202,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
               frames={frames}
               status={state.status}
               offline={state.offline}
-              deleted={deleted}
+              gone={whyGone}
               roomNotice={covered ? state.notice : null}
               onDismissRoomNotice={dismissNotice}
               placement={panes ? "pane" : "column"}
