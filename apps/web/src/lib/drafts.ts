@@ -1,5 +1,5 @@
 import type { RoomId, UserId } from "@ember/protocol";
-import { draftPrefixOf as prefixOf } from "./draft-keys";
+import { draftPrefixOf as prefixOf, tellDraftsChanged } from "./draft-keys";
 
 // The drafts the composer keeps in this browser for each person, of what they've written in a room, or
 // in one of its threads, and not sent (`draftKey` in composer.tsx), for Drafts & sent to list.
@@ -43,6 +43,7 @@ export function draftsOf(userId: UserId): Draft[] {
 export function discardDraft(draft: Draft): void {
   try {
     localStorage.removeItem(draft.key);
+    tellDraftsChanged();
   } catch {
     // Storage that can't be reached holds nothing to forget.
   }

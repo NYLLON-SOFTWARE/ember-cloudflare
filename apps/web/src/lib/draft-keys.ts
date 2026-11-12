@@ -20,3 +20,12 @@ export function draftCountOf(userId: UserId): number {
   }
   return count;
 }
+
+/**
+ * The event this tab hears when a draft is kept or forgotten here, as storage's own `storage` event tells
+ * only the other tabs.
+ */
+export const DRAFTS_CHANGED = "ember:drafts-changed";
+
+/** Tells this tab a draft has been kept or forgotten. */
+export const tellDraftsChanged = () => void window.dispatchEvent(new Event(DRAFTS_CHANGED));
