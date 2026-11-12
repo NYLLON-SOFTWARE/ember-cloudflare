@@ -110,7 +110,7 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
         <NotificationBell room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} className={cn(HEADER_BUTTON, "[&>svg]:size-5")} />
         <PageLink href={roomSettingsPath(room.kind, room.id)} title="Conversation settings" className={HEADER_BUTTON}>
           <MoreHoriz className="size-5" />
-          <span className="sr-only">Settings for this {direct ? "Ping" : "room"}</span>
+          <span className="sr-only">Settings for this {direct ? "DM" : "room"}</span>
         </PageLink>
       </div>
     </PageHeader>

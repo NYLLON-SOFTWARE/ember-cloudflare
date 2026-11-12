@@ -61,7 +61,7 @@ describe("Group DMs and DM names", () => {
 });
 
 describe("Delete a direct message", () => {
-  const deleteButton = () => screen.getByRole("button", { name: "Delete Ping" });
+  const deleteButton = () => screen.getByRole("button", { name: "Delete DM" });
   const confirmed = (answer: boolean) => vi.spyOn(window, "confirm").mockReturnValue(answer);
   const deleted = () => new Response(null, { status: 204 });
 
@@ -72,10 +72,10 @@ describe("Delete a direct message", () => {
     return (response: Response) => act(async () => answer(response));
   }
 
-  it("offers Delete Ping with the trash can, to anyone in it", () => {
+  it("offers Delete DM with the trash can, to anyone in it", () => {
     showPage(withGraceAndLinus);
     const button = deleteButton();
-    expect(button).toHaveTextContent(/^Ping$/);
+    expect(button).toHaveTextContent(/^DM$/);
     expect(button.querySelector("svg")).toHaveClass("iconoir-trash");
   });
 

@@ -183,9 +183,9 @@ describe("Group DMs and DM names", () => {
     expect(screen.queryByText("Agent")).not.toBeInTheDocument();
   });
 
-  it("links to a DM's settings at a DM's address, saying it's a Ping's", () => {
+  it("links to a DM's settings at a DM's address, saying it's a DM's", () => {
     renderHeader({ room: adaDirect, name: "Ada" });
-    const settings = screen.getByRole("link", { name: "Settings for this Ping" });
+    const settings = screen.getByRole("link", { name: "Settings for this DM" });
     expect(settings).toHaveAttribute("title", "Conversation settings");
     expect(settings).toHaveAttribute("href", "/rooms/directs/direct-1/edit");
   });
