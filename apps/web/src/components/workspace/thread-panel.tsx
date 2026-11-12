@@ -161,6 +161,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
             roomId={room.id}
             roomName={name}
             direct={direct}
+            closed={room.kind === "closed"}
             userId={me.id}
             typing={typing}
             disabled={offline}

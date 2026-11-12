@@ -598,6 +598,17 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
     }
   }
 
+  /*
+   * The placeholder keeps to one line, cut short with an ellipsis, so a long room's name doesn't run
+   * onto a second the text has no room for. Lexxy places it absolutely, in the text's padding box.
+   */
+  .lexxy-editor__content::before {
+    inset-inline: var(--composer-padding);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* One line, beside its Send, as the compact composer is. */
   &[data-compact] .lexxy-editor__content {
     --composer-text-top: 6px;

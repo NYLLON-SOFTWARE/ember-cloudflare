@@ -1,13 +1,39 @@
-import { createElement, useContext, type ComponentProps, type ReactNode } from "react";
-import { isAppPage, type RoomId, type User, type UserId } from "@ember/protocol";
-import type { DisplayElement, DisplayNode, DisplayPreview } from "@ember/richtext/dom";
+import { createElement, useContext, useMemo, type ComponentProps, type ReactNode } from "react";
+import { isAppPage, type Message, type RoomId, type User, type UserId } from "@ember/protocol";
+import { displayBody, type DisplayElement, type DisplayNode, type DisplayPreview } from "@ember/richtext/dom";
 import { PageLink } from "@/components/page-link";
 import { mentionedPerson, PeopleContext } from "@/hooks/use-directory";
+import { forwardParts } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import { CodeBlock } from "./code-block";
 import { QuoteCite, QuotingRoom } from "./quote-cite";
 import { markedRanges, matchesIn, SearchMarks, type Matches } from "./search-marks";
 import { AvatarLink, UserAvatar } from "./user-avatar";
+
+/**
+ * What a stored body shows, or null when it can't be shown. `plainText` is the body's, which tells when a
+ * message is only the link its preview is of, and a preview can't link to the page's own host.
+ */
+export function shownBody(body: string, plainText: string): DisplayNode[] | null {
+  try {
+    return displayBody(body, plainText, location.hostname);
+  } catch (error) {
+    console.error("Could not show a message", error);
+    return null;
+  }
+}
+
+/**
+ * A forward's quote and its cite, as its message shows them, for under its note while that's edited, which
+ * leaves them as they are. Nothing, for a message that isn't a forward.
+ */
+export function ForwardQuote({ message, className }: { message: Message; className?: string }) {
+  const quote = useMemo(() => {
+    const forward = forwardParts(message.body);
+    return forward && shownBody(forward.quote, "");
+  }, [message.body]);
+  return quote && <MessageBody nodes={quote} mentions={message.mentions} roomId={message.roomId} className={className} />;
+}
 
 /** React's names for the attributes a message keeps, where they aren't HTML's. */
 const PROP_NAMES: Record<string, string> = { datetime: "dateTime", "xml:lang": "xmlLang" };

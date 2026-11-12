@@ -42,6 +42,11 @@ export function ScheduledList({ open, onOpenChange, moving, onMove, list, rows, 
         overlayClassName={DIALOG_BACKDROP}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
+          // A phone's sheet takes focus itself, rather than ringing a row no finger has chosen.
+          if (phone) {
+            (event.currentTarget as HTMLElement).focus();
+            return;
+          }
           // On the first message's Edit time, or Edit, rather than Send now, so Enter can't send it.
           const first = list.current?.querySelector("li");
           (first?.querySelector<HTMLElement>("button[data-first]") ?? first?.querySelector<HTMLElement>("button"))?.focus();

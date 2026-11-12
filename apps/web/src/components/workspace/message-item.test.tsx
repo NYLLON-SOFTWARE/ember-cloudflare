@@ -308,6 +308,22 @@ describe("Edit a message", () => {
     expect(editors.close).toHaveBeenCalledTimes(2);
     expect(editors.attach).toHaveBeenLastCalledWith("m1", null);
   });
+
+  it("keeps a forward's quote and its cite under its note as that's edited, as the message shows them, to read but not edit", async () => {
+    const quote = `<blockquote><p>Lunch at noon?</p></blockquote><cite>Grace · ${QUOTED_TIME} <a href="${location.origin}/rooms/r2/@m0">#</a></cite>`;
+    const { actions, editors, user, article } = show(message({ body: `<p>See this</p>${quote}`, plainText: "See this\nLunch at noon?" }));
+    const shown = article.querySelector("blockquote")!.parentElement!.innerHTML;
+    act(() => editors.open("m1"));
+    const editor = await editBox();
+    expect(editor).toHaveValue("See this");
+    const kept = article.querySelector("blockquote")!;
+    expect(editor).not.toContainElement(kept);
+    expect(kept.parentElement!.innerHTML).toBe(shown.slice(shown.indexOf("<blockquote")));
+    expect(kept.nextElementSibling).toHaveTextContent(/^Grace · /);
+
+    await user.type(editor, " now{Enter}");
+    expect(actions.edit).toHaveBeenCalledWith("m1", `<p>See this now</p>${quote}`);
+  });
 });
 
 describe("Messages that can't be shown", () => {
