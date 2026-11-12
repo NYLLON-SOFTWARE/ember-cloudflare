@@ -107,6 +107,8 @@ export const LONG_PRESS_MS = 500;
 
 interface SendButtonProps {
   disabled: boolean;
+  /** Whether there's nothing to send, which mutes both halves. */
+  empty?: boolean;
   /** Whether there's nothing to schedule: nothing written, or files picked, which go at once. */
   cannotSchedule: boolean;
   /** Schedules what's written for `at`. */
@@ -118,7 +120,7 @@ interface SendButtonProps {
  * Schedule message. Holding the arrow down opens Schedule message too, rather than sending, and keeps the
  * phone's own long-press menu away.
  */
-export function SendButton({ disabled, cannotSchedule, onSchedule }: SendButtonProps) {
+export function SendButton({ disabled, empty = false, cannotSchedule, onSchedule }: SendButtonProps) {
   const [scheduling, setScheduling] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // Whether the press that's ending was long, so its click doesn't send too.
@@ -126,7 +128,7 @@ export function SendButton({ disabled, cannotSchedule, onSchedule }: SendButtonP
   const stopTimer = () => clearTimeout(timer.current);
   useEffect(() => stopTimer, []);
   return (
-    <div className="ml-auto flex shrink-0 items-center overflow-hidden rounded-[8px]">
+    <div data-empty={empty || undefined} className="group/send ml-auto flex shrink-0 items-center overflow-hidden rounded-[8px]">
       <button
         type="submit"
         disabled={disabled}
@@ -155,7 +157,7 @@ export function SendButton({ disabled, cannotSchedule, onSchedule }: SendButtonP
         <ArrowUp className="size-[18px]" />
         <span className="sr-only">Send Message</span>
       </button>
-      <span aria-hidden="true" className="h-8 w-px bg-background/30 touch:h-11" />
+      <span aria-hidden="true" className="h-8 w-px bg-background/30 group-data-empty/send:bg-border touch:h-11" />
       <ScheduleMenu disabled={disabled || cannotSchedule} onSchedule={onSchedule} open={scheduling} onOpenChange={setScheduling} />
     </div>
   );

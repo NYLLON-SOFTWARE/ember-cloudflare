@@ -23,10 +23,12 @@ describe("sendsMessage", () => {
     expect(sendsMessage(press("Enter"))).toBe(false);
   });
 
-  it("starts a new line on Enter in a code block, where Ctrl+Enter still sends", () => {
+  it("starts a new line on Enter in a code block, and a new item in a list, where Ctrl+Enter still sends", () => {
     pointer(false);
     expect(sendsMessage(press("Enter"), { inCodeBlock: true })).toBe(false);
     expect(sendsMessage(press("Enter", { ctrlKey: true }), { inCodeBlock: true })).toBe(true);
+    expect(sendsMessage(press("Enter"), { inList: true })).toBe(false);
+    expect(sendsMessage(press("Enter", { metaKey: true }), { inList: true })).toBe(true);
   });
 
   it("sends on Cmd+Enter or Ctrl+Enter everywhere", () => {

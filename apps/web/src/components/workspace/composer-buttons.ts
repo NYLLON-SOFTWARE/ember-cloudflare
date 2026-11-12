@@ -18,9 +18,14 @@ export const ICON_BUTTON = cn(
 /** + , a round button on a tint, which turns into × while its menu is open. */
 export const ATTACH_BUTTON = cn(BUTTON, "rounded-full bg-hover text-foreground hover:not-active:brightness-90 disabled:opacity-50 data-[state=open]:rotate-45");
 
-/** Send's two halves, as Slack's: 32px tall, or 44px on touch screens, in ink. */
-export const SEND_HALF =
-  "flex h-8 shrink-0 cursor-pointer items-center justify-center bg-foreground text-background touch:h-11 hover:not-active:brightness-70 disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50";
+/**
+ * Send's two halves, as Slack's: 32px tall, or 44px on touch screens, in ink, or both muted together while
+ * there's nothing to send (`data-empty` on the pair).
+ */
+export const SEND_HALF = cn(
+  "flex h-8 shrink-0 cursor-pointer items-center justify-center bg-foreground text-background touch:h-11 hover:not-active:brightness-70 disabled:pointer-events-none disabled:opacity-50 disabled:grayscale disabled:contrast-50",
+  "group-data-empty/send:bg-muted group-data-empty/send:text-muted-foreground group-data-empty/send:disabled:opacity-100 group-data-empty/send:disabled:grayscale-0 group-data-empty/send:disabled:contrast-100",
+);
 
 /** Send's chevron, which opens Schedule message. */
 export const SCHEDULE_HALF = cn(SEND_HALF, "w-6 touch:w-11");

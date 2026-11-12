@@ -506,7 +506,7 @@ test.describe("Send from the keyboard", () => {
     await expect(middle.locator(":scope > p").first()).toHaveText("Before");
   });
 
-  test("sends on Enter while the toolbar shows, as Slack does, and from a list, but starts a new line in a code block", async ({ members }) => {
+  test("sends on Enter while the toolbar shows, as Slack does, but starts a new line in a code block", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await expect(toolbar(ada)).toBeVisible();
     await ada.composer().pressSequentially("One");
@@ -520,6 +520,20 @@ test.describe("Send from the keyboard", () => {
     await expect(ada.page.getByRole("article")).toHaveCount(1);
     await ada.composer().press("ControlOrMeta+Enter");
     await expect(ada.page.getByRole("article")).toHaveCount(2);
+  });
+
+  test("starts a list with - on any line, Shift+Enter's too, where Enter adds an item rather than sending", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    const grace = await members.signIn("Grace");
+    await ada.composer().pressSequentially("Then");
+    await ada.composer().press("Shift+Enter");
+    await ada.composer().pressSequentially("- first");
+    await ada.composer().press("Enter");
+    await ada.composer().pressSequentially("second");
+    await expect(ada.page.getByRole("article")).toHaveCount(0);
+    await expect(ada.composer().locator("ul > li")).toHaveText(["first", "second"]);
+    await ada.composer().press("ControlOrMeta+Enter");
+    await expect(grace.message("Then").locator(".message-content li")).toHaveText(["first", "second"]);
   });
 
   test("sends from the Send button with Link left open, unfinished", async ({ members }) => {

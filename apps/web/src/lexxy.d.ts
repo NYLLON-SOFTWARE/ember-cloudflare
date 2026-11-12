@@ -47,6 +47,7 @@ declare module "@37signals/lexxy" {
   interface RangeSelection {
     anchor: Point;
     isCollapsed(): boolean;
+    getTextContent(): string;
     setFormat(format: number): void;
     setStyle(style: string): void;
     insertText(text: string): void;

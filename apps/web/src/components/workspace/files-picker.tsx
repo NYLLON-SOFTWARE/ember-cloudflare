@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { Message, Room, RoomId, StoredFile, UserId } from "@ember/protocol";
-import { Page, Xmark } from "@/components/icons/iconoir";
+import { Lock, Page, Search, Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useNameOf } from "@/hooks/use-directory";
 import { fetchSearch } from "@/lib/api";
@@ -9,6 +9,7 @@ import { roomName } from "@/lib/directs";
 import { cn } from "@/lib/utils";
 import { shareWidening, ShareWarning, type SharePlace } from "./share-warning";
 import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE } from "./unsaved-changes";
+import { uploadSize } from "./upload-card";
 
 /** A file shared in a room, as the picker offers it. */
 export interface SharedFile {
@@ -17,19 +18,22 @@ export interface SharedFile {
   roomId: RoomId;
   /** Where it was shared, as the sidebar names the room. */
   roomLabel: string;
-  /** Whether that's a DM. */
+  /** Whether that's a DM, or a private room, which shows a lock. */
   direct: boolean;
+  closed: boolean;
+  /** Who shared it, which tells two files of the same name apart. */
+  uploader: string;
   sharedAt: string;
 }
 
 /** The files among `messages`, newest first as search lists them, each with where it was shared. */
 export function sharedFiles(messages: Message[], rooms: Room[], meId: UserId, nameOf: Parameters<typeof roomName>[2]): SharedFile[] {
   const byId = new Map(rooms.map((room) => [room.id, room]));
-  return messages.flatMap(({ attachment, roomId, createdAt }) => {
+  return messages.flatMap(({ attachment, roomId, creator, createdAt }) => {
     const room = byId.get(roomId);
     if (!attachment) return [];
     const roomLabel = !room ? "" : room.kind === "direct" ? roomName(room, meId, nameOf) : `#${room.name}`;
-    return [{ file: attachment, roomId, roomLabel, direct: room?.kind === "direct", sharedAt: createdAt }];
+    return [{ file: attachment, roomId, roomLabel, direct: room?.kind === "direct", closed: room?.kind === "closed", uploader: nameOf(creator), sharedAt: createdAt }];
   });
 }
 
@@ -115,15 +119,18 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
         <label htmlFor={fieldId} className="sr-only">
           Search files
         </label>
-        <input
-          id={fieldId}
-          type="search"
-          autoComplete="off"
-          placeholder="Search files"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          className="mb-2 h-10 w-full rounded-[9px] border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-selected-dark touch:h-11 touch:text-base"
-        />
+        <div className="relative mb-2">
+          <Search aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            id={fieldId}
+            type="search"
+            autoComplete="off"
+            placeholder="Search files"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="h-10 w-full rounded-[9px] border bg-background ps-9 pe-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-selected-dark touch:h-11 touch:text-base"
+          />
+        </div>
         {failed ? (
           <p role="alert" className="py-3 text-sm text-negative">
             Files couldn't be listed. Try again in a moment.
@@ -157,8 +164,18 @@ export function FilesPicker({ meId, roomId, room, onPick, onClose, onReturnFocus
                   )}
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-semibold">{shared.file.name}</span>
-                    <span className="block truncate text-[12px] text-muted-foreground">
-                      {[shared.roomLabel, new Date(shared.sharedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })].filter(Boolean).join(" · ")}
+                    <span className="flex min-w-0 items-center gap-1 text-[12px] text-muted-foreground">
+                      {shared.closed && <Lock aria-label="Private" className="size-3 shrink-0" />}
+                      <span className="truncate">
+                        {[
+                          shared.roomLabel,
+                          shared.uploader,
+                          uploadSize(shared.file.byteSize),
+                          new Date(shared.sharedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
                     </span>
                   </span>
                 </button>

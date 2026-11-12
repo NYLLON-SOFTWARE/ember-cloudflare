@@ -545,6 +545,9 @@
       background-color: var(--background);
       border: 1px solid var(--border);
       border-radius: 0.5ch;
+      /* Its border on each line it wraps onto, rather than open where it breaks. */
+      -webkit-box-decoration-break: clone;
+      box-decoration-break: clone;
       font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
       font-size: 0.9em;
       font-weight: 500;
