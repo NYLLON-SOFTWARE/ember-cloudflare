@@ -3828,7 +3828,11 @@ export class Workspace extends DurableObject<Env> {
     const session = await this.session(credentials);
     if (!session) return null;
     const { member } = await this.store.roomAccess(mark.roomId, session.user.id, credentials.client.ip);
-    return member ? new RoomTabStore(this.db).mark(session.user.id, mark, new Date().toISOString()) : "not found";
+    if (!member) return "not found";
+    const tabs = new RoomTabStore(this.db);
+    // A file's message is checked before it's asked here; anything else marked is one of the room's canvases.
+    if (mark.messageId === undefined && !(await tabs.hasCanvas(mark.roomId, mark.fileId))) return "not found";
+    return tabs.mark(session.user.id, mark, new Date().toISOString());
   }
 
   /** Does what `action` asks of room `roomId`'s tabs for the person `credentials` signs in, if they're in it (room-tabs.ts). */

@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
-import type { FileMarks, LibraryFile } from "@ember/protocol/library";
+import { fileMarkOf, type FileMarks, type LibraryFile } from "@ember/protocol/library";
 import { fetchFiles, markFile } from "@/lib/library";
 
 // The workspace's files, as the Files page and its navigation both show them: loaded when either mounts,
@@ -52,10 +52,10 @@ function withMarks(fileId: string, marks: Partial<FileMarks>): void {
 }
 
 /** Stars `file`, or not, at once, and puts it back if that fails. */
-export async function starFile(file: Pick<LibraryFile, "id" | "roomId" | "starred">, starred: boolean, onFailed: (error: unknown) => void): Promise<void> {
+export async function starFile(file: Pick<LibraryFile, "id" | "kind" | "roomId" | "messageId" | "starred">, starred: boolean, onFailed: (error: unknown) => void): Promise<void> {
   withMarks(file.id, { starred });
   try {
-    withMarks(file.id, await markFile({ fileId: file.id, roomId: file.roomId, starred }));
+    withMarks(file.id, await markFile({ ...fileMarkOf(file), starred }));
   } catch (error) {
     withMarks(file.id, { starred: file.starred });
     onFailed(error);
@@ -63,7 +63,7 @@ export async function starFile(file: Pick<LibraryFile, "id" | "roomId" | "starre
 }
 
 /** Records that `file` was opened, for Recently viewed, quietly: a failure only leaves it unrecorded. */
-export function fileOpened(file: Pick<LibraryFile, "id" | "roomId">): void {
+export function fileOpened(file: Pick<LibraryFile, "id" | "kind" | "roomId" | "messageId">): void {
   withMarks(file.id, { viewedAt: new Date().toISOString() });
-  markFile({ fileId: file.id, roomId: file.roomId, viewed: true }).then((marks) => withMarks(file.id, marks), () => {});
+  markFile({ ...fileMarkOf(file), viewed: true }).then((marks) => withMarks(file.id, marks), () => {});
 }

@@ -1,6 +1,7 @@
 import { Suspense, useCallback, useContext, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { isWebImage, type Me, type RoomId } from "@ember/protocol";
 import {
+  fileMarkOf,
   fileTypeOf,
   isMedia,
   isWebAddress,
@@ -184,12 +185,12 @@ function FilesAndLinks({ room, me, onFailed }: { room: Room; me: Me; onFailed: (
   const star = (file: LibraryFile, starred: boolean) => {
     const marked = (starred: boolean) => setLibrary((library) => library && { ...library, files: library.files.map((other) => (other.id === file.id ? { ...other, starred } : other)) });
     marked(starred);
-    markFile({ fileId: file.id, roomId: file.roomId, starred }).catch((error: unknown) => {
+    markFile({ ...fileMarkOf(file), starred }).catch((error: unknown) => {
       marked(file.starred);
       onFailed(error);
     });
   };
-  const opened = (file: LibraryFile) => void markFile({ fileId: file.id, roomId: file.roomId, viewed: true }).catch(() => {});
+  const opened = (file: LibraryFile) => void markFile({ ...fileMarkOf(file), viewed: true }).catch(() => {});
 
   const shown = useMemo(() => {
     if (!library) return null;

@@ -168,6 +168,12 @@ async function markFile(request: Request, env: Env): Promise<Response> {
   if (!credentials) return problem(401, NOT_SIGNED_IN);
   const mark = parseFileMark(await jsonBodyOf(request));
   if (typeof mark === "string") return problem(422, mark);
+  // Only a file a message in the room still holds, or one of its canvases, can be marked.
+  if (!isRoomId(mark.roomId)) return problem(404, ROOM_NOT_FOUND);
+  if (mark.messageId !== undefined) {
+    const [message] = await env.CHAT_ROOM.getByName(mark.roomId).messagesWithIds(mark.roomId, [mark.messageId]);
+    if (!message || message.deleted || message.attachment?.id !== mark.fileId) return problem(404, FILE_NOT_FOUND);
+  }
   const marks = await workspace(env).markFile(credentials, mark);
   if (!marks) return problem(401, NOT_SIGNED_IN);
   return marks === "not found" ? problem(404, ROOM_NOT_FOUND) : json(marks satisfies FileMarks);

@@ -117,7 +117,7 @@ describe("Files page", () => {
     await waitFor(() => expect(rows()).toHaveLength(3));
     await userEvent.click(screen.getByRole("button", { name: "Star Budget.csv" }));
     expect(screen.getByRole("button", { name: "Unstar Budget.csv" })).toHaveAttribute("aria-pressed", "true");
-    expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/files/marks", expect.objectContaining({ method: "PUT", body: JSON.stringify({ fileId: "k1", roomId: "general", starred: true }) }));
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/files/marks", expect.objectContaining({ method: "PUT", body: JSON.stringify({ fileId: "k1", roomId: "general", messageId: "m1", starred: true }) }));
     expect(within(screen.getByRole("navigation", { name: "Files" })).getByRole("link", { name: "Budget.csv" })).toBeInTheDocument();
   });
 

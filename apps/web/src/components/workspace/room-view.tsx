@@ -128,7 +128,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
         />
         {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
         <MainContent className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
-          <RoomTabs room={room} me={me} onFailed={onFailed} />
+          <RoomTabs room={room} me={me} deleted={deleted} onFailed={onFailed} />
           <RoomNotice notice={state.notice} onDismiss={dismissNotice} />
           <MessageList
             roomName={name}

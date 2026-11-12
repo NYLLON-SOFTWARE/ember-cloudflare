@@ -71,5 +71,19 @@ export async function saveCanvas(roomId: RoomId, tabId: string, body: string, ve
   return data;
 }
 
+/** The most a request sent as a page goes away may carry, as browsers limit `keepalive` requests to 64 KiB. */
+const MAX_KEPTALIVE_BYTES = 60_000;
+
+/**
+ * Saves a canvas as the page goes away, in a request that outlives it, unless the canvas is too long to
+ * send so, saying whether it sent it. What the server answers is never read.
+ */
+export function saveCanvasOnLeaving(roomId: RoomId, tabId: string, body: string, version: number): boolean {
+  const sent = JSON.stringify({ body, version });
+  if (new Blob([sent]).size > MAX_KEPTALIVE_BYTES) return false;
+  void fetch(`${roomTabPath(roomId, tabId)}/canvas`, { method: "PUT", keepalive: true, headers: { "Content-Type": "application/json" }, body: sent }).catch(() => {});
+  return true;
+}
+
 /** A room's address that opens one of its tabs. */
 export const roomTabAddress = (roomPath: string, tabId: string) => `${roomPath}?tab=${encodeURIComponent(tabId)}`;
