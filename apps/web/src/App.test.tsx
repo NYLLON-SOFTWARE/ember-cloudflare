@@ -1193,10 +1193,11 @@ describe("Saved notices", () => {
   });
 
   it("centers a flash over the page beside the rail and sidebar in the workspace", async () => {
-    history.replaceState(null, "", "/rooms/nowhere");
+    // A room someone can't open says so in its place, so this is one the page before kept.
+    flashOnNextPage({ kind: "alert", text: "Something went wrong" });
     serve({ signedIn: true });
     render(<App />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong");
     expect(await placement()).toHaveClass(BESIDE_THE_RAIL);
   });
 
