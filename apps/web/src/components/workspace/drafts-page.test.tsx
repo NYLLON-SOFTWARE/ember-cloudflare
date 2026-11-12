@@ -75,7 +75,6 @@ describe("Drafts & sent", () => {
     const tabs = within(screen.getByRole("navigation", { name: "Drafts and sent" })).getAllByRole("link");
     expect(tabs.map((tab) => [tab.textContent, tab.getAttribute("href"), tab.getAttribute("aria-current")])).toEqual([
       ["Drafts", "/drafts", "page"],
-      ["Scheduled", "/drafts/scheduled", null],
       ["Sent", "/drafts/sent", null],
     ]);
   });
