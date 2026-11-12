@@ -17,7 +17,7 @@ const directRows = (member: Member) => dmsList(member).getByRole("link", { name:
 /** `member`'s rows suggesting people for DMs, top to bottom. */
 const suggestionRows = (member: Member) => dmsList(member).getByRole("button", { name: /^Start a direct message with / });
 
-const settingsLink = (member: Member) => member.page.getByRole("link", { name: "Settings for this Ping" });
+const settingsLink = (member: Member) => member.page.getByRole("link", { name: "Settings for this DM" });
 
 /** New direct message, while it's open. */
 const newDirect = (member: Member) => member.page.getByRole("dialog", { name: "New direct message" });
@@ -104,7 +104,7 @@ test.describe("Delete a direct message", () => {
     // Grace didn't start it.
     await directRow(grace, [ada]).click();
     await settingsLink(grace).click();
-    const remove = grace.page.getByRole("button", { name: "Delete Ping" });
+    const remove = grace.page.getByRole("button", { name: "Delete DM" });
     // Saying no keeps it.
     grace.page.once("dialog", (dialog) => void dialog.dismiss());
     await remove.click();
@@ -118,7 +118,7 @@ test.describe("Delete a direct message", () => {
       }),
     );
     await remove.click();
-    expect(await asked).toBe("Are you sure you want to delete this ping and all messages in it? This can’t be undone.");
+    expect(await asked).toBe("Delete DM");
     // Home, which is the last room shown that isn't a DM.
     await expect(grace.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(grace.page.getByRole("alert")).toHaveCount(0);
@@ -143,7 +143,7 @@ test.describe("Delete a direct message", () => {
       await answered;
       await route.fulfill({ response });
     });
-    const remove = grace.page.getByRole("button", { name: "Delete Ping" });
+    const remove = grace.page.getByRole("button", { name: "Delete DM" });
     grace.page.once("dialog", (dialog) => void dialog.accept());
     await remove.click();
 

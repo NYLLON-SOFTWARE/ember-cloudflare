@@ -708,10 +708,10 @@ describe("Delete a direct message", () => {
     });
     const { user } = showWorkspace("/rooms/d1");
     await roomHeading();
-    await user.click(screen.getByRole("link", { name: "Settings for this Ping" }));
+    await user.click(screen.getByRole("link", { name: "Settings for this DM" }));
     expect(location.pathname).toBe("/rooms/directs/d1/edit");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Edit settings for Grace");
-    await user.click(screen.getByRole("button", { name: "Delete Ping" }));
+    await user.click(screen.getByRole("button", { name: "Delete DM" }));
 
     expect(await roomHeading()).toHaveTextContent("general");
     expect(location.pathname).toBe("/rooms/general");
@@ -729,10 +729,10 @@ describe("Delete a direct message", () => {
       "DELETE /api/rooms/d1": () => new Promise<Response>((resolve) => (answer = resolve)),
     });
     const { user } = showWorkspace("/rooms/directs/d1/edit");
-    await user.click(await screen.findByRole("button", { name: "Delete Ping" }));
+    await user.click(await screen.findByRole("button", { name: "Delete DM" }));
     await workspaceSends({ type: "room.gone", roomId: "d1" });
     // The page stays as it was until its deletion answers.
-    expect(screen.getByRole("button", { name: "Delete Ping" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete DM" })).toBeDisabled();
     expect(location.pathname).toBe("/rooms/directs/d1/edit");
 
     await act(async () => answer(new Response(null, { status: 204 })));
@@ -749,13 +749,13 @@ describe("Delete a direct message", () => {
       "DELETE /api/rooms/d1": () => Response.json({ error: "Room not found or inaccessible" }, { status: 404 }),
     });
     const { user } = showWorkspace("/rooms/directs/d1/edit");
-    await screen.findByRole("button", { name: "Delete Ping" });
+    await screen.findByRole("button", { name: "Delete DM" });
     expect(within(screen.getByRole("region", { name: "Direct messages" })).queryAllByRole("link", { name: /^Direct message with / })).toHaveLength(1);
     await workspaceSends({ type: "room.gone", roomId: "d1" });
     expect(within(screen.getByRole("region", { name: "Direct messages" })).queryAllByRole("link", { name: /^Direct message with / })).toEqual([]);
     expect(location.pathname).toBe("/rooms/directs/d1/edit");
 
-    await user.click(screen.getByRole("button", { name: "Delete Ping" }));
+    await user.click(screen.getByRole("button", { name: "Delete DM" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Room not found or inaccessible");
     expect(await roomHeading()).toHaveTextContent("general");
   });
