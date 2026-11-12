@@ -4,7 +4,7 @@ import { ChatLines, ClockRotateRight, Headset, Mail, Xmark } from "@/components/
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
 import { PeopleContext } from "@/hooks/use-directory";
-import { personPath } from "@/hooks/use-route";
+import { useLocalTime } from "@/hooks/use-local-time";
 import { fetchPerson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { AgentBadge, isAgent } from "./agent-badge";

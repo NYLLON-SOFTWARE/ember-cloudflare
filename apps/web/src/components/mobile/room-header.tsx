@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { AgentBadge, useIsWithAgent } from "../workspace/agent-badge";
 import { HuddleButton } from "../workspace/huddle-button";
 import { PageHeader } from "../workspace/page-header";
+import { useLocalTime } from "@/hooks/use-local-time";
 import { useLocalTime } from "../workspace/profile-pane";
 import type { RoomHeaderProps } from "../workspace/room-header";
 import { RoomTabsContext } from "../workspace/room-tabs";
