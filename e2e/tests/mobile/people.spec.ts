@@ -1,5 +1,6 @@
+import type { Page } from "@playwright/test";
 import { cookieHeader, createSession, signInAs, signInAsAdministrator, useOwnAddress } from "../../fixtures";
-import { expect, test } from "./fixtures";
+import { expect, hasPhoneLayout, test } from "./fixtures";
 
 /** A name as long as the server takes, with a run that only breaks anywhere. */
 const LONG_NAME = "Augusta-Ada-King-Noel-Countess-of-Lovelace-Byron";
@@ -18,7 +19,8 @@ test("someone's page, with a long name and bio, fits the phone with its DM butto
 
   await page.goto(`/users/${person.user.id}`);
   await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toHaveText(LONG_NAME);
-  await expect(page.getByRole("button", { name: `Ping ${LONG_NAME}` })).toBeVisible();
+  // A phone's is Slack's Message tile.
+  await expect(page.getByRole("button", { name: hasPhoneLayout(page) ? "Message" : `Ping ${LONG_NAME}` })).toBeVisible();
   await screenIsFine();
 });
 
@@ -37,6 +39,7 @@ test("an administrator's view of someone's page fits the phone, down to their si
   await expect(page).not.toHaveURL(/\/session\/new$/);
 
   await page.goto(`/users/${person.user.id}`);
+  if (hasPhoneLayout(page)) return await adminActionsInMore(page, screenIsFine);
   const link = page.getByRole("textbox", { name: "Share to get them back into their account" });
   await link.scrollIntoViewIfNeeded();
   await expect(link).toBeInViewport();
@@ -46,3 +49,36 @@ test("an administrator's view of someone's page fits the phone, down to their si
   await expect(ban).toBeInViewport();
   await screenIsFine();
 });
+
+/**
+ * A phone keeps an administrator's sign-in link and Ban out of the page, in More: the link in a sheet of
+ * its own, and Ban in red, which asks first in a dialog titled with what it does.
+ */
+async function adminActionsInMore(page: Page, screenIsFine: () => Promise<void>) {
+  await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toHaveText(LONG_NAME);
+  await expect(page.getByRole("textbox")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /ban/i })).toHaveCount(0);
+  await screenIsFine();
+
+  const moreButton = page.getByRole("button", { name: "More actions" });
+  const more = page.getByRole("dialog", { name: "More actions" });
+  await moreButton.tap();
+  await expect(more.getByRole("button", { name: "Ban" })).toBeInViewport();
+  await screenIsFine();
+
+  await more.getByRole("button", { name: "Auto-login link" }).tap();
+  const signIn = page.getByRole("dialog", { name: "Auto-login link" });
+  await expect(signIn.getByRole("textbox", { name: "Share to get them back into their account" })).toBeInViewport();
+  await screenIsFine();
+  await page.keyboard.press("Escape");
+  await expect(signIn).toBeHidden();
+
+  await moreButton.tap();
+  await more.getByRole("button", { name: "Ban" }).tap();
+  const ban = page.getByRole("alertdialog", { name: `Ban ${LONG_NAME}` });
+  await expect(ban.getByRole("button", { name: "Ban" })).toBeInViewport();
+  await screenIsFine();
+  // Banning them would block the address every test signs in from, so this stops at the question.
+  await ban.getByRole("button", { name: "Cancel" }).tap();
+  await expect(ban).toBeHidden();
+}

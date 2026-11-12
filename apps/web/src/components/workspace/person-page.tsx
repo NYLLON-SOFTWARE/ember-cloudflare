@@ -11,8 +11,7 @@ import { leave, PROFILE_PATH, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { banPerson, fetchPerson, isSignedOut, unbanPerson } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { PhoneProfile } from "../mobile/profile";
-import { LocalTime } from "./profile-panel";
+import { PhoneAbout, PhoneProfile } from "../mobile/profile";
 import { AgentBadge, isAgent } from "./agent-badge";
 import { useConfirm } from "./confirm-dialog";
 import { HEADER_BUTTON } from "./page-header";
@@ -111,7 +110,8 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
   // Ban and Remove ban ask first, then load the page again with no notice. Once the workspace socket or
   // a load has said they changed while the answer was on its way, the answer may be older than that, so
   // it's left out, and the directory loads again unless it has what it says. A page that has gone
-  // stopped hearing what the directory has, so then the directory loads again.
+  // stopped hearing what the directory has, so then the directory loads again. A phone's asks in its own
+  // dialog, so it changes the ban without asking.
   const toggleBan = async () => {
     if (!person || banning) return;
     const banned = person.status === "banned";
@@ -119,7 +119,12 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
     const sure = await (banned
       ? confirmFirst(confirmUnban(person.name), { confirm: "Remove ban" })
       : confirmFirst(ban.title, { body: ban.body, confirm: "Ban", destructive: true }));
-    if (!sure) return;
+    if (sure) changeBan();
+  };
+
+  const changeBan = () => {
+    if (!person || banning) return;
+    const banned = person.status === "banned";
     const asked = listedNow.current;
     setBanning(true);
     (banned ? unbanPerson : banPerson)(person.id)
@@ -166,14 +171,21 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
           <h1 className="text-[23px] font-bold">{person.name}</h1>
           <NoLongerHere name={person.name} />
         </div>
+      ) : phone ? (
+        <PhoneAbout
+          person={person}
+          mine={mine}
+          administrator={me.administrator}
+          transferId={person.status === "active" ? transferId : undefined}
+          starting={starting}
+          onMessage={startDirect}
+          onToggleBan={changeBan}
+        />
       ) : (
         <>
           {/* Campfire's `.gap` with a third of its block space between rows. */}
           <div className="flex flex-col gap-x-[1ch] gap-y-[calc(1rem/3)]">
             <h1 className="text-[23px] leading-[1.2] font-bold">{person.name}</h1>
-            {/* A phone's profile says their time where they are under their name, as Slack's does; a wider
-                screen's profile pane says it. */}
-            {phone && person.timeZone && <LocalTime timeZone={person.timeZone} />}
             {/* Campfire's link, left out for someone with no address. */}
             {person.emailAddress !== undefined && (
               <div>
@@ -198,10 +210,6 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
                 >
                   <ChatLines className="size-[1.3em]" />
                   <span className="sr-only">Ping {person.name}</span>
-                  {/* Slack's Message, said on a phone. */}
-                  <span aria-hidden="true" className="hidden max-md:inline">
-                    Message
-                  </span>
                 </button>
               </div>
               {transferId && (
