@@ -45,11 +45,17 @@ interface Props {
  * that turns the code off works. It scrolls sideways where it doesn't fit.
  */
 export function ComposerToolbar({ formats, disabled = false, onFormat, onBlock, onLink, linkDraft, linkOpen, onLinkOpenChange, onReturnFocus }: Props) {
+  // One stop for Tab, as a toolbar is: the button last focused, or the first that works where that can't,
+  // and the arrow keys, Home and End move between them.
+  const [current, setCurrent] = useState<Tool>("bold");
+  const works = (tool: Tool) => !disabled && !isDisabled(tool, formats);
+  const tabbable = works(current) ? current : TOOL_GROUPS.flat().find(({ tool }) => works(tool))?.tool;
   return (
     <div
       role="toolbar"
       aria-label="Formatting"
       aria-orientation="horizontal"
+      onKeyDown={moveAlong}
       className="-mx-1 flex min-w-0 items-center gap-0.5 overflow-x-auto pb-1.5 [scrollbar-width:none]"
     >
       {TOOL_GROUPS.map((group, index) => (
@@ -57,7 +63,14 @@ export function ComposerToolbar({ formats, disabled = false, onFormat, onBlock, 
           {index > 0 && <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />}
           {group.map(({ tool, label, keys }) => {
             const title = keys ? `${label} (${keysOf(keys)})` : label;
-            const common = { disabled: disabled || isDisabled(tool, formats), title, "aria-label": label };
+            const common = {
+              disabled: !works(tool),
+              title,
+              "aria-label": label,
+              tabIndex: tool === tabbable ? 0 : -1,
+              onFocus: () => setCurrent(tool),
+              "data-tool": tool,
+            };
             if (tool === "block") return <BlockMenu key={tool} block={formats.block} {...common} onBlock={onBlock} onReturnFocus={onReturnFocus} />;
             if (tool === "link") {
               return (
@@ -93,11 +106,28 @@ export function ComposerToolbar({ formats, disabled = false, onFormat, onBlock, 
   );
 }
 
-interface BlockMenuProps {
-  block: Block;
+/** Moves focus to the toolbar's next button that works, or the one before it, or its first or last, as the arrow keys, Home and End do. */
+function moveAlong(event: KeyboardEvent<HTMLDivElement>) {
+  const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-tool]:not(:disabled)")];
+  const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: buttons.length - 1 }[event.key];
+  if (at === -1 || next === undefined || buttons.length === 0) return;
+  event.preventDefault();
+  buttons[(next + buttons.length) % buttons.length]!.focus();
+}
+
+/** What every one of the toolbar's buttons takes, as `ComposerToolbar` gives it. */
+interface ToolButton {
   disabled: boolean;
   title: string;
   "aria-label": string;
+  tabIndex: number;
+  onFocus: () => void;
+  "data-tool": Tool;
+}
+
+interface BlockMenuProps extends ToolButton {
+  block: Block;
   onBlock: (block: Block) => void;
   onReturnFocus: () => void;
 }
@@ -124,10 +154,7 @@ function BlockMenu({ block, onBlock, onReturnFocus, ...button }: BlockMenuProps)
   );
 }
 
-interface LinkFieldProps {
-  disabled: boolean;
-  title: string;
-  "aria-label": string;
+interface LinkFieldProps extends ToolButton {
   linked: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;

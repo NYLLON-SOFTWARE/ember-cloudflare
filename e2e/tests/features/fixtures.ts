@@ -82,9 +82,12 @@ export class Member {
 
   /** Opens a message's More actions, as a mouse does, from Message options at the end of its bar, and returns it. */
   async moreActions(text: string): Promise<Locator> {
+    const panel = this.message(text).getByRole("group", { name: "More actions" });
+    // Message options shuts it again where it's open already.
+    if (await panel.isVisible()) return panel;
     await this.actions(text);
     await this.message(text).getByRole("button", { name: "Message options" }).click();
-    return this.message(text).getByRole("group", { name: "More actions" });
+    return panel;
   }
 
   /** Opens a message's editor from More actions' Edit message. */

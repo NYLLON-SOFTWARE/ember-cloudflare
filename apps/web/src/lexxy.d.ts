@@ -10,6 +10,7 @@ declare module "@37signals/lexxy" {
     getIndexWithinParent(): number;
     getNextSiblings(): LexicalNode[];
     getPreviousSibling(): LexicalNode | null;
+    getNextSibling(): LexicalNode | null;
     getTextContent(): string;
     insertAfter(node: LexicalNode): LexicalNode;
     remove(): void;
@@ -48,6 +49,8 @@ declare module "@37signals/lexxy" {
     anchor: Point;
     isCollapsed(): boolean;
     getTextContent(): string;
+    hasFormat(format: string): boolean;
+    focus: Point;
     setFormat(format: number): void;
     setStyle(style: string): void;
     insertText(text: string): void;

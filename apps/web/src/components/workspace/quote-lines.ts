@@ -1,4 +1,4 @@
-import { Lexical, type LexicalEditor, type LexicalNode, type ParagraphNode } from "@37signals/lexxy";
+import { Lexical, type LexicalEditor, type LexicalNode, type ParagraphNode, type TextNode } from "@37signals/lexxy";
 
 // Quotes and lists line by line, as Slack's composer has them. Shift+Enter breaks a line within its
 // paragraph, so a message written before it's sent is one paragraph of lines, and Lexical's > shortcut, which
@@ -58,6 +58,46 @@ export function $unquoteEmptyLine(): boolean {
   if (quote.getChildrenSize() === 0) quote.remove();
   unquoted.select();
   return true;
+}
+
+/**
+ * Gives the line the caret is on, in a paragraph of lines that Shift+Enter broke, a paragraph of its own,
+ * between the lines before and after it, keeping the caret where it was in it, so what turns a paragraph into
+ * a list or a quote turns just that line, as Slack's buttons do. Answers whether it did, which it doesn't in a
+ * paragraph of one line, outside the root, or without a caret.
+ */
+export function $isolateCaretLine(): boolean {
+  const caret = caretInParagraph();
+  if (!caret) return false;
+  const { paragraph, index, offset } = caret;
+  if (paragraph.getParent()?.getType() !== "root") return false;
+  const children = paragraph.getChildren();
+  if (!children.some((node) => $isLineBreakNode(node))) return false;
+  const textCaret = caretIsInText();
+  let start = index;
+  while (start > 0 && !$isLineBreakNode(children[start - 1])) start--;
+  let end = index;
+  while (end < children.length && !$isLineBreakNode(children[end])) end++;
+  const before = start > 0 ? children[start - 1]! : null;
+  const after = end < children.length ? children[end]! : null;
+  const line = children.slice(start, end);
+  const following = after ? children.slice(end + 1) : [];
+  before?.remove();
+  after?.remove();
+  for (const node of [...line, ...following]) node.remove();
+  const own = $createParagraphNode().append(...line);
+  paragraph.insertAfter(own);
+  if (following.length > 0) own.insertAfter($createParagraphNode().append(...following));
+  if (before === null) paragraph.remove();
+  if (textCaret) (children[index] as TextNode).select(offset, offset);
+  else own.select(index - start, index - start);
+  return true;
+}
+
+/** Whether the selection's caret is in text, rather than between a paragraph's children. */
+function caretIsInText(): boolean {
+  const selection = $getSelection();
+  return $isRangeSelection(selection) && selection.anchor.type === "text";
 }
 
 /** The marks that, with a space after them at a line's start, quote it or start a list with it, and Lexxy's command for each. */

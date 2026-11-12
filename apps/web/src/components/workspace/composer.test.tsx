@@ -190,6 +190,29 @@ describe("Formatting toolbar", () => {
     expect(tool("Bold")).toHaveAttribute("title", "Bold (Ctrl+B)");
   });
 
+  it("is one stop for Tab, whose arrow keys, Home and End move between the buttons that work", async () => {
+    const { user, input } = await showComposer();
+    const tools = within(screen.getByRole("toolbar", { name: "Formatting" })).getAllByRole("button");
+    expect(tools.filter((tool) => tool.tabIndex === 0)).toEqual([tool("Bold")]);
+    await user.click(input);
+    await user.tab({ shift: true });
+    expect(tool("Bold")).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(tool("Italic")).toHaveFocus();
+    await user.keyboard("{End}");
+    expect(tool("Divider")).toHaveFocus();
+    await user.keyboard("{ArrowRight}");
+    expect(tool("Bold")).toHaveFocus();
+    await user.keyboard("{ArrowLeft}");
+    expect(tool("Divider")).toHaveFocus();
+    // Tab leaves from the button last focused, which it comes back to.
+    expect(tools.filter((tool) => tool.tabIndex === 0)).toEqual([tool("Divider")]);
+
+    // In code, where only Code block works, that's the stop.
+    await user.click(tool("Code block"));
+    expect(within(screen.getByRole("toolbar", { name: "Formatting" })).getAllByRole("button").filter((tool) => tool.tabIndex === 0)).toEqual([tool("Code block")]);
+  });
+
   it("strikes through on Ctrl+Shift+X", async () => {
     const { user } = await showComposer();
     await user.keyboard("{Control>}{Shift>}x{/Shift}{/Control}");
@@ -431,7 +454,7 @@ describe("Attach files", () => {
     // The name runs to an ellipsis at its end.
     expect(within(archive).getByText("archive.tar.gz")).toHaveClass("truncate");
     expect(archive).toHaveTextContent("GZ · 13 KB");
-    expect(screen.getByRole("button", { name: "Remove README" }).closest("li")).toHaveTextContent("File · 1 KB");
+    expect(screen.getByRole("button", { name: "Remove README" }).closest("li")).toHaveTextContent("File · 3 B");
   });
 
   it("moves focus to the next file's remove button as one's removed, or to the text after the last", async () => {
@@ -1009,7 +1032,7 @@ describe("Attach", () => {
     await user.click(await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /logo\.svg/ }));
     const chip = (await screen.findByRole("button", { name: "Remove logo.svg" })).closest("li")!;
     expect(chip.querySelector("img")).toBeNull();
-    expect(chip).toHaveTextContent("SVG · 1 KB");
+    expect(chip).toHaveTextContent("SVG · 1 B");
   });
 
   it("shows a picture picked from Files in Ember by its preview", async () => {

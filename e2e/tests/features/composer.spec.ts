@@ -219,7 +219,7 @@ test.describe("Formatting toolbar", () => {
     await expect(menu.getByRole("menuitemradio")).toHaveText(["Normal text", "Heading", "Subheading"]);
     const menuBox = await box(menu);
     expect(menuBox.y + menuBox.height).toBeLessThanOrEqual((await box(tool(ada, "Paragraph style"))).y);
-    await menu.getByRole("menuitemradio", { name: "Heading" }).click();
+    await menu.getByRole("menuitemradio", { name: "Heading", exact: true }).click();
     await expect(ada.composer().locator("h1")).toHaveText("Big news");
     await expect(ada.composer()).toBeFocused();
     await expect(tool(ada, "Paragraph style")).toHaveAttribute("aria-pressed", "true");
@@ -291,13 +291,15 @@ test.describe("Formatting toolbar", () => {
     ] as const;
     for (const [typed, element, text] of blocks) {
       await ada.composer().pressSequentially(typed);
-      await ada.composer().press("Enter");
+      // Enter adds an item in a list, as in Slack, where Ctrl or Cmd+Enter sends.
+      await ada.composer().press(element.endsWith("li") ? "ControlOrMeta+Enter" : "Enter");
       await expect(grace.message(text).locator(`.message-content ${element}`)).toHaveText(text);
     }
 
     // Three backticks start a code block at once, as in Slack, where Enter starts a new line.
     await ada.composer().pressSequentially("```");
-    await expect(ada.composer().locator("pre")).toBeVisible();
+    // Lexxy writes a code block as a block of code, the only code there yet.
+    await expect(ada.composer().locator("code")).toBeVisible();
     await expect(tool(ada, "Code block")).toHaveAttribute("aria-pressed", "true");
     await ada.composer().pressSequentially("let x = 1");
     await ada.composer().press("Enter");
@@ -350,13 +352,15 @@ test.describe("Insert", () => {
     await members.signIn("Grace");
     await ada.composer().pressSequentially("Hi");
     await ada.page.getByRole("button", { name: "Emoji" }).click();
-    await ada.page.getByRole("group", { name: "Emoji" }).getByRole("button", { name: "Thumbs up" }).click();
+    // The picker's search finds an emoji by its short name, and Enter writes the first it finds.
+    await ada.page.getByRole("searchbox", { name: "Search emoji" }).or(ada.page.getByRole("textbox", { name: "Search emoji" })).fill("thumbsup");
+    await ada.page.keyboard.press("Enter");
     await expect(ada.composer()).toHaveText("Hi👍");
     await expect(ada.composer()).toBeFocused();
 
     await ada.page.getByRole("button", { name: "Mention someone" }).click();
     await expect(ada.composer()).toHaveText("Hi👍 @");
-    await expect(ada.page.getByRole("option", { name: /Grace/ })).toBeVisible();
+    await expect(ada.page.getByRole("option", { name: /Grace/ }).first()).toBeVisible();
   });
 
   test("lists the people to mention from @ at once in an empty composer that doesn't have focus", async ({ members }) => {
@@ -365,7 +369,7 @@ test.describe("Insert", () => {
     await ada.composer().blur();
     await ada.page.getByRole("button", { name: "Mention someone" }).click();
     await expect(ada.composer()).toHaveText("@");
-    await expect(ada.page.getByRole("option", { name: /Grace/ })).toBeVisible();
+    await expect(ada.page.getByRole("option", { name: /Grace/ }).first()).toBeVisible();
     await expect(ada.composer()).toBeFocused();
   });
 });
@@ -394,7 +398,8 @@ test.describe("Pasting into the composer", () => {
     await expect(ada.composer().locator("strong")).toHaveText("Bold");
     await expect(ada.composer().locator("em")).toHaveText("italic");
     await expect(ada.composer().locator("li")).toHaveText(["one", "two"]);
-    await ada.composer().press("Enter");
+    // The cursor ends in the list, where Enter would add an item.
+    await ada.composer().press("ControlOrMeta+Enter");
     const message = grace.message("Bold and italic").locator(".message-content");
     await expect(message.locator("p")).toHaveText("Bold and italic\nsecond line", { useInnerText: true });
     await expect(message.locator("p > br")).toHaveCount(1);

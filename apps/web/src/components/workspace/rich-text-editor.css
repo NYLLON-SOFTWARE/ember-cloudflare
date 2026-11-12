@@ -582,12 +582,16 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
   }
 
   .lexxy-editor__content {
+    /* The room above the text: the card's padding, or less under the toolbar, which has the card's. */
+    --composer-text-top: var(--composer-padding);
+
     flex: 1;
-    margin: calc(-1 * var(--composer-padding)) calc(-1 * var(--composer-padding)) 0;
-    max-block-size: calc(min(32dvh, 300px) + var(--composer-padding) + 4px);
+    margin: calc(-1 * var(--composer-text-top)) calc(-1 * var(--composer-padding)) 0;
+    max-block-size: calc(min(32dvh, 300px) + var(--composer-text-top) + 4px);
+    /* As tall empty as with the card's padding above it, so the composer keeps its height with the toolbar. */
     min-block-size: calc(40px + var(--composer-padding) + 4px);
     overflow-y: auto;
-    padding: var(--composer-padding) var(--composer-padding) 4px;
+    padding: var(--composer-text-top) var(--composer-padding) 4px;
 
     &:focus {
       outline: none;
@@ -596,8 +600,9 @@ action-text-attachment[content-type~="application/vnd.actiontext.opengraph-embed
 
   /* Under the toolbar, the text keeps to its own space, rather than the card's padding the toolbar is in. */
   &[data-toolbar] .lexxy-editor__content {
+    --composer-text-top: 6px;
+
     margin-block-start: 0;
-    padding-block-start: 6px;
   }
 
   @media (width < 56.3125rem) {

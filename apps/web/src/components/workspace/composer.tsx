@@ -213,7 +213,7 @@ function FileChip({ file, onRemove }: { file: Sendable; onRemove: () => void }) 
       <span className="min-w-0">
         <span className="block truncate text-[13px] font-semibold">{name}</span>
         <span className="block truncate text-[12px] text-muted-foreground">
-          {fileType(name)} · {uploadSize(size)}
+          {fileType(name)} · {size < 1000 ? `${size} B` : uploadSize(size)}
         </span>
       </span>
       {remove}

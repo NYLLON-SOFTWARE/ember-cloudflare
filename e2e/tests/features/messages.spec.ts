@@ -391,6 +391,8 @@ test.describe("Message action bar", () => {
     const options = message.getByRole("button", { name: "Message options" });
 
     await ada.composer().focus();
+    // Back past the formatting toolbar, one stop for Tab.
+    await ada.page.keyboard.press("Shift+Tab");
     await ada.page.keyboard.press("Shift+Tab");
     await expect(options).toBeFocused();
     // Focus shows Message options, not the bar.
