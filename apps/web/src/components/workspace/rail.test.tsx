@@ -7,7 +7,7 @@ import { Rail, type Activity, type RailPage } from "./rail";
 import { OpenSearchContext } from "./search-box";
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
-const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };
+const activityOff: Activity = { unread: 0 };
 
 /** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's and `directsUnread` DMs unread. */
 const railAt = (current: RailPage, activity = activityOff, me = ada, newRelease: string | null = null, directsUnread = 0) => (
@@ -99,9 +99,9 @@ describe("Rail", () => {
     expect(history.length).toBe(length + 1);
   });
 
-  it("marks no page while Activity is on", () => {
-    render(railAt("home", { ...activityOff, on: true }));
-    expect(screen.queryAllByRole("link", { current: "page" })).toEqual([]);
+  it("marks Activity alone on Activity", () => {
+    render(railAt("activity"));
+    expect(screen.getAllByRole("link", { current: "page" }).map((link) => link.textContent)).toEqual(["Activity"]);
   });
 
   it("draws Iconoir's icons, which the project's owner chose", () => {
@@ -180,34 +180,25 @@ describe("DMs page", () => {
   });
 });
 
-describe("Activity filter", () => {
-  it("toggles Activity and shows it pressed while it's on", async () => {
-    const onToggle = vi.fn();
-    const { rerender } = render(railAt("home", { ...activityOff, onToggle }));
-    const activity = screen.getByRole("button", { name: "Activity" });
-    expect(activity).toHaveAttribute("title", "Show unread conversations");
-    expect(activity).toHaveAttribute("aria-pressed", "false");
-    await userEvent.click(activity);
-    expect(onToggle).toHaveBeenCalledOnce();
-
-    rerender(railAt("home", { ...activityOff, on: true, onToggle }));
-    expect(activity).toHaveAttribute("aria-pressed", "true");
-    expect(activity).toHaveClass("aria-pressed:bg-hover", "aria-pressed:text-foreground");
+describe("Activity", () => {
+  it("links to Activity's page, which it shows in place", async () => {
+    render(railAt("home"));
+    await userEvent.click(screen.getByRole("link", { name: "Activity" }));
+    expect(location.pathname).toBe("/activity");
   });
 
-  it("counts unread conversations in a pill at its corner, up to 9+, hidden at none", () => {
-    const { rerender } = render(railAt("room", { ...activityOff, unread: 3 }));
-    const activity = screen.getByRole("button", { name: "Activity" });
+  it("counts unread items in a pill at its corner, hidden at none, 99+ past 99", () => {
+    const { rerender } = render(railAt("room", { unread: 3 }));
+    const activity = screen.getByRole("link", { name: "Activity" });
     expect(activity).toHaveAccessibleDescription("3 unread");
     const pill = within(activity).getByText("3");
     expect(pill).toHaveAttribute("aria-hidden", "true");
     expect(pill).toHaveClass("absolute", "h-[17px]", "min-w-[17px]", "border-2", "border-surface", "bg-foreground", "text-[10px]", "text-background");
 
-    rerender(railAt("room", { ...activityOff, unread: 14 }));
-    expect(activity).toHaveAccessibleDescription("9+ unread");
-    expect(within(activity).getByText("9+")).toBeInTheDocument();
+    rerender(railAt("room", { unread: 120 }));
+    expect(within(activity).getByText("99+")).toBeInTheDocument();
 
-    rerender(railAt("room", { ...activityOff, unread: 0 }));
+    rerender(railAt("room", { unread: 0 }));
     expect(activity).not.toHaveAttribute("aria-description");
     expect(activity).toHaveTextContent(/^Activity$/);
   });
@@ -259,7 +250,7 @@ describe("Navigation icons", () => {
       huddles: false,
     };
     render(<AccountContext value={account}>{railAt("home", activityOff, { ...ada, administrator: true })}</AccountContext>);
-    const icon = (name: string) => screen.getByRole(name === "Activity" ? "button" : "link", { name }).querySelector("[data-icon], svg");
+    const icon = (name: string) => screen.getByRole("link", { name }).querySelector("[data-icon], svg");
     expect(icon("Home")).toHaveAttribute("data-icon", "coffee");
     expect(icon("Home")).toHaveStyle({ maskImage: "url(/lucide/icons/coffee.svg)", width: "22px", height: "22px" });
     expect(icon("Search")).toHaveStyle({ maskImage: "url(/iconoir/icons/solid/heart.svg)" });

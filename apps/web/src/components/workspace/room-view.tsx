@@ -1,4 +1,5 @@
-import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
+import { useEffect, useEffectEvent, useImperativeHandle, useRef, type ReactNode, type Ref } from "react";
+import { createPortal } from "react-dom";
 import type { Favorites, Invitation, Involvement, Me } from "@ember/protocol";
 import { MainContent } from "@/components/main-content";
 import { useNameOf } from "@/hooks/use-directory";
@@ -53,7 +54,15 @@ interface Props {
   onFailed: (error: unknown) => void;
   /** When the room turns out to be gone for this person: deleted, or no longer theirs. */
   onGone: (room: Room) => void;
+  /** Shows the room in a pane, and its thread in another, as Activity does, rather than in the page's grid. */
+  panes?: RoomPanes;
   ref?: Ref<RoomViewHandle>;
+}
+
+/** Where a room shown in a pane puts its open thread, once there's a pane for it, and what closes it. */
+export interface RoomPanes {
+  thread: HTMLElement | null;
+  onCloseThread: () => void;
 }
 
 export interface RoomViewHandle {
@@ -61,7 +70,7 @@ export interface RoomViewHandle {
   focusComposer(): void;
 }
 
-export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, askForRoom, onSessionChanged, onFailed, onGone, ref }: Props) {
+export function RoomView({ room, messageId, threadId, replyId, invitation, onDismissInvitation, me, favorite, gone, onStarred, involvement, newSince = null, askForRoom, onSessionChanged, onFailed, onGone, panes, ref }: Props) {
   const { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice } = useRoom(room.id, me, onSessionChanged, messageId);
   const nameOf = useNameOf();
   const name = roomName(room, me.id, nameOf);
@@ -100,7 +109,9 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   const { editing, editors } = useMessageEditors(composer);
   useImperativeHandle(ref, () => ({ focusComposer: editors.returnFocus }), [editors]);
   // A thread that covers the room leaves nothing of it to reach until it's closed.
-  const covered = useMediaQuery(THREAD_COVERS_ROOM) && threadId !== undefined;
+  const covered = useMediaQuery(THREAD_COVERS_ROOM) && threadId !== undefined && !panes;
+  // In panes, the thread goes in its own, once it's there.
+  const placed = (thread: ReactNode) => (panes ? panes.thread && createPortal(thread, panes.thread) : thread);
 
   // Up Arrow edits your newest message, unless it's still on its way, or the timeline is reading older
   // history and may not hold it.
@@ -114,7 +125,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
     <RoomTabsContext value={tabs}>
       <RoomFramesContext value={frames}>
         {/* The room's header and messages, placed in the page's grid as if they were its own. */}
-        <div className="contents" inert={covered}>
+        <div className={panes ? "grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]" : "contents"} inert={covered}>
           <RoomHeader
             room={room}
             me={me}
@@ -175,22 +186,25 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
             )}
           </MainContent>
         </div>
-        {threadId !== undefined && (
-          <ThreadPanel
-            key={threadId}
-            room={room}
-            name={name}
-            me={me}
-            parentId={threadId}
-            replyId={replyId}
-            frames={frames}
-            status={state.status}
-            offline={state.offline}
-            deleted={deleted}
-            roomNotice={covered ? state.notice : null}
-            onDismissRoomNotice={dismissNotice}
-          />
-        )}
+        {threadId !== undefined &&
+          placed(
+            <ThreadPanel
+              key={threadId}
+              room={room}
+              name={name}
+              me={me}
+              parentId={threadId}
+              replyId={replyId}
+              frames={frames}
+              status={state.status}
+              offline={state.offline}
+              deleted={deleted}
+              roomNotice={covered ? state.notice : null}
+              onDismissRoomNotice={dismissNotice}
+              placement={panes ? "pane" : "column"}
+              onClose={panes?.onCloseThread}
+            />,
+          )}
       </RoomFramesContext>
     </RoomTabsContext>
   );
