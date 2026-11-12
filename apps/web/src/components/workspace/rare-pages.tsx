@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { useFlashIfAny } from "@/components/flash";
+import { useOptionalFlash, type Flasher } from "@/components/flash";
 
 // The pages few visits need, and the dialogs and panels few visits open, which load together in a chunk of
 // their own (pages.ts), apart from the rest of the app: once the rooms have, while the browser is idle, or as
@@ -10,13 +10,70 @@ export type RarePages = typeof import("./pages");
 let rarePages: RarePages | undefined;
 let loadingRarePages: Promise<RarePages> | undefined;
 
+/** A failed module's address, as Chromium names it in its error; WebKit names none. */
+const MODULE_ADDRESS = /https?:\/\/[^\s?#]+\.js/;
+
+/**
+ * Loads a module that may fail to load, as a chunk can when the network drops, with `load` until it fails and
+ * then afresh. Some browsers keep a module that failed to load as failed until the page loads again, so asking
+ * for it again fails at once: afresh is the same module at an address of its own, `?retry=` and a count,
+ * where the browser named the module's address, as Chromium does, and otherwise `load` again, which, should
+ * that fail too, as in WebKit, only loading the page again can mend, so `stuck` hears it.
+ */
+export function retryingImport<T>(load: () => Promise<T>, loadAt: (address: string) => Promise<T>, stuck: () => void): () => Promise<T> {
+  let failed = false;
+  let address: string | null = null;
+  let retries = 0;
+  const loadAgain = () =>
+    load().catch((error: unknown) => {
+      stuck();
+      throw error;
+    });
+  return () => {
+    const loading = !failed ? load() : address ? loadAt(`${address}?retry=${++retries}`) : loadAgain();
+    return loading.catch((error: unknown) => {
+      failed = true;
+      address = (error instanceof Error && MODULE_ADDRESS.exec(error.message)?.[0]) || address;
+      throw error;
+    });
+  };
+}
+
+/** Whether the pages failed to load again where only loading the page again can load them. */
+let rarePagesStuck = false;
+
+const importRarePages = retryingImport<RarePages>(
+  () => import("./pages"),
+  (address) => import(/* @vite-ignore */ address) as Promise<RarePages>,
+  () => (rarePagesStuck = true),
+);
+
+/** What the flash says when the pages couldn't load since the browser is stuck on their failure. */
+export const RELOAD_TO_LOAD = "Ember couldn’t load this. Reload to try again.";
+
+/**
+ * Says what was opened couldn't load: that Ember can't be reached, and, online, where the browser holds on to
+ * the failure, offering to load the page again, which the person decides on, as it loses what's unsaved.
+ */
+export function flashNotLoaded(flash: Flasher | null) {
+  if (rarePagesStuck && navigator.onLine) flash?.("alert", RELOAD_TO_LOAD, { label: "Reload", onClick: () => location.reload() });
+  else flash?.("alert", NOT_LOADED);
+}
+
+/** Whether the pages failed to load, which only something opened, not a preload, tries again. */
+let rarePagesFailed = false;
+
 /** Loads the pages few visits need (pages.ts), once, answering them. */
 export function loadRarePages(): Promise<RarePages> {
-  loadingRarePages ??= import("./pages").then(
-    (pages) => (rarePages = pages),
+  loadingRarePages ??= importRarePages().then(
+    (pages) => {
+      rarePagesFailed = false;
+      return (rarePages = pages);
+    },
     (error: unknown) => {
       // The next page that needs them tries again.
       loadingRarePages = undefined;
+      rarePagesFailed = true;
       throw error;
     },
   );
@@ -27,7 +84,10 @@ export function loadRarePages(): Promise<RarePages> {
 export const peekRarePages = () => rarePages;
 
 /** Starts loading them, as hovering or focusing what opens one does, so they're there by the time it's clicked. */
-export const preloadRarePages = () => void loadRarePages().catch(() => {});
+export const preloadRarePages = () => {
+  // After a failure, trying again may load the page again, which only opening something should.
+  if (!rarePagesFailed) void loadRarePages().catch(() => {});
+};
 
 /** What the flash says when what was opened can't load. */
 export const NOT_LOADED = "Couldn’t reach Ember. Check your connection and try again.";
@@ -40,13 +100,13 @@ export const NOT_LOADED = "Couldn’t reach Ember. Check your connection and try
 export function useOpenedRarePage(open: boolean, close: () => void): [opened: boolean, failed: () => void] {
   const [opened, setOpened] = useState(false);
   if (open && !opened) setOpened(true);
-  const flash = useFlashIfAny();
+  const flash = useOptionalFlash();
   const closing = useRef(close);
   closing.current = close;
   const failed = useCallback(() => {
     setOpened(false);
     closing.current();
-    flash?.("alert", NOT_LOADED);
+    flashNotLoaded(flash);
   }, [flash]);
   return [opened, failed];
 }

@@ -1,8 +1,8 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, it } from "vitest";
-import { FlashProvider } from "@/components/flash";
-import { NOT_LOADED, useOpenedRarePage } from "./rare-pages";
+import { describe, expect, it, vi } from "vitest";
+import { FlashProvider, useOptionalFlash } from "@/components/flash";
+import { flashNotLoaded, NOT_LOADED, RELOAD_TO_LOAD, retryingImport, useOpenedRarePage } from "./rare-pages";
 
 let fail: () => void = () => {};
 
@@ -38,5 +38,81 @@ describe("What loads with the pages", () => {
 
     act(() => screen.getByRole("button", { name: "Open" }).click());
     expect(screen.getByText("open, in the page")).toBeInTheDocument();
+  });
+});
+
+describe("Loading the pages again after they failed to load", () => {
+  const chromium = (address: string) => new TypeError(`Failed to fetch dynamically imported module: ${address}`);
+
+  it("asks for the module at an address of its own, as the browser keeps the failed one failed, until it loads", async () => {
+    const load = vi.fn<() => Promise<string>>().mockRejectedValue(chromium("https://ember.test/assets/pages-a1.js"));
+    const loadAt = vi.fn<(address: string) => Promise<string>>().mockRejectedValueOnce(chromium("https://ember.test/assets/pages-a1.js?retry=1")).mockResolvedValue("pages");
+    const reload = vi.fn();
+    const importPages = retryingImport(load, loadAt, reload);
+
+    await expect(importPages()).rejects.toThrow();
+    await expect(importPages()).rejects.toThrow();
+    await expect(importPages()).resolves.toBe("pages");
+    expect(load).toHaveBeenCalledOnce();
+    expect(loadAt.mock.calls).toEqual([["https://ember.test/assets/pages-a1.js?retry=1"], ["https://ember.test/assets/pages-a1.js?retry=2"]]);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("asks for the module again where the browser didn't say which failed, and says it's stuck should that fail too, as in WebKit", async () => {
+    const load = vi.fn<() => Promise<string>>().mockRejectedValue(new TypeError("Importing a module script failed."));
+    const loadAt = vi.fn<(address: string) => Promise<string>>();
+    const stuck = vi.fn();
+    const importPages = retryingImport(load, loadAt, stuck);
+
+    await expect(importPages()).rejects.toThrow();
+    expect(stuck).not.toHaveBeenCalled();
+    await expect(importPages()).rejects.toThrow();
+    expect(stuck).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(loadAt).not.toHaveBeenCalled();
+  });
+
+  it("loads the module where asking again works, without being stuck", async () => {
+    const load = vi.fn<() => Promise<string>>().mockRejectedValueOnce(new TypeError("Importing a module script failed.")).mockResolvedValue("pages");
+    const stuck = vi.fn();
+    const importPages = retryingImport(load, vi.fn(), stuck);
+
+    await expect(importPages()).rejects.toThrow();
+    await expect(importPages()).resolves.toBe("pages");
+    expect(stuck).not.toHaveBeenCalled();
+  });
+});
+
+describe("Saying what was opened couldn't load", () => {
+  it("says Ember can't be reached, without offering to load the page again, where the browser isn't stuck on the failure", () => {
+    const flash = vi.fn();
+    flashNotLoaded(flash);
+    expect(flash).toHaveBeenCalledWith("alert", NOT_LOADED);
+  });
+});
+
+describe("A flash that offers to do something", () => {
+  it("stays until it's done or dismissed, with its action and Dismiss", async () => {
+    const reload = vi.fn();
+    function Offer() {
+      const flash = useOptionalFlash()!;
+      return (
+        <button type="button" onClick={() => flash("alert", RELOAD_TO_LOAD, { label: "Reload", onClick: reload })}>
+          Fail
+        </button>
+      );
+    }
+    render(
+      <FlashProvider>
+        <Offer />
+      </FlashProvider>,
+    );
+    act(() => screen.getByRole("button", { name: "Fail" }).click());
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(RELOAD_TO_LOAD);
+    act(() => within(alert).getByRole("button", { name: "Reload" }).click());
+    expect(reload).toHaveBeenCalledOnce();
+    act(() => within(alert).getByRole("button", { name: "Dismiss" }).click());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

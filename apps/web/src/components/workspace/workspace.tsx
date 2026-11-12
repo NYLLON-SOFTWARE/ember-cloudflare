@@ -47,7 +47,7 @@ import { Sidebar, type SidebarPage } from "./sidebar";
 import { WelcomePage } from "./welcome-page";
 import { ForwardContext, type Forwarding } from "./forward-context";
 import { ConversationsContext } from "./quote-cite";
-import { loadRarePages, RarePage, type RarePages } from "./rare-pages";
+import { flashNotLoaded, loadRarePages, RarePage, type RarePages } from "./rare-pages";
 
 /** What an address shows when it's one of the pages few visits need. */
 const RARE_PAGES = new Set<Route["page"]>([
@@ -407,6 +407,15 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       flash("alert", reasonFor(error));
     },
     [flash, onSessionChanged, mounted],
+  );
+  // Forward message goes when the pages don't load, so pressing it again tries again.
+  const forwardFailed = useCallback(
+    (error: unknown) => {
+      setForwarding(null);
+      if (isSignedOut(error)) return failed(error);
+      flashNotLoaded(flash);
+    },
+    [failed, flash],
   );
   useLayoutEffect(() => {
     activityFailed.current = failed;
@@ -1057,7 +1066,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
                 <ForwardDialog key={forwarding.message.id} message={forwarding.message} opener={forwarding.opener} onClose={() => setForwarding(null)} />
               )}
               loading={null}
-              onFailed={failed}
+              onFailed={forwardFailed}
             />
           )}
           {searchBox && (
