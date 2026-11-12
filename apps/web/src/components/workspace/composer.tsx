@@ -9,8 +9,8 @@ import { useScheduled } from "@/hooks/use-scheduled";
 import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { dropTarget } from "@/lib/drop-target";
 import { hasTouchKeyboard, opensLink, pressedAlone, sendsMessage } from "@/lib/keyboard";
+import { isEmberFile, sendableFacts, tooLargeToAttach, type EmberFile, type Sendable } from "@/lib/uploads";
 import { tellDraftsChanged } from "@/lib/draft-keys";
-import { tooLargeToAttach } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import { AttachMenu, EmojiButton, FormattingToggle, MentionButton, SendButton } from "./composer-menus";
 import { ComposerToolbar } from "./composer-toolbar";
@@ -123,10 +123,10 @@ function useLinkPreviews(): (link: PastedLink) => Promise<void> {
   };
 }
 
-/** A file picked to send, keyed, since two can share a name. */
+/** A file picked to send, from the computer or from Files in Ember, keyed, since two can share a name. */
 interface PickedFile {
   key: number;
-  file: File;
+  file: Sendable;
 }
 
 /**
@@ -138,18 +138,21 @@ function usePickedFiles() {
   const [errors, setErrors] = useState<string[]>([]);
   const lastKey = useRef(0);
   // Reads the files as they're given: a field's, a paste's or a drop's are gone once its event is over.
-  const add = (picked: Iterable<File>) => {
+  const add = (picked: Iterable<Sendable>) => {
     const fitting: PickedFile[] = [];
     const refused: string[] = [];
     for (const file of picked) {
-      if (file.size > MAX_FILE_SIZE) refused.push(tooLargeToAttach(file.name));
+      const { name, size } = sendableFacts(file);
+      if (size > MAX_FILE_SIZE) refused.push(tooLargeToAttach(name));
       else fitting.push({ key: ++lastKey.current, file });
     }
     setErrors(refused);
-    if (fitting.length > 0) setFiles((files) => [...files, ...fitting].sort((a, b) => a.file.name.localeCompare(b.file.name)));
+    if (fitting.length > 0) setFiles((files) => [...files, ...fitting].sort((a, b) => sendableFacts(a.file).name.localeCompare(sendableFacts(b.file).name)));
   };
+  /** Picks a file already in Ember, which the room copies rather than this sending it again. */
+  const share = (shared: EmberFile) => add([shared]);
   const remove = (key: number) => setFiles((files) => files.filter((picked) => picked.key !== key));
-  return { files, errors, add, remove, clear: () => setFiles([]) };
+  return { files, errors, add, share, remove, clear: () => setFiles([]) };
 }
 
 /**
@@ -162,11 +165,13 @@ function splitName(name: string): [string, string] {
 }
 
 /**
- * The address of a picture's thumbnail, which is let go once its chip goes.
+ * The address of a picture's thumbnail, which is let go once its chip goes, or for a file in Ember, the
+ * preview or picture its message shows.
  */
-function useThumbnail(file: File): string | undefined {
+function useThumbnail(file: Sendable): string | undefined {
   const [thumbnail, setThumbnail] = useState<string>();
   useLayoutEffect(() => {
+    if (isEmberFile(file)) return setThumbnail(file.file.previewUrl ?? (isImage(file) ? file.file.url : undefined));
     if (!isImage(file)) return;
     const url = URL.createObjectURL(file);
     setThumbnail(url);
@@ -175,19 +180,20 @@ function useThumbnail(file: File): string | undefined {
   return thumbnail;
 }
 
-const isImage = (file: File) => file.type.startsWith("image/");
+const isImage = (file: Sendable) => (isEmberFile(file) ? file.file.contentType : file.type).startsWith("image/");
 
 /**
  * A file picked to send, styled by Campfire's composer.css: a picture's thumbnail, or a file icon, over
  * its name and a circled ×. Pressing it takes the file back out, which it says to screen readers too.
  */
-function FileChip({ file, onRemove }: { file: File; onRemove: () => void }) {
+function FileChip({ file, onRemove }: { file: Sendable; onRemove: () => void }) {
   const thumbnail = useThumbnail(file);
-  const [name, extension] = splitName(file.name);
+  const { name: fileName } = sendableFacts(file);
+  const [name, extension] = splitName(fileName);
   const tile = "aspect-[5/4] w-full shrink-0 rounded-[1em] border border-muted-foreground";
   return (
-    <button type="button" aria-label={`Remove ${file.name}`} onClick={onRemove} className="flex w-[100px] cursor-pointer flex-col items-center rounded-[1em]">
-      {isImage(file) ? (
+    <button type="button" aria-label={`Remove ${fileName}`} onClick={onRemove} className="flex w-[100px] cursor-pointer flex-col items-center rounded-[1em]">
+      {isImage(file) || thumbnail !== undefined ? (
         <img src={thumbnail} alt="" className={cn(tile, "object-cover")} />
       ) : (
         <span className={cn(tile, "flex items-center justify-center")}>
@@ -243,7 +249,7 @@ interface Props {
   /** Sends a message, its body markup, answering whether it went: one that didn't stays to be changed. */
   onSend: (body: string, alsoSend: boolean) => boolean;
   /** Sends files, each as a message of its own, before the message written with them. */
-  onSendFiles: (files: File[], alsoSend: boolean) => void;
+  onSendFiles: (files: Sendable[], alsoSend: boolean) => void;
   onTyping: (active: boolean) => void;
   /** Opens the editor on your newest message, for Up Arrow. */
   onEditLastMessage?: () => void;
@@ -585,11 +591,14 @@ export function Composer({
       {filesOpen && (
         <FilesPicker
           meId={userId}
+          roomId={roomId}
+          room={{ label: direct ? roomName : `#${roomName}`, direct }}
           onClose={() => setFilesOpen(false)}
-          onPick={(markup) => {
+          onPick={(shared) => {
             setFilesOpen(false);
-            editor.current?.insertHtml(markup);
+            picked.share(shared);
           }}
+          onReturnFocus={() => editor.current?.focus()}
         />
       )}
     </footer>

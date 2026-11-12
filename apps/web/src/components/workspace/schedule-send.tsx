@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import type { ScheduledMessage } from "@ember/protocol";
 import { Clock, NavArrowDown, Xmark } from "@/components/icons/iconoir";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import type { Scheduled } from "@/hooks/use-scheduled";
 import { customTime, dateValue, schedulePresets, sendTimeLabel, timeValue, tomorrowMorning } from "@/lib/schedule-times";
 import { cn } from "@/lib/utils";
@@ -79,12 +79,11 @@ function TimeDialog({ title, action, initial, onPick, onClose }: TimeDialogProps
   const field = "h-10 w-full rounded-[9px] border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-selected-dark touch:h-11 touch:text-base";
   return (
     <Dialog open onOpenChange={(open) => open || onClose()}>
-      <DialogContent showCloseButton={false} overlayClassName={DIALOG_BACKDROP} className={DIALOG}>
+      <DialogContent showCloseButton={false} aria-describedby={undefined} overlayClassName={DIALOG_BACKDROP} className={DIALOG}>
         <button type="button" aria-label="Close" onClick={onClose} className={DIALOG_CLOSE}>
           <Xmark className="size-[18px]" />
         </button>
-        <DialogTitle className={cn(DIALOG_TITLE, "pe-10")}>{title}</DialogTitle>
-        <DialogDescription className="mb-4 text-sm text-muted-foreground">It's sent as you, even if Ember isn't open then.</DialogDescription>
+        <DialogTitle className={cn(DIALOG_TITLE, "mb-4 pe-10")}>{title}</DialogTitle>
         <form
           noValidate
           onSubmit={(event) => {
@@ -159,12 +158,11 @@ export function ScheduledNotice({ messages, scheduled, disabled }: NoticeProps) 
         See all
       </button>
       <Dialog open={open && moving === null} onOpenChange={setOpen}>
-        <DialogContent showCloseButton={false} overlayClassName={DIALOG_BACKDROP} className={cn(DIALOG, "w-[520px]")}>
+        <DialogContent showCloseButton={false} aria-describedby={undefined} overlayClassName={DIALOG_BACKDROP} className={cn(DIALOG, "w-[520px]")}>
           <button type="button" aria-label="Close" onClick={() => setOpen(false)} className={DIALOG_CLOSE}>
             <Xmark className="size-[18px]" />
           </button>
-          <DialogTitle className={cn(DIALOG_TITLE, "pe-10")}>Scheduled messages</DialogTitle>
-          <DialogDescription className="mb-3 text-sm text-muted-foreground">Each is sent as you at its time, even if Ember isn't open then.</DialogDescription>
+          <DialogTitle className={cn(DIALOG_TITLE, "mb-1 pe-10")}>Scheduled messages</DialogTitle>
           <ul className="flex flex-col divide-y">
             {messages.map((message) => (
               <li key={message.id} className="py-3">

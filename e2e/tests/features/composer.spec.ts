@@ -179,6 +179,21 @@ test.describe("Formatting toolbar", () => {
     }
   });
 
+  test("has every tool working again once code is sent", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await ada.composer().pressSequentially("```let a = 1;");
+    await expect(tool(ada, "Bold")).toBeDisabled();
+    await ada.page.getByRole("button", { name: "Send Message" }).click();
+    await expect(ada.composer()).toHaveText("");
+    for (const name of ["Bold", "Link", "Code", "Code block", "Divider"]) await expect(tool(ada, name), name).toBeEnabled();
+    await expect(tool(ada, "Code block")).toHaveAttribute("aria-pressed", "false");
+
+    await ada.composer().pressSequentially("see `x`");
+    await ada.composer().press("Enter");
+    await expect(ada.composer()).toHaveText("");
+    for (const name of ["Bold", "Code block"]) await expect(tool(ada, name), name).toBeEnabled();
+  });
+
   test("leaves no formatting on for the next message", async ({ members }) => {
     const ada = await members.signIn("Ada");
     const grace = await members.signIn("Grace");
@@ -342,6 +357,16 @@ test.describe("Insert", () => {
     await ada.page.getByRole("button", { name: "Mention someone" }).click();
     await expect(ada.composer()).toHaveText("Hi👍 @");
     await expect(ada.page.getByRole("option", { name: /Grace/ })).toBeVisible();
+  });
+
+  test("lists the people to mention from @ at once in an empty composer that doesn't have focus", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await members.signIn("Grace");
+    await ada.composer().blur();
+    await ada.page.getByRole("button", { name: "Mention someone" }).click();
+    await expect(ada.composer()).toHaveText("@");
+    await expect(ada.page.getByRole("option", { name: /Grace/ })).toBeVisible();
+    await expect(ada.composer()).toBeFocused();
   });
 });
 

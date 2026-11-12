@@ -353,13 +353,17 @@ export default function RichTextEditor({
       lexxy.contents.insertHtml(markup);
       lexxy.editor.focus();
     },
-    startMention: () =>
+    startMention: () => {
+      // Focused first: a "@" written while the editor's blurred loses the cursor as focus comes back, so the
+      // @ prompt, finding it before the "@", shuts its list as it opens.
+      editor.current?.focus();
       change(() => {
         const selection = Lexical.$getSelection();
         if (!Lexical.$isRangeSelection(selection)) return;
         const before = selection.isCollapsed() && selection.anchor.type === "text" ? selection.anchor.getNode().getTextContent().slice(0, selection.anchor.offset) : "";
         selection.insertText(before === "" || /\s$/.test(before) ? "@" : " @");
-      }),
+      });
+    },
     // Campfire's composer_controller.js#replaceMessageContent, for what Quote writes.
     replace: (markup) => {
       const lexxy = editor.current;

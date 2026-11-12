@@ -21,8 +21,8 @@ import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { handOver, leftUnsent, takeBack } from "@/lib/outbox";
 import { openAhead, reconnectingSocket, waitingAhead, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isPending, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
+import { isEmberFile, sendableFacts, shareFile, UPLOAD_FAILED, UploadError, uploadFile, type Sendable } from "@/lib/uploads";
 import { tellRoomMessagesChanged } from "@/lib/room-changes";
-import { UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { settledVisibility } from "@/lib/visibility";
 import { useLatestReducer } from "./use-latest-reducer";
 
@@ -325,17 +325,18 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   // those whose upload hasn't started. The room is asked about one that fails, as it may have posted the
   // file before the answer was lost; a reconnect asks, if the socket's down.
   const postFiles = useCallback(
-    async (files: File[]) => {
+    async (files: Sendable[]) => {
       const room = socket.current;
       for (const file of files) {
         if (socket.current !== room) return;
         const clientMessageId = crypto.randomUUID();
         const now = new Date().toISOString();
-        const upload = { name: file.name, size: file.size, percent: 0 };
+        const upload = { ...sendableFacts(file), percent: 0 };
         toNewest();
-        dispatch({ type: "pending", message: { ...pendingMessage(clientMessageId, roomId, me, "", file.name, [], now), upload } });
+        dispatch({ type: "pending", message: { ...pendingMessage(clientMessageId, roomId, me, "", upload.name, [], now), upload } });
         try {
-          const message = await uploadFile(roomId, file, clientMessageId, (percent) => dispatch({ type: "upload-progress", clientMessageId, percent }));
+          const progress = (percent: number) => dispatch({ type: "upload-progress", clientMessageId, percent });
+          const message = isEmberFile(file) ? await shareFile(roomId, file, clientMessageId) : await uploadFile(roomId, file, clientMessageId, progress);
           dispatch({ type: "uploaded", message });
         } catch (error) {
           dispatch({ type: "upload-failed", clientMessageId, error: error instanceof UploadError ? error.message : UPLOAD_FAILED });
