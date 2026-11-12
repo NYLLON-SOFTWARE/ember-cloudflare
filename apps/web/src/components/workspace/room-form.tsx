@@ -5,6 +5,7 @@ import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { CheckCircle, Community } from "@/components/icons/iconoir";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { cn } from "@/lib/utils";
 import { IconPicker } from "./icon-picker";
 import { ListRow, ListSeparator } from "./list-row";
@@ -44,6 +45,7 @@ interface Props<Person extends User> {
 }
 
 export function RoomForm<Person extends User>({ canAdminister, name, onNameChange, icon, onIconChange, everyone, parent, groups, mark, saving, onSave, ref }: Props<Person>) {
+  const phone = usePhoneLayout();
   const save = (event: FormEvent) => {
     event.preventDefault();
     onSave();
@@ -56,7 +58,8 @@ export function RoomForm<Person extends User>({ canAdminister, name, onNameChang
           <Input
             id="room_name"
             required
-            autoFocus
+            // Not on a phone, where focus brings up the keyboard over the page before anyone has asked to type.
+            autoFocus={!phone}
             maxLength={MAX_ROOM_NAME_LENGTH}
             placeholder="Name the room"
             value={name}

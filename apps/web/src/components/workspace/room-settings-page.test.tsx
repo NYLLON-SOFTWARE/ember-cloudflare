@@ -1,8 +1,9 @@
 import type { Room, RoomSettings } from "@ember/protocol";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
+import { PHONE_LAYOUT } from "@/hooks/use-phone-layout";
 import { leave, navigate, useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
@@ -99,6 +100,15 @@ describe("Room settings page", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Room settings" })).toBeInTheDocument();
     expect(screen.queryByText("Manage the room name, access, and members.")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/edit#channel-settings");
+    expect(await roomName()).toHaveFocus();
+  });
+
+  it("leaves the room's name unfocused on a phone, where focus would bring up the keyboard as the page opens", async () => {
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === PHONE_LAYOUT, media, addEventListener() {}, removeEventListener() {} }));
+    onTestFinished(() => void vi.unstubAllGlobals());
+    serve(openSettings());
+    showPage(design);
+    expect(await roomName()).not.toHaveFocus();
   });
 
   it("lists everyone in an open room under Everyone, which is on, each with a check mark", async () => {
@@ -679,6 +689,8 @@ describe("Parent room", () => {
     expect(screen.getByText(warning)).toBeInTheDocument();
     expect(names()).toEqual(["Everyone in Strata", "Ada Lovelace"]);
     await user.click(screen.getByRole("button", { name: "Save" }));
+    // Saving takes them out, so its Save is the red one.
+    expect(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Save" })).toHaveClass("bg-negative-button");
     const asked = await screen.findByRole("alertdialog", { name: "Move #Design under Strata" });
     expect(asked).toHaveAccessibleDescription("This removes Grace Hopper and Linus Torvalds, who aren’t in Strata.");
     expect(within(asked).getByRole("button", { name: "Move" })).toHaveClass("bg-negative-button");

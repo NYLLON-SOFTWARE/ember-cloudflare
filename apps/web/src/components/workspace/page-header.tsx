@@ -3,6 +3,7 @@ import { Menu } from "@/components/icons/iconoir";
 import { SheetTrigger } from "@/components/ui/sheet";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { cn } from "@/lib/utils";
+import { BackButton } from "../mobile/back-button";
 import { SettingsLayout, SettingsNavigation } from "./settings-navigation";
 
 /** Whether the drawer is open, which the header's button for it says in its name. */
@@ -18,7 +19,7 @@ export const DrawerOpen = createContext(false);
  * drawer holds only the rail, so its button opens and closes the navigation. The links come after the
  * bar rather than after the page, so Tab reaches them in the order they're seen.
  */
-export function PageHeader({ children }: { children?: ReactNode }) {
+export function PageHeader({ children, back, className }: { children?: ReactNode; back?: string; className?: string }) {
   const drawerOpen = useContext(DrawerOpen);
   const settings = useContext(SettingsLayout);
   const drawer = settings ? "navigation" : "conversations";
@@ -30,10 +31,13 @@ export function PageHeader({ children }: { children?: ReactNode }) {
         className={cn(
           "flex min-h-header items-center gap-3 border-b bg-background py-2.5 pr-[max(22px,env(safe-area-inset-right))] pl-[22px] narrow:pr-[max(18px,env(safe-area-inset-right))] narrow:pl-[18px] max-md:min-h-14 max-md:gap-1.5 max-md:pt-[env(safe-area-inset-top)] max-md:pb-0 max-md:pr-[max(8px,env(safe-area-inset-right))] max-md:pl-[max(8px,env(safe-area-inset-left))]",
           settings && "md:col-span-2",
+          className,
         )}
       >
         {/* Marked for New direct message to give focus back to once the drawer's gone, and drawn with
             Iconoir's menu. A phone has the tab bar instead. */}
+        {/* A page a phone opens over the tabs, such as Threads from Home's card, starts with Back to `back`. */}
+        {phone && back !== undefined && <BackButton fallback={back} />}
         {!phone && (
           <SheetTrigger
             data-ember-sidebar-toggle
