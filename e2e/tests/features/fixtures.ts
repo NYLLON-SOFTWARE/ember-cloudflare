@@ -205,7 +205,9 @@ export const test = app.extend<{ rooms: Rooms; members: Members }>({
         await beforeOpen?.(page);
         await page.goto(path);
         const member = new Member(page, session);
-        await member.connected();
+        // A room's page waits for its history, and the DMs page, which has no room, for its list.
+        if (path === "/dms") await expect(page.getByRole("region", { name: "Direct messages" })).toBeVisible();
+        else await member.connected();
         return member;
       },
     });
