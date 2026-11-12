@@ -1,9 +1,10 @@
 import type { Message, Room } from "@ember/protocol";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
 import { ApiError, checkShare, forwardMessage } from "@/lib/api";
+import { tellMessageDeleted } from "@/lib/room-changes";
 import { ForwardDialog, matching, threadOfLink, type Destination } from "./forward-dialog";
 import { ConversationsContext } from "./quote-cite";
 
@@ -143,6 +144,34 @@ describe("Forward outside who can see the original", () => {
     show("general");
     expect(screen.getByRole("option", { name: "secret" }).textContent).not.toContain("#");
     expect(screen.getByRole("option", { name: "secret" }).querySelector("svg")).not.toBeNull();
+  });
+
+  it("names where the message is from in its preview as the warning does: #general, or a DM with its people", () => {
+    show("general");
+    expect(screen.getByText("#general")).toBeInTheDocument();
+  });
+
+  it("names a DM it's from as one, so its people don't read as the message's author", () => {
+    show("dm1");
+    expect(screen.getByText("DM with Zan")).toBeInTheDocument();
+  });
+
+  it("says in place that the message was deleted while it was open, keeping the note but forwarding nothing", async () => {
+    vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 1, names: ["Ana"] });
+    const user = show("secret");
+    await user.click(screen.getByRole("option", { name: "general" }));
+    await user.type(screen.getByRole("textbox", { name: "Note" }), "Look");
+    await user.click(screen.getByRole("button", { name: "Forward" }));
+    await screen.findByRole("alertdialog");
+    act(() => tellMessageDeleted("m1"));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "Forward message" });
+    expect(within(dialog).getByRole("status")).toHaveTextContent("This message was deleted.");
+    expect(within(dialog).queryByText("Between us")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("textbox", { name: "Note" })).toHaveValue("Look");
+    expect(within(dialog).getByRole("button", { name: "Forward" })).toHaveAttribute("aria-disabled", "true");
+    await user.click(within(dialog).getByRole("button", { name: "Forward" }));
+    expect(forwardMessage).not.toHaveBeenCalled();
   });
 
   it("forwards without asking where everyone there can see the original", async () => {

@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, forwardMessage, isSignedOut } from "@/lib/api";
+import { MESSAGE_DELETED } from "@/lib/room-changes";
 import { membersShown, roomName } from "@/lib/directs";
 import { quotedTimeLabel } from "@/lib/messages";
 import { roomDisplayName } from "@/lib/sub-rooms";
@@ -96,6 +97,8 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
   const [failure, setFailure] = useState<string | null>(null);
   // Who the conversation picked would show the message to who can't see it now, while that's asked.
   const [widening, setWidening] = useState<ShareWidening | null>(null);
+  // Whether the message has been deleted since it opened, which it says in place, keeping what's written.
+  const [gone, setGone] = useState(false);
 
   const rooms = conversations?.rooms ?? [];
   const meId = conversations?.meId ?? "";
@@ -112,6 +115,16 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
   const close = () => {
     if (!busy) setOpen(false);
   };
+
+  useEffect(() => {
+    const deleted = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== message.id) return;
+      setGone(true);
+      setWidening(null);
+    };
+    window.addEventListener(MESSAGE_DELETED, deleted);
+    return () => window.removeEventListener(MESSAGE_DELETED, deleted);
+  }, [message.id]);
 
   // Going Back or Forward closes it too.
   const historyMoved = useEffectEvent(close);
@@ -192,7 +205,7 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
   // Forward asks first where the conversation reaches people who can't see the original.
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!picked || busy) return;
+    if (!picked || busy || gone) return;
     setBusy("checking");
     setFailure(null);
     let check: Awaited<ReturnType<typeof shareWidening>>;
@@ -216,6 +229,7 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
     setBusy("checking");
     const now = await shareWidening(message.roomId, to.room.id).catch(() => undefined);
     if (!mounted.current) return;
+    if (gone) return setBusy(null);
     if (now?.widens && (now.newViewers !== shown.newViewers || now.names.join() !== shown.names.join())) {
       setBusy(null);
       return setWidening(now);
@@ -224,20 +238,29 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
     await forward(to);
   };
 
-  const status = busy === "forwarding" ? "Forwarding…" : (failure ?? (!picked && options.length === 0 ? "No conversations found." : null));
+  const status = gone
+    ? "This message was deleted."
+    : busy === "forwarding"
+      ? "Forwarding…"
+      : (failure ?? (!picked && options.length === 0 ? "No conversations found." : null));
   const source = conversations?.rooms.find((room) => room.id === message.roomId);
   const forwardControl = (
     <button
       ref={forwardButton}
       type="submit"
-      aria-disabled={!picked || busy !== null || undefined}
-      className={cn(MAIN_ACTION, phone && "min-h-11 px-3 text-[17px]", "aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:grayscale aria-disabled:contrast-50")}
+      aria-disabled={!picked || busy !== null || gone || undefined}
+      className={
+        phone
+          ? // A phone's is its header's text, as iOS's sheets' are.
+            "min-h-11 cursor-pointer justify-self-end px-1 text-[17px] font-semibold text-link aria-disabled:cursor-default aria-disabled:text-muted-foreground"
+          : cn(MAIN_ACTION, "aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:grayscale aria-disabled:contrast-50")
+      }
     >
       Forward
     </button>
   );
   const cancelControl = (
-    <button type="button" onClick={close} className={cn(OTHER_ACTION, phone && "min-h-11 border-transparent px-3 text-[17px]")}>
+    <button type="button" onClick={close} className={phone ? "min-h-11 cursor-pointer justify-self-start px-1 text-[17px]" : OTHER_ACTION}>
       Cancel
     </button>
   );
@@ -268,9 +291,9 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
       >
         <form onSubmit={(event) => void submit(event)}>
           {phone ? (
-            <header className="flex min-h-11 items-center justify-between gap-2 border-b px-2">
+            <header className="grid min-h-11 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b px-4">
               {cancelControl}
-              <DialogTitle className="text-[17px] font-semibold">Forward message</DialogTitle>
+              <DialogTitle className="truncate text-[17px] font-semibold">Forward message</DialogTitle>
               {forwardControl}
             </header>
           ) : (
@@ -353,7 +376,7 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
                 className="block w-full resize-y rounded-[10px] border bg-transparent px-3 py-2.5 text-[15px] text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-muted-foreground focus-visible:ring-1 focus-visible:ring-muted-foreground touch:resize-none touch:text-base"
               />
             </label>
-            <ForwardedPreview message={message} source={source ?? null} meId={meId} />
+            {!gone && <ForwardedPreview message={message} source={source ?? null} meId={meId} />}
           </div>
 
           {!phone && (
@@ -374,6 +397,8 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
             onShare={() => void confirm(picked, widening)}
             onCancel={() => setWidening(null)}
             onReturnFocus={() => forwardButton.current?.focus({ preventScroll: true })}
+            // Over Forward message's own backdrop.
+            overlayClassName="bg-transparent"
           />
         )}
       </DialogContent>
@@ -401,7 +426,8 @@ function RoomMark({ room, meId }: { room: Room; meId: string }) {
 function ForwardedPreview({ message, source, meId }: { message: Message; source: Room | null; meId: string }) {
   const nameOf = useNameOf();
   const rooms = useContext(ConversationsContext)?.rooms ?? [];
-  const from = source && (source.kind === "direct" ? roomName(source, meId, nameOf) : roomDisplayName(source, rooms));
+  // Named as the warning names it: "#general", a private room's name after its lock, or "DM with" its people.
+  const from = source && (source.kind === "direct" ? `DM with ${roomName(source, meId, nameOf)}` : `${source.kind === "open" ? "#" : ""}${roomDisplayName(source, rooms)}`);
   return (
     <div className="mt-3 border-s-[0.5ch] border-muted-foreground ps-[1.5ch] text-sm max-md:text-[15px]">
       <p className="font-semibold text-message-ink">{nameOf(message.creator)}</p>

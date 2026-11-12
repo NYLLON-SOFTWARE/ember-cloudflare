@@ -23,7 +23,7 @@ import { handOver, leftUnsent } from "@/lib/outbox";
 import { openAhead, reconnectingSocket, waitingAhead, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isPending, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
 import { isEmberFile, sendableFacts, shareFile, UPLOAD_FAILED, UploadError, uploadFile, type Sendable } from "@/lib/uploads";
-import { tellRoomMessagesChanged } from "@/lib/room-changes";
+import { tellMessageDeleted, tellRoomMessagesChanged } from "@/lib/room-changes";
 import { settledVisibility } from "@/lib/visibility";
 import { useLatestReducer } from "./use-latest-reducer";
 import { takeBackUnsent as takeBackKept, useUnsent, type UnsentActions } from "./use-unsent";
@@ -213,6 +213,10 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       // A reply sent only to its thread is the thread's, not the timeline's.
       if (frame.type !== "message.created" || isInRoom(frame.message)) dispatch({ type: "frame", frame, now: Date.now() });
       if (frame.type === "message.updated" || frame.type === "message.deleted") tellRoomMessagesChanged(roomId);
+      // A thread's parent deleted while it has replies stays, marked deleted.
+      if (frame.type === "message.deleted") tellMessageDeleted(frame.messageId);
+      else if (frame.type === "message.updated" && frame.message.deleted) tellMessageDeleted(frame.message.id);
+      else if (frame.type === "resumed") frame.deletedIds.forEach(tellMessageDeleted);
       if (opening) {
         room.connected();
         tellVisibility(visibility.visible);
