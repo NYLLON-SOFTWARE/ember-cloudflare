@@ -1,4 +1,4 @@
-import { MAX_FILE_SIZE, MAX_SCHEDULE_AHEAD_MS, type ClientFrame, type LinkPreview, type Message, type ServerFrame, type ShareWidening, type StoredFile, type User } from "@ember/protocol";
+import { MAX_FILE_NAME_LENGTH, MAX_FILE_SIZE, MAX_SCHEDULE_AHEAD_MS, type ClientFrame, type LinkPreview, type Message, type ServerFrame, type ShareWidening, type StoredFile, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -606,6 +606,14 @@ describe("250 MB file limit", () => {
     await user.upload(attachFiles(), fileOf("enormous.zip", { size: MAX_FILE_SIZE + 1 }));
     fireEvent.paste(input, { clipboardData: clipboard() });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("leaves out a file whose name is too long to keep, saying so, as the room wouldn't take it", async () => {
+    await showComposer();
+    const user = userEvent.setup();
+    await user.upload(attachFiles(), [fileOf(`${"a".repeat(MAX_FILE_NAME_LENGTH)}.txt`), fileOf("short.txt")]);
+    expect(chips()).toEqual(["Remove short.txt"]);
+    expect(screen.getByRole("alert")).toHaveTextContent(`A file’s name is too long. Rename it to ${MAX_FILE_NAME_LENGTH} characters or fewer.`);
   });
 });
 

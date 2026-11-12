@@ -1,4 +1,4 @@
-import { FILE_TOO_LARGE, MAX_FILE_SIZE, sharedFilesPath, uploadPartPath, uploadPreviewPath, uploadsPath, type Message, type RoomId, type ShareWidening, type StoredFile, type Upload } from "@ember/protocol";
+import { FILE_TOO_LARGE, MAX_FILE_NAME_LENGTH, MAX_FILE_SIZE, sharedFilesPath, uploadPartPath, uploadPreviewPath, uploadsPath, type Message, type RoomId, type ShareWidening, type StoredFile, type Upload } from "@ember/protocol";
 import { previewOf } from "./previews";
 
 // Uploading a file as a message of its own, as Campfire's FileUploader does, but in parts that R2 puts
@@ -18,6 +18,12 @@ export const SHARED_FILE_GONE = "That file is no longer in Ember.";
 
 /** Why the composer leaves out a file picked to send, before any of it goes. */
 export const tooLargeToAttach = (name: string) => `${name} is too large. Choose a file that’s 250 MB or smaller.`;
+
+/** Why a file whose name Ember can't keep isn't attached: too long for common file systems, or broken. */
+export const nameNotKept = (name: string) =>
+  name.length > MAX_FILE_NAME_LENGTH
+    ? `A file’s name is too long. Rename it to ${MAX_FILE_NAME_LENGTH} characters or fewer.`
+    : `${name} can’t be attached under that name. Rename it.`;
 
 /** Why an upload failed, as its card says it. */
 export class UploadError extends Error {}
