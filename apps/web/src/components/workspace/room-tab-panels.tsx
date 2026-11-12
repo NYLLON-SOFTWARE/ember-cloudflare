@@ -225,6 +225,7 @@ function FilesAndLinks({ room, me, onFailed }: { room: Room; me: Me; onFailed: (
           rooms={null}
           names={names}
           onApply={({ from, date }) => setFilters({ ...filters, from, date })}
+          onClear={() => setFilters({ ...NO_FILE_FILTERS, q: filters.q })}
         />
         {media.length > 0 && (shelf === "all" || shelf === "media") && (
           <section aria-labelledby="photos-and-videos" className="pt-1">

@@ -59,6 +59,18 @@ describe("Members", () => {
     expect(within(dialog).queryByRole("button", { name: "Add people" })).not.toBeInTheDocument();
   });
 
+  it("closes once a person is picked, as their profile opens, giving focus back to the button", async () => {
+    serve(settings(false));
+    renderButton(plans);
+    const button = await screen.findByRole("button", { name: /View members, 2/ });
+    await userEvent.click(button);
+    await userEvent.click(screen.getByRole("link", { name: /Grace Hopper/ }));
+    expect(location.pathname).toBe("/users/grace");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(button).toHaveFocus());
+    history.replaceState(null, "", "/");
+  });
+
   it("finds people by name", async () => {
     serve(settings(false));
     renderButton(plans);

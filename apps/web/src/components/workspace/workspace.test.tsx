@@ -566,6 +566,22 @@ describe("Link to a message", () => {
     expect(room.sent).not.toContainEqual({ type: "history.around" });
   });
 
+  it("leaves the room's messages where they are as another of its tabs shows, and Messages again", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    showWorkspace("/rooms/general");
+    await roomHeading();
+    const room = RoomSocket.last!;
+    const older: Message = { id: "m1", clientMessageId: "c1", roomId: "general", creator: ada, body: "<p>Older</p>", plainText: "Older", mentions: [], createdAt: "2026-10-14T08:00:00.000Z", updatedAt: "2026-10-14T08:00:00.000Z", editedAt: null, boosts: [] };
+    // Reading older history, which going to the newest would ask the room for again.
+    room.letIn({ messages: [older], hasNewer: true });
+
+    await userEvent.click(screen.getByRole("tab", { name: "Files & links" }));
+    expect(location.pathname + location.search).toBe("/rooms/general?tab=files");
+    await userEvent.click(screen.getByRole("tab", { name: "Messages" }));
+    expect(location.pathname + location.search).toBe("/rooms/general");
+    expect(room.sent).not.toContainEqual(expect.objectContaining({ type: "history.around" }));
+  });
+
   it("says what the room has to over a thread that covers it, as why it refused something done in the thread", async () => {
     vi.stubGlobal("WebSocket", RoomSocket);
     vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(width < 73.75rem)", media, addEventListener() {}, removeEventListener() {} }));

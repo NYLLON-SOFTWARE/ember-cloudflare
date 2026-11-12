@@ -114,6 +114,25 @@ describe("Room tabs", () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/rooms/general/tabs", expect.objectContaining({ method: "POST", body: JSON.stringify({ kind: "folder", title: "Roadmap" }) }));
   });
 
+  it("gives each tab an address, which Back and Forward go between", async () => {
+    serve();
+    navigate("/rooms/general");
+    renderStrip();
+    await userEvent.click(await screen.findByRole("tab", { name: "Plans" }));
+    expect(location.pathname + location.search).toBe("/rooms/general?tab=t1");
+    await userEvent.click(screen.getByRole("tab", { name: "Files & links" }));
+    expect(location.search).toBe("?tab=files");
+    await userEvent.click(screen.getByRole("tab", { name: "Messages" }));
+    expect(location.pathname + location.search).toBe("/rooms/general");
+
+    history.back();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Files & links" })).toHaveAttribute("aria-selected", "true"));
+    history.back();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Plans" })).toHaveAttribute("aria-selected", "true"));
+    history.forward();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Files & links" })).toHaveAttribute("aria-selected", "true"));
+  });
+
   it("opens the tab its address names", async () => {
     serve();
     navigate("/rooms/general?tab=files");

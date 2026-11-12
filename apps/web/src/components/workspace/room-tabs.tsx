@@ -3,7 +3,7 @@ import type { Me } from "@ember/protocol";
 import type { RoomTab, RoomTabKind } from "@ember/protocol/library";
 import { ChatLines, Link, MultiplePages, Plus, type IconoirIconProps } from "@/components/icons/iconoir";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useQuery, useVisit } from "@/hooks/use-route";
+import { navigate, useQuery } from "@/hooks/use-route";
 import type { Room } from "@/lib/api";
 import { fetchTabs } from "@/lib/library";
 import { cn } from "@/lib/utils";
@@ -41,13 +41,14 @@ interface Props {
 }
 
 /**
- * The room's tab strip, first in its main content, and the tab shown under it. A room's address with
- * `?tab=files`, or a tab's id, opens that tab, as the Files page's canvases do. A link tab opens its address
- * in a new browser tab rather than showing in place.
+ * The room's tab strip, first in its main content, and the tab shown under it. The address names the tab
+ * shown: a room's address with `?tab=files`, or a tab's id, opens that tab, as the Files page's canvases do,
+ * and picking one goes to its address. A link tab opens its address in a new browser tab rather than
+ * showing in place.
  */
 export function RoomTabs({ room, me, onFailed }: Props) {
   const [tabs, setTabs] = useState<RoomTab[]>([]);
-  const [shown, setShown] = useState<ShownTab>("messages");
+  const shown = useShownTab();
   const [adding, setAdding] = useState<RoomTabKind | null>(null);
   const [editing, setEditing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -57,16 +58,11 @@ export function RoomTabs({ room, me, onFailed }: Props) {
     act();
   };
   const strip = useRef<HTMLDivElement>(null);
-  const query = useQuery();
-  const visit = useVisit();
 
   const reload = useCallback(() => {
     fetchTabs(room.id).then(setTabs, onFailed);
   }, [room.id, onFailed]);
   useEffect(reload, [reload]);
-
-  // The address's tab, or Messages, on each visit to the room.
-  useEffect(() => setShown(new URLSearchParams(query).get("tab") || "messages"), [query, visit]);
 
   // What the shown tab covers can't be reached until Messages shows again.
   const covering = shown !== "messages";
@@ -77,10 +73,12 @@ export function RoomTabs({ room, me, onFailed }: Props) {
   }, [covering]);
 
   const custom = tabs.find((tab) => tab.id === shown);
-  const select = (tab: ShownTab) => setShown(tab);
+  const select = (tab: ShownTab) => navigate(addressShowing(tab));
+  /** Shows Messages in place of a tab that's gone, as if it had never been. */
+  const leaveGoneTab = () => navigate(addressShowing("messages"), { replace: true });
   const added = (tab: RoomTab) => {
     setTabs((tabs) => [...tabs.filter((other) => other.id !== tab.id), tab]);
-    if (tab.kind !== "link") setShown(tab.id);
+    if (tab.kind !== "link") select(tab.id);
   };
 
   // Arrow keys move along the tabs, as a tablist's do.
@@ -155,7 +153,7 @@ export function RoomTabs({ room, me, onFailed }: Props) {
               tab={custom ?? null}
               onTabChanged={(tab) => setTabs((tabs) => tabs.map((other) => (other.id === tab.id ? tab : other)))}
               onTabGone={() => {
-                setShown("messages");
+                leaveGoneTab();
                 reload();
               }}
               onFailed={onFailed}
@@ -176,7 +174,7 @@ export function RoomTabs({ room, me, onFailed }: Props) {
             onClose={() => setEditing(false)}
             onSaved={(next) => {
               setTabs(next);
-              if (shown !== "messages" && shown !== "files" && !next.some((tab) => tab.id === shown)) setShown("messages");
+              if (shown !== "messages" && shown !== "files" && !next.some((tab) => tab.id === shown)) leaveGoneTab();
             }}
             onFailed={onFailed}
           />
@@ -184,6 +182,23 @@ export function RoomTabs({ room, me, onFailed }: Props) {
       )}
     </div>
   );
+}
+
+/** The tab the address shows: its query's `tab`, `files` or a tab's id, or Messages without one. */
+function useShownTab(): ShownTab {
+  return new URLSearchParams(useQuery()).get("tab") || "messages";
+}
+
+/**
+ * The address of the page shown, but showing `tab` in its room: Messages leaves `tab` out, so a room's own
+ * link shows its messages. Each tab is an entry in the history, for Back and Forward, and a reload keeps it.
+ */
+function addressShowing(tab: ShownTab): string {
+  const query = new URLSearchParams(location.search);
+  if (tab === "messages") query.delete("tab");
+  else query.set("tab", tab);
+  const search = query.toString();
+  return location.pathname + (search ? `?${search}` : "");
 }
 
 function StripTab({ label, Icon, selected, onSelect }: { label: string; Icon: ComponentType<IconoirIconProps>; selected: boolean; onSelect: () => void }) {

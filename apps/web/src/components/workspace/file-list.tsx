@@ -179,10 +179,15 @@ interface FilterDialogProps {
   rooms: readonly Room[] | null;
   names: SearchNames;
   onApply: (filters: Pick<FileFilters, "from" | "in" | "date">) => void;
+  /** Takes off every filter, Types and whose files included, leaving the words searched for. */
+  onClear: () => void;
 }
 
-/** Filter by: whose files, in which room, and when they were sent, with Clear filters and Done, as Slack's dialog has them. */
-export function FilterDialog({ open, onOpenChange, me, filters, rooms, names, onApply }: FilterDialogProps) {
+/**
+ * Filter by: whose files, in which room, and when they were sent, with Done, as Slack's dialog has them,
+ * and Clear filters, which takes every filter off at once and closes it.
+ */
+export function FilterDialog({ open, onOpenChange, me, filters, rooms, names, onApply, onClear }: FilterDialogProps) {
   const people = useContext(PeopleContext);
   const [from, setFrom] = useState<UserId | "">(filters.from ?? "");
   const [inRoom, setInRoom] = useState<RoomId | "">(filters.in ?? "");
@@ -273,9 +278,8 @@ export function FilterDialog({ open, onOpenChange, me, filters, rooms, names, on
             type="button"
             variant="outline"
             onClick={() => {
-              setFrom("");
-              setInRoom("");
-              setDate(ANY_TIME);
+              onClear();
+              onOpenChange(false);
             }}
           >
             Clear filters
