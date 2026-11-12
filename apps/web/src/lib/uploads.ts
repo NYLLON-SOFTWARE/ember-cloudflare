@@ -121,6 +121,9 @@ export async function uploadFile(roomId: RoomId, file: File, clientMessageId: st
 export interface EmberFile {
   roomId: RoomId;
   file: StoredFile;
+  /** Where it was, as the share warning names it, and how many it was attached knowing would see it anew. */
+  source?: { label: string; direct: boolean; closed?: boolean };
+  accepted?: number;
 }
 
 /** A file to send as a message of its own: one from the computer, or one already in Ember. */

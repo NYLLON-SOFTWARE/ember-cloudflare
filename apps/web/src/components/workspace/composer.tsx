@@ -1,13 +1,13 @@
 import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { flushSync } from "react-dom";
-import { isWebImage, MAX_FILE_SIZE, type User } from "@ember/protocol";
+import { isWebImage, MAX_FILE_SIZE, type ShareWidening, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
 import { Page, Plus, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import type { RoomFrames } from "@/hooks/use-room";
 import { useScheduled } from "@/hooks/use-scheduled";
 import { dropTarget } from "@/lib/drop-target";
-import { fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
+import { checkShare, fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { hasTouchKeyboard, pressedAlone } from "@/lib/keyboard";
 import { isEmberFile, sendableFacts, tooLargeToAttach, type EmberFile, type Sendable } from "@/lib/uploads";
 import { tellDraftsChanged } from "@/lib/draft-keys";
@@ -404,10 +404,25 @@ export function Composer({
     setAlsoSend(false);
   };
 
+  // A file from Files in Ember that would now reach more people than when it was attached, as the room it
+  // was in, or this one, changed since, while the warning asks again.
+  const [sendWarning, setSendWarning] = useState<{ shared: EmberFile; widening: ShareWidening } | null>(null);
+  // Asks again, as files from Files in Ember go, who'd see each anew, and warns again where that's more than
+  // it was attached knowing. A check that can't be made doesn't hold them up, as the room checks access too.
+  const checkThenSubmit = async (shared: EmberFile[]) => {
+    for (const file of shared) {
+      const now = await checkShare(file.roomId, roomId).catch(() => null);
+      if (now?.widens && now.newViewers > (file.accepted ?? 0)) return setSendWarning({ shared: file, widening: now });
+    }
+    submit(true);
+  };
+
   // This sends the files picked, then what's written unless it's blank, and focuses the editor, on touch
   // screens too. While the room is away what's written goes, to wait for it, and the files stay. Before the
   // editor shows, as its code loads, only the files go.
-  const submit = () => {
+  const submit = (checked = false) => {
+    const shared = picked.files.flatMap(({ file }) => (isEmberFile(file) && file.roomId !== roomId ? [file] : []));
+    if (!checked && !disabled && shared.length > 0) return void checkThenSubmit(shared);
     setScheduleRefusal(null);
     // Files picked wait for the room, which they upload to.
     if (picked.files.length > 0 && !disabled) {
@@ -595,6 +610,25 @@ export function Composer({
                 setFilesOpen(false);
                 picked.share(shared);
               }}
+              onReturnFocus={() => editor.current?.focus()}
+            />
+          )}
+          loading={null}
+        />
+      )}
+      {sendWarning && (
+        <RarePage
+          show={({ ShareWarning }) => (
+            <ShareWarning
+              source={sendWarning.shared.source ?? { label: "", direct: false }}
+              target={{ label: direct ? roomName : `#${roomName}`, direct }}
+              widening={sendWarning.widening}
+              confirm="Send"
+              onShare={() => {
+                setSendWarning(null);
+                submit(true);
+              }}
+              onCancel={() => setSendWarning(null)}
               onReturnFocus={() => editor.current?.focus()}
             />
           )}

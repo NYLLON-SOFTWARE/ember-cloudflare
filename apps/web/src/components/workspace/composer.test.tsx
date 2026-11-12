@@ -957,7 +957,8 @@ describe("Attach", () => {
     expect(chips()).toEqual(["Remove plan.pdf"]);
 
     await user.type(input, "The plan{Enter}");
-    expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([{ roomId: "r9", file }], false);
+    // Asked again who'd see it, it goes.
+    await vi.waitFor(() => expect(onSendFiles).toHaveBeenCalledExactlyOnceWith([expect.objectContaining({ roomId: "r9", file })], false));
     expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>The plan</p>", false);
     expect(chips()).toEqual([]);
   });
@@ -1012,6 +1013,36 @@ describe("Attach", () => {
     await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Attach" }));
     expect(await screen.findByRole("button", { name: "Remove plan.pdf" })).toBeInTheDocument();
     expect(fetch).toHaveBeenCalled();
+  });
+
+  it("asks again on Send, warning only where more people would now see the file than when it was attached", async () => {
+    const file = { id: "f1", name: "plan.pdf", contentType: "application/pdf", byteSize: 1, url: "/files/f1/plan.pdf", downloadUrl: "/d" };
+    filesInEmber(file, { widens: true, newViewers: 2, names: ["Grace", "Linus"] }, { kind: "closed" });
+    const { user, onSendFiles } = await showComposer();
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
+    await user.click(await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /plan\.pdf/ }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Attach" }));
+    await screen.findByRole("button", { name: "Remove plan.pdf" });
+
+    // As many as it was attached knowing: it goes.
+    await user.click(sendButton());
+    await vi.waitFor(() => expect(onSendFiles).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+
+    // More, as someone joined since: it asks again, and goes on Send.
+    await user.click(screen.getByRole("button", { name: "Attach" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Files in Ember" }));
+    await user.click(await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /plan\.pdf/ }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Attach" }));
+    await screen.findByRole("button", { name: "Remove plan.pdf" });
+    filesInEmber(file, { widens: true, newViewers: 5, names: ["Grace", "Linus", "Mary"] }, { kind: "closed" });
+    await user.click(sendButton());
+    const warning = await screen.findByRole("alertdialog");
+    expect(warning).toHaveTextContent("5 people in #general");
+    expect(onSendFiles).toHaveBeenCalledOnce();
+    await user.click(within(warning).getByRole("button", { name: "Send" }));
+    expect(onSendFiles).toHaveBeenCalledTimes(2);
   });
 
   it("attaches a file from the room it's for without asking, and says so when it can't check who'd see one", async () => {
