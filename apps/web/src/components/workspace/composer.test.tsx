@@ -962,7 +962,7 @@ describe("Attach", () => {
     const pick = await within(await screen.findByRole("dialog", { name: "Files in Ember" })).findByRole("button", { name: /plan\.pdf/ });
 
     // Who shared it and its size tell it apart, and a private room's shows a lock.
-    expect(pick).toHaveTextContent("#design · Grace · 1 KB · Nov 1, 2026");
+    expect(pick).toHaveTextContent("#design · Grace · 1 B · Nov 1, 2026");
     expect(within(pick).getByRole("img", { name: "Private" })).toBeInTheDocument();
 
     await user.click(pick);
