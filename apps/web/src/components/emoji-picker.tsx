@@ -228,7 +228,14 @@ export function EmojiPicker({ onPick, onClose, columns = 8, autoFocus = true, cl
           className="w-full min-w-0 bg-transparent p-0 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:outline-none touch:text-base [&::-webkit-search-cancel-button]:appearance-none"
         />
       </label>
-      <div ref={categoryBar} role="toolbar" aria-label="Categories" onKeyDown={categoryKeyDown} className="flex flex-none px-2">
+      {/* A fingertip's 44px each on touch screens, scrolling sideways where they don't all fit, as at 320. */}
+      <div
+        ref={categoryBar}
+        role="toolbar"
+        aria-label="Categories"
+        onKeyDown={categoryKeyDown}
+        className="flex flex-none overflow-x-auto overscroll-x-contain px-2 [scrollbar-width:none]"
+      >
         {CATEGORIES.map(({ label, emoji }, category) => (
           <button
             key={label}
@@ -237,7 +244,7 @@ export function EmojiPicker({ onPick, onClose, columns = 8, autoFocus = true, cl
             title={label}
             tabIndex={category === categoryStop ? 0 : -1}
             onClick={() => jump(category)}
-            className="flex h-8 min-w-0 flex-1 cursor-pointer items-center justify-center rounded-[6px] text-lg leading-none hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground touch:h-11"
+            className="flex h-8 min-w-0 flex-1 cursor-pointer items-center justify-center rounded-[6px] text-lg leading-none hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground touch:h-11 touch:min-w-11"
           >
             {emoji[0]}
           </button>
