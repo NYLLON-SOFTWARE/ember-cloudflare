@@ -793,6 +793,21 @@ describe("An agent's settings", () => {
     expect(cost()).toBeNull();
   });
 
+  it("saves other changes to one of Workers AI's that searches the web while the Worker couldn't list them, as it searches still", async () => {
+    serve({
+      loaded: () => answer({ ...RECAP, model: GEMMA.id, modelName: GEMMA.name, format: GEMMA.format, webTools: ["search"] }),
+      offered: () => Response.json({ ...OFFERED, models: [...ASSISTANT_MODELS], workersAi: "Workers AI's models aren't listed." } satisfies OfferedModels),
+    });
+    const { user } = showSettings();
+    await loaded();
+    expect(webSwitch()).toBeChecked();
+    await user.clear(descriptionField());
+    await user.type(descriptionField(), "Sums up threads.");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await wentBack();
+    expect(sent()).toEqual([[`PATCH /api/account/agents/${RECAP.id}`, { description: "Sums up threads." }]]);
+  });
+
   it("says a model Ember no longer offers that can't search can't, refusing Search the web with it before sending anything, until one Ember offers is chosen", async () => {
     serve({ loaded: () => answer(KEPT) });
     const { user } = showSettings();

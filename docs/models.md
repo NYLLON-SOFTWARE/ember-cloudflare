@@ -98,7 +98,7 @@ from the Actions tab. It compares the file with two lists that follow the provid
   tried through AI Gateway.
 
 With something to change, the check pushes a branch, `check-models/` and the start of a hash of the
-new file, and opens a pull request with the change and what to look at, closing the ones earlier weeks
+new file, unless an earlier week pushed it already, and opens a pull request with the change and what to look at, closing the ones earlier weeks
 left open. With nothing to change but something to look at, it opens an issue, or edits the one it
 opened before, and with nothing at all it closes them. Each change is read as every copy would read
 it first, so the check never opens a pull request with a file Ember wouldn't read. GitHub doesn't run

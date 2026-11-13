@@ -179,9 +179,20 @@ export async function offeredModelsOf(env: Env, keys: { accountId: string; apiTo
   ]);
   if (workersAi === null || "refusal" in workersAi) {
     if (workersAi) console.error(`Listing the models file's models alone, as Workers AI's weren't listed: ${workersAi.refusal}`);
-    return { models: file.models.filter(runsStill), suggested: file.suggested, workersAi: workersAi?.refusal ?? noToken };
+    return stillOffered(file.models, file.suggested, workersAi?.refusal ?? noToken);
   }
-  return { models: [...file.models, ...workersAi].filter(runsStill), suggested: file.suggested, workersAi: null };
+  return stillOffered([...file.models, ...workersAi], file.suggested, null);
+}
+
+/**
+ * The models `listed` that Ember offers, those that run still (`runsStill`), with why Workers AI's aren't
+ * among them, `workersAi`, and the one Set up Ember AI starts at: `suggested`, while it runs still, or
+ * else the first that does.
+ */
+export function stillOffered(listed: readonly OfferedModel[], suggested: string, workersAi: string | null): OfferedModels {
+  const models = listed.filter(runsStill);
+  const starting = models.some(({ id }) => id === suggested) ? suggested : (models[0]?.id ?? suggested);
+  return { models, suggested: starting, workersAi };
 }
 
 /**

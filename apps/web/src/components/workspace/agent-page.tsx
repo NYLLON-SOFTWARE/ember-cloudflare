@@ -357,7 +357,8 @@ function AgentForm({ me, saved, setup, rooms, onFailed }: FormProps) {
   const searchFormat = searchFormatOf(model, format);
   const searchIn = searchFormat === "workers" && offered?.format !== "workers" ? null : searchFormat;
   const mayOnTheWeb = searchIn ? webToolsOf(model, searchIn, setup.offered.models) : [];
-  const canSearch = mayOnTheWeb.length > 0;
+  // One kept with its model searches as its tests found, though the model isn't listed, as while Workers AI's can't be.
+  const canSearch = mayOnTheWeb.length > 0 || (sameModel && saved.webTools.length > 0);
   // What it does on the web: what its tests found, while it has the model it has, or else what it may do there.
   const webTools = !fields.webSearch || !canSearch ? [] : sameModel && saved.webTools.length > 0 ? saved.webTools : [...mayOnTheWeb];
   const where = { community, roomName: null, inThread: false };

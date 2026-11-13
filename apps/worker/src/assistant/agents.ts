@@ -207,12 +207,15 @@ async function triedAnswer(
   const savedIn = known?.format ?? offered?.format ?? formatOf(trial.model);
   const searchIn = trial.webSearch ? await searchingFormatOf(env, through, trial.model, savedIn) : null;
   const format: ModelFormat = searchIn ?? savedIn;
-  const may = searchIn ? webToolsOf(trial.model, searchIn, (await modelsFileOf(env)).models) : [];
-  const webTools = !trial.webSearch ? [] : known && known.webTools.length > 0 && format === known.format ? known.webTools : may;
+  const file = (await modelsFileOf(env)).models;
+  const may = searchIn ? webToolsOf(trial.model, searchIn, file) : [];
+  // What its tests found, while it's asked as it's saved, of what it may do on the web still, as it is in a room.
+  const kept = known && known.webTools.length > 0 && format === known.format ? known.webTools.filter((tool) => webToolsOf(trial.model, format, file).includes(tool)) : null;
+  const webTools = !trial.webSearch ? [] : (kept ?? may);
   const thinkingLevels = (known && format === known.format ? known.thinkingLevels : offered?.thinkingLevels) ?? undefined;
   const question = questionFor(answerer, [{ creator: asker, plainText: trial.question }], asker, where, levels, new Date(), webTools);
   const answered = await ask(env, { ...through, model: trial.model, format, thinkingLevels }, question, waitFor(question));
-  return "refusal" in answered ? answered : { ...answered, webTools: may };
+  return "refusal" in answered ? answered : { ...answered, webTools };
 }
 
 /** `DELETE /api/account/agents/:id/avatar`: takes away the avatar agent `id` was given, answering it as its page then shows it. */

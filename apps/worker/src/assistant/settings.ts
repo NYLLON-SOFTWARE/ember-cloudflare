@@ -43,7 +43,7 @@ import { workspace, type Credentials } from "../workspace";
 import type { MovedModel } from "../workspace-store";
 import { ask, askOnce, type Gateway, type GatewayRefusal, type Question } from "./gateway";
 import { TEST_QUESTION, TEST_TIMEOUT_MS, testedLevelsOf } from "./model-tests";
-import { modelsFileOf, offeredModel, offeredModelsOf, searchingFormatOf } from "./offered";
+import { modelsFileOf, offeredModel, offeredModelsOf, searchingFormatOf, stillOffered } from "./offered";
 
 // Ember AI's setup, as administrators turn it on, change it and turn it off on the AI assistant tab of
 // workspace settings, the models Ember offers (assistant/offered.ts), the models people can pick, which
@@ -122,7 +122,7 @@ export async function listOfferedModels(request: Request, env: Env): Promise<Res
   const apiToken = keys?.apiToken ?? gateway?.apiToken ?? null;
   const offered =
     accountId === null
-      ? { ...(await modelsFileOf(env, true)), workersAi: API_TOKEN_NEEDED }
+      ? await modelsFileOf(env, true).then(({ models, suggested }) => stillOffered(models, suggested, API_TOKEN_NEEDED))
       : await offeredModelsOf(env, { accountId, apiToken }, keys?.apiToken !== undefined, API_TOKEN_NEEDED);
   return Response.json(offered satisfies OfferedModels, { headers: PRIVATE });
 }

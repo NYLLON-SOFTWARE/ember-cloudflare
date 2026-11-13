@@ -335,10 +335,13 @@ function publish(findings: Findings, text: string): void {
     return report(`${same.url} has these changes already.`);
   }
   const main = git(["symbolic-ref", "--short", "HEAD"]);
-  git(["switch", "--quiet", "-c", branch]);
-  writeFileSync(FILE, text);
-  git(["commit", "--quiet", "-m", TITLE, "--", FILE]);
-  git(["push", "--quiet", "origin", `${branch}:refs/heads/${branch}`]);
+  // A branch an earlier week pushed holds this file already, as when GitHub didn't let it open the pull request.
+  if (git(["ls-remote", "--heads", "origin", `refs/heads/${branch}`]) === "") {
+    git(["switch", "--quiet", "-c", branch]);
+    writeFileSync(FILE, text);
+    git(["commit", "--quiet", "-m", TITLE, "--", FILE]);
+    git(["push", "--quiet", "origin", `${branch}:refs/heads/${branch}`]);
+  }
   const opened = run("gh", ["pr", "create", "--base", main, "--head", branch, "--title", TITLE, "--body-file", "-"], body);
   if (opened.status === 0) {
     const where = lastLine(opened.stdout);

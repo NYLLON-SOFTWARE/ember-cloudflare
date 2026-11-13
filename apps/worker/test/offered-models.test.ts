@@ -346,6 +346,19 @@ describe("The models Ember offers", () => {
     // The listing kept since the day before is the one the model search answered then.
     expect(placesOf(requests)).toEqual([`${CLOUDFLARE_API}/accounts/${ACCOUNT_ID}/ai/models/search`]);
   });
+
+  it("suggest the first that runs still once the one the models file suggests stops, with an account or without one", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(`${STOPS}T00:00:00Z`).getTime() });
+    const stopping = { ...FILE, models: FILE.models.map((model) => (model.id === FILE.suggested ? { ...model, until: STOPS } : model)) };
+    const running = FILE_MODELS.slice(1);
+
+    const ada = await setUp();
+    cloudflare({ file: () => Response.json(stopping) });
+    expect(await offered(ada, {}, WITH_THE_FILE)).toEqual({ models: running, suggested: "openai/gpt-7", workersAi: API_TOKEN_NEEDED });
+    const setup = await api("/api/account/assistant", { method: "PUT", headers: { Cookie: ada.cookie }, body: JSON.stringify(SETUP) });
+    expect(setup.status, await setup.clone().text()).toBe(200);
+    expect(await offered(ada, {}, WITH_THE_FILE)).toEqual({ models: [...running, GEMMA, QWQ], suggested: "openai/gpt-7", workersAi: null });
+  });
 });
 
 describe("What the model search says of a model", () => {
@@ -504,6 +517,28 @@ describe("Workers AI's models", () => {
       { role: "assistant", content: "", tool_calls: [{ id: "call_0", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "AI Gateway" }) } }] },
       { role: "tool", tool_call_id: "call_0", content: `1. ${DOCS.title}\n${DOCS.url}\n${DOCS.description}\n\n2. ${BLOG.title}\n${BLOG.url}\n${BLOG.description}` },
     ]);
+  });
+
+  it("search as a saved agent's tests found when it's tried while the model search can't list them, as it does in a room", async () => {
+    const ada = await setUpWithAssistant();
+    cloudflare({ model: searchingModel });
+    const scout: NewAgent = { name: "Scout", description: "Finds things", instructions: "Find it.", model: GLM.id, thinking: "off", length: "short", webSearch: true, rooms: null };
+    const made = await api("/api/account/agents", { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify(scout) });
+    expect(made.status, await made.clone().text()).toBe(201);
+    const { agent } = (await made.json()) as AgentAnswer;
+    expect(agent.webTools).toEqual(["search"]);
+    vi.restoreAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    cloudflare({ search: refusing(403, 10000, "Authentication error") });
+    expect((await offered(ada, { accountId: ACCOUNT_ID, apiToken: OTHER_API_TOKEN })).workersAi).toBe(WORKERS_AI_TOKEN_REFUSED);
+    vi.restoreAllMocks();
+
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const requests = cloudflare({ search: refusing(403, 10000, "Authentication error"), model: searchingModel });
+    const trial = { name: scout.name, instructions: scout.instructions, model: scout.model, thinking: scout.thinking, length: scout.length, webSearch: true, question: "What's AI Gateway?" };
+    const tried = await api(`/api/account/agents/${agent.id}/trials`, { method: "POST", headers: { Cookie: ada.cookie }, body: JSON.stringify(trial) });
+    expect(tried.status, await tried.clone().text()).toBe(200);
+    expect(placesOf(requests).filter((url) => url !== `${CLOUDFLARE_API}/accounts/${ACCOUNT_ID}/ai/models/search`)).toEqual([CHAT_COMPLETIONS, WEB_SEARCH, CHAT_COMPLETIONS]);
   });
 
   it(`search at most ${WEB_SEARCHES_PER_ANSWER} times an answer, then are told to answer with what they found`, async () => {
