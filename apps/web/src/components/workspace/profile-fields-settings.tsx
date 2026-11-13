@@ -138,9 +138,7 @@ export function ProfileFieldsSettings({ onFailed }: Props) {
   const remove = (field: ProfileField) => {
     if (busy || !confirm(CONFIRM_REMOVE_FIELD)) return;
     setBusy(field.id);
-    shown(deleteProfileField(field.id), () => {
-      if (editing === field.id) setEditing(null);
-    });
+    shown(deleteProfileField(field.id));
   };
 
   const full = fields !== null && fields.length >= MAX_PROFILE_FIELDS;
