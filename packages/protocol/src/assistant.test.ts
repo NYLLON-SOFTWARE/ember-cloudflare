@@ -8,7 +8,7 @@ import {
   DEFAULT_LEVELS,
   formatOf,
   INSTRUCTIONS_TOO_LONG,
-  isWorkersAiModel,
+  isProviderFormat,
   isXaiModel,
   LEVELS_REFUSED,
   MAX_INSTRUCTIONS_LENGTH,
@@ -20,12 +20,15 @@ import {
   modelName,
   modelNameOf,
   modelOf,
+  offeredModelOf,
   parseAssistantChanges,
   parseAssistantKeys,
   parseAssistantSetup,
   parseNewAssistantModel,
   parseYourAssistantChanges,
+  providerFormatOf,
   searchFormatOf,
+  SUGGESTED_MODEL,
   THINKING_LEVELS,
   THINKING_TOKENS,
   thinkingTaken,
@@ -48,50 +51,56 @@ describe("Set up Ember AI", () => {
     });
   });
 
-  it("takes the model's name as Cloudflare's catalog gives it, and leaves out one that can't be a model's", () => {
-    const setup = { accountId: ACCOUNT_ID, model: "openai/gpt-5.5" };
-    expect(parseAssistantSetup({ ...setup, modelName: " GPT-5.5 " })).toEqual({ ...setup, modelName: "GPT-5.5" });
-    for (const modelName of ["", "  ", 5, "GPT\u2028-5.5", "x".repeat(MAX_MODEL_NAME_LENGTH + 1), "GPT\u202e5.5"]) {
-      expect(parseAssistantSetup({ ...setup, modelName }), JSON.stringify(modelName)).toEqual(setup);
+  it("takes only a model Ember offers, leaving out a name it's given, as Ember names the models it offers", () => {
+    const setup = { accountId: ACCOUNT_ID, model: "openai/gpt-6.1-sol" };
+    expect(parseAssistantSetup({ ...setup, modelName: "GPT-5.5" })).toEqual(setup);
+    for (const model of ["openai/gpt-5.5", "@cf/zai-org/glm-4.7-flash", "google/gemini-3.7-flash"]) {
+      expect(parseAssistantSetup({ ...setup, model }), model).toEqual({ error: MODEL_REFUSED, field: "model" });
     }
+  });
+
+  it("keeps a model's name, as a model kept from before has one, when it can be one", () => {
+    expect(modelNameOf(" GLM-4.7 Flash ")).toBe("GLM-4.7 Flash");
+    for (const name of ["", "  ", 5, "GLM\u2028-4.7", "x".repeat(MAX_MODEL_NAME_LENGTH + 1), "GLM\u202e4.7"]) expect(modelNameOf(name), JSON.stringify(name)).toBeNull();
     expect(modelNameOf("x".repeat(MAX_MODEL_NAME_LENGTH))).toHaveLength(MAX_MODEL_NAME_LENGTH);
   });
 
-  it("lists the models of an account it's given without a model, as Set up Ember AI asks before one's chosen", () => {
+  it("takes an account and its API token alone, as Set up Ember AI's first step gives them", () => {
     expect(parseAssistantKeys({ accountId: ACCOUNT_ID, apiToken: API_TOKEN })).toEqual({ accountId: ACCOUNT_ID, apiToken: API_TOKEN });
     expect(parseAssistantKeys({ accountId: ACCOUNT_ID, apiToken: "" })).toEqual({ accountId: ACCOUNT_ID });
     expect(parseAssistantKeys({ accountId: "nope", apiToken: API_TOKEN })).toEqual({ error: ACCOUNT_ID_REFUSED, field: "accountId" });
     expect(parseAssistantKeys({ accountId: ACCOUNT_ID, apiToken: "short" })).toEqual({ error: API_TOKEN_REFUSED, field: "apiToken" });
   });
 
-  it("adds a model by its ID, and its name if it's given one", () => {
-    expect(parseNewAssistantModel({ model: " openai/gpt-5.5 ", modelName: "GPT-5.5" })).toEqual({ model: "openai/gpt-5.5", modelName: "GPT-5.5" });
-    expect(parseNewAssistantModel({ model: "openai/gpt-5.5" })).toEqual({ model: "openai/gpt-5.5" });
-    for (const data of [null, {}, { model: "gpt-5.5" }, { model: 5 }, { modelName: "GPT-5.5" }]) {
+  it("adds a model Ember offers by its ID, leaving out a name it's given", () => {
+    expect(parseNewAssistantModel({ model: " openai/gpt-6.1-sol ", modelName: "GPT-6.1 Sol" })).toEqual({ model: "openai/gpt-6.1-sol" });
+    expect(parseNewAssistantModel({ model: "openai/gpt-6.1-sol" })).toEqual({ model: "openai/gpt-6.1-sol" });
+    for (const data of [null, {}, { model: "openai/gpt-5.5" }, { model: "gpt-6.1-sol" }, { model: 5 }, { modelName: "GPT-6.1 Sol" }]) {
       expect(parseNewAssistantModel(data)).toEqual({ error: MODEL_REFUSED, field: "model" });
     }
   });
 
   it("leaves a blank or missing API token out, which keeps the one Ember has", () => {
-    expect(parseAssistantSetup({ accountId: ACCOUNT_ID, apiToken: "  ", model: "openai/gpt-5.5" })).toEqual({ accountId: ACCOUNT_ID, model: "openai/gpt-5.5" });
-    expect(parseAssistantSetup({ accountId: ACCOUNT_ID, model: "openai/gpt-5.5" })).toEqual({ accountId: ACCOUNT_ID, model: "openai/gpt-5.5" });
+    expect(parseAssistantSetup({ accountId: ACCOUNT_ID, apiToken: "  ", model: "openai/gpt-6.1-sol" })).toEqual({ accountId: ACCOUNT_ID, model: "openai/gpt-6.1-sol" });
+    expect(parseAssistantSetup({ accountId: ACCOUNT_ID, model: "openai/gpt-6.1-sol" })).toEqual({ accountId: ACCOUNT_ID, model: "openai/gpt-6.1-sol" });
   });
 
   it.each([
     ["nothing", null, { error: ACCOUNT_ID_REFUSED, field: "accountId" }],
-    ["an account ID too short", { accountId: ACCOUNT_ID.slice(1), apiToken: API_TOKEN, model: "openai/gpt-5.5" }, { error: ACCOUNT_ID_REFUSED, field: "accountId" }],
-    ["an account ID that isn't hexadecimal", { accountId: `${ACCOUNT_ID.slice(1)}g`, apiToken: API_TOKEN, model: "openai/gpt-5.5" }, { error: ACCOUNT_ID_REFUSED, field: "accountId" }],
-    ["an API token too short", { accountId: ACCOUNT_ID, apiToken: "short", model: "openai/gpt-5.5" }, { error: API_TOKEN_REFUSED, field: "apiToken" }],
-    ["an API token with a space in it", { accountId: ACCOUNT_ID, apiToken: `${API_TOKEN} ${API_TOKEN}`, model: "openai/gpt-5.5" }, { error: API_TOKEN_REFUSED, field: "apiToken" }],
-    ["an API token that isn't text", { accountId: ACCOUNT_ID, apiToken: 7, model: "openai/gpt-5.5" }, { error: API_TOKEN_REFUSED, field: "apiToken" }],
+    ["an account ID too short", { accountId: ACCOUNT_ID.slice(1), apiToken: API_TOKEN, model: "openai/gpt-6.1-sol" }, { error: ACCOUNT_ID_REFUSED, field: "accountId" }],
+    ["an account ID that isn't hexadecimal", { accountId: `${ACCOUNT_ID.slice(1)}g`, apiToken: API_TOKEN, model: "openai/gpt-6.1-sol" }, { error: ACCOUNT_ID_REFUSED, field: "accountId" }],
+    ["an API token too short", { accountId: ACCOUNT_ID, apiToken: "short", model: "openai/gpt-6.1-sol" }, { error: API_TOKEN_REFUSED, field: "apiToken" }],
+    ["an API token with a space in it", { accountId: ACCOUNT_ID, apiToken: `${API_TOKEN} ${API_TOKEN}`, model: "openai/gpt-6.1-sol" }, { error: API_TOKEN_REFUSED, field: "apiToken" }],
+    ["an API token that isn't text", { accountId: ACCOUNT_ID, apiToken: 7, model: "openai/gpt-6.1-sol" }, { error: API_TOKEN_REFUSED, field: "apiToken" }],
     ["no model", { accountId: ACCOUNT_ID, apiToken: API_TOKEN }, { error: MODEL_REFUSED, field: "model" }],
     ["a model without its company", { accountId: ACCOUNT_ID, apiToken: API_TOKEN, model: "gpt-5.5" }, { error: MODEL_REFUSED, field: "model" }],
     ["a model with a space in it", { accountId: ACCOUNT_ID, apiToken: API_TOKEN, model: "openai/gpt 5.5" }, { error: MODEL_REFUSED, field: "model" }],
+    ["a model Ember doesn't offer", { accountId: ACCOUNT_ID, apiToken: API_TOKEN, model: "openai/gpt-5.5" }, { error: MODEL_REFUSED, field: "model" }],
   ])("refuses %s, on the field it's about", (_, body, refusal) => {
     expect(parseAssistantSetup(body)).toEqual(refusal);
   });
 
-  it("takes a model ID as Cloudflare's catalog writes them, up to the longest Ember keeps", () => {
+  it("takes a model ID as AI Gateway writes them, up to the longest Ember keeps", () => {
     for (const model of ["@cf/zai-org/glm-4.7-flash", "openai/gpt-6.1-sol", "google/gemini-3.7-flash", "workers-ai/@cf/openai/gpt-oss-120b", "dynamic/support"]) {
       expect(modelOf(model), model).toBe(model);
     }
@@ -100,15 +109,20 @@ describe("Set up Ember AI", () => {
     expect(modelOf(`${longest}x`)).toBeNull();
   });
 
-  it("lists models Workers AI runs first, each once, in a format AI Gateway takes", () => {
+  it("offers Anthropic's and OpenAI's models in their providers' own formats and xAI's in Chat Completions, each once, with what each costs", () => {
     const ids = ASSISTANT_MODELS.map(({ id }) => id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.every((id) => modelOf(id) === id)).toBe(true);
-    expect(ASSISTANT_MODELS.every(({ format }) => MODEL_FORMATS.includes(format))).toBe(true);
-    const firstOther = ids.findIndex((id) => !isWorkersAiModel(id));
-    expect(firstOther).toBeGreaterThan(0);
-    expect(ids.slice(firstOther).some(isWorkersAiModel)).toBe(false);
-    expect(ASSISTANT_MODELS.filter(({ id }) => id.startsWith("anthropic/")).every(({ format }) => format === "messages")).toBe(true);
+    expect(ASSISTANT_MODELS.every(({ id, format }) => format === (providerFormatOf(id) ?? "chat"))).toBe(true);
+    expect(offeredModelOf("xai/grok-4.7")?.format).toBe("chat");
+    expect(ASSISTANT_MODELS.every(({ price }) => price !== undefined && price.input > 0 && price.output > price.input)).toBe(true);
+  });
+
+  it("suggests the model that costs least of those that both search the web and read pages", () => {
+    const suggested = offeredModelOf(SUGGESTED_MODEL)!;
+    expect(WEB_TOOLS_IN[suggested.format]).toEqual(["search", "read"]);
+    const reading = ASSISTANT_MODELS.filter(({ format }) => WEB_TOOLS_IN[format].includes("read"));
+    expect(Math.min(...reading.map(({ price }) => price!.input + price!.output))).toBe(suggested.price!.input + suggested.price!.output);
   });
 
   it("names a model as the models it's given do, or else as Ember does, and any other by its ID", () => {
@@ -119,19 +133,27 @@ describe("Set up Ember AI", () => {
     expect(modelName("anthropic/claude-sonnet-5.5", models)).toBe("Claude Sonnet 5.5");
   });
 
-  it("guesses the format a model takes as the models it's given list it, or Ember's, or else by its company, and what it may do on the web in it", () => {
+  it("finds the format a model takes as the models it's given list it, or Ember's, or else its provider's, and what it may do on the web in it", () => {
     const models = [{ id: "google/gemini-5", name: "Gemini 5", format: "messages" as const }];
     expect(formatOf("google/gemini-5", models)).toBe("messages");
     expect(formatOf("google/gemini-5")).toBe("chat");
-    expect(formatOf("openai/gpt-6.1-sol")).toBe("responses");
-    expect([formatOf("anthropic/claude-mythos-6"), formatOf("openai/gpt-7"), formatOf("@cf/meta/llama-5")]).toEqual(["messages", "responses", "chat"]);
-    expect(formatOf("xai/grok-4.7")).toBe("chat");
-    expect(WEB_TOOLS_IN).toEqual({ messages: ["search", "read"], responses: ["search"], chat: [], xai: ["search"] });
+    expect(formatOf("openai/gpt-6.1-sol")).toBe("openai");
+    expect([formatOf("anthropic/claude-mythos-6"), formatOf("openai/gpt-7"), formatOf("@cf/meta/llama-5")]).toEqual(["anthropic", "openai", "chat"]);
+    expect([formatOf("xai/grok-4.7"), formatOf("xai/grok-5")]).toEqual(["chat", "chat"]);
+    expect(WEB_TOOLS_IN).toEqual({ messages: ["search", "read"], responses: ["search"], chat: [], xai: ["search"], anthropic: ["search", "read"], openai: ["search"] });
+  });
+
+  it("asks Claude and GPT in their providers' own formats, and anyone else's model, Grok's among them, through the REST API alone", () => {
+    expect(["anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol"].map(providerFormatOf)).toEqual(["anthropic", "openai"]);
+    expect(["xai/grok-4.7", "google/gemini-3.7-flash", "@cf/openai/gpt-oss-120b", "workers-ai/@cf/openai/gpt-oss-120b", "moonshotai/kimi-k3"].map(providerFormatOf)).toEqual([null, null, null, null, null]);
+    expect(MODEL_FORMATS.filter(isProviderFormat)).toEqual(["xai", "anthropic", "openai"]);
   });
 
   it("searches the web in a model's own format if it can, or else, for Grok, in xAI's own Responses", () => {
     expect([isXaiModel("xai/grok-4.7"), isXaiModel("@cf/xai/grok"), isXaiModel("openai/gpt-7")]).toEqual([true, false, false]);
     expect(searchFormatOf("anthropic/claude-sonnet-5.5", "messages")).toBe("messages");
+    expect(searchFormatOf("anthropic/claude-sonnet-5.5", "anthropic")).toBe("anthropic");
+    expect(searchFormatOf("openai/gpt-7", "openai")).toBe("openai");
     expect(searchFormatOf("openai/gpt-7", "responses")).toBe("responses");
     expect(searchFormatOf("xai/grok-4.7", "chat")).toBe("xai");
     expect(searchFormatOf("xai/grok-4.7", "xai")).toBe("xai");

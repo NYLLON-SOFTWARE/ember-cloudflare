@@ -25,7 +25,7 @@ import {
   type SidebarRoom,
   type WorkspaceSettings,
 } from "@ember/protocol";
-import { ASSISTANT_MODELS, TOP_LEVELS, modelName, type AssistantChanges, type AssistantSettings, type NewAssistantModel } from "@ember/protocol/assistant";
+import { formatOf, TOP_LEVELS, modelName, type AssistantChanges, type AssistantSettings, type NewAssistantModel } from "@ember/protocol/assistant";
 import type { Agent, Agents } from "@ember/protocol/agents";
 import type { HuddlesSetup } from "@ember/protocol/huddles";
 import { FlashProvider } from "@/components/flash";
@@ -214,13 +214,13 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         turnstile = null;
         return Response.json({ turnstile });
       case "PUT /api/account/assistant": {
-        const { accountId, model, modelName: name } = JSON.parse(String(init?.body)) as AssistantSetup;
+        const { accountId, model } = JSON.parse(String(init?.body)) as AssistantSetup;
         assistant = {
           accountId,
           model,
-          models: [{ id: model, name: name ?? modelName(model), format: "chat" }],
+          models: [{ id: model, name: modelName(model), format: formatOf(model) }],
           most: assistant?.most ?? TOP_LEVELS,
-          webTools: null,
+          webTools: [],
           instructions: assistant?.instructions ?? "",
           promptTemplate: assistant?.promptTemplate ?? null,
           avatarUrl: assistant?.avatarUrl ?? EMBER_FLAME,
@@ -233,11 +233,9 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         assistant = assistant && { ...assistant, model: model ?? assistant.model, most: { ...assistant.most, ...levels } };
         return Response.json({ assistant });
       }
-      case "POST /api/account/assistant/catalog":
-        return Response.json({ models: ASSISTANT_MODELS, refusal: null });
       case "POST /api/account/assistant/models": {
-        const { model, modelName: name } = JSON.parse(String(init?.body)) as NewAssistantModel;
-        assistant = assistant && { ...assistant, models: [...assistant.models, { id: model, name: name ?? modelName(model), format: "chat" }] };
+        const { model } = JSON.parse(String(init?.body)) as NewAssistantModel;
+        assistant = assistant && { ...assistant, models: [...assistant.models, { id: model, name: modelName(model), format: formatOf(model) }] };
         return Response.json({ assistant, greeting: "Hi there!" });
       }
       case "DELETE /api/account/assistant/models": {
@@ -1951,13 +1949,13 @@ describe("Check that people are people with Cloudflare Turnstile", () => {
 
 describe("Ember AI", () => {
   showingSection("assistant-settings");
-  /** Ember AI on GLM-4.7 Flash, the only model people can pick. */
+  /** Ember AI on Claude Haiku 5.5, the only model people can pick. */
   const ON: AssistantSettings = {
     accountId: "0123456789abcdef0123456789abcdef",
-    model: "@cf/zai-org/glm-4.7-flash",
-    models: [{ id: "@cf/zai-org/glm-4.7-flash", name: "GLM-4.7 Flash", format: "chat" }],
+    model: "anthropic/claude-haiku-5.5",
+    models: [{ id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", format: "anthropic" }],
     most: TOP_LEVELS,
-    webTools: null,
+    webTools: [],
     instructions: "",
     promptTemplate: null,
     avatarUrl: EMBER_FLAME,
@@ -1977,7 +1975,7 @@ describe("Ember AI", () => {
     await user.type(await screen.findByRole("textbox", { name: "Account ID" }), "0123456789abcdef0123456789abcdef");
     await user.type(screen.getByRole("textbox", { name: "API token" }), "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-Ab");
     await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.selectOptions(await screen.findByRole("combobox", { name: "Model" }), "Claude Haiku 5.5");
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Model" }), "anthropic/claude-haiku-5.5");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Hello, team!")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Done" }));

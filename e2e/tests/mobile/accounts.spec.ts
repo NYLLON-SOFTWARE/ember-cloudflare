@@ -1,7 +1,7 @@
 import type { Locator, Page } from "@playwright/test";
 import type { BotAnswer, Bots, BotSettings } from "@ember/protocol";
 import type { AgentAnswer, Agents, AgentSettings, AgentTrialAnswer } from "@ember/protocol/agents";
-import { THINKING_LEVELS, TOP_LEVELS, type AssistantCatalog, type AssistantSettings } from "@ember/protocol/assistant";
+import { THINKING_LEVELS, TOP_LEVELS, type AssistantSettings } from "@ember/protocol/assistant";
 import { AGENT_TEMPLATE } from "@ember/protocol/prompts";
 import { changeTheWorkspace, fakeTurnstile, isolateRoom, listing, openRoom, signInAs, signInAsAdministrator, TURNSTILE_WIDGET, useOwnAddress, type Passes } from "../../fixtures";
 import { auditScreen, settle } from "./audits";
@@ -264,23 +264,13 @@ test("a bot's settings fit the phone", async ({ page, screenIsFine }) => {
 const ASSISTANT: AssistantSettings = {
   accountId: "0123456789abcdef0123456789abcdef",
   model: "anthropic/claude-sonnet-5.5",
-  models: [{ id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", format: "messages" }],
+  models: [{ id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", format: "anthropic" }],
   most: TOP_LEVELS,
   webTools: [],
   instructions: "",
   promptTemplate: null,
   avatarUrl: "/assistant-avatar.svg",
   avatar: false,
-};
-
-/** Cloudflare's catalog, as the Worker lists it, with what other companies' models cost. */
-const CATALOG: AssistantCatalog = {
-  models: [
-    { id: "@cf/zai-org/glm-4.7-flash", name: "GLM-4.7 Flash", format: "chat" },
-    { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", format: "messages", price: { input: 3, output: 15 } },
-    { id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", format: "responses", price: { input: 2, output: 10 } },
-  ],
-  refusal: null,
 };
 
 /**
@@ -302,7 +292,7 @@ const AGENT: AgentSettings = {
   rooms: [1, 2, 3, 4].map((n) => ({ id: `0mgk3x2a9b4c5${n}`, name: `${LONG_NAME}-${n}` })),
   instructions: "You sum up conversations for the team.\n\nList the decisions made, then the questions still open, then the to-dos, each with who took it on.",
   promptTemplate: `${AGENT_TEMPLATE}\n\nSign off as ${LONG_NAME}.`,
-  format: "messages",
+  format: "anthropic",
   levels: { thinking: "medium", length: "long" },
   thinkingLevels: [...THINKING_LEVELS],
   avatar: true,
@@ -322,7 +312,6 @@ async function showTheAgents(page: Page): Promise<void> {
   });
   await page.route("**/api/account/agents", (route) => route.fulfill({ json: { agents: [AGENT] } satisfies Agents }));
   await page.route(`**/api/account/agents/${AGENT.id}`, (route) => route.fulfill({ json: { agent: AGENT } satisfies AgentAnswer }));
-  await page.route("**/api/account/assistant/catalog", (route) => route.fulfill({ json: CATALOG }));
   await page.route("**/api/account/agents/trials", (route) => route.fulfill({ json: TRIED }));
 }
 

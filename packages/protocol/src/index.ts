@@ -55,7 +55,6 @@ export type {
   AnswerLength,
   AnswerLevelChanges,
   AnswerLevels,
-  AssistantCatalog,
   AssistantChanged,
   AssistantChanges,
   AssistantForgotten,

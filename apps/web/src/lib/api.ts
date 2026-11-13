@@ -7,11 +7,9 @@ import {
   WORKSPACE_PRELOADS,
   type Account,
   type AccountChanges,
-  type AssistantCatalog,
   type AssistantChanged,
   type AssistantChanges,
   type AssistantForgotten,
-  type AssistantKeys,
   type AssistantSaved,
   type AssistantSetup,
   type Bootstrap,
@@ -549,15 +547,6 @@ export async function saveHuddles(setup: HuddlesSetup): Promise<HuddlesSettings>
 /** Turns huddles off, forgetting the SFU app's keys Ember was given. Fails with a 403 ApiError for anyone but an administrator. */
 export async function forgetHuddles(): Promise<null> {
   return (await request<HuddlesForgotten>("/api/account/huddles", { method: "DELETE" })).huddles;
-}
-
-/**
- * The text models Cloudflare's catalog lists for the account `keys` gives, with its API token, or the one
- * Ember has, when it gives none, or else the models Ember knows, and why the catalog couldn't be read.
- * Fails with a 422 ApiError on the field the Worker refuses, and a 403 one for anyone but an administrator.
- */
-export async function listAssistantModels(keys: AssistantKeys): Promise<AssistantCatalog> {
-  return request<AssistantCatalog>("/api/account/assistant/catalog", { method: "POST", body: JSON.stringify(keys) });
 }
 
 /**
