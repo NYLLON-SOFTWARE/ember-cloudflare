@@ -27,6 +27,7 @@ import {
   type DirectRoom,
   type Directory,
   type DirectoryUser,
+  type DndAnswer,
   type EmailLinkFor,
   type EmailLinkKind,
   type EmailLinkRequest,
@@ -376,6 +377,20 @@ export async function changeAvatar(photo: ChosenPhoto): Promise<ProfileAnswer> {
 /** Takes away your avatar, so your initials show, answering your profile as it is then. */
 export async function removeAvatar(): Promise<ProfileAnswer> {
   return request<ProfileAnswer>(AVATAR_PATH, { method: "DELETE" });
+}
+
+/**
+ * Hushes your push notifications (Do not disturb) until `until`, an ISO time, answering when they're
+ * heard again. It hushes push notifications alone: your rooms, unread marks, the badge and banners in
+ * the app carry on. Fails with a 422 ApiError for a time that isn't ahead of now.
+ */
+export async function setDnd(until: string): Promise<DndAnswer> {
+  return request<DndAnswer>("/api/users/me/dnd", { method: "PUT", body: JSON.stringify({ until }) });
+}
+
+/** Lifts the hush on your push notifications, answering that they're heard again. */
+export async function clearDnd(): Promise<DndAnswer> {
+  return request<DndAnswer>("/api/users/me/dnd", { method: "DELETE" });
 }
 
 /** Workspace settings: the workspace, its join code, and whether this person can change it. */

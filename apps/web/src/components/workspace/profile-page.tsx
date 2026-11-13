@@ -32,6 +32,7 @@ import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { AnswerLevels } from "./answer-levels";
 import { ConversationNotifications } from "./conversation-notifications";
+import { DoNotDisturb } from "./do-not-disturb";
 import { MemberfulConnection } from "./memberful-connection";
 import { InstallInstructions } from "./notification-help";
 import { HEADER_TEXT_BUTTON } from "./page-header";
@@ -46,6 +47,10 @@ interface Props {
   rooms: SidebarRoom[] | null;
   /** Called as a bell saves your level in a room, with what gives the room the level the server answers. */
   askForRoom: () => (answer: RoomAnswer) => void;
+  /** When your push notifications are hushed until, as the workspace has it, or null while they aren't. */
+  dndUntil: string | null;
+  /** Shows your push notifications as this page loads them and the Do not disturb section saves them. */
+  onDndChanged: (dndUntil: string | null) => void;
   /** Signs out, settling with whether it did. */
   onSignOut: () => Promise<boolean>;
   /** Says why loading or saving failed, as the workspace's alerts do. */
@@ -106,12 +111,13 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
  * bio, which Save changes saves with the notice "✓", keeping the page, then, while members sign in with
  * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
  * unlinks with the notice "Your Memberful account is disconnected.", then, while Ember AI is on, how much @ember thinks and
- * how long it answers you, then your notification level in each of your rooms and DMs, then a sign-in
+ * how long it answers you, then Do not disturb, which hushes your push notifications until a time you
+ * pick, then your notification level in each of your rooms and DMs, then a sign-in
  * link for you, a new one each time the page loads or saves, and Log out in the top bar. Go Back
  * returns to the page it was opened from. Your avatar, name and bio reach everyone's open pages at
  * once, through the workspace socket, as they reach the rail.
  */
-export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Props) {
+export function ProfilePage({ me, rooms, askForRoom, dndUntil, onDndChanged, onSignOut, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
   /** The profile as the page last loaded or saved it. */
   const saved = useRef<Fields | null>(null);
@@ -158,6 +164,9 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
         // Only from here and the Ember AI section's own saves, as a save of the profile or a photo can
         // answer after a change there, with your model and levels from before it.
         setAssistant(answer.profile.assistant);
+        // The hush too, which the section saves, and the rail shows by its crescent. A profile from
+        // before the hush answers without one, which is none.
+        onDndChanged(answer.profile.dndUntil ?? null);
       },
       (error: unknown) => {
         // A page left before its profile loads only reports a session that's ended, which goes to sign in.
@@ -165,7 +174,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
       },
     );
     return () => void (stopped = true);
-  }, [onFailed]);
+  }, [onFailed, onDndChanged]);
 
   // The picked photo's address is let go of once the saved one takes its place.
   useEffect(() => () => void (picked && URL.revokeObjectURL(picked)), [picked]);
@@ -380,6 +389,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
           />
         )}
         {assistant && <AnswerLevels assistant={assistant} onChanged={setAssistant} onFailed={onFailed} />}
+        <DoNotDisturb dndUntil={dndUntil} onChanged={onDndChanged} onFailed={onFailed} />
         {rooms && <ConversationNotifications me={me} rooms={rooms} askForRoom={askForRoom} onFailed={onFailed} />}
         {transferId && <SignInLink transferId={transferId} mine />}
       </Panel>

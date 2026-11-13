@@ -277,6 +277,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // Activity's filter, which lives as long as the page: other pages keep it on, and loading the page
   // again starts with it off.
   const [unreadOnly, setUnreadOnly] = useState(false);
+  // When your push notifications are hushed until, which Do not disturb on your profile loads and
+  // saves, and the rail shows by the crescent on your avatar.
+  const [dndUntil, setDndUntil] = useState<string | null>(null);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);
   const drawerRail = useRef<HTMLDivElement>(null);
   const roomView = useRef<RoomViewHandle>(null);
@@ -612,7 +615,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // once the server's list has come: the empty one a failed first load leaves knows nothing of what's unread.
   useAppBadge(answered ? activity.unread : null);
   const rail = (
-    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} newRelease={newRelease} onNewDirect={openNewDirect} />
+    <Rail me={me} workspaceName={workspaceName} current={RAIL_PAGES[route.page]} activity={activity} dndUntil={dndUntil} newRelease={newRelease} onNewDirect={openNewDirect} />
   );
   const sidebar = (
     <Sidebar
@@ -699,7 +702,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       case "app-settings":
         return rarePage(({ AppSettingsPage }) => <AppSettingsPage key={route.appId} appId={route.appId} me={me} onMissing={showNotFound} onFailed={failed} />);
       case "profile":
-        return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />);
+        return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} dndUntil={dndUntil} onDndChanged={setDndUntil} onSignOut={onSignOut} onFailed={failed} />);
       case "push-subscriptions":
         return rarePage(({ PushSubscriptionsPage }) => <PushSubscriptionsPage back={back} onFailed={failed} />);
       case "search":

@@ -32,6 +32,7 @@ const DISCONNECTED: ProfileAnswer = {
     membershipNeeded: true,
     memberful: { membersOnly: true, connected: null },
     assistant: null,
+    dndUntil: null,
   },
   transferId: "u2.mgk3x2b0.saved",
 };

@@ -9,9 +9,9 @@ import { OpenSearchContext } from "./search-box";
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };
 
-/** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's. */
-const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect = () => {}, newRelease: string | null = null) => (
-  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} newRelease={newRelease} onNewDirect={onNewDirect} />
+/** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's, and `dndUntil` while pushes are hushed. */
+const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect = () => {}, newRelease: string | null = null, dndUntil: string | null = null) => (
+  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} dndUntil={dndUntil} newRelease={newRelease} onNewDirect={onNewDirect} />
 );
 
 afterEach(() => history.replaceState(null, "", "/"));
@@ -44,6 +44,16 @@ describe("Rail", () => {
     expect(profile).toHaveAttribute("title", "Ada Lovelace");
     await userEvent.click(profile);
     expect(location.pathname).toBe("/users/me/profile");
+  });
+
+  it("lays a crescent on your avatar while Do not disturb hushes your push notifications, saying so in the title", () => {
+    const { rerender } = render(railAt("home", activityOff, ada, () => {}, null, "2026-11-14T09:00:00.000Z"));
+    const profile = screen.getByRole("link", { name: "Your profile" });
+    expect(profile).toHaveAttribute("title", "Ada Lovelace — push notifications hushed");
+    expect(profile.querySelector("svg.iconoir-half-moon")).toBeInTheDocument();
+    rerender(railAt("home"));
+    expect(profile).toHaveAttribute("title", "Ada Lovelace");
+    expect(profile.querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
   });
 
   it("names the settings link Admin for administrators, and Workspace for everyone else", () => {

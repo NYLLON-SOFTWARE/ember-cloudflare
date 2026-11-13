@@ -35,7 +35,7 @@ vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob([
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Ada's avatar as the profile loads it: her initials, until she uploads one. */
 const INITIALS = "/users/t0k3n/avatar?v=1";
-const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, assistant: null };
+const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, assistant: null, dndUntil: null };
 /** Ada's levels of @ember's dials while Ember AI is on: where they start, up to Medium thinking, with the one model people can pick, which she leaves to administrators. */
 const LEVELS: YourAssistant = {
   levels: { thinking: "low", length: "medium" },
@@ -103,16 +103,17 @@ function serve({
   });
 }
 
-/** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`. */
-function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC) {
-  const [onSignOut, onFailed, answered] = [vi.fn(), vi.fn(), vi.fn()];
+/** The profile, with Ada's rooms as the sidebar's list has them, or none while it loads, on `platform`, with pushes hushed until `dndUntil`. */
+function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform: Platform = CHROME_MAC, dndUntil: string | null = null) {
+  const [onSignOut, onFailed, answered, onDndChanged] = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+  let hushed = dndUntil;
   const page = (listed: SidebarRoom[] | null, people: People = new Map()) => (
     <AccountContext value={shown}>
       <PeopleContext value={people}>
         <PushContext value={{ ...PUSH_ON, platform }}>
           <FlashProvider workspace>
             <Sheet>
-              <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} onSignOut={onSignOut} onFailed={onFailed} />
+              <ProfilePage me={ada} rooms={listed} askForRoom={() => answered} dndUntil={hushed} onDndChanged={onDndChanged} onSignOut={onSignOut} onFailed={onFailed} />
             </Sheet>
           </FlashProvider>
         </PushContext>
@@ -124,9 +125,14 @@ function showPage(shown = account, rooms: SidebarRoom[] | null = null, platform:
     onSignOut,
     onFailed,
     answered,
+    onDndChanged,
     user: userEvent.setup(),
     showRooms: (listed: SidebarRoom[]) => rerender(page(listed)),
     showPeople: (people: People) => rerender(page(rooms, people)),
+    showDnd: (hushedUntil: string | null) => {
+      hushed = hushedUntil;
+      rerender(page(rooms, new Map()));
+    },
   };
 }
 
@@ -815,6 +821,38 @@ describe("Your model on your profile", () => {
     await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
     expect(menu()).toHaveValue("anthropic/claude-sonnet-5.5");
     expect(menu()).toBeEnabled();
+  });
+});
+
+describe("Do not disturb on your profile", () => {
+  const section = () => screen.queryByRole("region", { name: "Do not disturb" });
+  const HUSHED = "2026-11-14T09:00:00.000Z";
+  const hushedProfile = () =>
+    serve({ loaded: () => Response.json({ profile: { ...profile, assistant: LEVELS, dndUntil: HUSHED }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+
+  it("stands between Ember AI and your rooms' bells, hushed as the workspace has it, which loading the page tells it of", async () => {
+    hushedProfile();
+    const { onDndChanged, showDnd, showRooms } = showPage();
+    await loaded();
+    // The hush the page loaded is the workspace's to keep, which the rail shows by its crescent.
+    expect(onDndChanged).toHaveBeenCalledWith(HUSHED);
+    showDnd(HUSHED);
+    showRooms([{ id: "design", name: "Design", kind: "open", icon: null, unread: false, involvement: "mentions" }]);
+    const emberAi = screen.getByRole("region", { name: "Ember AI" });
+    const bells = screen.getByRole("list", { name: "Conversation notifications" });
+    expect(emberAi.compareDocumentPosition(section()!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(section()!.compareDocumentPosition(bells)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(section()).toHaveTextContent("Your rooms, unread marks, the app badge and banners in the app carry on.");
+    expect(within(section()!).getByRole("switch", { name: "Hush my push notifications" })).toBeChecked();
+    expect(within(section()!).getByText(/Push notifications are hushed until/)).toBeInTheDocument();
+  });
+
+  it("has the switch off, and nothing hushed, while it isn't", async () => {
+    const { onDndChanged } = showPage();
+    await loaded();
+    expect(within(section()!).getByRole("switch", { name: "Hush my push notifications" })).not.toBeChecked();
+    expect(within(section()!).queryByText(/hushed until/)).not.toBeInTheDocument();
+    expect(onDndChanged).toHaveBeenCalledWith(null);
   });
 });
 
