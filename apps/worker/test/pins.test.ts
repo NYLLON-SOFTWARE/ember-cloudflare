@@ -90,6 +90,32 @@ describe("Pin a message", () => {
     ada.send({ type: "pins.list" });
     expect((await ada.next("pins.listed")).pins[0]).toMatchObject({ by: { id: ada.me.id, name: "Ada King" } });
   });
+  it("ignores unpinning a message that isn't pinned", async () => {
+    const room = await freshRoom("unpin-never");
+    const ada = await connect(room, "Ada");
+    const grace = await connect(room, "Grace");
+    const message = await post(ada, "Never pinned");
+
+    grace.send({ type: "pin.delete", messageId: message.id });
+    await settle(ada, grace);
+    expect(ada.pending("pin.deleted")).toEqual([]);
+    expect(grace.pending("pin.deleted")).toEqual([]);
+    ada.send({ type: "pins.list" });
+    expect((await ada.next("pins.listed")).pins).toEqual([]);
+  });
+
+  it("refuses to pin a message deleted while its thread has replies, which the room keeps for them", async () => {
+    const room = await freshRoom("pin-kept");
+    const ada = await connect(room, "Ada");
+    const parent = await post(ada, "Gone, but replied to");
+    ada.send({ type: "message.create", clientMessageId: crypto.randomUUID(), body: "A reply", parentId: parent.id });
+    await ada.next("message.created");
+    ada.send({ type: "message.delete", messageId: parent.id });
+    await ada.next("message.updated");
+
+    ada.send({ type: "pin.create", messageId: parent.id });
+    expect((await ada.next("error")).message).toBe("That message no longer exists");
+  });
 });
 
 describe("A room's pins", () => {

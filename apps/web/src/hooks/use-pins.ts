@@ -15,7 +15,8 @@ export interface Pin {
  * the room has listed, by id, which the Pinned panel shows. The room is asked for its pins as the page
  * opens and whenever it lets it in again; a pin made or taken away while nobody's asked keeps only its
  * who, whose `at` the next listing says — which the panel asks for, as it opens and as a pin changes
- * while it's open. A message deleted takes its pin, as the room keeps none of one.
+ * while it's open. A deleted message takes its pin, whether it went outright or was kept for its
+ * thread's replies, as the room keeps none of one.
  */
 export function usePins(roomId: string, frames: RoomFrames) {
   const [pins, setPins] = useState<Pin[] | null>(null);
@@ -41,6 +42,10 @@ export function usePins(roomId: string, frames: RoomFrames) {
         case "pin.deleted":
         case "message.deleted":
           setPins((pins) => pins?.filter(({ messageId }) => messageId !== frame.messageId) ?? pins);
+          break;
+        case "message.updated":
+          // A message deleted while its thread has replies is kept for them, so its pin's going comes as its update.
+          setPins((pins) => (frame.message.deleted ? pins?.filter(({ messageId }) => messageId !== frame.message.id) ?? pins : pins));
           break;
       }
     });

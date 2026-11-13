@@ -788,7 +788,11 @@ export class MessageStore {
     return row !== undefined;
   }
 
-  /** Pins the message `messageId`, numbering its change, as a reaction added numbers its message's. */
+  /**
+   * Pins the message `messageId`, numbering its change, as a reaction added numbers its message's. The
+   * pin count is read apart from the batch, as a boost's message is, which is safe as every write here
+   * is: the room runs one frame at a time (`serially` in chat-room.ts), so no other pin can come between.
+   */
   async addPin(messageId: string, userId: UserId, now: string): Promise<number> {
     return this.change((seq) => [
       statement(`INSERT INTO pins (message_id, room_id, user_id, pinned_at) VALUES (?, ?, ?, ?)`, messageId, this.roomId, userId, now),
