@@ -943,6 +943,9 @@ What a self-hoster should know, beyond keeping the setup password and link to th
   the bot. Point bots only at servers you trust all the same. Webhooks go only to https, or to http
   on localhost, so nobody on the way reads the key; a bot saved with an http URL elsewhere before
   gets no deliveries until its URL is changed, and the Worker's log says why.
+- Anyone in a room can click a [button that acts](slack-webhooks.md#buttons-that-act) on a bot's
+  card there, and the bot is told who clicked, so a bot that should act only for some people has to
+  check that itself. The room sends the button as the bot posted it, never what a browser says of it.
 - Workers Logs record each request's address, which for Campfire's bot API and the Slack-compatible
   webhooks holds the bot's key and for the join link its code; Reset key and Regenerate join link are
   the remedies if a log is shared, and

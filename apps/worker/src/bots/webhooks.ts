@@ -51,16 +51,19 @@ const HEADERS = { "Content-Type": "application/json", Accept: "*/*", "User-Agent
  * is, and its plain text is its file's name. A message's file, which Campfire leaves out, follows its
  * body, with the path that opens it, signed as the room's links are, so the bot fetches it without its key.
  */
-export function webhookPayload(
-  roomId: RoomId,
-  { author, roomName }: Pick<MessageWebhook, "author" | "roomName">,
-  { bot, key }: Pick<WebhookAccess, "bot" | "key">,
-  message: Pick<Message, "id" | "body" | "plainText" | "mentions" | "parentId" | "attachment">,
-): string {
+export function webhookPayload(roomId: RoomId, delivery: Pick<MessageWebhook, "author" | "roomName">, webhook: Pick<WebhookAccess, "bot" | "key">, message: DeliveredMessage): string {
+  return railsJson(deliveryOf(roomId, delivery, webhook, message));
+}
+
+/** What a delivery says of a message. */
+export type DeliveredMessage = Pick<Message, "id" | "body" | "plainText" | "mentions" | "parentId" | "attachment">;
+
+/** What `webhookPayload` writes, which a click's delivery says too (clicks.ts), of whoever clicked and the message clicked. */
+export function deliveryOf(roomId: RoomId, { author, roomName }: Pick<MessageWebhook, "author" | "roomName">, { bot, key }: Pick<WebhookAccess, "bot" | "key">, message: DeliveredMessage) {
   const plain = withoutMentionsOf(nameIn(message, bot), message.plainText);
   // A reply in a thread's permalink opens its thread at it.
   const path = message.parentId === undefined ? `/rooms/${roomId}/@${message.id}` : threadPath(roomId, message.parentId, message.id);
-  return railsJson({
+  return {
     user: { id: author.id, name: author.name },
     room: { id: roomId, name: roomName, path: botMessagesPath(roomId, key, message.parentId) },
     message: {
@@ -69,7 +72,7 @@ export function webhookPayload(
       ...(message.attachment && { attachment: attachmentJson(message.attachment) }),
       path,
     },
-  });
+  };
 }
 
 /** A message's file as Active Storage names a blob's columns, with the path that opens it. */
@@ -137,20 +140,57 @@ const PLAIN_HTTP = "its URL is http, which only a webhook on localhost may use";
  * request fails, or the answer can't be read or kept, with a message that never holds the URL. Tests
  * can give it shorter `timeouts`, and `send` to stand in for `fetch`.
  */
-export async function postWebhook<K>(
+export async function postWebhook<K>(url: string, payload: string, keep: Keep<K>, options: PostOptions = {}): Promise<Delivered<K>> {
+  const posted = await post(url, payload, (response, clock) => replyIn(response, clock, keep), options);
+  if ("timedOutAfter" in posted) return { status: null, reply: { text: `Failed to respond within ${posted.timedOutAfter / 1000} seconds` } };
+  return { status: posted.status, reply: posted.answer };
+}
+
+/** What tests give a delivery: shorter `timeouts`, and `send` to stand in for `fetch`. */
+export interface PostOptions {
+  timeouts?: Timeouts;
+  send?: typeof fetch;
+}
+
+/** What came of a click's delivery: the webhook's status, or null when it didn't answer in time, and what the bot answers, if anything. */
+export interface Clicked<K> {
+  status: number | null;
+  answer: ClickAnswer<K> | null;
+}
+
+/** What a bot answers a click with: what it says back, as it answers a message, or the JSON of a Slack payload, for its card. */
+export type ClickAnswer<K> = Reply<K> | { payload: string };
+
+/**
+ * Delivers a click as `postWebhook` delivers a message, and reads the answer as it does, but for a 200's
+ * `application/json`, which is a payload for the bot's card, where a message's delivery keeps it as a
+ * file. A webhook that doesn't answer in time says nothing: the room tells whoever clicked.
+ */
+export async function postClick<K>(url: string, payload: string, keep: Keep<K>, options: PostOptions = {}): Promise<Clicked<K>> {
+  const posted = await post(url, payload, (response, clock) => clickAnswerIn(response, clock, keep), options);
+  return "timedOutAfter" in posted ? { status: null, answer: null } : posted;
+}
+
+async function clickAnswerIn<K>(response: Response, clock: DeliveryClock, keep: Keep<K>): Promise<ClickAnswer<K> | null> {
+  const json = response.status === 200 && contentTypeOf(response.headers.get("Content-Type")) === "application/json";
+  return json ? { payload: await textOf(response.body, clock) } : replyIn(response, clock, keep);
+}
+
+/** POSTs `payload` to `url` and has `read` read the answer, against a delivery's clock: what it came to, or how long the webhook had when it ran out of time. */
+async function post<Answer>(
   url: string,
   payload: string,
-  keep: Keep<K>,
-  { timeouts = TIMEOUTS, send = fetch }: { timeouts?: Timeouts; send?: typeof fetch } = {},
-): Promise<Delivered<K>> {
+  read: (response: Response, clock: DeliveryClock) => Promise<Answer>,
+  { timeouts = TIMEOUTS, send = fetch }: PostOptions,
+): Promise<{ status: number; answer: Answer } | { timedOutAfter: number }> {
   const target = URL.parse(url);
   if (!target || !isWebhookUrl(target)) throw new WebhookError(target?.protocol === "http:" && target.hostname ? PLAIN_HTTP : "bad URI");
   const clock = new DeliveryClock(timeouts);
   try {
     const response = await clock.race(send(target, { method: "POST", headers: HEADERS, body: payload, redirect: "manual", signal: clock.signal }));
-    return { status: response.status, reply: await replyIn(response, clock, keep) };
+    return { status: response.status, answer: await read(response, clock) };
   } catch (error) {
-    if (clock.timedOutAfter !== null) return { status: null, reply: { text: `Failed to respond within ${clock.timedOutAfter / 1000} seconds` } };
+    if (clock.timedOutAfter !== null) return { timedOutAfter: clock.timedOutAfter };
     if (error instanceof WebhookError) throw error;
     const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     throw new WebhookError([url, target.href].reduce((text, address) => text.replaceAll(address, "[FILTERED]"), reason));

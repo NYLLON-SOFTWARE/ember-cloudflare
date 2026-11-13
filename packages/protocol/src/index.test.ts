@@ -239,6 +239,18 @@ describe("Catch up after a reconnect", () => {
   });
 });
 
+describe("Clicks on a card's buttons", () => {
+  it("takes a click by its id, its message and its button, in its block if it has one, and nothing the tab says of its value", () => {
+    const click = { type: "card.click", clickId: "c1", messageId: "m1", actionId: "approve" };
+    expect(parse(click)).toEqual(click);
+    expect(parse({ ...click, blockId: "deploy-42", value: "forged", extra: 1 })).toEqual({ ...click, blockId: "deploy-42" });
+    expect(parse({ ...click, actionId: "x".repeat(255), blockId: "x".repeat(255) })).toEqual({ ...click, actionId: "x".repeat(255), blockId: "x".repeat(255) });
+    for (const wrong of [{ clickId: "" }, { clickId: 1 }, { messageId: undefined }, { actionId: "" }, { actionId: "x".repeat(256) }, { actionId: 7 }, { blockId: "" }, { blockId: null }, { blockId: "x".repeat(256) }]) {
+      expect(parse({ ...click, ...wrong }), JSON.stringify(wrong).slice(0, 40)).toBeNull();
+    }
+  });
+});
+
 describe("Presence", () => {
   it("takes whether a tab is shown, as a boolean", () => {
     expect(parse({ type: "presence.visible", visible: false })).toEqual({ type: "presence.visible", visible: false });

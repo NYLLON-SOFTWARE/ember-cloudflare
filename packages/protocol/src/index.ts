@@ -4,7 +4,7 @@
 
 import type { AgentProfile } from "./agents.ts";
 import type { AssistantSettings, YourAssistant } from "./assistant.ts";
-import type { Card } from "./cards.ts";
+import { isActionId, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
 import type { HuddlesSettings, LiveHuddle } from "./huddles.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
@@ -27,12 +27,16 @@ export {
   MAX_LOGO_SIZE,
 } from "./avatars.ts";
 export {
+  isActionId,
+  MAX_ACTION_ID_LENGTH,
+  MAX_ACTION_VALUE_LENGTH,
   MAX_CARDS,
   parseCards,
   parseParts,
   showsAnything,
   type AddressUse,
   type Card,
+  type CardAction,
   type CardAddress,
   type CardButton,
   type CardColumn,
@@ -1570,6 +1574,12 @@ export type ClientFrame =
   | { type: "thread.before"; parentId: string; before: string; limit?: number }
   /** Says the tab has been shown, or hidden, for a few seconds, since the socket's address or the last of these said otherwise. */
   | { type: "presence.visible"; visible: boolean }
+  /**
+   * A click on a button that acts, on one of a bot's message's cards: the button `actionId` names there, in the
+   * block `blockId` names when it has one. The room reports it to the bot, and answers `card.clicked`, or an
+   * `error`, with `clickId`, which the tab makes up.
+   */
+  | { type: "card.click"; clickId: string; messageId: string; actionId: string; blockId?: string }
   | { type: "ping" };
 
 /**
@@ -1634,11 +1644,13 @@ export type ServerFrame =
   | { type: "thread.opened"; parentId: string; parent: Message | null; messages: Message[]; hasMore: boolean }
   /** Answers thread.before: the replies before `before`, oldest first, and whether there are older ones still. */
   | { type: "thread.history"; parentId: string; before: string; messages: Message[]; hasMore: boolean }
+  /** Answers card.click once the bot has answered the click: what it does to the room, if anything, comes as any change does. */
+  | { type: "card.clicked"; clickId: string }
   /**
    * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
-   * `clientMessageIds` the messages it was about.
+   * `clientMessageIds` the messages it was about, or `clickId` the click.
    */
-  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; failed?: ClientFrame["type"] }
+  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"] }
   | { type: "pong" };
 
 /**
@@ -1918,6 +1930,11 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       return id(f.parentId) && id(f.before) ? { type: f.type, parentId: f.parentId, before: f.before, limit: pageLimit(f.limit) } : null;
     case "presence.visible":
       return typeof f.visible === "boolean" ? { type: f.type, visible: f.visible } : null;
+    case "card.click": {
+      if (!id(f.clickId) || !id(f.messageId) || !isActionId(f.actionId)) return null;
+      if (f.blockId === undefined) return { type: f.type, clickId: f.clickId, messageId: f.messageId, actionId: f.actionId };
+      return isActionId(f.blockId) ? { type: f.type, clickId: f.clickId, messageId: f.messageId, actionId: f.actionId, blockId: f.blockId } : null;
+    }
     case "typing.start":
     case "typing.stop":
     case "ping":

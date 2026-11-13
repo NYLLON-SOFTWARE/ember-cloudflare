@@ -75,7 +75,7 @@ Point Alertmanager, Grafana, your CI pipeline, or anything else that posts to a 
 at Ember instead. Every bot gets a Slack-compatible webhook URL for each of its rooms, which takes the
 same payloads, with Slack's formatting, attachments and Block Kit cards. Bots can answer too: mention
 one, or DM it, and Ember sends the message to the bot's own webhook and posts what it answers within
-30 seconds.
+30 seconds. A card's buttons can act: a click goes to the bot, which puts a new card in its place.
 
 ![Alerts from a monitoring bot, firing and resolved, in the Support room](docs/screenshots/bots.png)
 
