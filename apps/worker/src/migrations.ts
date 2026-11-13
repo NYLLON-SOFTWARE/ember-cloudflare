@@ -133,12 +133,9 @@ export const MIGRATIONS: Migration[] = [
   { name: "0052_agent_prompt_templates.sql", scope: "workspace", sql: agentPromptTemplates },
   { name: "0053_unbanned_open_rooms.sql", scope: "workspace", sql: unbannedOpenRooms },
   { name: "0054_agent_thinking_levels.sql", scope: "workspace", sql: agentThinkingLevels },
-<<<<<<< HEAD
   { name: "0055_apps.sql", scope: "workspace", sql: apps },
   { name: "0056_agent_tools.sql", scope: "workspace", sql: agentTools },
-=======
   { name: "0057_pins.sql", scope: "room", sql: pins },
->>>>>>> 7a87c43e (Keep a room's pins in its own storage)
 ];
 
 /**
