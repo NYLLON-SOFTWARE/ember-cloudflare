@@ -46,7 +46,8 @@ const DIRECT_BUTTON =
 /**
  * The page for someone, at `/users/<id>`, whatever their status, titled with their name: Go Back to the
  * page it was opened from, a pencil to Edit my profile on your own, and their avatar. Active and banned
- * people show their name and bio, with their email address for administrators, and active people a
+ * people show their name and bio, with their email address for administrators and the workspace's fields
+ * they answered, and active people a
  * button that starts a DM with them, or opens the one you have. Removed people show their name and that
  * they're no longer on this account, and bots their avatar, with the agent badge under an AI agent's
  * and, for an agent an administrator made, what `AboutAgent` says of it, then the DM button while
@@ -175,6 +176,15 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
                     </div>
                   )}
                   <div>{person.bio}</div>
+                  {/* The workspace's fields they answered, asked in the order the profile shows them. */}
+                  {fetched?.fields
+                    ?.filter(({ value }) => value !== "")
+                    .map(({ id, name, value }) => (
+                      <div key={id}>
+                        <div className="text-[0.8em] text-muted-foreground">{name}</div>
+                        <div>{value}</div>
+                      </div>
+                    ))}
                 </div>
                 {person.status === "active" && (
                   <>

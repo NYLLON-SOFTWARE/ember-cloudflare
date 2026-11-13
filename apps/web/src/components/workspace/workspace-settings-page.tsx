@@ -51,6 +51,7 @@ import { MemberfulSetup } from "./memberful-setup";
 import { OutsideAiSettings } from "./outside-ai-settings";
 import { PeopleList } from "./people-list";
 import { PicturePicker } from "./picture-picker";
+import { ProfileFieldsSettings } from "./profile-fields-settings";
 import { RoomOrder } from "./room-order";
 import { workspaceSectionOf } from "./settings-navigation";
 import { CHANGES_SAVED, PageHeading, Panel, SECTION_HEADING, SettingsPage, TITLE, TITLE_LINK } from "./settings-page";
@@ -405,6 +406,7 @@ export function WorkspaceSettingsPage({
         aria-busy={settings === null}
         className="flex flex-col gap-6"
       >
+
         <PageHeading id="community-settings-heading" title="Basic community settings" className={SECTION_HEADING}>
           Manage your community name, icon, and preferences.
         </PageHeading>
@@ -593,6 +595,11 @@ export function WorkspaceSettingsPage({
           </div>
         )}
       </Panel>
+      <Panel id="profile-fields-settings" hidden={section !== "profile-fields-settings"} aria-labelledby="profile-fields-heading" className="flex flex-col gap-6">
+        <PageHeading id="profile-fields-heading" title="Profile fields" className={SECTION_HEADING}>
+          Ask everyone the same things on their profile, such as their title or pronouns.
+        </PageHeading>
+        {me.administrator ? <ProfileFieldsSettings onFailed={onFailed} /> : <p className="text-muted-foreground">Community admins manage profile fields.</p>}
       <Panel id="user-groups-settings" hidden={section !== "user-groups-settings"} aria-labelledby="user-groups-settings-heading" className="flex flex-col gap-6">
         <PageHeading id="user-groups-settings-heading" title="User groups" className={SECTION_HEADING}>
           Name groups of people a mention stands for.

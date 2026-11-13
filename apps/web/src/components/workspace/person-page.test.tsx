@@ -17,7 +17,7 @@ function serve(answer: () => Response | Promise<Response>) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async () => answer());
 }
 
-const found = (person: Person) => () => Response.json({ person });
+const found = (person: Person) => () => Response.json({ person, fields: [] });
 
 interface Shown {
   me?: Me;
@@ -251,7 +251,7 @@ describe("A bot's profile", () => {
 
   it("shows an active bot's avatar and a button that starts a DM with it, without a name, bio, email, sign-in link or ban, even to administrators", async () => {
     // All a person's page could show, of which a bot's shows none.
-    serve(() => Response.json({ person: { ...bender, bio: "Bends girders", emailAddress: "bender@example.com" }, transferId: "u3.mgk3x2a9.signature" } satisfies PersonAnswer));
+    serve(() => Response.json({ person: { ...bender, bio: "Bends girders", emailAddress: "bender@example.com" }, fields: [], transferId: "u3.mgk3x2a9.signature" } satisfies PersonAnswer));
     const { onStartDirect, user } = showPage(bender, { me: administrator });
     expect(await avatar()).toBeVisible();
     expect(screen.queryByRole("heading")).toBeNull();
@@ -287,7 +287,7 @@ describe("A bot's profile", () => {
     const recap: Person = { ...bender, id: "u4", name: "Recap", agent: true };
     const HAIKU: AgentProfile = { description: "Sums up long threads", model: "anthropic/claude-haiku-5.5", modelName: "Claude Haiku 5.5", setUpBy: { id: grace.id, name: grace.name } };
     const showAgent = (agent: AgentProfile, shown: Shown = {}, person = recap) => {
-      serve(() => Response.json({ person, agent } satisfies PersonAnswer));
+      serve(() => Response.json({ person, fields: [], agent } satisfies PersonAnswer));
       return showPage(person, shown);
     };
     const runsOn = () => screen.getByText(/^An AI agent running on /);
@@ -367,7 +367,7 @@ describe("A bot's profile", () => {
 describe("Private sign-in link", () => {
   const administrator: Me = { ...ada, administrator: true };
   const TRANSFER_ID = "u2.mgk3x2a9.signature";
-  const withLink = (person: Person) => () => Response.json({ person, transferId: TRANSFER_ID } satisfies PersonAnswer);
+  const withLink = (person: Person) => () => Response.json({ person, fields: [], transferId: TRANSFER_ID } satisfies PersonAnswer);
   const signInLink = () => screen.queryByRole("textbox");
 
   it("shows administrators a sign-in link for someone, after the DM button, to get them back into their account", async () => {
@@ -426,7 +426,7 @@ describe("Ban and unban people", () => {
   }
 
   it("shows administrators Ban for someone else active, below the sign-in link, with a cancel mark", async () => {
-    serve(() => Response.json({ person: grace, transferId: "u2.mgk3x2a9.signature" } satisfies PersonAnswer));
+    serve(() => Response.json({ person: grace, fields: [], transferId: "u2.mgk3x2a9.signature" } satisfies PersonAnswer));
     showPage(grace, { me: administrator });
     await heading();
     const button = banButton()!;

@@ -1,5 +1,5 @@
 import { createContext, useLayoutEffect, useRef, type ComponentType } from "react";
-import { BrainElectricity, Community, Group, Hashtag, Headset, Internet, Palette, Settings, Sparks } from "@/components/icons/iconoir";
+import { BrainElectricity, Community, Group, Hashtag, Headset, Internet, Palette, Settings, Sparks, User } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { BOTS_PATH, CUSTOM_STYLES_PATH, WORKSPACE_SETTINGS_PATH, type Route } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ export type SettingsSection =
   | "community-settings"
   | "channel-settings"
   | "membership-settings"
+  | "profile-fields-settings"
   | "user-groups-settings"
   | "domain-settings"
   | "chat-bots"
@@ -27,6 +28,7 @@ const WORKSPACE_SECTIONS = [
   "community-settings",
   "channel-settings",
   "membership-settings",
+  "profile-fields-settings",
   "user-groups-settings",
   "domain-settings",
   "assistant-settings",
@@ -93,6 +95,7 @@ const LINKS: SectionLink[] = [
 
 /** And the sections only administrators use. */
 const ADMINISTRATOR_LINKS: SectionLink[] = [
+  { section: "profile-fields-settings", href: workspaceSectionPath("profile-fields-settings"), icon: User, label: "Profile fields" },
   { section: "user-groups-settings", href: workspaceSectionPath("user-groups-settings"), icon: Community, label: "User groups" },
   { section: "domain-settings", href: workspaceSectionPath("domain-settings"), icon: Internet, label: "Domain settings" },
   { section: "chat-bots", href: BOTS_PATH, icon: BrainElectricity, label: "Chat bots" },
