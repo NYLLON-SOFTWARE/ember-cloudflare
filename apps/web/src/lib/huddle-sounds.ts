@@ -66,32 +66,52 @@ export function huddleSounds(speaker: HuddleSpeaker) {
   const music = sound("music", musicUrl);
   music.audio.loop = true;
   let alone = false;
+  /** Whether the huddle has ended for the tab, after which it plays nothing but the sound of its ending. */
+  let ended = false;
   /** Runs out once its person has been alone long enough to hear the music. */
   let musicTimer: ReturnType<typeof setTimeout> | undefined;
 
-  /** Plays `sound` as soon as it has its file. One whose file can't be fetched goes unplayed. */
-  const playOnce = ({ audio, load }: Sound) => void load().then(() => speaker.playOnce(audio), () => {});
+  /**
+   * Plays `sound` as soon as it has its file, unless the huddle has ended by then, which only its `last`
+   * sound outlasts: a sound that came late would be heard after the huddle, or in the next. One whose
+   * file can't be fetched goes unplayed.
+   */
+  const playOnce = ({ audio, load }: Sound, last = false) =>
+    void load().then(
+      () => {
+        if (last || !ended) speaker.playOnce(audio);
+      },
+      () => {},
+    );
   // Fetched as the huddle is joined, so that each is there to play the moment it's due.
   for (const each of [joined, left]) void each.load().catch(() => {});
+
+  const setAlone = (now: boolean) => {
+    if (now === alone) return;
+    alone = now;
+    clearTimeout(musicTimer);
+    musicTimer = undefined;
+    if (!alone) return speaker.stop(music.audio);
+    // Fetched while they wait, and so never for a huddle nobody is alone in.
+    const loading = music.load().then(() => true, () => false);
+    const waited: ReturnType<typeof setTimeout> = (musicTimer = setTimeout(async () => {
+      // Not once they've stopped being alone, even if they are again by now.
+      if ((await loading) && musicTimer === waited) speaker.play(music.audio);
+    }, MUSIC_AFTER_MS));
+  };
 
   return {
     /** Someone joined the huddle. */
     joined: () => playOnce(joined),
-    /** Someone left it. */
+    /** Someone else left it. */
     left: () => playOnce(left),
     /** Says whether the tab's person is the only one in the huddle now. */
-    setAlone(now: boolean) {
-      if (now === alone) return;
-      alone = now;
-      clearTimeout(musicTimer);
-      musicTimer = undefined;
-      if (!alone) return speaker.stop(music.audio);
-      // Fetched while they wait, and so never for a huddle nobody is alone in.
-      const loading = music.load().then(() => true, () => false);
-      const waited: ReturnType<typeof setTimeout> = (musicTimer = setTimeout(async () => {
-        // Not once they've stopped being alone, even if they are again by now.
-        if ((await loading) && musicTimer === waited) speaker.play(music.audio);
-      }, MUSIC_AFTER_MS));
+    setAlone,
+    /** The huddle has ended for the tab: its music stops, and the sound of leaving plays if the room had let the tab in. */
+    end(letIn: boolean) {
+      setAlone(false);
+      ended = true;
+      if (letIn) playOnce(left, true);
     },
   };
 }

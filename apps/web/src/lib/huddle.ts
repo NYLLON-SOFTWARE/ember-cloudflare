@@ -190,8 +190,7 @@ export function joinHuddle({ roomId, muted, microphone, speakerId }: HuddleJoin)
     socket.close();
     hangUp();
     voices.stopAll();
-    sounds.setAlone(false);
-    if (huddle.you) sounds.left();
+    sounds.end(huddle.you !== null);
     speaker.stopAll();
     track?.removeEventListener("ended", microphoneGone);
     for (const each of microphone?.getTracks() ?? []) each.stop();

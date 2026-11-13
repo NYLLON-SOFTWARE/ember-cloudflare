@@ -122,6 +122,40 @@ describe("The sounds of joining and leaving a huddle", () => {
     expect(fetched).toEqual(["joined.mp3", "left.mp3", "left.mp3"]);
     expect(asked("playOnce")).toEqual([["left", "blob:copy-1"]]);
   });
+
+  it("go unplayed when their files come once the huddle has ended, which only the sound of leaving it outlasts", async () => {
+    const give = hold("joined.mp3");
+    const sounds = (await inNewPage())(speaker);
+    sounds.joined();
+    sounds.end(true);
+    await settled();
+    expect(asked("playOnce")).toEqual([["left", "blob:copy-1"]]);
+
+    // Played now, it would be heard after the huddle, or in the next.
+    give(await theFile());
+    await settled();
+    expect(speaker.playOnce).toHaveBeenCalledTimes(1);
+  });
+
+  it("play the sound of leaving once, as its file comes, for a tab that left after someone else did", async () => {
+    const give = hold("left.mp3");
+    const sounds = (await inNewPage())(speaker);
+    sounds.left();
+    sounds.end(true);
+    await settled();
+    expect(speaker.playOnce).not.toHaveBeenCalled();
+
+    give(await theFile());
+    await settled();
+    expect(asked("playOnce")).toEqual([["left", "blob:copy-2"]]);
+  });
+
+  it("play nothing as the huddle ends for a tab the room never let in", async () => {
+    const sounds = (await inNewPage())(speaker);
+    sounds.end(false);
+    await settled();
+    expect(speaker.playOnce).not.toHaveBeenCalled();
+  });
 });
 
 describe("A huddle's music", () => {
@@ -200,6 +234,23 @@ describe("A huddle's music", () => {
     expect(speaker.play).not.toHaveBeenCalled();
 
     await wait(1);
+    expect(speaker.play).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops as the huddle ends, and doesn't start for someone whose huddle ended within the five seconds", async () => {
+    const huddleSounds = await inNewPage();
+    const sounds = huddleSounds(speaker);
+    sounds.setAlone(true);
+    await wait(MUSIC_AFTER_MS);
+    const music = speaker.play.mock.calls[0]![0];
+    sounds.end(true);
+    expect(speaker.stop).toHaveBeenCalledExactlyOnceWith(music);
+
+    const next = huddleSounds(speaker);
+    next.setAlone(true);
+    await wait(MUSIC_AFTER_MS - 1);
+    next.end(true);
+    await wait(MUSIC_AFTER_MS);
     expect(speaker.play).toHaveBeenCalledTimes(1);
   });
 
