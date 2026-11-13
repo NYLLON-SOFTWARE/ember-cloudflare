@@ -47,6 +47,8 @@ export interface GatewayAsked {
 export const ANTHROPIC_PATH = `/v1/${AI_GATEWAY_ACCOUNT.accountId}/default/anthropic/v1/messages`;
 const OPENAI_PATH = `/v1/${AI_GATEWAY_ACCOUNT.accountId}/default/openai/responses`;
 export const XAI_PATH = `/v1/${AI_GATEWAY_ACCOUNT.accountId}/default/grok/v1/responses`;
+/** Where Cloudflare's REST API takes requests in Chat Completions, as Ember asks Grok while it isn't to search. */
+export const CHAT_COMPLETIONS_PATH = `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/v1/chat/completions`;
 
 /** The format of Cloudflare's REST API whose answers each provider's endpoint answers with, by its path. */
 const PROVIDER_PATHS: Record<string, string> = { [ANTHROPIC_PATH]: "messages", [OPENAI_PATH]: "responses", [XAI_PATH]: "responses" };
