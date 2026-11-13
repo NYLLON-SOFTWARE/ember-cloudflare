@@ -510,13 +510,21 @@ test.describe("Webhooks", () => {
       expect(headers).toMatchObject({ "content-type": "application/json", accept: "*/*", "user-agent": "Ruby" });
       expect(body).not.toMatch(/[<>&]/);
       const payload = JSON.parse(body) as { user: { name: string }; room: { name: string; path: string }; message: { id: string; body: { html: string; plain: string }; path: string } };
-      // The room's address is the bot's own, as its command posts to, and the message's its permalink.
-      const room = new URL(url).pathname;
-      expect(payload).toMatchObject({ user: { name: ADMINISTRATOR.name }, room: { name: "general", path: room }, message: { body: { plain: "Ship it & tell" } } });
+      // The room's address is the one the bot's command posts to, with a key of the webhook's own in
+      // place of the bot's, and the message's is its permalink.
+      const command = new URL(url).pathname;
+      const [room, key] = [command.replace(/\/[^/]+\/messages$/, ""), command.split("/")[3]!];
+      expect(payload).toMatchObject({ user: { name: ADMINISTRATOR.name }, room: { name: "general" }, message: { body: { plain: "Ship it & tell" } } });
+      expect(payload.room.path).toMatch(new RegExp(`^${room}/${key.split("-")[0]}-[0-9a-f]{32}/messages$`));
+      expect(body).not.toContain(key);
       expect(Object.keys(payload)).toEqual(["user", "room", "message"]);
-      expect(payload.message.path).toBe(`${room.replace(/\/[^/]+\/messages$/, "")}/@${payload.message.id}`);
+      expect(payload.message.path).toBe(`${room}/@${payload.message.id}`);
       // The stored rich text, the mention an attachment as Campfire keeps it.
       expect(payload.message.body.html).toMatch(/^<p>Ship it &amp; tell <action-text-attachment [^>]*content-type="application\/vnd\.campfire\.mention"/);
+      // The webhook's key posts in the room as the bot, as the bot's own does.
+      const answer = `Shipped ${tag}`;
+      expect((await page.request.post(new URL(payload.room.path, url).href, { data: answer, headers: FORM })).status()).toBe(201);
+      await expect(page.getByRole("article").filter({ hasText: answer })).toContainText(name);
     } finally {
       await webhook.close();
     }

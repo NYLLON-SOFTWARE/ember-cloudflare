@@ -94,7 +94,7 @@ import { providerMovesOf } from "./assistant/model-tests";
 import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
 import { directoryOf, TooSoon, tooSoonAfter, versionOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
-import { botKeyOf, isBotToken, newBotToken } from "./bots/keys";
+import { botKeyOf, isBotToken, newBotToken, webhookTokenOf } from "./bots/keys";
 import { openDb, type Db } from "./db";
 import { alreadyAMemberEmail, emailDomainLinkEmail, invitationEmail, passwordResetCodeEmail, testEmail } from "./emails";
 import { guestSignIn, type Env } from "./env";
@@ -119,7 +119,7 @@ import {
   type AccountChange,
   type AgentSetup,
   type AvatarOwner,
-  type BotWebhook,
+  type BotKey,
   type Client,
   type Connecting,
   type AssistantPicks,
@@ -544,8 +544,15 @@ export interface BotKeyAccess extends BotAccess {
   customDomain: string | null;
 }
 
-/** What the Workspace says about the webhook of a bot it found active in a room, as a delivery to it runs. */
-export interface WebhookAccess extends BotAccess, BotWebhook {}
+/**
+ * What the Workspace says about the webhook of a bot it found active in a room, as a delivery to it runs:
+ * the URL it delivers to, and the key the delivery gives the bot in the room's address, which is the
+ * webhook's own, never the bot's (`webhookTokenOf`).
+ */
+export interface WebhookAccess extends BotAccess {
+  url: string;
+  key: string;
+}
 
 /**
  * Why signing in with Memberful signed nobody in, or connected no account: Memberful is off for someone
@@ -667,6 +674,14 @@ function membershipChange({ status, membershipNeeded }: LinkedPerson, subscribed
  */
 const changesSignIn = ({ emailAddress }: { emailAddress: string | null }, typed: string | undefined, newPassword: boolean) =>
   newPassword || (typed !== undefined && (typed || null) !== emailAddress);
+
+/**
+ * Whether `person` signs in with Memberful alone: they have no password, and are linked at
+ * `memberfulSite`, the Memberful site the deployment has the keys to, if any. Memberful is their way in
+ * then, so they're given no password, which holding their session would be enough to set.
+ */
+const signsInWithMemberfulAlone = ({ password, accounts }: Pick<OwnProfileEntry, "password" | "accounts">, memberfulSite: string | null) =>
+  !password && memberfulSite !== null && accounts.some(({ issuer }) => issuer === memberfulSite);
 
 /**
  * How long a picture's key stays reserved for whatever gives someone the picture, which the Worker
@@ -3163,19 +3178,26 @@ export class Workspace extends DurableObject<Env> {
    * What a change to the profile of the person `credentials` signs in checks first, when it gives them
    * `emailAddress`, if it's given, or a new password if `newPassword`: the digest of their password, if
    * they have one and the change is to what they sign in with, which the Worker checks their current
-   * password against, counting it against sign-in's limit for `ip`: "limited" past it. Null without a
-   * valid session. The passwords themselves stay in the Worker, as at sign-in.
+   * password against, counting it against sign-in's limit for `ip`: "limited" past it. "memberful" for
+   * a first password while Memberful signs them in, at `memberfulSite`, the site the deployment has the
+   * keys to, if any (`signsInWithMemberfulAlone`). Null without a valid session. The passwords
+   * themselves stay in the Worker, as at sign-in.
    */
   async profileCheck(
     credentials: Credentials,
     ip: string,
     emailAddress: string | undefined,
     newPassword: boolean,
-  ): Promise<{ passwordDigest: string | null } | "limited" | null> {
+    memberfulSite: string | null,
+  ): Promise<{ passwordDigest: string | null } | "limited" | "memberful" | null> {
     const session = await this.session(credentials);
     const signIn = session && (await this.store.signInOf(session.user.id));
     if (!signIn) return null;
-    if (signIn.passwordDigest === null || !changesSignIn(signIn, emailAddress, newPassword)) return { passwordDigest: null };
+    if (signIn.passwordDigest === null) {
+      const person = newPassword && memberfulSite !== null ? await this.store.ownProfile(session.user.id) : null;
+      return person && signsInWithMemberfulAlone(person, memberfulSite) ? "memberful" : { passwordDigest: null };
+    }
+    if (!changesSignIn(signIn, emailAddress, newPassword)) return { passwordDigest: null };
     return this.signInAttempts.attempt(ip) ? { passwordDigest: signIn.passwordDigest } : "limited";
   }
 
@@ -3184,7 +3206,8 @@ export class Workspace extends DurableObject<Env> {
    * password if it isn't null, answering the profile as it is then: "email address taken" when someone
    * else has the email address, "password needed" when the change is to their email address or password
    * and they have a password whose digest isn't `checked`, the one the Worker checked their current
-   * password against (`profileCheck`), or null without a valid session. A blank email address or bio is
+   * password against (`profileCheck`), "memberful" for a first password while Memberful signs them in at
+   * `memberfulSite`, as `profileCheck` answers too, or null without a valid session. A blank email address or bio is
    * saved as none, so any number of people can be without one. It writes only what differs. A new
    * password ends their other sessions: their sockets close and are told to reconnect, here at once and
    * in every room they're in through the outbox, and their push subscriptions are forgotten but this
@@ -3199,7 +3222,8 @@ export class Workspace extends DurableObject<Env> {
     passwordDigest: string | null,
     checked: string | null,
     pushEndpoint: string | null,
-  ): Promise<YourProfile | "email address taken" | "password needed" | "name reserved" | "agent's name" | null> {
+    memberfulSite: string | null,
+  ): Promise<YourProfile | "email address taken" | "password needed" | "memberful" | "name reserved" | "agent's name" | null> {
     return this.closingSockets(async () => {
       // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
       // save whose session was still valid before then mustn't put back a password of its own.
@@ -3221,6 +3245,8 @@ export class Workspace extends DurableObject<Env> {
       if (person.password && changesSignIn(person, changes.emailAddress, passwordDigest !== null) && (await this.store.signInOf(user.id))?.passwordDigest !== checked) {
         return "password needed";
       }
+      // Read again here too, since an account can be connected meanwhile.
+      if (passwordDigest !== null && signsInWithMemberfulAlone(person, memberfulSite)) return "memberful";
       if (profile.emailAddress !== person.emailAddress && profile.emailAddress !== null && (await this.store.personWithEmailAddress(profile.emailAddress))) {
         return "email address taken";
       }
@@ -3540,27 +3566,37 @@ export class Workspace extends DurableObject<Env> {
   /**
    * The active bot a bot API key names by `botId` and `token`, if it's in room `roomId`, with when this
    * checked and Ember's custom domain: "not found" when it isn't, as `set_room` answers then, or null
-   * unless `token` is the bot's token now.
+   * unless `token` is the bot's token now, or the one its webhook's deliveries give it in that room now.
    */
   async botInRoom(botId: UserId, token: string, roomId: RoomId): Promise<BotKeyAccess | "not found" | null> {
     // Before anything is read, as `roomAccess` takes it.
     const authorizedAt = Date.now();
     const [found, account] = await Promise.all([this.store.activeBotKey(botId, roomId), this.joinableAccount()]);
-    if (!found || !isBotToken(token, found.token)) return null;
+    if (!found || !(isBotToken(token, found.token) || (await this.isWebhookToken(token, roomId, found)))) return null;
     return found.member ? { bot: found.bot, authorizedAt, customDomain: account?.customDomain ?? null } : "not found";
+  }
+
+  /** Whether `token` is the one a delivery to the webhook of the bot `found` gives it in room `roomId`, as the webhook is now. */
+  private async isWebhookToken(token: string, roomId: RoomId, { bot, token: own, webhook }: BotKey): Promise<boolean> {
+    return webhook !== null && isBotToken(token, await webhookTokenOf(this.env.SESSION_SECRET, roomId, bot.id, { token: own, ...webhook }));
   }
 
   /**
    * The webhook of the bot `botId` in room `roomId` as a delivery to it finds it, when its turn comes and
    * again before what the bot says back is posted, with when this checked: null once it isn't an active
    * bot in the room with a webhook, so that deleting a bot, taking it out of the room or removing its
-   * webhook stops what's on its way to it, and a new URL or key takes effect at once.
+   * webhook stops what's on its way to it, and a new URL or key takes effect at once. The key it gives
+   * the bot in the room's address is the webhook's own there, which stops working once the webhook
+   * delivers elsewhere or goes, or the bot is given a new key, so a server Ember has stopped delivering
+   * to can't go on posting as the bot, nor reading its rooms.
    */
   async botWebhook(roomId: RoomId, botId: UserId): Promise<WebhookAccess | null> {
     // Before anything is read, as `roomAccess` takes it.
     const authorizedAt = Date.now();
     const webhook = await this.store.botWebhook(roomId, botId);
-    return webhook && { ...webhook, authorizedAt };
+    if (!webhook) return null;
+    const { bot, url } = webhook;
+    return { bot, url, key: botKeyOf(bot.id, await webhookTokenOf(this.env.SESSION_SECRET, roomId, bot.id, webhook)), authorizedAt };
   }
 
   /**

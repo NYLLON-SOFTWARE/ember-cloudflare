@@ -593,12 +593,25 @@ export interface MessageWebhook {
  */
 export type AssistantAsk = MessageWebhook;
 
-/** A bot's webhook as a delivery to it finds it: the bot, by its name now, with its token, which the address it can answer at is made from. */
+/**
+ * A bot's webhook as a delivery to it finds it: the bot, by its name now, with its token, and the URL it
+ * delivers to, saved when, which the key in the address it can answer at is made from (`webhookTokenOf`).
+ */
 export interface BotWebhook {
   bot: User;
   /** Null for a bot from before bots had tokens, which no key works for. */
   token: string | null;
   url: string;
+  /** When the webhook was given its URL, which a new one changes. */
+  savedAt: string;
+}
+
+/** An active bot as a key to its API finds it: with its token, whether it's in the room, and its webhook's URL, saved when, if it has one. */
+export interface BotKey {
+  bot: User;
+  token: string | null;
+  member: boolean;
+  webhook: Pick<BotWebhook, "url" | "savedAt"> | null;
 }
 
 /** A revocation the Workspace has yet to deliver to its room. */
@@ -1711,11 +1724,11 @@ function messageDeliveries({ userId, message }: RoomEvent, rows: MessageBotRow[]
 }
 
 /**
- * Bot ?2's webhook, with its name and token now, as a delivery to it in room ?1 finds it when its turn
- * comes and again before what the bot says back is posted: nothing once the bot isn't an active one in
- * the room with a webhook, as `MESSAGE_BOTS` would find none for it then.
+ * Bot ?2's webhook, with its name and token now, and when its URL was saved, as a delivery to it in room
+ * ?1 finds it when its turn comes and again before what the bot says back is posted: nothing once the
+ * bot isn't an active one in the room with a webhook, as `MESSAGE_BOTS` would find none for it then.
  */
-export const BOT_WEBHOOK = `SELECT users.name, users.bot_token, webhooks.url FROM users JOIN webhooks ON webhooks.user_id = users.id
+export const BOT_WEBHOOK = `SELECT users.name, users.bot_token, webhooks.url, webhooks.updated_at FROM users JOIN webhooks ON webhooks.user_id = users.id
   WHERE users.id = ?2 AND users.role = ${BOT} AND users.status = ${ACTIVE}
     AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)`;
 
@@ -1972,10 +1985,13 @@ const ACTIVE_BOT = `SELECT ${DIRECTORY_COLUMNS}, users.bot_token, webhooks.url A
   WHERE users.id = ? AND users.status = ${ACTIVE} AND users.role = ${BOT} AND users.id <> '${ASSISTANT_ID}' AND ${NOT_AN_AGENT}`;
 
 /**
- * An active bot's token, with whether it's in room ?1.
+ * Active bot ?2's token, with whether it's in room ?1, and its webhook's URL and when that was saved, if
+ * it has one.
  */
-const ACTIVE_BOT_KEY = `SELECT id, name, bot_token, EXISTS (SELECT 1 FROM memberships WHERE room_id = ?1 AND user_id = users.id) AS member
-  FROM users WHERE id = ?2 AND status = ${ACTIVE} AND role = ${BOT}`;
+const ACTIVE_BOT_KEY = `SELECT users.id, users.name, users.bot_token, webhooks.url AS webhook_url, webhooks.updated_at AS webhook_saved_at,
+    EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id) AS member
+  FROM users LEFT JOIN webhooks ON webhooks.user_id = users.id
+  WHERE users.id = ?2 AND users.status = ${ACTIVE} AND users.role = ${BOT}`;
 
 /** The rooms a bot is in but its DMs, by name. */
 const BOT_ROOMS = `SELECT rooms.id, rooms.name FROM memberships JOIN rooms ON rooms.id = memberships.room_id
@@ -3530,16 +3546,22 @@ export class WorkspaceStore {
     return bots.map((row) => storedBot(row, (roomsOf.get(row.id) ?? []).map(({ id, name }) => ({ id, name }))));
   }
 
-  /** The active bot `botId`, with its token and whether it's in room `roomId`, or null unless it's one. */
-  async activeBotKey(botId: UserId, roomId: RoomId): Promise<{ bot: User; token: string | null; member: boolean } | null> {
-    const [row] = await this.db.all<User & { bot_token: string | null; member: number }>(ACTIVE_BOT_KEY, roomId, botId);
-    return row ? { bot: { id: row.id, name: row.name }, token: row.bot_token, member: row.member === 1 } : null;
+  /** The active bot `botId`, with its token, whether it's in room `roomId` and its webhook, or null unless it's one. */
+  async activeBotKey(botId: UserId, roomId: RoomId): Promise<BotKey | null> {
+    const [row] = await this.db.all<User & { bot_token: string | null; webhook_url: string | null; webhook_saved_at: string | null; member: number }>(
+      ACTIVE_BOT_KEY,
+      roomId,
+      botId,
+    );
+    if (!row) return null;
+    const webhook = row.webhook_url === null || row.webhook_saved_at === null ? null : { url: row.webhook_url, savedAt: row.webhook_saved_at };
+    return { bot: { id: row.id, name: row.name }, token: row.bot_token, member: row.member === 1, webhook };
   }
 
   /** Bot `botId`'s webhook as a delivery to it in room `roomId` finds it now, or null unless it's an active bot in the room with one. */
   async botWebhook(roomId: RoomId, botId: UserId): Promise<BotWebhook | null> {
-    const [row] = await this.db.all<{ name: string; bot_token: string | null; url: string }>(BOT_WEBHOOK, roomId, botId);
-    return row ? { bot: { id: botId, name: row.name }, token: row.bot_token, url: row.url } : null;
+    const [row] = await this.db.all<{ name: string; bot_token: string | null; url: string; updated_at: string }>(BOT_WEBHOOK, roomId, botId);
+    return row ? { bot: { id: botId, name: row.name }, token: row.bot_token, url: row.url, savedAt: row.updated_at } : null;
   }
 
   /** The active bot `botId`, with its token, its rooms but DMs and where its webhook delivers, or null unless it's one. */
