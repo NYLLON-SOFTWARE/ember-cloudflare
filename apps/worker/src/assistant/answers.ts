@@ -381,7 +381,7 @@ const YOUR_LEVELS = "Ember AI on your profile";
 export const NOTES: Record<RefusalReason | "unopened token", string> = {
   token: `I can't answer right now: Cloudflare didn't take Ember AI's API token. An administrator can give it another under ${AI_SETTINGS}.`,
   account: `I can't answer right now: Cloudflare can't find Ember AI's account. An administrator can set it up again under ${AI_SETTINGS}.`,
-  credits: "I can't answer right now: the AI Gateway credits that pay for my model have run out. An administrator can top them up in AI Gateway, or choose a Workers AI model.",
+  credits: "I can't answer right now: the AI Gateway credits that pay for my model have run out. An administrator can top them up in AI Gateway.",
   model: `I can't answer right now: AI Gateway didn't take my question for its model. An administrator can choose another model under ${AI_SETTINGS}.`,
   busy: "I can't answer right now: AI Gateway is turning requests away, or a spend limit was reached. Try again later.",
   "too long": "I can't answer that here: the conversation is longer than my model reads at once. Try asking in a new thread.",

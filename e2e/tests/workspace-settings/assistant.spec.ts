@@ -5,8 +5,7 @@ import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
 import { ANTHROPIC_PATH, FOUND, HELLO, SOURCE, startFakeGateway, type FakeGateway } from "./fake-gateway";
 
 // The AI assistant tab's Ember AI card and Set up Ember AI, @ember's page, with Add a model, and @ember
-// answering, on the second test server, which lists Cloudflare's model catalog and asks models through
-// the AI Gateway this spec fakes. Each test leaves the workspace as a new one is: Ember AI off, its dials
+// answering, on the second test server, which asks models through the AI Gateway this spec fakes. Each test leaves the workspace as a new one is: Ember AI off, its dials
 // where they start, with no model picked, nothing added to @ember's instructions, Ember's own around
 // them, and @ember's avatar Ember's flame.
 
@@ -50,6 +49,15 @@ async function openEmber(page: Page) {
 /** @ember's row in the AI assistant tab's Agents card. */
 const emberRow = (page: Page) => page.getByRole("region", { name: "Agents", exact: true }).getByRole("listitem").filter({ hasText: "Built in" });
 
+/** The model Ember suggests, which the tests set Ember AI up with, and what Anthropic's endpoint calls it. */
+const HAIKU = { id: "anthropic/claude-haiku-5.5", there: "claude-haiku-5-5" };
+
+/** Sets Ember AI up with `model`, as Set up Ember AI does, through the account the fake AI Gateway knows. */
+async function setUpAssistant(request: APIRequestContext, model = HAIKU.id) {
+  const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model }, headers: await asAdministrator(request) });
+  expect(saved.status(), await saved.text()).toBe(200);
+}
+
 /** Mentions @ember in general, as the administrator, and waits for its answer, which `gateway` then holds what it asked for. */
 async function askEmber(page: Page, question: string) {
   await page.goto("/");
@@ -85,58 +93,61 @@ test.describe("Ember AI", () => {
     const accountId = setup.getByRole("textbox", { name: "Account ID" });
     await expect(accountId).toHaveValue(AI_GATEWAY_ACCOUNT.accountId);
     await expect(accountId).toHaveAccessibleDescription("Ember is deployed to this account. To ask through another, paste that account's ID.");
-    await expect(setup.getByRole("link", { name: "Open Workers AI in the Cloudflare dashboard" })).toHaveAttribute(
+    await expect(setup.getByRole("link", { name: "Open Account API tokens in the Cloudflare dashboard" })).toHaveAttribute(
       "href",
-      `https://dash.cloudflare.com/${AI_GATEWAY_ACCOUNT.accountId}/ai/workers-ai`,
+      `https://dash.cloudflare.com/${AI_GATEWAY_ACCOUNT.accountId}/api-tokens`,
     );
     await setup.getByRole("textbox", { name: "API token" }).fill("e2e-only-not-the-accounts-token");
     await setup.getByRole("button", { name: "Continue" }).click();
     await expect(setup).toHaveAccessibleName("Choose a model");
-    // Cloudflare's catalog doesn't take the token either, so the menu has the models Ember knows.
-    await expect(setup).toContainText("Ember couldn't read Cloudflare's model catalog, so these are the models it knows. Cloudflare didn't take that API token");
-    await expect(setup.getByRole("combobox", { name: "Model" })).toHaveValue("@cf/zai-org/glm-4.7-flash");
+    // The models Ember offers, by their makers, with what each costs, starting at the one it suggests.
+    const menu = setup.getByRole("combobox", { name: "Model" });
+    await expect(menu.getByRole("option")).toHaveText([
+      "Claude Fable 5.2 · $8 / $40",
+      "Claude Opus 5.5 · $4 / $20",
+      "Claude Sonnet 5.5 · $2 / $10",
+      "Claude Haiku 5.5 · $0.10 / $0.50",
+      "GPT-6 Astra · $10 / $50",
+      "GPT-6.1 Sol · $2 / $10",
+      "GPT-6.1 Terra · $1 / $5",
+      "GPT-6 Luna · $0.10 / $0.50",
+      "Grok 4.7 · $2 / $6",
+    ]);
+    await expect(menu).toHaveValue(HAIKU.id);
     await setup.getByRole("button", { name: "Save" }).click();
 
-    // AI Gateway refuses a token it doesn't know, which comes back to its field.
+    // AI Gateway's Anthropic endpoint refuses a token without AI Gateway Run, which comes back to its field.
     await expect(setup).toHaveAccessibleName("Set up Ember AI");
-    await expect(setup.getByRole("alert")).toContainText("Cloudflare didn't take that API token for this account.");
+    await expect(setup.getByRole("alert")).toContainText("Add the AI Gateway Run permission to the token in the Cloudflare dashboard, then try again.");
     await setup.getByRole("textbox", { name: "API token" }).fill(AI_GATEWAY_ACCOUNT.apiToken);
     await setup.getByRole("button", { name: "Continue" }).click();
-    // With the account's token, the menu has the catalog's text models by name, Workers AI's first, with what other companies' cost.
-    const menu = setup.getByRole("combobox", { name: "Model" });
-    await expect(menu.getByRole("option")).toHaveText(["Gemma 4 26B", "GLM-4.7 Flash", "Claude Sonnet 5.5 · $3 / $15", "GPT-6.1 Sol · $2 / $10", "Another model…"]);
-    await expect(menu).toHaveValue("@cf/zai-org/glm-4.7-flash");
-    expect(gateway.asked.findLast(({ path }) => path.includes("/ai/catalog/"))).toMatchObject({
-      path: `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/catalog/models?page=1&per_page=100`,
-      authorization: `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}`,
-    });
     await setup.getByRole("button", { name: "Save" }).click();
     await expect(setup).toHaveAccessibleName("Ember AI is set up");
     await expect(setup).toContainText(HELLO);
+    // Through AI Gateway's Anthropic endpoint, which takes the API token in AI Gateway's own header.
     expect(gateway.asked.at(-1)).toMatchObject({
-      path: `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/v1/chat/completions`,
-      authorization: `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}`,
-      gateway: "default",
-      body: { model: "@cf/zai-org/glm-4.7-flash", max_completion_tokens: expect.any(Number) as unknown },
+      path: ANTHROPIC_PATH,
+      authorization: undefined,
+      aigAuthorization: `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}`,
+      body: { model: HAIKU.there, max_tokens: expect.any(Number) as unknown },
     });
     await setup.getByRole("button", { name: "Done" }).click();
     await expect(setup).toBeHidden();
     await expect(card).toContainText("Ember's agents answer through Cloudflare AI Gateway, each on the model you choose for it.");
     await expect(card.getByRole("switch", { name: "Ember AI" })).toBeChecked();
     // The Agents card lists @ember, on the model chosen, with a link to its page.
-    await expect(emberRow(page)).toContainText("EmberBuilt inAnswers anything people ask.GLM-4.7 Flash · Every open room");
+    await expect(emberRow(page)).toContainText("EmberBuilt inAnswers anything people ask.Claude Haiku 5.5 · Every open room");
     await expect(emberRow(page).getByRole("link", { name: "Edit Ember" })).toHaveAttribute("href", "/account/agents/ember/edit");
 
     // Ember keeps it.
     await page.reload();
-    await expect(emberRow(page)).toContainText("GLM-4.7 Flash · Every open room");
+    await expect(emberRow(page)).toContainText("Claude Haiku 5.5 · Every open room");
   });
 
-  test("the administrator changes the model, keeping the API token, and asks Anthropic's in Messages", async ({ page, request }) => {
-    const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model: "@cf/google/gemma-4-26b-a4b-it" }, headers: await asAdministrator(request) });
-    expect(saved.status(), await saved.text()).toBe(200);
+  test("the administrator changes the model, keeping the API token, which Ember asks through its provider's endpoint", async ({ page, request }) => {
+    await setUpAssistant(request, "openai/gpt-6.1-sol");
     const card = await openAssistant(page);
-    await expect(emberRow(page)).toContainText("Gemma 4 26B · Every open room");
+    await expect(emberRow(page)).toContainText("GPT-6.1 Sol · Every open room");
     await card.getByRole("button", { name: "Change" }).click();
 
     const setup = page.getByRole("dialog");
@@ -158,8 +169,7 @@ test.describe("Ember AI", () => {
   });
 
   test("the administrator lets @ember search the web once its model has searched for a test question", async ({ page, request }) => {
-    const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model: "anthropic/claude-sonnet-5.5" }, headers: await asAdministrator(request) });
-    expect(saved.status(), await saved.text()).toBe(200);
+    await setUpAssistant(request, "anthropic/claude-sonnet-5.5");
     const card = await openEmber(page);
     const webSearch = card.getByRole("switch", { name: "Search the web" });
     await expect(webSearch).not.toBeChecked();
@@ -186,18 +196,18 @@ test.describe("Ember AI", () => {
   });
 
   test("the administrator lets people pick another model, which someone picks on their profile, and @ember answers them with it", async ({ page, request }) => {
-    const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model: "@cf/zai-org/glm-4.7-flash" }, headers: await asAdministrator(request) });
-    expect(saved.status(), await saved.text()).toBe(200);
+    await setUpAssistant(request);
     const card = await openEmber(page);
     const models = card.getByRole("group", { name: "Models" });
     await expect(models.getByRole("radio")).toHaveCount(1);
     await card.getByRole("button", { name: "Add a model" }).click();
 
-    // It offers the catalog's text models people can't pick yet, asking the one chosen a test question.
+    // It offers the models Ember offers that people can't pick yet, asking the one chosen a test question.
     const adding = page.getByRole("dialog");
     await expect(adding).toHaveAccessibleName("Add a model");
     const menu = adding.getByRole("combobox", { name: "Model" });
-    await expect(menu.getByRole("option")).toHaveText(["Gemma 4 26B", "Claude Sonnet 5.5 · $3 / $15", "GPT-6.1 Sol · $2 / $10", "Another model…"]);
+    await expect(menu.getByRole("option")).toHaveCount(8);
+    await expect(menu.getByRole("option", { name: /^Claude Haiku 5\.5/ })).toHaveCount(0);
     await menu.selectOption("anthropic/claude-sonnet-5.5");
     await adding.getByRole("button", { name: "Add" }).click();
     await expect(adding).toHaveAccessibleName("Model added");
@@ -205,15 +215,15 @@ test.describe("Ember AI", () => {
     expect(gateway.asked.at(-1)).toMatchObject({ path: ANTHROPIC_PATH, body: { model: "claude-sonnet-5-5" } });
     await adding.getByRole("button", { name: "Done" }).click();
     await expect(adding).toBeHidden();
-    await expect(models.getByRole("radio", { name: "GLM-4.7 Flash" })).toBeChecked();
+    await expect(models.getByRole("radio", { name: "Claude Haiku 5.5" })).toBeChecked();
     await expect(models.getByRole("radio", { name: "Claude Sonnet 5.5" })).not.toBeChecked();
     await page.getByRole("link", { name: "Go Back" }).click();
-    await expect(emberRow(page)).toContainText("GLM-4.7 Flash, or the model each person picks · Every open room");
+    await expect(emberRow(page)).toContainText("Claude Haiku 5.5, or the model each person picks · Every open room");
 
     // On their profile, they pick it, which Ember keeps.
     await page.goto("/users/me/profile");
     const yours = page.getByRole("region", { name: "Ember AI", exact: true }).getByRole("combobox", { name: "Model" });
-    await expect(yours.getByRole("option")).toHaveText(["Default (GLM-4.7 Flash)", "GLM-4.7 Flash", "Claude Sonnet 5.5"]);
+    await expect(yours.getByRole("option")).toHaveText(["Default (Claude Haiku 5.5)", "Claude Haiku 5.5", "Claude Sonnet 5.5"]);
     await expect(yours).toHaveValue("");
     await yours.selectOption("anthropic/claude-sonnet-5.5");
     await expect(yours).toBeEnabled();
@@ -225,8 +235,7 @@ test.describe("Ember AI", () => {
   });
 
   test("the administrator uploads a picture as @ember's avatar, which an open room shows at once, and brings back Ember's flame", async ({ page, request }) => {
-    const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model: "@cf/zai-org/glm-4.7-flash" }, headers: await asAdministrator(request) });
-    expect(saved.status(), await saved.text()).toBe(200);
+    await setUpAssistant(request);
     const card = await openEmber(page);
     const avatar = card.getByRole("img", { name: "@ember's avatar" });
     const useTheFlame = card.getByRole("button", { name: "Use Ember's flame" });
@@ -262,8 +271,7 @@ test.describe("Ember AI", () => {
   });
 
   test("the administrator adds to @ember's instructions on its page, seeing what Ember adds around them, and @ember follows them", async ({ page, request }) => {
-    const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model: "@cf/zai-org/glm-4.7-flash" }, headers: await asAdministrator(request) });
-    expect(saved.status(), await saved.text()).toBe(200);
+    await setUpAssistant(request);
     const card = await openEmber(page);
     await expect(page).toHaveTitle("Edit agent");
     const instructions = card.getByRole("textbox", { name: "Instructions" });
@@ -284,13 +292,11 @@ test.describe("Ember AI", () => {
 
     // Between who @ember is and how the chat shows its answer.
     await askEmber(page, "Colour or color?");
-    const [told] = gateway.asked.at(-1)!.body.messages as Array<{ role: string; content: string }>;
-    expect(told!.content).toMatch(/^You are Ember, [^\n]+\n\nAnswer in British English\.\n\nWrite in Markdown\.[\s\S]+\n\nYou're asked in the room "general"\./);
+    expect(gateway.asked.at(-1)!.body.system).toMatch(/^You are Ember, [^\n]+\n\nAnswer in British English\.\n\nWrite in Markdown\.[\s\S]+\n\nYou're asked in the room "general"\./);
   });
 
   test("the administrator modifies what Ember adds around @ember's instructions, with caution, which @ember follows once it's saved", async ({ page, request }) => {
-    const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model: "@cf/zai-org/glm-4.7-flash" }, headers: await asAdministrator(request) });
-    expect(saved.status(), await saved.text()).toBe(200);
+    await setUpAssistant(request);
     const card = await openEmber(page);
     await card.getByText("What Ember adds around them").click();
     const caution = card.getByRole("region", { name: "Modify with caution" });
@@ -313,13 +319,11 @@ test.describe("Ember AI", () => {
 
     // Without instructions added, nor the space they'd take.
     await askEmber(page, "Colour or color?");
-    const [told] = gateway.asked.at(-1)!.body.messages as Array<{ role: string; content: string }>;
-    expect(told!.content).toMatch(/^You are Ember, the scribe of [^\n]+\.\n\nYou're asked in the room "general"\. Answer Ada Lovelace in at most [\d,]+ words\.$/);
+    expect(gateway.asked.at(-1)!.body.system).toMatch(/^You are Ember, the scribe of [^\n]+\.\n\nYou're asked in the room "general"\. Answer Ada Lovelace in at most [\d,]+ words\.$/);
   });
 
   test("the administrator turns Ember AI off, once they're sure", async ({ page, request }) => {
-    const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model: "@cf/zai-org/glm-4.7-flash" }, headers: await asAdministrator(request) });
-    expect(saved.status(), await saved.text()).toBe(200);
+    await setUpAssistant(request);
     const card = await openAssistant(page);
     const assistantSwitch = card.getByRole("switch", { name: "Ember AI" });
     await expect(assistantSwitch).toBeChecked();
@@ -339,8 +343,7 @@ test.describe("Ember AI", () => {
 
 test.describe("@ember", () => {
   test("someone mentions @ember in a room, sees it typing, and reads its answer there", async ({ page, request }) => {
-    const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model: "@cf/zai-org/glm-4.7-flash" }, headers: await asAdministrator(request) });
-    expect(saved.status(), await saved.text()).toBe(200);
+    await setUpAssistant(request);
     await useOwnAddress(page);
     await page.goto("/");
     await signInAsAdministrator(page);
@@ -367,16 +370,14 @@ test.describe("@ember", () => {
     await expect(answer).toContainText(HELLO);
     await expect(answer.getByRole("heading", { level: 3 })).toHaveText(/^Ember Agent/);
     await expect(page.locator(".spinner")).toHaveText("");
-    const [instructions, ...turns] = gateway.asked.at(-1)!.body.messages as Array<{ role: string; content: string }>;
-    expect(instructions!.content).toContain(`You're asked in the room "general".`);
-    expect(turns.at(-1)).toEqual({ role: "user", content: `Ada Lovelace: @Ember ${question}` });
+    const { system, messages } = gateway.asked.at(-1)!.body as { system: string; messages: Array<{ role: string; content: string }> };
+    expect(system).toContain(`You're asked in the room "general".`);
+    expect(messages.at(-1)).toEqual({ role: "user", content: `Ada Lovelace: @Ember ${question}` });
   });
 
   test("someone asks @ember something it searches the web for, and reads the pages its answer came from under it", async ({ page, request }) => {
-    const headers = await asAdministrator(request);
-    const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model: "anthropic/claude-sonnet-5.5" }, headers });
-    expect(saved.status(), await saved.text()).toBe(200);
-    const searching = await request.put("/api/account/assistant/web_search", { data: { on: true }, headers });
+    await setUpAssistant(request, "anthropic/claude-sonnet-5.5");
+    const searching = await request.put("/api/account/assistant/web_search", { data: { on: true }, headers: await asAdministrator(request) });
     expect(searching.status(), await searching.text()).toBe(200);
     await useOwnAddress(page);
     await page.goto("/");
@@ -402,8 +403,7 @@ test.describe("@ember", () => {
     page,
     request,
   }) => {
-    const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model: "@cf/zai-org/glm-4.7-flash" }, headers: await asAdministrator(request) });
-    expect(saved.status(), await saved.text()).toBe(200);
+    await setUpAssistant(request);
 
     // The administrator lets @ember think no more than Medium for anyone, which Ember keeps.
     const card = await openEmber(page);
@@ -431,8 +431,7 @@ test.describe("@ember", () => {
 
     await askEmber(page, "How long is a fortnight?");
     const { body } = gateway.asked.at(-1)!;
-    expect(body).toMatchObject({ model: "@cf/zai-org/glm-4.7-flash", reasoning_effort: "medium" });
-    const [instructions] = body.messages as Array<{ role: string; content: string }>;
-    expect(instructions!.content).toContain("in at most about 150 words.");
+    expect(body).toMatchObject({ model: HAIKU.there, thinking: { type: "adaptive" }, output_config: { effort: "medium" } });
+    expect(body.system).toEqual(expect.stringContaining("in at most about 150 words."));
   });
 });

@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { answerOf, questionFor } from "../src/assistant/answers";
 import { XAI_TOKEN_REFUSED } from "../src/assistant/gateway";
 import { answeredUnsearched, webToolsRefused } from "../src/assistant/settings";
-import { api, connect, cookieOf, freshDeploy, post, shown, workspaceSql, type Client, type Session } from "./support";
+import { addKeptModels, answerWithKeptModel, api, connect, cookieOf, freshDeploy, post, shown, workspaceSql, type Client, type KeptModel, type Session } from "./support";
 
 // Search the web, which lets @ember search the web and read pages through its model's own tools, as AI
 // Gateway passes them on, once its model has searched for a test question, and the pages its answers
@@ -25,13 +25,15 @@ import { api, connect, cookieOf, freshDeploy, post, shown, workspaceSql, type Cl
 
 const EMBER: User = { id: ASSISTANT_ID, name: ASSISTANT_NAME };
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
-const API_TOKEN = "an-api-token-with-workers-ai-read_0123456";
+const API_TOKEN = "an-api-token-with-ai-gateway-run_0123456";
 /** Another Cloudflare account, and another API token. */
-const [OTHER_ACCOUNT_ID, OTHER_API_TOKEN] = ["fedcba9876543210fedcba9876543210", "another-api-token-with-workers-ai-read_01"];
+const [OTHER_ACCOUNT_ID, OTHER_API_TOKEN] = ["fedcba9876543210fedcba9876543210", "another-api-token-with-ai-gateway-run_01"];
 /** Anthropic's model, which takes Messages, OpenAI's, which takes Responses, and one of Workers AI's, which takes Chat Completions. */
 const [MESSAGES_MODEL, RESPONSES_MODEL, CHAT_MODEL] = ["anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "@cf/zai-org/glm-4.7-flash"];
 /** xAI's Grok, which searches the web only in xAI's own Responses, through AI Gateway's xAI endpoint, and another of xAI's. */
 const [GROK, OTHER_GROK] = ["xai/grok-4.7", "xai/grok-4.5"];
+/** Another of Anthropic's. */
+const HAIKU = "anthropic/claude-haiku-5.5";
 /** Where the account's default gateway passes requests on to each provider's own API: Anthropic's Messages, OpenAI's Responses and xAI's. */
 const PROVIDER_ENDPOINTS = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default`;
 const ANTHROPIC_ENDPOINT = `${PROVIDER_ENDPOINTS}/anthropic/v1/messages`;
@@ -180,36 +182,35 @@ const thinkingGrok = (asked: Asked) =>
 const ALL_LEVELS = [...THINKING_LEVELS];
 const XAI_LEVELS = ["low", "medium", "high"];
 
+/** `model`, called `name`, as a copy set up before Ember asked it through its provider's endpoint keeps it, in `format`, through Cloudflare's REST API. */
+const keptIn = (format: KeptModel["format"], id: string, name: string): KeptModel => ({ id, name, format, thinkingLevels: ALL_LEVELS });
+const KEPT_GLM = keptIn("chat", CHAT_MODEL, "GLM-4.7 Flash");
+
 /** Sets Ember up with Ada as its administrator, signed in, and Ember AI on with `model`, as `setUpAssistant` sets it up. */
-async function setUp(model = MESSAGES_MODEL, setup: { withoutRun?: boolean } = {}): Promise<Session> {
+async function setUp(model = MESSAGES_MODEL): Promise<Session> {
   const response = await api("/api/first_run", { method: "POST", body: JSON.stringify({ name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" }) });
   expect(response.status).toBe(201);
   const ada = { user: shown(((await response.json()) as NewWorkspace).user), cookie: cookieOf(response) };
-  await setUpAssistant(ada, model, setup);
+  await setUpAssistant(ada, model);
   return ada;
 }
 
-/** Stands in for AI Gateway as a model that answers without searching, refusing the providers' endpoints `withoutRun`, as they do an API token without AI Gateway Run. */
-function greetingGateway(withoutRun = false): void {
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const { url } = new Request(input, init);
-    return withoutRun && toProvider(url) ? refusingRun() : unsearched(url, "Hello, team!");
-  });
+/** Stands in for AI Gateway as a model that answers without searching. */
+function greetingGateway(): void {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => unsearched(new Request(input, init).url, "Hello, team!"));
 }
 
 /**
- * Sets Ember AI up as `administrator` with `model`, called `modelName`, if it's given one, through the
- * account `accountId` with `apiToken`, as Set up Ember AI does, answering Ember AI as it is then, with an
- * API token without AI Gateway Run, `withoutRun`, which asks Claude, GPT and Grok through Cloudflare's
- * REST API.
+ * Sets Ember AI up as `administrator` with `model`, through the account `accountId` with `apiToken`, as
+ * Set up Ember AI does, answering Ember AI as it is then.
  */
 async function setUpAssistant(
   administrator: Session,
   model: string,
-  { modelName, accountId = ACCOUNT_ID, apiToken = API_TOKEN, withoutRun = false }: { modelName?: string; accountId?: string; apiToken?: string; withoutRun?: boolean } = {},
+  { accountId = ACCOUNT_ID, apiToken = API_TOKEN }: { accountId?: string; apiToken?: string } = {},
 ): Promise<AssistantSaved["assistant"]> {
-  greetingGateway(withoutRun);
-  const setup = { accountId, apiToken, model, ...(modelName && { modelName }) };
+  greetingGateway();
+  const setup = { accountId, apiToken, model };
   const saved = await api("/api/account/assistant", { method: "PUT", headers: { Cookie: administrator.cookie }, body: JSON.stringify(setup) });
   expect(saved.status, await saved.clone().text()).toBe(200);
   vi.restoreAllMocks();
@@ -326,16 +327,11 @@ describe("Search the web", () => {
   });
 
   it("turns on for Grok with xAI's web search, through AI Gateway's xAI endpoint, asking it and the other Grok models people pick there from then on, at the levels of thinking they take there", async () => {
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    // An API token without AI Gateway Run, with which Ember asked Grok through Cloudflare's REST API, where it can't search.
-    const ada = await setUp(GROK, { withoutRun: true });
-    greetingGateway(true);
-    await changeModels(ada, "POST", OTHER_GROK);
-    await changeModels(ada, "POST", MESSAGES_MODEL);
-    vi.restoreAllMocks();
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "log").mockImplementation(() => {});
-    expect(errors).toHaveBeenCalledWith(expect.stringContaining(`Asking ${GROK} through Cloudflare's REST API, as AI Gateway's xAI endpoint didn't let it through`));
+    // Kept while Ember asked them through Cloudflare's REST API, as it did with an API token without AI Gateway Run, where Grok can't search.
+    const ada = await setUp(GROK);
+    await answerWithKeptModel(keptIn("chat", GROK, "Grok 4.7"), keptIn("chat", OTHER_GROK, "Grok 4.5"), keptIn("messages", MESSAGES_MODEL, "Claude Sonnet 5.5"));
     expect(await storedModels()).toEqual(["chat", [[GROK, "chat", ALL_LEVELS], [OTHER_GROK, "chat", ALL_LEVELS], [MESSAGES_MODEL, "messages", ALL_LEVELS]]]);
     expect((await assistantSettings(ada))!.webTools).toEqual([]);
 
@@ -371,11 +367,8 @@ describe("Search the web", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "log").mockImplementation(() => {});
     // Claude and Grok were picked while the token had no AI Gateway Run, so they were asked through Cloudflare's REST API, where Grok can't search.
-    const ada = await setUp(MESSAGES_MODEL, { withoutRun: true });
-    greetingGateway(true);
-    await changeModels(ada, "POST", GROK);
-    vi.restoreAllMocks();
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    const ada = await setUp(MESSAGES_MODEL);
+    await answerWithKeptModel(keptIn("messages", MESSAGES_MODEL, "Claude Sonnet 5.5"), keptIn("chat", GROK, "Grok 4.7"));
     expect(await storedModels()).toEqual(["messages", [[MESSAGES_MODEL, "messages", ALL_LEVELS], [GROK, "chat", ALL_LEVELS]]]);
 
     // Claude searches, so Search the web turns on, but the xAI endpoint still doesn't take the token, so Grok stays where it is.
@@ -394,8 +387,9 @@ describe("Search the web", () => {
     expect(await storedModels()).toEqual(["messages", [[MESSAGES_MODEL, "messages", ALL_LEVELS], [GROK, "xai", XAI_LEVELS]]]);
   });
 
-  it("says a model that takes Chat Completions can't search, by its name, asking it nothing", async () => {
-    const ada = await setUp(CHAT_MODEL);
+  it("says a model kept from before that takes Chat Completions can't search, by its name, asking it nothing", async () => {
+    const ada = await setUp();
+    await answerWithKeptModel(KEPT_GLM);
     expect((await assistantSettings(ada))!.webTools).toBeNull();
     const requests = fakeGateway(searching);
 
@@ -405,8 +399,8 @@ describe("Search the web", () => {
     expect(requests).toEqual([]);
     expect(await storedWebTools()).toEqual([]);
 
-    // As Set up Ember AI named it, from Cloudflare's catalog.
-    await setUpAssistant(ada, CHAT_MODEL, { modelName: "glm-4.7-flash" });
+    // By the name it was kept with, as Cloudflare's catalog named it then.
+    await answerWithKeptModel({ ...KEPT_GLM, name: "glm-4.7-flash" });
     expect(await (await turnWebSearch(ada, true)).json()).toEqual({ error: cannotSearchWith("glm-4.7-flash") });
   });
 
@@ -483,8 +477,8 @@ describe("Search the web", () => {
 
     expect((await changeAssistant(ada, { thinking: "low" })).status).toBe(200);
     await changeModels(ada, "POST", RESPONSES_MODEL);
-    await changeModels(ada, "POST", CHAT_MODEL);
-    await changeModels(ada, "DELETE", CHAT_MODEL);
+    await changeModels(ada, "POST", HAIKU);
+    await changeModels(ada, "DELETE", HAIKU);
     // Added again, the one that answers everyone takes its test question in the format it searched in.
     await changeModels(ada, "POST", MESSAGES_MODEL);
     expect(await storedWebTools()).toEqual(["search", "read"]);
@@ -499,16 +493,18 @@ describe("Search the web", () => {
     expect((await storedAssistant())!.web_tools_asked_at as string > turnedOnAt).toBe(true);
   });
 
-  it("turns off once the model that answers everyone, added again, takes its test question in a format it hasn't searched in", async () => {
+  it("turns off once the model that answers everyone, kept from before, is added again, taking its test question in a format it hasn't searched in", async () => {
     const ada = await setUp();
+    // Kept while Ember asked Claude through Cloudflare's REST API, where it searched in Messages.
+    await answerWithKeptModel(keptIn("messages", MESSAGES_MODEL, "Claude Sonnet 5.5"));
     fakeGateway(searching);
     await turnedWebSearch(ada, true);
-    vi.restoreAllMocks();
-    fakeGateway(({ url }) => (url.endsWith("/chat/completions") ? unsearched(url, "Hello, team!") : Response.json({ error: "Not in this format." }, { status: 400 })));
+    expect(await storedAssistant()).toMatchObject({ format: "messages", web_tools: ["search", "read"] });
 
+    // Through Anthropic's endpoint, as Ember asks Claude now.
     await changeModels(ada, "POST", MESSAGES_MODEL);
-    expect(await storedAssistant()).toMatchObject({ format: "chat", web_tools: [] });
-    expect((await assistantSettings(ada))!.webTools).toBeNull();
+    expect(await storedAssistant()).toMatchObject({ format: "anthropic", web_tools: [] });
+    expect((await assistantSettings(ada))!.webTools).toEqual([]);
   });
 
   it("turns nothing on once another of the models people can pick answers everyone, while the one asked searched", async () => {
@@ -846,7 +842,7 @@ describe("@ember on the web", () => {
     fakeGateway(searching);
     await turnedWebSearch(ada, true);
     await changeModels(ada, "POST", RESPONSES_MODEL);
-    await changeModels(ada, "POST", CHAT_MODEL);
+    await addKeptModels(KEPT_GLM);
     vi.restoreAllMocks();
     const client = await connect(await generalRoom(), ada);
     /** The requests for @ember's answer to Ada asking it `question` with `model`, and what it said. */

@@ -1,7 +1,6 @@
 import { ASSISTANT_NAME } from "@ember/protocol";
 import {
   ASSISTANT_FORBIDDEN,
-  ASSISTANT_MODELS,
   ASSISTANT_OFF,
   DEFAULT_MODEL_KEPT,
   MODEL_NOT_LISTED,
@@ -10,17 +9,16 @@ import {
   WEB_SEARCH_REFUSED,
   accountIdOf,
   cannotSearchWith,
+  formatOf,
   modelName,
   modelOf,
   parseAssistantChanges,
-  parseAssistantKeys,
   parseAssistantSetup,
   parseNewAssistantModel,
   parseWebSearchChange,
   parseYourAssistantChanges,
   searchFormatOf,
   WEB_TOOLS_IN,
-  type AssistantCatalog,
   type AssistantChanged,
   type AssistantForgotten,
   type AssistantModel,
@@ -40,13 +38,12 @@ import { NO_STORAGE } from "../files/uploads";
 import { formAnswer } from "../pages";
 import { workspace, type Credentials } from "../workspace";
 import type { MovedModel } from "../workspace-store";
-import { catalogOf, keptCatalogOf } from "./catalog";
-import { askInTurn, askOnce, formatsFor, type Gateway, type GatewayRefusal, type Question } from "./gateway";
+import { ask, askOnce, type Gateway, type GatewayRefusal, type Question } from "./gateway";
 import { TEST_QUESTION, TEST_TIMEOUT_MS, testedLevelsOf } from "./model-tests";
 
 // Ember AI's setup, as administrators turn it on, change it and turn it off on the AI assistant tab of
-// workspace settings, the models people can pick, which administrators add there from Cloudflare's
-// catalog, what @ember may do on the web, @ember's avatar, and @ember's answers to each person, which
+// workspace settings, the models people can pick, which administrators add there from those Ember
+// offers, what @ember may do on the web, @ember's avatar, and @ember's answers to each person, which
 // they set the most of there, and each person picks the levels and model of on their profile. They
 // answer JSON for the card, its dialogs and the profile.
 
@@ -103,28 +100,8 @@ export async function administratorOf(request: Request, env: Env, forbidden = AS
 }
 
 /**
- * `POST /api/account/assistant/catalog`, `{ accountId, apiToken? }`: the text models Cloudflare's catalog
- * lists for the account given, read with the API token given, or else with the one Ember has, from the
- * copy the Workspace keeps (`keptCatalogOf`), as Set up Ember AI, Add a model and the agents' pages list
- * them, or else, when the catalog can't be read, the models Ember knows, and why it can't. Someone who
- * isn't an administrator hears so before anything they sent is read, and a field that can't be what it's
- * for is refused on that field.
- */
-export async function listAssistantModels(request: Request, env: Env): Promise<Response> {
-  const credentials = await administratorOf(request, env);
-  if (credentials instanceof Response) return credentials;
-  const keys = parseAssistantKeys(await jsonBodyOf(request));
-  if ("error" in keys) return formAnswer(keys, 422);
-  const catalog = keys.apiToken === undefined ? await keptCatalogOf(env, keys.accountId) : await catalogOf(env, { accountId: keys.accountId, apiToken: keys.apiToken });
-  if (!catalog) return formAnswer({ error: API_TOKEN_NEEDED, field: "apiToken" }, 422);
-  if ("refusal" in catalog) console.error(`Listing Ember's own models, as Cloudflare's catalog wasn't read: ${catalog.refusal}`);
-  const answer: AssistantCatalog = "refusal" in catalog ? { models: [...ASSISTANT_MODELS], refusal: catalog.refusal } : { models: catalog, refusal: null };
-  return Response.json(answer, { headers: PRIVATE });
-}
-
-/**
- * `PUT /api/account/assistant`, `{ accountId, apiToken, model, modelName? }`: turns Ember AI on, or
- * changes it, once the model has answered a test question through AI Gateway with the account and API
+ * `PUT /api/account/assistant`, `{ accountId, apiToken, model }`: turns Ember AI on, or changes it, with a
+ * model Ember offers, once that has answered a test question through AI Gateway with the account and API
  * token given, or the API token Ember has, when none is, and again at each level of thinking, to find
  * those it takes (`greetingFrom`), answering Ember AI as it is then and what the model said. The model
  * answers anyone who hasn't picked another, in place of the one that did among the models people can
@@ -144,8 +121,7 @@ export async function saveAssistant(request: Request, env: Env): Promise<Respons
   const answered = await greetingFrom(env, { accountId: setup.accountId, apiToken, model: setup.model });
   if ("refusal" in answered) return refused(answered);
   const { format, thinkingLevels } = answered;
-  const chosen = { accountId: setup.accountId, apiToken, model: setup.model, format, thinkingLevels, ...(setup.modelName && { name: setup.modelName }) };
-  const saved = await ember.changeAssistant(credentials, chosen, kept !== undefined);
+  const saved = await ember.changeAssistant(credentials, { accountId: setup.accountId, apiToken, model: setup.model, format, thinkingLevels }, kept !== undefined);
   if (!saved) return problem(401, NOT_SIGNED_IN);
   if (saved === "changed") return formAnswer({ error: API_TOKEN_CHANGED, field: "apiToken" }, 422);
   if (saved === "forbidden" || !saved.assistant) return problem(403, ASSISTANT_FORBIDDEN);
@@ -153,11 +129,11 @@ export async function saveAssistant(request: Request, env: Env): Promise<Respons
 }
 
 /**
- * `POST /api/account/assistant/models`, `{ model, modelName? }`: adds the model to those people can pick,
+ * `POST /api/account/assistant/models`, `{ model }`: adds a model Ember offers to those people can pick,
  * as Add a model on the Ember AI card does, once it has answered a test question through Ember AI's
  * account, and again at each level of thinking (`greetingFrom`), answering Ember AI as it is then and
  * what the model said. Someone who isn't an administrator hears so before anything they sent is read. A
- * model that can't be one, or that AI Gateway refuses, is refused on its field, and one that answered
+ * model Ember doesn't offer, or that AI Gateway refuses, is refused on its field, and one that answered
  * through Ember AI as it was before it was set up again isn't added.
  */
 export async function addAssistantModel(request: Request, env: Env): Promise<Response> {
@@ -170,7 +146,7 @@ export async function addAssistantModel(request: Request, env: Env): Promise<Res
   if (!gateway) return problem(409, ASSISTANT_OFF);
   const answered = await greetingFrom(env, { accountId: gateway.accountId, apiToken: gateway.apiToken, model: added.model });
   if ("refusal" in answered) return refused(answered);
-  const model = { id: added.model, name: added.modelName ?? modelName(added.model), format: answered.format, thinkingLevels: answered.thinkingLevels };
+  const model = { id: added.model, name: modelName(added.model), format: answered.format, thinkingLevels: answered.thinkingLevels };
   const saved = await ember.addAssistantModel(credentials, model, gateway);
   if (!saved) return problem(401, NOT_SIGNED_IN);
   if (saved === "forbidden") return problem(403, ASSISTANT_FORBIDDEN);
@@ -348,21 +324,20 @@ export interface Greeting {
 }
 
 /**
- * What the model `gateway` names says to the test question, @ember's unless it's another `question`, the
- * format it took it in, trying each of `formats` in turn while the model is refused in one, as
- * `formatsFor` orders them unless it's to be asked in others, and the levels of thinking it takes in that
- * format (`testedLevelsOf`), or why it didn't answer: the first format's refusal, unless another's says more.
+ * What the model `gateway` names says to the test question, @ember's unless it's another `question`,
+ * asked in `format`, the one Ember asks it in (`formatOf`) unless it's to be asked in another, and the
+ * levels of thinking it takes in that format (`testedLevelsOf`), or why it didn't answer.
  */
 export async function greetingFrom(
   env: Env,
   gateway: Omit<Gateway, "format" | "thinkingLevels">,
   question = TEST_QUESTION,
-  formats = formatsFor(gateway.model),
+  format = formatOf(gateway.model),
 ): Promise<Greeting | GatewayRefusal> {
-  const answered = await askInTurn(env, gateway, formats, () => question, TEST_TIMEOUT_MS);
+  const answered = await ask(env, { ...gateway, format }, question, TEST_TIMEOUT_MS);
   if ("refusal" in answered) return answered;
-  const thinkingLevels = await testedLevelsOf(env, { ...gateway, format: answered.format }, question);
-  return { format: answered.format, thinkingLevels, greeting: shownOf(answered.text) };
+  const thinkingLevels = await testedLevelsOf(env, { ...gateway, format }, question);
+  return { format, thinkingLevels, greeting: shownOf(answered.text) };
 }
 
 /**
@@ -384,7 +359,7 @@ async function movedModels(env: Env, gateway: Gateway, searchFormat: ModelFormat
   const picked = async ({ id, format: from }: Pick<AssistantModel, "id" | "format">): Promise<MovedModel | null> => {
     const format = searchFormatOf(id, from);
     if (id === gateway.model || format === null || format === from) return null;
-    const answered = await greetingFrom(env, { ...through, model: id }, TEST_QUESTION, [format]);
+    const answered = await greetingFrom(env, { ...through, model: id }, TEST_QUESTION, format);
     return "refusal" in answered ? null : { id, from, format, thinkingLevels: answered.thinkingLevels };
   };
   const moved = await Promise.all([...(searchFormat === gateway.format ? [] : [everyone()]), ...models.map(picked)]);

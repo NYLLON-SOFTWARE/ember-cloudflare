@@ -1,9 +1,6 @@
 import {
-  formatOf,
   isProviderFormat,
-  MODEL_FORMATS,
   PAGES_READ_PER_ANSWER,
-  providerFormatOf,
   THINKING_LEVELS,
   thinkingTaken,
   WEB_SEARCHES_PER_ANSWER,
@@ -17,11 +14,11 @@ import {
 import type { Env } from "../env";
 import { isLoopback } from "../loopback";
 
-// Asking a model through Cloudflare's AI Gateway: Claude, GPT and Grok through the gateway's endpoints for
-// Anthropic, OpenAI and xAI on gateway.ai.cloudflare.com, which pass on each provider's own API as it is
-// (https://developers.cloudflare.com/ai-gateway/usage/providers/anthropic/, …/openai/, …/grok/), and
-// anyone else's, or theirs when those endpoints don't let a request through, with the AI REST API on
-// api.cloudflare.com, in whichever of its three formats the model takes
+// Asking a model through Cloudflare's AI Gateway: Claude, GPT and Grok, the models Ember offers, through
+// the gateway's endpoints for Anthropic, OpenAI and xAI on gateway.ai.cloudflare.com, which pass on each
+// provider's own API as it is (https://developers.cloudflare.com/ai-gateway/usage/providers/anthropic/,
+// …/openai/, …/grok/), and the models kept before Ember offered only those as they were kept, with the AI
+// REST API on api.cloudflare.com, in whichever of its three formats the model took
 // (https://developers.cloudflare.com/ai-gateway/usage/rest-api/), which takes Grok's requests only in Chat
 // Completions. Every request goes through the account's default gateway, whose logs, caching, rate limits
 // and spend limits apply, and which Cloudflare makes on the account's first request. A model that may use
@@ -35,7 +32,7 @@ const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
 /** Where AI Gateway's endpoints for each provider are, under an account and a gateway. */
 const PROVIDER_ENDPOINTS = "https://gateway.ai.cloudflare.com/v1";
 
-/** The gateway Ember's requests go through. Workers AI's models need it named; other companies' go through it anyway. */
+/** The gateway Ember's requests go through: in the address of each provider's endpoint, and named to Cloudflare's REST API, for a model kept from before. */
 const GATEWAY_ID = "default";
 
 /** Where each format's requests go: under the account's `ai/v1` on Cloudflare's API, or, for a provider's own, under the gateway's endpoint for that provider. */
@@ -128,9 +125,7 @@ export type RefusalReason =
  * Why a model didn't answer, in words an administrator can act on, with what went wrong, the status to
  * answer them with and the field of Set up Ember AI it's about, if one is: `wrongFormat` when the model
  * was refused in a way another format might not be, with Cloudflare's own word on that, if it gave one,
- * which the refusal ends with, in `cloudflareSays`, and `closed` when AI Gateway's endpoint for the
- * model's provider didn't let the request through, though Cloudflare's REST API might, where Grok can't
- * search.
+ * which the refusal ends with, in `cloudflareSays`.
  */
 export interface GatewayRefusal {
   status: number;
@@ -139,18 +134,17 @@ export interface GatewayRefusal {
   field?: AssistantField;
   wrongFormat?: boolean;
   cloudflareSays?: string;
-  closed?: boolean;
 }
 
 export const GATEWAY_UNANSWERED = "AI Gateway didn't answer. Try again in a moment.";
 
 /** Why AI Gateway's xAI endpoint didn't take Ember AI's API token: it takes only one with AI Gateway's Run permission. */
 export const XAI_TOKEN_REFUSED =
-  "Grok searches the web through AI Gateway's xAI endpoint, which didn't take Ember AI's API token. Add the AI Gateway Run permission to the token in the Cloudflare dashboard, then try again.";
+  "Ember asks Grok through AI Gateway's xAI endpoint, which didn't take Ember AI's API token. Add the AI Gateway Run permission to the token in the Cloudflare dashboard, then try again.";
 
 /** Why nothing paid for asking Grok through AI Gateway's xAI endpoint, where a key of xAI's own, kept by the gateway, can. */
 export const XAI_UNPAID =
-  "AI Gateway's credits can't pay for Grok through its xAI endpoint, where it searches the web. Add an xAI API key under Provider Keys in the default gateway's settings in AI Gateway, then try again.";
+  "AI Gateway's credits can't pay for Grok through its xAI endpoint. Add an xAI API key under Provider Keys in the default gateway's settings in AI Gateway, then try again.";
 
 /** Why AI Gateway's endpoint for each provider didn't take Ember AI's API token, which it takes only with AI Gateway Run, or nothing paid there. */
 const PROVIDER_REFUSALS: Record<ProviderFormat, { token: string; unpaid: string }> = {
@@ -169,8 +163,6 @@ const PROVIDER_REFUSALS: Record<ProviderFormat, { token: string; unpaid: string 
   },
 };
 
-/** What AI Gateway calls its endpoint for each provider, by the provider's format. */
-const ENDPOINT_NAMES: Record<ProviderFormat, string> = { xai: "xAI endpoint", anthropic: "Anthropic endpoint", openai: "OpenAI endpoint" };
 export const NOTHING_ANSWERED = "The model answered with nothing. Try again, or choose another model.";
 export const OUT_OF_ROOM = "The model took every token it could before it answered. Try again, or choose another model.";
 
@@ -243,34 +235,6 @@ export async function thinkingLevelsOf(env: Env, gateway: Gateway, question: Que
   const first = refusals.find((refusal) => refusal !== null);
   if (first) console.log(`${gateway.model} isn't told to think at ${THINKING_LEVELS.filter((_, index) => refusals[index]).join(", ")}, which it refused: ${first.cloudflareSays ?? first.refusal}`);
   return THINKING_LEVELS.filter((_, index) => !refusals[index]);
-}
-
-/**
- * What the model `gateway` names answers in the first of `formats` it takes the question in, as
- * `questionIn` asks it in each, waiting at most `timeoutMs` in each (`ask`), with the format it took it
- * in, or why it didn't answer: the first format's refusal, unless another's says more, as one that isn't
- * about the format does. AI Gateway's endpoint for the model's provider not letting the request through,
- * as for an API token without AI Gateway Run, is the next format's to answer, as Cloudflare's REST API
- * may still take the model's questions, which says more of the model, should it refuse it too.
- */
-export async function askInTurn(
-  env: Env,
-  gateway: Omit<Gateway, "format">,
-  formats: readonly ModelFormat[],
-  questionIn: (format: ModelFormat) => Question,
-  timeoutMs: number,
-): Promise<(Answered & { format: ModelFormat }) | GatewayRefusal> {
-  let first: GatewayRefusal | null = null;
-  for (const [index, format] of formats.entries()) {
-    const answered = await ask(env, { ...gateway, format }, questionIn(format), timeoutMs);
-    if (!("refusal" in answered)) return { ...answered, format };
-    if (!answered.wrongFormat && !answered.closed) return answered;
-    if (answered.closed && isProviderFormat(format) && index < formats.length - 1) {
-      console.error(`Asking ${gateway.model} through Cloudflare's REST API, as AI Gateway's ${ENDPOINT_NAMES[format]} didn't let it through: ${answered.refusal}`);
-    }
-    if (!first || first.closed) first = answered;
-  }
-  return first!;
 }
 
 /**
@@ -364,20 +328,6 @@ function answeredIn(format: ModelFormat, body: unknown): Answered | GatewayRefus
   const sources = sourcesIn(format, body);
   if (text) return { text, ...(cut && { cut: true as const }), ...(sources.length > 0 && { sources }) };
   return cut ? { status: 502, reason: "out of room", refusal: OUT_OF_ROOM, field: "model" } : { status: 502, reason: "nothing", refusal: NOTHING_ANSWERED, field: "model" };
-}
-
-/**
- * The formats to ask `model` in: its provider's own first, for Claude, GPT and Grok, through AI Gateway's
- * endpoint for the provider (`providerFormatOf`), then Cloudflare's REST API's, the one the model's
- * likeliest to take there first (`formatOf`): a listed model's, else Messages for Anthropic's, which take
- * nothing else, Responses for OpenAI's, some of which take only that, and Chat Completions for the rest.
- * No model is asked in another provider's format.
- */
-export function formatsFor(model: string): ModelFormat[] {
-  const first = formatOf(model);
-  const own = providerFormatOf(model);
-  const formats = [first, ...MODEL_FORMATS.filter((format) => format !== first)].filter((format) => !isProviderFormat(format));
-  return own ? [own, ...formats] : formats;
 }
 
 /** Where Cloudflare's API is: the browser tests' stand-in, which `AI_GATEWAY_URL` names at a loopback address, or Cloudflare's own. */
@@ -588,7 +538,7 @@ export function refusalOf(status: number, body: unknown): GatewayRefusal {
   const blocked = BLOCKS.find(({ code }) => codes.includes(code));
   if (blocked) return { status: 422, reason: blocked.reason, refusal: said(blocked.refusal) };
   if (status === 402) {
-    const refusal = said("This model is paid for with AI Gateway's credits, and there aren't enough. Top them up under Credits Available in AI Gateway, or choose a Workers AI model.");
+    const refusal = said("This model is paid for with AI Gateway's credits, and there aren't enough. Top them up under Credits Available in AI Gateway.");
     return { status: 422, reason: "credits", refusal };
   }
   if (status === 403) return { status: 422, reason: "model", field: "model", refusal: said("Cloudflare won't run that model for this account.") };
@@ -602,17 +552,17 @@ export function refusalOf(status: number, body: unknown): GatewayRefusal {
 
 /**
  * Why AI Gateway's endpoint for the provider whose format is `format` refused a request with `status`, as
- * Cloudflare's REST API would (`refusalOf`), but for what the REST API might let through (`closed`): an
- * API token it doesn't take, as it takes only one with AI Gateway Run, which the REST API doesn't need,
- * and nothing paying for the request, as AI Gateway's credits don't when Unified Billing isn't there for
- * it (2049) or the gateway asks for a provider's own key (2044).
+ * Cloudflare's REST API would (`refusalOf`), but for an API token it doesn't take, as it takes only one
+ * with AI Gateway Run, which the REST API doesn't need, and nothing paying for the request, as AI
+ * Gateway's credits don't when Unified Billing isn't there for it (2049) or the gateway asks for a
+ * provider's own key (2044).
  */
 function providerRefusalOf(format: ProviderFormat, status: number, body: unknown): GatewayRefusal {
   const { codes, message } = errorIn(body);
   const said = (lead: string) => (message ? `${lead} Cloudflare says: ${quoted(message)}` : lead);
   const { token, unpaid } = PROVIDER_REFUSALS[format];
-  if (status === 401) return { status: 422, reason: "token", field: "apiToken", refusal: said(token), closed: true };
-  if (codes.includes(2049) || codes.includes(2044)) return { status: 422, reason: "credits", refusal: said(unpaid), closed: true };
+  if (status === 401 || (status === 403 && codes.includes(10000))) return { status: 422, reason: "token", field: "apiToken", refusal: said(token) };
+  if (codes.includes(2049) || codes.includes(2044)) return { status: 422, reason: "credits", refusal: said(unpaid) };
   return refusalOf(status, body);
 }
 

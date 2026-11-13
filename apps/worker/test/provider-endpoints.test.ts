@@ -6,13 +6,13 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MODELS_PER_MOVE, providerMovesOf } from "../src/assistant/model-tests";
 import type { Env } from "../src/env";
-import { api, connect, cookieOf, freshDeploy, post, shown, workspaceSql, type Client, type Session } from "./support";
+import { addKeptModels, agentWithKeptModel, answerWithKeptModel, api, connect, cookieOf, freshDeploy, post, shown, workspaceSql, type Client, type KeptModel, type Session } from "./support";
 
 // Moving the models Ember AI kept before it asked Claude, GPT and Grok through their providers' own
 // endpoints on AI Gateway first, the agents' too, once, at the first answers after it's set up.
 
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
-const API_TOKEN = "an-api-token-with-workers-ai-read_0123456";
+const API_TOKEN = "an-api-token-with-ai-gateway-run_0123456";
 const CLOUDFLARE_API = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/ai/v1`;
 /** Where the account's default gateway passes requests on to each provider's own API. */
 const PROVIDER_ENDPOINTS = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default`;
@@ -25,17 +25,22 @@ const ALL_LEVELS = [...THINKING_LEVELS];
 /** The levels of thinking Grok takes in xAI's own Responses, which refuses its thinking being turned off. */
 const GROK_LEVELS = ["low", "medium", "high"];
 /** Claude, GPT and Grok models as Cloudflare's REST API takes them, one more than a move asks through their providers' endpoints. */
-const REST_ASKED: Array<{ id: string; format: ModelFormat }> = [
-  { id: SONNET, format: "messages" },
-  { id: HAIKU, format: "messages" },
-  { id: "anthropic/claude-opus-5.5", format: "messages" },
-  { id: "anthropic/claude-opus-5", format: "messages" },
-  { id: GPT, format: "responses" },
-  { id: "openai/gpt-6.1-terra", format: "responses" },
-  { id: "openai/gpt-6", format: "responses" },
-  { id: GROK, format: "chat" },
-  { id: "xai/grok-4.20", format: "chat" },
+const REST_ASKED: Array<{ id: string; name: string; format: ModelFormat }> = [
+  { id: SONNET, name: "Claude Sonnet 5.5", format: "messages" },
+  { id: HAIKU, name: "Claude Haiku 5.5", format: "messages" },
+  { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", format: "messages" },
+  { id: "anthropic/claude-opus-5", name: "Claude Opus 5", format: "messages" },
+  { id: GPT, name: "GPT-6.1 Sol", format: "responses" },
+  { id: "openai/gpt-6.1-terra", name: "GPT-6.1 Terra", format: "responses" },
+  { id: "openai/gpt-6", name: "GPT-6", format: "responses" },
+  { id: GROK, name: "Grok 4.7", format: "chat" },
+  { id: "xai/grok-4.20", name: "Grok 4.20", format: "chat" },
 ];
+/** `model` as Ember AI kept it, at every level of thinking, as it did a model before it asked it through its provider's endpoint. */
+const keptAs = (model: Omit<KeptModel, "thinkingLevels">): KeptModel => ({ ...model, thinkingLevels: ALL_LEVELS });
+/** The model `id` of `REST_ASKED`, kept as Cloudflare's REST API takes it. */
+const restAsked = (id: string) => keptAs(REST_ASKED.find((model) => model.id === id)!);
+const KEPT_GLM = keptAs({ id: GLM, name: "GLM-4.7 Flash", format: "chat" });
 /** What the test question asks a model, at each level of thinking too. */
 const SAY_HELLO = "Say hello to the team in one short sentence.";
 
@@ -115,12 +120,6 @@ async function setUpAssistant(administrator: Session, model: string): Promise<vo
   expect(response.status, await response.clone().text()).toBe(200);
 }
 
-/** Adds `model` to those people can pick as `administrator`, as Add a model does, which has to work. */
-async function addModel(administrator: Session, model: string): Promise<void> {
-  const response = await api("/api/account/assistant/models", { method: "POST", headers: as(administrator), body: JSON.stringify({ model }) });
-  expect(response.status, await response.clone().text()).toBe(200);
-}
-
 /** Turns Search the web on as `administrator`, which has to work. */
 async function turnOnWebSearch(administrator: Session): Promise<void> {
   const response = await api("/api/account/assistant/web_search", { method: "PUT", headers: as(administrator), body: JSON.stringify({ on: true }) });
@@ -179,32 +178,20 @@ const EMBER = { id: ASSISTANT_ID };
 describe("Models Ember AI asked through Cloudflare's REST API", () => {
   it("move onto their providers' endpoints at the first answer after it's set up, the agents' too, at the levels they take there, keeping what they do on the web", async () => {
     const { ada, general } = await setUp();
-    // Kept while the token had no AI Gateway Run, so they were asked through Cloudflare's REST API.
-    run = false;
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "log").mockImplementation(() => {});
     await setUpAssistant(ada, SONNET);
-    for (const model of [GPT, GROK, GLM]) await addModel(ada, model);
+    const [recap, scout] = [await makeAgent(ada, "Recap", HAIKU), await makeAgent(ada, "Scout", GPT)];
+    // Kept while Ember AI's API token had no AI Gateway Run, so they were asked through Cloudflare's REST API,
+    // and Search the web turned on before Grok was added, as turning it on asks Grok through xAI's endpoint.
+    await answerWithKeptModel(restAsked(SONNET));
     await turnOnWebSearch(ada);
-    await makeAgent(ada, "Recap", HAIKU);
-    await makeAgent(ada, "Scout", GPT);
-    expect(await storedModels()).toEqual([
-      "messages",
-      [
-        [SONNET, "messages", ALL_LEVELS],
-        [GPT, "responses", ALL_LEVELS],
-        [GROK, "chat", ALL_LEVELS],
-        [GLM, "chat", ALL_LEVELS],
-      ],
-    ]);
     expect((await storedAssistant()).web_tools).toEqual(["search", "read"]);
-    expect(await agentModels()).toEqual([
-      [HAIKU, "messages", ALL_LEVELS],
-      [GPT, "responses", ALL_LEVELS],
-    ]);
+    await addKeptModels(restAsked(GPT), restAsked(GROK), KEPT_GLM);
+    await agentWithKeptModel(recap.id, restAsked(HAIKU));
+    await agentWithKeptModel(scout.id, restAsked(GPT));
 
-    // Once it has it, @ember answers in the format it's saved in, while each model is asked through its provider's endpoint behind it.
-    run = true;
+    // @ember's first answer is in the format it's saved in, while each model is asked through its provider's endpoint behind it.
     asked.length = 0;
     const client = await connect(general, ada);
     expect((await ask(client, EMBER)).plainText).toContain("AI Gateway is Cloudflare's proxy for AI models.");
@@ -245,12 +232,14 @@ describe("Models Ember AI asked through Cloudflare's REST API", () => {
 
   it("stay where they are while their providers' endpoints don't take the API token, and are asked there again once Ember AI is set up again", async () => {
     const { ada, general } = await setUp();
-    run = false;
     vi.spyOn(console, "error").mockImplementation(() => {});
     const logged = vi.spyOn(console, "log").mockImplementation(() => {});
     await setUpAssistant(ada, SONNET);
-    await addModel(ada, GPT);
     const recap = await makeAgent(ada, "Recap", HAIKU);
+    // Kept while Ember AI's API token had no AI Gateway Run, as it still hasn't.
+    await answerWithKeptModel(restAsked(SONNET), restAsked(GPT));
+    await agentWithKeptModel(recap.id, restAsked(HAIKU));
+    run = false;
     asked.length = 0;
 
     // An agent's first answer finds them, as @ember's does, and the first one's endpoint refusing the token says every endpoint does.
@@ -306,14 +295,10 @@ describe("Models Ember AI asked through Cloudflare's REST API", () => {
 
   it("move as many as a move has room for at an answer, and the rest at the next", async () => {
     const { ada, general } = await setUp();
-    run = false;
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "log").mockImplementation(() => {});
     await setUpAssistant(ada, SONNET);
-    for (const { id } of REST_ASKED.slice(1)) await addModel(ada, id);
-    expect((await storedModels())[1]).toEqual(REST_ASKED.map(({ id, format }) => [id, format, ALL_LEVELS]));
-
-    run = true;
+    await answerWithKeptModel(restAsked(SONNET), ...REST_ASKED.slice(1).map(keptAs));
     asked.length = 0;
     const client = await connect(general, ada);
     await ask(client, EMBER);

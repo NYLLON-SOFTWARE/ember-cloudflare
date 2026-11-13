@@ -89,7 +89,6 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol/assistant";
 import { MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type NewAgent } from "@ember/protocol/agents";
-import type { KeptCatalog } from "./assistant/catalog";
 import type { Gateway } from "./assistant/gateway";
 import { providerMovesOf } from "./assistant/model-tests";
 import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
@@ -166,8 +165,6 @@ const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
 const SETUP_TRIES = 10;
 const SETUP_TRY_WINDOW_MS = 10 * 60 * 1000;
 const SETUP_TRY_WINDOW = "setupTryWindow";
-/** Where the Workspace's storage keeps the copy of Cloudflare's model catalog that listings with Ember AI's API token answer with (see `keptCatalogOf`). */
-const KEPT_CATALOG = "keptCatalog";
 /**
  * Open sign-up's limits' hour: the sign-ups from an IP address are counted in a fixed one, before the
  * password is hashed, which takes more CPU than the rest of a request, and the new people in the
@@ -374,11 +371,11 @@ function yourAssistantOf(account: Pick<JoinableAccount, "assistant" | "assistant
  * The models people can pick once Set up Ember AI has chosen `chosen` to answer everyone with: those of
  * `previous`, Ember AI as it was, with `chosen` in place of the one that answered everyone, without it
  * twice, or `chosen` alone, as when Ember AI was off, so that the models stay as many as administrators
- * added. `chosen` is called by the name it's given, or else as it was listed, or as Ember knows it.
+ * added. `chosen` is called as it was listed, or as Ember offers it.
  */
-function modelsAfterSetup(previous: SavedAssistant | null, { model, format, thinkingLevels, name }: AssistantChoice): SavedModel[] {
+function modelsAfterSetup(previous: SavedAssistant | null, { model, format, thinkingLevels }: Gateway): SavedModel[] {
   const models = previous?.models ?? [];
-  const chosen = { id: model, name: name ?? models.find(({ id }) => id === model)?.name ?? modelName(model), format, ...(thinkingLevels && { thinkingLevels }) };
+  const chosen = { id: model, name: modelName(model, models), format, ...(thinkingLevels && { thinkingLevels }) };
   const others = models.filter(({ id }) => id !== previous?.model);
   if (others.some(({ id }) => id === model)) return others.map((kept) => (kept.id === model ? chosen : kept));
   return others.toSpliced(Math.max(0, models.findIndex(({ id }) => id === previous?.model)), 0, chosen);
@@ -540,11 +537,6 @@ export interface AgentTrialAccess {
   community: string;
   addresses: string[];
   saved: Pick<StoredAgentSettings, "id" | "model" | "modelName" | "format" | "thinkingLevels" | "webTools"> | null;
-}
-
-/** How Set up Ember AI has Ember AI ask AI Gateway (`Gateway`), with the name of its model, if it was given one. */
-export interface AssistantChoice extends Gateway {
-  name?: string;
 }
 
 /** The same, as the bot API has it, with Ember's custom domain, which the API's links name, or null while it has none. */
@@ -1229,7 +1221,7 @@ export class Workspace extends DurableObject<Env> {
    * the web stays as Search the web found it while the account, the model that answers everyone and its
    * format do (`webToolsKept`), and turns off otherwise, as setting Ember AI up after it was off does.
    */
-  async changeAssistant(credentials: Credentials, chosen: AssistantChoice | null, keptToken = false): Promise<{ assistant: AssistantSettings | null } | "forbidden" | "changed" | null> {
+  async changeAssistant(credentials: Credentials, chosen: Gateway | null, keptToken = false): Promise<{ assistant: AssistantSettings | null } | "forbidden" | "changed" | null> {
     return this.administerAccount(credentials, async (account) => {
       if (chosen === null && account.assistant === null) return { assistant: null };
       if (chosen && keptToken && (await this.openedAssistant(account))?.apiToken !== chosen.apiToken) return "changed";
@@ -1439,22 +1431,6 @@ export class Workspace extends DurableObject<Env> {
   /** The models people can pick from while Ember AI is on, the one that answers everyone among them, or none while it's off. */
   async assistantModels(): Promise<SavedModel[]> {
     return (await this.joinableAccount())?.assistant?.models ?? [];
-  }
-
-  /** The text models Cloudflare's catalog last listed for the account `accountId`, and when, if they're the ones kept. */
-  async keptCatalog(accountId: string): Promise<KeptCatalog | null> {
-    const kept = await this.ctx.storage.get<KeptCatalog>(KEPT_CATALOG);
-    return kept?.accountId === accountId ? kept : null;
-  }
-
-  /** Keeps `catalog` for the listings that follow, in place of the one kept before, whatever its account. */
-  async keepCatalog(catalog: KeptCatalog): Promise<void> {
-    await this.ctx.storage.put(KEPT_CATALOG, catalog);
-  }
-
-  /** Forgets the catalog kept for the account `accountId`, if it's the one kept. */
-  async forgetCatalog(accountId: string): Promise<void> {
-    if ((await this.keptCatalog(accountId)) !== null) await this.ctx.storage.delete(KEPT_CATALOG);
   }
 
   /** How Ember AI asks AI Gateway as `account` keeps it, as `assistantGateway` answers it. */
@@ -2975,8 +2951,7 @@ export class Workspace extends DurableObject<Env> {
         if (asked && !(await this.asksThrough(account, asked.through))) return "set up again";
         const name = changes.name === undefined || changes.name === agent.name ? undefined : changes.name;
         if (name !== undefined && (await this.store.namesInUse(agentId)).some((other) => sameName(other, name))) return "name taken";
-        // What Cloudflare's catalog calls a model can change while the model doesn't.
-        const model = asked ?? { ...agent, modelName: changes.modelName ?? agent.modelName, webTools: changes.webSearch === false ? [] : agent.webTools };
+        const model = asked ?? { ...agent, webTools: changes.webSearch === false ? [] : agent.webTools };
         const levels = { thinking: changes.thinking ?? agent.levels.thinking, length: changes.length ?? agent.levels.length };
         const promptTemplate = changes.promptTemplate === undefined ? agent.promptTemplate : changes.promptTemplate;
         const setup = setupOf({ description: changes.description ?? agent.description, instructions: changes.instructions ?? agent.instructions, promptTemplate, levels }, model);

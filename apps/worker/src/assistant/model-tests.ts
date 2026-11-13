@@ -5,7 +5,7 @@ import type { MovedModel } from "../workspace-store";
 import { ask, thinkingLevelsOf, type Gateway, type Question } from "./gateway";
 
 // The test question Ember asks a model before it keeps it, and the move of the models it kept before it
-// asked Claude, GPT and Grok through their providers' own endpoints first (`formatsFor`) onto those.
+// asked Claude, GPT and Grok through their providers' own endpoints (`formatOf`) onto those.
 
 /** What Set up Ember AI asks the model before Ember keeps it, so that it's known to answer. */
 export const TEST_QUESTION: Question = {

@@ -37,13 +37,13 @@ test.afterEach(async ({ request }) => {
 /** The administrator's session's headers, for the API. */
 const asAdministrator = async (request: APIRequestContext) => ({ Cookie: cookieHeader(await administratorSession(request)), ...SAME_ORIGIN });
 
-/** Makes the agent called `name` through the API, as New agent would, on Claude Sonnet 5.5, or as `on` says, off the web, in every open room. */
-async function makeAgent(request: APIRequestContext, name: string, on = { model: SONNET, modelName: "Claude Sonnet 5.5" }) {
+/** Makes the agent called `name` through the API, as New agent would, on Claude Sonnet 5.5, or `model`, off the web, in every open room. */
+async function makeAgent(request: APIRequestContext, name: string, model = SONNET) {
   const agent: NewAgent = {
     name,
     description: "Sums up threads into decisions and to-dos.",
     instructions: "Sum up the conversation so far as decisions and to-dos.",
-    ...on,
+    model,
     thinking: "low",
     length: "medium",
     webSearch: false,
@@ -164,7 +164,7 @@ test.describe("Agents", () => {
   });
 
   test("an agent on Grok searches the web through AI Gateway's xAI endpoint, once the administrator turns Search the web on", async ({ page, request }) => {
-    await makeAgent(request, "Scout", { model: GROK, modelName: "Grok 4.7" });
+    await makeAgent(request, "Scout", GROK);
     // Its test question went to xAI's own Responses there, with the API token in AI Gateway's own header alone.
     const throughXai = { path: XAI_PATH, authorization: undefined, aigAuthorization: `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}` };
     expect(gateway.asked.at(-1)).toMatchObject({ ...throughXai, body: { model: "grok-4.7", store: false } });

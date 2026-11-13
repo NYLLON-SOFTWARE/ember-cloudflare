@@ -1,16 +1,15 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { AI_GATEWAY_ACCOUNT, AI_GATEWAY_PORT } from "../../projects/workspace-settings";
 
-// Cloudflare's AI REST API for the Ember AI spec, at the address the second test server's AI_GATEWAY_URL
-// names, as Ember asks it (apps/worker/src/assistant/gateway.ts and catalog.ts): it knows one account,
-// `AI_GATEWAY_ACCOUNT`, and that account's API token, lists `CATALOG` as Cloudflare's model catalog, and
-// answers a request in any of AI Gateway's three formats with `HELLO` in that format, or, given a tool
-// for searching the web in Messages or Responses, with `FOUND`, citing `SOURCE`, as the model would once
-// it had searched, or, asked `CARD_QUESTION` last, with `CARDED` and a card's Slack payload, refusing as
-// Cloudflare does an account or a token it doesn't know. It's the default gateway's endpoints for
-// Anthropic, OpenAI and xAI too, where Ember asks Claude, GPT and Grok in their providers' own APIs first,
-// which answer as Messages and Responses do, taking the API token in AI Gateway's own header alone. A spec
-// can hold its answers, to see what shows while a model answers.
+// AI Gateway for the Ember AI specs, at the address the second test server's AI_GATEWAY_URL names, as Ember
+// asks it (apps/worker/src/assistant/gateway.ts): the default gateway's endpoints for Anthropic, OpenAI
+// and xAI, where Ember asks the models it offers in their providers' own APIs, of one account,
+// `AI_GATEWAY_ACCOUNT`, taking that account's API token in AI Gateway's own header alone, and Cloudflare's
+// REST API, where Ember asks a model kept from before it offered only those, in any of its three formats.
+// It answers with `HELLO` in the format asked, or, given a tool for searching the web in Messages or
+// Responses, with `FOUND`, citing `SOURCE`, as the model would once it had searched, or, asked
+// `CARD_QUESTION` last, with `CARDED` and a card's Slack payload, refusing as Cloudflare does an account or
+// a token it doesn't know. A spec can hold its answers, to see what shows while a model answers.
 
 /** What every model says, whatever it's asked. */
 export const HELLO = "Hello, team! Mention @ember whenever you'd like a hand.";
@@ -34,29 +33,6 @@ const CARD_PAYLOAD = {
     { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Open the plan" }, url: CARD_LINK, style: "primary" }] },
   ],
 };
-
-/** Cloudflare's model catalog, as its API lists the models of every kind, on one page, with what some cost. */
-export const CATALOG = [
-  { model_id: "@cf/zai-org/glm-4.7-flash", provider_id: "zai-org", name: "glm-4.7-flash", task: "Text Generation", request_formats: ["chat-completions"], provider_details: null },
-  { model_id: "@cf/google/gemma-4-26b-a4b-it", provider_id: "google", name: "gemma-4-26b-a4b-it", task: "Text Generation", request_formats: null, provider_details: null },
-  { model_id: "@cf/black-forest-labs/flux-2-dev", provider_id: "black-forest-labs", name: "FLUX.2 [dev]", task: "Text-to-Image", request_formats: null, provider_details: null },
-  {
-    model_id: "anthropic/claude-sonnet-5.5",
-    provider_id: "anthropic",
-    name: "Claude Sonnet 5.5",
-    task: "Text Generation",
-    request_formats: ["anthropic-messages"],
-    provider_details: [{ id: "anthropic", pricing: { input_tokens: 3, input_cached_tokens: 0.3, output_tokens: 15 } }],
-  },
-  {
-    model_id: "openai/gpt-6.1-sol",
-    provider_id: "openai",
-    name: "GPT-6.1 Sol",
-    task: "Text Generation",
-    request_formats: ["responses", "chat-completions"],
-    provider_details: [{ id: "openai", pricing: { input_tokens: 2, output_tokens: 10 } }],
-  },
-];
 
 /** What Ember asked AI Gateway: where, with which token, as Cloudflare's API or AI Gateway's endpoints for each provider take it, and gateway, and what. */
 export interface GatewayAsked {
@@ -167,9 +143,6 @@ async function answer(request: IncomingMessage, response: ServerResponse, asked:
     return reply(400, { success: false, errors: [{ code: 7003, message: `Could not route to /client/v4${path}, perhaps your object identifier is invalid?` }] });
   }
   if (request.headers.authorization !== `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}`) return reply(401, { success: false, errors: [{ code: 10000, message: "Authentication error" }] });
-  if (request.method === "GET" && endpoint === "catalog/models") {
-    return reply(200, { success: true, errors: [], result: CATALOG, result_info: { page: 1, per_page: 100, count: CATALOG.length, total_count: CATALOG.length } });
-  }
   const format = endpoint?.startsWith("v1/") ? endpoint.slice("v1/".length) : undefined;
   const answers = asksForCard(sent) ? CARD_ANSWERS : ANSWERS;
   const answered = format === undefined ? undefined : ((searches(sent) && SEARCHED_ANSWERS[format]) || answers[format]);
