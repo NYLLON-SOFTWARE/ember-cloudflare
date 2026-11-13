@@ -799,7 +799,7 @@ export class ChatRoom extends DurableObject<Env> {
         await this.handle(ws, user, this.storeFor(roomId), frame);
       } catch (error) {
         console.error("ChatRoom frame failed", frame.type, error);
-        const clientMessageId = frame.type === "message.create" ? frame.clientMessageId : undefined;
+        const clientMessageId = frame.type === "message.create" || frame.type === "message.schedule" ? frame.clientMessageId : undefined;
         const clientMessageIds = frame.type === "message.check" ? frame.clientMessageIds : undefined;
         this.send(ws, { type: "error", message: "Something went wrong", clientMessageId, clientMessageIds, failed: frame.type });
       }
@@ -831,7 +831,7 @@ export class ChatRoom extends DurableObject<Env> {
   private async handle(ws: WebSocket, user: User, store: MessageStore, frame: ClientFrame): Promise<void> {
     const now = new Date().toISOString();
     if (CHANGES.has(frame.type) && (ws.deserializeAttachment() as Attachment).banned) {
-      const clientMessageId = frame.type === "message.create" ? frame.clientMessageId : undefined;
+      const clientMessageId = frame.type === "message.create" || frame.type === "message.schedule" ? frame.clientMessageId : undefined;
       return this.send(ws, { type: "error", message: BANNED, clientMessageId, failed: frame.type });
     }
 
@@ -848,17 +848,18 @@ export class ChatRoom extends DurableObject<Env> {
         return;
       }
       case "message.schedule": {
-        if (isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, failed: frame.type });
-        if (!(await this.requireMember(ws, user, store.roomId, frame.type))) return;
+        const { clientMessageId } = frame;
+        if (isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, clientMessageId, failed: frame.type });
+        if (!(await this.requireMember(ws, user, store.roomId, frame.type, clientMessageId))) return;
         const sendAtMs = Date.parse(frame.sendAt);
-        if (sendAtMs <= clockNow()) return this.send(ws, { type: "error", message: SEND_AT_IN_THE_PAST, failed: frame.type });
+        if (sendAtMs <= clockNow()) return this.send(ws, { type: "error", message: SEND_AT_IN_THE_PAST, clientMessageId, failed: frame.type });
         const body = await this.prepare(frame.body);
-        if (typeof body === "string") return this.send(ws, { type: "error", message: body, failed: frame.type });
+        if (typeof body === "string") return this.send(ws, { type: "error", message: body, clientMessageId, failed: frame.type });
         if ((await store.scheduledCount(user.id)) >= MAX_SCHEDULED_MESSAGES) {
-          return this.send(ws, { type: "error", message: TOO_MANY_SCHEDULED, failed: frame.type });
+          return this.send(ws, { type: "error", message: TOO_MANY_SCHEDULED, clientMessageId, failed: frame.type });
         }
         const sendAt = new Date(sendAtMs).toISOString();
-        const scheduled = await store.schedule(sortableId(), frame.clientMessageId, user, body, sendAt, isoNow());
+        const scheduled = await store.schedule(sortableId(), clientMessageId, user, body, sendAt, isoNow());
         await this.ctx.storage.put(SCHEDULED_ROOM, store.roomId);
         await this.wakeForScheduled(sendAtMs);
         this.sendTo(user.id, { type: "scheduled.created", scheduled });
@@ -1550,9 +1551,9 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /** Whether `user` is in the room now, and tells `ws` if they aren't. */
-  private async requireMember(ws: WebSocket, user: User, roomId: RoomId, failed: ClientFrame["type"]): Promise<boolean> {
+  private async requireMember(ws: WebSocket, user: User, roomId: RoomId, failed: ClientFrame["type"], clientMessageId?: string): Promise<boolean> {
     if (await workspace(this.env).isMember(roomId, user.id)) return true;
-    this.send(ws, { type: "error", message: NOT_IN_ROOM, failed });
+    this.send(ws, { type: "error", message: NOT_IN_ROOM, clientMessageId, failed });
     return false;
   }
 

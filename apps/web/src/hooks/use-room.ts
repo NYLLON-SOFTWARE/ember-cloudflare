@@ -31,6 +31,9 @@ export const TYPING_TTL_MS = 5_000;
 /** How often typing tells the room, as Campfire's typing_notifications_controller.js throttles it. */
 const TYPING_THROTTLE_MS = 1_000;
 
+/** Says a schedule sent as the connection dropped never reached the room, so it is still in the composer. */
+export const SCHEDULE_LOST = "The connection dropped before that message was scheduled. Try again.";
+
 /**
  * How many times the room has let the page in (`RoomState.connections`), for what shows a change as
  * made before the room confirms it: once the page reconnects, the room may never have had it.
@@ -153,6 +156,15 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     let seen: number | undefined;
     // The permalink's message, until the room has opened the timeline: a socket that connects again keeps it as it is.
     let openingAround = around;
+    // Schedules sent on a socket that closed before the room answered them, until the room lists what it took.
+    let unanswered = new Set<string>();
+    const settleSchedule = (clientMessageId: string, accepted: boolean) => {
+      const done = awaitingSchedule.current.get(clientMessageId);
+      if (!done) return;
+      awaitingSchedule.current.delete(clientMessageId);
+      unanswered.delete(clientMessageId);
+      done(accepted);
+    };
 
     // Tells the room when the tab has been shown or hidden for a while, unless its socket's address or an
     // earlier frame said so already. Until the room lets the socket in, the welcome tells it.
@@ -197,19 +209,26 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         checkUnconfirmed(room, frame.messages);
         sendQueued(room, frame);
       }
+      if (opening && awaitingSchedule.current.size > 0) {
+        // The socket closed before the room answered these, so ask it which it took: its list answers
+        // for them, while those scheduled from here on wait for their own answer.
+        unanswered = new Set(awaitingSchedule.current.keys());
+        room.send({ type: "scheduled.list" });
+      }
       if (frame.type === "scheduled.created") {
-        const done = awaitingSchedule.current.get(frame.scheduled.clientMessageId);
-        if (done) {
-          awaitingSchedule.current.delete(frame.scheduled.clientMessageId);
-          done(true);
+        settleSchedule(frame.scheduled.clientMessageId, true);
+      } else if (frame.type === "error" && frame.failed === "message.schedule" && frame.clientMessageId) {
+        settleSchedule(frame.clientMessageId, false);
+      } else if (frame.type === "scheduled.listed" && unanswered.size > 0) {
+        const taken = new Set(frame.scheduled.map((s) => s.clientMessageId));
+        let lost = false;
+        for (const clientMessageId of unanswered) {
+          if (!awaitingSchedule.current.has(clientMessageId)) continue;
+          lost ||= !taken.has(clientMessageId);
+          settleSchedule(clientMessageId, taken.has(clientMessageId));
         }
-      } else if (frame.type === "error" && frame.failed === "message.schedule") {
-        // These errors name the frame, not the client id, so the oldest still waiting is the one that failed.
-        const first = awaitingSchedule.current.entries().next();
-        if (!first.done) {
-          awaitingSchedule.current.delete(first.value[0]);
-          first.value[1](false);
-        }
+        unanswered = new Set();
+        if (lost) dispatch({ type: "warn", message: SCHEDULE_LOST });
       }
       for (const listener of listeners.current) listener(frame);
     };

@@ -106,7 +106,7 @@ describe("Schedule a message to send later", () => {
       body: "<p>Too late</p>",
       sendAt: clock.iso(clock.now() - 1),
     });
-    expect(await ada.next("error")).toEqual({ type: "error", message: SEND_AT_IN_THE_PAST, failed: "message.schedule" });
+    expect(await ada.next("error")).toEqual({ type: "error", message: SEND_AT_IN_THE_PAST, clientMessageId: "c1", failed: "message.schedule" });
     await settle(ada);
     expect(ada.pending("message.created")).toEqual([]);
     expect(ada.pending("scheduled.created")).toEqual([]);
@@ -178,7 +178,7 @@ describe("Schedule a message to send later", () => {
     // Membership gone while the socket is still open: the room asks the Workspace, rather than trusting the socket.
     await workspaceSql("DELETE FROM memberships WHERE room_id = ? AND user_id = ?", room.id, grace.user.id);
     graceSocket.send({ type: "message.schedule", clientMessageId: "c2", body: "<p>After I left</p>", sendAt: clock.iso(clock.now() + 60_000) });
-    expect(await graceSocket.next("error")).toEqual({ type: "error", message: NOT_IN_ROOM, failed: "message.schedule" });
+    expect(await graceSocket.next("error")).toEqual({ type: "error", message: NOT_IN_ROOM, clientMessageId: "c2", failed: "message.schedule" });
     graceSocket.send({ type: "scheduled.list" });
     expect(await graceSocket.next("error")).toEqual({ type: "error", message: NOT_IN_ROOM, failed: "scheduled.list" });
     graceSocket.send({ type: "scheduled.cancel", scheduledId: scheduled.id });

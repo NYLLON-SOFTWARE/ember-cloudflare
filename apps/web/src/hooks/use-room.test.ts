@@ -1,4 +1,4 @@
-import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, SEND_AT_IN_THE_PAST, type Message, type ServerFrame, type User } from "@ember/protocol";
+import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, SEND_AT_IN_THE_PAST, TOO_MANY_SCHEDULED, type Message, type ScheduledMessage, type ServerFrame, type User } from "@ember/protocol";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +7,7 @@ import { OFFLINE_AFTER_MS } from "@/lib/reconnecting-socket";
 import { isPending } from "@/lib/room-state";
 import { CONNECTION_LOST, UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { VISIBILITY_CHANGE_DELAY_MS } from "@/lib/visibility";
-import { openRoomSocketAhead, useRoom } from "./use-room";
+import { openRoomSocketAhead, SCHEDULE_LOST, useRoom } from "./use-room";
 import { useThread } from "./use-thread";
 
 vi.mock("@/lib/uploads", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/uploads")>()), uploadFile: vi.fn() }));
@@ -89,6 +89,18 @@ const message = (id: string, overrides: Partial<Message> = {}): Message => ({
   editedAt: null,
   boosts: [],
   ...overrides,
+});
+
+const scheduledMessage = (id: string, clientMessageId: string, sendAt: string): ScheduledMessage => ({
+  id,
+  clientMessageId,
+  roomId: "general",
+  creator: ada,
+  body: id,
+  plainText: id,
+  mentions: [],
+  sendAt,
+  createdAt: "2026-10-12T10:00:00.000Z",
 });
 
 /** Ada in #general, connected unless asked not to be. */
@@ -839,9 +851,57 @@ describe("Schedule a message", () => {
       sent = result.current.scheduleMessage("<p>After lunch</p>", sendAt);
     });
     expect(sent).toEqual(expect.any(Promise));
-    socket().receive({ type: "error", message: SEND_AT_IN_THE_PAST, failed: "message.schedule" });
+    const [{ clientMessageId }] = socket().sentOfType("message.schedule") as [{ clientMessageId: string }];
+    socket().receive({ type: "error", message: SEND_AT_IN_THE_PAST, clientMessageId, failed: "message.schedule" });
     await expect(sent).resolves.toBe(false);
     expect(result.current.state.notice).toBe(SEND_AT_IN_THE_PAST);
+  });
+
+  it("answers each refusal for the schedule it names, not the oldest one waiting", async () => {
+    const { result } = joinGeneral();
+    const sendAt = new Date(Date.now() + 60_000).toISOString();
+    let first: boolean | Promise<boolean> | undefined;
+    let second: boolean | Promise<boolean> | undefined;
+    act(() => {
+      first = result.current.scheduleMessage("<p>First</p>", sendAt);
+      second = result.current.scheduleMessage("<p>Second</p>", sendAt);
+    });
+    const [one, two] = socket().sentOfType("message.schedule") as Array<{ clientMessageId: string }>;
+    socket().receive({ type: "error", message: TOO_MANY_SCHEDULED, clientMessageId: two!.clientMessageId, failed: "message.schedule" });
+    await expect(second).resolves.toBe(false);
+    socket().receive({ type: "scheduled.created", scheduled: scheduledMessage("s1", one!.clientMessageId, sendAt) });
+    await expect(first).resolves.toBe(true);
+  });
+
+  it("asks the room after a reconnect whether it took a schedule whose answer was lost", async () => {
+    const { result } = joinGeneral();
+    const sendAt = new Date(Date.now() + 60_000).toISOString();
+    let taken: boolean | Promise<boolean> | undefined;
+    let lost: boolean | Promise<boolean> | undefined;
+    act(() => {
+      taken = result.current.scheduleMessage("<p>Taken</p>", sendAt);
+      lost = result.current.scheduleMessage("<p>Lost</p>", sendAt);
+    });
+    const [one] = socket().sentOfType("message.schedule") as Array<{ clientMessageId: string }>;
+    socket().drop();
+    wait(500);
+    socket().open();
+    socket().receive(welcome());
+    expect(socket().sentOfType("scheduled.list")).toEqual([{ type: "scheduled.list" }]);
+
+    // One scheduled once the room is back waits for its own answer, which the list can't give.
+    let later: boolean | Promise<boolean> | undefined;
+    act(() => {
+      later = result.current.scheduleMessage("<p>Later</p>", sendAt);
+    });
+    let laterSettled = false;
+    void (later as Promise<boolean>).then(() => (laterSettled = true));
+    socket().receive({ type: "scheduled.listed", scheduled: [scheduledMessage("s1", one!.clientMessageId, sendAt)] });
+    await expect(taken).resolves.toBe(true);
+    await expect(lost).resolves.toBe(false);
+    expect(result.current.state.notice).toBe(SCHEDULE_LOST);
+    await Promise.resolve();
+    expect(laterSettled).toBe(false);
   });
 
   it("refuses a send time that has already passed, and a message that is too long", () => {
