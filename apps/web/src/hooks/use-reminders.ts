@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Reminder } from "@ember/protocol";
 import { dismissReminder, fetchReminders } from "@/lib/api";
 
@@ -7,32 +7,32 @@ export const isDue = (reminder: Reminder) => new Date(reminder.remindAt).getTime
 
 /**
  * The reminders of the person signed in, as this tab knows them: what the Worker keeps when the page
- * loads (and again whenever the tab is shown again, which is also when a disconnected socket comes
- * back), what the Workspace tells this tab as each one comes due or is dismissed in another tab, and
- * what this tab dismisses itself.
+ * loads — and again whenever the tab is shown again or comes back online, which is also when a
+ * disconnected socket returns, so whatever came due while away is caught up — what the Workspace tells
+ * this tab as each one comes due or is dismissed in another tab, and what this tab dismisses itself.
  */
 export function useReminders() {
   const [reminders, setReminders] = useState<Reminder[] | null>(null);
+  // Reminders this tab heard of by frame, with when each arrived. A load that started after one arrived
+  // carries it (its snapshot couldn't have known it); one the frame predates is the Worker's truth,
+  // dismissed elsewhere included, and the frame leaves.
+  const frameArrived = useRef(new Map<string, { reminder: Reminder; at: number }>());
 
-  // What the Worker keeps now, folded into what this tab has heard since it asked, so a due frame that
-  // arrived while the answer was on its way isn't lost, and an answer that fails leaves the tab as it is.
   const load = useCallback(() => {
-    void fetchReminders().then(
-      (loaded) =>
-        setReminders((current) => {
-          // Folded, not replaced: a due frame that arrived while this answer was on its way stays,
-          // whatever a slightly older snapshot of the Worker's list knew of it.
-          if (current === null) return loaded;
-          return [...loaded, ...current.filter((reminder) => !loaded.some((other) => other.id === reminder.id))];
-        }),
-      // A page that can't ask keeps what it has; the next show or due frame catches it up.
-      () => {},
-    );
+    const askedAt = Date.now();
+    void fetchReminders().then((loaded) => {
+      const snapshot = [...frameArrived.current];
+      const kept = snapshot
+        .filter(([, { at }]) => at >= askedAt)
+        .filter(([id]) => !loaded.some((r) => r.id === id))
+        .map(([, { reminder }]) => reminder);
+      frameArrived.current = new Map(snapshot.filter(([id]) => kept.some((r) => r.id === id)));
+      setReminders(kept.length > 0 ? [...loaded, ...kept] : loaded);
+    }, () => {});
   }, []);
 
   useEffect(() => {
     load();
-    // Shown again, or back online: a socket that died while a reminder came due catches up here.
     const shown = () => document.visibilityState === "visible" && load();
     document.addEventListener("visibilitychange", shown);
     window.addEventListener("online", load);
@@ -44,11 +44,13 @@ export function useReminders() {
 
   /** The Workspace has told this tab that a reminder has come due, which this tab keeps for its banner. */
   const cameDue = useCallback((reminder: Reminder) => {
+    frameArrived.current.set(reminder.id, { reminder, at: Date.now() });
     setReminders((current) => (current === null ? [reminder] : [...current.filter((other) => other.id !== reminder.id), reminder]));
   }, []);
 
   /** Another tab of theirs dismissed a reminder, which leaves this one's corner as well. */
   const cameGone = useCallback((id: string) => {
+    frameArrived.current.delete(id);
     setReminders((current) => current?.filter((reminder) => reminder.id !== id) ?? current);
   }, []);
 
@@ -58,6 +60,7 @@ export function useReminders() {
    */
   const dismiss = useCallback(async (id: string) => {
     await dismissReminder(id);
+    frameArrived.current.delete(id);
     setReminders((current) => current?.filter((reminder) => reminder.id !== id) ?? current);
   }, []);
 

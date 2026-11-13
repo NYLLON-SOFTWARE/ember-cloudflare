@@ -60,27 +60,47 @@ describe("useReminders", () => {
     expect(dismissMock).toHaveBeenCalledWith("waiting");
   });
 
-  it("keeps a reminder whose dismissal failed, and folds a load around a due frame", async () => {
+  it("keeps a reminder whose dismissal failed", async () => {
     const waiting = reminder("waiting", new Date(Date.now() + 60_000).toISOString());
-    const due = reminder("due", new Date().toISOString());
-    let answer: Promise<Reminder[]> = new Promise(() => {});
-    fetchRemindersMock.mockImplementation(() => answer);
+    fetchRemindersMock.mockResolvedValue([waiting]);
     dismissMock.mockRejectedValue(new Error("gone"));
     const { result } = renderHook(() => useReminders());
-    await act(async () => {
-      await result.current.dismiss("none").catch(() => {});
-    });
-    // The failed dismissal left nothing behind, and the failed load left the list empty.
-    expect(result.current.reminders).toBeNull();
-    act(() => result.current.cameDue(due));
-    expect(result.current.reminders).toEqual([due]);
+    await waitFor(() => expect(result.current.reminders).toEqual([waiting]));
 
-    // Back online, the late answer folds around what arrived: the due one stays, the Worker's joins it.
-    answer = Promise.resolve([waiting, reminder("older", new Date(Date.now() + 30_000).toISOString())]);
+    await act(async () => {
+      await result.current.dismiss("waiting").catch(() => {});
+    });
+    // The Worker didn't take it, so it stays: what's scheduled never silently disappears.
+    expect(result.current.reminders).toEqual([waiting]);
+    expect(dismissMock).toHaveBeenCalledWith("waiting");
+  });
+
+  it("keeps a due frame that arrived while a load was on its way, and believes a later answer over an older frame", async () => {
+    const waiting = reminder("waiting", new Date(Date.now() + 90_000).toISOString());
+    const older = reminder("older", new Date(Date.now() + 30_000).toISOString());
+    const due = reminder("due", new Date().toISOString());
+    let resolveAnswer: (reminders: Reminder[]) => void = () => {};
+    fetchRemindersMock.mockImplementation(() => new Promise((resolve) => { resolveAnswer = resolve; }));
+
+    // The load goes out and hangs, and the due frame arrives while it's out.
+    const { result } = renderHook(() => useReminders());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => result.current.cameDue(due));
+
+    // When the load finally answers, it couldn't have known of the frame, so the frame survives it.
+    await act(async () => {
+      resolveAnswer([waiting, older]);
+    });
+    await waitFor(() => expect(result.current.reminders?.map((r) => r.id)).toEqual([waiting.id, older.id, due.id]));
+
+    // A later answer is believed over a frame it predates: dismissed elsewhere, or taken, it leaves.
     await act(async () => {
       window.dispatchEvent(new Event("online"));
+      resolveAnswer([waiting]);
     });
-    await waitFor(() => expect(result.current.reminders?.map((r) => r.id).sort()).toEqual(["due", "older", "waiting"]));
+    await waitFor(() => expect(result.current.reminders?.map((r) => r.id)).toEqual([waiting.id]));
   });
 });
 
