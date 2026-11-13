@@ -166,6 +166,11 @@ describe("Security headers and HTTPS", () => {
     expect(await inlineScriptHashes(html)).toEqual(["bhHHL3z2vDgxUt0W3dWQOrprscmda2Y5pLsLg4GF+pI=", await sha256("\n x\n")]);
   });
 
+  it("hashes inline scripts with the same line endings as the browser", async () => {
+    const html = "<script>\r\n  first();\rsecond();\n</script>";
+    expect(await inlineScriptHashes(html)).toEqual([await sha256("\n  first();\nsecond();\n")]);
+  });
+
   it("names the upgrade page's own script to its policy: before Ember is set up, the appearance script alone", async () => {
     expect(await upgradePageScripts()).toHaveLength(1);
   });

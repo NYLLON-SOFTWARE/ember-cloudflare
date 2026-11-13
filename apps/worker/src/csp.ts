@@ -80,8 +80,10 @@ const encoder = new TextEncoder();
 /** The SHA-256 hashes, in base64, of the inline scripts in `html`, as `script-src` names them. */
 export async function inlineScriptHashes(html: string): Promise<string[]> {
   const hashes: string[] = [];
-  for (const [, script] of html.matchAll(INLINE_SCRIPT)) {
-    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(script)));
+  for (const [, script = ""] of html.matchAll(INLINE_SCRIPT)) {
+    // The HTML parser turns CRLF and lone CR into LF before the browser checks the script's hash.
+    const source = script.replace(/\r\n?/g, "\n");
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(source)));
     hashes.push(btoa(String.fromCharCode(...digest)));
   }
   return hashes;
