@@ -46,6 +46,13 @@ describe("Group DMs and DM names", () => {
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/rooms/general");
   });
 
+  it("offers Markdown and JSON transcripts of the ping", () => {
+    showPage(withGraceAndLinus);
+    expect(screen.getByRole("heading", { level: 2, name: "Transcript" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Markdown" })).toHaveAttribute("href", "/api/rooms/d1/transcript");
+    expect(screen.getByRole("link", { name: "JSON" })).toHaveAttribute("href", "/api/rooms/d1/transcript?format=json");
+  });
+
   it("shows you alone in your DM with yourself", () => {
     showPage(alone);
     expect(cards()).toEqual(["Ada Lovelace"]);

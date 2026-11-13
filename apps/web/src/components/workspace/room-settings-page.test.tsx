@@ -96,6 +96,15 @@ describe("Room settings page", () => {
     expect(screen.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/account/edit#channel-settings");
   });
 
+  it("offers Markdown and JSON transcripts of the room", async () => {
+    serve(openSettings());
+    showPage(design);
+    await roomName();
+    expect(screen.getByRole("heading", { level: 2, name: "Transcript" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Markdown" })).toHaveAttribute("href", "/api/rooms/design/transcript");
+    expect(screen.getByRole("link", { name: "JSON" })).toHaveAttribute("href", "/api/rooms/design/transcript?format=json");
+  });
+
   it("lists everyone in an open room under Everyone, which is on, each with a check mark", async () => {
     serve(openSettings());
     showPage(design);

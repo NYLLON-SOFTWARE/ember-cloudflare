@@ -1295,8 +1295,10 @@ const isRanked = (rows: unknown[]) => (rows as Array<{ ranked: number }>)[0]?.ra
 const membersOf = (rows: DirectMemberRow[]): User[] => rows.map(({ id, name }) => ({ id, name }));
 
 /** A room someone is in, with the people in it if it's a DM, whom `members` reads. */
-const roomOf = ({ id, kind, name, icon, active_at }: SidebarRow, members: DirectMemberRow[] = []): Room =>
-  kind === "direct" ? { id, kind, members: membersOf(members), activeAt: active_at } : { id, kind, name: name ?? "", icon };
+const roomOf = (
+  { id, kind, name, icon, active_at }: Pick<SidebarRow, "id" | "kind" | "name" | "icon" | "active_at">,
+  members: DirectMemberRow[] = [],
+): Room => (kind === "direct" ? { id, kind, members: membersOf(members), activeAt: active_at } : { id, kind, name: name ?? "", icon });
 
 /** A room as someone's sidebar lists it, with whether it's marked unread for them, since when, and their level in it. */
 const sidebarRoom = (row: SidebarRow, members?: DirectMemberRow[]): SidebarRoom => ({
@@ -1330,6 +1332,15 @@ export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.ic
     memberships.unread_at AS unread_since, memberships.involvement, rooms.shared_position, rooms.huddle_started_at, rooms.huddle_user_ids
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? ORDER BY rooms.created_at, rooms.id`;
+
+/** One of someone's rooms, for a transcript of it: nothing unless they're in it. */
+export const ROOM_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}
+  FROM memberships JOIN rooms ON rooms.id = memberships.room_id
+  WHERE memberships.user_id = ? AND memberships.room_id = ?`;
+
+/** Who's in a room, for naming a DM in a transcript, once the caller is known to be in it. */
+const MEMBERS_OF_ROOM = `SELECT memberships.room_id, users.id, users.name FROM memberships JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ? ORDER BY memberships.user_id`;
 
 /** The ids of the rooms in `rows` that the shared order ranks, in its order. */
 const sharedOrderOf = (rows: SidebarRow[]): RoomId[] =>
@@ -3160,6 +3171,17 @@ export class WorkspaceStore {
     );
     const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
+  }
+
+  /**
+   * A room the person is in, with the people in it if it's a DM, or null when they aren't. Asked after
+   * they're known to be in it, so listing its members doesn't name a private room they can't open.
+   */
+  async roomForUser(userId: UserId, roomId: RoomId): Promise<Room | null> {
+    const [row] = await this.db.all<Pick<SidebarRow, "id" | "kind" | "name" | "icon" | "active_at">>(ROOM_FOR_USER, userId, roomId);
+    if (!row) return null;
+    if (row.kind !== "direct") return roomOf(row);
+    return roomOf(row, await this.db.all<DirectMemberRow>(MEMBERS_OF_ROOM, roomId));
   }
 
   /**

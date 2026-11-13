@@ -3289,6 +3289,26 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * The rooms the person `credentials` signs in is in, as a transcript of every conversation lists them,
+   * or null without a valid session. Nothing of the welcome card's join code goes with them.
+   */
+  async roomsForTranscript(credentials: Credentials): Promise<{ user: User; rooms: Room[] } | null> {
+    const user = await this.authenticate(credentials);
+    return user && { user, rooms: (await this.store.searcherOf(user.id, null)).rooms };
+  }
+
+  /**
+   * A room the person `credentials` signs in is in, for a transcript of it: "not found" when they aren't,
+   * or null without a valid session.
+   */
+  async roomForTranscript(credentials: Credentials, roomId: RoomId): Promise<{ user: User; room: Room } | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const room = await this.store.roomForUser(user.id, roomId);
+    return room ? { user, room } : "not found";
+  }
+
+  /**
    * Room `roomId`'s settings, as the person `credentials` signs in sees them: "not found" unless they're
    * in it and it isn't a DM, or null without a valid session.
    */

@@ -143,6 +143,7 @@ import { releaseCheck } from "./releases";
 import { urlOf } from "./request-url";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
 import { clearSearches, recordSearch, searchMessages } from "./searches";
+import { roomTranscript, workspaceTranscript } from "./transcripts";
 import { isOnboardedToEmailSending } from "./sending-domain";
 import { checkSetup, firstRun, isSetupPath, setupAccessOf, setupPage, setupPlaceholdersOf } from "./setup";
 import { closedAtOnce } from "./sockets";
@@ -1160,6 +1161,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   const joining = pathname.match(/^\/api\/join\/([^/]+)$/);
   if (joining && request.method === "POST") return () => join(request, env, joining[1]!);
   if (pathname === "/api/unfurl" && request.method === "POST") return () => unfurlLink(request, env);
+  if (pathname === "/api/transcripts" && request.method === "GET") return () => workspaceTranscript(request, env);
   if (pathname === "/api/searches" && request.method === "GET") return () => searchMessages(request, env);
   if (pathname === "/api/searches" && request.method === "POST") return () => recordSearch(request, env);
   if (pathname === "/api/searches" && request.method === "DELETE") return () => clearSearches(request, env);
@@ -1180,6 +1182,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (huddle) return () => (isRoomId(huddle[1]!) ? connectToRoom(request, env, huddle[1]!, true) : problem(404, ROOM_NOT_FOUND));
   const settings = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
   if (settings && request.method === "GET") return () => (isRoomId(settings[1]!) ? roomSettings(request, env, settings[1]!) : problem(404, ROOM_NOT_FOUND));
+  const transcript = pathname.match(/^\/api\/rooms\/([^/]+)\/transcript$/);
+  if (transcript && request.method === "GET") return () => roomTranscript(request, env, transcript[1]!);
   const favorite = pathname.match(/^\/api\/rooms\/([^/]+)\/favorite$/);
   if (favorite && request.method === "PUT") return () => setFavorite(request, env, favorite[1]!);
   const involvement = pathname.match(/^\/api\/rooms\/([^/]+)\/involvement$/);
