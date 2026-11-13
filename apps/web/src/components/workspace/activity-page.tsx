@@ -21,6 +21,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { activityPath, navigate, personPath, returnTo } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import type { ActivityState } from "@/hooks/use-activity";
@@ -34,6 +35,7 @@ import { useProfilePane } from "./profile-pane";
 import type { RoomPanes } from "./room-view";
 import { ONE_PANE, SplitPanes, type Pane, type PaneStack } from "./split-panes";
 import { AvatarLink } from "./user-avatar";
+import { BottomSheet } from "../mobile/action-sheet";
 
 // Activity, as Slack's is: a feed of what's happened to you beside the conversation an item opens, with
 // its thread, or the profile of someone in it, in a third pane, each pane as wide as you drag it.
@@ -317,14 +319,14 @@ function Feed({ shown, activity, filter, onFilter, tools, searching, onSearching
           {feed.unread > 0 && <span className="sr-only">{feed.unread} unread</span>}
           {tools}
         </div>
-        <nav aria-label="Activity" className="mt-1.5 flex items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+        <nav aria-label="Activity" className="mt-1.5 flex items-center gap-1 overflow-x-auto [scrollbar-width:none] max-[380px]:gap-0">
           {TABS.map(({ tab, label }) => (
             <button
               key={tab}
               type="button"
               aria-pressed={filter.tab === tab}
               onClick={() => onFilter({ ...filter, tab })}
-              className="relative flex shrink-0 items-center px-2 pt-1 pb-2.5 text-sm font-semibold touch:min-h-11 touch:min-w-11 touch:justify-center text-muted-foreground hover:text-foreground aria-pressed:text-foreground aria-pressed:after:absolute aria-pressed:after:inset-x-1 aria-pressed:after:bottom-0 aria-pressed:after:h-0.5 aria-pressed:after:rounded-full aria-pressed:after:bg-foreground"
+              className="relative flex shrink-0 items-center px-2 pt-1 pb-2.5 text-sm font-semibold touch:min-h-11 touch:min-w-11 touch:justify-center max-[380px]:px-1.5 max-[380px]:touch:min-w-0 text-muted-foreground hover:text-foreground aria-pressed:text-foreground aria-pressed:after:absolute aria-pressed:after:inset-x-1 aria-pressed:after:bottom-0 aria-pressed:after:h-0.5 aria-pressed:after:rounded-full aria-pressed:after:bg-foreground"
             >
               {label}
             </button>
@@ -334,7 +336,7 @@ function Feed({ shown, activity, filter, onFilter, tools, searching, onSearching
             type="button"
             aria-pressed={filter.unreadOnly}
             onClick={() => onFilter({ ...filter, unreadOnly: !filter.unreadOnly })}
-            className="mb-1.5 ml-auto shrink-0 rounded-full border px-2.5 py-0.5 text-[13px] font-semibold text-muted-foreground hover:text-foreground aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:text-background touch:min-h-11 touch:px-3.5"
+            className="relative mb-1.5 ml-auto shrink-0 rounded-full border px-2.5 py-0.5 text-[13px] font-semibold text-muted-foreground hover:text-foreground aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:text-background touch:h-8 touch:px-3.5 touch:after:absolute touch:after:inset-x-0 touch:after:-inset-y-1.5 max-[380px]:touch:px-2.5"
           >
             Unreads
           </button>
@@ -455,7 +457,7 @@ export function withDays(items: ActivityItem[], now = new Date()): FeedEntry[] {
 /** What the feed says with nothing to show: one line, saying why. */
 function emptyFeedLine(anyItems: boolean, filter: ActivityFilter): string {
   if (!anyItems) return "No activity yet.";
-  const onlyUnreads = filter.unreadOnly && filter.tab === "all" && filter.kinds.size === 0 && filter.roomId === null && filter.query.trim() === "";
+  const onlyUnreads = filter.unreadOnly && filter.kinds.size === 0 && filter.roomId === null && filter.query.trim() === "";
   return onlyUnreads ? "You’re all caught up." : "Nothing matches.";
 }
 
@@ -557,9 +559,9 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
         event.stopPropagation();
       }}
       className={cn(
-        "group relative flex gap-3 border-b px-4 py-3 [-webkit-touch-callout:none] hover:bg-hover aria-[current=true]:bg-hover touch:select-none",
-        !item.read && "bg-activity-unread",
-        opened && "shadow-[inset_3px_0_0_var(--color-foreground)]",
+        "group relative flex gap-3 border-b px-4 py-3 [-webkit-touch-callout:none] touch:select-none",
+        item.read ? "hover:bg-activity-hover" : "bg-activity-unread hover:bg-activity-unread-hover",
+        "aria-[current=true]:bg-activity-selected",
       )}
     >
       {/* The avatar and name open the author's profile, as a message's do, over the button that covers the row. */}
@@ -575,7 +577,7 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
           <PageLink href={personPath(item.actorId)} className={cn("relative z-[1] truncate text-[15px] hover:underline", item.read ? "font-medium" : "font-bold")}>
             {author}
           </PageLink>
-          <time dateTime={item.at} className="shrink-0 text-xs text-muted-foreground">
+          <time dateTime={item.at} className={cn("shrink-0 text-xs", item.read ? "text-muted-foreground" : "text-foreground/60")}>
             {sameDay ? timeLabel(date) : dateLabel(date)}
           </time>
         </div>
@@ -589,10 +591,10 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
           aria-label={`${author}${item.read ? "" : ", unread"}: ${preview(item)}, ${word} in ${where}`}
           className="block w-full text-left outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset"
         >
-          <span className={cn("line-clamp-2 text-[15px] leading-snug wrap-anywhere", item.read ? "text-muted-foreground" : "text-foreground")}>{preview(item)}</span>
+          <span className="line-clamp-2 text-[15px] leading-snug wrap-anywhere">{preview(item)}</span>
           {/* The conversation it's from, which a DM with its author alone doesn't need named again. */}
           {where !== author && (
-            <span className="mt-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+            <span className={cn("mt-1 flex items-center gap-1.5 text-[13px]", item.read ? "text-muted-foreground" : "text-foreground/60")}>
               <Icon className="size-3.5 shrink-0" />
               <span className="truncate">{where}</span>
             </span>
@@ -643,6 +645,47 @@ interface FilterProps {
 
 /** Filter by: the kinds of item to show, apps' among them, and one room alone. */
 function FilterPopover({ filter, onFilter, rooms, me }: FilterProps) {
+  const phone = usePhoneLayout();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const count = filterCount(filter);
+  const trigger = (
+    <>
+      <FilterList className="size-[18px]" />
+      {count > 0 && (
+        <span aria-hidden="true" className="absolute -top-1.5 -right-1.5 grid size-4 place-items-center rounded-full bg-foreground text-[10px] font-bold text-background">
+          {count}
+        </span>
+      )}
+    </>
+  );
+  const label = count > 0 ? `Filter, ${count} on` : "Filter";
+  // A phone's is a sheet from the bottom of the screen, clear of its edges, as its other menus are.
+  if (phone) {
+    return (
+      <>
+        <button type="button" aria-label={label} onClick={() => setSheetOpen(true)} className={cn(TOOL, count > 0 && "text-foreground")}>
+          {trigger}
+        </button>
+        <BottomSheet open={sheetOpen} onOpenChange={setSheetOpen} title="Filter by" titleHidden>
+          <FilterChoices filter={filter} onFilter={onFilter} rooms={rooms} me={me} />
+        </BottomSheet>
+      </>
+    );
+  }
+  return (
+    <Popover>
+      <PopoverTrigger aria-label={label} className={cn(TOOL, count > 0 && "text-foreground")}>
+        {trigger}
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 p-0">
+        <FilterChoices filter={filter} onFilter={onFilter} rooms={rooms} me={me} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** What Filter offers: the kinds of activity to show, and a room to show it from, with Clear while any is on. */
+function FilterChoices({ filter, onFilter, rooms, me }: FilterProps) {
   const nameOf = useNameOf();
   const count = filterCount(filter);
   const toggle = (kind: ActivityFilterKind) => {
@@ -652,55 +695,42 @@ function FilterPopover({ filter, onFilter, rooms, me }: FilterProps) {
   };
   const listed = rooms.filter((room) => room.involvement !== "invisible");
   return (
-    <Popover>
-      <PopoverTrigger
-        aria-label={count > 0 ? `Filter, ${count} on` : "Filter"}
-        className={cn(TOOL, count > 0 && "text-foreground")}
-      >
-        <FilterList className="size-[18px]" />
+    <>
+      <div className="flex items-center justify-between border-b px-3 py-2.5">
+        <h2 className="text-sm font-bold">Filter by</h2>
         {count > 0 && (
-          <span aria-hidden="true" className="absolute -top-1.5 -right-1.5 grid size-4 place-items-center rounded-full bg-foreground text-[10px] font-bold text-background">
-            {count}
-          </span>
+          <button type="button" onClick={() => onFilter({ ...filter, kinds: new Set(), roomId: null })} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+            <Xmark className="size-3.5" />
+            Clear
+          </button>
         )}
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-0">
-        <div className="flex items-center justify-between border-b px-3 py-2.5">
-          <h2 className="text-sm font-bold">Filter by</h2>
-          {count > 0 && (
-            <button type="button" onClick={() => onFilter({ ...filter, kinds: new Set(), roomId: null })} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-              <Xmark className="size-3.5" />
-              Clear
-            </button>
-          )}
-        </div>
-        <fieldset className="flex flex-col py-1">
-          <legend className="sr-only">Kinds of activity</legend>
-          {FILTERS.map(({ kind, label }) => (
-            <label key={kind} className="flex min-h-9 cursor-pointer items-center gap-2.5 px-3 text-sm hover:bg-hover touch:min-h-11">
-              <input type="checkbox" checked={filter.kinds.has(kind)} onChange={() => toggle(kind)} className="size-4 accent-foreground" />
-              {label}
-            </label>
-          ))}
-        </fieldset>
-        <div className="border-t px-3 py-2.5">
-          <label className="flex flex-col gap-1.5 text-xs font-semibold text-muted-foreground">
-            Specific room
-            <select
-              value={filter.roomId ?? ""}
-              onChange={(event) => onFilter({ ...filter, roomId: event.target.value || null })}
-              className="rounded-md border bg-background px-2 py-1.5 text-sm font-normal text-foreground max-md:text-base"
-            >
-              <option value="">Any room</option>
-              {listed.map((room) => (
-                <option key={room.id} value={room.id}>
-                  {room.kind === "direct" ? roomName(room, me.id, nameOf) : `#${room.name}`}
-                </option>
-              ))}
-            </select>
+      </div>
+      <fieldset className="flex flex-col py-1">
+        <legend className="sr-only">Kinds of activity</legend>
+        {FILTERS.map(({ kind, label }) => (
+          <label key={kind} className="flex min-h-9 cursor-pointer items-center gap-2.5 px-3 text-sm hover:bg-hover touch:min-h-11">
+            <input type="checkbox" checked={filter.kinds.has(kind)} onChange={() => toggle(kind)} className="size-4 accent-foreground" />
+            {label}
           </label>
-        </div>
-      </PopoverContent>
-    </Popover>
+        ))}
+      </fieldset>
+      <div className="border-t px-3 py-2.5">
+        <label className="flex flex-col gap-1.5 text-xs font-semibold text-muted-foreground">
+          Specific room
+          <select
+            value={filter.roomId ?? ""}
+            onChange={(event) => onFilter({ ...filter, roomId: event.target.value || null })}
+            className="rounded-md border bg-background px-2 py-1.5 text-sm font-normal text-foreground max-md:text-base"
+          >
+            <option value="">Any room</option>
+            {listed.map((room) => (
+              <option key={room.id} value={room.id}>
+                {room.kind === "direct" ? roomName(room, me.id, nameOf) : `#${room.name}`}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </>
   );
 }

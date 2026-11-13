@@ -20,7 +20,11 @@
   --hover: #f2f2f2;
   /* An unread Activity item's row: a step off the surface the feed's on, brighter in the dark, and in the
      light, where the surface is nearly white already, a touch of the link's blue. */
-  --activity-unread: color-mix(in srgb, var(--link) 6%, var(--background));
+  /* Activity's rows: an unread one's tint, kept under the pointer, and the item open's fill. */
+  --activity-unread: color-mix(in srgb, var(--link) 12%, var(--surface));
+  --activity-unread-hover: color-mix(in srgb, var(--foreground) 5%, var(--activity-unread));
+  --activity-hover: var(--hover);
+  --activity-selected: color-mix(in srgb, var(--link) 20%, var(--surface));
   --card: #ffffff;
   --card-foreground: #171717;
   --popover: #ffffff;
@@ -117,7 +121,10 @@
   --foreground: #f5f5f5;
   --surface: #1c1c1c;
   --hover: #282828;
-  --activity-unread: #242424;
+  --activity-unread: #2e2e2e;
+  --activity-unread-hover: #333333;
+  --activity-hover: #242424;
+  --activity-selected: color-mix(in srgb, var(--link) 20%, var(--surface));
   --card: #1c1c1c;
   --card-foreground: #f5f5f5;
   --popover: #1c1c1c;
@@ -376,6 +383,9 @@
   --color-surface: var(--surface);
   --color-hover: var(--hover);
   --color-activity-unread: var(--activity-unread);
+  --color-activity-unread-hover: var(--activity-unread-hover);
+  --color-activity-hover: var(--activity-hover);
+  --color-activity-selected: var(--activity-selected);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);

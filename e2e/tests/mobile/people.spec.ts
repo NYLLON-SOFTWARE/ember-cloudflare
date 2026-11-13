@@ -20,7 +20,7 @@ test("someone's page, with a long name and bio, fits the phone with its DM butto
   await page.goto(`/users/${person.user.id}`);
   await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toHaveText(LONG_NAME);
   // A phone's is Slack's Message tile.
-  await expect(page.getByRole("button", { name: hasPhoneLayout(page) ? "Message" : `Ping ${LONG_NAME}` })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Message" })).toBeVisible();
   await screenIsFine();
 });
 

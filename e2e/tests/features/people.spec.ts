@@ -29,7 +29,7 @@ test.describe("Someone's profile page", () => {
     await expect(page.getByRole("link", { name: "Edit my profile" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Go Back" })).toHaveAttribute("href", "/");
 
-    await page.getByRole("button", { name: `Ping ${grace.name}` }).click();
+    await page.getByRole("button", { name: "Message" }).click();
     // The DM's name heads its top bar.
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Direct message with ${grace.name}`);
     await ada.connected();

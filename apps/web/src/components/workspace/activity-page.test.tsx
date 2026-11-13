@@ -1,4 +1,5 @@
-import { act, render } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActivityItem, Me, SidebarRoom } from "@ember/protocol";
 import { Sheet } from "@/components/ui/sheet";
@@ -55,5 +56,16 @@ describe("ActivityPage's pane stack", () => {
   it("has nothing to close with only the feed open", () => {
     history.replaceState(null, "", "/activity");
     expect(onPhone(null)()).toEqual({ open: ["feed"], shown: ["feed"], back: null });
+  });
+});
+
+describe("ActivityPage's Filter on a phone", () => {
+  it("opens as a sheet from the bottom of the screen", async () => {
+    history.replaceState(null, "", "/activity");
+    onPhone(null);
+    await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+    const sheet = screen.getByRole("dialog", { name: "Filter by" });
+    expect(sheet).toHaveClass("bottom-0");
+    expect(within(sheet).getByRole("group", { name: "Kinds of activity" })).toBeInTheDocument();
   });
 });
