@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { Composer, RoomGoneNotice, type ComposerHandle, type RoomGone } from "./composer";
 import { MessageItem, repliesLabel, type MessageActions, type MessageEditors, type ThreadPlace } from "./message-item";
 import { MessageList } from "./message-list";
-import { BackButton } from "../mobile/back-button";
+import { BackButton, ROUND_BUTTON } from "../mobile/back-button";
 import { RoomNotice } from "./room-notice";
 import { SideColumnSeparator } from "./side-column";
 
@@ -103,9 +103,10 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
       {placement === "column" && <SideColumnSeparator label="Resize thread" />}
       <header className="flex min-h-header items-center gap-2.5 border-b py-2.5 pr-3.5 pl-5 max-md:min-h-[calc(56px+env(safe-area-inset-top))] max-md:gap-1.5 max-md:px-2 max-md:pt-[env(safe-area-inset-top)] max-md:pb-0">
         {/* On a phone, Back goes back the way the person came, wherever the thread was opened from, or up to its
-            room, or in panes closes the thread's, in Close thread's place. Back and the pill are the top bar's 44px capsules. */}
+            room, or in panes closes the thread's, in Close thread's place, going back the way the person came,
+            which needn't be the room. Back and the pill are the top bar's 44px capsules. */}
         {onClose ? (
-          <button type="button" aria-label={`Back to ${name}`} onClick={onClose} className="hidden size-11 shrink-0 items-center justify-center rounded-lg max-md:flex">
+          <button type="button" aria-label="Back" onClick={onClose} className={cn(ROUND_BUTTON, "hidden max-md:grid")}>
             <ArrowLeft className="size-[22px]" />
           </button>
         ) : (

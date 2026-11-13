@@ -116,7 +116,7 @@ function positionOf(state: unknown): number | null {
  * keeps the fragment, which a referrer leaves out, so Go Back returns to the section of community
  * settings it was opened from.
  */
-function openedFrom(state: unknown): string | null {
+export function openedFrom(state: unknown): string | null {
   const from = (state as { from?: unknown } | null)?.from;
   return typeof from === "string" ? from : null;
 }

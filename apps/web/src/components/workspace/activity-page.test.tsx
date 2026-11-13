@@ -1,8 +1,9 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActivityItem, Me, SidebarRoom } from "@ember/protocol";
 import { Sheet } from "@/components/ui/sheet";
+import { navigate } from "@/hooks/use-route";
 import type { ActivityState } from "@/hooks/use-activity";
 import { ActivityPage, type ActivityPlace } from "./activity-page";
 import { ONE_PANE, type PaneStack } from "./split-panes";
@@ -43,6 +44,14 @@ describe("ActivityPage's pane stack", () => {
     expect(stack()).toMatchObject({ open: ["feed", "conversation", "thread"], shown: ["thread"] });
     act(() => stack().back!());
     expect(location.pathname).toBe("/activity/rooms/random");
+  });
+
+  it("goes back to the feed from a thread an item opened there, in one Back", async () => {
+    navigate("/activity");
+    navigate("/activity/rooms/random/threads/m1/@m2");
+    const stack = onPhone({ roomId: "random", threadId: "m1", replyId: "m2" });
+    act(() => stack().back!());
+    await waitFor(() => expect(location.pathname).toBe("/activity"));
   });
 
   it("closes the conversation back to the feed, which nothing closes", () => {
