@@ -15,7 +15,7 @@ import {
   UserPlus,
   Xmark,
 } from "@/components/icons/iconoir";
-import { MainContent } from "@/components/main-content";
+import { MAIN_CONTENT, MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -148,6 +148,8 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
       onMarkAllRead={markAllRead}
     />
   );
+  // With nothing open, the feed shows alone on phones, and beside a profile anywhere, with no empty pane between.
+  const feedAlone = !place && (phone || side === "profile");
   const panes: Pane[] = [
     {
       id: "feed",
@@ -169,6 +171,7 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
           openedId={place && (shown.find((item) => opens(item, place))?.id ?? null)}
           onOpen={open}
           onLoadOlder={loadOlder}
+          main={feedAlone}
         />
       ),
     },
@@ -192,8 +195,7 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
         ),
     },
   ];
-  // With nothing open, the feed shows alone on phones, and beside a profile anywhere, with no empty pane between.
-  if (!place && (phone || side === "profile")) panes.pop();
+  if (feedAlone) panes.pop();
   if (side === "thread" && roomOpen)
     panes.push({ id: "thread", label: "Resize thread", minWidth: 300, defaultShare: 0.3, width: DEFAULT_SIDE_PX, widthKey: "side", sizedBySeparator: true, onClose: closeThread, content: <div ref={setThreadPane} className="h-full min-h-0" /> });
   if (side === "profile" && profile)
@@ -289,13 +291,15 @@ interface FeedProps {
   openedId: number | null;
   onOpen: (item: ActivityItem) => void;
   onLoadOlder: () => void;
+  /** Whether it's the page's main content, as it is with no conversation beside it, for the skip link. */
+  main: boolean;
 }
 
 /**
  * The feed: Activity's title and tools, its tabs and Unreads, and its items, newest first, under the day
  * each came, with older ones loading as it's scrolled to its end.
  */
-function Feed({ shown, activity, filter, onFilter, tools, searching, onSearching, names, openedId, onOpen, onLoadOlder }: FeedProps) {
+function Feed({ shown, activity, filter, onFilter, tools, searching, onSearching, names, openedId, onOpen, onLoadOlder, main }: FeedProps) {
   const { feed, mark } = activity;
   const search = useRef<HTMLInputElement>(null);
   const end = useRef<HTMLDivElement>(null);
@@ -313,7 +317,12 @@ function Feed({ shown, activity, filter, onFilter, tools, searching, onSearching
   }, [feed.more, onLoadOlder]);
 
   return (
-    <section aria-labelledby="activity-title" className="flex h-full min-h-0 flex-col bg-surface">
+    // The page's main content while it's alone, by its role, so that it stays the same element as panes come and go.
+    <section
+      aria-labelledby="activity-title"
+      {...(main && { role: "main", id: MAIN_CONTENT, tabIndex: -1 })}
+      className="flex h-full min-h-0 flex-col bg-surface outline-none"
+    >
       <header className="shrink-0 border-b px-4 pt-3 max-md:pt-1">
         <div className="flex min-h-8 items-center gap-1 max-md:sr-only">
           <h1 id="activity-title" className="mr-auto text-[19px] leading-tight font-bold">
@@ -567,17 +576,18 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
         "aria-[current=true]:bg-activity-selected",
       )}
     >
-      {/* The avatar and name open the author's profile, as a message's do, over the button that covers the row. */}
+      {/* The avatar and name open the author's profile, as a message's do, over the button that covers the row;
+          on a touch screen a tap anywhere opens the item, as Slack's app does. */}
       {reminder ? (
         <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg bg-hover">
           <Clock className="size-5" />
         </span>
       ) : (
-        <AvatarLink user={actor} square reach="none" className="z-[1] mt-0.5 size-9" />
+        <AvatarLink user={actor} square reach="none" className="z-[1] mt-0.5 size-9 touch:pointer-events-none" />
       )}
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 pr-8 touch:pr-0">
-          <PageLink href={personPath(item.actorId)} className={cn("relative z-[1] truncate text-[15px] hover:underline", item.read ? "font-medium" : "font-bold")}>
+          <PageLink href={personPath(item.actorId)} className={cn("relative z-[1] truncate text-[15px] hover:underline touch:pointer-events-none", item.read ? "font-medium" : "font-bold")}>
             {author}
           </PageLink>
           <time dateTime={item.at} className={cn("shrink-0 text-xs", item.read ? "text-muted-foreground" : "text-foreground/60")}>
@@ -608,7 +618,7 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
         type="button"
         onClick={toggle}
         title={markLabel}
-        aria-label={`${markLabel}: ${author}`}
+        aria-label={`${markLabel}: ${author}, ${word} in ${where}`}
         className="absolute top-2.5 right-3 z-[1] grid size-7 place-items-center rounded-md text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-background hover:text-foreground touch:hidden"
       >
         {item.read ? <EyeClosed className="size-4" /> : <CheckCircle className="size-4" />}
@@ -623,7 +633,7 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
           <DropdownMenuItem onSelect={toggle}>
             {item.read ? <EyeClosed /> : <CheckCircle />}
             {markLabel}
-            <kbd className="ml-auto pl-4 text-xs text-muted-foreground">U</kbd>
+            <kbd className="ml-auto pl-4 text-xs text-muted-foreground touch:hidden">U</kbd>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
