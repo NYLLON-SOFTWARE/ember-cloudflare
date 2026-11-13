@@ -15,6 +15,7 @@ import { MessageActionsMenu, type MessageActionsHandle } from "./message-actions
 import { MessageBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
 import { FixedMessageEditor, MessageEditor, type MessageEditorHandle } from "./message-editor";
+import { Mood } from "./mood";
 import { UploadCard } from "./upload-card";
 import { AvatarLink, UserAvatar, userTitle } from "./user-avatar";
 
@@ -190,16 +191,19 @@ function DeletedMessage({ message, thread, open }: { message: Message; thread?: 
 
 /**
  * The author's name as the people directory lists them now, which runs to an ellipsis rather than wrap,
- * and shows their bio on hover, then the agent badge for an AI agent.
+ * and shows their bio on hover, then the agent badge for an AI agent, then what they wear beside their
+ * name, muted, where the heading has room for it.
  */
 function Author({ user }: { user: User }) {
-  const listed = useContext(PeopleContext).get(user.id) ?? user;
+  const people = useContext(PeopleContext);
+  const listed = people.get(user.id) ?? user;
   return (
     <>
       <strong title={userTitle(listed)} className="truncate font-bold text-message-ink">
         {listed.name}
       </strong>
       {isAgent(listed) && <AgentBadge />}
+      <Mood mood={people.get(user.id)?.mood} className="text-xs font-normal" />
     </>
   );
 }
