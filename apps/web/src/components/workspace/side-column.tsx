@@ -12,7 +12,7 @@ export const SIDE_WIDTH = "--side-width";
 const STORAGE_KEY = "room-side";
 const MIN_SIDE_PX = 300;
 /** The narrowest the room keeps beside it. */
-const MIN_ROOM_PX = 360;
+const MIN_ROOM_PX = 480;
 export const DEFAULT_SIDE_PX = 420;
 
 /** The widest the column can be in `grid`, its third column the room's, leaving the room its narrowest. */

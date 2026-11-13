@@ -1,7 +1,7 @@
 import { createContext, useContext, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { fitted, fittingCount, moved, normalized, storedShares, storedWidth, storeShares, storeWidth, type Shares } from "@/lib/pane-sizes";
 import { PaneSeparator } from "./pane-separator";
-import { fitted, fittingCount, moved, normalized, storedShares, storeShares, type Shares } from "@/lib/pane-sizes";
 import { cn } from "@/lib/utils";
 
 // Panes side by side, as Slack lays out a conversation beside Activity and a thread or a profile beside
@@ -35,6 +35,13 @@ export interface Pane {
   minWidth: number;
   /** Its share of the row before it's been resized, the shares of a row's panes being in proportion. */
   defaultShare: number;
+  /**
+   * Its width in pixels before it's been resized, for a pane that keeps its width as others open and close
+   * beside it, as Activity's feed does: the panes with none share what's left, or the last pane takes it.
+   */
+  width?: number;
+  /** What remembers that width, so that panes that take each other's place keep one; its id otherwise. */
+  widthKey?: string;
   /** Closes it, which a back button does while it's the deepest; the first pane usually has none. */
   onClose?: () => void;
   /**
@@ -74,6 +81,8 @@ export function SplitPanes({ layoutKey, panes, className, onCollapsed, onLayout 
   // Another number of panes is another layout, with widths of its own.
   const stored = saved.key === key ? saved.shares : storedShares(key, panes.length);
   if (saved.key !== key) setSaved({ key, shares: stored });
+  // The widths of panes that keep one, resized here since they were remembered, by what remembers them.
+  const [resized, setResized] = useState<Record<string, number>>({});
 
   useLayoutEffect(() => {
     const element = row.current;
@@ -99,15 +108,43 @@ export function SplitPanes({ layoutKey, panes, className, onCollapsed, onLayout 
     onLayout?.(latest.current);
   }, [stackKey, onLayout]);
 
-  // The widths of the panes shown, shared as they were last, or as they start.
+  // The widths of the panes shown, shared as they were last, or as they start; a pane with a width of its
+  // own keeps it, as far as the row allows.
+  const visiblePanes = panes.slice(hidden);
   const visibleMins = minWidths.slice(hidden);
   const all = stored ?? defaults;
   const visibleShares = normalized(all.slice(hidden), defaults.slice(hidden));
-  const shares = width > 0 ? fitted(visibleShares, width - SEPARATORS_PX * (shown - 1), visibleMins) : visibleShares;
-
   const available = width - SEPARATORS_PX * (shown - 1);
+  const widthKeyOf = (pane: Pane) => `${layoutKey}:${pane.widthKey ?? pane.id}`;
+  const keepsWidth = visiblePanes.map((pane, index) => pane.width !== undefined && (index < visiblePanes.length - 1 || visiblePanes.some((other) => other.width === undefined)));
+  const kept = (pane: Pane) => resized[widthKeyOf(pane)] ?? storedWidth(widthKeyOf(pane)) ?? pane.width!;
+  const sharesKept = (): Shares => {
+    const keptPx = visiblePanes.reduce((sum, pane, index) => sum + (keepsWidth[index] ? kept(pane) : 0), 0);
+    const flexing = normalized(
+      visibleShares.filter((_, index) => !keepsWidth[index]),
+      visiblePanes.filter((_, index) => !keepsWidth[index]).map(() => 1),
+    );
+    let next = 0;
+    const rest = Math.max(0, available - keptPx);
+    return normalized(
+      visiblePanes.map((pane, index) => (keepsWidth[index] ? kept(pane) : flexing[next++]! * rest)),
+      visibleShares,
+    );
+  };
+  const preferred = available > 0 && keepsWidth.some(Boolean) ? sharesKept() : visibleShares;
+  const shares = width > 0 ? fitted(preferred, available, visibleMins) : preferred;
+
   const resize = (index: number, deltaPx: number) => {
     const next = moved(shares, index, deltaPx, available, visibleMins);
+    // A pane with a width of its own remembers it, for every layout it's in.
+    const widths = { ...resized };
+    for (const at of [index, index + 1]) {
+      if (!keepsWidth[at]) continue;
+      const key = widthKeyOf(visiblePanes[at]!);
+      widths[key] = next[at]! * available;
+      storeWidth(key, widths[key]);
+    }
+    setResized(widths);
     // Hidden panes keep the shares they had.
     const whole = hidden === 0 ? next : [...all.slice(0, hidden), ...next.map((share) => share * all.slice(hidden).reduce((sum, s) => sum + s, 0))];
     const merged = normalized(whole, defaults);
