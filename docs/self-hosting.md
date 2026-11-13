@@ -998,6 +998,9 @@ What a self-hoster should know, beyond keeping the setup password and link to th
 - `/api/health` tells strangers only whether Ember is up; administrators and whoever sends the
   recovery token hear the rest. QR codes (`/qr_code/<id>`) are drawn for people signed in.
 
+If you find a hole in Ember itself, report it privately with GitHub's form rather than in an issue,
+as [SECURITY.md](../SECURITY.md) says.
+
 ## What it costs
 
 Ember is free, under the MIT license. What it runs on is Cloudflare's, at Cloudflare's prices, as its
