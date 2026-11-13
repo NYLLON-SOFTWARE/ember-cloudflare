@@ -1,5 +1,6 @@
 import { useContext, type MouseEvent } from "react";
 import type { Me, NavigationSlot } from "@ember/protocol";
+import { HalfMoon } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
 import { NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
@@ -85,6 +86,8 @@ interface Props {
   workspaceName: string;
   current: RailPage;
   activity: Activity;
+  /** When your push notifications are hushed until, as Do not disturb on your profile has it, or null while they aren't. */
+  dndUntil: string | null;
   /** The release of Ember out since this one, such as "0.2", which Admin marks for an administrator, or null for none. */
   newRelease: string | null;
   /** Opens New direct message, which DMs does in place, from the link that opened it. */
@@ -96,7 +99,7 @@ interface Props {
  * else with Iconoir's, as the project's owner chose. Admin has a dot while a newer release of Ember is
  * out, which General, where it goes, tells of.
  */
-export function Rail({ me, workspaceName, current, activity, newRelease, onNewDirect }: Props) {
+export function Rail({ me, workspaceName, current, activity, dndUntil, newRelease, onNewDirect }: Props) {
   const { logo } = useAccount();
   const openSearch = useContext(OpenSearchContext);
   const marked = activity.on ? null : current;
@@ -135,15 +138,23 @@ export function Rail({ me, workspaceName, current, activity, newRelease, onNewDi
         notice={newRelease === null ? undefined : `Ember ${newRelease} is available`}
       />
       <AppearanceMenu />
-      {/* Your avatar, at 36px, links to your profile, where you log out. */}
+      {/* Your avatar, at 36px, links to your profile, where you log out, with a crescent on it while
+          Do not disturb hushes your push notifications. */}
       <PageLink
         href={PROFILE_PATH}
         aria-label="Your profile"
-        title={me.name}
+        title={dndUntil !== null ? `${me.name} — push notifications hushed` : me.name}
         aria-current={marked === "profile" ? "page" : undefined}
         className="flex shrink-0 rounded-full touch:p-1"
       >
-        <UserAvatar user={me} />
+        <span className="relative flex">
+          <UserAvatar user={me} />
+          {dndUntil !== null && (
+            <span className="absolute -right-0.5 -bottom-0.5 flex size-[15px] items-center justify-center rounded-full bg-surface">
+              <HalfMoon className="size-2.5" />
+            </span>
+          )}
+        </span>
       </PageLink>
     </nav>
   );
