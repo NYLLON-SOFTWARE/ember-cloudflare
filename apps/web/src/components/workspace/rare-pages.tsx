@@ -56,18 +56,23 @@ export const RELOAD_TO_LOAD = "Ember couldn’t load this. Reload to try again."
  * the failure, offering to load the page again, which the person decides on, as it loses what's unsaved.
  */
 export function flashNotLoaded(flash: Flasher | null) {
-  if (rarePagesStuck && navigator.onLine) flash?.("alert", RELOAD_TO_LOAD, { label: "Reload", onClick: () => location.reload() });
+  if (rarePagesStuck && navigator.onLine) flash?.("alert", RELOAD_TO_LOAD, { label: "Reload", onClick: () => location.reload(), until: rarePagesArrival });
   else flash?.("alert", NOT_LOADED);
 }
 
 /** Whether the pages failed to load, which only something opened, not a preload, tries again. */
 let rarePagesFailed = false;
 
+/** Settles once the pages have loaded, which takes away a flash that offered to load the page again for them. */
+let rarePagesArrived: () => void = () => {};
+const rarePagesArrival = new Promise<void>((resolve) => (rarePagesArrived = resolve));
+
 /** Loads the pages few visits need (pages.ts), once, answering them. */
 export function loadRarePages(): Promise<RarePages> {
   loadingRarePages ??= importRarePages().then(
     (pages) => {
       rarePagesFailed = false;
+      rarePagesArrived();
       return (rarePages = pages);
     },
     (error: unknown) => {
@@ -116,6 +121,8 @@ interface RarePageProps {
   loading: ReactNode;
   /** Hears why they didn't load, if they didn't: left out where nothing need be said, as for a dialog that simply doesn't open. */
   onFailed?: (error: unknown) => void;
+  /** What shows in `loading`'s place once they've failed to load, given what tries again; `loading` stays where it's left out. */
+  failed?: (retry: () => void) => ReactNode;
 }
 
 /**
@@ -123,10 +130,11 @@ interface RarePageProps {
  * `lazy` components, each of which shows its fallback the first time it shows, however long ago its code
  * loaded, and React then keeps showing that for 300 ms.
  */
-export function RarePage({ show, loading, onFailed }: RarePageProps) {
+export function RarePage({ show, loading, onFailed, failed }: RarePageProps) {
   const flash = useOptionalFlash();
-  const pages = useRetryingLoad(rarePages, loadRarePages, onFailed ?? (() => flashNotLoaded(flash)));
-  return pages ? show(pages) : loading;
+  const { value: pages, failed: didFail, retry } = useRetryingLoad(rarePages, loadRarePages, onFailed ?? (() => flashNotLoaded(flash)));
+  if (pages) return show(pages);
+  return didFail && failed ? failed(retry) : loading;
 }
 
 /**
@@ -134,15 +142,16 @@ export function RarePage({ show, loading, onFailed }: RarePageProps) {
  * the next press or key anywhere, as on what opened it, opening it again, tries again, as a page or dialog
  * that stays shown has nothing else to try again with.
  */
-export function useRetryingLoad<T>(loaded: T | undefined, load: () => Promise<T>, failed: (error: unknown) => void): T | undefined {
+export function useRetryingLoad<T>(loaded: T | undefined, load: () => Promise<T>, failed: (error: unknown) => void): { value: T | undefined; failed: boolean; retry: () => void } {
   const [value, setValue] = useState(loaded);
   const [attempt, setAttempt] = useState(0);
+  const [didFail, setDidFail] = useState(false);
   const failing = useRef(failed);
   failing.current = failed;
+  const retry = useCallback(() => setAttempt((attempt) => attempt + 1), []);
   useEffect(() => {
     if (value !== undefined) return;
     let current = true;
-    const retry = () => setAttempt((attempt) => attempt + 1);
     const stopWaiting = () => {
       window.removeEventListener("pointerdown", retry, true);
       window.removeEventListener("keydown", retry, true);
@@ -151,6 +160,7 @@ export function useRetryingLoad<T>(loaded: T | undefined, load: () => Promise<T>
       (result) => current && setValue(result),
       (error: unknown) => {
         if (!current) return;
+        setDidFail(true);
         failing.current(error);
         window.addEventListener("pointerdown", retry, { capture: true, once: true });
         window.addEventListener("keydown", retry, { capture: true, once: true });
@@ -160,6 +170,6 @@ export function useRetryingLoad<T>(loaded: T | undefined, load: () => Promise<T>
       current = false;
       stopWaiting();
     };
-  }, [value, load, attempt]);
-  return value;
+  }, [value, load, attempt, retry]);
+  return { value, failed: didFail && value === undefined, retry };
 }

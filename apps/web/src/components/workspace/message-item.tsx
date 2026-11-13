@@ -1,10 +1,12 @@
 import { memo, useCallback, useContext, useMemo, useRef, useState } from "react";
+import type { Me, Message, User } from "@ember/protocol";
 import { isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
 import { BookmarkSolid, NavArrowRight } from "@/components/icons/iconoir";
 import { useSavedMark } from "@/lib/saved";
 import { MessageSheet, useMessageSheets, type MessageSheetHandle } from "@/components/mobile/message-sheet";
 import { PageLink } from "@/components/page-link";
 import { PeopleContext } from "@/hooks/use-directory";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { messagePath, permalinkOf, personPath, threadPath } from "@/hooks/use-route";
 import { cardsQuote, dateTimeLabel, hasEditableText, lastReplyLabel, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
@@ -12,11 +14,13 @@ import { cn } from "@/lib/utils";
 import { AgentBadge, isAgent } from "./agent-badge";
 import { Attachment } from "./attachment";
 import { BotCards } from "./bot-card";
+import { MessageActionsMenu, OVERLAPPING, type MessageActionsHandle } from "./message-actions-menu";
 import { MessageBody, shownBody } from "./message-body";
 import { MessageBoosts } from "./message-boosts";
-import { MessageEditor, type MessageEditorHandle } from "./message-editor";
-import { RarePage } from "./rare-pages";
+import { flashNotLoaded, RarePage } from "./rare-pages";
+import { useOptionalFlash } from "@/components/flash";
 import { ForwardContext } from "./forward-context";
+import type { MessageEditorHandle } from "./message-editor";
 import { UploadCard } from "./upload-card";
 import { AvatarLink, UserAvatar, userTitle } from "./user-avatar";
 
@@ -33,8 +37,6 @@ export interface MessageActions {
   retry?: (clientMessageId: string) => void;
   /** Forgets a message shown as not sent. */
   discard?: (clientMessageId: string) => void;
-  /** Clicks a button that acts on one of a message's cards, answering whether its bot took the click, once the room says. */
-  click: (messageId: string, action: CardAction) => Promise<boolean>;
 }
 
 /**
@@ -191,11 +193,21 @@ function DeletedMessage({ message, thread, open }: { message: Message; thread?: 
  */
 function Author({ user }: { user: User }) {
   const listed = useContext(PeopleContext).get(user.id) ?? user;
+  // A fingertip on a name a line tall would land on the time and text around it too, so with fingers the
+  // avatar, which takes taps 44px across, opens their profile, and the name is just their name.
+  const mouse = useMediaQuery(OVERLAPPING);
+  const name = "truncate font-bold text-message-ink";
   return (
     <>
-      <PageLink href={personPath(user.id)} title={userTitle(listed)} className="truncate font-bold text-message-ink hover:underline">
-        {listed.name}
-      </PageLink>
+      {mouse ? (
+        <PageLink href={personPath(user.id)} title={userTitle(listed)} className={cn(name, "hover:underline")}>
+          {listed.name}
+        </PageLink>
+      ) : (
+        <strong title={userTitle(listed)} className={name}>
+          {listed.name}
+        </strong>
+      )}
       {isAgent(listed) && <AgentBadge />}
     </>
   );
@@ -248,6 +260,11 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
   const sheets = useMessageSheets();
   const clearOfOptions = sheets ? undefined : "touch:pr-8";
   const attachEditor = useCallback((editor: MessageEditorHandle | null) => editors.attach(message.id, editor), [editors, message.id]);
+  const flash = useOptionalFlash();
+  const editorFailed = useCallback(() => {
+    editors.close(message.id);
+    flashNotLoaded(flash);
+  }, [editors, message.id, flash]);
   const pending = isPending(message);
   const upload = isPending(message) ? message.upload : undefined;
   // The editor shows only while the message can still be changed, and has text to change: a file message's,
@@ -384,7 +401,13 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
             shows its file in place of its text, and its upload's
             card until the room has it. A bot's cards follow, with no text before them where it sent none. */}
         {editing ? (
-          <MessageEditor ref={attachEditor} message={message} onSave={(body) => actions.edit(message.id, body)} onClose={() => editors.close(message.id)} />
+          // The editor loads with the pages few visits need, there long before anyone presses Edit.
+          <RarePage
+            show={({ MessageEditor }) => <MessageEditor ref={attachEditor} message={message} onSave={(body) => actions.edit(message.id, body)} onClose={() => editors.close(message.id)} />}
+            loading={null}
+            // The message comes back as it was, rather than stay blank, and Edit then tries again.
+            onFailed={editorFailed}
+          />
         ) : upload ? (
           <div className={threaded ? "col-start-1 row-start-1" : clearOfOptions}>
             <UploadCard upload={upload} />
@@ -417,9 +440,7 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
           )
         )}
 
-        {message.cards && !editing && (
-          <BotCards cards={message.cards} className={threaded ? "col-start-1" : clearOfOptions} onAction={actions && !pending ? (action) => actions.click(message.id, action) : undefined} />
-        )}
+        {message.cards && !editing && <BotCards cards={message.cards} className={threaded ? "col-start-1" : clearOfOptions} />}
 
         {pending && !upload && (message.failed ? <NotSent message={message} actions={actions} editors={editors} /> : message.queued && <p className="col-span-full text-xs text-message-muted">Sending…</p>)}
 

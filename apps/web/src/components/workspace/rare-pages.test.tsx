@@ -120,7 +120,7 @@ describe("A flash that offers to do something", () => {
 describe("Whatever loads with the pages, should they fail to load", () => {
   /** What a page, dialog or sheet that loads with the pages shows, as RarePage does. */
   function Loaded({ load, failed }: { load: () => Promise<string>; failed: () => void }) {
-    return <p>{useRetryingLoad(undefined, load, failed) ?? "loading"}</p>;
+    return <p>{useRetryingLoad(undefined, load, failed).value ?? "loading"}</p>;
   }
 
   it("says so, and tries again with the next press or key, as on what opened it, until they load", async () => {
@@ -135,5 +135,29 @@ describe("Whatever loads with the pages, should they fail to load", () => {
     act(() => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" })));
     expect(await screen.findByText("the page")).toBeInTheDocument();
     expect(load).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("A flash that offered to load the page again", () => {
+  it("goes once what failed has loaded after all", async () => {
+    let arrived: () => void = () => {};
+    const until = new Promise<void>((resolve) => (arrived = resolve));
+    function Offer() {
+      const flash = useOptionalFlash()!;
+      return (
+        <button type="button" onClick={() => flash("alert", RELOAD_TO_LOAD, { label: "Reload", onClick: () => {}, until })}>
+          Fail
+        </button>
+      );
+    }
+    render(
+      <FlashProvider>
+        <Offer />
+      </FlashProvider>,
+    );
+    act(() => screen.getByRole("button", { name: "Fail" }).click());
+    expect(screen.getByRole("alert")).toHaveTextContent(RELOAD_TO_LOAD);
+    await act(async () => arrived());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

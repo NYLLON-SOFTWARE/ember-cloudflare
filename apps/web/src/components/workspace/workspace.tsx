@@ -26,6 +26,7 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { apart, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
+import { OTHER_ACTION } from "./dialog-styles";
 import { afterNavigating, dmPath, messagePath, navigate, pageMark, returnTo, roomPath, routeOf, useHash, usePath, useQuery, useRoute, type Route } from "@/hooks/use-route";
 import { HomePage } from "../mobile/home-page";
 import { KeyboardInset } from "../mobile/keyboard-inset";
@@ -47,7 +48,7 @@ import { Sidebar, type SidebarPage } from "./sidebar";
 import { WelcomePage } from "./welcome-page";
 import { ForwardContext, type Forwarding } from "./forward-context";
 import { ConversationsContext } from "./quote-cite";
-import { flashNotLoaded, loadRarePages, RarePage, type RarePages } from "./rare-pages";
+import { flashNotLoaded, loadRarePages, NOT_LOADED, RarePage, type RarePages } from "./rare-pages";
 
 /** What an address shows when it's one of the pages few visits need. */
 const RARE_PAGES = new Set<Route["page"]>([
@@ -168,6 +169,26 @@ const NO_PEOPLE: User[] = [];
 const LOADING = (
   <MainContent className="col-start-3 row-span-2 flex items-center justify-center bg-background text-muted-foreground max-md:col-start-1">Loading…</MainContent>
 );
+
+/** What shows in a page's place when it couldn't load, until it's tried again, there or by any press. */
+function NotLoaded({ settings, onRetry }: { settings: boolean; onRetry: () => void }) {
+  const content = (
+    <MainContent className={cn("flex flex-col items-center justify-center gap-3 bg-background text-muted-foreground", !settings && "col-start-3 row-span-2 max-md:col-start-1")}>
+      <p role="alert">{NOT_LOADED}</p>
+      <button type="button" onClick={onRetry} className={OTHER_ACTION}>
+        Try again
+      </button>
+    </MainContent>
+  );
+  return settings ? (
+    <>
+      <PageHeader />
+      {content}
+    </>
+  ) : (
+    content
+  );
+}
 
 /** And a page of community settings, under the header and beside the links to their sections, which stay. */
 const SETTINGS_LOADING = (
@@ -407,6 +428,13 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       flash("alert", reasonFor(error));
     },
     [flash, onSessionChanged, mounted],
+  );
+  // A page that couldn't load says so in its place, so the flash only goes home for an ended session.
+  const pageFailed = useCallback(
+    (error: unknown) => {
+      if (isSignedOut(error)) failed(error);
+    },
+    [failed],
   );
   // Forward message goes when the pages don't load, so pressing it again tries again.
   const forwardFailed = useCallback(
@@ -739,7 +767,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
    * from one that couldn't load them to another tries again.
    */
   const rarePage = (show: (pages: RarePages) => ReactNode) => (
-    <RarePage key={route.page} show={show} loading={settings ? SETTINGS_LOADING : LOADING} onFailed={failed} />
+    <RarePage key={route.page} show={show} loading={settings ? SETTINGS_LOADING : LOADING} failed={(retry) => <NotLoaded settings={settings !== null} onRetry={retry} />} onFailed={pageFailed} />
   );
   /**
    * The room `place` names, in a pane of a page that opens conversations beside its list, as Activity and

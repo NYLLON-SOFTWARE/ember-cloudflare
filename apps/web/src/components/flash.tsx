@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 export interface FlashAction {
   label: string;
   onClick: () => void;
+  /** Settles once the action's no longer needed, as when what failed has loaded after all, which takes the flash away. */
+  until?: Promise<unknown>;
 }
 
 /** Flashes a message over the page, in place of any still showing. */
@@ -67,6 +69,14 @@ export function useFlash(): Flasher {
  * - keeps 12px below the header, and centered on the page, where they make room for a notch.
  */
 function Flash({ message: { kind, text, action }, workspace, onDone }: { message: FlashMessage & { action?: FlashAction }; workspace: boolean; onDone: () => void }) {
+  const until = action?.until;
+  useEffect(() => {
+    let current = true;
+    void until?.then(() => current && onDone());
+    return () => {
+      current = false;
+    };
+  }, [until, onDone]);
   const Sign = kind === "alert" ? WarningTriangle : CheckCircle;
   return (
     <div
