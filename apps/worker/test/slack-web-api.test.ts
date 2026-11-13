@@ -120,7 +120,7 @@ describe("Slack Web API posting", () => {
     }
     const randomAnswer = (await (await send("chat.postMessage", bot.key, { channel: "#Random", text: "To random" })).json()) as { ok: boolean };
     expect(randomAnswer.ok).toBe(true);
-    expect(await historyOf(bot.key, "#Random")).toMatchObject({ ok: true, channel: random, messages: [{ text: "Hello" }, { text: "To random" }] });
+    expect(await historyOf(bot.key, "#Random")).toMatchObject({ ok: true, channel: random, messages: [{ text: "To random" }, { text: "Hello" }] });
   });
 
   it("reads its fields from a form's, urlencoded or multipart, or a payload field's JSON, as its webhooks are sent", async () => {
@@ -150,7 +150,7 @@ describe("Slack Web API posting", () => {
     expect(await envelopeOf(attachments)).toEqual([200, expect.objectContaining({ ok: true })]);
     expect(await historyOf(bot.key, general)).toMatchObject({
       ok: true,
-      messages: [{ text: "From a form" }, { text: "From a multipart form" }, { text: "From a webhook's payload" }, { text: "Nightly report\nweb" }],
+      messages: [{ text: "Nightly report\nweb" }, { text: "From a webhook's payload" }, { text: "From a multipart form" }, { text: "From a form" }],
     });
   });
 
@@ -273,7 +273,7 @@ describe("Slack Web API reading", () => {
     expect(await envelopeOf(await send("conversations.list", `${bot.id}-wrongwrongxx`))).toEqual([200, { ok: false, error: "invalid_auth" }]);
   });
 
-  it("reads a room's history, oldest first, as its plain text, with whose each is, and its limit honored", async () => {
+  it("reads a room's history, newest first as Slack reads it, as its plain text, with whose each is, and its limit honored", async () => {
     const { administrator, bot, general } = await withBot();
     const inRoom = await connect(general, administrator);
     await post(inRoom, "First, from Ada");
@@ -285,19 +285,22 @@ describe("Slack Web API reading", () => {
       channel: general,
       has_more: false,
       messages: [
-        { type: "message", text: "First, from Ada", ts: expect.any(String), user: administrator.user.id },
-        { type: "message", text: "Second, from the bot", ts: expect.any(String), user: bot.id },
         { type: "message", text: "Third, from the bot", ts: expect.any(String), user: bot.id },
+        { type: "message", text: "Second, from the bot", ts: expect.any(String), user: bot.id },
+        { type: "message", text: "First, from Ada", ts: expect.any(String), user: administrator.user.id },
       ],
     });
 
     const lastTwo = await historyOf(bot.key, general, { limit: "2" });
-    expect(lastTwo.messages?.map(({ text }) => text)).toEqual(["Second, from the bot", "Third, from the bot"]);
+    expect(lastTwo.messages?.map(({ text }) => text)).toEqual(["Third, from the bot", "Second, from the bot"]);
     expect(lastTwo.has_more).toBe(true);
     // A JSON body's limit, which a number holds, too.
     const jsonLimit = (await (await send("conversations.history", bot.key, { channel: general, limit: 1 })).json()) as { messages?: HistoryMessage[]; has_more?: boolean };
     expect(jsonLimit.messages?.map(({ text }) => text)).toEqual(["Third, from the bot"]);
     expect(jsonLimit.has_more).toBe(true);
+    // As its scripts also read it: a GET, whose fields the query carries.
+    const got = await api(`/api/conversations.history?channel=${general}&limit=2`, { method: "GET", headers: { Authorization: `Bearer ${bot.key}` } });
+    expect(await envelopeOf(got)).toEqual([200, { ok: true, channel: general, has_more: true, messages: [expect.objectContaining({ text: "Third, from the bot" }), expect.objectContaining({ text: "Second, from the bot" })] }]);
 
     const closed = await createRoom("Launch", { closedTo: [administrator.user.id], as: administrator });
     expect(await envelopeOf(await send("conversations.history", bot.key, { channel: closed.id }))).toEqual([200, { ok: false, error: "not_in_channel" }]);
@@ -319,7 +322,9 @@ describe("Slack Web API failures", () => {
     // Only the methods the API takes are its: anything else at /api answers Ember's own 404.
     expect((await api("/api/chat.postMessage", { method: "GET" })).status).toBe(404);
     expect((await api("/api/chat.delete", { method: "GET" })).status).toBe(404);
-    expect((await api("/api/conversations.history", { method: "GET" })).status).toBe(404);
+    expect((await api("/api/auth.test/x", { method: "POST" })).status).toBe(404);
     expect((await api("/api/conversations.list/x", { method: "POST" })).status).toBe(404);
+    // But history reads by GET too, whose query is its fields, so without a key it answers invalid_auth.
+    expect(await envelopeOf(await api("/api/conversations.history", { method: "GET" }))).toEqual([200, { ok: false, error: "invalid_auth" }]);
   });
 });
