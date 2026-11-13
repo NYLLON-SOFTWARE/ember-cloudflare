@@ -10,7 +10,12 @@ test.beforeEach(async ({ page, session }) => {
 async function longPress(target: Locator, opens: Locator) {
   await target.scrollIntoViewIfNeeded();
   // A finger rests on what's still, as a page that scrolls under it, as one settling after the keyboard
-  // goes does, cancels the press.
+  // goes does, cancels the press: the tab bar comes back a moment after a text field lets go of focus.
+  await expect
+    .poll(() =>
+      target.page().evaluate(() => !document.documentElement.hasAttribute("data-typing") || !!document.activeElement?.matches("input, textarea, [contenteditable=true]")),
+    )
+    .toBe(true);
   let box = { x: NaN, y: NaN, width: 0, height: 0 };
   await expect
     .poll(async () => {
