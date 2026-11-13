@@ -1,9 +1,13 @@
 import type { Account } from "@ember/protocol";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { AccountContext, useAccount } from "@/hooks/use-account";
 import { AppearanceMenu } from "./appearance-menu";
+import { loadRarePages } from "./rare-pages";
+
+// The choices load with the pages.
+beforeAll(() => loadRarePages(), 120_000);
 
 /** The button, as it sits on the rail between Workspace and your profile. */
 function renderOnRail() {

@@ -8,7 +8,6 @@ import { schedulePresets, sendTimeInSentence, shortSendTime, tomorrowMorning } f
 import { SCHEDULE_HALF } from "./composer-buttons";
 import { PopoverMenu } from "./popover-menu";
 import { RarePage, useOpenedRarePage } from "./rare-pages";
-import { ActionSheet } from "../mobile/action-sheet";
 
 /** Phones, which get the dialogs as sheets from the bottom of the screen, and the list as a phone's. */
 const PHONE = "(width < 48rem)";
@@ -65,19 +64,30 @@ export function ScheduleMenu({ disabled, onSchedule, open, onOpenChange, onRetur
       loading={null}
     />
   );
-  // A phone has no chevron: holding Send opens Send later as a sheet from the bottom of the screen.
+  // A phone has no chevron: holding Send opens Send later as a sheet from the bottom of the screen, which
+  // loads with the pages.
   const phone = usePhoneLayout();
+  const sheetOpen = phone && (open ?? false) && !disabled;
+  const [sheetShown, sheetFailed] = useOpenedRarePage(sheetOpen, () => onOpenChange?.(false));
   if (phone)
     return (
       <>
-        <ActionSheet
-          open={(open ?? false) && !disabled}
-          onOpenChange={(opened) => onOpenChange?.(opened)}
-          title="Send later"
-          description="Schedule this message"
-          actions={schedulePresets(new Date()).map(({ label, at }) => ({ label, icon: <Clock className="size-5" />, onSelect: () => onSchedule(at) }))}
-          more={[{ label: "Custom time", onSelect: () => setCustom(true) }]}
-        />
+        {sheetShown && (
+          <RarePage
+            show={({ ActionSheet }) => (
+              <ActionSheet
+                open={sheetOpen}
+                onOpenChange={(opened) => onOpenChange?.(opened)}
+                title="Send later"
+                description="Schedule this message"
+                actions={schedulePresets(new Date()).map(({ label, at }) => ({ label, icon: <Clock className="size-5" />, onSelect: () => onSchedule(at) }))}
+                more={[{ label: "Custom time", onSelect: () => setCustom(true) }]}
+              />
+            )}
+            loading={null}
+            onFailed={sheetFailed}
+          />
+        )}
         {timeDialog}
       </>
     );
