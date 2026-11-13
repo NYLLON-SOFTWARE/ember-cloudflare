@@ -283,6 +283,47 @@ function forgetFormatsAsEmptied(lexxy: LexxyEditor): () => void {
   });
 }
 
+/**
+ * Code turned on at the cursor, with nothing selected, for what's typed there next, which Lexxy would turn
+ * off again in a moment: its update listener takes the code a selection carries over text that isn't code
+ * for code left behind once deleted (#clearStaleInlineCodeFormat). Until something's typed, the cursor
+ * moves or Code goes off, it's turned back on as Lexxy turns it off, in an update Lexxy's listener passes
+ * over. Each editor's, for Code to say it was turned on.
+ */
+const heldCode = new WeakMap<LexxyEditor, () => void>();
+
+function holdCodeTurnedOn(lexxy: LexxyEditor): () => void {
+  let held: { key: string; offset: number } | null = null;
+  // Called in the update that turns Code on or off.
+  heldCode.set(lexxy, () => {
+    const selection = Lexical.$getSelection();
+    const on = Lexical.$isRangeSelection(selection) && selection.isCollapsed() && selection.hasFormat("code");
+    held = on ? { key: selection.anchor.key, offset: selection.anchor.offset } : null;
+  });
+  const stop = lexxy.editor.registerUpdateListener(({ editorState }) => {
+    if (!held) return;
+    let lost = false;
+    editorState.read(() => {
+      const selection = Lexical.$getSelection();
+      const there = held !== null && Lexical.$isRangeSelection(selection) && selection.isCollapsed() && selection.anchor.key === held.key && selection.anchor.offset === held.offset;
+      if (!there) held = null;
+      else lost = !selection.hasFormat("code");
+    });
+    if (!lost) return;
+    lexxy.editor.update(
+      () => {
+        const selection = Lexical.$getSelection();
+        if (Lexical.$isRangeSelection(selection) && !selection.hasFormat("code")) selection.toggleFormat("code");
+      },
+      { tag: "history-merge" },
+    );
+  });
+  return () => {
+    stop();
+    heldCode.delete(lexxy);
+  };
+}
+
 /** Whether two readings of the text at the cursor differ, so the toolbar redraws only when they do. */
 const sameFormats = (a: Formats, b: Formats) => (Object.keys(a) as (keyof Formats)[]).every((key) => a[key] === b[key]);
 
@@ -315,7 +356,8 @@ type LexxyEditor = HTMLElement & {
   readonly contents: { textBackUntil(text: string): string; toggleCodeBlock(): void; insertHtml(markup: string): void };
   /** Its Lexical editor. */
   readonly editor: {
-    update(change: () => void, options?: { discrete?: boolean }): void;
+    /** `tag` marks the update for listeners, as "history-merge" adds it to the last undo step. */
+    update(change: () => void, options?: { discrete?: boolean; tag?: string }): void;
     dispatchCommand(command: unknown, payload?: unknown): boolean;
     registerUpdateListener(listener: (update: { editorState: { read(read: () => void): void } }) => void): () => void;
     getEditorState(): { read<T>(read: () => T): T };
@@ -445,7 +487,10 @@ export default function RichTextEditor({
         // A list, a quote or a code block takes just the line the caret's on, as Slack's buttons do, rather
         // than every line Shift+Enter broke the paragraph into.
         if (format === "numberedList" || format === "bulletList" || format === "quote" || format === "codeBlock") $isolateCaretLine();
-        if (format === "code") lexxy.editor.dispatchCommand(Lexical.FORMAT_TEXT_COMMAND, "code");
+        if (format === "code") {
+          lexxy.editor.dispatchCommand(Lexical.FORMAT_TEXT_COMMAND, "code");
+          heldCode.get(lexxy)?.();
+        }
         else if (format === "codeBlock") lexxy.contents.toggleCodeBlock();
         else lexxy.editor.dispatchCommand(COMMANDS[format]);
       }),
@@ -558,12 +603,14 @@ export default function RichTextEditor({
     let stopReading: (() => void) | undefined;
     let stopFencing: (() => void) | undefined;
     let stopForgetting: (() => void) | undefined;
+    let stopHolding: (() => void) | undefined;
     lexxy.addEventListener(
       "lexxy:initialize",
       () => {
         ready(lexxy);
         stopFencing = startCodeBlocks(lexxy);
         stopForgetting = forgetFormatsAsEmptied(lexxy);
+        stopHolding = holdCodeTurnedOn(lexxy);
         stopReading = lexxy.editor.registerUpdateListener(({ editorState }) =>
           editorState.read(() => {
             const now = formatsAt(lexxy);
@@ -591,6 +638,7 @@ export default function RichTextEditor({
       stopReading?.();
       stopFencing?.();
       stopForgetting?.();
+      stopHolding?.();
       prompting?.disconnect();
       lexxy.remove();
       editor.current = null;
