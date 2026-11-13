@@ -38,6 +38,18 @@ describe("The You sheet on a phone", () => {
     expect(within(appearance).getByRole("radio", { name: "System" })).toBeChecked();
   });
 
+  it("focuses the sheet itself as it opens, not the appearance chosen, which an arrow key would change", async () => {
+    render(<YouButton me={ada} />);
+    await userEvent.click(screen.getByRole("button", { name: "You" }));
+    expect(screen.getByRole("dialog", { name: "Ada Lovelace" })).toHaveFocus();
+  });
+
+  it("marks the appearance chosen with its check alone, not a fill", async () => {
+    render(<YouButton me={ada} />);
+    await userEvent.click(screen.getByRole("button", { name: "You" }));
+    for (const choice of sheet().getAllByRole("radio")) expect(choice.closest("label")).not.toHaveClass("has-checked:bg-hover");
+  });
+
   it("says Workspace for anyone else, with nothing new to say", async () => {
     render(<YouButton me={grace} />);
     await userEvent.click(screen.getByRole("button", { name: "You" }));

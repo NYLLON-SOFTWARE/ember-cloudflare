@@ -1,4 +1,4 @@
-import { Fragment, type ComponentType, type ReactNode } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { LiveHuddle, Me, RoomId } from "@ember/protocol";
 import { EditPencil, Group, Headset, MultiBubble } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
@@ -80,20 +80,17 @@ interface CardProps {
 /** Saved, then To-dos, as the desktop's Home sidebar has them. */
 const KEPT_CARDS: KeptShortcut["page"][] = ["saved", "todos"];
 
-/** Saved's or To-dos' card, which says how many to-dos are open. Saved has no count to give yet. */
+/**
+ * Saved's or To-dos' card, which says their counts once there are any: none, or not loaded yet, says
+ * nothing. To-dos' says how many are overdue alone, in red, when any are, which is what a narrow card has
+ * room for and what matters most, or else how many are open.
+ */
 function KeptCard({ shortcut }: { shortcut: KeptShortcut }) {
   const counts = useKeptCounts();
   const count = shortcut.page === "todos" ? counts.openTodos : counts.savedItems;
-  // Its parts stay whole, an overdue count in red, and the card grows to hold them rather than cut one off.
-  const detail =
-    count > 0
-      ? shortcut.detail(counts).map((part, index) => (
-          <Fragment key={part.text}>
-            {index > 0 && " · "}
-            <span className={part.alert ? "whitespace-nowrap text-negative" : "whitespace-nowrap"}>{part.text}</span>
-          </Fragment>
-        ))
-      : undefined;
+  const parts = shortcut.detail(counts);
+  const part = parts.find((part) => part.alert) ?? parts[0];
+  const detail = count > 0 && part ? <span className={part.alert ? "text-negative" : undefined}>{part.text}</span> : undefined;
   return <Card Icon={shortcut.Icon} title={shortcut.title} detail={detail} href={shortcut.href} />;
 }
 

@@ -146,6 +146,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
         me={me}
         actions={actions}
         editing={editing}
+        editedHere={edit?.message.id}
         editors={editors}
         onLoadOlder={thread.loadOlder}
         onLoadNewer={ignore}
@@ -154,7 +155,7 @@ export function ThreadPanel({ room, name, me, parentId, replyId, frames, status,
           return true;
         }}
         onDropFiles={(files) => composer.current?.addFiles(files)}
-        thread={{ header: <ThreadParent parent={parent} me={me} editing={editing} actions={actions} editors={editors} place={place} />, place }}
+        thread={{ header: <ThreadParent parent={parent} me={me} editing={editing} editedHere={edit?.message.id === parent?.id} actions={actions} editors={editors} place={place} />, place }}
       />
       {edit && <EditingBar onCancel={edit.onCancel} />}
       {gone ? (
@@ -209,6 +210,8 @@ interface ParentProps {
   parent: Message | null | undefined;
   me: Me;
   editing: ReadonlySet<string>;
+  /** Whether the composer is editing it, as a phone edits one there. */
+  editedHere: boolean;
   actions: MessageActions | null;
   editors: MessageEditors;
   place: ThreadPlace;
@@ -218,13 +221,13 @@ interface ParentProps {
  * The thread's message, over its replies, and how many there are, between them. Until the room has sent
  * it, nothing shows, and once the room says it hasn't one, that it's gone.
  */
-function ThreadParent({ parent, me, editing, actions, editors, place }: ParentProps) {
+function ThreadParent({ parent, me, editing, editedHere, actions, editors, place }: ParentProps) {
   if (parent === undefined) return null;
   if (parent === null) return <p className="px-5 py-2 text-[15px] leading-[22px] text-message-muted max-md:px-3">This message no longer exists.</p>;
   const count = parent.thread?.count ?? 0;
   return (
     <>
-      <MessageItem message={parent} me={me} threaded={false} editing={editing.has(parent.id)} actions={actions} editors={editors} thread={place} />
+      <MessageItem message={parent} me={me} threaded={false} editing={editing.has(parent.id)} actions={actions} editors={editors} thread={place} open={editedHere} />
       {count > 0 && (
         <div className="mx-5 mt-2 mb-1.5 flex items-center gap-3 text-[13px] leading-[18px] text-message-muted after:flex-1 after:border-t after:border-message-divider touch:mx-3 touch:mt-1.5 touch:mb-1">
           <span>{repliesLabel(count)}</span>

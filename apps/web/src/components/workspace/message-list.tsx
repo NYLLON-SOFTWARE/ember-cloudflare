@@ -142,6 +142,8 @@ interface Props {
   thread?: { header: ReactNode; place: ThreadPlace };
   /** The message whose thread is open beside the room. */
   openThread?: string;
+  /** The message the composer is editing, as a phone edits one there, which stands out as an open thread's does. */
+  editedHere?: string | null;
   /**
    * When the room was marked unread as of, as it was opened: the first message from someone else that came
    * since gets the New line, unless the messages loaded may not reach back to it.
@@ -154,7 +156,7 @@ interface Props {
  * else, it keeps the reader's place, loads the pages before and after as they near either end, and
  * offers Jump to newest message when new ones come.
  */
-export function MessageList({ roomName, direct = false, closed = false, parentName, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {}, thread, openThread, newSince = null }: Props) {
+export function MessageList({ roomName, direct = false, closed = false, parentName, invitation, onDismissInvitation, state, me, actions, editing, editors, onLoadOlder, onLoadNewer, onJumpToNewest, onDropFiles = () => {}, thread, openThread, editedHere = null, newSince = null }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -373,7 +375,7 @@ export function MessageList({ roomName, direct = false, closed = false, parentNa
                         actions={actions}
                         editors={editors}
                         thread={thread?.place}
-                        open={message.id === openThread}
+                        open={message.id === openThread || message.id === editedHere}
                       />
                     </div>
                   );

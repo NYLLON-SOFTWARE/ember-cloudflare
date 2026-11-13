@@ -25,13 +25,17 @@ export function YouSheet({ me, newRelease, onClose }: Props) {
     <SheetContent
       side="bottom"
       showCloseButton={false}
+      // A finger opens it, so focus goes to the sheet itself, as a bottom sheet's does, rather than to the
+      // appearance chosen, where an arrow key would change it.
+      onOpenAutoFocus={(event) => {
+        event.preventDefault();
+        (event.currentTarget as HTMLElement).focus({ preventScroll: true });
+      }}
       className={cn(
         "mx-auto max-h-[calc(100dvh-env(safe-area-inset-top)-48px)] max-w-[560px] gap-1 overflow-y-auto overscroll-contain rounded-t-[20px] border-x px-2 pt-2 pb-[max(12px,env(safe-area-inset-bottom))] outline-none",
         "pr-[max(8px,env(safe-area-inset-right))] pl-[max(8px,env(safe-area-inset-left))]",
       )}
     >
-      {/* The grabber, drawn as iOS draws a sheet's. */}
-      <span aria-hidden="true" className="mx-auto mb-1 h-1 w-9 shrink-0 rounded-full bg-muted-foreground/40" />
       <div className="flex min-h-12 items-center gap-3 px-4 pt-1 pb-2">
         <UserAvatar user={me} className="size-10" />
         <SheetTitle className="min-w-0 truncate text-[17px] font-semibold">{me.name}</SheetTitle>
@@ -49,7 +53,7 @@ export function YouSheet({ me, newRelease, onClose }: Props) {
         {workspace}
       </SheetLink>
       <hr className="mx-4 my-1 border-t" />
-      <AppearanceChoices legendClassName="px-4 pt-1 pb-1" choiceClassName={cn(ROW, "touch:min-h-12")} iconSize={24} />
+      <AppearanceChoices className="flex flex-col gap-1" legendClassName="px-4 pt-1 pb-1" choiceClassName={cn(ROW, "touch:min-h-12")} iconSize={24} checkOnly />
     </SheetContent>
   );
 }
