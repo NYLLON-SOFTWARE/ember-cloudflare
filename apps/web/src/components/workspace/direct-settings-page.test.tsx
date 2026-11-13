@@ -75,7 +75,7 @@ describe("Delete a direct message", () => {
   it("offers Delete DM with the trash can, to anyone in it", () => {
     showPage(withGraceAndLinus);
     const button = deleteButton();
-    expect(button).toHaveTextContent(/^DM$/);
+    expect(button).toHaveTextContent(/^Delete DM$/);
     expect(button.querySelector("svg")).toHaveClass("iconoir-trash");
   });
 

@@ -70,7 +70,7 @@ export function DirectSettingsPage({ room, me, back, askForRoom, onMissing, onFa
             <MemberCard key={member.id} member={member} name={nameOf(member)} />
           ))}
         </section>
-        <DeleteButton label="Delete DM" text="DM" disabled={busy} onClick={remove} />
+        <DeleteButton label="Delete DM" text="Delete DM" disabled={busy} onClick={remove} />
       </Panel>
     </SettingsPage>
   );
