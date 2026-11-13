@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { Me, Room, SearchMatch } from "@ember/protocol";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { ListedScheduledMessage, Me, Room, SearchMatch } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
 import { EditPencil, Trash } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";
@@ -8,7 +8,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { DRAFTS_PATH, permalinkOf, roomPath, SCHEDULED_PATH, SENT_PATH, threadPath } from "@/hooks/use-route";
 import { useAllScheduled } from "@/hooks/use-scheduled";
 import { useTitle } from "@/hooks/use-title";
-import { fetchSearch, isSignedOut } from "@/lib/api";
+import { fetchScheduled, fetchSearch, isSignedOut } from "@/lib/api";
 import { discardDraft, draftsOf, type Draft } from "@/lib/drafts";
 import { dateTimeLabel, timeLabel } from "@/lib/messages";
 import { activityLabel } from "@/lib/direct-list";
@@ -21,8 +21,6 @@ const BUTTON = "inline-flex cursor-pointer items-center justify-center gap-[0.5e
 
 const TABS = [
   { tab: "drafts", label: "Drafts", href: DRAFTS_PATH },
-  // Not in the tabs until it can list every room's, from GET /api/scheduled: until then it would list only the
-  // rooms this tab has opened, looking complete when it isn't. Its address still shows it.
   { tab: "scheduled", label: "Scheduled", href: SCHEDULED_PATH },
   { tab: "sent", label: "Sent", href: SENT_PATH },
 ] as const;
@@ -51,7 +49,7 @@ export function DraftsPage({ me, tab, rooms, onFailed }: Props) {
       </PageHeader>
       <MainContent className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         <nav aria-label="Drafts and sent" className="flex flex-none gap-1 border-b px-[22px] max-md:px-3">
-          {TABS.filter(({ tab: listed }) => listed !== "scheduled").map(({ tab: shown, label, href }) => (
+          {TABS.map(({ tab: shown, label, href }) => (
             <PageLink
               key={shown}
               href={href}
@@ -64,7 +62,7 @@ export function DraftsPage({ me, tab, rooms, onFailed }: Props) {
           ))}
         </nav>
         <section className="min-h-0 flex-1 basis-0 overflow-x-hidden overflow-y-auto overscroll-contain px-[22px] pt-4 pb-[max(18px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] max-md:px-0 max-md:pt-3">
-          {tab === "drafts" ? <Drafts me={me} names={names} /> : tab === "scheduled" ? <Scheduled names={names} /> : <Sent me={me} names={names} onFailed={onFailed} />}
+          {tab === "drafts" ? <Drafts me={me} names={names} /> : tab === "scheduled" ? <Scheduled names={names} onFailed={onFailed} /> : <Sent me={me} names={names} onFailed={onFailed} />}
         </section>
       </MainContent>
     </>
@@ -165,26 +163,49 @@ function ItemRow({ room, roomName, threadReply, href, at, atLabel = at && sentLa
   );
 }
 
+/** How long after a room says your scheduled messages changed they're asked for again, as the list trails the room. */
+export const SCHEDULED_DELAY_MS = 1000;
+
 /**
- * What you've scheduled to send later, soonest first, read only, as each room's composer has it: in the
- * rooms this tab has opened, each with when it's to go, or that it couldn't, opening where it is to go,
- * where its composer can send it now, move it or delete it.
+ * What you've scheduled to send later, in every room you're in, soonest first, as GET /api/scheduled lists
+ * it: each with when it's to go, or that it couldn't, opening where it is to go, where its composer sends
+ * it now, moves it or deletes it. It's asked for as the tab opens, and again a moment after a room open
+ * here says your scheduled messages there have changed.
  */
-function Scheduled({ names }: { names: SearchNames }) {
-  const scheduled = useAllScheduled();
+function Scheduled({ names, onFailed }: { names: SearchNames; onFailed: (error: unknown) => void }) {
+  const [listed, setListed] = useState<ListedScheduledMessage[] | null>(null);
+  // What the rooms open here say of your scheduled messages, which changes as you schedule, send or delete one.
+  const heard = useAllScheduled();
+  const first = useRef(true);
+  useEffect(() => {
+    let stopped = false;
+    const ask = setTimeout(
+      () =>
+        fetchScheduled().then(
+          (messages) => !stopped && setListed(messages),
+          (error: unknown) => (!stopped || isSignedOut(error)) && onFailed(error),
+        ),
+      first.current ? 0 : SCHEDULED_DELAY_MS,
+    );
+    first.current = false;
+    return () => {
+      stopped = true;
+      clearTimeout(ask);
+    };
+  }, [heard, onFailed]);
   const shown = useMemo(
     () =>
-      scheduled.flatMap(({ roomId, message }) => {
-        const room = names.room(roomId);
-        const text = writtenBody(message.body).plainText.replace(/\s+/g, " ").trim();
-        return room && text ? [{ room, message, text }] : [];
+      (listed ?? []).flatMap((message) => {
+        const room = names.room(message.roomId);
+        return room ? [{ room, message }] : [];
       }),
-    [scheduled, names],
+    [listed, names],
   );
+  if (!listed) return <RowsLoading />;
   if (shown.length === 0) return <Nothing title="Nothing scheduled" />;
   return (
     <ul className="flex flex-col">
-      {shown.map(({ room, message, text }) => (
+      {shown.map(({ room, message }) => (
         <li key={message.id}>
           <ItemRow
             room={room}
@@ -193,7 +214,7 @@ function Scheduled({ names }: { names: SearchNames }) {
             href={message.parentId ? threadPath(room.id, message.parentId) : roomPath(room.id)}
             at={new Date(message.sendAt)}
             atLabel={message.failed ? "Not sent" : scheduledLabel(new Date(message.sendAt))}
-            text={text}
+            text={message.preview}
           />
         </li>
       ))}

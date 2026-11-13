@@ -1,4 +1,4 @@
-import type { Me, Message, Room, ScheduledMessage, SearchResults } from "@ember/protocol";
+import type { ListedScheduledMessage, Me, Message, Room, ScheduledMessage, SearchResults } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import type { RoomFrames } from "@/hooks/use-room";
 import { useScheduled } from "@/hooks/use-scheduled";
-import { DraftsPage, scheduledLabel } from "./drafts-page";
+import { DraftsPage, SCHEDULED_DELAY_MS, scheduledLabel } from "./drafts-page";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const general: Room = { id: "general", name: "general", kind: "open", icon: null };
@@ -45,21 +45,37 @@ function RoomScheduling({ roomId, messages }: { roomId: string; messages: Schedu
 }
 
 describe("Drafts & sent", () => {
-  it("lists what you've scheduled in the rooms opened here, soonest first, each opening where it's to go, saying when", async () => {
+  it("lists what you've scheduled in every room, as the server lists it, each opening where it's to go, saying when", async () => {
     const soon = new Date(2026, 10, 12, 15, 0).getTime();
     const later = new Date(2026, 10, 20, 9, 30).getTime();
-    render(
-      <>
-        <RoomScheduling roomId="random" messages={[{ id: "s2", body: "<p>for later</p>", sendAt: later, parentId: "m7" }]} />
-        <RoomScheduling roomId="general" messages={[{ id: "s1", body: "<p>for soon</p>", sendAt: soon }, { id: "s3", body: "<p>stuck</p>", sendAt: soon + 1, failed: "You left the room" }]} />
-      </>,
-    );
+    const messages: ListedScheduledMessage[] = [
+      { id: "s1", roomId: "general", sendAt: soon, preview: "for soon" },
+      { id: "s3", roomId: "general", sendAt: soon + 1, preview: "stuck", failed: "You left the room" },
+      { id: "s2", roomId: "random", sendAt: later, preview: "for later", parentId: "m7" },
+      { id: "s4", roomId: "gone", sendAt: later, preview: "in a room I left" },
+    ];
+    vi.spyOn(globalThis, "fetch").mockClear().mockImplementation(async () => Response.json({ messages }));
     showPage("scheduled");
+    // Shapes while it loads.
+    expect(screen.getByRole("status")).toHaveTextContent("Loading…");
+    await screen.findByText("for soon");
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url))).toContain("/api/scheduled");
     const rows = screen.getAllByRole("link", { name: /^(general|random)/ });
     expect(rows.map((row) => row.getAttribute("href"))).toEqual(["/rooms/general", "/rooms/general", "/rooms/random/threads/m7"]);
-    expect(rows[0]).toHaveTextContent("for soon");
     expect(rows[1]).toHaveTextContent("Not sent");
     expect(within(rows[2]!).getByText("· Thread reply", { exact: false })).toBeInTheDocument();
+  });
+
+  it("asks again a moment after a room open here says your scheduled messages changed", async () => {
+    vi.spyOn(globalThis, "fetch").mockClear().mockImplementation(async () => Response.json({ messages: [] }));
+    showPage("scheduled");
+    expect(await screen.findByRole("heading", { name: "Nothing scheduled" })).toBeInTheDocument();
+    const asked = () => vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === "/api/scheduled").length;
+    expect(asked()).toBe(1);
+    vi.mocked(fetch).mockImplementation(async () => Response.json({ messages: [{ id: "s9", roomId: "general", sendAt: Date.now() + 60_000, preview: "just now" }] }));
+    render(<RoomScheduling roomId="general" messages={[{ id: "s9", body: "<p>just now</p>", sendAt: Date.now() + 60_000 }]} />);
+    expect(await screen.findByText("just now", {}, { timeout: SCHEDULED_DELAY_MS + 2000 })).toBeInTheDocument();
+    expect(asked()).toBe(2);
   });
 
   it("says when a scheduled message goes: its time today, tomorrow, its weekday this week, and else its date", () => {
@@ -75,6 +91,7 @@ describe("Drafts & sent", () => {
     const tabs = within(screen.getByRole("navigation", { name: "Drafts and sent" })).getAllByRole("link");
     expect(tabs.map((tab) => [tab.textContent, tab.getAttribute("href"), tab.getAttribute("aria-current")])).toEqual([
       ["Drafts", "/drafts", "page"],
+      ["Scheduled", "/drafts/scheduled", null],
       ["Sent", "/drafts/sent", null],
     ]);
   });
@@ -101,7 +118,7 @@ describe("Drafts & sent", () => {
 
   it("lists what you've sent, newest first, from search, each with its room and a link to it", async () => {
     const results: SearchResults = { search: { q: "", from: ada.id }, matches: [sent("m2", random, "the latest"), sent("m1", general, "a reply", "m0")].map((message) => ({ message, words: [] })), next: null, rooms: [general, random], recent: [] };
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(results));
+    vi.spyOn(globalThis, "fetch").mockClear().mockImplementation(async () => Response.json(results));
     showPage("sent");
     expect(await screen.findByText("the latest")).toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls[0]![0]).toContain("from=u1");
