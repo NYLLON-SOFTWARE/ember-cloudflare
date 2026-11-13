@@ -28,13 +28,13 @@ const as = (session?: Session | null): Record<string, string> => (session ? { Co
 /** The fields as the settings list them, which every change answers. */
 const fieldsOf = async (session: Session) => ((await (await api("/api/account/profile_fields", { headers: as(session) })).json()) as { fields: ProfileField[] }).fields;
 
-const add = (session: Session, body: unknown) => api("/api/account/profile_fields", { method: "POST", headers: as(session), body: JSON.stringify(body) });
+const add = (session: Session | null, body: unknown) => api("/api/account/profile_fields", { method: "POST", headers: as(session), body: JSON.stringify(body) });
 
-const change = (session: Session, id: string, body: unknown) => api(`/api/account/profile_fields/${id}`, { method: "PATCH", headers: as(session), body: JSON.stringify(body) });
+const change = (session: Session | null, id: string, body: unknown) => api(`/api/account/profile_fields/${id}`, { method: "PATCH", headers: as(session), body: JSON.stringify(body) });
 
-const order = (session: Session, ids: string[]) => api("/api/account/profile_fields/order", { method: "PUT", headers: as(session), body: JSON.stringify({ ids }) });
+const order = (session: Session | null, ids: string[]) => api("/api/account/profile_fields/order", { method: "PUT", headers: as(session), body: JSON.stringify({ ids }) });
 
-const remove = (session: Session, id: string) => api(`/api/account/profile_fields/${id}`, { method: "DELETE", headers: as(session) });
+const remove = (session: Session | null, id: string) => api(`/api/account/profile_fields/${id}`, { method: "DELETE", headers: as(session) });
 
 /** Saves someone's profile, as its form does. */
 const save = (session: Session, body: unknown) => api("/api/users/me/profile", { method: "PATCH", headers: as(session), body: JSON.stringify(body) });
