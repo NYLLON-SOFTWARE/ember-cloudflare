@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -59,13 +59,14 @@ describe("RemindDialog", () => {
     const user = userEvent.setup();
     const later = new Date(Date.now() + 60_000).toISOString();
     fetchMock.mockResolvedValue([waiting("r1", "m1", later), waiting("r2", "other", later)]);
+    dismissMock.mockResolvedValue(undefined);
     render(<RemindDialog message={message} onClose={vi.fn()} />);
 
     expect(await screen.findByText("in a minute")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Take this reminder back" })).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "Take this reminder back" }));
     expect(dismissMock).toHaveBeenCalledWith("r1");
-    expect(screen.queryByRole("button", { name: "Take this reminder back" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Take this reminder back" })).not.toBeInTheDocument());
   });
 
   it("says what the Worker refused, and stays", async () => {

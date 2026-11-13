@@ -1669,6 +1669,8 @@ export interface Reminder {
   roomId: RoomId;
   /** The message the reminder is about, which may be gone or edited by the time it comes. */
   messageId: string;
+  /** The message's parent, for a reply: its reminder opens the thread at the reply. */
+  parentId?: string;
   /** Who wrote the message, named as they were when the reminder was set. */
   creator: User;
   /** The start of the message's plain text, as it was when the reminder was set. */
@@ -1737,6 +1739,8 @@ export type WorkspaceServerFrame =
    * of it from `GET /api/reminders`, which lists what they haven't dismissed yet.
    */
   | { type: "reminder.due"; reminder: Reminder }
+  /** One of their reminders was dismissed, in this tab or another, and leaves every tab's corner. */
+  | { type: "reminder.dismissed"; id: string }
   | { type: "error"; message: string }
   | { type: "pong" };
 

@@ -2468,7 +2468,7 @@ const storedApp = (row: AppRow): StoredApp => ({
   connectedBy: row.connected_by_id !== null && row.connected_by_name !== null ? { id: row.connected_by_id, name: row.connected_by_name } : null,
 });
 /** What a reminder's row keeps, named as the protocol's `Reminder` reads it. */
-const REMINDER_FIELDS = `id, room_id AS roomId, message_id AS messageId, creator_id AS creatorId, creator_name AS creatorName,
+const REMINDER_FIELDS = `id, room_id AS roomId, message_id AS messageId, parent_id AS parentId, creator_id AS creatorId, creator_name AS creatorName,
   excerpt, remind_at AS remindAt`;
 
 /** A reminder as its row keeps it, with who asked for it. */
@@ -2476,6 +2476,7 @@ export interface StoredReminderRow {
   id: string;
   roomId: RoomId;
   messageId: string;
+  parentId: string | null;
   creatorId: UserId;
   creatorName: string;
   excerpt: string;
@@ -2491,8 +2492,8 @@ export interface StoredReminder extends StoredReminderRow {
 }
 
 /** Asks a reminder of a message for someone, keeping the message as it reads then. */
-const QUEUE_REMINDER = `INSERT INTO reminders (id, user_id, room_id, message_id, creator_id, creator_name, excerpt, remind_at, created_at)
-  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`;
+const QUEUE_REMINDER = `INSERT INTO reminders (id, user_id, room_id, message_id, parent_id, creator_id, creator_name, excerpt, remind_at, created_at)
+  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`;
 
 /** Someone's reminders, the one coming soonest first. */
 const REMINDERS_FOR_USER = `SELECT ${REMINDER_FIELDS} FROM reminders WHERE user_id = ? ORDER BY remind_at, id`;
@@ -2508,7 +2509,7 @@ const DUE_REMINDERS = `SELECT ${REMINDER_FIELDS}, user_id AS userId FROM reminde
 const IN_ROOM = `SELECT 1 FROM memberships WHERE user_id = ? AND room_id = ?`;
 
 /** The subscriptions someone's browsers have saved, each with the count its push sets the app's badge to. */
-const PUSH_DELIVERIES_FOR_USER = `SELECT id, endpoint, p256dh_key AS p256dhKey, auth_key AS authKey,
+const PUSH_DELIVERIES_FOR_USER = `SELECT push_subscriptions.id AS "subscriptionId", endpoint, p256dh_key AS "p256dhKey", auth_key AS "authKey",
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = push_subscriptions.user_id AND marked.unread_at IS NOT NULL) AS badge
   FROM push_subscriptions WHERE user_id = ? ORDER BY id`;
 
@@ -4286,7 +4287,7 @@ export class WorkspaceStore {
 
   /** Asks a reminder of a message for someone, keeping what the message read then. */
   async queueReminder(reminder: StoredReminder): Promise<void> {
-    await this.db.batch([statement(QUEUE_REMINDER, reminder.id, reminder.userId, reminder.roomId, reminder.messageId, reminder.creatorId, reminder.creatorName, reminder.excerpt, reminder.remindAt, reminder.createdAt)]);
+    await this.db.batch([statement(QUEUE_REMINDER, reminder.id, reminder.userId, reminder.roomId, reminder.messageId, reminder.parentId, reminder.creatorId, reminder.creatorName, reminder.excerpt, reminder.remindAt, reminder.createdAt)]);
   }
 
   /** Someone's reminders, the one coming soonest first. */

@@ -53,9 +53,34 @@ describe("useReminders", () => {
     const { result } = renderHook(() => useReminders());
     await waitFor(() => expect(result.current.reminders).toEqual([waiting]));
 
-    act(() => result.current.dismiss("waiting"));
+    await act(async () => {
+      await result.current.dismiss("waiting");
+    });
     expect(result.current.reminders).toEqual([]);
     expect(dismissMock).toHaveBeenCalledWith("waiting");
+  });
+
+  it("keeps a reminder whose dismissal failed, and folds a load around a due frame", async () => {
+    const waiting = reminder("waiting", new Date(Date.now() + 60_000).toISOString());
+    const due = reminder("due", new Date().toISOString());
+    let answer: Promise<Reminder[]> = new Promise(() => {});
+    fetchRemindersMock.mockImplementation(() => answer);
+    dismissMock.mockRejectedValue(new Error("gone"));
+    const { result } = renderHook(() => useReminders());
+    await act(async () => {
+      await result.current.dismiss("none").catch(() => {});
+    });
+    // The failed dismissal left nothing behind, and the failed load left the list empty.
+    expect(result.current.reminders).toBeNull();
+    act(() => result.current.cameDue(due));
+    expect(result.current.reminders).toEqual([due]);
+
+    // Back online, the late answer folds around what arrived: the due one stays, the Worker's joins it.
+    answer = Promise.resolve([waiting, reminder("older", new Date(Date.now() + 30_000).toISOString())]);
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+    });
+    await waitFor(() => expect(result.current.reminders?.map((r) => r.id).sort()).toEqual(["due", "older", "waiting"]));
   });
 });
 

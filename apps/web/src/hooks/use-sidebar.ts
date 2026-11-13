@@ -90,6 +90,7 @@ export function useSidebar(
   onAccountChanged: (account: Account) => void = () => {},
   onGone: (roomId: RoomId) => void = () => {},
   onReminderDue: (reminder: Reminder) => void = () => {},
+  onReminderGone: (id: string) => void = () => {},
 ) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
   // Whether a list the server sent has come, rather than only the empty one a failed first load leaves.
@@ -216,6 +217,8 @@ export function useSidebar(
           return accountChanged(frame.account);
         case "reminder.due":
           return onReminderDue(frame.reminder);
+        case "reminder.dismissed":
+          return onReminderGone(frame.id);
       }
     };
 

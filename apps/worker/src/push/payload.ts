@@ -33,6 +33,8 @@ export interface PushedReply {
 export interface PushedReminder {
   roomId: RoomId;
   messageId: string;
+  /** The message's parent, for a reply: the push opens the thread at the reply. */
+  parentId?: string | null;
   /** Who wrote the message the reminder is of, named as they were when the reminder was set. */
   creatorName: string;
   /** The start of the message's plain text, as it read then. */
@@ -57,14 +59,14 @@ export function messagePayload(roomId: RoomId, room: PushedRoom, senderName: str
 
 /**
  * A reminder that has come due: titled "Reminder", reading the message's plain text as the reminder
- * keeps it, or "<who> wrote" for a message that had no text, and opening the message. A message that
- * had a file keeps the file's name, which its plain text is.
+ * keeps it, or "<who> wrote" for a message that had no text, and opening the message — a reply's in
+ * its thread. A message that had a file keeps the file's name, which its plain text is.
  */
-export function reminderPayload({ roomId, messageId, creatorName, excerpt }: PushedReminder): PushPayload {
+export function reminderPayload({ roomId, messageId, parentId, creatorName, excerpt }: PushedReminder): PushPayload {
   return {
     title: "Reminder",
     body: excerpt === "" ? `${creatorName} wrote` : excerpt,
-    path: messagePath(roomId, messageId),
+    path: parentId ? threadPath(roomId, parentId, messageId) : messagePath(roomId, messageId),
   };
 }
 

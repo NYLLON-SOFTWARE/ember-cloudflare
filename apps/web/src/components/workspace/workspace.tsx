@@ -23,7 +23,7 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
-import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, useHash, useRoute, type Route } from "@/hooks/use-route";
+import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, threadPath, useHash, useRoute, type Route } from "@/hooks/use-route";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
@@ -271,10 +271,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
-  // Reminders of theirs, which the workspace socket tells this tab about as each one comes due. Declared
-  // before the sidebar, whose socket hands it every due one.
-  const { reminders, cameDue, dismiss: dismissReminder } = useReminders();
-  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, cameDue);
+  // Reminders of theirs, which the workspace socket tells this tab about as each one comes due or is
+  // dismissed in another tab. Declared before the sidebar, whose socket hands it both.
+  const { reminders, cameDue, cameGone, dismiss: dismissReminder } = useReminders();
+  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, cameDue, cameGone);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -891,10 +891,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
                 reminder={dueReminder}
                 roomName={roomName}
                 onOpen={() => {
-                  navigate(messagePath(dueReminder.roomId, dueReminder.messageId));
-                  dismissReminder(dueReminder.id);
+                  navigate(dueReminder.parentId === undefined ? messagePath(dueReminder.roomId, dueReminder.messageId) : threadPath(dueReminder.roomId, dueReminder.parentId, dueReminder.messageId));
+                  void dismissReminder(dueReminder.id);
                 }}
-                onDone={() => dismissReminder(dueReminder.id)}
+                onDone={() => void dismissReminder(dueReminder.id)}
               />
             );
           })()}

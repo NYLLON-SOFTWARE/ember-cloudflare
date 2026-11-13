@@ -703,10 +703,11 @@ function send(ws: WebSocket, frame: WorkspaceServerFrame): void {
 const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, administrator });
 
 /** The reminder a row keeps, as the protocol has it: its message's author named, and the time as a date's text. */
-const reminderOf = ({ id, roomId, messageId, creatorId, creatorName, excerpt, remindAt }: StoredReminderRow): Reminder => ({
+const reminderOf = ({ id, roomId, messageId, parentId, creatorId, creatorName, excerpt, remindAt }: StoredReminderRow): Reminder => ({
   id,
   roomId,
   messageId,
+  ...(parentId !== null && { parentId }),
   creator: { id: creatorId, name: creatorName },
   excerpt,
   remindAt: new Date(remindAt).toISOString(),
@@ -2659,6 +2660,7 @@ export class Workspace extends DurableObject<Env> {
       userId: user.id,
       roomId,
       messageId,
+      parentId: message.parentId ?? null,
       creatorId: message.creator.id,
       creatorName: message.creator.name,
       excerpt: message.plainText.slice(0, REMINDER_EXCERPT_LENGTH),
@@ -2680,12 +2682,14 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Dismisses the reminder `id` of the person `credentials` signs in, which is being done with one that
    * has come due, or taking back one that hasn't, answering whether there was one to dismiss, or null
-   * without a valid session.
+   * without a valid session. Every tab of theirs hears it, so the notice leaves their other pages too.
    */
   async dismissReminder(credentials: Credentials, id: string): Promise<boolean | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
-    return this.store.deleteReminder(user.id, id);
+    const dismissed = await this.store.deleteReminder(user.id, id);
+    if (dismissed) this.tell([user.id], { type: "reminder.dismissed", id });
+    return dismissed;
   }
 
   /**
@@ -2701,7 +2705,8 @@ export class Workspace extends DurableObject<Env> {
       const deliveries = await this.store.pushDeliveriesFor(reminder.userId);
       if (deliveries.length > 0) {
         const pushes = [{ payload: reminderPayload(reminder), deliveries }];
-        await sendPushes(this.env, pushes, (id) => this.store.pushable(id));
+        const gone = await sendPushes(this.env, pushes, (id) => this.store.pushable(id));
+        if (gone.length > 0) await this.store.forgetPushSubscriptions(gone);
       }
       await this.store.markReminderTold(reminder.id, Date.now());
     }
