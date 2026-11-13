@@ -124,17 +124,42 @@ interface RarePageProps {
  * loaded, and React then keeps showing that for 300 ms.
  */
 export function RarePage({ show, loading, onFailed }: RarePageProps) {
-  const [pages, setPages] = useState(rarePages);
+  const flash = useOptionalFlash();
+  const pages = useRetryingLoad(rarePages, loadRarePages, onFailed ?? (() => flashNotLoaded(flash)));
+  return pages ? show(pages) : loading;
+}
+
+/**
+ * What `load` answers, starting with `loaded` if it's there already. Should it fail, `failed` hears why, and
+ * the next press or key anywhere, as on what opened it, opening it again, tries again, as a page or dialog
+ * that stays shown has nothing else to try again with.
+ */
+export function useRetryingLoad<T>(loaded: T | undefined, load: () => Promise<T>, failed: (error: unknown) => void): T | undefined {
+  const [value, setValue] = useState(loaded);
+  const [attempt, setAttempt] = useState(0);
+  const failing = useRef(failed);
+  failing.current = failed;
   useEffect(() => {
-    if (pages) return;
+    if (value !== undefined) return;
     let current = true;
-    loadRarePages().then(
-      (loaded) => current && setPages(loaded),
-      (error: unknown) => current && onFailed?.(error),
+    const retry = () => setAttempt((attempt) => attempt + 1);
+    const stopWaiting = () => {
+      window.removeEventListener("pointerdown", retry, true);
+      window.removeEventListener("keydown", retry, true);
+    };
+    load().then(
+      (result) => current && setValue(result),
+      (error: unknown) => {
+        if (!current) return;
+        failing.current(error);
+        window.addEventListener("pointerdown", retry, { capture: true, once: true });
+        window.addEventListener("keydown", retry, { capture: true, once: true });
+      },
     );
     return () => {
       current = false;
+      stopWaiting();
     };
-  }, [pages, onFailed]);
-  return pages ? show(pages) : loading;
+  }, [value, load, attempt]);
+  return value;
 }

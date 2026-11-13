@@ -2,7 +2,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { FlashProvider, useOptionalFlash } from "@/components/flash";
-import { flashNotLoaded, NOT_LOADED, RELOAD_TO_LOAD, retryingImport, useOpenedRarePage } from "./rare-pages";
+import { flashNotLoaded, NOT_LOADED, RELOAD_TO_LOAD, retryingImport, useOpenedRarePage, useRetryingLoad } from "./rare-pages";
 
 let fail: () => void = () => {};
 
@@ -114,5 +114,26 @@ describe("A flash that offers to do something", () => {
     expect(reload).toHaveBeenCalledOnce();
     act(() => within(alert).getByRole("button", { name: "Dismiss" }).click());
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("Whatever loads with the pages, should they fail to load", () => {
+  /** What a page, dialog or sheet that loads with the pages shows, as RarePage does. */
+  function Loaded({ load, failed }: { load: () => Promise<string>; failed: () => void }) {
+    return <p>{useRetryingLoad(undefined, load, failed) ?? "loading"}</p>;
+  }
+
+  it("says so, and tries again with the next press or key, as on what opened it, until they load", async () => {
+    const load = vi.fn<() => Promise<string>>().mockRejectedValueOnce(new TypeError("Failed to fetch")).mockRejectedValueOnce(new TypeError("Failed to fetch")).mockResolvedValue("the page");
+    const failed = vi.fn();
+    render(<Loaded load={load} failed={failed} />);
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledOnce());
+    expect(screen.getByText("loading")).toBeInTheDocument();
+
+    act(() => void window.dispatchEvent(new Event("pointerdown")));
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledTimes(2));
+    act(() => void window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" })));
+    expect(await screen.findByText("the page")).toBeInTheDocument();
+    expect(load).toHaveBeenCalledTimes(3);
   });
 });
