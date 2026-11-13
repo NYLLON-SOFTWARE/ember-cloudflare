@@ -37,7 +37,7 @@ afterEach(() => localStorage.clear());
 describe("A room that's gone", () => {
   it("lists what you wrote there that it never had, each to copy or delete, which forgets it", async () => {
     keepUnsent(leads.id, ada.id, undefined, [unsent("First thought"), unsent("Second thought")]);
-    show({ room: leads, gone: "lost access", goTo: general, me: ada });
+    show({ room: leads, roomId: leads.id, gone: "lost access", goTo: general, me: ada });
     const list = await screen.findByRole("list", { name: "Not sent" });
     expect(within(list).getAllByRole("listitem").map((item) => item.querySelector("p")!.textContent)).toEqual(["First thought", "Second thought"]);
     const first = within(list).getAllByRole("listitem")[0]!;
@@ -48,12 +48,18 @@ describe("A room that's gone", () => {
     expect(keptInRoom(leads.id, ada.id).map((m) => m.plainText)).toEqual(["Second thought"]);
   });
 
-  it("lists nothing, and says nothing of it, where nothing was left unsent, nor for an address naming no room", () => {
-    const { unmount } = show({ room: leads, gone: "deleted", goTo: general, me: ada });
+  it("lists them for the address's room once the page no longer knows the room, as after a reload", async () => {
+    keepUnsent(leads.id, ada.id, undefined, [unsent("Still mine")]);
+    show({ room: null, roomId: leads.id, gone: "lost access", goTo: general, me: ada });
+    expect(within(await screen.findByRole("list", { name: "Not sent" })).getByRole("listitem")).toHaveTextContent("Still mine");
+  });
+
+  it("lists nothing, and says nothing of it, where nothing was left unsent, nor for an address naming a room with none", () => {
+    const { unmount } = show({ room: leads, roomId: leads.id, gone: "deleted", goTo: general, me: ada });
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(/^#Leads was deleted$/);
     unmount();
-    show({ room: null, gone: "lost access", goTo: general, me: ada });
+    show({ room: null, roomId: "nowhere", gone: "lost access", goTo: general, me: ada });
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
     // Nothing to name in the bar, so on a wide screen it has no rule under it.
     expect(screen.getByRole("navigation", { name: "Page" })).toHaveClass("md:border-b-0");
