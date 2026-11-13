@@ -1474,9 +1474,9 @@ describe("Activity", () => {
     await user.type(screen.getByRole("searchbox", { name: "Search activity" }), "lunch");
     expect(previews()).toEqual([expect.stringContaining("lunch?")]);
 
-    await user.click(within(feed()).getByRole("button", { name: "Mark read: Grace" }));
+    await user.click(within(feed()).getByRole("button", { name: /^Mark read: Grace, / }));
     expect(fetch).toHaveBeenCalledWith("/api/activity/marks", expect.objectContaining({ method: "POST", body: JSON.stringify({ ids: [1], read: true }) }));
-    expect(within(feed()).getByRole("button", { name: "Mark unread: Grace" })).toBeInTheDocument();
+    expect(within(feed()).getByRole("button", { name: /^Mark unread: Grace, / })).toBeInTheDocument();
   });
 
   it("shows an unread item by its row alone, marking it with U or its menu, and everything from ⋯", async () => {

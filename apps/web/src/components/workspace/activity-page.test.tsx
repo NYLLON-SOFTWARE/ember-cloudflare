@@ -68,4 +68,10 @@ describe("ActivityPage's Filter on a phone", () => {
     expect(sheet).toHaveClass("bottom-0");
     expect(within(sheet).getByRole("group", { name: "Kinds of activity" })).toBeInTheDocument();
   });
+
+  it("makes the feed the page's main content while it's alone", () => {
+    history.replaceState(null, "", "/activity");
+    onPhone(null);
+    expect(screen.getByRole("main", { name: "Activity" })).toBeInTheDocument();
+  });
 });
