@@ -42,6 +42,8 @@ function renderHeader(props: Partial<ComponentProps<typeof RoomHeader>> = {}, on
             favorite={false}
             onStarred={vi.fn()}
             involvement="mentions"
+            pinned={0}
+            onPinned={vi.fn()}
             askForRoom={() => vi.fn()}
             onSessionChanged={vi.fn()}
             onFailed={vi.fn()}
@@ -77,6 +79,8 @@ describe("Who's here", () => {
             favorite={false}
             onStarred={vi.fn()}
             involvement="mentions"
+            pinned={0}
+            onPinned={vi.fn()}
             askForRoom={() => vi.fn()}
             onSessionChanged={vi.fn()}
             onFailed={vi.fn()}
@@ -151,6 +155,8 @@ describe("Group DMs and DM names", () => {
             favorite={false}
             onStarred={vi.fn()}
             involvement="mentions"
+            pinned={0}
+            onPinned={vi.fn()}
             askForRoom={() => vi.fn()}
             onSessionChanged={vi.fn()}
             onFailed={vi.fn()}
@@ -316,6 +322,8 @@ describe("Huddles", () => {
             favorite={false}
             onStarred={vi.fn()}
             involvement="mentions"
+            pinned={0}
+            onPinned={vi.fn()}
             askForRoom={() => vi.fn()}
             onSessionChanged={vi.fn()}
             onFailed={vi.fn()}

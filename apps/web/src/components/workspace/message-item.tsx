@@ -23,6 +23,10 @@ export interface MessageActions {
   boost: (messageId: string, content: string) => boolean;
   /** Returns whether the deletion was sent. */
   unboost: (boostId: string) => boolean;
+  /** Returns whether the message was pinned. */
+  pin: (messageId: string) => boolean;
+  /** Returns whether the pin was taken away. */
+  unpin: (messageId: string) => boolean;
   /** Returns whether the edit was sent. */
   edit: (messageId: string, body: string) => boolean;
   /** Returns whether the deletion was sent. */
@@ -70,6 +74,11 @@ interface Props {
   thread?: ThreadPlace;
   /** Whether the message's thread is open beside its room, which marks it there, as Slack does. */
   open?: boolean;
+  /**
+   * The room's pinned messages' ids, which names Pin to room or Unpin among the message's actions.
+   * Left out in a thread's panel, whose replies aren't pinned to the room.
+   */
+  pinnedIds?: ReadonlySet<string>;
 }
 
 /**
@@ -205,7 +214,7 @@ function Author({ user }: { user: User }) {
 }
 
 /** One message: a 36px avatar gutter, author and time, then the body. */
-export const MessageItem = memo(function MessageItem({ message, me, threaded: follows, editing: editorOpen, actions, editors, thread, open }: Props) {
+export const MessageItem = memo(function MessageItem({ message, me, threaded: follows, editing: editorOpen, actions, editors, thread, open, pinnedIds }: Props) {
   const article = useRef<HTMLElement>(null);
   const menu = useRef<MessageActionsHandle>(null);
   const attachEditor = useCallback((editor: MessageEditorHandle | null) => editors.attach(message.id, editor), [editors, message.id]);
@@ -378,6 +387,8 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
           editable={mine || me.administrator}
           // A reply shown in the room opens its own thread, which its parent's is.
           threadPath={thread ? undefined : threadPath(message.roomId, message.parentId ?? message.id)}
+          pinned={pinnedIds?.has(message.id) ?? false}
+          onPin={pinnedIds !== undefined ? () => (pinnedIds.has(message.id) ? actions.unpin(message.id) : actions.pin(message.id)) : undefined}
           onReact={(emoji) => actions.boost(message.id, emoji)}
           onQuote={editors.reply}
           onEdit={() => editors.open(message.id)}

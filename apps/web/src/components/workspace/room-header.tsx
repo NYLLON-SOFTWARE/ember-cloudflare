@@ -1,6 +1,6 @@
 import { useContext } from "react";
 import type { Favorites, Involvement, Me, Room, User } from "@ember/protocol";
-import { ChatBubbleEmpty, MoreHoriz, Search } from "@/components/icons/iconoir";
+import { ChatBubbleEmpty, MoreHoriz, Pin, Search } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
@@ -33,6 +33,10 @@ interface Props {
   onStarred: (favorites: Favorites) => void;
   /** This person's notification level in the room. */
   involvement: Involvement;
+  /** How many messages the room has pinned, which shows while it has any. */
+  pinned: number;
+  /** Opens the room's Pinned panel, which the header's control stands for. */
+  onPinned: () => void;
   /** Called as its bell saves this person's level in the room, with what gives the room the level the server answers. */
   askForRoom: () => (answer: RoomAnswer) => void;
   onSessionChanged: (me: Me | null) => void;
@@ -41,12 +45,13 @@ interface Props {
 }
 
 /**
- * The room header: the room's name, its star, who's here, the huddle button once huddles are on, Search,
- * which opens the search box in the room, the bell, which turns notifications on until they're on and
- * is then your notification level's, and its settings. A DM's has a chat bubble in place of the room's
- * icon, and no star or huddle button, and a DM with an AI agent alone the agent badge after its name.
+ * The room header: the room's name, its star, who's here, the huddle button once huddles are on, the
+ * room's Pinned control while it has pins, Search, which opens the search box in the room, the bell,
+ * which turns notifications on until they're on and is then your notification level's, and its settings.
+ * A DM's has a chat bubble in place of the room's icon, and no star or huddle button, and a DM with an
+ * AI agent alone the agent badge after its name.
  */
-export function RoomHeader({ room, name, present, status, offline, favorite, onStarred, involvement, askForRoom, onSessionChanged, onFailed }: Props) {
+export function RoomHeader({ room, name, present, status, offline, favorite, onStarred, involvement, pinned, onPinned, askForRoom, onSessionChanged, onFailed }: Props) {
   const nameOf = useNameOf();
   const isWithAgent = useIsWithAgent();
   const openSearch = useContext(OpenSearchContext);
@@ -94,6 +99,12 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
       {/* The room's actions, 6px apart, and touching at 900px and below. */}
       <div className="flex shrink-0 items-center gap-1.5 max-md:gap-0">
         {huddles && <HuddleButton roomId={room.id} />}
+        {pinned > 0 && (
+          <button type="button" title="Pinned messages" aria-label={`Pinned messages (${pinned})`} onClick={onPinned} className={cn(HEADER_BUTTON, "[&>svg]:size-5")}>
+            <Pin />
+            <span className="text-xs leading-none font-medium tabular-nums">{pinned}</span>
+          </button>
+        )}
         {/* A phone under 430px wide has no room for both, and Search is in the drawer's rail too. */}
         <PageLink
           href={SEARCHES_PATH}
