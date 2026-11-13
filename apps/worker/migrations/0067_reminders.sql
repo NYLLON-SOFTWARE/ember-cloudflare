@@ -9,6 +9,7 @@ CREATE TABLE reminders (
   user_id TEXT NOT NULL,
   room_id TEXT NOT NULL,
   message_id TEXT NOT NULL,
+  parent_id TEXT,
   creator_id TEXT NOT NULL,
   creator_name TEXT NOT NULL,
   excerpt TEXT NOT NULL,

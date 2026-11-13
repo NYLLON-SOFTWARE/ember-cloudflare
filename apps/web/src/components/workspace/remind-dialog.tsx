@@ -87,8 +87,9 @@ export function RemindDialog({ message, onClose }: Props) {
   };
 
   const takeBack = (id: string) => {
-    setWaiting((current) => current?.filter((reminder) => reminder.id !== id) ?? current);
-    void dismissReminder(id).catch(() => {});
+    void dismissReminder(id)
+      .then(() => setWaiting((current) => current?.filter((reminder) => reminder.id !== id) ?? current))
+      .catch(() => setMistake("Ember couldn't take that back. Try again."));
   };
 
   return (
@@ -170,7 +171,8 @@ export function RemindDialog({ message, onClose }: Props) {
           </button>
           <button
             type="button"
-            className={cn(BUTTON, "cursor-pointer border-transparent bg-foreground text-background hover:brightness-70 touch:min-h-11", (asking || remindAt === null) && "pointer-events-none opacity-60")}
+            className={cn(BUTTON, "cursor-pointer border-transparent bg-foreground text-background hover:brightness-70 touch:min-h-11", (asking || remindAt === null) && "opacity-60")}
+            disabled={asking || remindAt === null}
             onClick={() => void ask()}
           >
             {asking ? "Setting…" : "Set reminder"}
