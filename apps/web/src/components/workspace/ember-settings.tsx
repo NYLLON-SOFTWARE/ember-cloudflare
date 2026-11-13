@@ -9,6 +9,7 @@ import {
   MAX_INSTRUCTIONS_LENGTH,
   MODELS_FULL,
   modelName,
+  offeredModelOf,
   PAGES_READ_PER_ANSWER,
   WEB_SEARCHES_PER_ANSWER,
   withinMost,
@@ -37,11 +38,12 @@ import {
 } from "@/lib/api";
 import { avatarVariantOf } from "@/lib/previews";
 import { cn } from "@/lib/utils";
-import { AddAssistantModel } from "./add-assistant-model";
+import { AddAssistantModel, modelsToAddTo } from "./add-assistant-model";
 import { AGENTS_PATH, useAgentsOnly } from "./agent-list";
 import { AssistantSetup, searchTurnedOff } from "./assistant-setup";
 import { BUTTON } from "./email-settings";
 import { LevelDials } from "./level-dials";
+import { NO_LONGER_OFFERED } from "./model-picker";
 import { PictureField } from "./picture-picker";
 import { PromptPreview } from "./prompt-preview";
 import { CHANGES_SAVED, PageHeading, Panel, SettingsPage } from "./settings-page";
@@ -73,6 +75,9 @@ export const INSTRUCTIONS_UNSAVED = "You’ve changed @ember’s instructions. S
 
 /** What the page says of its models. */
 export const MODELS_EXPLAINED = "People can pick any of these on their profile for @ember to answer them with. The one chosen here answers everyone else.";
+
+/** What it says under Add a model once people can pick every model Ember offers. */
+export const EVERY_MODEL_ADDED = "People can pick every model Ember offers.";
 
 /** What the page says of its dials. */
 export const LIMITS_EXPLAINED =
@@ -534,8 +539,9 @@ function Avatar({ src, uploaded, disabled, onChoose, onRemove }: { src: string; 
 
 /**
  * The models people can pick, in the order they were added, each a radio button that chooses it to
- * answer everyone else, with a Remove for each but that one, and Add a model under them, until there are
- * as many as there can be.
+ * answer everyone else, with a Remove for each but that one, and saying so of one Ember no longer
+ * offers, and Add a model under them, until there are as many as there can be, or people can pick every
+ * model Ember offers.
  */
 function Models({
   assistant,
@@ -551,6 +557,8 @@ function Models({
   onAdd: () => void;
 }) {
   const full = assistant.models.length >= MAX_ASSISTANT_MODELS;
+  const noneToAdd = modelsToAddTo(assistant).length === 0;
+  const why = full ? MODELS_FULL : noneToAdd ? EVERY_MODEL_ADDED : null;
   return (
     <div className="flex flex-col gap-3 border-t pt-4">
       <div>
@@ -575,7 +583,15 @@ function Models({
                 onChange={() => onChoose(id)}
                 className="size-4 flex-none accent-foreground"
               />
-              <span className="min-w-0 wrap-anywhere">{name}</span>
+              <span className="min-w-0 wrap-anywhere">
+                {name}
+                {!offeredModelOf(id) && (
+                  <>
+                    {" "}
+                    <span className="text-muted-foreground">({NO_LONGER_OFFERED})</span>
+                  </>
+                )}
+              </span>
             </label>
             {assistant.model !== id && (
               <button type="button" aria-label={`Remove ${name}`} disabled={disabled} onClick={() => onRemove(id)} className={BUTTON}>
@@ -586,12 +602,12 @@ function Models({
         ))}
       </fieldset>
       <div className="flex flex-wrap items-center gap-x-[1ch] gap-y-2">
-        <button type="button" disabled={disabled || full} onClick={onAdd} aria-describedby={full ? "assistant-models-full" : undefined} className={BUTTON}>
+        <button type="button" disabled={disabled || why !== null} onClick={onAdd} aria-describedby={why ? "assistant-models-full" : undefined} className={BUTTON}>
           Add a model
         </button>
-        {full && (
+        {why && (
           <p id="assistant-models-full" className={NOTE}>
-            {MODELS_FULL}
+            {why}
           </p>
         )}
       </div>

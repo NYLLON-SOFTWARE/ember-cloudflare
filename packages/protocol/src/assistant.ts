@@ -5,18 +5,26 @@ import { parseTemplate } from "./prompts.ts";
 // AI assistant tab of workspace settings through `/api/account/assistant`.
 
 /**
- * The API formats Ember asks a model in: the three AI Gateway's REST API takes a model's requests in, at
- * `/ai/v1/messages`, `/ai/v1/responses` and `/ai/v1/chat/completions`, where Anthropic's models take only
- * Messages, some of OpenAI's only Responses, and most others Chat Completions, and xAI's own Responses,
- * which AI Gateway's xAI endpoint passes on, where Grok can search the web, as it can't through the REST
- * API, which takes Grok's requests only in Chat Completions.
+ * The API formats Ember asks a model in: the providers' own, which AI Gateway's endpoint for each
+ * provider passes on as they are, Anthropic's Messages, OpenAI's Responses and xAI's Responses, each the
+ * provider's whole API, where Grok can search the web too, and the three Cloudflare's REST API takes a
+ * model's requests in, at `/ai/v1/messages`, `/ai/v1/responses` and `/ai/v1/chat/completions`, which
+ * Ember asks only a model kept from before it offered just its own list in, in the one it took then.
  */
-export const MODEL_FORMATS = ["messages", "responses", "chat", "xai"] as const;
+export const MODEL_FORMATS = ["messages", "responses", "chat", "xai", "anthropic", "openai"] as const;
 export type ModelFormat = (typeof MODEL_FORMATS)[number];
 
+/** The formats of the providers' own APIs, which AI Gateway's endpoint for each provider passes on. */
+export const PROVIDER_FORMATS = ["anthropic", "openai", "xai"] as const satisfies readonly ModelFormat[];
+export type ProviderFormat = (typeof PROVIDER_FORMATS)[number];
+
+/** Whether `format` is a provider's own, asked through AI Gateway's endpoint for that provider rather than Cloudflare's REST API. */
+export const isProviderFormat = (format: ModelFormat): format is ProviderFormat => (PROVIDER_FORMATS as readonly ModelFormat[]).includes(format);
+
 /**
- * A model @ember can answer with, as Cloudflare's catalog lists it, or Ember does: its ID, what to call
- * it, the format AI Gateway takes its requests in, and what it costs, when the catalog says.
+ * A model @ember can answer with, as Ember offers it, or as it was kept before Ember stopped offering it:
+ * its ID, what to call it, the format AI Gateway takes its requests in, and what it costs, for one Ember
+ * offers.
  */
 export interface AssistantModel {
   id: string;
@@ -37,32 +45,52 @@ export interface ModelPrice {
 }
 
 /**
- * The models Ember knows without Cloudflare's catalog, which Set up Ember AI lists when it can't read
- * the catalog, Workers AI's first, which come with Cloudflare's free daily allowance, then other
- * companies', which AI Gateway's credits pay for. Their names are the ones Ember calls them by, wherever
- * they're listed.
+ * The models Ember offers, which Set up Ember AI, Add a model and the agents' pages list: Anthropic's and
+ * OpenAI's, each asked in its provider's own format through AI Gateway's endpoint for that provider, and
+ * xAI's, asked through Cloudflare's REST API, where Ember knows the tools each has for the web
+ * (`WEB_TOOLS_IN`, `searchFormatOf`), with what AI Gateway's
+ * credits pay for each, at its provider's prices. A model kept from before Ember offered only these
+ * answers still, as it was kept. Wherever one of these is listed, Ember calls it by its name here.
  */
 export const ASSISTANT_MODELS: readonly AssistantModel[] = [
-  { id: "@cf/zai-org/glm-4.7-flash", name: "GLM-4.7 Flash", format: "chat" },
-  { id: "@cf/google/gemma-4-26b-a4b-it", name: "Gemma 4 26B", format: "chat" },
-  { id: "@cf/openai/gpt-oss-120b", name: "gpt-oss-120b", format: "chat" },
-  { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", format: "messages" },
-  { id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", format: "messages" },
-  { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", format: "messages" },
-  { id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", format: "responses" },
-  { id: "openai/gpt-6.1-terra", name: "GPT-6.1 Terra", format: "responses" },
-  { id: "google/gemini-4-argon", name: "Gemini 4 Argon", format: "chat" },
-  { id: "google/gemini-3.7-flash", name: "Gemini 3.7 Flash", format: "chat" },
-  { id: "moonshotai/kimi-k3", name: "Kimi K3", format: "chat" },
+  { id: "anthropic/claude-fable-5.2", name: "Claude Fable 5.2", format: "anthropic", price: { input: 8, output: 40 } },
+  { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", format: "anthropic", price: { input: 4, output: 20 } },
+  { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", format: "anthropic", price: { input: 2, output: 10 } },
+  // For a question under 100,000 tokens, as most of @ember's are, and five times that for a longer one.
+  { id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", format: "anthropic", price: { input: 0.1, output: 0.5 } },
+  { id: "openai/gpt-6-astra", name: "GPT-6 Astra", format: "openai", price: { input: 10, output: 50 } },
+  { id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", format: "openai", price: { input: 2, output: 10 } },
+  { id: "openai/gpt-6.1-terra", name: "GPT-6.1 Terra", format: "openai", price: { input: 1, output: 5 } },
+  { id: "openai/gpt-6-luna", name: "GPT-6 Luna", format: "openai", price: { input: 0.1, output: 0.5 } },
+  // AI Gateway's credits don't pay for Grok at its xAI endpoint, only through Cloudflare's REST API, where
+  // it can't search; it searches at the endpoint with an xAI key of the gateway's own (`searchFormatOf`).
+  { id: "xai/grok-4.7", name: "Grok 4.7", format: "chat", price: { input: 2, output: 6 } },
 ];
+
+/** The model Set up Ember AI starts at: the one that costs least of those that both search the web and read pages. */
+export const SUGGESTED_MODEL = "anthropic/claude-haiku-5.5";
+
+/** The model Ember offers with the ID `model`, if it offers one (`ASSISTANT_MODELS`). */
+export const offeredModelOf = (model: string) => ASSISTANT_MODELS.find(({ id }) => id === model);
 
 /** Whether `model` is one of Workers AI's, which Cloudflare runs itself, rather than another company's. */
 export const isWorkersAiModel = (model: string) => model.startsWith("@cf/");
 
-/** Whether `model` is one of xAI's, Grok, which Ember asks in xAI's own Responses when it can. */
+/** Whether `model` is one of xAI's, Grok, which searches the web only in xAI's own Responses. */
 export const isXaiModel = (model: string) => model.startsWith("xai/");
 
-/** What to call `model`: its name in `models`, or else in the models Ember knows, or else its ID. */
+/**
+ * The format of `model`'s provider's own API, which Ember asks it in through AI Gateway's endpoint for
+ * that provider, where the gateway's credits pay: Anthropic's Messages for Claude and OpenAI's Responses
+ * for GPT, or null for anyone else's model, Grok among them, which Ember asks through Cloudflare's REST
+ * API.
+ */
+export function providerFormatOf(model: string): ProviderFormat | null {
+  if (model.startsWith("anthropic/")) return "anthropic";
+  return model.startsWith("openai/") ? "openai" : null;
+}
+
+/** What to call `model`: its name in `models`, or else in the models Ember offers, or else its ID. */
 export const modelName = (model: string, models: readonly AssistantModel[] = []) =>
   (models.find(({ id }) => id === model) ?? ASSISTANT_MODELS.find(({ id }) => id === model))?.name ?? model;
 
@@ -251,16 +279,22 @@ export const WEB_SEARCHES_PER_ANSWER = 5;
 export const PAGES_READ_PER_ANSWER = 3;
 
 /** What a model may do on the web in each format, with the tools AI Gateway passes on in it. */
-export const WEB_TOOLS_IN: Record<ModelFormat, readonly WebTool[]> = { messages: ["search", "read"], responses: ["search"], chat: [], xai: ["search"] };
+export const WEB_TOOLS_IN: Record<ModelFormat, readonly WebTool[]> = {
+  messages: ["search", "read"],
+  responses: ["search"],
+  chat: [],
+  xai: ["search"],
+  anthropic: ["search", "read"],
+  openai: ["search"],
+};
 
 /**
- * The format `model` is likeliest to take through AI Gateway's REST API: the one `models` list it with,
- * or the models Ember knows, or else Messages for Anthropic's, Responses for OpenAI's, and Chat
- * Completions for anyone else's, Grok too, which Ember asks in xAI's own Responses first when it can.
+ * The format Ember asks `model` in: the one `models` list it with, or the one Ember offers it in, or else
+ * its provider's own (`providerFormatOf`), or Chat Completions, through Cloudflare's REST API, for anyone
+ * else's.
  */
 export function formatOf(model: string, models: readonly AssistantModel[] = []): ModelFormat {
-  const listed = (models.find(({ id }) => id === model) ?? ASSISTANT_MODELS.find(({ id }) => id === model))?.format;
-  return listed ?? (model.startsWith("anthropic/") ? "messages" : model.startsWith("openai/") ? "responses" : "chat");
+  return (models.find(({ id }) => id === model) ?? offeredModelOf(model))?.format ?? providerFormatOf(model) ?? "chat";
 }
 
 /**
@@ -360,7 +394,7 @@ export const WEB_SEARCH_CHANGED = "Ember AI changed while its model searched. Tr
 
 /**
  * The Cloudflare account Ember AI asks through, as Set up Ember AI gives it: its ID, and an API token of
- * its with the Workers AI Read permission, and AI Gateway Run, which Grok needs to search the web, which a
+ * its with the AI Gateway Run permission, which AI Gateway's endpoint for each provider takes, which a
  * change can leave out to keep the one Ember has.
  */
 export interface AssistantKeys {
@@ -370,27 +404,15 @@ export interface AssistantKeys {
 
 /**
  * What Set up Ember AI gives `PUT /api/account/assistant`: the account, and the ID of the model to answer
- * anyone with who hasn't picked another, with its name, as Cloudflare's catalog gives it, if it does.
+ * anyone with who hasn't picked another, one Ember offers.
  */
 export interface AssistantSetup extends AssistantKeys {
   model: string;
-  modelName?: string;
 }
 
-/**
- * What `POST /api/account/assistant/catalog` answers for an account: the text models Cloudflare's catalog
- * lists, Workers AI's first, by name, with what they cost, or else, when Ember can't read the catalog,
- * the models it knows, and why it can't.
- */
-export interface AssistantCatalog {
-  models: AssistantModel[];
-  refusal: string | null;
-}
-
-/** What Add a model gives `POST /api/account/assistant/models`: the model's ID, and its name, as Cloudflare's catalog gives it, if it does. */
+/** What Add a model gives `POST /api/account/assistant/models`: the ID of a model Ember offers. */
 export interface NewAssistantModel {
   model: string;
-  modelName?: string;
 }
 
 /**
@@ -410,16 +432,16 @@ export interface AssistantForgotten {
 /** A field of Set up Ember AI, which a refusal can be about. */
 export type AssistantField = "accountId" | "apiToken" | "model";
 
-/** The longest model ID Ember takes, where Cloudflare's are a few dozen characters. */
+/** The longest model ID Ember takes, where its are a few dozen characters. */
 export const MAX_MODEL_LENGTH = 200;
 
 /** The longest API token Ember takes, which goes in a header of each request to Cloudflare. */
 const MAX_API_TOKEN_LENGTH = 200;
 
 /** Why Set up Ember AI's fields are refused before Cloudflare is asked about them. */
-export const ACCOUNT_ID_REFUSED = "An account ID is 32 letters and digits. Copy it from Workers AI's Use REST API in the Cloudflare dashboard.";
+export const ACCOUNT_ID_REFUSED = "An account ID is 32 letters and digits. Search the Cloudflare dashboard for Copy account ID to copy it.";
 export const API_TOKEN_REFUSED = "Paste an API token from Account API tokens in the Cloudflare dashboard.";
-export const MODEL_REFUSED = "A model's ID has a slash, such as anthropic/claude-sonnet-5.5. Copy it from Cloudflare's model catalog.";
+export const MODEL_REFUSED = "Choose one of the models Ember offers.";
 
 /** The Cloudflare account ID `text` gives, without the spaces around it and in small letters, or null when it can't be one: 32 hexadecimal digits. */
 export function accountIdOf(text: string): string | null {
@@ -434,8 +456,8 @@ export function apiTokenOf(text: string): string | null {
 }
 
 /**
- * The model ID `text` gives, without the spaces around it, or null when it can't be one: Cloudflare's
- * name the company and then the model, as `company/model`, and Workers AI's start with `@cf/`.
+ * The model ID `text` gives, without the spaces around it, or null when it can't be one: they name the
+ * company and then the model, as `company/model`, and Workers AI's start with `@cf/`.
  */
 export function modelOf(text: string): string | null {
   const model = text.trim();
@@ -443,8 +465,8 @@ export function modelOf(text: string): string | null {
 }
 
 /**
- * The account `POST /api/account/assistant/catalog` lists the models of, as Set up Ember AI sends it, or
- * why it can't be one, on the field it's about. A blank API token is left out, keeping the one Ember has.
+ * The account Set up Ember AI asks through, as it sends it, or why it can't be one, on the field it's
+ * about. A blank API token is left out, keeping the one Ember has.
  */
 export function parseAssistantKeys(data: unknown): AssistantKeys | { error: string; field: AssistantField } {
   const given = objectIn(data);
@@ -459,7 +481,7 @@ export function parseAssistantKeys(data: unknown): AssistantKeys | { error: stri
 
 /**
  * What `PUT /api/account/assistant` gives Ember, as Set up Ember AI sends it, or why it can't be one, on
- * the field it's about, as `parseAssistantKeys` reads the account. A name that can't be a model's is left out.
+ * the field it's about, as `parseAssistantKeys` reads the account and `parseNewAssistantModel` the model.
  */
 export function parseAssistantSetup(data: unknown): AssistantSetup | { error: string; field: AssistantField } {
   const keys = parseAssistantKeys(data);
@@ -468,13 +490,11 @@ export function parseAssistantSetup(data: unknown): AssistantSetup | { error: st
   return "error" in model ? model : { ...keys, ...model };
 }
 
-/** The model `POST /api/account/assistant/models` adds, as Add a model sends it, or why it can't be one. A name that can't be a model's is left out. */
+/** The model `POST /api/account/assistant/models` adds, as Add a model sends it, or why it can't be one: Ember doesn't offer it. */
 export function parseNewAssistantModel(data: unknown): NewAssistantModel | { error: string; field: "model" } {
   const given = objectIn(data);
   const model = typeof given.model === "string" ? modelOf(given.model) : null;
-  if (model === null) return { error: MODEL_REFUSED, field: "model" };
-  const name = modelNameOf(given.modelName);
-  return name === null ? { model } : { model, modelName: name };
+  return model !== null && offeredModelOf(model) ? { model } : { error: MODEL_REFUSED, field: "model" };
 }
 
 /** Why `DELETE /api/account/assistant/models` keeps a model: @ember answers everyone with it who hasn't picked another. */

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Me, SidebarRoom } from "@ember/protocol";
 import { AGENT_CHANGED, agentCannotSearchWith, AGENTS_FORBIDDEN, NAME_TAKEN, type AgentSettings, type AgentTrialAnswer, type NewAgent } from "@ember/protocol/agents";
-import { ASSISTANT_MODELS, ASSISTANT_OFF, MODEL_REFUSED, THINKING_LEVELS, TOP_LEVELS, type AssistantCatalog, type AssistantModel, type AssistantSettings as Assistant } from "@ember/protocol/assistant";
+import { ASSISTANT_MODELS, ASSISTANT_OFF, offeredModelOf, SUGGESTED_MODEL, THINKING_LEVELS, TOP_LEVELS, type AssistantSettings as Assistant } from "@ember/protocol/assistant";
 import { AGENT_TEMPLATE, INSTRUCTIONS_PLACE_NEEDED, PLACEHOLDERS, placeholderOf, unknownPlaceholder } from "@ember/protocol/prompts";
 import defaultBotAvatar from "@/components/default-bot-avatar.svg";
 import { FlashProvider } from "@/components/flash";
@@ -22,21 +22,17 @@ vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob([
 
 const ada: Me = { id: "0mgk3x2a9b4c5d", name: "Ada Lovelace", administrator: true };
 
-/** The model `id`, as Ember knows it, with `price` when the catalog gives one. */
-function known(id: string, price?: AssistantModel["price"]): AssistantModel {
-  const { name, format } = ASSISTANT_MODELS.find((model) => model.id === id)!;
-  return { id, name, format, ...(price && { price }) };
-}
-
 const SONNET = "anthropic/claude-sonnet-5.5";
 const GPT = "openai/gpt-6.1-sol";
-const GLM = "@cf/zai-org/glm-4.7-flash";
+const GROK = "xai/grok-4.7";
+/** One of Workers AI's, which Ember no longer offers, kept by a copy set up before, in the format Cloudflare's REST API took it in. */
+const GLM = { id: "@cf/zai-org/glm-4.7-flash", name: "GLM-4.7 Flash", format: "chat" } as const;
 
 /** Ember AI on Claude Sonnet 5.5. */
 const ON: Assistant = {
   accountId: "0123456789abcdef0123456789abcdef",
   model: SONNET,
-  models: [known(SONNET)],
+  models: [offeredModelOf(SONNET)!],
   most: TOP_LEVELS,
   webTools: [],
   instructions: "",
@@ -44,9 +40,6 @@ const ON: Assistant = {
   avatarUrl: "/users/ember.abc/avatar?v=20261101120000",
   avatar: false,
 };
-
-/** Cloudflare's catalog, as the Worker lists it, with what other companies' models cost. */
-const CATALOG: AssistantCatalog = { models: [known(GLM), known(SONNET, { input: 3, output: 15 }), known(GPT, { input: 2, output: 10 })], refusal: null };
 
 const room = (id: string, name: string, kind: "open" | "closed" = "open"): SidebarRoom => ({ id, name, kind, icon: null, unread: false, involvement: "mentions" });
 const DESIGN = room("0mgk3x2a9b4c5a", "design");
@@ -69,13 +62,16 @@ const RECAP: AgentSettings = {
   rooms: [{ id: DESIGN.id, name: "design" }],
   instructions: "Sum up the conversation so far as decisions and to-dos.",
   promptTemplate: null,
-  format: "messages",
+  format: "anthropic",
   levels: { thinking: "low", length: "medium" },
   thinkingLevels: [...THINKING_LEVELS],
   avatar: false,
   changedBy: { id: ada.id, name: "Ada Lovelace" },
   changedAt: "2026-11-09T12:00:00.000Z",
 };
+
+/** Recap on a model Ember no longer offers, kept since before, which can't search the web. */
+const KEPT: AgentSettings = { ...RECAP, model: GLM.id, modelName: GLM.name, format: GLM.format };
 
 /** What Ember adds around an agent's instructions, as an administrator modified it. */
 const SCRIBE = "You are {{name}}, the scribe of {{community}}.\n\n{{instructions}}\n\nAnswer {{asker}} in at most {{words}} words.";
@@ -104,8 +100,6 @@ function serve({
     switch (request) {
       case "GET /api/account":
         return read();
-      case "POST /api/account/assistant/catalog":
-        return Response.json(CATALOG);
       case `GET /api/account/agents/${RECAP.id}`:
         return loaded();
       case "POST /api/account/agents/trials":
@@ -163,9 +157,10 @@ const modify = () => within(caution()).getByRole("button", { name: "Modify" });
 const templateBox = () => screen.getByRole("textbox", { name: "What Ember adds around them" });
 const useEmbersOwn = () => within(caution()).getByRole("button", { name: "Use Ember's own" });
 const avatarField = () => screen.getByLabelText("Upload the agent's avatar");
+const cost = () => screen.queryByText(/an answer at these levels costs at most about/);
 const robot = () => new File(["robot"], "robot.png", { type: "image/png" });
 
-/** The page's form, once Ember AI and its catalog have loaded, and the agent, for its settings. */
+/** The page's form, once Ember AI has loaded, and the agent, for its settings. */
 const loaded = async () => {
   await waitFor(() => expect(screen.getByRole("button", { name: /^(?:Create agent|Save changes)$/ })).toBeInTheDocument());
   return nameField();
@@ -186,7 +181,7 @@ const sent = () =>
       const body = init?.body instanceof FormData ? JSON.parse(String(init.body.get("user"))) : init?.body === undefined ? undefined : JSON.parse(String(init.body));
       return [`${init?.method ?? "GET"} ${String(input)}`, body] as [string, unknown];
     })
-    .filter(([request]) => !request.startsWith("GET ") && request !== "POST /api/account/assistant/catalog");
+    .filter(([request]) => !request.startsWith("GET "));
 
 /** Whether the page went back to the AI assistant tab. */
 const wentBack = () => waitFor(() => expect(location.pathname + location.hash).toBe(AGENTS_PATH));
@@ -265,7 +260,6 @@ describe("New agent", () => {
           description: "Sums up threads into decisions and to-dos.",
           instructions: "Sum up the conversation so far as decisions and to-dos.",
           model: GPT,
-          modelName: "GPT-6.1 Sol",
           thinking: "off",
           length: "long",
           webSearch: true,
@@ -349,41 +343,28 @@ describe("New agent", () => {
     expect(onFailed).not.toHaveBeenCalled();
   });
 
-  it("refuses a model ID that can't be one before sending anything", async () => {
-    const { user } = showNewAgent();
-    await fillIn(user);
-    await user.selectOptions(modelMenu(), "Another model…");
-    await user.type(screen.getByRole("textbox", { name: "Model ID" }), "not a model");
-    await user.click(screen.getByRole("button", { name: "Create agent" }));
-    expect(screen.getByRole("textbox", { name: "Model ID" })).toHaveAccessibleDescription(MODEL_REFUSED);
-    expect(sent()).toEqual([]);
-  });
-
-  it("says a model that can't search can't, refusing Search the web with it before sending anything, until another model's chosen", async () => {
-    const { user } = showNewAgent();
-    await fillIn(user);
-    await user.selectOptions(modelMenu(), GLM);
-    expect(webSwitch()).toHaveAccessibleDescription(cannotSearch("GLM-4.7 Flash"));
-    // Its switch isn't greyed out, but says why it can't be on.
-    await user.click(webSwitch());
-    expect(webSwitch()).toBeChecked();
-    expect(webSwitch()).toHaveAccessibleDescription(agentCannotSearchWith("GLM-4.7 Flash"));
-    await user.click(screen.getByRole("button", { name: "Create agent" }));
-    expect(screen.getByRole("alert")).toHaveTextContent(agentCannotSearchWith("GLM-4.7 Flash"));
-    expect(sent()).toEqual([]);
-
-    await user.selectOptions(modelMenu(), SONNET);
-    expect(screen.queryByRole("alert")).toBeNull();
-    expect(webSwitch()).toHaveAccessibleDescription(
-      "Recap searches the web when a question needs it, at most 5 times an answer, and reads the pages people link to or its searches find, at most 3, and lists the pages it used under its answer. AI Gateway's credits pay for each search.",
+  it("offers the models Ember offers, by their makers, saying what the one chosen costs", async () => {
+    showNewAgent();
+    await loaded();
+    expect(within(modelMenu()).getAllByRole("group").map((group) => group.getAttribute("label"))).toEqual(["Anthropic", "OpenAI", "xAI"]);
+    expect(within(modelMenu()).getAllByRole("option").map((option) => option.getAttribute("value"))).toEqual(ASSISTANT_MODELS.map(({ id }) => id));
+    expect(modelMenu()).toHaveAccessibleDescription(
+      "AI Gateway's credits pay for this model, $2 for each million tokens it reads, and $10 for each million it writes. Top them up under Credits Available in AI Gateway. Open AI Gateway in the Cloudflare dashboard",
     );
   });
 
-  it("lets Grok search the web, in xAI's own Responses, without reading pages, as Cloudflare's REST API can't have it search", async () => {
+  it("starts at the model Ember suggests when @ember answers with one Ember no longer offers, which it doesn't list", async () => {
+    serve({ read: () => Response.json({ assistant: { ...ON, model: GLM.id, models: [GLM], webTools: null }, cloudflareAccountId: null }) });
+    showNewAgent();
+    await loaded();
+    expect(modelMenu()).toHaveValue(SUGGESTED_MODEL);
+    expect(within(modelMenu()).getAllByRole("option").map((option) => option.getAttribute("value"))).toEqual(ASSISTANT_MODELS.map(({ id }) => id));
+  });
+
+  it("lets Grok search the web without reading pages, as xAI's own Responses has no tool for reading them", async () => {
     const { user } = showNewAgent();
     await fillIn(user);
-    await user.selectOptions(modelMenu(), "Another model…");
-    await user.type(screen.getByRole("textbox", { name: "Model ID" }), "xai/grok-4.7");
+    await user.selectOptions(modelMenu(), GROK);
     await user.click(webSwitch());
     expect(webSwitch()).toBeChecked();
     expect(webSwitch()).toHaveAccessibleDescription(
@@ -391,21 +372,20 @@ describe("New agent", () => {
     );
     await user.click(screen.getByRole("button", { name: "Create agent" }));
     expect(screen.queryByRole("alert")).toBeNull();
-    await waitFor(() => expect(sent()).toEqual([["POST /api/account/agents", expect.objectContaining({ model: "xai/grok-4.7", webSearch: true })]]));
+    await waitFor(() => expect(sent()).toEqual([["POST /api/account/agents", expect.objectContaining({ model: GROK, webSearch: true })]]));
   });
 
-  it("says the most an answer costs at the model's prices, and nothing of one for a Workers AI model", async () => {
+  it("says the most an answer costs at the model's prices", async () => {
     const { user } = showNewAgent();
     await loaded();
-    const cost = () => screen.queryByText(/an answer at these levels costs at most about/);
-    expect(cost()).toHaveTextContent("At Claude Sonnet 5.5's prices, an answer at these levels costs at most about 12¢, and most far less.");
+    expect(cost()).toHaveTextContent("At Claude Sonnet 5.5's prices, an answer at these levels costs at most about 8¢, and most far less.");
     await user.click(level("Thinking", "High"));
     await user.click(level("Answer length", "Long"));
-    expect(cost()).toHaveTextContent("about 60¢");
+    expect(cost()).toHaveTextContent("about 40¢");
     await user.click(webSwitch());
-    expect(cost()).toHaveTextContent("about 60¢, and most far less, besides what searching the web costs.");
-    await user.selectOptions(modelMenu(), GLM);
-    expect(cost()).toBeNull();
+    expect(cost()).toHaveTextContent("about 40¢, and most far less, besides what searching the web costs.");
+    await user.selectOptions(modelMenu(), "openai/gpt-6-luna");
+    expect(cost()).toHaveTextContent("At GPT-6 Luna's prices, an answer at these levels costs at most about 2¢, and most far less, besides what searching the web costs.");
   });
 
   it("shows what Ember adds around the instructions, as the agent reads it when the administrator writes to it directly", async () => {
@@ -496,7 +476,6 @@ describe("Try it", () => {
           name: "Recap",
           instructions: "Sum up the conversation so far as decisions and to-dos.",
           model: SONNET,
-          modelName: "Claude Sonnet 5.5",
           thinking: "low",
           length: "medium",
           webSearch: false,
@@ -531,9 +510,9 @@ describe("Try it", () => {
   });
 
   it("says why the page can't be asked as it's set up, sending nothing", async () => {
-    const { user } = showNewAgent();
-    await fillIn(user);
-    await user.selectOptions(modelMenu(), GLM);
+    serve({ loaded: () => answer(KEPT) });
+    const { user } = showSettings();
+    await loaded();
     await user.click(webSwitch());
     await user.type(question(), "What's new?{Enter}");
     expect(within(tryIt()).getByRole("status")).toHaveTextContent(agentCannotSearchWith("GLM-4.7 Flash"));
@@ -693,19 +672,19 @@ describe("An agent's settings", () => {
 
   it("asks a new model a test question as it saves it", async () => {
     let saved = () => {};
-    serve({ sent: () => new Promise((resolve) => (saved = () => resolve(answer({ ...RECAP, model: GPT, modelName: "GPT-6.1 Sol", format: "responses" })))) });
+    serve({ sent: () => new Promise((resolve) => (saved = () => resolve(answer({ ...RECAP, model: GPT, modelName: "GPT-6.1 Sol", format: "openai" })))) });
     const { user } = showSettings();
     await loaded();
     await user.selectOptions(modelMenu(), GPT);
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     expect(status()).toHaveTextContent("Asking GPT-6.1 Sol a test question…");
-    expect(sent()).toEqual([[`PATCH /api/account/agents/${RECAP.id}`, { model: GPT, modelName: "GPT-6.1 Sol" }]]);
+    expect(sent()).toEqual([[`PATCH /api/account/agents/${RECAP.id}`, { model: GPT }]]);
     act(() => saved());
     await wentBack();
   });
 
   it("offers only the levels of thinking its model took when it was saved, saying which it can't be set to, and each for another model, which saving asks", async () => {
-    serve({ loaded: () => answer({ ...RECAP, model: GPT, modelName: "GPT-6.1 Sol", format: "responses", levels: { thinking: "off", length: "medium" }, thinkingLevels: ["low", "medium", "high"] }) });
+    serve({ loaded: () => answer({ ...RECAP, model: GPT, modelName: "GPT-6.1 Sol", format: "openai", levels: { thinking: "off", length: "medium" }, thinkingLevels: ["low", "medium", "high"] }) });
     const { user } = showSettings();
     await loaded();
     const thinking = () => screen.getByRole("group", { name: "Thinking" });
@@ -732,6 +711,43 @@ describe("An agent's settings", () => {
     expect(thinking()).toHaveAccessibleDescription("Claude Sonnet 5.5 can't be told how much to think, so it decides for itself, up to about 4,000 tokens.");
     await user.click(level("Thinking", "Off"));
     expect(thinking()).toHaveAccessibleDescription("Claude Sonnet 5.5 can't be told how much to think, so it decides for itself, up to about 2,000 tokens.");
+  });
+
+  it("keeps a model Ember no longer offers on the menu, saying so, without saying what an answer costs, while it isn't changed", async () => {
+    serve({ loaded: () => answer(KEPT) });
+    const { user } = showSettings();
+    await loaded();
+    expect(modelMenu()).toHaveValue(GLM.id);
+    expect(within(modelMenu()).getAllByRole("option").at(-1)).toHaveTextContent("GLM-4.7 Flash (no longer offered)");
+    expect(modelMenu()).toHaveAccessibleDescription("Ember no longer offers this model. It answers as it did until you choose one that Ember offers.");
+    expect(cost()).toBeNull();
+
+    // Chosen again once another is, it's nothing to save.
+    await user.selectOptions(modelMenu(), SONNET);
+    expect(cost()).toHaveTextContent("At Claude Sonnet 5.5's prices");
+    await user.selectOptions(modelMenu(), GLM.id);
+    act(() => navigate("/rooms/general"));
+    expect(location.pathname).toBe("/rooms/general");
+  });
+
+  it("says a model Ember no longer offers that can't search can't, refusing Search the web with it before sending anything, until one Ember offers is chosen", async () => {
+    serve({ loaded: () => answer(KEPT) });
+    const { user } = showSettings();
+    await loaded();
+    expect(webSwitch()).toHaveAccessibleDescription(cannotSearch("GLM-4.7 Flash"));
+    // Its switch isn't greyed out, but says why it can't be on.
+    await user.click(webSwitch());
+    expect(webSwitch()).toBeChecked();
+    expect(webSwitch()).toHaveAccessibleDescription(agentCannotSearchWith("GLM-4.7 Flash"));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(agentCannotSearchWith("GLM-4.7 Flash"));
+    expect(sent()).toEqual([]);
+
+    await user.selectOptions(modelMenu(), SONNET);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(webSwitch()).toHaveAccessibleDescription(
+      "Recap searches the web when a question needs it, at most 5 times an answer, and reads the pages people link to or its searches find, at most 3, and lists the pages it used under its answer. AI Gateway's credits pay for each search.",
+    );
   });
 
   it("has the model search the web as Search the web turns on", async () => {

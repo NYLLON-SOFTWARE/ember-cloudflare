@@ -17,8 +17,8 @@ import {
   LEVELS_REFUSED,
   MAX_INSTRUCTIONS_LENGTH,
   MODEL_REFUSED,
-  modelNameOf,
   modelOf,
+  offeredModelOf,
   THINKING_LEVELS,
   type AnswerLength,
   type AnswerLevels,
@@ -106,9 +106,8 @@ export interface AgentAnswer {
 /**
  * What `POST /api/account/agents` takes, as New agent sends it: the agent's name, what it does, its
  * instructions, and what Ember adds around them, if an administrator changed it, the ID of the model it
- * answers with and that model's name, as Cloudflare's catalog gives it, if it does, how much it thinks
- * and how long it answers, whether it searches the web, and the open rooms it's in, or null for every
- * one, new ones too.
+ * answers with, how much it thinks and how long it answers, whether it searches the web, and the open
+ * rooms it's in, or null for every one, new ones too.
  */
 export interface NewAgent {
   name: string;
@@ -117,7 +116,6 @@ export interface NewAgent {
   /** What Ember adds around the instructions (`promptAround`), or null, or left out, for Ember's own. */
   promptTemplate?: string | null;
   model: string;
-  modelName?: string;
   thinking: ThinkingLevel;
   length: AnswerLength;
   webSearch: boolean;
@@ -191,9 +189,9 @@ export const QUESTION_NEEDED = "Ask it something.";
  * field it's about: a name, which can't be @ember's (`isReservedName`), and what it does have to be one
  * line with more than spaces, no longer than Ember keeps, instructions more than spaces, no longer than
  * Ember takes (`MAX_INSTRUCTIONS_LENGTH`), what Ember adds around them a template Ember takes, or null
- * for its own (`parseTemplate`), a model one's ID, levels ones the dials have, and rooms a list of
- * rooms' IDs, each once, or null for every open room. Text is saved without the spaces around it, and a
- * name that can't be a model's is left out.
+ * for its own (`parseTemplate`), a model one's ID, which needn't be one Ember offers, as an agent may
+ * keep the one it has (`changeAgent`), levels ones the dials have, and rooms a list of rooms' IDs, each
+ * once, or null for every open room. Text is saved without the spaces around it.
  */
 export function parseAgentChanges(data: unknown): AgentChanges | AgentRefusal {
   const given = typeof data === "object" && data !== null && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
@@ -224,8 +222,6 @@ export function parseAgentChanges(data: unknown): AgentChanges | AgentRefusal {
     const model = typeof given.model === "string" ? modelOf(given.model) : null;
     if (model === null) return { error: MODEL_REFUSED, field: "model" };
     changes.model = model;
-    const modelName = modelNameOf(given.modelName);
-    if (modelName !== null) changes.modelName = modelName;
   }
   if (given.thinking !== undefined) {
     if (!(THINKING_LEVELS as readonly unknown[]).includes(given.thinking)) return { error: LEVELS_REFUSED, field: "levels" };
@@ -249,7 +245,8 @@ export function parseAgentChanges(data: unknown): AgentChanges | AgentRefusal {
 
 /**
  * Parses an untrusted new agent, as New agent sends it, as `parseAgentChanges` does a change, which leaves
- * out nothing but the model's name and what Ember adds around the instructions, which is then its own.
+ * out nothing but what Ember adds around the instructions, which is then its own, and whose model is one
+ * Ember offers.
  */
 export function parseNewAgent(data: unknown): NewAgent | AgentRefusal {
   const agent = parseAgentChanges(data);
@@ -258,7 +255,7 @@ export function parseNewAgent(data: unknown): NewAgent | AgentRefusal {
   if (name === undefined) return { error: NAME_REFUSED, field: "name" };
   if (description === undefined) return { error: DESCRIPTION_REFUSED, field: "description" };
   if (instructions === undefined) return { error: INSTRUCTIONS_NEEDED, field: "instructions" };
-  if (model === undefined) return { error: MODEL_REFUSED, field: "model" };
+  if (model === undefined || !offeredModelOf(model)) return { error: MODEL_REFUSED, field: "model" };
   if (thinking === undefined || length === undefined) return { error: LEVELS_REFUSED, field: "levels" };
   if (webSearch === undefined) return { error: WEB_SEARCH_UNSAID, field: "webSearch" };
   if (rooms === undefined) return { error: ROOMS_REFUSED, field: "rooms" };
@@ -267,8 +264,9 @@ export function parseNewAgent(data: unknown): NewAgent | AgentRefusal {
 
 /**
  * Parses an untrusted trial, as Try it sends it: the agent as `parseNewAgent` takes one, but for what it
- * does and its rooms, which are left out, and a question of more than spaces, no longer than a message,
- * without the spaces around it.
+ * does and its rooms, which are left out, and its model, which may be one Ember no longer offers that the
+ * agent has (`tryAgent`), and a question of more than spaces, no longer than a message, without the
+ * spaces around it.
  */
 export function parseAgentTrial(data: unknown): AgentTrial | AgentRefusal {
   const given = typeof data === "object" && data !== null && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
