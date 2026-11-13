@@ -760,6 +760,90 @@ describe("Bot cards", () => {
     }
   });
 
+  it("shows a Statuspage incident as a card in its impact's color, which turns green once it's resolved", async () => {
+    // As Atlassian's docs show a webhook's incident, its updates latest first.
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    const incident = {
+      name: "Elevated API errors <EU>",
+      status: "identified",
+      impact: "major",
+      shortlink: "https://stspg.io/abc123",
+      updated_at: "2026-11-13T10:05:00Z",
+      components: [{ name: "API", status: "partial_outage" }],
+      incident_updates: [
+        {
+          status: "identified",
+          body: "We've found the cause.\nA fix is rolling out.",
+          display_at: "2026-11-13T10:05:00Z",
+          affected_components: [
+            { code: "a1", name: "API", old_status: "operational", new_status: "partial_outage" },
+            { code: "w1", name: "Webhooks", old_status: "operational", new_status: "degraded_performance" },
+          ],
+        },
+        { status: "investigating", body: "We're looking into it.", display_at: "2026-11-13T10:00:00Z" },
+      ],
+    };
+    const meta = { unsubscribe: "https://status.example.com/?unsubscribe=x", documentation: "https://help.statuspage.io/" };
+    const page = { id: "p1", status_indicator: "major", status_description: "Partial System Outage" };
+    expect(await answerTo(bot.key, general, { meta, page, incident })).toEqual(OK);
+
+    const { message } = await inRoom.next("message.created");
+    expect(message.body).toBe("");
+    expect(message.cards).toEqual([
+      {
+        source: "attachment",
+        color: "#e67e22",
+        parts: [
+          { kind: "title", text: "Elevated API errors <EU>", href: "https://stspg.io/abc123" },
+          { kind: "text", html: "<p>We've found the cause.<br>A fix is rolling out.</p>" },
+          {
+            kind: "fields",
+            fields: [
+              { title: "Status", html: "<p>Identified</p>", short: true },
+              { title: "Impact", html: "<p>Major</p>", short: true },
+              { title: "Components", html: "<p>API (Partial outage), Webhooks (Degraded performance)</p>", short: false },
+            ],
+          },
+          { kind: "footer", at: Date.parse("2026-11-13T10:05:00Z") / 1000 },
+        ],
+      },
+    ]);
+
+    // Cloudflare's status page sends no page, and an update without its components.
+    const resolved = { ...incident, status: "resolved", incident_updates: [{ status: "resolved", body: "Fixed.", created_at: "2026-11-13T11:00:00Z" }] };
+    expect(await answerTo(bot.key, general, { meta, incident: resolved })).toEqual(OK);
+    const { message: later } = await inRoom.next("message.created");
+    expect(later.cards?.[0]).toMatchObject({ color: "#2fcc66" });
+    expect(later.cards?.[0]?.parts).toContainEqual({
+      kind: "fields",
+      fields: [
+        { title: "Status", html: "<p>Resolved</p>", short: true },
+        { title: "Impact", html: "<p>Major</p>", short: true },
+        { title: "Components", html: "<p>API (Partial outage)</p>", short: false },
+      ],
+    });
+  });
+
+  it("shows a Statuspage component's change of status as a line in its new status's color", async () => {
+    const { administrator, bot, general } = await withBot();
+    const inRoom = await connect(general, administrator);
+    const payload = {
+      meta: { unsubscribe: "https://status.example.com/?unsubscribe=x" },
+      page: { id: "p1", status_indicator: "none", status_description: "All Systems Operational" },
+      component_update: { created_at: "2026-11-13T11:00:00Z", new_status: "operational", old_status: "major_outage", id: "u1", component_id: "c1" },
+      component: { created_at: "2026-01-01T00:00:00Z", id: "c1", name: "API & Webhooks", status: "operational" },
+    };
+    expect(await answerTo(bot.key, general, payload)).toEqual(OK);
+
+    const { message } = await inRoom.next("message.created");
+    expect(message.cards).toEqual([
+      { source: "attachment", color: "#2fcc66", parts: [{ kind: "text", html: "<p><strong>API &amp; Webhooks</strong>: Major outage → Operational</p>" }] },
+    ]);
+    expect(message.plainText).toBe("API & Webhooks: Major outage → Operational");
+    expect(await answerTo(bot.key, general, { meta: {}, incident: {} })).toEqual(refused(400, "no_text"));
+  });
+
   it("answers no_text when neither text nor cards show anything, and msg_too_long for cards longer than a message's markup can be, text and cards longer than a message, or more Markdown than Slack takes", async () => {
     const { bot, general } = await withBot();
     expect(await answerTo(bot.key, general, { attachments: [{ color: "good" }, { fallback: " ", footer: " " }] })).toEqual(refused(400, "no_text"));

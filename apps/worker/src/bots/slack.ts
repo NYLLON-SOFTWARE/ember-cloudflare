@@ -14,12 +14,14 @@ import {
 import { cardAddress } from "@ember/richtext";
 import { markdownHtml, MAX_MARKDOWN_LENGTH } from "./markdown";
 import { anchor, emojiNamed, escapeText, linkHref, mrkdwnHtml, mrkdwnText, plainText, plainTextHtml, utcTime, type Formatting } from "./mrkdwn";
+import { statuspageCard } from "./statuspage";
 
 // What a Slack incoming webhook is sent (https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks),
 // read into the message a bot posts: its `text`, or, in its place, as Slack shows them, its Block Kit `blocks` as a
 // card, and its legacy `attachments`, which alerting tools still send, as cards under it (packages/protocol/src/cards.ts).
 // What Slack lets a payload change about who posts and where (`username`, `icon_emoji`, `icon_url`, `channel`,
 // `thread_ts`) is left out: the bot posts as itself, to the room whose address the payload was sent to.
+// Atlassian Statuspage's webhooks, which send their own JSON in place of Slack's, show as a card (./statuspage.ts).
 
 /** Why Slack's webhooks post nothing, in their words. */
 export type SlackError = "invalid_payload" | "no_text" | "too_many_attachments" | "msg_too_long";
@@ -61,6 +63,8 @@ export function payloadOf(json: string | null): SlackPayload | null {
  * attachments; or why it posts nothing.
  */
 export function slackMessage(payload: SlackPayload): SlackMessage | SlackError {
+  const statuspage = statuspageCard(payload);
+  if (statuspage) return JSON.stringify(statuspage).length > MAX_MESSAGE_HTML_LENGTH ? "msg_too_long" : { markup: "", cards: [statuspage] };
   const attachments = listOf(payload.attachments);
   if (attachments.length > MAX_ATTACHMENTS) return "too_many_attachments";
   const attachmentBlocks = attachments.flatMap((attachment) => (isObject(attachment) ? listOf(attachment.blocks) : []));
