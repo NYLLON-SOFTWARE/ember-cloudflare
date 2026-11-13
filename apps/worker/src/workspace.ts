@@ -714,6 +714,8 @@ export class Workspace extends DurableObject<Env> {
   private lastChange: Promise<unknown> = Promise.resolve();
   /** Ember AI's models being asked through their providers' endpoints, while they are (see `moveToProviderEndpoints`). */
   private movingToProviderEndpoints: Promise<void> | null = null;
+  /** Counts the times Ember AI is set up, changed or turned off, so a move onto the providers' endpoints that overlapped one isn't kept. */
+  private assistantSetups = 0;
   /** The last delivery of revocations, which the next one waits for (see `deliverRevocations`). */
   private lastDelivery: Promise<unknown> = Promise.resolve();
   /**
@@ -1235,6 +1237,7 @@ export class Workspace extends DurableObject<Env> {
         // The models it kept, and the agents' models, may answer through their providers' endpoints, as through another API token.
         providerEndpointsTriedAt: null,
       };
+      this.assistantSetups++;
       const changed = await this.saveAccount({ ...account, assistant }, (now) => (assistant ? this.store.turnOnAssistant(assistant, now) : this.store.turnOffAssistant(now)));
       await this.publishPerson(ASSISTANT_ID);
       if ((account.assistant === null) !== (assistant === null)) await this.publishAgents();
@@ -3636,15 +3639,19 @@ export class Workspace extends DurableObject<Env> {
    * at a time with the others, has each that answered asked there, wherever it's still where it was,
    * with the levels of thinking it took there, while Ember AI still asks through `gateway`'s account and
    * API token, which the endpoints answered, and records when unless there are more to ask at the next
-   * answer. What @ember and the agents may do on the web stays as it was, since a provider's own endpoint
-   * takes the tools the REST API passed on to it.
+   * answer. Set up again while they were asked, Ember AI keeps none of it, even with the same API token,
+   * which may have been given AI Gateway Run since, and the next answer asks them again. What @ember and
+   * the agents may do on the web stays as it was, since a provider's own endpoint takes the tools the
+   * REST API passed on to it.
    */
   private async movedToProviderEndpoints(gateway: Gateway): Promise<void> {
     const triedAt = new Date().toISOString();
+    const setups = this.assistantSetups;
     const [account, agentModels] = await Promise.all([this.joinableAccount(), this.store.agentModels()]);
     if (!account?.assistant || account.assistant.providerEndpointsTriedAt !== null) return;
     const { moves, done } = await providerMovesOf(this.env, gateway, [...account.assistant.models, ...agentModels]);
     await this.oneAtATime(async () => {
+      if (this.assistantSetups !== setups) return;
       const changed = await this.joinableAccount();
       if (!changed?.assistant || !(await this.asksThrough(changed, gateway))) return;
       const assistant = { ...movedIn(changed.assistant, moves), providerEndpointsTriedAt: done ? triedAt : null };

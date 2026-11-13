@@ -2,11 +2,13 @@ import { ASSISTANT_ID, type Message, type NewWorkspace, type RoomId, type User }
 import type { AgentAnswer, AgentSettings, NewAgent } from "@ember/protocol/agents";
 import { providerFormatOf, THINKING_LEVELS, type ModelFormat } from "@ember/protocol/assistant";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
+import { runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MODELS_PER_MOVE, providerMovesOf } from "../src/assistant/model-tests";
 import type { Env } from "../src/env";
-import { addKeptModels, agentWithKeptModel, answerWithKeptModel, api, connect, cookieOf, freshDeploy, post, shown, workspaceSql, type Client, type KeptModel, type Session } from "./support";
+import type { Workspace } from "../src/workspace";
+import { addKeptModels, agentWithKeptModel, answerWithKeptModel, api, connect, cookieOf, freshDeploy, post, shown, workspaceSql, workspaceStub, type Client, type KeptModel, type Session } from "./support";
 
 // Moving the models Ember AI kept before it asked Claude, GPT and Grok through their providers' own
 // endpoints on AI Gateway first, the agents' too, once, at the first answers after it's set up.
@@ -69,6 +71,8 @@ const SEARCHED = [
 let run: boolean;
 /** The models, by their providers' names for them, that their providers' endpoints don't know. */
 let unknownThere: string[];
+/** What the answer to the next request to the providers' endpoints waits for, as the fake gave it when it was sent (see `holdNextThere`). */
+let holding: Promise<void> | null;
 let asked: Asked[];
 
 /**
@@ -93,14 +97,25 @@ beforeEach(async () => {
   await freshDeploy();
   run = true;
   unknownThere = [];
+  holding = null;
   asked = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
     const sent = { url: request.url, aigAuthorization: request.headers.get("cf-aig-authorization"), body: (await request.json()) as Asked["body"] };
     asked.push(sent);
-    return answering(sent);
+    const answer = answering(sent);
+    const held = sent.url.startsWith(PROVIDER_ENDPOINTS) ? holding : null;
+    if (held) await ((holding = null), held);
+    return answer;
   });
 });
+
+/** Has the fake AI Gateway hold its answer to the next request to the providers' endpoints, as it gave it then, until the function this answers is called. */
+function holdNextThere(): () => void {
+  let release!: () => void;
+  holding = new Promise<void>((resolve) => (release = resolve));
+  return release;
+}
 afterEach(() => vi.restoreAllMocks());
 
 const as = (session: Session) => ({ Cookie: session.cookie });
@@ -163,6 +178,9 @@ async function ask(client: Client, bot: Pick<User, "id">): Promise<Message> {
 
 /** Waits for Ember to have asked Ember AI's models through their providers' endpoints, which it does in the background. */
 const tried = () => vi.waitFor(async () => expect((await storedAssistant()).provider_endpoints_tried_at).toEqual(expect.any(String)), { timeout: 5_000 });
+
+/** Waits for the move onto the providers' endpoints that the Workspace makes in the background, if it's making one, to end. */
+const moveEnded = () => runInDurableObject(workspaceStub(), (workspace: Workspace) => (workspace as unknown as { movingToProviderEndpoints: Promise<void> | null }).movingToProviderEndpoints);
 
 /** The test questions among the requests to the providers' endpoints, but for those asking again at each level of thinking, as `[endpoint, model]`. */
 const testQuestionsThere = () =>
@@ -293,6 +311,47 @@ describe("Models Ember AI asked through Cloudflare's REST API", () => {
     client.close();
   });
 
+  it("are asked there again at the next answer after Ember AI is set up again while a move asks them, whatever that move finds", async () => {
+    const { ada, general } = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await setUpAssistant(ada, SONNET);
+    // Kept while Ember AI's API token had no AI Gateway Run, as it still hasn't.
+    await answerWithKeptModel(restAsked(SONNET), restAsked(GPT));
+    run = false;
+    const release = holdNextThere();
+
+    // The first answer's move waits for the endpoint to refuse the token while the token gets AI Gateway Run and Ember AI is set up again with it.
+    const client = await connect(general, ada);
+    await ask(client, EMBER);
+    await vi.waitFor(() => expect(holding).toBeNull(), { timeout: 5_000 });
+    run = true;
+    await setUpAssistant(ada, SONNET);
+    release();
+    await moveEnded();
+    expect((await storedAssistant()).provider_endpoints_tried_at).toBeNull();
+    expect(await storedModels()).toEqual([
+      "anthropic",
+      [
+        [SONNET, "anthropic", ALL_LEVELS],
+        [GPT, "responses", ALL_LEVELS],
+      ],
+    ]);
+
+    asked.length = 0;
+    await ask(client, EMBER);
+    await tried();
+    expect(testQuestionsThere()).toEqual([[OPENAI_ENDPOINT, "gpt-6.1-sol"]]);
+    expect(await storedModels()).toEqual([
+      "anthropic",
+      [
+        [SONNET, "anthropic", ALL_LEVELS],
+        [GPT, "openai", ALL_LEVELS],
+      ],
+    ]);
+    client.close();
+  });
+
   it("move as many as a move has room for at an answer, and the rest at the next", async () => {
     const { ada, general } = await setUp();
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -337,13 +396,21 @@ describe("A move onto the providers' endpoints", () => {
     expect(asked.map(({ url, body }) => [url, body.model])).toEqual([[ANTHROPIC_ENDPOINT, "claude-sonnet-5-5"]]);
   });
 
-  it("leaves a model where it is when its provider's endpoint doesn't know it, and is done once none it asked answered", async () => {
+  it("leaves a model where it is when its provider's endpoint doesn't know it, and asks the ones after it in the same move", async () => {
     unknownThere = [providerNameOf(HAIKU)];
     expect(await providerMovesOf(bindings, gateway, REST_ASKED.slice(0, 2))).toEqual({ moves: [{ id: SONNET, from: "messages", format: "anthropic", thinkingLevels: ALL_LEVELS }], done: true });
 
-    unknownThere = REST_ASKED.map(({ id }) => providerNameOf(id));
+    // Each one the endpoints don't know takes one request, leaving room for the last.
+    unknownThere = REST_ASKED.slice(0, MODELS_PER_MOVE).map(({ id }) => providerNameOf(id));
     asked.length = 0;
-    expect(await providerMovesOf(bindings, gateway, REST_ASKED)).toEqual({ moves: [], done: true });
-    expect(testQuestionsThere()).toHaveLength(MODELS_PER_MOVE);
+    expect(await providerMovesOf(bindings, gateway, REST_ASKED)).toEqual({ moves: [{ id: "xai/grok-4.20", from: "chat", format: "xai", thinkingLevels: GROK_LEVELS }], done: true });
+    expect(testQuestionsThere()).toHaveLength(REST_ASKED.length);
+  });
+
+  it("is done once a move without room for them all moved none, as the next would ask the same again", async () => {
+    const unknown = Array.from({ length: 50 }, (_, index) => ({ id: `anthropic/claude-retired-${index}`, format: "messages" as const }));
+    unknownThere = unknown.map(({ id }) => providerNameOf(id));
+    expect(await providerMovesOf(bindings, gateway, unknown)).toEqual({ moves: [], done: true });
+    expect(testQuestionsThere().length).toBeLessThan(unknown.length);
   });
 });
