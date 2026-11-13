@@ -8,6 +8,7 @@ import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { leave, PROFILE_PATH, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
+import { currentMood } from "@/lib/mood";
 import { banPerson, fetchPerson, isSignedOut, unbanPerson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { AgentBadge, isAgent } from "./agent-badge";
@@ -46,7 +47,8 @@ const DIRECT_BUTTON =
 /**
  * The page for someone, at `/users/<id>`, whatever their status, titled with their name: Go Back to the
  * page it was opened from, a pencil to Edit my profile on your own, and their avatar. Active and banned
- * people show their name and bio, with their email address for administrators, and active people a
+ * people show their name, what they wear beside it while it hasn't come off by its clear time, and their
+ * bio, with their email address for administrators, and active people a
  * button that starts a DM with them, or opens the one you have. Removed people show their name and that
  * they're no longer on this account, and bots their avatar, with the agent badge under an AI agent's
  * and, for an agent an administrator made, what `AboutAgent` says of it, then the DM button while
@@ -127,6 +129,8 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
   };
 
   const mine = userId === me.id;
+  // What they wear beside their name, while it hasn't come off by its clear time.
+  const worn = person ? currentMood(person.mood) : null;
   // Gone as soon as you stop being an administrator, before the page has loaded them again.
   const transferId = me.administrator ? fetched?.transferId : undefined;
   const editProfile = mine && (
@@ -164,6 +168,11 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
                 {/* Campfire's `.gap` with a third of its block space between rows. */}
                 <div className="flex flex-col gap-x-[1ch] gap-y-[calc(1rem/3)]">
                   <h1 className="text-[23px] leading-[1.2] font-bold">{person.name}</h1>
+                  {worn && (
+                    <div className="text-muted-foreground">
+                      {worn.emoji} {worn.text}
+                    </div>
+                  )}
                   {/* Campfire's link, left out for someone with no address. */}
                   {person.emailAddress !== undefined && (
                     <div>

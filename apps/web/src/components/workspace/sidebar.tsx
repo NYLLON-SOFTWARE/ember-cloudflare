@@ -2,7 +2,7 @@ import { useContext, useId, useMemo, useState, type MouseEvent } from "react";
 import type { Favorites, LiveHuddle, Me, RoomId, SidebarRoom, User, UserId } from "@ember/protocol";
 import { ChatPlusIn, Headset, StarSolid } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
-import { useAccount } from "@/hooks/use-account";
+import { AccountContext, useAccount } from "@/hooks/use-account";
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { leave, NEW_DIRECT_PATH, roomPath } from "@/hooks/use-route";
@@ -13,6 +13,7 @@ import { apart, inDirectOrder, inSidebarOrder, markedUnread, suggestedPeople, ty
 import { cn } from "@/lib/utils";
 import { AgentBadge, useIsWithAgent } from "./agent-badge";
 import { opensNewDirect } from "./new-direct-dialog";
+import { Mood } from "./mood";
 import { UserAvatar } from "./user-avatar";
 
 /** A row of the list, a room's or a DM's. */
@@ -268,13 +269,16 @@ interface DirectRowProps {
 
 /**
  * A DM's row: the avatar of the one other person in it, or of up to four in a group, at 24px or 14px
- * each, then their names, or yours in a DM with yourself, and the agent badge in a DM with an AI agent
- * alone.
+ * each, then their names, or yours in a DM with yourself, the agent badge in a DM with an AI agent
+ * alone, and what the one other person wears beside their name, muted.
  */
 function DirectRow({ room, meId, current, unreadId, onClick }: DirectRowProps) {
   const nameOf = useNameOf();
   const isWithAgent = useIsWithAgent();
+  const people = useContext(PeopleContext);
   const members = membersShown(room, meId);
+  // The mood worn in a DM with one other person, which the row shows beside their name.
+  const alone = members.length === 1 ? people.get(members[0]!.id) : undefined;
   return (
     <a
       href={roomPath(room.id)}
@@ -297,6 +301,12 @@ function DirectRow({ room, meId, current, unreadId, onClick }: DirectRowProps) {
       <span className="min-w-0 flex-1 truncate">
         <span className="sr-only">Direct message with</span> {members.map((member) => `${nameOf(member)}${member.id === meId ? " (you)" : ""}`).join(", ")}
         {isWithAgent(room) && <AgentBadge className="ms-0.5" />}
+        {alone && (
+          <>
+            {" "}
+            <Mood mood={alone.mood} className="ms-1" />
+          </>
+        )}
       </span>
       {unreadId && <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-foreground" />}
     </a>

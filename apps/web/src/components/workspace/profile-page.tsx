@@ -39,6 +39,7 @@ import { PicturePicker } from "./picture-picker";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
 import { avatarUrlOf, avatarVersionOf } from "./user-avatar";
+import { MoodEditor } from "./mood-editor";
 
 interface Props {
   me: Me;
@@ -103,12 +104,14 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
  * everywhere.", and Remove avatar takes away, then your name, email address, a new password, unless
  * Memberful signs you in without one, your current password while you have one, which changing your
  * email address or password takes, and your
- * bio, which Save changes saves with the notice "✓", keeping the page, then, while members sign in with
+ * bio, which Save changes saves with the notice "✓", keeping the page, then your mood, an emoji and a
+ * few words beside your name, which Save mood wears and Clear takes off, and which comes off by itself
+ * when the Clear-at menu says, then, while members sign in with
  * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
  * unlinks with the notice "Your Memberful account is disconnected.", then, while Ember AI is on, how much @ember thinks and
  * how long it answers you, then your notification level in each of your rooms and DMs, then a sign-in
  * link for you, a new one each time the page loads or saves, and Log out in the top bar. Go Back
- * returns to the page it was opened from. Your avatar, name and bio reach everyone's open pages at
+ * returns to the page it was opened from. Your avatar, name, bio and mood reach everyone's open pages at
  * once, through the workspace socket, as they reach the rail.
  */
 export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Props) {
@@ -134,6 +137,8 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const [membershipNeeded, setMembershipNeeded] = useState(true);
   /** Which model @ember answers you with, how much it thinks and how long its answers are, or null while Ember AI is off. */
   const [assistant, setAssistant] = useState<Profile["assistant"]>(null);
+  /** The mood you wear beside your name, or null while you wear none. */
+  const [mood, setMood] = useState<Profile["mood"]>(null);
   const [saving, setSaving] = useState(false);
   const passwordInput = useRef<HTMLInputElement>(null);
   const currentPasswordInput = useRef<HTMLInputElement>(null);
@@ -185,6 +190,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     const { memberful } = profile;
     setMemberful(disconnectedMemberful.current && memberful?.connected ? (memberful.membersOnly ? { membersOnly: true, connected: null } : null) : memberful);
     setMembershipNeeded(profile.membershipNeeded);
+    setMood(profile.mood);
     setTransferId(transferId);
   }
 
@@ -193,6 +199,12 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     disconnectedMemberful.current = true;
     showAnswer(answer);
     flash("notice", MEMBERFUL_DISCONNECTED_NOTICE);
+  }
+
+  /** Shows your mood as a save of it or its clearing answered it, with the notice. */
+  function answered(answer: ProfileAnswer) {
+    showAnswer(answer);
+    flash("notice", "✓");
   }
 
   /** Saves `file` as your avatar, once a photo is picked. */
@@ -368,6 +380,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
           </Field>
           <SubmitButton disabled={!fields || saving}>Save changes</SubmitButton>
         </form>
+        {fields !== null && <MoodEditor mood={mood} onSaved={answered} onFailed={onFailed} />}
         {memberful && (
           <MemberfulConnection
             connected={memberful.connected}

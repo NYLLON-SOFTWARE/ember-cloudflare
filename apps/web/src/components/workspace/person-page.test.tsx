@@ -98,6 +98,20 @@ describe("Someone's profile page", () => {
     expect(mailLink()).toBeNull();
   });
 
+  it("shows what they wear beside their name while it hasn't come off, and nothing once it has", async () => {
+    const worn = { emoji: "😌", text: "Pairing on the compiler", clearAt: new Date(Date.now() + 60_000).toISOString() };
+    serve(found({ ...grace, mood: worn }));
+    showPage(grace);
+    expect(await heading()).toHaveTextContent("Grace Hopper");
+    expect(screen.getByText("😌 Pairing on the compiler")).toHaveClass("text-muted-foreground");
+
+    serve(found({ ...grace, mood: { ...worn, clearAt: new Date(Date.now() - 60_000).toISOString() } }));
+    cleanup();
+    showPage(grace);
+    expect(await heading()).toHaveTextContent("Grace Hopper");
+    expect(screen.queryByText(/^😌/)).toBeNull();
+  });
+
   it("goes back home when the app didn't open it, and asks for ids escaped", async () => {
     history.replaceState(null, "", "/users/caf%C3%A9");
     serve(found({ ...grace, id: "café" }));
