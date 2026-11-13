@@ -114,6 +114,7 @@ import type { BanProblem } from "./bans";
 import { BodyTooLarge, jsonBodyOf } from "./bodies";
 import { botPage, changeBot, createBot, deleteBot, listBots, resetBotKey, showBot } from "./bots/accounts";
 import { botAction, exception, isBotPath, withoutBotKeys } from "./bots/api";
+import { isSlackWebApiPath, slackWebAction, slackWebFailure } from "./bots/slack-web";
 import { ADDRESS_HEADER, AUTHORIZED_AT_HEADER, BANNED_HEADER, HUDDLE_HEADER, ROOM_HEADER, SESSION_HEADER, USER_HEADER } from "./chat-room";
 import { guestSignIn, type Env } from "./env";
 import { failed, notFound } from "./error-pages";
@@ -1235,13 +1236,15 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   // Nor are a room's files, to whoever has the address, whatever their browser.
   const file = fileAddressOf(pathname);
   if (file) return write ? notFound(request) : serveFile(request, env, file);
-  const action = apiAction(request, env, pathname) ?? botAction(request, env, pathname);
+  const action = apiAction(request, env, pathname) ?? botAction(request, env, pathname) ?? slackWebAction(request, env, pathname);
   // First: once a route is found, so an unknown address still answers 404, a banned IP address can't
   // change anything, sign in or join.
   if (write && action && (await isFromBannedAddress(request, env))) return tooManyRequests();
   // Then: a browser too old for the app has nothing to sign in to.
   if (isFromUnsupportedBrowser(request)) return unsupportedBrowserPage(request, env);
-  if (write && pathname.startsWith("/api/") && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
+  // The Slack-compatible Web API's methods are refused as its envelope says, for a token only its bot
+  // has: what another site's page can't send, so its requests aren't refused as its own would be.
+  if (write && pathname.startsWith("/api/") && !isSlackWebApiPath(pathname) && isCrossSite(request)) return problem(422, "Requests from other sites are refused");
   if (action) return action();
   if (pathname.startsWith("/api/")) return problem(404, "Not found");
   if (pathname === MEMBERFUL_SIGN_IN_PATH) return startMemberfulSignIn(request, env);
@@ -1280,6 +1283,7 @@ function failure(request: Request, pathname: string, error: unknown): Response {
   if (error instanceof BodyTooLarge) return problem(413, error.message);
   const holdsSecrets = pathname === "/api/first_run" || pathname === "/api/first_run/check" || pathname === RECOVERY_PATH;
   console.error(`${request.method} ${withoutBotKeys(pathname)} failed:`, holdsSecrets ? "500 Internal Server Error" : error);
+  if (isSlackWebApiPath(pathname)) return slackWebFailure();
   if (pathname.startsWith("/api/")) return problem(500, "Something went wrong");
   if (isBotPath(pathname)) return exception(500);
   return failed(request);

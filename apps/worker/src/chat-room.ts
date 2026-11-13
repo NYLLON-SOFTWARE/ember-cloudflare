@@ -530,19 +530,19 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Replaces the text of the bot's message `messageId` with `markup`: as a socket's message.update does,
-   * answering the message as it is now. Answers `NOT_FOUND` when the room turns the bot away, as
-   * `createBotMessage` does, or has no such message, `FORBIDDEN` when it's someone else's, then why the
-   * room keeps nothing of `markup`.
+   * Replaces the text of the bot's message `messageId` with `markup`, and its cards with `cards`, as a
+   * socket's message.update does with its text, answering the message as it is now. Answers `NOT_FOUND`
+   * when the room turns the bot away, as `createBotMessage` does, or has no such message, `FORBIDDEN`
+   * when it's someone else's, then why the room keeps nothing of `markup`.
    */
-  async editBotMessage(roomId: RoomId, { bot, authorizedAt }: BotAccess, messageId: string, markup: string): Promise<Message | string> {
+  async editBotMessage(roomId: RoomId, { bot, authorizedAt }: BotAccess, messageId: string, markup: string, cards: Card[] = []): Promise<Message | string> {
     return this.serially(async () => {
       const now = new Date().toISOString();
       if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return NOT_FOUND;
       const store = this.storeFor(roomId);
       const message = await this.botsOwn(store, bot, messageId);
       if (typeof message === "string") return message;
-      const body = await this.prepare(markup);
+      const body = await this.prepareWithCards(markup, cards);
       return typeof body === "string" ? body : this.edit(store, message, body, now);
     });
   }
@@ -972,8 +972,9 @@ export class ChatRoom extends DurableObject<Env> {
    * sending the search index its log, and answers the message as it is now. Saved as it was, it stays as
    * it was, its update time included, as Rails saves nothing then.
    */
-  private async edit(store: MessageStore, message: Message, body: PreparedBody, now: string): Promise<Message> {
-    if (body.html === message.body && !message.cards) return message;
+  private async edit(store: MessageStore, message: Message, body: StoredBody, now: string): Promise<Message> {
+    const cards = "cards" in body && body.cards ? body.cards : undefined;
+    if (body.html === message.body && !message.cards && !cards) return message;
     const { message: edited, seq } = await store.updateBody(message, body, now);
     this.broadcast({ type: "message.updated", message: edited, seq });
     this.couriersFor(store.roomId).index.deliver();

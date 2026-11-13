@@ -94,7 +94,7 @@ import { providerMovesOf } from "./assistant/model-tests";
 import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
 import { directoryOf, TooSoon, tooSoonAfter, versionOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
-import { botKeyOf, isBotToken, newBotToken, webhookTokenOf } from "./bots/keys";
+import { botKeyOf, botKeyParts, isBotToken, newBotToken, webhookTokenOf } from "./bots/keys";
 import { openDb, type Db } from "./db";
 import { alreadyAMemberEmail, emailDomainLinkEmail, invitationEmail, passwordResetCodeEmail, testEmail } from "./emails";
 import { guestSignIn, type Env } from "./env";
@@ -120,6 +120,7 @@ import {
   type AgentSetup,
   type AvatarOwner,
   type BotKey,
+  type BotSlackRoom,
   type Client,
   type Connecting,
   type AssistantPicks,
@@ -3574,6 +3575,41 @@ export class Workspace extends DurableObject<Env> {
     const [found, account] = await Promise.all([this.store.activeBotKey(botId, roomId), this.joinableAccount()]);
     if (!found || !(isBotToken(token, found.token) || (await this.isWebhookToken(token, roomId, found)))) return null;
     return found.member ? { bot: found.bot, authorizedAt, customDomain: account?.customDomain ?? null } : "not found";
+  }
+
+  /**
+   * The active bot the key `key` names, with the rooms it's in but its DMs: what the Slack-compatible
+   * Web API answers a bearer key with, in `auth.test`, in `conversations.list`, and before it reads a
+   * room from one of their names. Null unless `key` is an active bot's own key now, so a token only a
+   * webhook's delivery gives a bot, which has no "-" in it, names nothing.
+   */
+  async slackBot(key: string): Promise<{ bot: User; rooms: BotSlackRoom[] } | null> {
+    const parts = botKeyParts(key);
+    if (!parts) return null;
+    const found = await this.store.activeSlackBot(parts.botId);
+    return found && isBotToken(parts.token, found.token) ? { bot: found.bot, rooms: found.rooms } : null;
+  }
+
+  /** Whether a room `roomId` names is there at all, so the Slack-compatible Web API can tell a room a bot isn't in from one that isn't. */
+  async roomExists(roomId: RoomId): Promise<boolean> {
+    return this.store.roomExists(roomId);
+  }
+
+  /**
+   * The active bot the key `key` names in room `roomId`, with when this checked: one read for the
+   * Slack-compatible Web API's channel methods, which have the room's id already and no room name to
+   * read from `slackBot`. Null unless `key` is an active bot's own key now, and "not found" when the
+   * bot isn't in the room, as `botInRoom` answers. A token only a webhook's delivery gives a bot has
+   * no "-" in it, so no key names it here.
+   */
+  async slackBotIn(key: string, roomId: RoomId): Promise<BotAccess | "not found" | null> {
+    const parts = botKeyParts(key);
+    if (!parts) return null;
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const found = await this.store.activeBotKey(parts.botId, roomId);
+    if (!found || !isBotToken(parts.token, found.token)) return null;
+    return found.member ? { bot: found.bot, authorizedAt } : "not found";
   }
 
   /** Whether `token` is the one a delivery to the webhook of the bot `found` gives it in room `roomId`, as the webhook is now. */
