@@ -1488,6 +1488,9 @@ describe("Activity", () => {
     expect(unread).toHaveClass("bg-activity-unread");
     expect(await row("Look at this 1")).not.toHaveClass("bg-activity-unread");
     expect(within(unread).getByRole("button", { name: /Look at this 2/ })).toHaveAccessibleName(/^Grace, unread: /);
+    // The row's Mark read names the item by who and when, not by the row's own name, which only the item has.
+    expect(within(feed()).getAllByRole("button", { name: /Mention in #random/ })).toHaveLength(2);
+    expect(within(unread).getByRole("button", { name: /^Mark read: Grace, / })).toBeInTheDocument();
     // No dots, and the tabs have none either: the rail's count says there's something unread.
     expect(within(feed()).queryByLabelText("Unread")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "All" })).toHaveTextContent(/^All$/);

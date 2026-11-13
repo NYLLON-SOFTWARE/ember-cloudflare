@@ -22,7 +22,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
-import { activityPath, navigate, personPath, returnTo } from "@/hooks/use-route";
+import { activityPath, navigate, openedFrom, personPath, returnTo } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import type { ActivityState } from "@/hooks/use-activity";
 import { ALL_ACTIVITY, filterCount, shows, type ActivityFilter, type ActivityFilterKind, type ActivityNames, type ActivityTab } from "@/lib/activity-feed";
@@ -102,6 +102,8 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
   const roomOpen = place !== null && rooms.some((room) => room.id === place.roomId);
   const conversation = place !== null && roomOpen;
 
+  // On phones, the feed shows alone until an item opens, rather than the bubble that waits for one.
+  const phone = useMediaQuery(ONE_PANE);
   // The panes open are the address's, so a reload keeps them, and Back closes the one opened last.
   const open = (item: ActivityItem) => {
     // A reminder opens its to-do, wherever its message is.
@@ -115,7 +117,11 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
   // Closing a pane goes back to where it opened from, as Back does, so that Back never opens it again,
   // or where nothing opened it, as after a reload, takes its parent's place in the history.
   const closeThread = () => {
-    if (place) returnTo(activityPath({ roomId: place.roomId, messageId: place.messageId }));
+    if (!place) return;
+    // A phone shows the thread alone, so its Back goes back the way the person came, to the feed when an
+    // item opened it there, rather than to a conversation they haven't seen.
+    if (phone && openedFrom(history.state) !== null) history.back();
+    else returnTo(activityPath({ roomId: place.roomId, messageId: place.messageId }));
   };
   const closeConversation = () => returnTo(activityPath(null));
 
@@ -132,8 +138,6 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
   };
 
   const side = profile?.userId ? "profile" : place?.threadId !== undefined ? "thread" : null;
-  // On phones, the feed shows alone until an item opens, rather than the bubble that waits for one.
-  const phone = useMediaQuery(ONE_PANE);
   // Filter, search and Mark all read, in the page's header: the feed's own beside the panes, and the
   // phone's over it.
   const tools = (
@@ -338,19 +342,21 @@ function Feed({ shown, activity, filter, onFilter, tools, searching, onSearching
               type="button"
               aria-pressed={filter.tab === tab}
               onClick={() => onFilter({ ...filter, tab })}
-              className="relative flex shrink-0 items-center px-2 pt-1 pb-2.5 text-sm font-semibold touch:min-h-11 touch:min-w-11 touch:justify-center max-[380px]:px-1.5 max-[380px]:touch:min-w-0 text-muted-foreground hover:text-foreground aria-pressed:text-foreground aria-pressed:after:absolute aria-pressed:after:inset-x-1 aria-pressed:after:bottom-0 aria-pressed:after:h-0.5 aria-pressed:after:rounded-full aria-pressed:after:bg-foreground"
+              className="relative flex shrink-0 items-center px-2 pt-1 pb-2.5 text-sm font-semibold touch:min-h-11 touch:min-w-11 touch:justify-center max-[380px]:px-1.5 text-muted-foreground hover:text-foreground aria-pressed:text-foreground aria-pressed:after:absolute aria-pressed:after:inset-x-1 aria-pressed:after:bottom-0 aria-pressed:after:h-0.5 aria-pressed:after:rounded-full aria-pressed:after:bg-foreground"
             >
               {label}
             </button>
           ))}
-          {/* A chip that says itself whether it's on, filled while it is. */}
+          {/* A chip that says itself whether it's on, filled while it is: a 32px pill on a touch screen, in a 44px button. */}
           <button
             type="button"
             aria-pressed={filter.unreadOnly}
             onClick={() => onFilter({ ...filter, unreadOnly: !filter.unreadOnly })}
-            className="relative mb-1.5 ml-auto shrink-0 rounded-full border px-2.5 py-0.5 text-[13px] font-semibold text-muted-foreground hover:text-foreground aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:text-background touch:h-8 touch:px-3.5 touch:after:absolute touch:after:inset-x-0 touch:after:-inset-y-1.5 max-[380px]:touch:px-2.5"
+            className="group mb-1.5 ml-auto flex shrink-0 items-center touch:mb-0 touch:min-h-11 touch:pb-1.5"
           >
-            Unreads
+            <span className="flex items-center rounded-full border px-2.5 py-0.5 text-[13px] font-semibold text-muted-foreground group-hover:text-foreground group-aria-pressed:border-foreground group-aria-pressed:bg-foreground group-aria-pressed:text-background touch:h-8 touch:px-3.5 max-[380px]:touch:px-2.5">
+              Unreads
+            </span>
           </button>
         </nav>
       </header>
@@ -511,6 +517,7 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
   const actor = { id: item.actorId, name: author, avatarUrl: people.get(item.actorId)?.avatarUrl };
   const date = new Date(item.at);
   const sameDay = date.toDateString() === new Date().toDateString();
+  const when = sameDay ? timeLabel(date) : dateLabel(date);
   const markLabel = item.read ? "Mark unread" : "Mark read";
   const toggle = () => onMark(!item.read);
 
@@ -591,7 +598,7 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
             {author}
           </PageLink>
           <time dateTime={item.at} className={cn("shrink-0 text-xs", item.read ? "text-muted-foreground" : "text-foreground/60")}>
-            {sameDay ? timeLabel(date) : dateLabel(date)}
+            {when}
           </time>
         </div>
         <button
@@ -619,7 +626,8 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
         type="button"
         onClick={toggle}
         title={markLabel}
-        aria-label={`${markLabel}: ${author}, ${word} in ${where}`}
+        // Which item, by who and when, without repeating the item's own name, which the row's button has.
+        aria-label={`${markLabel}: ${author}, ${when}`}
         className="absolute top-2.5 right-3 z-[1] grid size-7 place-items-center rounded-md text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-background hover:text-foreground touch:hidden"
       >
         {item.read ? <EyeClosed className="size-4" /> : <CheckCircle className="size-4" />}
