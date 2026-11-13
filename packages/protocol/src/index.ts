@@ -923,6 +923,12 @@ export interface Profile {
   memberful: MemberfulStatus | null;
   /** How much @ember thinks and how long it answers you, and the most each may be, and the model you picked, if you did, and the ones you can pick, or null while Ember AI is off. */
   assistant: YourAssistant | null;
+  /**
+   * When your hush of push notifications (Do not disturb) ends, as an ISO time, or null while you
+   * haven't hushed them. It hushes push notifications alone: rooms, unread marks, the badge and
+   * banners in the app carry on.
+   */
+  dndUntil: string | null;
 }
 
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */
@@ -948,6 +954,29 @@ export interface ProfileChanges {
    * others, as signing out names the one it forgets (`SignOut`).
    */
   pushSubscriptionEndpoint?: string;
+}
+
+/** What `PUT` and `DELETE /api/users/me/dnd` answer: when your hush of push notifications ends, or null once it's lifted. */
+export interface DndAnswer {
+  dndUntil: string | null;
+}
+
+/** What `PUT /api/users/me/dnd` asks for: when to hush your push notifications until. */
+export interface DndChange {
+  until: string;
+}
+
+/**
+ * Parses an untrusted change to when your push notifications are hushed until. Returns why it's
+ * refused instead. Whether the time has passed, the server checks once it knows who's asking, by its
+ * own clock.
+ */
+export function parseDndChange(data: unknown): DndChange | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { until } = data as Record<string, unknown>;
+  if (typeof until !== "string" || until.trim() === "") return "Until must be a time";
+  if (Number.isNaN(Date.parse(until))) return "Until must be a time";
+  return { until };
 }
 
 /** What the Set up Ember form shows in its Name and Email address fields while they're empty. */

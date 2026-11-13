@@ -3420,13 +3420,51 @@ export class Workspace extends DurableObject<Env> {
   /** `person`'s profile, as their own profile page shows it to their `session`. */
   private async yourProfile(person: OwnProfileEntry, session: StoredSession): Promise<YourProfile> {
     const { name, emailAddress, bio, avatar, password, membershipNeeded } = person;
-    const [{ avatarUrl }, account] = await Promise.all([this.directoryUser(person), this.joinableAccount()]);
+    const [{ avatarUrl }, account, hushedUntil] = await Promise.all([
+      this.directoryUser(person),
+      this.joinableAccount(),
+      this.store.dndUntilOf(person.id, Date.now()),
+    ]);
     const memberful = session.guest ? null : { membersOnly: account?.memberfulSignIn ?? false, accounts: person.accounts };
     return {
       transfer: { userId: person.id, sessionId: session.id },
-      profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks) },
+      profile: {
+        name,
+        emailAddress,
+        bio,
+        avatarUrl,
+        avatar: avatar !== null,
+        password,
+        membershipNeeded,
+        dndUntil: hushedUntil === null ? null : new Date(hushedUntil).toISOString(),
+        assistant: yourAssistantOf(account, person.picks),
+      },
       memberful,
     };
+  }
+
+  /**
+   * Hushes the push notifications of the person `credentials` signs in until `until`, an ISO time,
+   * answering when they're heard again, as the server keeps it, overwriting any hush they had. It
+   * hushes push notifications alone: their involvement in rooms, unread marks, the app's badge and
+   * banners in the app carry on. "passed" for a time that isn't ahead of now, by this clock, and null
+   * without a valid session.
+   */
+  async setDnd(credentials: Credentials, until: string): Promise<string | "passed" | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    const untilAt = Date.parse(until);
+    if (!(untilAt > Date.now())) return "passed";
+    await this.store.setDnd(session.user.id, untilAt);
+    return new Date(untilAt).toISOString();
+  }
+
+  /** Lifts the hush on the push notifications of the person `credentials` signs in, answering whether it did: false without a valid session. */
+  async clearDnd(credentials: Credentials): Promise<boolean> {
+    const session = await this.session(credentials);
+    if (!session) return false;
+    await this.store.clearDnd(session.user.id);
+    return true;
   }
 
   /**

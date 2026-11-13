@@ -31,6 +31,7 @@ import {
   parseAccountChanges,
   parseCustomDomainCheck,
   parseCustomStyles,
+  parseDndChange,
   parseFavoriteOrder,
   parseInvolvementChange,
   parseMemberfulDisconnection,
@@ -58,6 +59,7 @@ import {
   type CustomDomainLookup,
   type CustomStyles,
   type Directory,
+  type DndAnswer,
   type EmailSettings,
   type Favorites,
   type Involvement,
@@ -667,6 +669,33 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   return profileAnswer(yours, env);
 }
 
+/** Why `PUT /api/users/me/dnd` refuses a time that isn't ahead of now. */
+const DND_PASSED = "Pick a time that hasn't passed yet";
+
+/**
+ * Hushes your push notifications until `until`, as Do not disturb on your profile asks, answering when
+ * they're heard again. It hushes push notifications alone: your rooms, unread marks, the app badge and
+ * banners in the app carry on.
+ */
+async function changeDnd(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const change = parseDndChange(await jsonBodyOf(request));
+  if (typeof change === "string") return problem(422, change);
+  const dndUntil = await workspace(env).setDnd(credentials, change.until);
+  if (!dndUntil) return problem(401, "Not signed in");
+  if (dndUntil === "passed") return problem(422, DND_PASSED);
+  return json({ dndUntil } satisfies DndAnswer);
+}
+
+/** Lifts the hush on your push notifications, answering that they're heard again. */
+async function clearDnd(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  if (!(await workspace(env).clearDnd(credentials))) return problem(401, "Not signed in");
+  return json({ dndUntil: null } satisfies DndAnswer);
+}
+
 /**
  * Connect Memberful on your profile: once your password checks out, while you have one, so that holding
  * your session isn't enough to add a way into your account, as for changing your email address or
@@ -1150,6 +1179,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return () => setFavoriteOrder(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
+  if (pathname === "/api/users/me/dnd" && request.method === "PUT") return () => changeDnd(request, env);
+  if (pathname === "/api/users/me/dnd" && request.method === "DELETE") return () => clearDnd(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
   if (pathname === MEMBERFUL_CONNECTIONS_PATH && request.method === "POST") return () => connectMemberful(request, env);
   if (pathname === MEMBERFUL_CONNECTIONS_PATH && request.method === "DELETE") return () => disconnectMemberful(request, env);
