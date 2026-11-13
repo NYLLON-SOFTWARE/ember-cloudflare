@@ -2,8 +2,8 @@ import { MAX_MESSAGE_HTML_LENGTH, threadPath, type Message, type RoomId, type St
 import { botMessagesPath } from "@ember/protocol/bots";
 import type { ArrivingFile } from "../files/streamed";
 import { trimmed } from "../trim";
-import type { BotWebhook, MessageWebhook } from "../workspace-store";
-import { botKeyOf } from "./keys";
+import type { WebhookAccess } from "../workspace";
+import type { MessageWebhook } from "../workspace-store";
 import { contentTypeOf, replyFileOf, type ReplyFile } from "./mime";
 import { railsJson } from "./rails-json";
 
@@ -43,9 +43,10 @@ const HEADERS = { "Content-Type": "application/json", Accept: "*/*", "User-Agent
 
 /**
  * `Webhook#payload`: who wrote `message` and where, as `delivery` names them, and what it says, for
- * `webhook`'s bot. The room's address is the one the bot posts to there, with its key, which for a reply
- * in a thread posts to that thread, and reads it, so a bot that answers later finds it as one that
- * answers at once does. The message's is its permalink, both without an origin, as Rails' path helpers
+ * `webhook`'s bot. The room's address is the one the bot posts to there, with the key its webhook gives
+ * it there, where Campfire gives the bot's own (`Workspace.botWebhook`), which for a reply in a thread
+ * posts to that thread, and reads it, so a bot that answers later finds it as one that answers at once
+ * does. The message's is its permalink, both without an origin, as Rails' path helpers
  * write them. A file message has no rich text, so its `html` is null, as Campfire's `message.body.body`
  * is, and its plain text is its file's name. A message's file, which Campfire leaves out, follows its
  * body, with the path that opens it, signed as the room's links are, so the bot fetches it without its key.
@@ -53,7 +54,7 @@ const HEADERS = { "Content-Type": "application/json", Accept: "*/*", "User-Agent
 export function webhookPayload(
   roomId: RoomId,
   { author, roomName }: Pick<MessageWebhook, "author" | "roomName">,
-  { bot, token }: Pick<BotWebhook, "bot" | "token">,
+  { bot, key }: Pick<WebhookAccess, "bot" | "key">,
   message: Pick<Message, "id" | "body" | "plainText" | "mentions" | "parentId" | "attachment">,
 ): string {
   const plain = withoutMentionsOf(nameIn(message, bot), message.plainText);
@@ -61,7 +62,7 @@ export function webhookPayload(
   const path = message.parentId === undefined ? `/rooms/${roomId}/@${message.id}` : threadPath(roomId, message.parentId, message.id);
   return railsJson({
     user: { id: author.id, name: author.name },
-    room: { id: roomId, name: roomName, path: botMessagesPath(roomId, botKeyOf(bot.id, token), message.parentId) },
+    room: { id: roomId, name: roomName, path: botMessagesPath(roomId, key, message.parentId) },
     message: {
       id: message.id,
       body: { html: message.body === "" ? null : message.body, plain },
@@ -112,8 +113,8 @@ export class WebhookError extends Error {}
 
 /**
  * Whether a webhook may be delivered to `url`: an https URL with a host, or an http one on this machine,
- * as a bot run beside `wrangler dev` is, where Campfire takes any http URL. Each delivery carries the
- * bot's key in `room.path`, which anyone on a plain http path could read and post with.
+ * as a bot run beside `wrangler dev` is, where Campfire takes any http URL. Each delivery carries a key
+ * in `room.path` that posts as the bot, which anyone on a plain http path could read and post with.
  */
 export function isWebhookUrl({ protocol, hostname }: URL): boolean {
   if (!hostname) return false;

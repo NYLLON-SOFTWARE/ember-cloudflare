@@ -94,7 +94,7 @@ import type { Gateway } from "./assistant/gateway";
 import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
 import { directoryOf, TooSoon, tooSoonAfter, versionOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
-import { botKeyOf, isBotToken, newBotToken } from "./bots/keys";
+import { botKeyOf, isBotToken, newBotToken, webhookTokenOf } from "./bots/keys";
 import { openDb, type Db } from "./db";
 import { alreadyAMemberEmail, emailDomainLinkEmail, invitationEmail, passwordResetCodeEmail, testEmail } from "./emails";
 import { guestSignIn, type Env } from "./env";
@@ -119,7 +119,7 @@ import {
   type AccountChange,
   type AgentSetup,
   type AvatarOwner,
-  type BotWebhook,
+  type BotKey,
   type Client,
   type Connecting,
   type AssistantPicks,
@@ -551,8 +551,15 @@ export interface BotKeyAccess extends BotAccess {
   customDomain: string | null;
 }
 
-/** What the Workspace says about the webhook of a bot it found active in a room, as a delivery to it runs. */
-export interface WebhookAccess extends BotAccess, BotWebhook {}
+/**
+ * What the Workspace says about the webhook of a bot it found active in a room, as a delivery to it runs:
+ * the URL it delivers to, and the key the delivery gives the bot in the room's address, which is the
+ * webhook's own, never the bot's (`webhookTokenOf`).
+ */
+export interface WebhookAccess extends BotAccess {
+  url: string;
+  key: string;
+}
 
 /**
  * Why signing in with Memberful signed nobody in, or connected no account: Memberful is off for someone
@@ -3563,27 +3570,37 @@ export class Workspace extends DurableObject<Env> {
   /**
    * The active bot a bot API key names by `botId` and `token`, if it's in room `roomId`, with when this
    * checked and Ember's custom domain: "not found" when it isn't, as `set_room` answers then, or null
-   * unless `token` is the bot's token now.
+   * unless `token` is the bot's token now, or the one its webhook's deliveries give it in that room now.
    */
   async botInRoom(botId: UserId, token: string, roomId: RoomId): Promise<BotKeyAccess | "not found" | null> {
     // Before anything is read, as `roomAccess` takes it.
     const authorizedAt = Date.now();
     const [found, account] = await Promise.all([this.store.activeBotKey(botId, roomId), this.joinableAccount()]);
-    if (!found || !isBotToken(token, found.token)) return null;
+    if (!found || !(isBotToken(token, found.token) || (await this.isWebhookToken(token, roomId, found)))) return null;
     return found.member ? { bot: found.bot, authorizedAt, customDomain: account?.customDomain ?? null } : "not found";
+  }
+
+  /** Whether `token` is the one a delivery to the webhook of the bot `found` gives it in room `roomId`, as the webhook is now. */
+  private async isWebhookToken(token: string, roomId: RoomId, { bot, token: own, webhook }: BotKey): Promise<boolean> {
+    return webhook !== null && isBotToken(token, await webhookTokenOf(this.env.SESSION_SECRET, roomId, bot.id, { token: own, ...webhook }));
   }
 
   /**
    * The webhook of the bot `botId` in room `roomId` as a delivery to it finds it, when its turn comes and
    * again before what the bot says back is posted, with when this checked: null once it isn't an active
    * bot in the room with a webhook, so that deleting a bot, taking it out of the room or removing its
-   * webhook stops what's on its way to it, and a new URL or key takes effect at once.
+   * webhook stops what's on its way to it, and a new URL or key takes effect at once. The key it gives
+   * the bot in the room's address is the webhook's own there, which stops working once the webhook
+   * delivers elsewhere or goes, or the bot is given a new key, so a server Ember has stopped delivering
+   * to can't go on posting as the bot, nor reading its rooms.
    */
   async botWebhook(roomId: RoomId, botId: UserId): Promise<WebhookAccess | null> {
     // Before anything is read, as `roomAccess` takes it.
     const authorizedAt = Date.now();
     const webhook = await this.store.botWebhook(roomId, botId);
-    return webhook && { ...webhook, authorizedAt };
+    if (!webhook) return null;
+    const { bot, url } = webhook;
+    return { bot, url, key: botKeyOf(bot.id, await webhookTokenOf(this.env.SESSION_SECRET, roomId, bot.id, webhook)), authorizedAt };
   }
 
   /**

@@ -929,10 +929,12 @@ What a self-hoster should know, beyond keeping the setup password and link to th
 - A file's address is signed and never expires: whoever has it can open the file until its message
   is deleted, as with Active Storage's links. A bot is given the addresses of the files in its rooms,
   with the messages its webhook is sent and those the bot API answers, so it can read them.
-- A bot's webhook payload carries the bot's key, so point bots only at servers you trust. Webhooks
-  go only to https, or to http on localhost, so nobody on the way reads the key; a bot saved with an
-  http URL elsewhere before gets no deliveries until its URL is changed, and the Worker's log says
-  why.
+- A bot's webhook payload carries a key of the webhook's own, never the bot's. It posts and reads as
+  the bot in the message's room alone, and stops working once the webhook's URL changes or it's
+  removed, or the bot's key is reset, so a server Ember no longer delivers to can't go on posting as
+  the bot. Point bots only at servers you trust all the same. Webhooks go only to https, or to http
+  on localhost, so nobody on the way reads the key; a bot saved with an http URL elsewhere before
+  gets no deliveries until its URL is changed, and the Worker's log says why.
 - Workers Logs record each request's address, which for Campfire's bot API and the Slack-compatible
   webhooks holds the bot's key and for the join link its code; Reset key and Regenerate join link are
   the remedies if a log is shared, and
