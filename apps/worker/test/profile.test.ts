@@ -338,7 +338,7 @@ describe("Edit your profile", () => {
       // The route checks the session before hashing a new password, and on D1 a reset can begin meanwhile.
       expect(await workspace.authenticate(credentials)).not.toBeNull();
       const reset = workspace.resetPassword(ada.emailAddress, "recovery digest");
-      const saved = workspace.changeProfile(credentials, { name: "Mallory" }, "their own digest", digest, null);
+      const saved = workspace.changeProfile(credentials, { name: "Mallory" }, "their own digest", digest, null, null);
       return Promise.all([reset, saved]);
     });
     expect(answers).toEqual(["reset", null]);
@@ -353,10 +353,10 @@ describe("Edit your profile", () => {
     const answers = await runInDurableObject(workspaceStub(), (workspace: Workspace) =>
       // All three were checked against the password Ada had, which the first replaces.
       Promise.all([
-        workspace.changeProfile(credentials, {}, "first digest", digest, null),
-        workspace.changeProfile(credentials, {}, "second digest", digest, null),
-        workspace.changeProfile(credentials, { emailAddress: "countess@example.com" }, null, digest, null),
-        workspace.changeProfile(credentials, { emailAddress: "countess@example.com" }, null, null, null),
+        workspace.changeProfile(credentials, {}, "first digest", digest, null, null),
+        workspace.changeProfile(credentials, {}, "second digest", digest, null, null),
+        workspace.changeProfile(credentials, { emailAddress: "countess@example.com" }, null, digest, null, null),
+        workspace.changeProfile(credentials, { emailAddress: "countess@example.com" }, null, null, null, null),
       ]),
     );
     expect(answers).toEqual([expect.objectContaining({ profile: expect.objectContaining({ password: true }) }), "password needed", "password needed", "password needed"]);

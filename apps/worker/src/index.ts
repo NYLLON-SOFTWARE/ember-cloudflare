@@ -23,6 +23,7 @@ import {
   NAME_RESERVED,
   NO_EMAIL_DOMAINS,
   PASSWORD_RESET_PATH,
+  PASSWORD_WITH_MEMBERFUL,
   isPasswordTooLong,
   isReservedName,
   isRoomId,
@@ -630,8 +631,11 @@ async function profile(request: Request, env: Env): Promise<Response> {
  * takes is refused (422). An email address someone else has is refused. Changing your email address or
  * password, while you have one, takes your current password too, so that holding your session isn't
  * enough to take your account: it's checked as sign-in checks a password, counting against the same
- * limit (429), and refused (422) when it's missing or wrong. A new password ends your other sessions,
- * keeping this browser's push subscription at `pushSubscriptionEndpoint` and forgetting the rest.
+ * limit (429), and refused (422) when it's missing or wrong. Someone without a password whom Memberful
+ * signs in, as it does while the deployment has the keys to the site they're linked at, is refused a
+ * first one (422), for the same reason: it would be a way in that holding their session was enough to
+ * make. A new password ends your other sessions, keeping this browser's push subscription at
+ * `pushSubscriptionEndpoint` and forgetting the rest.
  */
 async function changeProfile(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -639,9 +643,11 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   const changes = parseProfileChanges(await jsonBodyOf(request));
   if (typeof changes === "string") return problem(422, changes);
   const { password, currentPassword, pushSubscriptionEndpoint, ...rest } = changes;
-  const check = await workspace(env).profileCheck(credentials, request.headers.get("CF-Connecting-IP") ?? "unknown", rest.emailAddress, Boolean(password));
+  const memberfulSite = memberfulKeysOf(env)?.site ?? null;
+  const check = await workspace(env).profileCheck(credentials, request.headers.get("CF-Connecting-IP") ?? "unknown", rest.emailAddress, Boolean(password), memberfulSite);
   if (!check) return problem(401, "Not signed in");
   if (check === "limited") return problem(429, SIGN_IN_LIMITED);
+  if (check === "memberful") return problem(422, PASSWORD_WITH_MEMBERFUL);
   const checked = check.passwordDigest;
   if (checked !== null) {
     if (!currentPassword) return problem(422, CURRENT_PASSWORD_NEEDED);
@@ -649,8 +655,9 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
     if (isPasswordTooLong(currentPassword) || !(await passwordHasher(env).verify(currentPassword, checked)).matches) return problem(422, CURRENT_PASSWORD_WRONG);
   }
   const passwordDigest = password ? await passwordHasher(env).hash(password) : null;
-  const yours = await workspace(env).changeProfile(credentials, rest, passwordDigest, checked, pushSubscriptionEndpoint || null);
+  const yours = await workspace(env).changeProfile(credentials, rest, passwordDigest, checked, pushSubscriptionEndpoint || null, memberfulSite);
   if (!yours) return problem(401, "Not signed in");
+  if (yours === "memberful") return problem(422, PASSWORD_WITH_MEMBERFUL);
   if (yours === "email address taken") return problem(422, "That email address has an account already");
   if (yours === "name reserved") return problem(422, NAME_RESERVED);
   if (yours === "agent's name") return problem(422, agentsName(rest.name!));
