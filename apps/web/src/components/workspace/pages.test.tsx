@@ -133,8 +133,9 @@ describe("Workspace layout", { timeout: PAGES_LOAD_MS * 2 }, () => {
     });
     const { show, navigate } = await freshWorkspace();
     show("/searches");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't reach Ember. Check your connection and try again.");
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    // In the page's place, with Try again, which any press does too.
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t reach Ember. Check your connection and try again.");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
 
     // Straight from the one that couldn't load them.
     vi.doUnmock("./pages");
