@@ -64,6 +64,21 @@ describe("SplitPanes", () => {
     expect(separator).toHaveAttribute("aria-valuenow", "384");
   });
 
+  it("keeps a pane's own width, as resized, as panes beside it open and close, the others sharing what's left", async () => {
+    const feed: Pane = { ...pane("feed", 300, 0.5), width: 400 };
+    const thread: Pane = { ...pane("thread", 250, 0.3), width: 300, widthKey: "side", sizedBySeparator: true };
+    const { rerender } = render(<SplitPanes layoutKey="kept" panes={[feed, pane("room", 300, 0.5)]} />);
+    expect(flexOf("feed")).toBeCloseTo(0.4);
+    screen.getByRole("separator", { name: "Resize room" }).focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(flexOf("feed")).toBeCloseTo(0.416);
+
+    rerender(<SplitPanes layoutKey="kept" panes={[feed, pane("room", 250, 0.5), thread]} />);
+    expect(flexOf("feed")).toBeCloseTo(0.416);
+    expect(flexOf("thread")).toBeCloseTo(0.3);
+    expect(flexOf("room")).toBeCloseTo(0.284);
+  });
+
   it("follows a pointer dragging it", () => {
     render(<SplitPanes layoutKey="drag" panes={[pane("feed", 300, 0.5), pane("room", 300, 0.5)]} />);
     const separator = screen.getByRole("separator");

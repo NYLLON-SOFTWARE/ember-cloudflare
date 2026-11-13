@@ -33,6 +33,7 @@ import { PageHeader } from "./page-header";
 import { ProfilePanel } from "./profile-panel";
 import { useProfilePane } from "./profile-pane";
 import type { RoomPanes } from "./room-view";
+import { DEFAULT_SIDE_PX } from "./side-column";
 import { ONE_PANE, SplitPanes, type Pane, type PaneStack } from "./split-panes";
 import { AvatarLink } from "./user-avatar";
 import { BottomSheet } from "../mobile/action-sheet";
@@ -151,8 +152,10 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
     {
       id: "feed",
       label: "Resize activity",
-      minWidth: 320,
+      // It keeps its width as a thread or a profile opens and closes beside the conversation.
+      minWidth: 360,
       defaultShare: side ? 0.3 : 0.42,
+      width: 400,
       content: (
         <Feed
           shown={shown}
@@ -173,7 +176,7 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
       id: "conversation",
       label: "Resize activity",
       onClose: place ? closeConversation : undefined,
-      minWidth: 380,
+      minWidth: 420,
       defaultShare: side ? 0.4 : 0.58,
       content:
         place && roomOpen ? (
@@ -192,9 +195,9 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
   // With nothing open, the feed shows alone on phones, and beside a profile anywhere, with no empty pane between.
   if (!place && (phone || side === "profile")) panes.pop();
   if (side === "thread" && roomOpen)
-    panes.push({ id: "thread", label: "Resize thread", minWidth: 300, defaultShare: 0.3, sizedBySeparator: true, onClose: closeThread, content: <div ref={setThreadPane} className="h-full min-h-0" /> });
+    panes.push({ id: "thread", label: "Resize thread", minWidth: 300, defaultShare: 0.3, width: DEFAULT_SIDE_PX, widthKey: "side", sizedBySeparator: true, onClose: closeThread, content: <div ref={setThreadPane} className="h-full min-h-0" /> });
   if (side === "profile" && profile)
-    panes.push({ id: "profile", label: "Resize profile", minWidth: 300, defaultShare: 0.3, sizedBySeparator: true, onClose: profile.close, content: <ProfilePanel userId={profile.userId!} me={me} pane={profile} placement="pane" /> });
+    panes.push({ id: "profile", label: "Resize profile", minWidth: 300, defaultShare: 0.3, width: DEFAULT_SIDE_PX, widthKey: "side", sizedBySeparator: true, onClose: profile.close, content: <ProfilePanel userId={profile.userId!} me={me} pane={profile} placement="pane" /> });
 
   return (
     <>
