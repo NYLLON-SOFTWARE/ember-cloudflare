@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { MAX_MOOD_EMOJI_LENGTH, MAX_MOOD_TEXT_LENGTH, sameMood, type PersonMood, type ProfileAnswer } from "@ember/protocol";
 import { AUTH_FORM } from "@/components/auth-page";
-import { FIELD_INPUT, Field, PRIMARY_BUTTON, SubmitButton } from "@/components/field";
+import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
@@ -103,7 +103,7 @@ export function MoodEditor({ mood, onSaved, onFailed }: Props) {
         Mood
       </h2>
       <p>An emoji and a few words beside your name, which everyone sees until it comes off.</p>
-      <form onSubmit={save} className={cn(AUTH_FORM, "gap-4")} aria-busy={saving || undefined}>
+      <form onSubmit={save} className={cn(AUTH_FORM, "gap-4")}>
         <div className="flex flex-col gap-4 md:flex-row md:items-start">
           <Field id="user_mood_emoji" label="Emoji">
             <Input
@@ -158,7 +158,7 @@ export function MoodEditor({ mood, onSaved, onFailed }: Props) {
             variant="outline"
             onClick={clear}
             disabled={mood === null || saving}
-            className={cn(PRIMARY_BUTTON, "bg-background md:w-auto md:px-[3ch]")}
+            className="h-auto min-h-[42px] w-full rounded-[9px] px-4 py-2.5 text-sm font-[550] touch:min-h-11 md:w-auto md:px-[3ch]"
           >
             Clear
           </Button>
