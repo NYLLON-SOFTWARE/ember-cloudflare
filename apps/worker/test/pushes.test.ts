@@ -251,10 +251,12 @@ describe("Who gets a push", () => {
     await connect(room, "Ada");
     const details = async (rows: Promise<unknown[]>) => (await rows).map((row) => (row as { detail: string }).detail).join("; ");
 
-    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", "[]", 1, 1, 1, "[]"));
+    const pushes = await details(workspaceSql(`EXPLAIN QUERY PLAN ${MESSAGE_PUSHES}`, room, "someone", "[]", "[]", 1, 1, 1, "[]", Date.now()));
     expect(pushes).toContain("index_push_subscriptions_on_user_id_and_endpoint (user_id=?)");
     expect(pushes).toContain("SEARCH marked USING INDEX index_memberships_on_user_id_and_room_id (user_id=?)");
-    expect(pushes).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|authors)\b/);
+    // A hush of push notifications (Do not disturb) is looked up by its person, never by reading the table.
+    expect(pushes).toContain("SEARCH dnd USING INDEX sqlite_autoindex_dnd_1 (user_id=?)");
+    expect(pushes).not.toMatch(/SCAN (rooms|memberships|users|push_subscriptions|marked|authors|dnd)\b/);
     const undelivered = await details(roomSql(room, `EXPLAIN QUERY PLAN ${UNDELIVERED_EVENTS}`, room, 50));
     expect(undelivered).not.toMatch(/SCAN|TEMP B-TREE/);
   });
