@@ -1462,6 +1462,47 @@ describe("How mentions look", () => {
   });
 });
 
+describe("Saving an edit", () => {
+  const original = message({ body: "<p>Hello</p>", plainText: "Hello" });
+  // Someone else's edit, or another tab's, as it comes in while this one's open.
+  const theirs = { ...original, body: "<p>Hello from Maya</p>", plainText: "Hello from Maya" };
+
+  /** `m` open in its editor, with `actions` and `editors` kept across renders. */
+  function editingView() {
+    const actions = { boost: vi.fn(), unboost: vi.fn(), edit: vi.fn(() => true), remove: vi.fn() };
+    const editors = { open: vi.fn(), close: vi.fn(), returnFocus: vi.fn(), attach: vi.fn(), reply: vi.fn() };
+    const view = (m: Message) => (
+      <PeopleContext value={new Map()}>
+        <DirectoryLoaded value>
+          <MessageItem message={m} me={{ ...ada, administrator: false }} threaded={false} editing actions={actions} editors={editors} />
+        </DirectoryLoaded>
+      </PeopleContext>
+    );
+    const { rerender } = render(view(original));
+    return { actions, editors, update: (m: Message) => rerender(view(m)), user: userEvent.setup() };
+  }
+
+  it("does nothing on a Save that changed nothing, rather than put back what someone else saved meanwhile", async () => {
+    const { actions, editors, update, user } = editingView();
+    await editBox();
+    update(theirs);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(actions.edit).not.toHaveBeenCalled();
+    expect(editors.close).toHaveBeenCalled();
+  });
+
+  it("warns before replacing what someone else saved meanwhile, saving on a second Save, once", async () => {
+    const { actions, update, user } = editingView();
+    await user.type(await editBox(), " again");
+    update(theirs);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(actions.edit).not.toHaveBeenCalled();
+    expect(await editBox()).toHaveValue("Hello again");
+    await user.dblClick(screen.getByRole("button", { name: "Save" }));
+    expect(actions.edit).toHaveBeenCalledExactlyOnceWith("m1", "<p>Hello again</p>");
+  });
+});
+
 describe("Avatars open people's pages", () => {
   afterEach(() => history.replaceState(null, "", "/"));
 
