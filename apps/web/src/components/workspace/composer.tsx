@@ -236,10 +236,10 @@ interface Props {
   /** Sends files, each as a message of its own, before the message written with them. */
   onSendFiles: (files: File[], alsoSend: boolean) => void;
   /**
-   * Holds what's written until `sendAt`, UTC, answering whether it went. The room composer has this; a
-   * thread's doesn't, so its clock stays off.
+   * Holds what's written until `sendAt`, UTC, answering whether the room took it. A refusal leaves
+   * what's written. The room composer has this; a thread's doesn't, so its clock stays off.
    */
-  onSchedule?: (body: string, sendAt: string) => boolean;
+  onSchedule?: (body: string, sendAt: string) => boolean | Promise<boolean>;
   /** This person's messages still waiting in the room, for the clock's list. */
   scheduled?: ScheduledMessage[];
   /** Drops a waiting message of this person's before the room posts it. */
@@ -377,15 +377,26 @@ export function Composer({
     written.focus();
   };
 
-  const schedule = (sendAt: string) => {
-    if (disabled || !onSchedule) return false;
-    const written = editor.current;
-    if (!written || written.isBlank()) return false;
-    if (!onSchedule(written.value(), sendAt)) return false;
+  const finishSchedule = (written: RichTextEditorHandle, accepted: boolean) => {
+    if (!accepted) return;
     wasBlank.current = true;
     written.clear();
     keepDraft(key, null);
     setHasText(false);
+    picked.clear();
+  };
+
+  const schedule = (sendAt: string) => {
+    if (disabled || !onSchedule) return false;
+    const written = editor.current;
+    if (!written || written.isBlank()) return false;
+    const result = onSchedule(written.value(), sendAt);
+    if (result === false) return false;
+    if (result === true) {
+      finishSchedule(written, true);
+      return true;
+    }
+    void result.then((accepted) => finishSchedule(editor.current ?? written, accepted));
     return true;
   };
 

@@ -820,20 +820,33 @@ describe("Schedule a message", () => {
   it("sends a future send time in UTC, and does not show the message in the timeline until the room posts it", () => {
     const { result } = joinGeneral();
     const sendAt = new Date(Date.now() + 60_000).toISOString();
-    let sent: boolean | undefined;
+    let sent: boolean | Promise<boolean> | undefined;
     act(() => {
       sent = result.current.scheduleMessage("<p>After lunch</p>", sendAt);
     });
-    expect(sent).toBe(true);
+    expect(sent).toEqual(expect.any(Promise));
     expect(socket().sentOfType("message.schedule")).toEqual([
       { type: "message.schedule", clientMessageId: expect.any(String), body: "<p>After lunch</p>", sendAt },
     ]);
     expect(result.current.state.messages).toEqual([]);
   });
 
+  it("answers that the schedule did not go when the room refuses it", async () => {
+    const { result } = joinGeneral();
+    const sendAt = new Date(Date.now() + 60_000).toISOString();
+    let sent: boolean | Promise<boolean> | undefined;
+    act(() => {
+      sent = result.current.scheduleMessage("<p>After lunch</p>", sendAt);
+    });
+    expect(sent).toEqual(expect.any(Promise));
+    socket().receive({ type: "error", message: SEND_AT_IN_THE_PAST, failed: "message.schedule" });
+    await expect(sent).resolves.toBe(false);
+    expect(result.current.state.notice).toBe(SEND_AT_IN_THE_PAST);
+  });
+
   it("refuses a send time that has already passed, and a message that is too long", () => {
     const { result } = joinGeneral();
-    let sent: boolean | undefined;
+    let sent: boolean | Promise<boolean> | undefined;
     act(() => {
       sent = result.current.scheduleMessage("<p>Too late</p>", new Date(Date.now() - 1).toISOString());
     });

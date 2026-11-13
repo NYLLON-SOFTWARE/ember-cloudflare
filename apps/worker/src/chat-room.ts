@@ -1515,12 +1515,18 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Posts every waiting message whose send time has come, as ordinary messages, and sets the alarm for
-   * the next still waiting, if any. Tests move the clock (`setNow`) and run the alarm rather than wait.
+   * the next still waiting, if any. A message whose author is no longer in the room is dropped instead.
+   * Tests move the clock (`setNow`) and run the alarm rather than wait.
    */
   private async sendDueScheduled(roomId: RoomId): Promise<void> {
     const store = this.storeFor(roomId);
     const due = await store.dueScheduled(isoNow());
     for (const scheduled of due) {
+      if (!(await workspace(this.env).isMember(roomId, scheduled.creator.id))) {
+        await store.cancelScheduled(scheduled.id);
+        this.sendTo(scheduled.creator.id, { type: "scheduled.cancelled", scheduledId: scheduled.id });
+        continue;
+      }
       this.readers.clear();
       const { message, seq } = await store.postScheduled(scheduled, sortableId(), isoNow());
       this.seenBy.set(message.id, viewersOf(this.ctx));

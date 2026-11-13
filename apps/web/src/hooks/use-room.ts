@@ -108,6 +108,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   const [around] = useState(openedAt);
   const socket = useRef<ReconnectingSocket | null>(null);
   const listeners = useRef(new Set<(frame: ServerFrame) => void>());
+  /** Schedules waiting for the room to take them, by the client id the tab sent. */
+  const awaitingSchedule = useRef(new Map<string, (accepted: boolean) => void>());
   const lastTypingStarted = useRef(-Infinity);
   const sessionChanged = useEffectEvent(onSessionChanged);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
@@ -195,6 +197,20 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         checkUnconfirmed(room, frame.messages);
         sendQueued(room, frame);
       }
+      if (frame.type === "scheduled.created") {
+        const done = awaitingSchedule.current.get(frame.scheduled.clientMessageId);
+        if (done) {
+          awaitingSchedule.current.delete(frame.scheduled.clientMessageId);
+          done(true);
+        }
+      } else if (frame.type === "error" && frame.failed === "message.schedule") {
+        // These errors name the frame, not the client id, so the oldest still waiting is the one that failed.
+        const first = awaitingSchedule.current.entries().next();
+        if (!first.done) {
+          awaitingSchedule.current.delete(first.value[0]);
+          first.value[1](false);
+        }
+      }
       for (const listener of listeners.current) listener(frame);
     };
 
@@ -248,6 +264,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       closed = true;
       clearInterval(expire);
       visibility.stop();
+      for (const done of awaitingSchedule.current.values()) done(false);
+      awaitingSchedule.current.clear();
       room.close();
       socket.current = null;
       // Leaving the room loses none of what was written here: the outbox sends what hasn't gone.
@@ -301,9 +319,10 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     [me, roomId, send, warn, toNewest],
   );
 
-  // A time that has already passed is refused; the room does not post the message at once.
+  // A time that has already passed is refused; the room does not post the message at once. Answers
+  // once the room has taken it, so the composer keeps what's written until then.
   const scheduleMessage = useCallback(
-    (body: string, sendAt: string) => {
+    (body: string, sendAt: string): boolean | Promise<boolean> => {
       const { plainText: text } = writtenBody(body);
       if (isTooLong(body, text)) {
         warn(MESSAGE_TOO_LONG);
@@ -313,9 +332,15 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         warn(SEND_AT_IN_THE_PAST);
         return false;
       }
-      const sent = send({ type: "message.schedule", clientMessageId: crypto.randomUUID(), body, sendAt });
-      if (!sent) warn("Not connected. Try again once you're reconnected.");
-      return sent;
+      const clientMessageId = crypto.randomUUID();
+      const sent = send({ type: "message.schedule", clientMessageId, body, sendAt });
+      if (!sent) {
+        warn("Not connected. Try again once you're reconnected.");
+        return false;
+      }
+      return new Promise((resolve) => {
+        awaitingSchedule.current.set(clientMessageId, resolve);
+      });
     },
     [send, warn],
   );

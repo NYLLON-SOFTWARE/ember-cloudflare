@@ -131,6 +131,30 @@ describe("Schedule a message to send later", () => {
     expect(await ada.next("error")).toEqual({ type: "error", message: SCHEDULED_GONE, failed: "scheduled.cancel" });
   });
 
+  it("drops a waiting message whose author is no longer in the room, so the clock advancing posts nothing", async () => {
+    const clock = freezeClock();
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    const adaSocket = await connect(room.id, ada);
+    const graceSocket = await connect(room.id, grace);
+    const sendAt = clock.iso(clock.now() + 60_000);
+
+    graceSocket.send({ type: "message.schedule", clientMessageId: "g1", body: "<p>After I left</p>", sendAt });
+    const { scheduled } = await graceSocket.next("scheduled.created");
+    await workspaceSql("DELETE FROM memberships WHERE room_id = ? AND user_id = ?", room.id, grace.user.id);
+
+    clock.advance(60_000);
+    await ring(room.id);
+    await settle(adaSocket, graceSocket);
+    expect(adaSocket.pending("message.created")).toEqual([]);
+    expect(graceSocket.pending("message.created")).toEqual([]);
+    expect(graceSocket.pending("scheduled.sent")).toEqual([]);
+    expect(graceSocket.pending("scheduled.cancelled")).toEqual([{ type: "scheduled.cancelled", scheduledId: scheduled.id }]);
+    expect((await connect(room.id, ada)).welcome.messages).toEqual([]);
+    expect(await roomSql(room.id, "SELECT count(*) AS n FROM scheduled_messages WHERE room_id = ?", room.id)).toEqual([{ n: 0 }]);
+  });
+
   it("lets only a member of the room schedule, list or cancel", async () => {
     const clock = freezeClock();
     const ada = await signIn("Ada");

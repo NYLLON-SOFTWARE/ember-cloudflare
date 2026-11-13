@@ -19,7 +19,7 @@ async function showComposer({
   threadId = undefined as string | undefined,
   direct = false,
   autoFocus = true,
-  onSchedule = undefined as ((body: string, sendAt: string) => boolean) | undefined,
+  onSchedule = undefined as ((body: string, sendAt: string) => boolean | Promise<boolean>) | undefined,
 } = {}) {
   const onSend = vi.fn((_body: string, _alsoSend: boolean) => true);
   const onSendFiles = vi.fn((_files: File[], _alsoSend: boolean) => {});
@@ -462,6 +462,30 @@ describe("Schedule a message", () => {
     expect(onSchedule).toHaveBeenCalledOnce();
     expect(onSchedule.mock.calls[0]![0]).toBe("<p>After lunch</p>");
     expect(onSchedule.mock.calls[0]![1].endsWith("Z")).toBe(true);
+    expect(input).toHaveValue("");
+  });
+
+  it("keeps what's written, and the draft, when the room refuses the schedule", async () => {
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => Promise.resolve(false));
+    const { input, user } = await showComposer({ onSchedule });
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    await user.click(screen.getByRole("button", { name: "Schedule" }));
+    expect(onSchedule).toHaveBeenCalledOnce();
+    expect(input).toHaveValue("After lunch");
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>After lunch</p>");
+  });
+
+  it("drops picked files once the room has taken the schedule", async () => {
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => true);
+    const { input, user } = await showComposer({ onSchedule });
+    await user.upload(attachFiles(), fileOf("notes.txt"));
+    expect(chips()).toEqual(["Remove notes.txt"]);
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    await user.click(screen.getByRole("button", { name: "Schedule" }));
+    expect(onSchedule).toHaveBeenCalledOnce();
+    expect(chips()).toEqual([]);
     expect(input).toHaveValue("");
   });
 });
