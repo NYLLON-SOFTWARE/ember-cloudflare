@@ -14,11 +14,12 @@ import {
 import type { Env } from "../env";
 import { isLoopback } from "../loopback";
 
-// Asking a model through Cloudflare's AI Gateway: Claude, GPT and Grok, the models Ember offers, through
-// the gateway's endpoints for Anthropic, OpenAI and xAI on gateway.ai.cloudflare.com, which pass on each
-// provider's own API as it is (https://developers.cloudflare.com/ai-gateway/usage/providers/anthropic/,
-// …/openai/, …/grok/), and the models kept before Ember offered only those as they were kept, with the AI
-// REST API on api.cloudflare.com, in whichever of its three formats the model took
+// Asking a model through Cloudflare's AI Gateway: Claude and GPT, of the models Ember offers, through the
+// gateway's endpoints for Anthropic and OpenAI on gateway.ai.cloudflare.com, which pass on each provider's
+// own API as it is (https://developers.cloudflare.com/ai-gateway/usage/providers/anthropic/, …/openai/),
+// and Grok there through xAI's (…/grok/) only to search the web, as the gateway's credits pay for it there
+// only with no key of xAI's; otherwise Grok, and the models kept before Ember offered only its own as they
+// were kept, through the REST API on api.cloudflare.com, in whichever of its three formats the model took
 // (https://developers.cloudflare.com/ai-gateway/usage/rest-api/), which takes Grok's requests only in Chat
 // Completions. Every request goes through the account's default gateway, whose logs, caching, rate limits
 // and spend limits apply, and which Cloudflare makes on the account's first request. A model that may use
@@ -561,10 +562,17 @@ function providerRefusalOf(format: ProviderFormat, status: number, body: unknown
   const { codes, message } = errorIn(body);
   const said = (lead: string) => (message ? `${lead} Cloudflare says: ${quoted(message)}` : lead);
   const { token, unpaid } = PROVIDER_REFUSALS[format];
+  if (codes.includes(2049) || codes.includes(2044) || isUnkeyed(body)) return { status: 422, reason: "credits", refusal: said(unpaid) };
   if (status === 401 || (status === 403 && codes.includes(10000))) return { status: 422, reason: "token", field: "apiToken", refusal: said(token) };
-  if (codes.includes(2049) || codes.includes(2044)) return { status: 422, reason: "credits", refusal: said(unpaid) };
   return refusalOf(status, body);
 }
+
+/**
+ * Whether the provider itself refused a request AI Gateway passed on with no key of the provider's, as
+ * xAI does when the gateway's credits don't pay for Grok at its endpoint, which took the API token:
+ * `{"code":"unauthenticated:no-credentials","error":"No credentials presented."}`.
+ */
+const isUnkeyed = (body: unknown) => isObject(body) && body.code === "unauthenticated:no-credentials";
 
 /**
  * Whether Cloudflare's API couldn't route a request to the account, as for an ID it has no account

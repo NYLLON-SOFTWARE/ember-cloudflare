@@ -15,7 +15,7 @@ import {
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { answerOf, questionFor } from "../src/assistant/answers";
-import { XAI_TOKEN_REFUSED } from "../src/assistant/gateway";
+import { XAI_TOKEN_REFUSED, XAI_UNPAID } from "../src/assistant/gateway";
 import { answeredUnsearched, webToolsRefused } from "../src/assistant/settings";
 import { addKeptModels, answerWithKeptModel, api, connect, cookieOf, freshDeploy, post, shown, workspaceSql, type Client, type KeptModel, type Session } from "./support";
 
@@ -78,7 +78,7 @@ function fakeGateway(answer: (asked: Asked) => Response | Promise<Response>): As
   return requests;
 }
 
-/** Whether a request to `url` goes to one of AI Gateway's endpoints for each provider, as Ember asks Claude, GPT and Grok, and not to Cloudflare's API. */
+/** Whether a request to `url` goes to one of AI Gateway's endpoints for each provider, as Ember asks Claude and GPT, and Grok to search, and not to Cloudflare's API. */
 const toProvider = (url: string) => new URL(url).hostname === "gateway.ai.cloudflare.com";
 
 /** One of AI Gateway's endpoints for each provider refusing a request, in its own shape, as it does an API token without AI Gateway Run. */
@@ -361,6 +361,21 @@ describe("Search the web", () => {
     );
     expect(await storedWebTools()).toEqual(["search"]);
     expect(await storedModels()).toEqual(["xai", [[GROK, "xai", XAI_LEVELS], [OTHER_GROK, "xai", XAI_LEVELS], [MESSAGES_MODEL, "messages", ALL_LEVELS]]]);
+  });
+
+  it("says AI Gateway's credits can't pay for Grok's search when xAI is passed no key of its own, as an xAI key on the gateway can", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const ada = await setUp(GROK);
+    await answerWithKeptModel(keptIn("chat", GROK, "Grok 4.7"));
+    // xAI's own answer to a request AI Gateway passed on without a key, having taken the API token.
+    const unkeyed = () => Response.json({ code: "unauthenticated:no-credentials", error: "No credentials presented." }, { status: 401 });
+    const requests = fakeGateway((asked) => (toProvider(asked.url) ? unkeyed() : searching(asked)));
+    const response = await turnWebSearch(ada, true);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: `${XAI_UNPAID} Cloudflare says: No credentials presented.` });
+    expect(requests.map(({ url }) => url)).toEqual([XAI_ENDPOINT]);
+    expect(await storedWebTools()).toEqual([]);
+    expect(await storedModels()).toEqual(["chat", [[GROK, "chat", ALL_LEVELS]]]);
   });
 
   it("asks the Grok models people pick through AI Gateway's xAI endpoint once Search the web is on, whatever answers everyone, while the endpoint takes Ember AI's API token", async () => {

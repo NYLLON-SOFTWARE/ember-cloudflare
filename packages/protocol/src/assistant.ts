@@ -45,9 +45,10 @@ export interface ModelPrice {
 }
 
 /**
- * The models Ember offers, which Set up Ember AI, Add a model and the agents' pages list: Anthropic's,
- * OpenAI's and xAI's, each asked in its provider's own format through AI Gateway's endpoint for that
- * provider, where Ember knows the tools each has for the web (`WEB_TOOLS_IN`), with what AI Gateway's
+ * The models Ember offers, which Set up Ember AI, Add a model and the agents' pages list: Anthropic's and
+ * OpenAI's, each asked in its provider's own format through AI Gateway's endpoint for that provider, and
+ * xAI's, asked through Cloudflare's REST API, where Ember knows the tools each has for the web
+ * (`WEB_TOOLS_IN`, `searchFormatOf`), with what AI Gateway's
  * credits pay for each, at its provider's prices. A model kept from before Ember offered only these
  * answers still, as it was kept. Wherever one of these is listed, Ember calls it by its name here.
  */
@@ -61,7 +62,9 @@ export const ASSISTANT_MODELS: readonly AssistantModel[] = [
   { id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", format: "openai", price: { input: 2, output: 10 } },
   { id: "openai/gpt-6.1-terra", name: "GPT-6.1 Terra", format: "openai", price: { input: 1, output: 5 } },
   { id: "openai/gpt-6-luna", name: "GPT-6 Luna", format: "openai", price: { input: 0.1, output: 0.5 } },
-  { id: "xai/grok-4.7", name: "Grok 4.7", format: "xai", price: { input: 2, output: 6 } },
+  // AI Gateway's credits don't pay for Grok at its xAI endpoint, only through Cloudflare's REST API, where
+  // it can't search; it searches at the endpoint with an xAI key of the gateway's own (`searchFormatOf`).
+  { id: "xai/grok-4.7", name: "Grok 4.7", format: "chat", price: { input: 2, output: 6 } },
 ];
 
 /** The model Set up Ember AI starts at: the one that costs least of those that both search the web and read pages. */
@@ -73,16 +76,16 @@ export const offeredModelOf = (model: string) => ASSISTANT_MODELS.find(({ id }) 
 /** Whether `model` is one of Workers AI's, which Cloudflare runs itself, rather than another company's. */
 export const isWorkersAiModel = (model: string) => model.startsWith("@cf/");
 
-/** Whether `model` is one of xAI's, Grok, which Ember asks in xAI's own Responses when it can. */
+/** Whether `model` is one of xAI's, Grok, which searches the web only in xAI's own Responses. */
 export const isXaiModel = (model: string) => model.startsWith("xai/");
 
 /**
- * The format of `model`'s provider's own API, which Ember asks it in when AI Gateway's endpoint for that
- * provider lets it: Anthropic's Messages for Claude, OpenAI's Responses for GPT and xAI's for Grok, or
- * null for anyone else's model, which Ember asks through Cloudflare's REST API alone.
+ * The format of `model`'s provider's own API, which Ember asks it in through AI Gateway's endpoint for
+ * that provider, where the gateway's credits pay: Anthropic's Messages for Claude and OpenAI's Responses
+ * for GPT, or null for anyone else's model, Grok among them, which Ember asks through Cloudflare's REST
+ * API.
  */
 export function providerFormatOf(model: string): ProviderFormat | null {
-  if (isXaiModel(model)) return "xai";
   if (model.startsWith("anthropic/")) return "anthropic";
   return model.startsWith("openai/") ? "openai" : null;
 }

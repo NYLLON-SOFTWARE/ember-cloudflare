@@ -52,11 +52,13 @@ const [SONNET, HAIKU, GPT, GLM] = ["anthropic/claude-sonnet-5.5", "anthropic/cla
 const KEPT_GLM: KeptModel = { id: GLM, name: "GLM-4.7 Flash", format: "chat", thinkingLevels: [...THINKING_LEVELS] };
 /** xAI's Grok, which searches the web only in xAI's own Responses, through the default gateway's xAI endpoint there. */
 const GROK = "xai/grok-4.7";
-/** Where the account's default gateway passes requests on to each provider's own API, as Ember asks Claude, GPT and Grok. */
+/** Where the account's default gateway passes requests on to each provider's own API, as Ember asks Claude and GPT, and Grok while it's to search. */
 const PROVIDER_ENDPOINTS = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default`;
 const ANTHROPIC_ENDPOINT = `${PROVIDER_ENDPOINTS}/anthropic/v1/messages`;
 const OPENAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/openai/responses`;
 const XAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/grok/v1/responses`;
+/** Where Cloudflare's REST API takes requests in Chat Completions, as Ember asks Grok while it isn't to search. */
+const CHAT_COMPLETIONS = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/ai/v1/chat/completions`;
 const HELLO = "Hello, team!";
 
 /** An agent as New agent sends it: Recap, on Claude Haiku, in every open room. */
@@ -450,10 +452,11 @@ describe("AI agents", () => {
       answer = grokAnswering();
       const grok = await made(administrator, { name: "Grok", model: GROK, webSearch: true });
       expect(grok).toMatchObject({ model: GROK, format: "xai", webTools: ["search"] });
-      expect(unthinking().map(({ url }) => url)).toEqual([XAI_ENDPOINT, XAI_ENDPOINT]);
+      // Its test question in Chat Completions, as Ember offers it, then the trial that searches.
+      expect(unthinking().map(({ url }) => url)).toEqual([CHAT_COMPLETIONS, XAI_ENDPOINT]);
       expect(unthinking().map(searches)).toEqual([false, true]);
       // The API token goes in AI Gateway's own header there, as xAI would take one in Authorization as its own key.
-      expect(asked.every(({ authorization }) => authorization === null)).toBe(true);
+      expect(asked.filter(({ url }) => url === XAI_ENDPOINT).every(({ authorization }) => authorization === null)).toBe(true);
       expect(unthinking()[1]!.body).toMatchObject({ model: "grok-4.7", tools: [{ type: "web_search" }], store: false });
     });
 

@@ -1,12 +1,10 @@
 import type { ReactNode } from "react";
 import {
   offeredModelOf,
-  PROVIDER_FORMATS,
   SUGGESTED_MODEL,
   type AssistantField,
   type AssistantModel,
   type ModelPrice,
-  type ProviderFormat,
 } from "@ember/protocol/assistant";
 import { FIELD_INPUT, Field } from "@/components/field";
 import { cn } from "@/lib/utils";
@@ -32,8 +30,12 @@ const aiGatewayDashboard = (accountId: string | null) => dashboard(accountId, "a
 /** What a model kept before Ember stopped offering it is called beside its name. */
 export const NO_LONGER_OFFERED = "no longer offered";
 
-/** Who makes the models Ember offers in each provider's format, as the menu groups them. */
-const MAKERS: Record<ProviderFormat, string> = { anthropic: "Anthropic", openai: "OpenAI", xai: "xAI" };
+/** Who makes the models Ember offers, by the start of their IDs, as the menu groups them. */
+const MAKERS = [
+  { prefix: "anthropic/", label: "Anthropic" },
+  { prefix: "openai/", label: "OpenAI" },
+  { prefix: "xai/", label: "xAI" },
+] as const;
 
 /** Why a field is refused, said on it, or else, with no field, under the step's. */
 export interface Refusal {
@@ -87,7 +89,7 @@ interface Props {
 export function ModelPicker({ models, kept = null, chosen, onChoose, refusal, disabled, accountId }: Props) {
   const price = offeredModelOf(chosen)?.price;
   const modelRefused = refusal?.field === "model";
-  const groups = PROVIDER_FORMATS.map((format) => ({ label: MAKERS[format], models: models.filter((model) => model.format === format) }));
+  const groups = MAKERS.map(({ prefix, label }) => ({ label, models: models.filter(({ id }) => id.startsWith(prefix)) }));
 
   return (
     <>

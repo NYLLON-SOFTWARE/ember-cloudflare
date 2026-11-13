@@ -5,7 +5,7 @@ import type { MovedModel } from "../workspace-store";
 import { ask, thinkingLevelsOf, type Gateway, type Question } from "./gateway";
 
 // The test question Ember asks a model before it keeps it, and the move of the models it kept before it
-// asked Claude, GPT and Grok through their providers' own endpoints (`formatOf`) onto those.
+// asked Claude and GPT through their providers' own endpoints (`formatOf`) onto those.
 
 /** What Set up Ember AI asks the model before Ember keeps it, so that it's known to answer. */
 export const TEST_QUESTION: Question = {
@@ -22,7 +22,7 @@ export const TEST_TIMEOUT_MS = 30_000;
 export const testedLevelsOf = (env: Env, gateway: Gateway, question = TEST_QUESTION) => thinkingLevelsOf(env, gateway, question, TEST_TIMEOUT_MS);
 
 /**
- * How many requests one move of the models Ember AI kept before it asked Claude, GPT and Grok through
+ * How many requests one move of the models Ember AI kept before it asked Claude and GPT through
  * their providers' endpoints makes there at most, of the 50 subrequests an invocation on the Free plan
  * can make: the test question for each model it asks, and for each that answers, the same again at each
  * level of thinking.

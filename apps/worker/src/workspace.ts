@@ -3621,7 +3621,7 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Has Ember AI, `assistant`, ask the models it asks through Cloudflare's REST API, the agents' too, that
    * their providers' own endpoints answer through `gateway`'s account and API token there from then on,
-   * as it asks Claude, GPT and Grok there first now: once after each time it's set up, as the first
+   * as it asks Claude and GPT there first now: once after each time it's set up, as the first
    * answer after that finds it, in the background, a few models at each answer (`providerMovesOf`).
    */
   private moveToProviderEndpoints(assistant: SavedAssistant, gateway: Gateway): void {

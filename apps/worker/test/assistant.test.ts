@@ -27,11 +27,12 @@ const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const API_TOKEN = "an-api-token-with-ai-gateway-run_0123456";
 /** What Set up Ember AI sends for Claude Sonnet. */
 const SETUP = { accountId: ACCOUNT_ID, apiToken: API_TOKEN, model: "anthropic/claude-sonnet-5.5" } satisfies AssistantSetup;
-/** Where the account's default gateway passes requests on to each provider's own API, as Ember asks Claude, GPT and Grok. */
+/** Where the account's default gateway passes requests on to each provider's own API, as Ember asks Claude and GPT. */
 const PROVIDER_ENDPOINTS = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default`;
 const ANTHROPIC_ENDPOINT = `${PROVIDER_ENDPOINTS}/anthropic/v1/messages`;
 const OPENAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/openai/responses`;
-const XAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/grok/v1/responses`;
+/** Where Cloudflare's REST API takes requests in Chat Completions, as Ember asks Grok. */
+const CHAT_COMPLETIONS = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/ai/v1/chat/completions`;
 /** Claude Sonnet, as Ember lists it among the models people can pick, with the levels of thinking it took its test question at, every one. */
 const CLAUDE: AssistantModel = { id: SETUP.model, name: "Claude Sonnet 5.5", format: "anthropic", thinkingLevels: [...THINKING_LEVELS] };
 /** The same, as the account's settings keep it. */
@@ -350,53 +351,25 @@ describe("Ember AI", () => {
       expect((await saved(administrator, { ...SETUP, model: gpt })).assistant.models).toEqual([{ id: gpt, name: "GPT-6.1 Sol", format: "openai", thinkingLevels: ["low", "high"] }]);
     });
 
-    it("asks xAI's Grok through the default gateway's xAI endpoint, in xAI's own Responses, with the API token as AI Gateway's alone, telling xAI to keep nothing", async () => {
+    it("asks xAI's Grok through Cloudflare's REST API, in Chat Completions, as AI Gateway's credits don't pay for it at its xAI endpoint", async () => {
       const administrator = await setUp();
       const requests = fakeGateway();
       const grok = "xai/grok-4.7";
 
       const { assistant, greeting } = await saved(administrator, { ...SETUP, model: grok });
       expect(greeting).toBe(HELLO);
-      expect(assistant.models).toEqual([{ id: grok, name: "Grok 4.7", format: "xai", thinkingLevels: [...THINKING_LEVELS] }]);
+      expect(assistant.models).toEqual([{ id: grok, name: "Grok 4.7", format: "chat", thinkingLevels: [...THINKING_LEVELS] }]);
       expect(assistant.webTools).toEqual([]);
-      expect((await storedSettings()).assistant).toMatchObject({ model: grok, format: "xai" });
-      // A token in Authorization would be taken as an xAI key of the account's own, and passed on to xAI.
-      expect(requests.map(({ body: _, ...sent }) => sent)).toEqual(Array(5).fill({ url: XAI_ENDPOINT, authorization: null, gateway: null, aigAuthorization: `Bearer ${API_TOKEN}`, anthropicVersion: null }));
-      const test = {
-        model: "grok-4.7",
-        max_output_tokens: 2000,
-        instructions: expect.stringContaining("@ember") as unknown,
-        input: [{ role: "user", content: "Say hello to the team in one short sentence." }],
-        store: false,
-      };
-      expect(requests[0]!.body).toEqual(test);
-      // And then again at each level of thinking, as xAI's reasoning effort, which may not go as low as none.
-      const efforts = requests.slice(1).map(({ body }) => {
-        expect(body).toEqual({ ...test, reasoning: { effort: expect.any(String) as unknown } });
-        return (body.reasoning as { effort: string }).effort;
-      });
-      expect(efforts.sort()).toEqual(["high", "low", "medium", "none"]);
-    });
-
-    it("keeps the levels of thinking Grok takes in xAI's own Responses, as xAI refuses the others", async () => {
-      const administrator = await setUp();
-      const logged = vi.spyOn(console, "log").mockImplementation(() => {});
-      const grok = "xai/grok-4.7";
-      // As xAI refuses a reasoning effort a model doesn't take, in its own words, which its endpoint passes on.
-      const xaiRefusal = "Model grok-4.7 does not support reasoning effort none.";
-      fakeGateway((sent) =>
-        (sent.body.reasoning as { effort?: string } | undefined)?.effort === "none" ? Response.json({ code: "Client specified an invalid argument", error: xaiRefusal }, { status: 400 }) : answering(HELLO)(sent),
+      expect((await storedSettings()).assistant).toMatchObject({ model: grok, format: "chat" });
+      expect(requests.map(({ body: _, ...sent }) => sent)).toEqual(
+        Array(5).fill({ url: CHAT_COMPLETIONS, authorization: `Bearer ${API_TOKEN}`, gateway: "default", aigAuthorization: null, anthropicVersion: null }),
       );
-
-      const { assistant } = await saved(administrator, { ...SETUP, model: grok });
-      expect(assistant.models).toEqual([{ id: grok, name: "Grok 4.7", format: "xai", thinkingLevels: ["low", "medium", "high"] }]);
-      expect(logged).toHaveBeenCalledWith(`${grok} isn't told to think at off, which it refused: ${xaiRefusal}`);
+      expect(requests[0]!.body).toMatchObject({ model: grok });
     });
 
     it.each([
       ["Claude", SETUP.model, ANTHROPIC_ENDPOINT, "Ember asks Claude through AI Gateway's Anthropic endpoint, which didn't take Ember AI's API token."],
       ["GPT", "openai/gpt-6.1-sol", OPENAI_ENDPOINT, "Ember asks OpenAI's models through AI Gateway's OpenAI endpoint, which didn't take Ember AI's API token."],
-      ["Grok", "xai/grok-4.7", XAI_ENDPOINT, "Ember asks Grok through AI Gateway's xAI endpoint, which didn't take Ember AI's API token."],
     ])("refuses an API token %s's endpoint doesn't take, as one without AI Gateway Run, on its field, saying what to add, and keeps nothing", async (_, model, endpoint, lead) => {
       const administrator = await setUp();
       const requests = fakeGateway(refusingRun);
@@ -412,7 +385,6 @@ describe("Ember AI", () => {
     it.each([
       ["Claude", SETUP.model, "Claude through its Anthropic endpoint. Add an Anthropic API key"],
       ["GPT", "openai/gpt-6.1-sol", "OpenAI's models through its OpenAI endpoint. Add an OpenAI API key"],
-      ["Grok", "xai/grok-4.7", "Grok through its xAI endpoint. Add an xAI API key"],
     ])("refuses %s when AI Gateway's credits can't pay for it through its provider's endpoint, saying to add the provider's key, and keeps nothing", async (_, model, what) => {
       const administrator = await setUp();
       fakeGateway(() => endpointRefusing(400, 2049, "Unified Billing is not available for this request."));

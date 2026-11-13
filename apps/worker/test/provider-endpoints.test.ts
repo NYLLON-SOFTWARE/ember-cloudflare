@@ -10,7 +10,7 @@ import type { Env } from "../src/env";
 import type { Workspace } from "../src/workspace";
 import { addKeptModels, agentWithKeptModel, answerWithKeptModel, api, connect, cookieOf, freshDeploy, post, shown, workspaceSql, workspaceStub, type Client, type KeptModel, type Session } from "./support";
 
-// Moving the models Ember AI kept before it asked Claude, GPT and Grok through their providers' own
+// Moving the models Ember AI kept before it asked Claude and GPT through their providers' own
 // endpoints on AI Gateway first, the agents' too, once, at the first answers after it's set up.
 
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
@@ -20,29 +20,30 @@ const CLOUDFLARE_API = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_
 const PROVIDER_ENDPOINTS = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default`;
 const ANTHROPIC_ENDPOINT = `${PROVIDER_ENDPOINTS}/anthropic/v1/messages`;
 const OPENAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/openai/responses`;
-const XAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/grok/v1/responses`;
-/** Claude, GPT and Grok, which their providers' endpoints take, and one of Workers AI's, which only Cloudflare's REST API does. */
+/** Claude and GPT, which their providers' endpoints take, and Grok and one of Workers AI's, which Ember asks through Cloudflare's REST API. */
 const [SONNET, HAIKU, GPT, GROK, GLM] = ["anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5", "openai/gpt-6.1-sol", "xai/grok-4.7", "@cf/zai-org/glm-4.7-flash"];
 const ALL_LEVELS = [...THINKING_LEVELS];
-/** The levels of thinking Grok takes in xAI's own Responses, which refuses its thinking being turned off. */
-const GROK_LEVELS = ["low", "medium", "high"];
-/** Claude, GPT and Grok models as Cloudflare's REST API takes them, one more than a move asks through their providers' endpoints. */
+/** Claude and GPT models as Cloudflare's REST API takes them, one more than a move asks through their providers' endpoints. */
 const REST_ASKED: Array<{ id: string; name: string; format: ModelFormat }> = [
   { id: SONNET, name: "Claude Sonnet 5.5", format: "messages" },
   { id: HAIKU, name: "Claude Haiku 5.5", format: "messages" },
   { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", format: "messages" },
   { id: "anthropic/claude-opus-5", name: "Claude Opus 5", format: "messages" },
+  { id: "anthropic/claude-fable-5.2", name: "Claude Fable 5.2", format: "messages" },
   { id: GPT, name: "GPT-6.1 Sol", format: "responses" },
   { id: "openai/gpt-6.1-terra", name: "GPT-6.1 Terra", format: "responses" },
   { id: "openai/gpt-6", name: "GPT-6", format: "responses" },
-  { id: GROK, name: "Grok 4.7", format: "chat" },
-  { id: "xai/grok-4.20", name: "Grok 4.20", format: "chat" },
+  { id: "openai/gpt-6-luna", name: "GPT-6 Luna", format: "responses" },
 ];
+/** The one of `REST_ASKED` a move has no room for, as it moves. */
+const LAST_MOVED = { id: "openai/gpt-6-luna", from: "responses", format: "openai", thinkingLevels: ALL_LEVELS };
 /** `model` as Ember AI kept it, at every level of thinking, as it did a model before it asked it through its provider's endpoint. */
 const keptAs = (model: Omit<KeptModel, "thinkingLevels">): KeptModel => ({ ...model, thinkingLevels: ALL_LEVELS });
 /** The model `id` of `REST_ASKED`, kept as Cloudflare's REST API takes it. */
 const restAsked = (id: string) => keptAs(REST_ASKED.find((model) => model.id === id)!);
 const KEPT_GLM = keptAs({ id: GLM, name: "GLM-4.7 Flash", format: "chat" });
+/** Grok as Ember AI kept it, and keeps asking it, through Cloudflare's REST API. */
+const KEPT_GROK = keptAs({ id: GROK, name: "Grok 4.7", format: "chat" });
 /** What the test question asks a model, at each level of thinking too. */
 const SAY_HELLO = "Say hello to the team in one short sentence.";
 
@@ -84,7 +85,6 @@ let asked: Asked[];
 function answering({ url, body }: Asked): Response {
   if (url.startsWith(PROVIDER_ENDPOINTS) && !run) return Response.json({ success: false, result: [], messages: [], error: [{ code: 2009, message: "Unauthorized" }] }, { status: 401 });
   if (url.startsWith(PROVIDER_ENDPOINTS) && unknownThere.includes(body.model ?? "")) return Response.json({ type: "error", error: { type: "not_found_error", message: `model: ${body.model}` } }, { status: 404 });
-  if (url === XAI_ENDPOINT && body.reasoning?.effort === "none") return Response.json({ code: "Client specified an invalid argument", error: "Model grok-4.7 does not support reasoning effort none." }, { status: 400 });
   if (url.endsWith("/messages")) {
     const content = (body.tools ?? []).some(({ type }) => type.startsWith("web_search")) ? SEARCHED : [{ type: "text", text: "Hello, team!" }];
     return Response.json({ type: "message", role: "assistant", content, stop_reason: "end_turn", usage: { input_tokens: 100, output_tokens: 10 } });
@@ -201,11 +201,11 @@ describe("Models Ember AI asked through Cloudflare's REST API", () => {
     await setUpAssistant(ada, SONNET);
     const [recap, scout] = [await makeAgent(ada, "Recap", HAIKU), await makeAgent(ada, "Scout", GPT)];
     // Kept while Ember AI's API token had no AI Gateway Run, so they were asked through Cloudflare's REST API,
-    // and Search the web turned on before Grok was added, as turning it on asks Grok through xAI's endpoint.
+    // and Search the web turned on before Grok was added, as turning it on would ask Grok through xAI's endpoint.
     await answerWithKeptModel(restAsked(SONNET));
     await turnOnWebSearch(ada);
     expect((await storedAssistant()).web_tools).toEqual(["search", "read"]);
-    await addKeptModels(restAsked(GPT), restAsked(GROK), KEPT_GLM);
+    await addKeptModels(restAsked(GPT), KEPT_GROK, KEPT_GLM);
     await agentWithKeptModel(recap.id, restAsked(HAIKU));
     await agentWithKeptModel(scout.id, restAsked(GPT));
 
@@ -221,7 +221,6 @@ describe("Models Ember AI asked through Cloudflare's REST API", () => {
         [ANTHROPIC_ENDPOINT, "claude-haiku-5-5"],
         [ANTHROPIC_ENDPOINT, "claude-sonnet-5-5"],
         [OPENAI_ENDPOINT, "gpt-6.1-sol"],
-        [XAI_ENDPOINT, "grok-4.7"],
       ].sort(),
     );
     expect(asked.filter(({ url }) => url.startsWith(PROVIDER_ENDPOINTS)).every(({ aigAuthorization }) => aigAuthorization === `Bearer ${API_TOKEN}`)).toBe(true);
@@ -230,7 +229,8 @@ describe("Models Ember AI asked through Cloudflare's REST API", () => {
       [
         [SONNET, "anthropic", ALL_LEVELS],
         [GPT, "openai", ALL_LEVELS],
-        [GROK, "xai", GROK_LEVELS],
+        // Grok stays, as AI Gateway's credits pay for it only through the REST API.
+        [GROK, "chat", ALL_LEVELS],
         [GLM, "chat", ALL_LEVELS],
       ],
     ]);
@@ -364,7 +364,7 @@ describe("Models Ember AI asked through Cloudflare's REST API", () => {
     await vi.waitFor(async () => expect(await movedCount()).toBeGreaterThanOrEqual(MODELS_PER_MOVE), { timeout: 5_000 });
     await ask(client, EMBER);
     await tried();
-    expect((await storedModels())[1]).toEqual(REST_ASKED.map(({ id }) => [id, providerFormatOf(id), id.startsWith("xai/") ? GROK_LEVELS : ALL_LEVELS]));
+    expect((await storedModels())[1]).toEqual(REST_ASKED.map(({ id }) => [id, providerFormatOf(id), ALL_LEVELS]));
     // Each once.
     expect(testQuestionsThere()).toHaveLength(REST_ASKED.length);
     client.close();
@@ -378,8 +378,8 @@ describe("A move onto the providers' endpoints", () => {
 
   it("asks as many of the models asked through Cloudflare's REST API as it has room for, each once, and leaves the rest to the next", async () => {
     expect(REST_ASKED).toHaveLength(MODELS_PER_MOVE + 1);
-    // Workers AI's, and those asked through their providers' endpoints already, take no room.
-    const saved = [{ id: GLM, format: "chat" as const }, { id: "anthropic/claude-sonnet-5", format: "anthropic" as const }, ...REST_ASKED, { id: SONNET, format: "messages" as const }];
+    // Workers AI's, Grok, and those asked through their providers' endpoints already, take no room.
+    const saved = [{ id: GLM, format: "chat" as const }, { id: GROK, format: "chat" as const }, { id: "anthropic/claude-sonnet-5", format: "anthropic" as const }, ...REST_ASKED, { id: SONNET, format: "messages" as const }];
     const { moves, done } = await providerMovesOf(bindings, gateway, saved);
     expect(done).toBe(false);
     const asked = REST_ASKED.slice(0, MODELS_PER_MOVE);
@@ -387,7 +387,7 @@ describe("A move onto the providers' endpoints", () => {
     expect(testQuestionsThere()).toHaveLength(MODELS_PER_MOVE);
 
     const left = REST_ASKED.map((model) => ({ ...model, format: moves.find(({ id }) => id === model.id)?.format ?? model.format }));
-    expect(await providerMovesOf(bindings, gateway, left)).toEqual({ moves: [{ id: "xai/grok-4.20", from: "chat", format: "xai", thinkingLevels: GROK_LEVELS }], done: true });
+    expect(await providerMovesOf(bindings, gateway, left)).toEqual({ moves: [LAST_MOVED], done: true });
   });
 
   it("asks no more once the API token is refused, as every provider's endpoint refuses it alike", async () => {
@@ -403,7 +403,7 @@ describe("A move onto the providers' endpoints", () => {
     // Each one the endpoints don't know takes one request, leaving room for the last.
     unknownThere = REST_ASKED.slice(0, MODELS_PER_MOVE).map(({ id }) => providerNameOf(id));
     asked.length = 0;
-    expect(await providerMovesOf(bindings, gateway, REST_ASKED)).toEqual({ moves: [{ id: "xai/grok-4.20", from: "chat", format: "xai", thinkingLevels: GROK_LEVELS }], done: true });
+    expect(await providerMovesOf(bindings, gateway, REST_ASKED)).toEqual({ moves: [LAST_MOVED], done: true });
     expect(testQuestionsThere()).toHaveLength(REST_ASKED.length);
   });
 

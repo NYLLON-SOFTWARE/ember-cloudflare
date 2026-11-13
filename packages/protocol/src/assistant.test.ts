@@ -109,11 +109,12 @@ describe("Set up Ember AI", () => {
     expect(modelOf(`${longest}x`)).toBeNull();
   });
 
-  it("offers Anthropic's, OpenAI's and xAI's models, each once, in its provider's own format, with what each costs", () => {
+  it("offers Anthropic's and OpenAI's models in their providers' own formats and xAI's in Chat Completions, each once, with what each costs", () => {
     const ids = ASSISTANT_MODELS.map(({ id }) => id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.every((id) => modelOf(id) === id)).toBe(true);
-    expect(ASSISTANT_MODELS.every(({ id, format }) => format === providerFormatOf(id))).toBe(true);
+    expect(ASSISTANT_MODELS.every(({ id, format }) => format === (providerFormatOf(id) ?? "chat"))).toBe(true);
+    expect(offeredModelOf("xai/grok-4.7")?.format).toBe("chat");
     expect(ASSISTANT_MODELS.every(({ price }) => price !== undefined && price.input > 0 && price.output > price.input)).toBe(true);
   });
 
@@ -138,13 +139,13 @@ describe("Set up Ember AI", () => {
     expect(formatOf("google/gemini-5")).toBe("chat");
     expect(formatOf("openai/gpt-6.1-sol")).toBe("openai");
     expect([formatOf("anthropic/claude-mythos-6"), formatOf("openai/gpt-7"), formatOf("@cf/meta/llama-5")]).toEqual(["anthropic", "openai", "chat"]);
-    expect(formatOf("xai/grok-4.7")).toBe("xai");
+    expect([formatOf("xai/grok-4.7"), formatOf("xai/grok-5")]).toEqual(["chat", "chat"]);
     expect(WEB_TOOLS_IN).toEqual({ messages: ["search", "read"], responses: ["search"], chat: [], xai: ["search"], anthropic: ["search", "read"], openai: ["search"] });
   });
 
-  it("asks Claude, GPT and Grok in their providers' own formats, and anyone else's model through the REST API alone", () => {
-    expect(["anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "xai/grok-4.7"].map(providerFormatOf)).toEqual(["anthropic", "openai", "xai"]);
-    expect(["google/gemini-3.7-flash", "@cf/openai/gpt-oss-120b", "workers-ai/@cf/openai/gpt-oss-120b", "moonshotai/kimi-k3"].map(providerFormatOf)).toEqual([null, null, null, null]);
+  it("asks Claude and GPT in their providers' own formats, and anyone else's model, Grok's among them, through the REST API alone", () => {
+    expect(["anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol"].map(providerFormatOf)).toEqual(["anthropic", "openai"]);
+    expect(["xai/grok-4.7", "google/gemini-3.7-flash", "@cf/openai/gpt-oss-120b", "workers-ai/@cf/openai/gpt-oss-120b", "moonshotai/kimi-k3"].map(providerFormatOf)).toEqual([null, null, null, null, null]);
     expect(MODEL_FORMATS.filter(isProviderFormat)).toEqual(["xai", "anthropic", "openai"]);
   });
 
