@@ -6,6 +6,7 @@ import type { AgentSettings } from "@ember/protocol/agents";
 import { THINKING_LEVELS, type AssistantSettings } from "@ember/protocol/assistant";
 import { FlashProvider } from "@/components/flash";
 import { AccountContext } from "@/hooks/use-account";
+import { SHIPPED_MODELS } from "@/hooks/use-offered-models";
 import { PushContext } from "@/hooks/use-push";
 import { navigate } from "@/hooks/use-route";
 import { joinHuddle } from "@/lib/huddle";
@@ -2102,7 +2103,7 @@ describe("Agent pages", () => {
     serve({
       "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true, assistant }),
       "GET /api/account/agents": () => Response.json({ agents: [recap] }),
-      "POST /api/account/assistant/catalog": () => Response.json({ models: assistant.models, refusal: null }),
+      "POST /api/account/assistant/offered": () => Response.json(SHIPPED_MODELS),
       ...responses,
     });
   const sectionMarked = () => within(screen.getByRole("navigation", { name: "Community settings" })).getByRole("link", { current: "page" });

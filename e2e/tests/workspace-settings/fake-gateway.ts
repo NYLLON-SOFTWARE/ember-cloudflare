@@ -1,15 +1,22 @@
+import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import path from "node:path";
 import { AI_GATEWAY_ACCOUNT, AI_GATEWAY_PORT } from "../../projects/workspace-settings";
 
 // AI Gateway for the Ember AI specs, at the address the second test server's AI_GATEWAY_URL names, as Ember
 // asks it (apps/worker/src/assistant/gateway.ts): the default gateway's endpoints for Anthropic, OpenAI
 // and xAI, where Ember asks the models it offers in their providers' own APIs, of one account,
 // `AI_GATEWAY_ACCOUNT`, taking that account's API token in AI Gateway's own header alone, and Cloudflare's
-// REST API, where Ember asks a model kept from before it offered only those, in any of its three formats.
-// It answers with `HELLO` in the format asked, or, given a tool for searching the web in Messages or
-// Responses, with `FOUND`, citing `SOURCE`, as the model would once it had searched, or, asked
-// `CARD_QUESTION` last, with `CARDED` and a card's Slack payload, refusing as Cloudflare does an account or
-// a token it doesn't know. A spec can hold its answers, to see what shows while a model answers.
+// REST API, where Ember asks Workers AI's models, and a model kept from before it offered only those, in
+// any of its three formats. It answers with `HELLO` in the format asked, or, given a tool for searching
+// the web in Messages or Responses, with `FOUND`, citing `SOURCE`, as the model would once it had
+// searched, or, given Ember's own in Chat Completions, as Workers AI's models are, with a call of it, and
+// once told what it found, with `FOUND`, or, asked `CARD_QUESTION` last, with `CARDED` and a card's Slack
+// payload, refusing as Cloudflare does an account or a token it doesn't know. The REST API's model search
+// lists two of Workers AI's models, `GEMMA` and one Ember doesn't offer, and its Web Search API finds
+// `SOURCE`, saying `FOUND`. It also serves the models file the second test server's EMBER_MODELS_URL
+// names, as GitHub serves the one on Ember's main branch (apps/worker/src/assistant/offered.ts): the
+// repository's, with `NEWER` added. A spec can hold its answers, to see what shows while a model answers.
 
 /** What every model says, whatever it's asked. */
 export const HELLO = "Hello, team! Mention @ember whenever you'd like a hand.";
@@ -33,6 +40,44 @@ const CARD_PAYLOAD = {
     { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Open the plan" }, url: CARD_LINK, style: "primary" }] },
   ],
 };
+
+/** Where the models file is, as the second test server's EMBER_MODELS_URL names it. */
+const MODELS_FILE_PATH = "/models.json";
+
+/** A model the models file lists that the one Ember shipped with doesn't, as a model added to it after a release is. */
+export const NEWER = { id: "openai/gpt-7", name: "GPT-7", price: { input: 5, output: 25 }, web: ["search"] };
+
+/** The models file: the repository's, which Ember shipped with, and `NEWER`, which every copy offers once it reads the file. */
+const shippedFile = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../../../models.json"), "utf8")) as { models: unknown[] };
+const MODELS_FILE = { ...shippedFile, models: [...shippedFile.models, NEWER] };
+
+/** The one of Workers AI's models that the model search lists that Ember offers, as it takes tools. */
+export const GEMMA = { id: "@cf/google/gemma-4-26b-a4b-it", name: "Gemma 4 26B" };
+
+/** Workers AI's text models, as the model search lists them in OpenRouter's format: `GEMMA`, and Llama, which takes no tools, so that Ember doesn't offer it. */
+const MODEL_SEARCH = {
+  data: [
+    {
+      id: GEMMA.id,
+      name: GEMMA.name,
+      input_modalities: ["text", "image"],
+      output_modalities: ["text"],
+      supported_features: ["tools"],
+      pricing: { prompt: "0.0000001", completion: "0.0000003" },
+    },
+    {
+      id: "@cf/meta/llama-3.1-8b-instruct",
+      name: "Llama 3.1 8B Instruct",
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+      supported_features: [],
+      pricing: { prompt: "0.000000282", completion: "0.000000827" },
+    },
+  ],
+};
+
+/** What the Web Search API answers every search with: `SOURCE`, as saying `FOUND`. */
+const WEB_SEARCH = { success: true, result: { items: [{ ...SOURCE, description: FOUND }] } };
 
 /** What Ember asked AI Gateway: where, with which token, as Cloudflare's API or AI Gateway's endpoints for each provider take it, and gateway, and what. */
 export interface GatewayAsked {
@@ -114,6 +159,32 @@ const SEARCHED_ANSWERS: Record<string, unknown> = {
   },
 };
 
+/** A Workers AI model's call of Ember's tool for searching the web, in Chat Completions, which Ember runs with the Web Search API. */
+const SEARCH_CALL = {
+  object: "chat.completion",
+  choices: [
+    {
+      index: 0,
+      message: {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id: "call_e2e", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "Cloudflare AI Gateway" }) } }],
+      },
+      finish_reason: "tool_calls",
+    },
+  ],
+};
+
+/** What a Workers AI model says in Chat Completions once Ember has told it what its search found. */
+const FOUND_IN_CHAT = answersSaying(FOUND)["chat/completions"];
+
+/** Whether `body` gives a Workers AI model Ember's own tool for searching the web, a function. */
+const takesSearchFunction = (body: Record<string, unknown>) =>
+  Array.isArray(body.tools) && body.tools.some((tool: { type?: unknown; function?: { name?: unknown } }) => tool.type === "function" && tool.function?.name === "web_search");
+
+/** Whether `body` ends with what Ember's tool for searching the web found, told to the model as the tool's answer. */
+const toldWhatItFound = (body: Record<string, unknown>) => Array.isArray(body.messages) && (body.messages.at(-1) as { role?: unknown } | undefined)?.role === "tool";
+
 /** Whether the last message `body` asks, in any format, is `CARD_QUESTION`, whatever came before it in the conversation. */
 function asksForCard(body: Record<string, unknown>): boolean {
   const turns: unknown[] = Array.isArray(body.messages) ? body.messages : Array.isArray(body.input) ? body.input : [];
@@ -135,6 +206,7 @@ async function answer(request: IncomingMessage, response: ServerResponse, asked:
   asked.push({ path, authorization: request.headers.authorization, aigAuthorization, gateway, body: sent });
   const [, account, endpoint] = path.match(/^\/accounts\/([^/]+)\/ai\/([^?]+)/) ?? [];
   const reply = (status: number, data: unknown) => void response.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(data));
+  if (path === MODELS_FILE_PATH && request.method === "GET") return reply(200, MODELS_FILE);
   const provider = PROVIDER_PATHS[path];
   if (provider !== undefined) {
     // It would pass a token in Authorization on to the provider, as a key of the account's own there.
@@ -145,7 +217,10 @@ async function answer(request: IncomingMessage, response: ServerResponse, asked:
     return reply(400, { success: false, errors: [{ code: 7003, message: `Could not route to /client/v4${path}, perhaps your object identifier is invalid?` }] });
   }
   if (request.headers.authorization !== `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}`) return reply(401, { success: false, errors: [{ code: 10000, message: "Authentication error" }] });
+  if (endpoint === "models/search") return reply(200, MODEL_SEARCH);
+  if (endpoint === "websearch/") return reply(200, WEB_SEARCH);
   const format = endpoint?.startsWith("v1/") ? endpoint.slice("v1/".length) : undefined;
+  if (format === "chat/completions" && takesSearchFunction(sent)) return reply(200, toldWhatItFound(sent) ? FOUND_IN_CHAT : SEARCH_CALL);
   const answers = asksForCard(sent) ? CARD_ANSWERS : ANSWERS;
   const answered = format === undefined ? undefined : ((searches(sent) && SEARCHED_ANSWERS[format]) || answers[format]);
   if (answered === undefined) return reply(404, { success: false, errors: [{ code: 7000, message: "No route for that URI" }] });

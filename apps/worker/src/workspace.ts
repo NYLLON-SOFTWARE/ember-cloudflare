@@ -73,16 +73,20 @@ import {
   type WorkspaceSettings,
 } from "@ember/protocol";
 import {
+  ASSISTANT_MODELS,
   DEFAULT_LEVELS,
+  isWorkersAiModel,
   MAX_ASSISTANT_MODELS,
   modelName,
+  offeredModelOf,
   searchFormatOf,
   TOP_LEVELS,
-  WEB_TOOLS_IN,
+  webToolsOf,
   withinMost,
   type AnswerLevels,
   type AssistantChanges,
   type ModelFormat,
+  type OfferedModel,
   type ThinkingLevel,
   type WebTool,
   type YourAssistant,
@@ -90,6 +94,7 @@ import {
 } from "@ember/protocol/assistant";
 import { MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type NewAgent } from "@ember/protocol/agents";
 import type { Gateway } from "./assistant/gateway";
+import { modelsFileUrlOf, type KeptModelsFile, type KeptWorkersAiModels } from "./assistant/offered";
 import { providerMovesOf } from "./assistant/model-tests";
 import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
 import { directoryOf, TooSoon, tooSoonAfter, versionOf } from "./avatar-tokens";
@@ -165,6 +170,9 @@ const SIGN_IN_WINDOW_MS = 3 * 60 * 1000;
 const SETUP_TRIES = 10;
 const SETUP_TRY_WINDOW_MS = 10 * 60 * 1000;
 const SETUP_TRY_WINDOW = "setupTryWindow";
+/** Where the Workspace's storage keeps the models file it last read, and Workers AI's models the model search last listed (see assistant/offered.ts). */
+const KEPT_MODELS_FILE = "keptModelsFile";
+const KEPT_WORKERS_AI_MODELS = "keptWorkersAiModels";
 /**
  * Open sign-up's limits' hour: the sign-ups from an IP address are counted in a fixed one, before the
  * password is hashed, which takes more CPU than the rest of a request, and the new people in the
@@ -358,6 +366,17 @@ const pickedModelOf = (assistant: SavedAssistant, picked: AssistantPicks | null)
 const answeringModelOf = (assistant: SavedAssistant, picked: SavedModel | null): SavedModel | undefined => picked ?? assistant.models.find(({ id }) => id === assistant.model);
 
 /**
+ * How `model`, saved in a format and with the levels of thinking it takes, as `saved` says, is asked: as
+ * it's saved, but for one of Workers AI's that the model search lists, `workersAi`, which is asked in
+ * Workers AI's format, where it takes Ember's tool for searching the web, at the levels the search lists,
+ * as one saved before Ember read the search was asked in Chat Completions, at the levels it was tested at.
+ */
+function askedAs(model: string, saved: { format: ModelFormat; thinkingLevels?: ThinkingLevel[] }, workersAi: readonly OfferedModel[]): { format: ModelFormat; thinkingLevels?: ThinkingLevel[] } {
+  const listed = isWorkersAiModel(model) ? offeredModelOf(model, workersAi) : undefined;
+  return listed ? { format: "workers", thinkingLevels: listed.thinkingLevels ?? saved.thinkingLevels } : saved;
+}
+
+/**
  * @ember's answers to someone who `picked` their levels and model, as their profile shows them with
  * `account`'s most and models, or null while Ember AI is off.
  */
@@ -367,15 +386,18 @@ function yourAssistantOf(account: Pick<JoinableAccount, "assistant" | "assistant
   return { levels: levelsOf(picked, most), most, model: pickedModelOf(assistant, picked)?.id ?? null, defaultModel: assistant.model, models: assistant.models };
 }
 
+/** What Set up Ember AI chose to answer everyone with: how AI Gateway asks it, and what Ember offers it as, if it says. */
+type ChosenModel = Gateway & { name?: string };
+
 /**
  * The models people can pick once Set up Ember AI has chosen `chosen` to answer everyone with: those of
  * `previous`, Ember AI as it was, with `chosen` in place of the one that answered everyone, without it
  * twice, or `chosen` alone, as when Ember AI was off, so that the models stay as many as administrators
- * added. `chosen` is called as it was listed, or as Ember offers it.
+ * added. `chosen` is called by the name Ember offers it by, when it's given, or else as it was listed.
  */
-function modelsAfterSetup(previous: SavedAssistant | null, { model, format, thinkingLevels }: Gateway): SavedModel[] {
+function modelsAfterSetup(previous: SavedAssistant | null, { model, name, format, thinkingLevels }: ChosenModel): SavedModel[] {
   const models = previous?.models ?? [];
-  const chosen = { id: model, name: modelName(model, models), format, ...(thinkingLevels && { thinkingLevels }) };
+  const chosen = { id: model, name: name ?? modelName(model, models), format, ...(thinkingLevels && { thinkingLevels }) };
   const others = models.filter(({ id }) => id !== previous?.model);
   if (others.some(({ id }) => id === model)) return others.map((kept) => (kept.id === model ? chosen : kept));
   return others.toSpliced(Math.max(0, models.findIndex(({ id }) => id === previous?.model)), 0, chosen);
@@ -1238,7 +1260,7 @@ export class Workspace extends DurableObject<Env> {
    * the web stays as Search the web found it while the account, the model that answers everyone and its
    * format do (`webToolsKept`), and turns off otherwise, as setting Ember AI up after it was off does.
    */
-  async changeAssistant(credentials: Credentials, chosen: Gateway | null, keptToken = false): Promise<{ assistant: AssistantSettings | null } | "forbidden" | "changed" | null> {
+  async changeAssistant(credentials: Credentials, chosen: ChosenModel | null, keptToken = false): Promise<{ assistant: AssistantSettings | null } | "forbidden" | "changed" | null> {
     return this.administerAccount(credentials, async (account) => {
       if (chosen === null && account.assistant === null) return { assistant: null };
       if (chosen && keptToken && (await this.openedAssistant(account))?.apiToken !== chosen.apiToken) return "changed";
@@ -1449,6 +1471,43 @@ export class Workspace extends DurableObject<Env> {
   /** The models people can pick from while Ember AI is on, the one that answers everyone among them, or none while it's off. */
   async assistantModels(): Promise<SavedModel[]> {
     return (await this.joinableAccount())?.assistant?.models ?? [];
+  }
+
+  /** The models file the Workspace last read, and where, if it has (see `modelsFileOf`). */
+  async keptModelsFile(): Promise<KeptModelsFile | null> {
+    return (await this.ctx.storage.get<KeptModelsFile>(KEPT_MODELS_FILE)) ?? null;
+  }
+
+  /** Keeps `kept` for the listings and answers that follow, in place of the models file kept before. */
+  async keepModelsFile(kept: KeptModelsFile): Promise<void> {
+    await this.ctx.storage.put(KEPT_MODELS_FILE, kept);
+  }
+
+  /** Workers AI's models the model search last listed for the account `accountId`, and when, if they're the ones kept. */
+  async keptWorkersAiModels(accountId: string): Promise<KeptWorkersAiModels | null> {
+    const kept = await this.ctx.storage.get<KeptWorkersAiModels>(KEPT_WORKERS_AI_MODELS);
+    return kept?.accountId === accountId ? kept : null;
+  }
+
+  /** Keeps `kept` for the listings and answers that follow, in place of the models kept before, whatever their account. */
+  async keepWorkersAiModels(kept: KeptWorkersAiModels): Promise<void> {
+    await this.ctx.storage.put(KEPT_WORKERS_AI_MODELS, kept);
+  }
+
+  /** Forgets Workers AI's models kept for the account `accountId`, if they're the ones kept. */
+  async forgetWorkersAiModels(accountId: string): Promise<void> {
+    if ((await this.keptWorkersAiModels(accountId)) !== null) await this.ctx.storage.delete(KEPT_WORKERS_AI_MODELS);
+  }
+
+  /**
+   * What answers through the Cloudflare account `accountId` go by of the models Ember offers: the models
+   * the models file the Workspace last read lists, from where this Ember reads it, or else the one it
+   * shipped with, and Workers AI's that the model search last listed for that account, as they're kept.
+   */
+  private async offeredForAnswers(accountId: string): Promise<{ file: readonly OfferedModel[]; workersAi: readonly OfferedModel[] }> {
+    const [file, workersAi] = await Promise.all([this.keptModelsFile(), this.keptWorkersAiModels(accountId)]);
+    const read = file?.url === modelsFileUrlOf(this.env) ? file?.file : null;
+    return { file: read?.models ?? ASSISTANT_MODELS, workersAi: workersAi?.models ?? [] };
   }
 
   /** How Ember AI asks AI Gateway as `account` keeps it, as `assistantGateway` answers it. */
@@ -3621,14 +3680,15 @@ export class Workspace extends DurableObject<Env> {
     const authorizedAt = Date.now();
     const [account, member, picks] = await Promise.all([this.joinableAccount(), this.store.isMember(roomId, ASSISTANT_ID), this.store.assistantPicks(askerId)]);
     if (!account?.assistant || !member) return null;
-    const opened = await this.openedAssistant(account);
+    const [opened, offered] = await Promise.all([this.openedAssistant(account), this.offeredForAnswers(account.assistant.accountId)]);
     if (opened) this.moveToProviderEndpoints(account.assistant, opened);
     const picked = pickedModelOf(account.assistant, picks);
-    const thinkingLevels = answeringModelOf(account.assistant, picked)?.thinkingLevels;
-    const gateway = opened && { ...opened, ...(picked && { model: picked.id, format: picked.format }), thinkingLevels };
+    const model = picked?.id ?? account.assistant.model;
+    const saved = { format: (picked ?? account.assistant).format, thinkingLevels: answeringModelOf(account.assistant, picked)?.thinkingLevels };
+    const { format, thinkingLevels } = askedAs(model, saved, offered.workersAi);
+    const gateway = opened && { ...opened, model, format, thinkingLevels };
     const levels = levelsOf(picks, account.assistantMost);
-    const { format } = picked ?? account.assistant;
-    const webTools = account.assistant.webTools.filter((tool) => WEB_TOOLS_IN[format].includes(tool));
+    const webTools = account.assistant.webTools.filter((tool) => webToolsOf(model, format, offered.file).includes(tool));
     const webSearchOn = account.assistant.webTools.includes("search");
     const bot = { id: ASSISTANT_ID, name: ASSISTANT_NAME };
     const { assistantInstructions: instructions, assistantPromptTemplate: promptTemplate } = account;
@@ -3645,10 +3705,11 @@ export class Workspace extends DurableObject<Env> {
     const authorizedAt = Date.now();
     const [account, agent] = await Promise.all([this.joinableAccount(), this.store.answeringAgent(roomId, agentId)]);
     if (!account?.assistant || !agent) return null;
-    const opened = await this.openedAssistant(account);
+    const [opened, offered] = await Promise.all([this.openedAssistant(account), this.offeredForAnswers(account.assistant.accountId)]);
     if (opened) this.moveToProviderEndpoints(account.assistant, opened);
-    const gateway = opened && { ...opened, model: agent.model, format: agent.format, thinkingLevels: agent.thinkingLevels ?? undefined };
-    const webTools = agent.webTools.filter((tool) => WEB_TOOLS_IN[agent.format].includes(tool));
+    const { format, thinkingLevels } = askedAs(agent.model, { format: agent.format, thinkingLevels: agent.thinkingLevels ?? undefined }, offered.workersAi);
+    const gateway = opened && { ...opened, model: agent.model, format, thinkingLevels };
+    const webTools = agent.webTools.filter((tool) => webToolsOf(agent.model, format, offered.file).includes(tool));
     const bot = { id: agentId, name: agent.name };
     const { instructions, promptTemplate, levels } = agent;
     return { bot, authorizedAt, gateway, picked: false, instructions, promptTemplate, community: account.name, levels, webTools, webSearchOn: webTools.includes("search"), addresses: addressesOf(account) };

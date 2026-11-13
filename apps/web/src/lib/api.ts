@@ -10,6 +10,7 @@ import {
   type AssistantChanged,
   type AssistantChanges,
   type AssistantForgotten,
+  type AssistantKeys,
   type AssistantSaved,
   type AssistantSetup,
   type Bootstrap,
@@ -46,6 +47,7 @@ import {
   type MemberfulConnectionStart,
   type MemberfulDisconnection,
   type NewAssistantModel,
+  type OfferedModels,
   type NewDirect,
   type NewJoinCode,
   type NewRoom,
@@ -547,6 +549,17 @@ export async function saveHuddles(setup: HuddlesSetup): Promise<HuddlesSettings>
 /** Turns huddles off, forgetting the SFU app's keys Ember was given. Fails with a 403 ApiError for anyone but an administrator. */
 export async function forgetHuddles(): Promise<null> {
   return (await request<HuddlesForgotten>("/api/account/huddles", { method: "DELETE" })).huddles;
+}
+
+/**
+ * The models Ember offers, as Set up Ember AI, Add a model and the agents' pages list them: those the
+ * models file lists, then Workers AI's, as Cloudflare's model search lists them for the account `keys`
+ * names, with its API token, as Set up Ember AI has them typed, or else Ember AI's, or why they aren't
+ * listed. Fails with a 422 ApiError on a field that can't be what it's for, and a 403 one for anyone but
+ * an administrator.
+ */
+export async function fetchOfferedModels(keys?: AssistantKeys): Promise<OfferedModels> {
+  return request<OfferedModels>("/api/account/assistant/offered", { method: "POST", body: JSON.stringify(keys ?? {}) });
 }
 
 /**

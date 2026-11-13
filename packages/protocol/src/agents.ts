@@ -18,7 +18,6 @@ import {
   MAX_INSTRUCTIONS_LENGTH,
   MODEL_REFUSED,
   modelOf,
-  offeredModelOf,
   THINKING_LEVELS,
   type AnswerLength,
   type AnswerLevels,
@@ -172,9 +171,9 @@ export const AGENT_CHANGED = "The agent was changed while its model answered. Tr
 /** Why an agent wasn't saved: Ember AI was set up again, with another account or API token, while its model answered. */
 export const AGENT_SET_UP_AGAIN = "Ember AI was set up again while the model answered, so nothing was saved. Try again.";
 
-/** Why Search the web can't be on for an agent whose model, called `name`, has no tool for it that AI Gateway passes on. */
+/** Why Search the web can't be on for an agent whose model, called `name`, has no tool for it that AI Gateway passes on, or Ember gives it. */
 export const agentCannotSearchWith = (name: string) =>
-  `${name} can't search the web through AI Gateway, but Anthropic's, OpenAI's and xAI's models can. Choose one of theirs, or leave Search the web off.`;
+  `${name} can't search the web through AI Gateway, but the other models Ember offers can. Choose one of those, or leave Search the web off.`;
 
 /** Why an agent's fields are refused before anything's saved. */
 export const NAME_REFUSED = `Give it a name of one line, at most ${MAX_USER_NAME_LENGTH} characters, which people mention it by.`;
@@ -245,8 +244,8 @@ export function parseAgentChanges(data: unknown): AgentChanges | AgentRefusal {
 
 /**
  * Parses an untrusted new agent, as New agent sends it, as `parseAgentChanges` does a change, which leaves
- * out nothing but what Ember adds around the instructions, which is then its own, and whose model is one
- * Ember offers.
+ * out nothing but what Ember adds around the instructions, which is then its own. Whether Ember offers its
+ * model is the Worker's to say, as the models it offers change.
  */
 export function parseNewAgent(data: unknown): NewAgent | AgentRefusal {
   const agent = parseAgentChanges(data);
@@ -255,7 +254,7 @@ export function parseNewAgent(data: unknown): NewAgent | AgentRefusal {
   if (name === undefined) return { error: NAME_REFUSED, field: "name" };
   if (description === undefined) return { error: DESCRIPTION_REFUSED, field: "description" };
   if (instructions === undefined) return { error: INSTRUCTIONS_NEEDED, field: "instructions" };
-  if (model === undefined || !offeredModelOf(model)) return { error: MODEL_REFUSED, field: "model" };
+  if (model === undefined) return { error: MODEL_REFUSED, field: "model" };
   if (thinking === undefined || length === undefined) return { error: LEVELS_REFUSED, field: "levels" };
   if (webSearch === undefined) return { error: WEB_SEARCH_UNSAID, field: "webSearch" };
   if (rooms === undefined) return { error: ROOMS_REFUSED, field: "rooms" };

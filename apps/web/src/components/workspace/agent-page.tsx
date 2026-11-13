@@ -13,7 +13,6 @@ import {
 } from "@ember/protocol/agents";
 import {
   ANSWER_WORDS,
-  ASSISTANT_MODELS,
   ASSISTANT_OFF,
   DEFAULT_LEVELS,
   formatOf,
@@ -25,11 +24,12 @@ import {
   PAGES_READ_PER_ANSWER,
   searchFormatOf,
   WEB_SEARCHES_PER_ANSWER,
-  WEB_TOOLS_IN,
+  webToolsOf,
   type AnswerLevels,
   type AssistantSettings as Assistant,
   type ModelFormat,
   type ModelPrice,
+  type OfferedModels,
 } from "@ember/protocol/assistant";
 import { AGENT_TEMPLATE, promptAround, templateRefusal, webPromptFor, withInstructions, type Prompt } from "@ember/protocol/prompts";
 import { displayBody, type DisplayNode } from "@ember/richtext/dom";
@@ -41,6 +41,7 @@ import { Switch } from "@/components/ui/switch";
 import { useAccount } from "@/hooks/use-account";
 import { useChosenPhoto } from "@/hooks/use-chosen-photo";
 import { useMounted } from "@/hooks/use-mounted";
+import { offeredModelsThrough } from "@/hooks/use-offered-models";
 import { navigate } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { ApiError, changeAgent, createAgent, deleteAgent, fetchAgent, fetchWorkspaceSettings, isSignedOut, removeAgentAvatar, tryAgent } from "@/lib/api";
@@ -86,7 +87,7 @@ export const CONFIRM_DELETE_AGENT = "Are you sure you want to delete this agent?
 export const tryExplained = (name: string) => `Ask ${name} something, as it's set up above, before you save. Nobody else sees what it says.`;
 
 /** What Search the web says for a model, called `name`, that can't search. */
-export const cannotSearch = (name: string) => `${name} can't search the web through AI Gateway, but Anthropic's, OpenAI's and xAI's models can.`;
+export const cannotSearch = (name: string) => `${name} can't search the web through AI Gateway, but the other models Ember offers can.`;
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
@@ -102,9 +103,10 @@ const CHOICE = "flex min-h-11 cursor-pointer items-center gap-2.5 has-disabled:c
 /** Where leaving an agent's page goes, which is always away from what's typed there. */
 const leaves = () => false;
 
-/** What the page needs of Ember AI: its settings, whose account the agents' models answer through. */
+/** What the page needs of Ember AI: its settings, whose account the agents' models answer through, and the models Ember offers through it. */
 interface Setup {
   assistant: Assistant;
+  offered: OfferedModels;
 }
 
 /** An agent's page as it's filled in, its rooms every open one, or the ones chosen, which choosing every one keeps. */
@@ -136,12 +138,12 @@ const fieldOf = (field: string | undefined) => (field !== undefined && AGENT_FIE
  * A new agent's page: nothing typed, Ember's own around it, @ember's model chosen, or the one Ember
  * suggests if it no longer offers that, at the levels people start at, without the web, in every open room.
  */
-const newFields = ({ assistant }: Setup): Fields => ({
+const newFields = ({ assistant, offered }: Setup): Fields => ({
   name: "",
   description: "",
   instructions: "",
   promptTemplate: AGENT_TEMPLATE,
-  model: startingModelOf(assistant.model),
+  model: startingModelOf(assistant.model, offered),
   levels: DEFAULT_LEVELS,
   webSearch: false,
   everyOpenRoom: true,
@@ -235,14 +237,14 @@ function secondsOf(ms: number): string {
   return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} seconds`;
 }
 
-/** Reads Ember AI, once, for an administrator, sending the page away while Ember AI is off. */
+/** Reads Ember AI, and the models Ember offers through its account, once, for an administrator, sending the page away while Ember AI is off. */
 function useSetup(administrator: boolean, off: () => void, failed: (error: unknown) => void): Setup | null {
   const [setup, setSetup] = useState<Setup | null>(null);
   useEffect(() => {
     if (!administrator) return;
     let stopped = false;
     fetchWorkspaceSettings()
-      .then(({ assistant }) => assistant && { assistant })
+      .then(async ({ assistant }) => assistant && { assistant, offered: await offeredModelsThrough({ accountId: assistant.accountId }) })
       .then(
         (read) => {
           if (stopped) return;
@@ -347,17 +349,21 @@ function AgentForm({ me, saved, setup, rooms, onFailed }: FormProps) {
   const called = name || "the agent";
   const model = fields.model;
   const sameModel = saved?.model === model;
-  const nameOfModel = sameModel ? saved.modelName : modelName(model);
-  const format: ModelFormat = sameModel ? saved.format : formatOf(model);
-  // The format it searches in, as Grok does only in xAI's own Responses, or null if it can't.
+  const offered = offeredModelOf(model, setup.offered.models);
+  const nameOfModel = sameModel ? saved.modelName : (offered?.name ?? modelName(model));
+  const format: ModelFormat = sameModel ? saved.format : (offered?.format ?? formatOf(model));
+  // The format it searches in, as Grok does only in xAI's own Responses, and what it may do on the web there, of what that allows,
+  // where one of Workers AI's searches only while the model search lists it, as it lists those that take tools.
   const searchFormat = searchFormatOf(model, format);
-  const canSearch = searchFormat !== null;
-  // What it does on the web: what its tests found, while it has the model it has, or else what the format it searches in allows.
-  const webTools = !fields.webSearch || !searchFormat ? [] : sameModel && saved.webTools.length > 0 ? saved.webTools : [...WEB_TOOLS_IN[searchFormat]];
+  const searchIn = searchFormat === "workers" && offered?.format !== "workers" ? null : searchFormat;
+  const mayOnTheWeb = searchIn ? webToolsOf(model, searchIn, setup.offered.models) : [];
+  const canSearch = mayOnTheWeb.length > 0;
+  // What it does on the web: what its tests found, while it has the model it has, or else what it may do there.
+  const webTools = !fields.webSearch || !canSearch ? [] : sameModel && saved.webTools.length > 0 ? saved.webTools : [...mayOnTheWeb];
   const where = { community, roomName: null, inThread: false };
   const web = webPromptFor(me.name, webTools, webTools.length > 0);
   const prompt: Prompt = promptAround(saved?.id ?? null, name || "Agent", me.name, where, ANSWER_WORDS[fields.levels.length], web, new Date(), fields.promptTemplate.trim());
-  const price = offeredModelOf(model)?.price;
+  const price = offered?.price;
   const changes = saved && changesOf(saved, fields);
   const asksModel = !saved || changes?.model !== undefined || (changes?.webSearch === true && saved.webTools.length === 0);
   const changed = busy === null && (photo.preview !== null || (saved ? removingAvatar || Object.keys(changes ?? {}).length > 0 : touched));
@@ -565,14 +571,15 @@ function AgentForm({ me, saved, setup, rooms, onFailed }: FormProps) {
           </div>
           <div>
             <ModelPicker
-              models={ASSISTANT_MODELS}
+              models={setup.offered.models}
               // The model it answers with stays in the menu once Ember no longer offers it, until another is chosen.
-              kept={saved && !offeredModelOf(saved.model) ? { id: saved.model, name: saved.modelName } : null}
+              kept={saved && !offeredModelOf(saved.model, setup.offered.models) ? { id: saved.model, name: saved.modelName } : null}
               chosen={fields.model}
               onChoose={(model) => change("model", { model })}
               refusal={refusal?.field === "model" ? { field: "model", error: refusal.error } : null}
               disabled={busy !== null}
               accountId={setup.assistant.accountId}
+              workersAi={setup.offered.workersAi}
             />
           </div>
           <div>
@@ -597,7 +604,7 @@ function AgentForm({ me, saved, setup, rooms, onFailed }: FormProps) {
           called={called}
           modelName={nameOfModel}
           canSearch={canSearch}
-          reads={searchFormat !== null && WEB_TOOLS_IN[searchFormat].includes("read")}
+          reads={mayOnTheWeb.includes("read")}
           on={fields.webSearch}
           refusal={refusal?.field === "webSearch" ? refusal.error : null}
           disabled={busy !== null}
