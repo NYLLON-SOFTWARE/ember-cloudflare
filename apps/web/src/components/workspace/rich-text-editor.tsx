@@ -1,5 +1,5 @@
 import { configure, Extension, Lexical } from "@37signals/lexxy";
-import { MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE } from "@ember/richtext/dom";
+import { GROUP_MENTION_CONTENT_TYPE, MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE } from "@ember/richtext/dom";
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
 import { registerQuoteLines } from "./quote-lines";
 import "./rich-text-editor.css";
@@ -247,8 +247,9 @@ export default function RichTextEditor({
     const lexxy = document.createElement("lexxy-editor") as LexxyEditor;
     lexxy.className = "lexxy-content";
     lexxy.setAttribute("rows", String(rows));
-    // Mentions and link previews, which only the composer adds, but every editor keeps.
-    lexxy.setAttribute("permitted-attachment-types", `${MENTION_CONTENT_TYPE} ${OPENGRAPH_EMBED_CONTENT_TYPE}`);
+    // Mentions, of people and of groups, and link previews, which only the composer adds, but every
+    // editor keeps.
+    lexxy.setAttribute("permitted-attachment-types", `${MENTION_CONTENT_TYPE} ${GROUP_MENTION_CONTENT_TYPE} ${OPENGRAPH_EMBED_CONTENT_TYPE}`);
     // Read as the editor connects, without telling anyone it changed.
     if (initialValue) lexxy.setAttribute("value", initialValue);
     lexxy.addEventListener("lexxy:change", (event) => {
