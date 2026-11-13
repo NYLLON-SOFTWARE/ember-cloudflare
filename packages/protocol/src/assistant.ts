@@ -7,12 +7,21 @@ import { parseTemplate } from "./prompts.ts";
 /**
  * The API formats Ember asks a model in: the three AI Gateway's REST API takes a model's requests in, at
  * `/ai/v1/messages`, `/ai/v1/responses` and `/ai/v1/chat/completions`, where Anthropic's models take only
- * Messages, some of OpenAI's only Responses, and most others Chat Completions, and xAI's own Responses,
- * which AI Gateway's xAI endpoint passes on, where Grok can search the web, as it can't through the REST
- * API, which takes Grok's requests only in Chat Completions.
+ * Messages, some of OpenAI's only Responses, and most others Chat Completions, and the providers' own,
+ * which AI Gateway's endpoint for each provider passes on as they are: xAI's Responses, where Grok can
+ * search the web, as it can't through the REST API, which takes Grok's requests only in Chat Completions,
+ * and Anthropic's Messages and OpenAI's Responses, the provider's whole API rather than what the REST API
+ * passes on.
  */
-export const MODEL_FORMATS = ["messages", "responses", "chat", "xai"] as const;
+export const MODEL_FORMATS = ["messages", "responses", "chat", "xai", "anthropic", "openai"] as const;
 export type ModelFormat = (typeof MODEL_FORMATS)[number];
+
+/** The formats of the providers' own APIs, which AI Gateway's endpoint for each provider passes on. */
+export const PROVIDER_FORMATS = ["xai", "anthropic", "openai"] as const satisfies readonly ModelFormat[];
+export type ProviderFormat = (typeof PROVIDER_FORMATS)[number];
+
+/** Whether `format` is a provider's own, asked through AI Gateway's endpoint for that provider rather than Cloudflare's REST API. */
+export const isProviderFormat = (format: ModelFormat): format is ProviderFormat => (PROVIDER_FORMATS as readonly ModelFormat[]).includes(format);
 
 /**
  * A model @ember can answer with, as Cloudflare's catalog lists it, or Ember does: its ID, what to call
@@ -61,6 +70,17 @@ export const isWorkersAiModel = (model: string) => model.startsWith("@cf/");
 
 /** Whether `model` is one of xAI's, Grok, which Ember asks in xAI's own Responses when it can. */
 export const isXaiModel = (model: string) => model.startsWith("xai/");
+
+/**
+ * The format of `model`'s provider's own API, which Ember asks it in when AI Gateway's endpoint for that
+ * provider lets it: Anthropic's Messages for Claude, OpenAI's Responses for GPT and xAI's for Grok, or
+ * null for anyone else's model, which Ember asks through Cloudflare's REST API alone.
+ */
+export function providerFormatOf(model: string): ProviderFormat | null {
+  if (isXaiModel(model)) return "xai";
+  if (model.startsWith("anthropic/")) return "anthropic";
+  return model.startsWith("openai/") ? "openai" : null;
+}
 
 /** What to call `model`: its name in `models`, or else in the models Ember knows, or else its ID. */
 export const modelName = (model: string, models: readonly AssistantModel[] = []) =>
@@ -251,12 +271,20 @@ export const WEB_SEARCHES_PER_ANSWER = 5;
 export const PAGES_READ_PER_ANSWER = 3;
 
 /** What a model may do on the web in each format, with the tools AI Gateway passes on in it. */
-export const WEB_TOOLS_IN: Record<ModelFormat, readonly WebTool[]> = { messages: ["search", "read"], responses: ["search"], chat: [], xai: ["search"] };
+export const WEB_TOOLS_IN: Record<ModelFormat, readonly WebTool[]> = {
+  messages: ["search", "read"],
+  responses: ["search"],
+  chat: [],
+  xai: ["search"],
+  anthropic: ["search", "read"],
+  openai: ["search"],
+};
 
 /**
  * The format `model` is likeliest to take through AI Gateway's REST API: the one `models` list it with,
  * or the models Ember knows, or else Messages for Anthropic's, Responses for OpenAI's, and Chat
- * Completions for anyone else's, Grok too, which Ember asks in xAI's own Responses first when it can.
+ * Completions for anyone else's, Grok too. Ember asks Claude, GPT and Grok in their providers' own
+ * formats first when it can (`providerFormatOf`).
  */
 export function formatOf(model: string, models: readonly AssistantModel[] = []): ModelFormat {
   const listed = (models.find(({ id }) => id === model) ?? ASSISTANT_MODELS.find(({ id }) => id === model))?.format;
