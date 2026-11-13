@@ -11,6 +11,7 @@ import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-direct
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
+import { isDue, useReminders } from "@/hooks/use-reminders";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
 import { hearHuddleEnd, leaveHuddle, muteHuddle } from "@/lib/huddle-store";
@@ -26,6 +27,7 @@ import { afterNavigating, messagePath, navigate, pageMark, roomPath, routeOf, us
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
 import { MovedNotice } from "./moved-notice";
 import { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
+import { ReminderNotice } from "./reminder-notice";
 import { NewDirectDialog } from "./new-direct-dialog";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
@@ -269,7 +271,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
-  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone);
+  // Reminders of theirs, which the workspace socket tells this tab about as each one comes due. Declared
+  // before the sidebar, whose socket hands it every due one.
+  const { reminders, cameDue, dismiss: dismissReminder } = useReminders();
+  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, cameDue);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -875,6 +880,24 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
               onFailed={failed}
             />
           )}
+          {/* The reminder that has come due, over whatever page it finds the person on, until they're done with it. */}
+          {(() => {
+            const dueReminder = reminders?.find(isDue) ?? null;
+            if (dueReminder === null) return null;
+            const reminderRoom = rooms?.find((candidate) => candidate.id === dueReminder.roomId);
+            const roomName = reminderRoom === undefined || reminderRoom.kind === "direct" ? null : (reminderRoom.name ?? null);
+            return (
+              <ReminderNotice
+                reminder={dueReminder}
+                roomName={roomName}
+                onOpen={() => {
+                  navigate(messagePath(dueReminder.roomId, dueReminder.messageId));
+                  dismissReminder(dueReminder.id);
+                }}
+                onDone={() => dismissReminder(dueReminder.id)}
+              />
+            );
+          })()}
         </div>
       </DrawerOpen>
     </Sheet>
