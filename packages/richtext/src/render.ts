@@ -6,6 +6,7 @@ import {
   attachmentFromNode,
   ATTACHMENT_TAG,
   contentAttachmentPartial,
+  GROUP_MENTION_CONTENT_TYPE,
   MENTION_CONTENT_TYPE,
   MISSING_ATTACHABLE,
   OPENGRAPH_EMBED_CONTENT_TYPE,
@@ -28,7 +29,7 @@ import {
   sanitizeContentAttribute,
 } from "./content";
 import { BODY, parseReplacement, setInnerHtml, type HtmlParser } from "./markup";
-import { mentionSgid } from "./mentions";
+import { mentionGroupSgid, mentionSgid } from "./mentions";
 import { previewContent, removeSoloUnfurledLinkText } from "./previews";
 import { chomp, htmlEscape, presence, strip } from "./ruby";
 import { ACTION_TEXT, ATTACHMENT_ATTRIBUTES, AUTO_LINK, CONTENT_FILTER, sanitize, sanitizeTags, scrub } from "./sanitize";
@@ -54,7 +55,6 @@ interface Partials {
   mention: (user: MentionUser) => string;
   preview: (embed: OpengraphEmbed) => string;
 }
-
 /**
  * `message_presentation`'s rendering, sanitized as its auto_link sanitizes it but not linked: `<` and
  * `>` escaped in attribute values. `host` is the one the page is served from, which previews mustn't
@@ -84,15 +84,18 @@ const isMarker = (element: Element) => element.name === MENTION_MARKER || elemen
 export function canonicalize(parse: HtmlParser, body: string, resolve: ResolveMention): string {
   const previews: OpengraphEmbed[] = [];
   const markers: Partials = {
-    mention: (user) => `<${MENTION_MARKER} user="${htmlEscape(user.id)}"></${MENTION_MARKER}>`,
+    mention: ({ id, group }) =>
+      group ? `<${MENTION_MARKER} group="${htmlEscape(id)}"></${MENTION_MARKER}>` : `<${MENTION_MARKER} user="${htmlEscape(id)}"></${MENTION_MARKER}>`,
     preview: (embed) => `<${PREVIEW_MARKER} index="${previews.push(embed) - 1}"></${PREVIEW_MARKER}>`,
   };
   const content = withoutLayout(renderFiltered(parse, filterStored(parse, body, resolve), resolve, markers, ""));
   const replacements = new Map<Node, Node[]>();
   for (const node of descendants(content)) {
     if (!isElement(node)) continue;
-    if (node.name === MENTION_MARKER) replacements.set(node, [mentionAttachment(getAttr(node, "user")!)]);
-    else if (node.name === PREVIEW_MARKER) replacements.set(node, [previewAttachment(previews[Number(getAttr(node, "index"))]!)]);
+    if (node.name === MENTION_MARKER) {
+      const groupId = getAttr(node, "group");
+      replacements.set(node, [groupId ? groupMentionAttachment(groupId) : mentionAttachment(getAttr(node, "user")!)]);
+    } else if (node.name === PREVIEW_MARKER) replacements.set(node, [previewAttachment(previews[Number(getAttr(node, "index"))]!)]);
     else if (node.name === "img") replacements.set(node, []);
     else removeAttr(node, "class");
     if (node.name === "pre") withoutLeadingNewlines(node);
@@ -113,6 +116,14 @@ function mentionAttachment(userId: string): Element {
   return createElement(ATTACHMENT_TAG, [
     { name: "content-type", value: MENTION_CONTENT_TYPE },
     { name: "sgid", value: mentionSgid(userId) },
+  ]);
+}
+
+/** The stored form of a group's mention, which renders the group as the directory lists it now. */
+function groupMentionAttachment(groupId: string): Element {
+  return createElement(ATTACHMENT_TAG, [
+    { name: "content-type", value: GROUP_MENTION_CONTENT_TYPE },
+    { name: "sgid", value: mentionGroupSgid(groupId) },
   ]);
 }
 
@@ -264,12 +275,17 @@ class Renderer {
 
 /**
  * `Attachment#with_full_attributes`'s node: the node's attachment attributes, in Action Text's
- * order, with a mentioned user's content type.
+ * order, with a mentioned user's or group's content type.
  */
 function withFullAttributes(node: Element, attachable: Attachable): Element {
   const attrs = [];
   for (const name of ATTACHMENT_ATTRIBUTES) {
-    const value = name === "content-type" && attachable.kind === "mention" ? MENTION_CONTENT_TYPE : getAttr(node, name);
+    const value =
+      name === "content-type" && attachable.kind === "mention"
+        ? attachable.user.group
+          ? GROUP_MENTION_CONTENT_TYPE
+          : MENTION_CONTENT_TYPE
+        : getAttr(node, name);
     if (value !== undefined) attrs.push({ name, value });
   }
   // Rails makes no node of no attributes, then calls #node on the nil

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { autoLink } from "./autolink";
-import { OPENGRAPH_EMBED_CONTENT_TYPE, RenderError } from "./attachments";
+import { GROUP_MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, RenderError } from "./attachments";
 import { bodyFromPlainText, plainText, prepareBody, type PreparedBody } from "./body";
 import { displayBody, displayMarkup, type DisplayNode } from "./display";
 import { MAX_TREE_DEPTH, ParseLimitError } from "./markup";
-import { mentionSgid } from "./mentions";
+import { mentionGroupSgid, mentionSgid } from "./mentions";
 import { parseHtml } from "./parse";
 import { removeSoloUnfurledLinkText } from "./previews";
 import { AUTO_LINK } from "./sanitize";
@@ -15,14 +15,16 @@ import { securityViolations } from "./testing/security";
 
 const display = (html: string, plain = "") => displayBody(parseHtml, html, plain, "");
 const MENTION = 'content-type="application/vnd.campfire.mention"';
+const GROUP = 'content-type="application/vnd.campfire.group-mention"';
 const PREVIEW = 'content-type="application/vnd.actiontext.opengraph-embed"';
 
 /** The markup of what shows, a mention as the attachment it's stored as, and a preview as one without its content. */
 function markupOf(nodes: DisplayNode[]): string {
   return nodes
     .map((node) => {
-      if (node.kind === "text") return toHtml(parseHtml(node.value.replace(/[&<> ]/g, (c) => `&#${c.charCodeAt(0)};`)));
+      if (node.kind === "text") return toHtml(parseHtml(node.value.replace(/[&<> ]/g, (c) => `&#${c.charCodeAt(0)};`)));
       if (node.kind === "mention") return `<action-text-attachment ${MENTION} sgid="${mentionSgid(node.userId)}"></action-text-attachment>`;
+      if (node.kind === "group-mention") return `<action-text-attachment ${GROUP} sgid="${mentionGroupSgid(node.groupId)}"></action-text-attachment>`;
       if (node.kind === "preview") return `<action-text-attachment ${PREVIEW}></action-text-attachment>`;
       const attrs = Object.entries(node.attrs).map(([name, value]) => ` ${name}="${value.replaceAll("&", "&amp;").replaceAll('"', "&quot;")}"`);
       const inner = markupOf(node.children);
@@ -170,7 +172,7 @@ describe("Reply with a quote", () => {
   /** `nodes` with each mention as `text`, and without previews. */
   const mentionsAs = (nodes: DisplayNode[], text: string): DisplayNode[] =>
     nodes.flatMap((node): DisplayNode[] => {
-      if (node.kind === "mention") return [{ kind: "text", value: text }];
+      if (node.kind === "mention" || node.kind === "group-mention") return [{ kind: "text", value: text }];
       if (node.kind === "preview") return [];
       return [node.kind === "element" ? { ...node, children: mentionsAs(node.children, text) } : node];
     });
@@ -179,9 +181,21 @@ describe("Reply with a quote", () => {
     const nodes = display(
       `<p>Hi <action-text-attachment ${MENTION} sgid="0123456789abcdef"></action-text-attachment> &amp; <a href="/x?a=1&amp;b=&lt;">"you"</a> at\u00a0https://example.com<br>bye</p><hr>`,
     );
-    expect(displayMarkup(nodes, ({ userId }) => `<${userId}>`)).toBe(
+    expect(displayMarkup(nodes, (node) => `<${node.kind === "mention" ? node.userId : node.groupId}>`)).toBe(
       '<p>Hi &lt;0123456789abcdef&gt; &amp; <a href="/x?a=1&amp;b=&lt;">"you"</a> at&nbsp;<a href="https://example.com">https://example.com</a><br>bye</p><hr>',
     );
+  });
+
+  it("names a group's mention as the text given for it, as a person's", () => {
+    const nodes = display(`<p><action-text-attachment ${GROUP} sgid="${mentionGroupSgid("g0123456789abcde")}"></action-text-attachment></p>`);
+    expect(nodes).toEqual([{ kind: "element", name: "p", attrs: {}, children: [{ kind: "group-mention", groupId: "g0123456789abcde" }] }]);
+    expect(displayMarkup(nodes, (node) => ("groupId" in node ? `<${node.groupId}>` : `<${node.userId}>`))).toBe("<p>&lt;g0123456789abcde&gt;</p>");
+  });
+
+  it("shows ☒ for a mention attachment whose sgid names no one", () => {
+    expect(display(`<p><action-text-attachment ${GROUP} sgid="not-a-group"></action-text-attachment></p>`)).toEqual([
+      { kind: "element", name: "p", attrs: {}, children: [{ kind: "text", value: "☒" }] },
+    ]);
   });
 
   it("writes every corpus body as it shows", { timeout: 30_000 }, () => {
