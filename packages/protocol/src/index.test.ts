@@ -76,6 +76,8 @@ import {
   parsePasswordResetWithCode,
   parseMemberfulDisconnection,
   parseProfileChanges,
+  parseProfileFieldChange,
+  parseProfileFieldOrder,
   parseResendApiKey,
   parseRoleChange,
   parseRoomChanges,
@@ -89,6 +91,9 @@ import {
   PASSWORD_RESET_PATH,
   passwordResetCodeOf,
   PASSWORD_TOO_SHORT,
+  PROFILE_FIELD_NAME_REFUSED,
+  PROFILE_FIELD_OPTIONS_REFUSED,
+  PROFILE_FIELD_VALUES_REFUSED,
   RESEND_API_KEY_REFUSED,
   resendApiKeyOf,
   ROOM_ICON_NAMES,
@@ -1031,8 +1036,48 @@ describe("Edit your profile", () => {
     ["a current password that isn't text", { currentPassword: 12345678 }, "Current password must be text"],
     ["an endpoint that isn't text", { pushSubscriptionEndpoint: {} }, "Push subscription endpoint must be text"],
     ["an endpoint longer than a subscription's", { pushSubscriptionEndpoint: "x".repeat(MAX_PUSH_ENDPOINT_LENGTH + 1) }, "Endpoint can't be longer than 2048 characters"],
+    ["field values that aren't an object", { fieldValues: ["Countess"] }, PROFILE_FIELD_VALUES_REFUSED],
+    ["a field value that isn't text", { fieldValues: { "field-1": 1 } }, PROFILE_FIELD_VALUES_REFUSED],
+    ["a field value longer than the form takes", { fieldValues: { "field-1": "x".repeat(201) } }, PROFILE_FIELD_VALUES_REFUSED],
   ])("refuses %s and says why", (_, body, error) => {
     expect(parseProfileChanges(body)).toBe(error);
+  });
+
+  it("takes what's given for the fields, which the server checks against them as they are", () => {
+    expect(parseProfileChanges({ fieldValues: { "field-1": "Countess", "field-2": "" } })).toEqual({ fieldValues: { "field-1": "Countess", "field-2": "" } });
+    expect(parseProfileChanges({ fieldValues: {} })).toEqual({ fieldValues: {} });
+  });
+});
+
+describe("Profile fields", () => {
+  it("takes a name as typed without the spaces at its ends, with its choices or none", () => {
+    expect(parseProfileFieldChange({ name: " Title ", options: ["  she/her ", "they/them"] })).toEqual({ name: "Title", options: ["she/her", "they/them"] });
+    expect(parseProfileFieldChange({ name: "Title" })).toEqual({ name: "Title", options: null });
+    expect(parseProfileFieldChange({ name: "Title", options: null })).toEqual({ name: "Title", options: null });
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["a list", [{ name: "Title" }], "Expected a JSON object"],
+    ["a name without anything in it", { name: "  " }, PROFILE_FIELD_NAME_REFUSED],
+    ["a name longer than it can keep", { name: "x".repeat(101) }, PROFILE_FIELD_NAME_REFUSED],
+    ["a name that isn't text", { name: 1 }, PROFILE_FIELD_NAME_REFUSED],
+    ["choices that aren't a list", { name: "Title", options: "Free text" }, PROFILE_FIELD_OPTIONS_REFUSED],
+    ["a choice that isn't text", { name: "Title", options: ["she/her", 2] }, PROFILE_FIELD_OPTIONS_REFUSED],
+    ["a choice without anything in it", { name: "Title", options: ["she/her", "  "] }, PROFILE_FIELD_OPTIONS_REFUSED],
+    ["a choice longer than a value can be", { name: "Title", options: ["x".repeat(201)] }, PROFILE_FIELD_OPTIONS_REFUSED],
+    ["more choices than a field can take", { name: "Title", options: Array.from({ length: 11 }, (_, n) => `Choice ${n}`) }, PROFILE_FIELD_OPTIONS_REFUSED],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseProfileFieldChange(body)).toBe(error);
+  });
+
+  it("takes the fields' ids in the order given, and refuses anything else", () => {
+    expect(parseProfileFieldOrder({ ids: ["field-2", "field-1"] })).toEqual(["field-2", "field-1"]);
+    expect(parseProfileFieldOrder({ ids: [] })).toEqual([]);
+    expect(parseProfileFieldOrder({})).toBe("Field order must be a list of the fields' ids");
+    expect(parseProfileFieldOrder({ ids: "field-1" })).toBe("Field order must be a list of the fields' ids");
+    expect(parseProfileFieldOrder({ ids: [1] })).toBe("Field order must be a list of the fields' ids");
+    expect(parseProfileFieldOrder({ ids: ["field-1", "field-1"] })).toBe("Field order must be a list of the fields' ids");
   });
 });
 
