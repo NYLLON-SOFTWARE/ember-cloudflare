@@ -73,7 +73,7 @@ answer, and the button waits until it does:
   an interactive message's answer do. With `"replace_original": false` it's posted as a new message
   instead, and `"delete_original": true` deletes the message.
 - **`text/plain` or `text/html`** is posted as the bot's reply, as its answer to a message is.
-- **An empty answer**, or `{}`, only takes the click.
+- **An empty answer**, of any type, or `{}`, only takes the click.
 - **Anything but a 2xx**, or no answer in time, tells the person who clicked that the bot couldn't take
   it, and changes nothing.
 
@@ -88,7 +88,9 @@ curl -H 'Content-Type: application/json' -d '{"text": "v42 is live :rocket:"}' h
 
 Anyone in the room can click, and `user` says who did: a bot that should act only for some people
 checks that itself. Ember sends the button's `value` as the bot posted it, never as a browser says
-it. Each person can have three clicks waiting on a room's bots at a time. Ember has no messages only
+it. Buttons in blocks without a `block_id` may share an `action_id`, as they may in Slack: their
+values tell them apart, and the click has no `block_id`, where Slack would make one up. Each person
+can have three clicks waiting on a room's bots at a time. Ember has no messages only
 one person sees, so what a bot would send in Slack as an ephemeral message shows to the room; and
 Slack's menus, date pickers, inputs, `confirm` dialogs and legacy attachment actions aren't here yet.
 

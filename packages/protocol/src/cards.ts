@@ -256,12 +256,15 @@ function buttonOf(value: unknown, address: CardAddress, acting: boolean): CardBu
 function actionOf(value: unknown): CardAction | undefined {
   if (!isRecord(value) || !isActionId(value.id)) return undefined;
   const blockId = isActionId(value.blockId) ? value.blockId : undefined;
-  const actionValue = typeof value.value === "string" && value.value.length <= MAX_ACTION_VALUE_LENGTH ? value.value : undefined;
+  const actionValue = isActionValue(value.value) ? value.value : undefined;
   return { id: value.id, ...(blockId !== undefined && { blockId }), ...(actionValue !== undefined && { value: actionValue }) };
 }
 
 /** Whether `value` can name a button that acts, or its block: text, some but not too much. */
 export const isActionId = (value: unknown): value is string => typeof value === "string" && value !== "" && value.length <= MAX_ACTION_ID_LENGTH;
+
+/** Whether `value` can be what a button that acts tells its bot: text, but not too much. */
+export const isActionValue = (value: unknown): value is string => typeof value === "string" && value.length <= MAX_ACTION_VALUE_LENGTH;
 
 function imageOf(value: unknown, address: CardAddress): CardImage | undefined {
   if (!isRecord(value)) return undefined;

@@ -12,9 +12,14 @@ import { deliveryOf, type DeliveredMessage } from "./webhooks";
 /** A button that acts. */
 export type ActingButton = CardButton & { action: CardAction };
 
-/** The button `id` names among `cards`' that act, in the block `blockId` names, or in none without one. */
-export function actingButton(cards: Card[], id: string, blockId?: string): ActingButton | undefined {
-  return cards.flatMap(buttonsOf).find((button): button is ActingButton => button.action?.id === id && button.action.blockId === blockId);
+/**
+ * The button among `cards`' that act that `clicked` is: the one of its `id`, in the block `blockId` names, or
+ * in none without one, with its `value`, or none. Slack makes up a `block_id` for a block without one, so
+ * two blocks' buttons may share an `action_id` there, and here their values tell them apart.
+ */
+export function actingButton(cards: Card[], clicked: CardAction): ActingButton | undefined {
+  const isClicked = ({ id, blockId, value }: CardAction) => id === clicked.id && blockId === clicked.blockId && value === clicked.value;
+  return cards.flatMap(buttonsOf).find((button): button is ActingButton => button.action !== undefined && isClicked(button.action));
 }
 
 function buttonsOf({ parts }: Card): CardButton[] {

@@ -76,9 +76,10 @@ export function messageActionsOf({ send, listen }: RoomFrames, warn: (message: s
     remove: (messageId) => sendOrWarn({ type: "message.delete", messageId }),
     boost: (messageId, content) => sendOrWarn({ type: "boost.create", messageId, content }),
     unboost: (boostId) => sendOrWarn({ type: "boost.delete", boostId }),
-    click: (messageId, { id: actionId, blockId }) => {
+    click: (messageId, { id: actionId, blockId, value }) => {
       const clickId = crypto.randomUUID();
-      if (!sendOrWarn({ type: "card.click", clickId, messageId, actionId, ...(blockId !== undefined && { blockId }) })) return Promise.resolve(false);
+      const button = { actionId, ...(blockId !== undefined && { blockId }), ...(value !== undefined && { value }) };
+      if (!sendOrWarn({ type: "card.click", clickId, messageId, ...button })) return Promise.resolve(false);
       return new Promise((resolve) => {
         const answered = (went: boolean) => {
           stop();

@@ -240,12 +240,28 @@ describe("Catch up after a reconnect", () => {
 });
 
 describe("Clicks on a card's buttons", () => {
-  it("takes a click by its id, its message and its button, in its block if it has one, and nothing the tab says of its value", () => {
+  it("takes a click by its id, its message and its button, in its block if it has one, with its value if it has one", () => {
     const click = { type: "card.click", clickId: "c1", messageId: "m1", actionId: "approve" };
     expect(parse(click)).toEqual(click);
-    expect(parse({ ...click, blockId: "deploy-42", value: "forged", extra: 1 })).toEqual({ ...click, blockId: "deploy-42" });
-    expect(parse({ ...click, actionId: "x".repeat(255), blockId: "x".repeat(255) })).toEqual({ ...click, actionId: "x".repeat(255), blockId: "x".repeat(255) });
-    for (const wrong of [{ clickId: "" }, { clickId: 1 }, { messageId: undefined }, { actionId: "" }, { actionId: "x".repeat(256) }, { actionId: 7 }, { blockId: "" }, { blockId: null }, { blockId: "x".repeat(256) }]) {
+    expect(parse({ ...click, blockId: "deploy-42", value: '{"build":42}', extra: 1 })).toEqual({ ...click, blockId: "deploy-42", value: '{"build":42}' });
+    expect(parse({ ...click, value: "" })).toEqual({ ...click, value: "" });
+    const longest = { actionId: "x".repeat(255), blockId: "x".repeat(255), value: "x".repeat(2000) };
+    expect(parse({ ...click, ...longest })).toEqual({ ...click, ...longest });
+    const wrongs = [
+      { clickId: "" },
+      { clickId: 1 },
+      { messageId: undefined },
+      { actionId: "" },
+      { actionId: "x".repeat(256) },
+      { actionId: 7 },
+      { blockId: "" },
+      { blockId: null },
+      { blockId: "x".repeat(256) },
+      { value: null },
+      { value: 42 },
+      { value: "x".repeat(2001) },
+    ];
+    for (const wrong of wrongs) {
       expect(parse({ ...click, ...wrong }), JSON.stringify(wrong).slice(0, 40)).toBeNull();
     }
   });

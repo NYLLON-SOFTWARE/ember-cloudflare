@@ -73,10 +73,16 @@ async function postCard(watching: Client, room: RoomId, key: string, payload: un
   return (await watching.next("message.created")).message;
 }
 
-/** Clicks the button `actionId` names on `message`, in the block `blockId` names, or in none for null, as `client`, answering the click's id. */
-function click(client: Client, message: Pick<Message, "id">, actionId: string, blockId: string | null = "deploy-42", more: Record<string, unknown> = {}): string {
+/** The values of `APPROVAL`'s buttons that have one, by `action_id`, which a tab sends with a click. */
+const VALUES: Record<string, string> = { approve: '{"build":42}' };
+
+/**
+ * Clicks the button `actionId` names on `message`, in the block `blockId` names, or in none for null, as
+ * `client`, with the value `APPROVAL` gives it, or `value`, or none for null, answering the click's id.
+ */
+function click(client: Client, message: Pick<Message, "id">, actionId: string, blockId: string | null = "deploy-42", value: string | null = VALUES[actionId] ?? null): string {
   const clickId = crypto.randomUUID();
-  client.send({ type: "card.click", clickId, messageId: message.id, actionId, ...(blockId !== null && { blockId }), ...more });
+  client.send({ type: "card.click", clickId, messageId: message.id, actionId, ...(blockId !== null && { blockId }), ...(value !== null && { value }) });
   return clickId;
 }
 
@@ -151,8 +157,7 @@ describe("Buttons that act", () => {
     const message = await postCard(kai, general, bot.key);
     const delivered = bots();
 
-    // What the tab says the button's value is counts for nothing: the room reads the button it kept.
-    const clickId = click(kai, message, "approve", "deploy-42", { value: "forged" });
+    const clickId = click(kai, message, "approve");
     expect(await kai.next("card.clicked")).toEqual({ type: "card.clicked", clickId });
 
     expect(delivered.map(({ url }) => url)).toEqual([`${WEBHOOK}`]);
@@ -171,6 +176,28 @@ describe("Buttons that act", () => {
     });
     // The key is the webhook's own there, never the bot's.
     expect(key).not.toBe(bot.key);
+  });
+
+  it("tells apart two buttons of one action_id in blocks without a block_id, by their values", async () => {
+    const { ada, bot, general } = await withBot();
+    const inRoom = await connect(general, ada);
+    const row = (build: string) => ({
+      type: "section",
+      text: { type: "mrkdwn", text: `Deploy *${build}*?` },
+      accessory: { type: "button", text: { type: "plain_text", text: "Approve" }, action_id: "approve", value: build },
+    });
+    const message = await postCard(inRoom, general, bot.key, { blocks: [row("v41"), row("v42")] });
+    const delivered = bots();
+
+    for (const build of ["v42", "v41"]) {
+      click(inRoom, message, "approve", null, build);
+      await inRoom.next("card.clicked");
+    }
+    expect(delivered.map((delivery) => sentIn(delivery).actions)).toEqual([
+      [expect.objectContaining({ action_id: "approve", value: "v42" })],
+      [expect.objectContaining({ action_id: "approve", value: "v41" })],
+    ]);
+    expect(sentIn(delivered[0]!).actions).not.toEqual([expect.objectContaining({ block_id: expect.anything() })]);
   });
 
   it("puts the payload a bot answers in its card's place, for everyone, marked as edited", async () => {
@@ -241,6 +268,8 @@ describe("Buttons that act", () => {
       () => new Response(null, { status: 204 }),
       () => Response.json({}),
       () => new Response("", { headers: { "Content-Type": "application/json" } }),
+      () => new Response("", { headers: { "Content-Type": "text/plain" } }),
+      () => new Response(" \n", { headers: { "Content-Type": "text/html" } }),
       () => new Response(null, { status: 202 }),
     ];
     for (const answer of taken) {
@@ -287,17 +316,23 @@ describe("Buttons that act", () => {
     const message = await postCard(inRoom, general, bot.key);
     const delivered = bots();
     const gone = { type: "error", message: "That button is no longer there", failed: "card.click" };
-    const attempts: Array<[Pick<Message, "id">, string, string | null]> = [
-      [message, "approve", null],
-      [message, "approve", "another-block"],
-      [message, "launch", "deploy-42"],
-      [message, "logs", "deploy-42"],
-      [{ id: "nosuchmessage" }, "approve", "deploy-42"],
+    // A value the button doesn't have names no button: the room tells a bot only what it kept.
+    const attempts: Array<[Pick<Message, "id">, string, string | null, string | null]> = [
+      [message, "approve", null, VALUES.approve!],
+      [message, "approve", "another-block", VALUES.approve!],
+      [message, "approve", "deploy-42", "forged"],
+      [message, "approve", "deploy-42", null],
+      [message, "reject", "deploy-42", ""],
+      [message, "launch", "deploy-42", null],
+      [message, "logs", "deploy-42", null],
+      [{ id: "nosuchmessage" }, "approve", "deploy-42", VALUES.approve!],
     ];
-    for (const [target, actionId, blockId] of attempts) {
-      const clickId = click(inRoom, target, actionId, blockId);
+    for (const [target, actionId, blockId, value] of attempts) {
+      const clickId = click(inRoom, target, actionId, blockId, value);
       expect(await inRoom.next("error")).toEqual({ ...gone, clickId });
     }
+    inRoom.send({ type: "card.click", clickId: "c2", messageId: message.id, actionId: "approve", value: "x".repeat(2001) });
+    expect(await inRoom.next("error")).toEqual({ type: "error", message: "Unrecognized frame" });
     inRoom.send({ type: "card.click", clickId: "c1", messageId: message.id });
     expect(await inRoom.next("error")).toEqual({ type: "error", message: "Unrecognized frame" });
     expect(delivered).toEqual([]);

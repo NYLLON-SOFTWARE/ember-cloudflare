@@ -4,7 +4,7 @@
 
 import type { AgentProfile } from "./agents.ts";
 import type { AssistantSettings, YourAssistant } from "./assistant.ts";
-import { isActionId, type Card } from "./cards.ts";
+import { isActionId, isActionValue, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
 import type { HuddlesSettings, LiveHuddle } from "./huddles.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
@@ -28,6 +28,7 @@ export {
 } from "./avatars.ts";
 export {
   isActionId,
+  isActionValue,
   MAX_ACTION_ID_LENGTH,
   MAX_ACTION_VALUE_LENGTH,
   MAX_CARDS,
@@ -1575,10 +1576,11 @@ export type ClientFrame =
   | { type: "presence.visible"; visible: boolean }
   /**
    * A click on a button that acts, on one of a bot's message's cards: the button `actionId` names there, in the
-   * block `blockId` names when it has one. The room reports it to the bot, and answers `card.clicked`, or an
-   * `error`, with `clickId`, which the tab makes up.
+   * block `blockId` names when it has one, with the `value` it has, which tells apart two that share a name.
+   * The room reports it to the bot, and answers `card.clicked`, or an `error`, with `clickId`, which the tab
+   * makes up.
    */
-  | { type: "card.click"; clickId: string; messageId: string; actionId: string; blockId?: string }
+  | { type: "card.click"; clickId: string; messageId: string; actionId: string; blockId?: string; value?: string }
   | { type: "ping" };
 
 /**
@@ -1931,8 +1933,10 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       return typeof f.visible === "boolean" ? { type: f.type, visible: f.visible } : null;
     case "card.click": {
       if (!id(f.clickId) || !id(f.messageId) || !isActionId(f.actionId)) return null;
-      if (f.blockId === undefined) return { type: f.type, clickId: f.clickId, messageId: f.messageId, actionId: f.actionId };
-      return isActionId(f.blockId) ? { type: f.type, clickId: f.clickId, messageId: f.messageId, actionId: f.actionId, blockId: f.blockId } : null;
+      if (f.blockId !== undefined && !isActionId(f.blockId)) return null;
+      if (f.value !== undefined && !isActionValue(f.value)) return null;
+      const { blockId, value } = f;
+      return { type: f.type, clickId: f.clickId, messageId: f.messageId, actionId: f.actionId, ...(blockId !== undefined && { blockId }), ...(value !== undefined && { value }) };
     }
     case "typing.start":
     case "typing.stop":

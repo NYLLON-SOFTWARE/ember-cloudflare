@@ -12,6 +12,7 @@ import {
   ROOM_PROTOCOL,
   type Boost,
   type Card,
+  type CardAction,
   type ClientFrame,
   type LinkPreview,
   type Message,
@@ -188,6 +189,9 @@ class ClickError extends WebhookError {
 
 /** A click on a button that acts, as a socket sends it. */
 type CardClick = Extract<ClientFrame, { type: "card.click" }>;
+
+/** The button `click` says was clicked, as a card names one. */
+const clickedIn = ({ actionId, blockId, value }: CardClick): CardAction => ({ id: actionId, blockId, value });
 
 /** How many of a room's questions for @ember and the agents it answers at once, and how many more can wait, as each waits on a model. */
 const ANSWERS_AT_ONCE = 4;
@@ -931,7 +935,7 @@ export class ChatRoom extends DurableObject<Env> {
       }
       case "card.click": {
         const message = await this.findUndeleted(store, frame.messageId);
-        const button = message?.cards && actingButton(message.cards, frame.actionId, frame.blockId);
+        const button = message?.cards && actingButton(message.cards, clickedIn(frame));
         const waiting = this.clicking.get(user.id) ?? 0;
         const refused = !button ? BUTTON_GONE : waiting >= CLICKS_WAITING_EACH ? TOO_MANY_CLICKS : null;
         if (refused) return this.send(ws, { type: "error", message: refused, clickId: frame.clickId, failed: frame.type });
@@ -1263,9 +1267,9 @@ export class ChatRoom extends DurableObject<Env> {
    * they're in the room, and does what the bot answers. Answers the webhook's status, or throws why the
    * click came to nothing.
    */
-  private async reportClick(roomId: RoomId, user: User, { messageId, actionId, blockId }: CardClick): Promise<number> {
-    const message = (await this.isDeleted()) ? null : await this.findUndeleted(this.storeFor(roomId), messageId);
-    const button = message?.cards && actingButton(message.cards, actionId, blockId);
+  private async reportClick(roomId: RoomId, user: User, click: CardClick): Promise<number> {
+    const message = (await this.isDeleted()) ? null : await this.findUndeleted(this.storeFor(roomId), click.messageId);
+    const button = message?.cards && actingButton(message.cards, clickedIn(click));
     if (!message || !button) throw new ClickError(BUTTON_GONE, "the button is gone");
     const { name } = message.creator;
     const webhook = await workspace(this.env).clickWebhook(roomId, message.creator.id, user.id);
@@ -1284,9 +1288,11 @@ export class ChatRoom extends DurableObject<Env> {
    * reply, as `postReply` posts one to a delivery, and a Slack payload takes the message's place, as
    * Slack has an interactive message's answer do, or, with `replace_original` false, is a new message
    * beside it, and `delete_original` deletes the message. A payload that shows nothing does nothing, as an
-   * answer without one does. Answers why the room keeps nothing of it, if it doesn't.
+   * answer without one does, and as blank text does, which is a webhook's bare 200. Answers why the room
+   * keeps nothing of it, if it doesn't.
    */
   private async postClickAnswer(roomId: RoomId, webhook: WebhookAccess, message: Message, answer: ClickAnswer<KeptFile>): Promise<string | null> {
+    if ("text" in answer && answer.text.trim() === "") return null;
     if (!("payload" in answer)) return this.postReply(roomId, webhook, answer, message.parentId);
     if (answer.payload.trim() === "") return null;
     const payload = payloadOf(answer.payload);

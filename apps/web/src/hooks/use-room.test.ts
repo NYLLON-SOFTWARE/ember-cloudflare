@@ -1212,14 +1212,14 @@ describe("React to a message", () => {
 describe("Click a card's button", () => {
   const approve = { id: "approve", blockId: "deploy-42", value: '{"build":42}' };
 
-  /** Clicks Approve on m1, answering what the click comes to and the frame it sent, without the button's value, which the room reads for itself. */
+  /** Clicks Approve on m1, answering what the click comes to and the frame it sent, which names the button by its value too. */
   function clickApprove(result: ReturnType<typeof joinGeneral>["result"]) {
     let went: Promise<boolean> | undefined;
     act(() => {
       went = result.current.messageActions.click("m1", approve);
     });
     const [sent] = socket().sentOfType("card.click").slice(-1);
-    expect(sent).toEqual({ type: "card.click", clickId: expect.any(String), messageId: "m1", actionId: "approve", blockId: "deploy-42" });
+    expect(sent).toEqual({ type: "card.click", clickId: expect.any(String), messageId: "m1", actionId: "approve", blockId: "deploy-42", value: approve.value });
     return { went: went!, clickId: (sent as { clickId: string }).clickId };
   }
 
