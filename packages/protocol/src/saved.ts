@@ -86,11 +86,11 @@ export interface SavedItems {
 
 /**
  * What `POST /api/saved` takes: a message to keep in `list`, by its room and id, or a note of your own
- * for To-dos, with its markup and the ids of the files `NOTE_FILES_PATH` took for it. Keeping a message
- * that's already in one of your lists moves it to `list`.
+ * for To-dos, with its markup and the ids of the files `NOTE_FILES_PATH` took for it. Either may set a
+ * reminder in To-dos. Keeping a message that's already in one of your lists moves it to `list`.
  */
 export type NewSavedItem =
-  | { list: SavedList; roomId: RoomId; messageId: string }
+  | { list: SavedList; roomId: RoomId; messageId: string; remindAt?: string }
   | { list: "todo"; body: string; fileIds?: string[]; remindAt?: string };
 
 /** What `PATCH /api/saved/<id>` changes: its list, whether it's completed, its reminder, or a note's text and files. */
@@ -131,7 +131,10 @@ export function parseNewSavedItem(data: unknown): NewSavedItem | string {
   if (!isList(list)) return "Items go in To-dos or Saved";
   if (roomId !== undefined || messageId !== undefined) {
     if (!isId(roomId) || !isId(messageId)) return "Keep a message by its room and id";
-    return { list, roomId, messageId };
+    if (remindAt === undefined) return { list, roomId, messageId };
+    if (!isRemindTime(remindAt)) return "A reminder needs a time";
+    if (list === "saved") return REMINDER_NOT_IN_SAVED;
+    return { list, roomId, messageId, remindAt };
   }
   if (list !== "todo") return "Add notes of your own to To-dos";
   if (typeof body !== "string" || body.length > MAX_NOTE_HTML_LENGTH) return "A to-do's text is too long";

@@ -7,6 +7,14 @@ describe("parseNewSavedItem", () => {
     expect(parseNewSavedItem({ list: "todo", roomId: "general", messageId: "m1" })).toEqual({ list: "todo", roomId: "general", messageId: "m1" });
   });
 
+  it("takes a reminder for a message kept in To-dos, and none for one in Saved", () => {
+    const remindAt = "2030-01-01T09:00:00.000Z";
+    expect(parseNewSavedItem({ list: "todo", roomId: "general", messageId: "m1", remindAt })).toEqual({ list: "todo", roomId: "general", messageId: "m1", remindAt });
+    expect(parseNewSavedItem({ list: "saved", roomId: "general", messageId: "m1", remindAt })).toBe(REMINDER_NOT_IN_SAVED);
+    expect(parseNewSavedItem({ list: "todo", roomId: "general", messageId: "m1", remindAt: "soon" })).toBe("A reminder needs a time");
+    expect(parseNewSavedItem({ list: "todo", roomId: "general", messageId: "m1", remindAt: null })).toBe("A reminder needs a time");
+  });
+
   it("takes a note of your own only for To-dos", () => {
     expect(parseNewSavedItem({ list: "todo", body: "<p>Call Ada</p>" })).toEqual({ list: "todo", body: "<p>Call Ada</p>" });
     expect(parseNewSavedItem({ list: "todo", body: "", fileIds: ["a", "b"], remindAt: "2030-01-01T09:00:00.000Z" })).toEqual({

@@ -608,7 +608,8 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
           {/* The conversation it's from, which a DM with its author alone doesn't need named again. */}
           {where !== author && (
             <span className={cn("mt-1 flex items-center gap-1.5 text-[13px]", item.read ? "text-muted-foreground" : "text-foreground/60")}>
-              <Icon className="size-3.5 shrink-0" />
+              {/* A reminder's clock is its tile already. */}
+              {item.kind !== "reminder" && <Icon className="size-3.5 shrink-0" />}
               <span className="truncate">{where}</span>
             </span>
           )}
