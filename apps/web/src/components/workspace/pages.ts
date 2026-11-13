@@ -57,4 +57,7 @@ export { ReactionSheet } from "../mobile/reaction-sheet";
 export { ActionSheet } from "../mobile/action-sheet";
 export { RoomDetailsSheet } from "../mobile/room-details-sheet";
 export { MessageSheets } from "../mobile/message-sheets";
+export { CustomReaction } from "./custom-reaction";
+export { AppearanceChoices } from "./appearance-choices";
+export { MovedBanner } from "./moved-banner";
 export { YouSheet } from "../mobile/you-sheet-content";

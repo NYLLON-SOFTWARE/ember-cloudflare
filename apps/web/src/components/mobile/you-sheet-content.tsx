@@ -5,7 +5,7 @@ import { PageLink } from "@/components/page-link";
 import { SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { PROFILE_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
-import { AppearanceChoices } from "../workspace/appearance-menu";
+import { AppearanceChoices } from "../workspace/appearance-choices";
 import { NavigationIcon } from "../workspace/navigation-icon";
 import { UserAvatar } from "../workspace/user-avatar";
 
