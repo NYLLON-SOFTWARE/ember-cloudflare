@@ -1537,9 +1537,23 @@ export interface ThreadSummary {
 /** Whether a message shows in its room's timeline: every message but a reply that was sent only to its thread. */
 export const isInRoom = (message: Pick<Message, "parentId" | "alsoSent">) => message.parentId === undefined || message.alsoSent === true;
 
+/** How many messages a room keeps pinned, as Slack keeps a channel to a hundred. */
+export const MAX_PINS = 100;
+
+/** Why the room pins no more, once it has its hundred. */
+export const PINS_FULL = `A room keeps ${MAX_PINS} pins. Unpin one to pin another.`;
+
+/** A message someone pinned to its room, as the room's Pinned list shows it: the message, who pinned it and when. */
+export interface PinnedMessage {
+  message: Message;
+  by: User;
+  /** When they pinned it, as an ISO time. */
+  at: string;
+}
+
 /**
  * What a tab sends on a room socket. A socket from an IP address a ban blocks can read, but the room
- * answers each frame that would change messages or boosts with an `error`.
+ * answers each frame that would change messages, boosts or pins with an `error`.
  */
 export type ClientFrame =
   /**
@@ -1552,6 +1566,10 @@ export type ClientFrame =
   | { type: "message.delete"; messageId: string }
   | { type: "boost.create"; messageId: string; content: string }
   | { type: "boost.delete"; boostId: string }
+  | { type: "pin.create"; messageId: string }
+  | { type: "pin.delete"; messageId: string }
+  /** Asks for the room's pinned messages, oldest pinned first. */
+  | { type: "pins.list" }
   | { type: "typing.start" }
   | { type: "typing.stop" }
   /** Up to `limit` messages before a message, oldest first, as history pages back from the oldest the timeline holds. */
@@ -1624,6 +1642,12 @@ export type ServerFrame =
   | { type: "message.deleted"; messageId: string; seq: number }
   | { type: "boost.created"; boost: Boost; seq: number }
   | { type: "boost.deleted"; boostId: string; messageId: string; seq: number }
+  /** A message was pinned to the room, by `by`. */
+  | { type: "pin.created"; messageId: string; by: User; seq: number }
+  /** A message's pin was taken away, by `by`. */
+  | { type: "pin.deleted"; messageId: string; by: User; seq: number }
+  /** Answers pins.list: the room's pinned messages, oldest pinned first. */
+  | { type: "pins.listed"; pins: PinnedMessage[] }
   /** Someone opened the room who didn't have it open already, in another tab. */
   | { type: "presence.joined"; user: User }
   /** Someone closed the last tab they had the room open in, which stops their typing, too. */
@@ -1915,6 +1939,11 @@ export function parseClientFrame(raw: string): ClientFrame | null {
     }
     case "boost.delete":
       return id(f.boostId) ? { type: f.type, boostId: f.boostId } : null;
+    case "pin.create":
+    case "pin.delete":
+      return id(f.messageId) ? { type: f.type, messageId: f.messageId } : null;
+    case "pins.list":
+      return { type: f.type };
     case "history.before":
       return id(f.before) ? { type: f.type, before: f.before, limit: pageLimit(f.limit) } : null;
     case "history.after":
