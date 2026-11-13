@@ -130,6 +130,16 @@ describe("Writing a canvas together", () => {
     expect((await canvasesOf(room)).canvases?.holds(tabId)).toBe(false);
   });
 
+  it("tells someone with a canvas open, who isn't writing, that it's gone as its tab is removed (E-R5-33b)", async () => {
+    const room = await freshRoom("canvas-removed");
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const tabId = await canvasIn(room, ada);
+    const graces = await connect(room, grace);
+    await joining(graces, tabId);
+    expect((await asking(ada, roomTabPath(room, tabId), "DELETE")).status).toBe(204);
+    expect(await graces.next("canvas.refused")).toMatchObject({ tabId, message: "That canvas isn't there anymore" });
+  });
+
   it("sends a writer who connects again the steps they missed, or the canvas whole once it can't", async () => {
     const room = await freshRoom("canvas-catch-up");
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];

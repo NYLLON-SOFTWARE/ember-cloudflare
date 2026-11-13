@@ -232,6 +232,13 @@ async function actOnTabs(env: Env, credentials: Credentials, roomId: RoomId, act
   return tabResponse(env, await workspace(env).roomTabs(credentials, roomId, action));
 }
 
+/** Removes tab `tabId`, and has the room tell whoever has it open, as a canvas, that it's gone, though they don't write. */
+async function removeTab(request: Request, env: Env, roomId: RoomId, tabId: string): Promise<Response> {
+  const response = await tabsRequest(request, env, roomId, () => ({ act: "remove", tabId }), false);
+  if (response.ok) await env.CHAT_ROOM.getByName(roomId).canvasGone(roomId, tabId);
+  return response;
+}
+
 /** Parses what's sent to add a tab or a folder's item, finding its file in the room, then does it. */
 async function addTo(request: Request, env: Env, roomId: RoomId, tabId: string | null): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -309,7 +316,7 @@ export function libraryAction(request: Request, env: Env, pathname: string): (()
     if (tabId === "order" && method === "PUT") return () => tabsRequest(request, env, roomId, (body) => orParsed(parseTabOrder(body), (tabIds) => ({ act: "order", tabIds })));
     if (method === "GET") return () => tabsRequest(request, env, roomId, () => ({ act: "open", tabId }), false);
     if (method === "PATCH") return () => tabsRequest(request, env, roomId, (body) => orParsed(parseTabChange(body), (change) => ({ act: "change", tabId, change })));
-    if (method === "DELETE") return () => tabsRequest(request, env, roomId, () => ({ act: "remove", tabId }), false);
+    if (method === "DELETE") return () => removeTab(request, env, roomId, tabId);
     return null;
   }
   if (part === "canvas" && itemId === undefined && method === "PUT") return () => saveCanvas(request, env, roomId, tabId);

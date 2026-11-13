@@ -233,8 +233,8 @@ export class CanvasSessions {
     if (session?.saved === session?.version) this.sessions.delete(tabId);
   }
 
-  /** Lets go of canvas `tabId`, which is gone, telling everyone writing it. */
-  private gone(tabId: string): void {
+  /** Lets go of canvas `tabId`, which is gone, telling everyone who has it open. */
+  gone(tabId: string): void {
     this.sessions.delete(tabId);
     for (const writer of this.room.writers(tabId)) this.room.send(writer, { type: "canvas.refused", tabId, message: CANVAS_GONE });
   }
