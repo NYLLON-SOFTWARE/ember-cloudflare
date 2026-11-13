@@ -57,6 +57,7 @@ import {
   type Profile,
   type ProfileChanges,
   type PushSubscriptionSave,
+  type Reminder,
   type ResentInvitation,
   type Room,
   type RoomChanges,
@@ -110,6 +111,8 @@ import { alphanumeric, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
 import { memberfulApiOf, membershipsOf, namelessMember, type MemberfulMember } from "./memberful-api";
 import { webPush } from "./push/keys";
+import { reminderPayload } from "./push/payload";
+import { sendPushes } from "./push/delivery";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import type { RoomEvent } from "./room-log";
@@ -152,6 +155,8 @@ import {
   type StoredBot,
   type StoredBotSettings,
   type StoredPushSubscription,
+  type StoredReminder,
+  type StoredReminderRow,
   type StoredSession,
 } from "./workspace-store";
 
@@ -217,6 +222,14 @@ const DELIVERIES_PER_RUN = 40;
 const CLOSING_SOCKETS_MS = 2_000;
 /** How many of a banned person's messages a room deletes each time the outbox asks: a page of history's worth. */
 const MESSAGES_PER_PURGE = 100;
+/** How soon from now someone may ask a reminder to come back, at the soonest. */
+export const REMINDER_SOONEST_MS = 15_000;
+/** How far from now someone may ask a reminder to come back, at the latest: a year out. */
+export const REMINDER_LATEST_MS = 365 * 24 * 60 * 60 * 1000;
+/** How many characters of a message's plain text a reminder keeps of it. */
+const REMINDER_EXCERPT_LENGTH = 280;
+/** How many reminders that have come due one run of the alarm tells, at most. */
+const REMINDERS_PER_RUN = 20;
 /**
  * How many memberships the alarm checks in a run, at most, asking Memberful's admin API after them all in
  * one request, a query with an alias for each, so that a run's subrequests stay well within the Free plan's.
@@ -689,6 +702,16 @@ function send(ws: WebSocket, frame: WorkspaceServerFrame): void {
 /** Who a session signs in, as the app keeps them. */
 const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, administrator });
 
+/** The reminder a row keeps, as the protocol has it: its message's author named, and the time as a date's text. */
+const reminderOf = ({ id, roomId, messageId, creatorId, creatorName, excerpt, remindAt }: StoredReminderRow): Reminder => ({
+  id,
+  roomId,
+  messageId,
+  creator: { id: creatorId, name: creatorName },
+  excerpt,
+  remindAt: new Date(remindAt).toISOString(),
+});
+
 /** Whether someone or a bot named `name` takes @ember's name by being renamed `rename`, which they can't, unless it was theirs already (`isReservedName`). */
 const takesReservedName = (name: string, rename: string) => rename !== name && isReservedName(rename) && !isReservedName(name);
 
@@ -698,8 +721,7 @@ const takesReservedName = (name: string, rename: string) => rename !== name && i
  * for anyone else, administrators and the people they invited included, who are let in whatever their
  * membership.
  */
-function membershipChange({ status, membershipNeeded }: LinkedPerson, subscribed: boolean): "lapsed" | "renewed" | null {
-  if (!subscribed && status === "active" && membershipNeeded) return "lapsed";
+function membershipChange({ status, membershipNeeded }: LinkedPerson, subscribed: boolean): "lapsed" | "renewed" | null {  if (!subscribed && status === "active" && membershipNeeded) return "lapsed";
   if (subscribed && status === "suspended") return "renewed";
   return null;
 }
@@ -2614,6 +2636,79 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Asks, for the person `credentials` signs in, that the message `messageId` of room `roomId` come back
+   * to them at `remindAt`, in milliseconds, answering the reminder: "forbidden" when they aren't in the
+   * room, "gone" when the room has no such message, "too soon" or "too late" for a time that makes no
+   * sense, or null without a valid session. The reminder keeps the message's plain text as it reads now,
+   * so it comes back whatever happens to the message after, and every tab of theirs hears of it when it
+   * comes due.
+   */
+  async setReminder(credentials: Credentials, roomId: RoomId, messageId: string, remindAt: number): Promise<Reminder | "forbidden" | "gone" | "too soon" | "too late" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.inRoom(user.id, roomId))) return "forbidden";
+    const now = Date.now();
+    if (remindAt < now + REMINDER_SOONEST_MS) return "too soon";
+    if (remindAt > now + REMINDER_LATEST_MS) return "too late";
+    // The room keeps the message, and answers as it does to search: what it read then, its author named
+    // as they were named. A message edited or deleted after this comes back as it read now.
+    const [message] = await this.env.CHAT_ROOM.getByName(roomId).messagesWithIds(roomId, [messageId]);
+    if (!message) return "gone";
+    const reminder: StoredReminder = {
+      id: sortableId(now),
+      userId: user.id,
+      roomId,
+      messageId,
+      creatorId: message.creator.id,
+      creatorName: message.creator.name,
+      excerpt: message.plainText.slice(0, REMINDER_EXCERPT_LENGTH),
+      remindAt,
+      createdAt: now,
+    };
+    await this.store.queueReminder(reminder);
+    await this.wakeAt(remindAt);
+    return reminderOf(reminder);
+  }
+
+  /** The reminders the person `credentials` signs in hasn't dismissed yet, the one coming soonest first. */
+  async reminders(credentials: Credentials): Promise<Reminder[] | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return (await this.store.remindersFor(user.id)).map(reminderOf);
+  }
+
+  /**
+   * Dismisses the reminder `id` of the person `credentials` signs in, which is being done with one that
+   * has come due, or taking back one that hasn't, answering whether there was one to dismiss, or null
+   * without a valid session.
+   */
+  async dismissReminder(credentials: Credentials, id: string): Promise<boolean | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.store.deleteReminder(user.id, id);
+  }
+
+  /**
+   * Tells every tab of theirs each reminder that has come due and hasn't been told, reading what the
+   * message kept when they asked, and pushes it to their browsers, saying each it tells has been, so the
+   * next run doesn't tell it again. What a run that stops in between has said may be said again once,
+   * as a revocation's may. Answers how many it told.
+   */
+  private async deliverReminders(limit: number): Promise<number> {
+    const due = await this.store.dueReminders(Date.now(), limit);
+    for (const reminder of due) {
+      this.tell([reminder.userId], { type: "reminder.due", reminder: reminderOf(reminder) });
+      const deliveries = await this.store.pushDeliveriesFor(reminder.userId);
+      if (deliveries.length > 0) {
+        const pushes = [{ payload: reminderPayload(reminder), deliveries }];
+        await sendPushes(this.env, pushes, (id) => this.store.pushable(id));
+      }
+      await this.store.markReminderTold(reminder.id, Date.now());
+    }
+    return due.length;
+  }
+
+  /**
    * Gives the person `credentials` signs in level `involvement` in room `roomId`, answering it: "not
    * found" when they aren't in it, "invalid" for no level, having changed nothing, or null without a
    * valid session. Every tab of theirs hears it, which hides the room from their sidebars at
@@ -4017,6 +4112,7 @@ export class Workspace extends DurableObject<Env> {
     const purges = await this.deliverPurges(DELIVERIES_PER_RUN - revocations);
     const reindexes = await this.deliverReindexes(DELIVERIES_PER_RUN - revocations - purges);
     await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
+    await this.deliverReminders(REMINDERS_PER_RUN);
     await this.checkMemberships();
     await this.scheduleDelivery();
   }

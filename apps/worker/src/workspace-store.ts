@@ -2467,6 +2467,50 @@ const storedApp = (row: AppRow): StoredApp => ({
   toolsReadAt: row.tools_read_at,
   connectedBy: row.connected_by_id !== null && row.connected_by_name !== null ? { id: row.connected_by_id, name: row.connected_by_name } : null,
 });
+/** What a reminder's row keeps, named as the protocol's `Reminder` reads it. */
+const REMINDER_FIELDS = `id, room_id AS roomId, message_id AS messageId, creator_id AS creatorId, creator_name AS creatorName,
+  excerpt, remind_at AS remindAt`;
+
+/** A reminder as its row keeps it, with who asked for it. */
+export interface StoredReminderRow {
+  id: string;
+  roomId: RoomId;
+  messageId: string;
+  creatorId: UserId;
+  creatorName: string;
+  excerpt: string;
+  /** When it comes back, as milliseconds are counted. */
+  remindAt: number;
+}
+
+/** A reminder to queue, as `queueReminder` takes it. */
+export interface StoredReminder extends StoredReminderRow {
+  userId: UserId;
+  /** When it was asked for, as milliseconds are counted. */
+  createdAt: number;
+}
+
+/** Asks a reminder of a message for someone, keeping the message as it reads then. */
+const QUEUE_REMINDER = `INSERT INTO reminders (id, user_id, room_id, message_id, creator_id, creator_name, excerpt, remind_at, created_at)
+  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`;
+
+/** Someone's reminders, the one coming soonest first. */
+const REMINDERS_FOR_USER = `SELECT ${REMINDER_FIELDS} FROM reminders WHERE user_id = ? ORDER BY remind_at, id`;
+
+/** One of someone's reminders, theirs alone. */
+const REMINDER_FOR_USER = `SELECT ${REMINDER_FIELDS} FROM reminders WHERE id = ? AND user_id = ?`;
+
+/** The reminders that have come due and haven't been told yet, the oldest due first. */
+const DUE_REMINDERS = `SELECT ${REMINDER_FIELDS}, user_id AS userId FROM reminders
+  WHERE reminded_at IS NULL AND remind_at <= ? ORDER BY remind_at, id LIMIT ?`;
+
+/** Whether someone is in a room, which a reminder of a message in it asks. */
+const IN_ROOM = `SELECT 1 FROM memberships WHERE user_id = ? AND room_id = ?`;
+
+/** The subscriptions someone's browsers have saved, each with the count its push sets the app's badge to. */
+const PUSH_DELIVERIES_FOR_USER = `SELECT id, endpoint, p256dh_key AS p256dhKey, auth_key AS authKey,
+    (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = push_subscriptions.user_id AND marked.unread_at IS NOT NULL) AS badge
+  FROM push_subscriptions WHERE user_id = ? ORDER BY id`;
 
 export class WorkspaceStore {
   constructor(private readonly db: Db) {}
@@ -3298,16 +3342,17 @@ export class WorkspaceStore {
   }
 
   /**
-   * When the outbox's next revocation, purge, reindex, picture deletion or membership check is due, if
-   * any is waiting, leaving out the purges waiting on their rooms' revocations, which are due no sooner.
+   * When the outbox's next revocation, purge, reindex, picture deletion, membership check or reminder is
+   * due, if any is waiting, leaving out the purges waiting on their rooms' revocations, which are due no
+   * sooner.
    */
   async nextDeliveryDue(): Promise<number | null> {
-    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null; membership: number | null; catchUp: number | null }>(
+    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null; membership: number | null; catchUp: number | null; reminder: number | null }>(
       `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
         (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
-        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp`,
+        (SELECT min(due_at) FROM membership_catch_ups) AS catchUp, (SELECT min(remind_at) FROM reminders WHERE reminded_at IS NULL) AS reminder`,
     );
-    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp].filter((time) => typeof time === "number");
+    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.reminder].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
   }
 
@@ -4237,5 +4282,46 @@ export class WorkspaceStore {
       statement(GRANT_ROOM_TO_ACTIVE_USERS, id, now, now),
       statement(`INSERT INTO pending_reindexes (room_id, due_at) VALUES (?, 0) ON CONFLICT DO NOTHING`, id),
     ]);
+  }
+
+  /** Asks a reminder of a message for someone, keeping what the message read then. */
+  async queueReminder(reminder: StoredReminder): Promise<void> {
+    await this.db.batch([statement(QUEUE_REMINDER, reminder.id, reminder.userId, reminder.roomId, reminder.messageId, reminder.creatorId, reminder.creatorName, reminder.excerpt, reminder.remindAt, reminder.createdAt)]);
+  }
+
+  /** Someone's reminders, the one coming soonest first. */
+  async remindersFor(userId: UserId): Promise<StoredReminderRow[]> {
+    return this.db.all<StoredReminderRow>(REMINDERS_FOR_USER, userId);
+  }
+
+  /** One of someone's reminders, theirs alone, or null for one that isn't. */
+  async reminderFor(userId: UserId, id: string): Promise<StoredReminderRow | null> {
+    const [row] = await this.db.all<StoredReminderRow>(REMINDER_FOR_USER, id, userId);
+    return row ?? null;
+  }
+
+  /** The reminders that have come due and haven't been told yet, the oldest due first. */
+  async dueReminders(now: number, limit: number): Promise<Array<StoredReminderRow & { userId: UserId }>> {
+    return this.db.all<StoredReminderRow & { userId: UserId }>(DUE_REMINDERS, now, limit);
+  }
+
+  /** Says a reminder has been told, answering whether this run is the one that told it. */
+  async markReminderTold(id: string, now: number): Promise<boolean> {
+    return (await this.db.all(`UPDATE reminders SET reminded_at = ? WHERE id = ? AND reminded_at IS NULL RETURNING id`, now, id)).length > 0;
+  }
+
+  /** Takes one of someone's reminders away, answering whether there was one to take. */
+  async deleteReminder(userId: UserId, id: string): Promise<boolean> {
+    return (await this.db.all(`DELETE FROM reminders WHERE id = ? AND user_id = ? RETURNING id`, id, userId)).length > 0;
+  }
+
+  /** Whether someone is in a room. */
+  async inRoom(userId: UserId, roomId: RoomId): Promise<boolean> {
+    return (await this.db.all(IN_ROOM, userId, roomId)).length > 0;
+  }
+
+  /** The subscriptions someone's browsers have saved, each with the count its push sets the app's badge to. */
+  async pushDeliveriesFor(userId: UserId): Promise<PushDelivery[]> {
+    return this.db.all<PushDelivery>(PUSH_DELIVERIES_FOR_USER, userId);
   }
 }

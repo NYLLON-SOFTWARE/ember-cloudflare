@@ -118,6 +118,7 @@ export {
   NEW_BOT_PATH,
   NEW_DIRECT_PATH,
   PASSWORD_RESET_PATH,
+  messagePath,
   PROFILE_PATH,
   PUSH_SUBSCRIPTIONS_PATH,
   SEARCHES_PATH,
@@ -1658,6 +1659,25 @@ export type ServerFrame =
   | { type: "pong" };
 
 /**
+ * A reminder someone asked for on a message, which comes back to them at `remindAt`. What the message
+ * said is kept as it was when the reminder was set, so it comes back whatever has happened to the
+ * message or its room since, as Slack's keep their text.
+ */
+export interface Reminder {
+  id: string;
+  /** The room the message is in, which the person reminding was in when they set it. */
+  roomId: RoomId;
+  /** The message the reminder is about, which may be gone or edited by the time it comes. */
+  messageId: string;
+  /** Who wrote the message, named as they were when the reminder was set. */
+  creator: User;
+  /** The start of the message's plain text, as it was when the reminder was set. */
+  excerpt: string;
+  /** When the reminder comes back, in the past once it's due. */
+  remindAt: string;
+}
+
+/**
  * What a tab sends on its workspace socket (`/api/socket`): only pings, which the runtime answers
  * without waking the Workspace.
  */
@@ -1711,6 +1731,12 @@ export type WorkspaceServerFrame =
   | { type: "rooms.reordered" }
   /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */
   | { type: "account.updated"; account: Account }
+  /**
+   * A reminder of theirs has come due. Sent to every tab they have open at the moment it comes, and,
+   * when they weren't near Ember then, pushed to their browsers besides; a tab that opens later hears
+   * of it from `GET /api/reminders`, which lists what they haven't dismissed yet.
+   */
+  | { type: "reminder.due"; reminder: Reminder }
   | { type: "error"; message: string }
   | { type: "pong" };
 
