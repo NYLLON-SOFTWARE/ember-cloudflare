@@ -830,7 +830,11 @@ A huddle is a room's voice call, laid out as Slack's is. The headphones at the t
 huddle, or join the one going on, and show the rest of the room how many are in it. A preview comes
 first, which asks the browser for a microphone and offers a choice of it and, where the browser has
 one, of the speaker; without a microphone you join to listen. While you're in a huddle, a bar along
-the window's base follows you from page to page, with the microphone's switch and Leave.
+the window's base follows you from page to page, with the microphone's switch and Leave. A sound
+plays as someone joins the huddle, yourself included, and another as someone leaves it. While you're
+the only one in it, quiet music plays on a loop, as Slack's does, from five seconds after you find
+yourself alone until someone joins you. The sounds were written for Ember, so nothing is owed for
+playing them, and `apps/web/src/lib/huddle-sounds/` says how to change them.
 Ctrl+Alt+Shift+H (⌘⌥⇧H on a Mac) leaves the huddle you're in, or opens the preview for the room
 you're looking at, and Ctrl+Shift+Space (⌘⇧Space) mutes and unmutes. The arrow beside the headphones
 copies the huddle's link, which opens the room at the preview. A huddle takes up to 50 people and

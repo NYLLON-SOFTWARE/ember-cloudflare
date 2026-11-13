@@ -118,8 +118,34 @@ const hears = (page: Page, userId: string) =>
     return track !== undefined && !track.muted && track.readyState === "live" && !audio!.paused && audio!.currentTime > 0;
   }, userId);
 
+/** Where `keepSounds` has a page keep the `<audio>`s it plays. */
+type KeepsSounds = Window & { huddleSoundsPlayed: HTMLMediaElement[] };
+
+/** Has `page` keep each `<audio>` it plays of the huddle's own sounds, most of which are never in the page. */
+const keepSounds = (page: Page) =>
+  page.addInitScript(() => {
+    const played: HTMLMediaElement[] = [];
+    Object.assign(window, { huddleSoundsPlayed: played });
+    const play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () {
+      if (this.dataset.huddleSound) played.push(this);
+      return play.call(this);
+    };
+  });
+
+/** The huddle's own sounds `page` has played, in order: those that played to their end, and its music, which has none, once it has run. */
+const soundsHeard = (page: Page) =>
+  page.evaluate(() => (window as unknown as KeepsSounds).huddleSoundsPlayed.flatMap((audio) => (audio.ended || (audio.loop && audio.currentTime > 0) ? audio.dataset.huddleSound! : [])));
+
+/** The huddle's music in `page`: how far into it the page is, and whether it's playing, in the page, where it is while it plays. */
+const musicIn = (page: Page) =>
+  page.evaluate(() => {
+    const audio = (window as unknown as KeepsSounds).huddleSoundsPlayed.filter(({ dataset }) => dataset.huddleSound === "music").at(-1);
+    return { at: audio?.currentTime ?? 0, playing: audio !== undefined && audio.isConnected && !audio.paused };
+  });
+
 test.describe("A huddle", () => {
-  test("two people start and join a room's huddle, hear each other, and leave it", async ({ page, browser, baseURL, request }) => {
+  test("two people start and join a room's huddle, hear each other and its sounds, and leave it", async ({ page, browser, baseURL, request }) => {
     const administrator = await administratorSession(request);
     const headers = { Cookie: cookieHeader(administrator), ...SAME_ORIGIN };
     // In a room of the test's own, which everyone is in.
@@ -128,6 +154,7 @@ test.describe("A huddle", () => {
     const { room } = (await created.json()) as { room: TestRoom };
 
     // Ada has the room open as huddles are turned on, which gives its header the huddle button.
+    await keepSounds(page);
     await useOwnAddress(page);
     await page.goto(`/rooms/${room.id}`);
     await signInAsAdministrator(page);
@@ -144,6 +171,8 @@ test.describe("A huddle", () => {
     const adasBar = huddleBar(page, room);
     await expect(adasBar).toContainText("Just you in the huddle");
     await expect(page.getByRole("button", { name: "Leave huddle", exact: true })).toBeVisible();
+    // She hears herself join, and then, as she's alone in it, the huddle's music.
+    await expect.poll(() => soundsHeard(page), { timeout: 15_000 }).toEqual(["joined", "music"]);
 
     // Grace, who joins Ember with the join link, sees it going on in the room's header, and its link
     // opens the room at the preview.
@@ -156,6 +185,7 @@ test.describe("A huddle", () => {
     expect(joined.status(), await joined.text()).toBe(201);
     const { user: her } = (await joined.json()) as { user: Me };
     const grace = await context.newPage();
+    await keepSounds(grace);
     await useOwnAddress(grace);
     await grace.goto(`/rooms/${room.id}`);
     await expect(grace.getByRole("button", { name: "Join huddle, 1 in it" })).toBeVisible();
@@ -168,9 +198,13 @@ test.describe("A huddle", () => {
     await expect(gracesBar).toContainText("Ada and you are in the huddle");
     await expect(adasBar).toContainText("Grace and you are in the huddle");
 
-    // Each hears the other, through the SFU.
+    // Each hears the other, through the SFU. Ada heard Grace join, which stopped her music.
     await expect.poll(() => hears(grace, administrator.user.id), { timeout: 15_000 }).toBe(true);
     await expect.poll(() => hears(page, her.id), { timeout: 15_000 }).toBe(true);
+    await expect.poll(() => soundsHeard(page)).toEqual(["joined", "music", "joined"]);
+    const stopped = await musicIn(page);
+    expect(stopped.playing).toBe(false);
+    expect(stopped.at).toBeGreaterThan(0);
 
     // Ada mutes from the bar, and unmutes with the keys, which the button she pressed doesn't take as a press.
     await adasBar.getByRole("button", { name: "Mute microphone" }).click();
@@ -183,11 +217,18 @@ test.describe("A huddle", () => {
     await expect(gracesBar).toHaveCount(0);
     await expect(grace.getByRole("button", { name: "Join huddle, 1 in it" })).toBeVisible();
     await expect(adasBar).toContainText("Just you in the huddle");
-    await expect(page.locator("[data-huddle-voices] audio")).toHaveCount(0);
+    await expect(page.locator("[data-huddle-voices] audio[data-user-id]")).toHaveCount(0);
+    // Each heard Grace leave. Ada, alone again, hears the music go on from where it stopped.
+    await expect.poll(() => soundsHeard(grace)).toEqual(["joined", "left"]);
+    await expect.poll(() => soundsHeard(page), { timeout: 15_000 }).toEqual(["joined", "music", "joined", "left", "music"]);
+    await expect.poll(async () => (await musicIn(page)).playing).toBe(true);
+    expect((await musicIn(page)).at).toBeGreaterThanOrEqual(stopped.at);
 
     // Ada leaves from the room's header, which ends the huddle, and its keys offer to start another.
     await page.getByRole("button", { name: "Leave huddle", exact: true }).click();
     await expect(adasBar).toHaveCount(0);
+    await expect.poll(() => soundsHeard(page)).toEqual(["joined", "music", "joined", "left", "music", "left"]);
+    expect((await musicIn(page)).playing).toBe(false);
     await expect(grace.getByRole("button", { name: "Start huddle", exact: true })).toBeVisible();
     await page.keyboard.press("Control+Alt+Shift+H");
     await expect(starting).toBeVisible();
