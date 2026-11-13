@@ -7,11 +7,13 @@ import { PROFILE_PATH } from "@/hooks/use-route";
 import { byName } from "@/lib/people";
 import { cn } from "@/lib/utils";
 import { ListRow } from "./list-row";
+import { Mood } from "./mood";
 import { AvatarLink } from "./user-avatar";
 
 // The people on workspace settings, as the Membership section groups them: everyone but bots by name,
 // administrators under Admins and members under Members, each group left out while nobody's in it, each
-// avatar linking to the person's page, and your own row to your profile. Administrators also see who's
+// avatar linking to the person's page, and what they wear beside their name in the pill, and your own
+// row to your profile. Administrators also see who's
 // banned, dimmed under a cancel mark (Campfire's avatars.css), and on each active person's row a crown
 // that makes them an administrator or a member again, and, but on their own, Delete, which removes them.
 // They see members suspended for their Memberful membership's lapsing too, dimmed and said to be so,
@@ -83,7 +85,12 @@ export function PeopleList({ people, myId, onChangeRole, onRemove }: Props) {
     const mine = person.id === myId;
     const role = changing.get(person.id) ?? person.role;
     return (
-      <ListRow key={person.id} figure={<Avatar person={person} banned={banned} dimmed={banned || suspended} />} name={person.name}>
+      <ListRow
+        key={person.id}
+        figure={<Avatar person={person} banned={banned} dimmed={banned || suspended} />}
+        name={person.name}
+        detail={<Mood mood={person.mood} className="ms-2 text-[0.8em]" />}
+      >
         {suspended && <span className="shrink-0 text-[0.8em] text-muted-foreground">Membership lapsed</span>}
         {onChangeRole && person.status === "active" && (
           <RoleCrown
