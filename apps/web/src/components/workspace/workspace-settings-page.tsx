@@ -87,7 +87,7 @@ interface Props {
 }
 
 /**
- * Workspace settings, in six sections, of which the address's fragment shows one, all of them staying
+ * Workspace settings, in seven sections, of which the address's fragment shows one, all of them staying
  * drawn so what's typed in one waits there while another shows:
  *
  * - General, where administrators change the workspace's icon, which one picked saves at once, showing it
@@ -104,6 +104,8 @@ interface Props {
  *   regenerate, and Memberful, how Ember sends email, and whether Cloudflare Turnstile checks who joins,
  *   or for members, the links that let people in, then the administrators and members, whom
  *   administrators can make administrators or members and remove.
+ * - Profile fields: for administrators, the fields everyone's profile asks, which people answer on
+ *   their own profile.
  * - Domain settings: for administrators, the custom domain Ember answers at.
  * - AI assistant: for administrators, whether Ember's AI agents run on models through Cloudflare AI
  *   Gateway, which Set up Ember AI connects, and while they do, the agents, @ember first, each linking to

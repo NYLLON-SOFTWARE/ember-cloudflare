@@ -188,14 +188,14 @@ export function ProfileFieldsSettings({ onFailed }: Props) {
               ) : (
                 <div className="flex items-center gap-x-[1ch]">
                   {/* Where it comes in the profile, which people see the fields in. */}
-                  <span aria-hidden="true" className={cn(NOTE, "w-[2ch] text-end tabular-nums")}>
+                  <span aria-hidden="true" className={cn(NOTE, "w-[2ch] flex-none text-end tabular-nums")}>
                     {at + 1}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-[550]">{field.name}</div>
                     <div className={NOTE}>{field.options === null ? KINDS.text : `${KINDS.choices}: ${field.options.join(", ")}`}</div>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-none items-center gap-1.5">
                     <button
                       type="button"
                       aria-label={`Move ${field.name} up`}
