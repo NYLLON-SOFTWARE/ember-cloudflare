@@ -48,9 +48,10 @@ const BOT_KEY_IN_PATH = /(\/rooms\/[^/\s]+\/)[^/\s]+(?=\/(?:messages|slack)\b)/g
 
 /**
  * The most bytes of text a bot can post: no more than `MAX_MESSAGE_HTML_LENGTH` characters, since none
- * takes more than 3 bytes of UTF-8 for each UTF-16 unit it counts as.
+ * takes more than 3 bytes of UTF-8 for each UTF-16 unit it counts as. The Slack-compatible Web API's
+ * payloads are read within it too, which answers `msg_too_long` for one over it.
  */
-const MAX_BODY_BYTES = 3 * MAX_MESSAGE_HTML_LENGTH;
+export const MAX_BODY_BYTES = 3 * MAX_MESSAGE_HTML_LENGTH;
 
 const UNKNOWN_BOT_KEY = "Unknown bot key";
 /** Why a form's `attachment` that's text posts nothing. */
