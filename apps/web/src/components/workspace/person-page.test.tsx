@@ -1,4 +1,4 @@
-import type { DirectoryUser, Me, Person, PersonAnswer, User } from "@ember/protocol";
+import type { DirectoryUser, Me, Person, PersonAnswer, ProfileFieldEntry, User } from "@ember/protocol";
 import type { AgentProfile } from "@ember/protocol/agents";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -17,7 +17,7 @@ function serve(answer: () => Response | Promise<Response>) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async () => answer());
 }
 
-const found = (person: Person) => () => Response.json({ person, fields: [] });
+const found = (person: Person, fields: ProfileFieldEntry[] = []) => () => Response.json({ person, fields });
 
 interface Shown {
   me?: Me;
@@ -597,5 +597,38 @@ describe("Memberful memberships", () => {
     expect(screen.queryByText(/no longer on this account/)).toBeNull();
     expect(directButton("Grace Hopper")).toBeNull();
     expect(screen.getByRole("button", { name: "Ban Grace Hopper" })).toBeVisible();
+  });
+});
+
+describe("The workspace's fields on someone's page", () => {
+  /** What the workspace asks, and what Grace answered, Title and Pronouns. */
+  const ASKED: ProfileFieldEntry[] = [
+    { id: "field-title", name: "Title", options: null, value: "Rear admiral" },
+    { id: "field-pronouns", name: "Pronouns", options: ["she/her", "they/them"], value: "" },
+    { id: "field-phone", name: "Phone", options: null, value: "" },
+  ];
+
+  it("shows the fields they answered, asked in the order the profile shows them, and none they left empty", async () => {
+    serve(found(grace, ASKED));
+    showPage(grace);
+    expect(await heading()).toHaveTextContent("Grace Hopper");
+    expect(screen.getByText("Title")).toBeVisible();
+    expect(screen.getByText("Rear admiral")).toBeVisible();
+    expect(screen.queryByText("Pronouns")).toBeNull();
+    expect(screen.queryByText("Phone")).toBeNull();
+    // Under their bio.
+    expect(screen.getByText("Wrote the first compiler").compareDocumentPosition(screen.getByText("Title"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("shows none of the fields for someone who answered none, or a workspace that asks none", async () => {
+    serve(found(grace, ASKED.map((asked) => ({ ...asked, value: "" }))));
+    showPage(grace);
+    expect(await heading()).toHaveTextContent("Grace Hopper");
+    expect(screen.queryByText("Title")).toBeNull();
+
+    serve(found(grace));
+    showPage(grace);
+    expect(await heading()).toHaveTextContent("Grace Hopper");
+    expect(screen.queryByText("Title")).toBeNull();
   });
 });
