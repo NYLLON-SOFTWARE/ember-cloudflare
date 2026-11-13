@@ -12,7 +12,15 @@ import { editorLoaded } from "./editor";
 // and every test starts before its code has loaded.
 vi.mock("./editor", async (importOriginal) => ({ ...(await importOriginal<typeof import("./editor")>()), editorLoaded: vi.fn(() => false) }));
 
-async function showComposer({ typing = [] as User[], disabled = false, roomId = "r1", threadId = undefined as string | undefined, direct = false, autoFocus = true } = {}) {
+async function showComposer({
+  typing = [] as User[],
+  disabled = false,
+  roomId = "r1",
+  threadId = undefined as string | undefined,
+  direct = false,
+  autoFocus = true,
+  onSchedule = undefined as ((body: string, sendAt: string) => boolean | Promise<boolean>) | undefined,
+} = {}) {
   const onSend = vi.fn((_body: string, _alsoSend: boolean) => true);
   const onSendFiles = vi.fn((_files: File[], _alsoSend: boolean) => {});
   const onTyping = vi.fn();
@@ -29,13 +37,14 @@ async function showComposer({ typing = [] as User[], disabled = false, roomId = 
       threadId={threadId}
       onSend={onSend}
       onSendFiles={onSendFiles}
+      onSchedule={onSchedule}
       onTyping={onTyping}
       autoFocus={autoFocus}
     />,
   );
   // The editor loads as the first composer shows.
   const input = await screen.findByRole("textbox", { name: threadId === undefined ? "Write a message" : "Write a reply" });
-  return { onSend, onSendFiles, onTyping, composer, view, user: userEvent.setup(), input };
+  return { onSend, onSendFiles, onSchedule, onTyping, composer, view, user: userEvent.setup(), input };
 }
 
 function touchScreen() {
@@ -426,6 +435,57 @@ describe("Keep drafts", () => {
   it("keeps each person's apart, so whoever signs in on this browser next doesn't see it", async () => {
     localStorage.setItem("composer-draft-u2-r1", "<p>Grace's own</p>");
     const { input } = await showComposer({ roomId: "r1" });
+    expect(input).toHaveValue("");
+  });
+});
+
+describe("Schedule a message", () => {
+  it("offers a clock on the room composer, and not on a thread's", async () => {
+    const { view } = await showComposer({ onSchedule: vi.fn(() => true) });
+    expect(screen.getByRole("button", { name: "Schedule send" })).toBeInTheDocument();
+    view.unmount();
+    await showComposer({ threadId: "m1", onSchedule: vi.fn(() => true) });
+    expect(screen.queryByRole("button", { name: "Schedule send" })).toBeNull();
+  });
+
+  it("leaves the clock off when the room doesn't schedule", async () => {
+    await showComposer();
+    expect(screen.queryByRole("button", { name: "Schedule send" })).toBeNull();
+  });
+
+  it("schedules what's written for a future time, then empties the box", async () => {
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => true);
+    const { input, user } = await showComposer({ onSchedule });
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    await user.click(screen.getByRole("button", { name: "Schedule" }));
+    expect(onSchedule).toHaveBeenCalledOnce();
+    expect(onSchedule.mock.calls[0]![0]).toBe("<p>After lunch</p>");
+    expect(onSchedule.mock.calls[0]![1].endsWith("Z")).toBe(true);
+    expect(input).toHaveValue("");
+  });
+
+  it("keeps what's written, and the draft, when the room refuses the schedule", async () => {
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => Promise.resolve(false));
+    const { input, user } = await showComposer({ onSchedule });
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    await user.click(screen.getByRole("button", { name: "Schedule" }));
+    expect(onSchedule).toHaveBeenCalledOnce();
+    expect(input).toHaveValue("After lunch");
+    expect(localStorage.getItem("composer-draft-u1-r1")).toBe("<p>After lunch</p>");
+  });
+
+  it("drops picked files once the room has taken the schedule", async () => {
+    const onSchedule = vi.fn((_body: string, _sendAt: string) => true);
+    const { input, user } = await showComposer({ onSchedule });
+    await user.upload(attachFiles(), fileOf("notes.txt"));
+    expect(chips()).toEqual(["Remove notes.txt"]);
+    await user.type(input, "After lunch");
+    await user.click(screen.getByRole("button", { name: "Schedule send" }));
+    await user.click(screen.getByRole("button", { name: "Schedule" }));
+    expect(onSchedule).toHaveBeenCalledOnce();
+    expect(chips()).toEqual([]);
     expect(input).toHaveValue("");
   });
 });

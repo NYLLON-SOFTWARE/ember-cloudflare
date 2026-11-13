@@ -8,6 +8,7 @@ import {
   MAX_MESSAGE_HTML_LENGTH,
   MESSAGE_TOO_LONG,
   parseServerFrame,
+  SEND_AT_IN_THE_PAST,
   workspacePageOf,
   type ClientFrame,
   type Me,
@@ -29,6 +30,9 @@ import { useLatestReducer } from "./use-latest-reducer";
 export const TYPING_TTL_MS = 5_000;
 /** How often typing tells the room, as Campfire's typing_notifications_controller.js throttles it. */
 const TYPING_THROTTLE_MS = 1_000;
+
+/** Says a schedule sent as the connection dropped never reached the room, so it is still in the composer. */
+export const SCHEDULE_LOST = "The connection dropped before that message was scheduled. Try again.";
 
 /**
  * How many times the room has let the page in (`RoomState.connections`), for what shows a change as
@@ -107,6 +111,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
   const [around] = useState(openedAt);
   const socket = useRef<ReconnectingSocket | null>(null);
   const listeners = useRef(new Set<(frame: ServerFrame) => void>());
+  /** Schedules waiting for the room to take them, by the client id the tab sent. */
+  const awaitingSchedule = useRef(new Map<string, (accepted: boolean) => void>());
   const lastTypingStarted = useRef(-Infinity);
   const sessionChanged = useEffectEvent(onSessionChanged);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
@@ -150,6 +156,15 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     let seen: number | undefined;
     // The permalink's message, until the room has opened the timeline: a socket that connects again keeps it as it is.
     let openingAround = around;
+    // Schedules sent on a socket that closed before the room answered them, until the room lists what it took.
+    let unanswered = new Set<string>();
+    const settleSchedule = (clientMessageId: string, accepted: boolean) => {
+      const done = awaitingSchedule.current.get(clientMessageId);
+      if (!done) return;
+      awaitingSchedule.current.delete(clientMessageId);
+      unanswered.delete(clientMessageId);
+      done(accepted);
+    };
 
     // Tells the room when the tab has been shown or hidden for a while, unless its socket's address or an
     // earlier frame said so already. Until the room lets the socket in, the welcome tells it.
@@ -193,6 +208,27 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
         tellVisibility(visibility.visible);
         checkUnconfirmed(room, frame.messages);
         sendQueued(room, frame);
+      }
+      if (opening && awaitingSchedule.current.size > 0) {
+        // The socket closed before the room answered these, so ask it which it took: its list answers
+        // for them, while those scheduled from here on wait for their own answer.
+        unanswered = new Set(awaitingSchedule.current.keys());
+        room.send({ type: "scheduled.list" });
+      }
+      if (frame.type === "scheduled.created") {
+        settleSchedule(frame.scheduled.clientMessageId, true);
+      } else if (frame.type === "error" && frame.failed === "message.schedule" && frame.clientMessageId) {
+        settleSchedule(frame.clientMessageId, false);
+      } else if (frame.type === "scheduled.listed" && unanswered.size > 0) {
+        const taken = new Set(frame.scheduled.map((s) => s.clientMessageId));
+        let lost = false;
+        for (const clientMessageId of unanswered) {
+          if (!awaitingSchedule.current.has(clientMessageId)) continue;
+          lost ||= !taken.has(clientMessageId);
+          settleSchedule(clientMessageId, taken.has(clientMessageId));
+        }
+        unanswered = new Set();
+        if (lost) dispatch({ type: "warn", message: SCHEDULE_LOST });
       }
       for (const listener of listeners.current) listener(frame);
     };
@@ -247,6 +283,8 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       closed = true;
       clearInterval(expire);
       visibility.stop();
+      for (const done of awaitingSchedule.current.values()) done(false);
+      awaitingSchedule.current.clear();
       room.close();
       socket.current = null;
       // Leaving the room loses none of what was written here: the outbox sends what hasn't gone.
@@ -298,6 +336,41 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       return true;
     },
     [me, roomId, send, warn, toNewest],
+  );
+
+  // A time that has already passed is refused; the room does not post the message at once. Answers
+  // once the room has taken it, so the composer keeps what's written until then.
+  const scheduleMessage = useCallback(
+    (body: string, sendAt: string): boolean | Promise<boolean> => {
+      const { plainText: text } = writtenBody(body);
+      if (isTooLong(body, text)) {
+        warn(MESSAGE_TOO_LONG);
+        return false;
+      }
+      if (Date.parse(sendAt) <= Date.now()) {
+        warn(SEND_AT_IN_THE_PAST);
+        return false;
+      }
+      const clientMessageId = crypto.randomUUID();
+      const sent = send({ type: "message.schedule", clientMessageId, body, sendAt });
+      if (!sent) {
+        warn("Not connected. Try again once you're reconnected.");
+        return false;
+      }
+      return new Promise((resolve) => {
+        awaitingSchedule.current.set(clientMessageId, resolve);
+      });
+    },
+    [send, warn],
+  );
+
+  const cancelScheduled = useCallback(
+    (scheduledId: string) => {
+      const sent = send({ type: "scheduled.cancel", scheduledId });
+      if (!sent) warn("Not connected. Try again once you're reconnected.");
+      return sent;
+    },
+    [send, warn],
   );
 
   // As Campfire's composer_controller.js#submitFiles sends them, each file goes as a message of its own,
@@ -373,7 +446,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
 
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
 
-  return { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice };
+  return { state, frames, postMessage, postFiles, scheduleMessage, cancelScheduled, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice };
 }
 
 /** A message `me` is sending to `roomId` as `clientMessageId`, as the timeline shows it until the room has it. */

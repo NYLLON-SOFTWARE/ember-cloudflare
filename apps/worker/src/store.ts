@@ -1,4 +1,4 @@
-import { PARENT_TEXT_LENGTH, parentTextOf, THREAD_FACES, type Boost, type Card, type Message, type RoomId, type ThreadSummary, type TimelinePage, type User, type UserId } from "@ember/protocol";
+import { PARENT_TEXT_LENGTH, parentTextOf, THREAD_FACES, type Boost, type Card, type Message, type RoomId, type ScheduledMessage, type ThreadSummary, type TimelinePage, type User, type UserId } from "@ember/protocol";
 import { hasLinkable, type PreparedBody } from "@ember/richtext";
 import { statement, type Db, type Statement } from "./db";
 import { fileSigner, type FileUrls } from "./files/addresses";
@@ -72,6 +72,31 @@ interface BoostRow {
   content: string;
   created_at: string;
 }
+
+interface ScheduledRow {
+  id: string;
+  room_id: RoomId;
+  client_message_id: string;
+  creator_id: string;
+  creator_name: string;
+  body: string;
+  plain_text: string;
+  mentions: string;
+  send_at: string;
+  created_at: string;
+}
+
+const toScheduled = (row: ScheduledRow): ScheduledMessage => ({
+  id: row.id,
+  clientMessageId: row.client_message_id,
+  roomId: row.room_id,
+  creator: { id: row.creator_id, name: row.creator_name },
+  body: row.body,
+  plainText: row.plain_text,
+  mentions: JSON.parse(row.mentions) as User[],
+  sendAt: row.send_at,
+  createdAt: row.created_at,
+});
 
 /** The ids go as one JSON value, since both backends bind at most 100 values a statement. */
 export const STORED_CLIENT_MESSAGE_IDS = `SELECT client_message_id FROM messages
@@ -719,6 +744,138 @@ export class MessageStore {
     );
     this.seq = null;
     return left;
+  }
+
+  /**
+   * Stores a message to post at `sendAt`, which only its author lists, and answers it. The row is not a
+   * message in the room until `postScheduled` takes it.
+   */
+  async schedule(id: string, clientMessageId: string, creator: User, body: StoredBody, sendAt: string, now: string): Promise<ScheduledMessage> {
+    await this.db.run(
+      `INSERT INTO scheduled_messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, send_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      this.roomId,
+      clientMessageId,
+      creator.id,
+      creator.name,
+      body.html,
+      body.plainText,
+      JSON.stringify(body.mentions),
+      sendAt,
+      now,
+    );
+    return {
+      id,
+      clientMessageId,
+      roomId: this.roomId,
+      creator,
+      body: body.html,
+      plainText: body.plainText,
+      mentions: body.mentions,
+      sendAt,
+      createdAt: now,
+    };
+  }
+
+  /** How many of `creatorId`'s messages are still waiting in this room. */
+  async scheduledCount(creatorId: UserId): Promise<number> {
+    const [row] = await this.db.all<{ n: number }>(
+      `SELECT count(*) AS n FROM scheduled_messages WHERE room_id = ? AND creator_id = ?`,
+      this.roomId,
+      creatorId,
+    );
+    return row!.n;
+  }
+
+  /** `creatorId`'s waiting messages here, soonest first. */
+  async scheduledFor(creatorId: UserId): Promise<ScheduledMessage[]> {
+    const rows = await this.db.all<ScheduledRow>(
+      `SELECT * FROM scheduled_messages WHERE room_id = ? AND creator_id = ? ORDER BY send_at, id`,
+      this.roomId,
+      creatorId,
+    );
+    return rows.map(toScheduled);
+  }
+
+  async findScheduled(id: string): Promise<ScheduledMessage | null> {
+    const [row] = await this.db.all<ScheduledRow>(`SELECT * FROM scheduled_messages WHERE room_id = ? AND id = ?`, this.roomId, id);
+    return row ? toScheduled(row) : null;
+  }
+
+  /** Drops waiting message `id`, answering whether a row went. */
+  async cancelScheduled(id: string): Promise<boolean> {
+    const [row] = await this.db.all<{ id: string }>(`SELECT id FROM scheduled_messages WHERE room_id = ? AND id = ?`, this.roomId, id);
+    if (!row) return false;
+    await this.db.run(`DELETE FROM scheduled_messages WHERE room_id = ? AND id = ?`, this.roomId, id);
+    return true;
+  }
+
+  /** Waiting messages whose send time is `until` or earlier, soonest first. */
+  async dueScheduled(until: string): Promise<ScheduledMessage[]> {
+    const rows = await this.db.all<ScheduledRow>(
+      `SELECT * FROM scheduled_messages WHERE room_id = ? AND send_at <= ? ORDER BY send_at, id`,
+      this.roomId,
+      until,
+    );
+    return rows.map(toScheduled);
+  }
+
+  /** The soonest send time still waiting, or null when none are. */
+  async nextSendAt(): Promise<string | null> {
+    const [row] = await this.db.all<{ send_at: string }>(
+      `SELECT send_at FROM scheduled_messages WHERE room_id = ? ORDER BY send_at LIMIT 1`,
+      this.roomId,
+    );
+    return row?.send_at ?? null;
+  }
+
+  /**
+   * Posts waiting message `scheduled` as an ordinary message at `now`, dropping the waiting row in the
+   * same write. The room runs this one event at a time with cancel, so the row is still there.
+   */
+  async postScheduled(scheduled: ScheduledMessage, messageId: string, now: string): Promise<{ message: Message; seq: number }> {
+    const seq = await this.change((seq) => [
+      statement(
+        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, mentions, created_at, updated_at, change_seq, attachment, cards, parent_id, in_room)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 1)`,
+        messageId,
+        this.roomId,
+        scheduled.clientMessageId,
+        scheduled.creator.id,
+        scheduled.creator.name,
+        scheduled.body,
+        scheduled.plainText,
+        JSON.stringify(scheduled.mentions),
+        now,
+        now,
+        seq,
+      ),
+      logEvent(this.roomId, "message", scheduled.creator.id, now, messageId, true),
+      logIndexing(this.roomId, messageId),
+      statement(`DELETE FROM scheduled_messages WHERE room_id = ? AND id = ?`, this.roomId, scheduled.id),
+    ]);
+    return {
+      message: {
+        id: messageId,
+        clientMessageId: scheduled.clientMessageId,
+        roomId: this.roomId,
+        creator: scheduled.creator,
+        body: scheduled.body,
+        plainText: scheduled.plainText,
+        mentions: scheduled.mentions,
+        createdAt: now,
+        updatedAt: now,
+        editedAt: null,
+        boosts: [],
+      },
+      seq,
+    };
+  }
+
+  /** Drops every waiting message here, as deleting the room does. */
+  async forgetScheduled(): Promise<void> {
+    await this.db.run(`DELETE FROM scheduled_messages WHERE room_id = ?`, this.roomId);
   }
 
   async addBoost(id: string, messageId: string, booster: User, content: string, now: string): Promise<{ boost: Boost; seq: number }> {

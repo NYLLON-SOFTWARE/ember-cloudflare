@@ -1531,6 +1531,23 @@ export interface ThreadSummary {
 export const isInRoom = (message: Pick<Message, "parentId" | "alsoSent">) => message.parentId === undefined || message.alsoSent === true;
 
 /**
+ * A message waiting to be posted at `sendAt`. Only its author sees it, and only until that time, when
+ * the room posts it as an ordinary message. `sendAt` is UTC ISO-8601 with a `Z`.
+ */
+export interface ScheduledMessage {
+  id: string;
+  clientMessageId: string;
+  roomId: RoomId;
+  creator: User;
+  body: string;
+  plainText: string;
+  mentions: User[];
+  /** When the room will post it, UTC, as `Date.toISOString()` writes it. */
+  sendAt: string;
+  createdAt: string;
+}
+
+/**
  * What a tab sends on a room socket. A socket from an IP address a ban blocks can read, but the room
  * answers each frame that would change messages or boosts with an `error`.
  */
@@ -1540,6 +1557,15 @@ export type ClientFrame =
    * With `parentId`, it's a reply in that message's thread, which `alsoSend` sends to the room too.
    */
   | { type: "message.create"; clientMessageId: string; body: string; parentId?: string; alsoSend?: boolean }
+  /**
+   * A message to post at `sendAt`, UTC ISO-8601 with a `Z`. Until then only the author sees it. A time
+   * that has already passed is refused (`SEND_AT_IN_THE_PAST`); the room does not post it at once.
+   */
+  | { type: "message.schedule"; clientMessageId: string; body: string; sendAt: string }
+  /** The author's messages still waiting to be posted in this room, soonest first. */
+  | { type: "scheduled.list" }
+  /** Drops a waiting message of the author's before the room posts it. */
+  | { type: "scheduled.cancel"; scheduledId: string }
   /** A message's new body, as for `message.create`. */
   | { type: "message.update"; messageId: string; body: string }
   | { type: "message.delete"; messageId: string }
@@ -1606,6 +1632,14 @@ export type ServerFrame =
   | { type: "resumed"; you: User; messages: Message[]; deletedIds: string[]; present: User[]; seq: number }
   /** A new message. Its author has stopped typing, too. */
   | { type: "message.created"; message: Message; seq: number }
+  /** The author's message is waiting, sent only to them. */
+  | { type: "scheduled.created"; scheduled: ScheduledMessage }
+  /** Answers scheduled.list: this person's waiting messages in the room, soonest first. */
+  | { type: "scheduled.listed"; scheduled: ScheduledMessage[] }
+  /** The author's waiting message was dropped before it was posted, sent only to them. */
+  | { type: "scheduled.cancelled"; scheduledId: string }
+  /** The author's waiting message has been posted, sent only to them; everyone hears `message.created`. */
+  | { type: "scheduled.sent"; scheduledId: string }
   | { type: "message.updated"; message: Message; seq: number }
   | { type: "message.deleted"; messageId: string; seq: number }
   | { type: "boost.created"; boost: Boost; seq: number }
@@ -1756,6 +1790,27 @@ export const parseRoomSocketParams = (query: SearchParams): RoomSocketParams & {
 export const MAX_MESSAGE_LENGTH = 10_000;
 /** What the room says of a message with more, which the app says itself rather than send one. */
 export const MESSAGE_TOO_LONG = `Messages can be up to ${MAX_MESSAGE_LENGTH.toLocaleString("en-US")} characters.`;
+/** How many messages one person can have waiting in a room. */
+export const MAX_SCHEDULED_MESSAGES = 100;
+/** What the room says once they already have that many waiting. */
+export const TOO_MANY_SCHEDULED = `You can have up to ${MAX_SCHEDULED_MESSAGES} scheduled messages waiting in a room.`;
+/**
+ * What the room says of a send time that has already passed. A time in the past is refused; the
+ * message is not posted at once.
+ */
+export const SEND_AT_IN_THE_PAST = "Choose a time in the future.";
+/** What the room says of a waiting message that isn't there, already posted or already cancelled. */
+export const SCHEDULED_GONE = "That scheduled message is no longer waiting.";
+/** What the room says when someone else tries to cancel a waiting message. */
+export const NOT_YOUR_SCHEDULED = "You can only cancel your own scheduled messages.";
+/** What the room says of a schedule, list or cancel from someone who isn't in the room. */
+export const NOT_IN_ROOM = "You're not in this room.";
+/**
+ * Whether `value` is a UTC instant as ISO-8601 with a `Z`, so a scheduled send time is stored without
+ * a local zone attached.
+ */
+export const isUtcInstant = (value: string): boolean =>
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?Z$/.test(value) && !Number.isNaN(Date.parse(value));
 /** Whether a message whose plain text is `plainText` is longer than the room takes. */
 export const isMessageTooLong = (plainText: string) => plainText.length > MAX_MESSAGE_LENGTH;
 /** The most characters of markup a message can arrive as: room for the longest message, formatted. */
@@ -1887,6 +1942,16 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       if (f.parentId === undefined) return { type: f.type, clientMessageId: f.clientMessageId, body };
       return id(f.parentId) ? { type: f.type, clientMessageId: f.clientMessageId, body, parentId: f.parentId, alsoSend: f.alsoSend === true } : null;
     }
+    case "message.schedule": {
+      const body = markup(f.body);
+      return id(f.clientMessageId) && body !== null && typeof f.sendAt === "string" && isUtcInstant(f.sendAt)
+        ? { type: f.type, clientMessageId: f.clientMessageId, body, sendAt: f.sendAt }
+        : null;
+    }
+    case "scheduled.list":
+      return { type: f.type };
+    case "scheduled.cancel":
+      return id(f.scheduledId) ? { type: f.type, scheduledId: f.scheduledId } : null;
     case "message.update": {
       const body = markup(f.body);
       return id(f.messageId) && body !== null ? { type: f.type, messageId: f.messageId, body } : null;
