@@ -586,21 +586,23 @@ export class MessageStore {
   }
 
   /**
-   * Replaces a message's text, which marks it edited, and takes its cards away, since what's sent in its
-   * place is the whole message, logging it for the search index, and its thread's replies if what they
-   * show of it changes, and answers the message as it is now with the change's number, as the methods
-   * below that change a message answer theirs.
+   * Replaces a message's text, which marks it edited, and its cards with the ones its body keeps, or
+   * takes its cards away when it keeps none, since what's sent in its place is the whole message, and
+   * answers the message as it is now with the change's number, as the methods below that change a
+   * message answer theirs.
    */
-  async updateBody(message: Message, body: PreparedBody, now: string): Promise<{ message: Message; seq: number }> {
+  async updateBody(message: Message, body: PreparedBody | StoredBody, now: string): Promise<{ message: Message; seq: number }> {
+    const cards = "cards" in body && body.cards ? body.cards : undefined;
     const seq = await this.change((seq) => [
       statement(
-        `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, updated_at = ?, edited_at = ?, change_seq = ?, cards = NULL WHERE room_id = ? AND id = ?`,
+        `UPDATE messages SET body = ?, plain_text = ?, mentions = ?, updated_at = ?, edited_at = ?, change_seq = ?, cards = ? WHERE room_id = ? AND id = ?`,
         body.html,
         body.plainText,
         JSON.stringify(body.mentions),
         now,
         now,
         seq,
+        cards ? JSON.stringify(cards) : null,
         this.roomId,
         message.id,
       ),
@@ -608,7 +610,7 @@ export class MessageStore {
       ...logIndexingRepliesTo(this.roomId, message, body.plainText),
     ]);
     const { cards: _, ...rest } = message;
-    return { message: { ...rest, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now }, seq };
+    return { message: { ...rest, body: body.html, plainText: body.plainText, mentions: body.mentions, updatedAt: now, editedAt: now, ...(cards && { cards }) }, seq };
   }
 
   /**
