@@ -6,10 +6,16 @@ import {
   isMessageTooLong,
   MAX_BOOST_LENGTH,
   MAX_MESSAGE_HTML_LENGTH,
+  MAX_SCHEDULED_MESSAGES,
   MESSAGE_TOO_LONG,
+  NOT_IN_ROOM,
+  NOT_YOUR_SCHEDULED,
   parseClientFrame,
   parseRoomSocketParams,
   ROOM_PROTOCOL,
+  SCHEDULED_GONE,
+  SEND_AT_IN_THE_PAST,
+  TOO_MANY_SCHEDULED,
   type Boost,
   type Card,
   type ClientFrame,
@@ -40,6 +46,7 @@ import {
 } from "./assistant/answers";
 import { ask, type Answered } from "./assistant/gateway";
 import { JobQueue } from "./at-once";
+import { isoNow, now as clockNow } from "./clock";
 import { postWebhook, WebhookError, webhookPayload, type Reply } from "./bots/webhooks";
 import { keptCards } from "./cards";
 import { Courier, ENTRIES_PER_CALL } from "./courier";
@@ -92,6 +99,8 @@ export const HUDDLE_HEADER = "X-Ember-Huddle";
 const DELETED_ROOM = "deletedRoom";
 /** What a room's object keeps in its own storage while its alarm is to send its logs: the room's id. */
 const UNDELIVERED_ROOM = "undeliveredRoom";
+/** What it keeps while a message is waiting to be posted: the room's id, so the alarm can find it after a restart. */
+const SCHEDULED_ROOM = "scheduledRoom";
 /**
  * What it keeps beside that: when the logs are to be sent, since while a huddle goes on the alarm rings
  * sooner than that, to check the huddle.
@@ -111,7 +120,7 @@ const OUTDATED = "Ember has been updated. Reload the page to keep chatting.";
  */
 const BANNED = "Request failed (429)";
 /** The frames that change something, which a banned address's sockets can't send. */
-const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete"]);
+const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.schedule", "scheduled.cancel", "message.update", "message.delete", "boost.create", "boost.delete"]);
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
 
@@ -377,6 +386,7 @@ export class ChatRoom extends DurableObject<Env> {
     this.huddle.end(code, true);
     for (const socket of this.roomSockets()) this.close(socket, code);
     while (await this.storeFor(roomId).deleteMessages(MESSAGES_DELETED_AT_ONCE));
+    await this.storeFor(roomId).forgetScheduled();
     await this.logFor(roomId).forget();
     while (await searchIndex(this.env).forget(roomId, MESSAGES_DELETED_AT_ONCE));
     await this.ctx.storage.put(DELETED_ROOM, roomId);
@@ -391,10 +401,16 @@ export class ChatRoom extends DurableObject<Env> {
    * until they're due.
    */
   override async alarm(): Promise<void> {
-    const [deleted, undelivered, logsDue] = await this.serially(() =>
-      Promise.all([this.ctx.storage.get<RoomId>(DELETED_ROOM), this.ctx.storage.get<RoomId>(UNDELIVERED_ROOM), this.ctx.storage.get<number>(LOGS_DUE)]),
+    const [deleted, undelivered, logsDue, scheduledRoom] = await this.serially(() =>
+      Promise.all([
+        this.ctx.storage.get<RoomId>(DELETED_ROOM),
+        this.ctx.storage.get<RoomId>(UNDELIVERED_ROOM),
+        this.ctx.storage.get<number>(LOGS_DUE),
+        this.ctx.storage.get<RoomId>(SCHEDULED_ROOM),
+      ]),
     );
     if (deleted !== undefined) return this.erase(deleted);
+    if (scheduledRoom !== undefined) await this.serially(() => this.sendDueScheduled(scheduledRoom));
     const nextCheck = await this.huddle.check().catch((error: unknown) => {
       console.error("Checking the room's huddle failed:", error instanceof Error ? error.name : "unknown error");
       return Date.now() + HUDDLE_CHECK_MS;
@@ -829,6 +845,38 @@ export class ChatRoom extends DurableObject<Env> {
         await this.create(store, user, frame.clientMessageId, body, now, { inThread });
         // Everyone else takes the message as its author's stop.
         markTyping(ws, false);
+        return;
+      }
+      case "message.schedule": {
+        if (isOutdated(ws)) return this.send(ws, { type: "error", message: OUTDATED, failed: frame.type });
+        if (!(await this.requireMember(ws, user, store.roomId, frame.type))) return;
+        const sendAtMs = Date.parse(frame.sendAt);
+        if (sendAtMs <= clockNow()) return this.send(ws, { type: "error", message: SEND_AT_IN_THE_PAST, failed: frame.type });
+        const body = await this.prepare(frame.body);
+        if (typeof body === "string") return this.send(ws, { type: "error", message: body, failed: frame.type });
+        if ((await store.scheduledCount(user.id)) >= MAX_SCHEDULED_MESSAGES) {
+          return this.send(ws, { type: "error", message: TOO_MANY_SCHEDULED, failed: frame.type });
+        }
+        const sendAt = new Date(sendAtMs).toISOString();
+        const scheduled = await store.schedule(sortableId(), frame.clientMessageId, user, body, sendAt, isoNow());
+        await this.ctx.storage.put(SCHEDULED_ROOM, store.roomId);
+        await this.wakeForScheduled(sendAtMs);
+        this.sendTo(user.id, { type: "scheduled.created", scheduled });
+        markTyping(ws, false);
+        return;
+      }
+      case "scheduled.list": {
+        if (!(await this.requireMember(ws, user, store.roomId, frame.type))) return;
+        return this.send(ws, { type: "scheduled.listed", scheduled: await store.scheduledFor(user.id) });
+      }
+      case "scheduled.cancel": {
+        if (!(await this.requireMember(ws, user, store.roomId, frame.type))) return;
+        const scheduled = await store.findScheduled(frame.scheduledId);
+        if (!scheduled) return this.send(ws, { type: "error", message: SCHEDULED_GONE, failed: frame.type });
+        if (scheduled.creator.id !== user.id) return this.send(ws, { type: "error", message: NOT_YOUR_SCHEDULED, failed: frame.type });
+        await store.cancelScheduled(scheduled.id);
+        this.sendTo(user.id, { type: "scheduled.cancelled", scheduledId: scheduled.id });
+        if ((await store.nextSendAt()) === null) await this.ctx.storage.delete(SCHEDULED_ROOM);
         return;
       }
       case "message.update": {
@@ -1466,6 +1514,43 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
+   * Posts every waiting message whose send time has come, as ordinary messages, and sets the alarm for
+   * the next still waiting, if any. Tests move the clock (`setNow`) and run the alarm rather than wait.
+   */
+  private async sendDueScheduled(roomId: RoomId): Promise<void> {
+    const store = this.storeFor(roomId);
+    const due = await store.dueScheduled(isoNow());
+    for (const scheduled of due) {
+      this.readers.clear();
+      const { message, seq } = await store.postScheduled(scheduled, sortableId(), isoNow());
+      this.seenBy.set(message.id, viewersOf(this.ctx));
+      this.broadcast({ type: "message.created", message, seq });
+      this.sendTo(scheduled.creator.id, { type: "scheduled.sent", scheduledId: scheduled.id });
+      const couriers = this.couriersFor(roomId);
+      couriers.workspace.deliver();
+      couriers.index.deliver();
+    }
+    const next = await store.nextSendAt();
+    if (next === null) await this.ctx.storage.delete(SCHEDULED_ROOM);
+    else await this.wakeForScheduled(Date.parse(next));
+  }
+
+  /** Sets the alarm to post waiting messages by `time`, unless it's set for sooner. */
+  private async wakeForScheduled(time: number): Promise<void> {
+    if (await this.isDeleted()) return;
+    const when = Math.max(time, Date.now());
+    const alarm = await this.ctx.storage.getAlarm();
+    if (alarm === null || alarm > when) await this.ctx.storage.setAlarm(when);
+  }
+
+  /** Whether `user` is in the room now, and tells `ws` if they aren't. */
+  private async requireMember(ws: WebSocket, user: User, roomId: RoomId, failed: ClientFrame["type"]): Promise<boolean> {
+    if (await workspace(this.env).isMember(roomId, user.id)) return true;
+    this.send(ws, { type: "error", message: NOT_IN_ROOM, failed });
+    return false;
+  }
+
+  /**
    * Sets the alarm to send the room's logs at `time`, unless it's set for sooner, and answers whether it
    * did. A deleted room's alarm is for erasing it, so it's left as it is; this runs one event at a time
    * with deleting it, so the deletion's alarm can't be overtaken.
@@ -1564,6 +1649,18 @@ export class ChatRoom extends DurableObject<Env> {
       ws.send(JSON.stringify(frame));
     } catch {
       // The socket closed between lookup and send; its close handler cleans up.
+    }
+  }
+
+  /** Sends `frame` to every room socket of `userId`, as a waiting message is only theirs to see. */
+  private sendTo(userId: UserId, frame: ServerFrame): void {
+    const data = JSON.stringify(frame);
+    for (const socket of this.roomSockets(userId)) {
+      try {
+        socket.send(data);
+      } catch {
+        // As above.
+      }
     }
   }
 

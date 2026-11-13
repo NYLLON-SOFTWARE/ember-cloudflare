@@ -3620,6 +3620,14 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Whether `userId` is in room `roomId` now, for a room deciding whether they may schedule a message
+   * there. Rooms ask, since membership can change while their sockets are open.
+   */
+  async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
+    return this.store.isMember(roomId, userId);
+  }
+
+  /**
    * Who `credentials` signs in, with their session, whether they're in room `roomId` and whether a ban
    * blocks the IP address they come from, as of `authorizedAt`, or null without a valid session.
    */

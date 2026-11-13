@@ -477,9 +477,13 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
         refusedUnboosts: frame.failed === "boost.delete" ? state.refusedUnboosts + 1 : state.refusedUnboosts,
       };
     }
-    // A thread's, which its own state keeps.
+    // A thread's, which its own state keeps, and waiting messages, which only the composer lists.
     case "thread.opened":
     case "thread.history":
+    case "scheduled.created":
+    case "scheduled.listed":
+    case "scheduled.cancelled":
+    case "scheduled.sent":
     case "pong":
       return state;
   }

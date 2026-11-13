@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { flushSync } from "react-dom";
-import { MAX_FILE_SIZE, type User } from "@ember/protocol";
+import { MAX_FILE_SIZE, type ScheduledMessage, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { ArrowUp, Attachment, Page, TextSquare, XmarkCircle } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
@@ -10,6 +10,7 @@ import { hasTouchKeyboard, opensLink, pressedAlone, sendsMessage } from "@/lib/k
 import { tooLargeToAttach } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
+import { ScheduleSend } from "./schedule-send";
 
 /**
  * The typing indicator (Campfire's typing_tracker.js and composer.css): the names of whoever is typing,
@@ -234,6 +235,15 @@ interface Props {
   onSend: (body: string, alsoSend: boolean) => boolean;
   /** Sends files, each as a message of its own, before the message written with them. */
   onSendFiles: (files: File[], alsoSend: boolean) => void;
+  /**
+   * Holds what's written until `sendAt`, UTC, answering whether it went. The room composer has this; a
+   * thread's doesn't, so its clock stays off.
+   */
+  onSchedule?: (body: string, sendAt: string) => boolean;
+  /** This person's messages still waiting in the room, for the clock's list. */
+  scheduled?: ScheduledMessage[];
+  /** Drops a waiting message of this person's before the room posts it. */
+  onCancelScheduled?: (scheduledId: string) => void;
   onTyping: (active: boolean) => void;
   /** Opens the editor on your newest message, for Up Arrow. */
   onEditLastMessage?: () => void;
@@ -252,11 +262,30 @@ export interface ComposerHandle {
 
 /**
  * The composer: a card with the editor on top, and below it Attach files, Formatting options, which
- * shows Lexxy's toolbar under the text, and a round Send button. @ offers the room's people to mention.
- * Files picked, pasted or dropped wait above the card to go with the next message. What's written is
- * kept as a draft until it's sent. A thread's has Also send to the room before Send.
+ * shows Lexxy's toolbar under the text, a clock to send later, and a round Send button. @ offers the
+ * room's people to mention. Files picked, pasted or dropped wait above the card to go with the next
+ * message. What's written is kept as a draft until it's sent. A thread's has Also send to the room
+ * before Send, and no clock.
  */
-export function Composer({ roomId, roomName, direct = false, userId, typing, disabled, deferEditor = false, threadId, onSend, onSendFiles, onTyping, onEditLastMessage, autoFocus = true, ref }: Props) {
+export function Composer({
+  roomId,
+  roomName,
+  direct = false,
+  userId,
+  typing,
+  disabled,
+  deferEditor = false,
+  threadId,
+  onSend,
+  onSendFiles,
+  onSchedule,
+  scheduled = [],
+  onCancelScheduled,
+  onTyping,
+  onEditLastMessage,
+  autoFocus = true,
+  ref,
+}: Props) {
   const editor = useRef<RichTextEditorHandle>(null);
   const form = useRef<HTMLFormElement>(null);
   const [toolbarOpen, setToolbarOpen] = useState(false);
@@ -265,6 +294,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   const [alsoSend, setAlsoSend] = useState(false);
   const key = draftKey(userId, roomId, threadId);
   const [draft, setDraft] = useState(() => readDraft(key));
+  const [hasText, setHasText] = useState(() => !!draft);
   // Touch screens bring up their keyboard on focus, so there it waits for a tap.
   const [focusOnOpen] = useState(() => !hasTouchKeyboard());
   // Where focus was as the room opened. The editor can be ready a moment later, by when you may have put
@@ -285,6 +315,7 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
     else if (!wasBlank.current) onTyping(false);
     wasBlank.current = body === null;
     keepDraft(key, body);
+    setHasText(body !== null);
   };
 
   useImperativeHandle(ref, () => ({
@@ -338,11 +369,24 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
       wasBlank.current = true;
       written.clear();
       keepDraft(key, null);
+      setHasText(false);
       setAlsoSend(false);
     }
     setToolbarOpen(false);
     setToolbarForLink(false);
     written.focus();
+  };
+
+  const schedule = (sendAt: string) => {
+    if (disabled || !onSchedule) return false;
+    const written = editor.current;
+    if (!written || written.isBlank()) return false;
+    if (!onSchedule(written.value(), sendAt)) return false;
+    wasBlank.current = true;
+    written.clear();
+    keepDraft(key, null);
+    setHasText(false);
+    return true;
   };
 
   const keyDown = (event: KeyboardEvent) => {
@@ -478,6 +522,15 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
               <TextSquare className="size-[18px] opacity-70" />
               <span className="sr-only">Rich text</span>
             </button>
+            {onSchedule && threadId === undefined && (
+              <ScheduleSend
+                disabled={disabled}
+                scheduled={scheduled}
+                canSchedule={hasText && editorShown}
+                onSchedule={schedule}
+                onCancel={onCancelScheduled ?? (() => {})}
+              />
+            )}
             {/* For fingers, the box sits far enough into its label for a fingertip on it to land on the label. */}
             {threadId !== undefined && (
               <label className="mr-2 ml-2.5 flex min-w-0 cursor-pointer items-center gap-[7px] text-[13px] leading-[18px] text-message-muted touch:ml-0 touch:min-h-11 touch:pl-3.5 touch:text-sm">

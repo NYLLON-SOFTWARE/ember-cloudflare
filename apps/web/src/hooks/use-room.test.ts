@@ -1,4 +1,4 @@
-import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, type Message, type ServerFrame, type User } from "@ember/protocol";
+import { CloseCode, MAX_CHECKED_MESSAGES, MAX_MESSAGE_HTML_LENGTH, MAX_MESSAGE_LENGTH, MESSAGE_TOO_LONG, SEND_AT_IN_THE_PAST, type Message, type ServerFrame, type User } from "@ember/protocol";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -813,6 +813,47 @@ describe("Send a message", () => {
     });
     expect(sent).toBe(true);
     expect(socket().sentOfType("message.create")).toHaveLength(1);
+  });
+});
+
+describe("Schedule a message", () => {
+  it("sends a future send time in UTC, and does not show the message in the timeline until the room posts it", () => {
+    const { result } = joinGeneral();
+    const sendAt = new Date(Date.now() + 60_000).toISOString();
+    let sent: boolean | undefined;
+    act(() => {
+      sent = result.current.scheduleMessage("<p>After lunch</p>", sendAt);
+    });
+    expect(sent).toBe(true);
+    expect(socket().sentOfType("message.schedule")).toEqual([
+      { type: "message.schedule", clientMessageId: expect.any(String), body: "<p>After lunch</p>", sendAt },
+    ]);
+    expect(result.current.state.messages).toEqual([]);
+  });
+
+  it("refuses a send time that has already passed, and a message that is too long", () => {
+    const { result } = joinGeneral();
+    let sent: boolean | undefined;
+    act(() => {
+      sent = result.current.scheduleMessage("<p>Too late</p>", new Date(Date.now() - 1).toISOString());
+    });
+    expect(sent).toBe(false);
+    expect(socket().sentOfType("message.schedule")).toEqual([]);
+    expect(result.current.state.notice).toBe(SEND_AT_IN_THE_PAST);
+
+    act(() => {
+      sent = result.current.scheduleMessage(paragraphOf(MAX_MESSAGE_LENGTH + 1), new Date(Date.now() + 60_000).toISOString());
+    });
+    expect(sent).toBe(false);
+    expect(result.current.state.notice).toBe("Messages can be up to 10,000 characters.");
+  });
+
+  it("cancels a waiting message", () => {
+    const { result } = joinGeneral();
+    act(() => {
+      result.current.cancelScheduled("s1");
+    });
+    expect(socket().sentOfType("scheduled.cancel")).toEqual([{ type: "scheduled.cancel", scheduledId: "s1" }]);
   });
 });
 

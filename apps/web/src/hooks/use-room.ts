@@ -8,6 +8,7 @@ import {
   MAX_MESSAGE_HTML_LENGTH,
   MESSAGE_TOO_LONG,
   parseServerFrame,
+  SEND_AT_IN_THE_PAST,
   workspacePageOf,
   type ClientFrame,
   type Me,
@@ -300,6 +301,34 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
     [me, roomId, send, warn, toNewest],
   );
 
+  // A time that has already passed is refused; the room does not post the message at once.
+  const scheduleMessage = useCallback(
+    (body: string, sendAt: string) => {
+      const { plainText: text } = writtenBody(body);
+      if (isTooLong(body, text)) {
+        warn(MESSAGE_TOO_LONG);
+        return false;
+      }
+      if (Date.parse(sendAt) <= Date.now()) {
+        warn(SEND_AT_IN_THE_PAST);
+        return false;
+      }
+      const sent = send({ type: "message.schedule", clientMessageId: crypto.randomUUID(), body, sendAt });
+      if (!sent) warn("Not connected. Try again once you're reconnected.");
+      return sent;
+    },
+    [send, warn],
+  );
+
+  const cancelScheduled = useCallback(
+    (scheduledId: string) => {
+      const sent = send({ type: "scheduled.cancel", scheduledId });
+      if (!sent) warn("Not connected. Try again once you're reconnected.");
+      return sent;
+    },
+    [send, warn],
+  );
+
   // As Campfire's composer_controller.js#submitFiles sends them, each file goes as a message of its own,
   // one at a time, its card showing how its upload goes until the room posts it. Leaving the room drops
   // those whose upload hasn't started. The room is asked about one that fails, as it may have posted the
@@ -373,7 +402,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
 
   const dismissNotice = useCallback(() => dispatch({ type: "dismiss-notice" }), []);
 
-  return { state, frames, postMessage, postFiles, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice };
+  return { state, frames, postMessage, postFiles, scheduleMessage, cancelScheduled, typing, loadOlder, loadNewer, jump, messageActions, dismissNotice };
 }
 
 /** A message `me` is sending to `roomId` as `clientMessageId`, as the timeline shows it until the room has it. */
