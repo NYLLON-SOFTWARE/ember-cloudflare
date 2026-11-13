@@ -103,12 +103,12 @@ describe("Quote a message", () => {
     return attachment.outerHTML;
   }
 
-  const quote = (body: string, plainText: string) => replyQuote(displayBody(body, plainText, ""), "Ada", LINK, () => "Grace");
+  const quote = (body: string, plainText: string) => replyQuote(displayBody(body, plainText, ""), "Ada", LINK, () => "Grace", () => "Grace");
 
   it("quotes what the message shows, then cites its author with a link to it, leaving a line to write on", () => {
     const nodes = displayBody(`<p>Third time's a charm, <action-text-attachment ${MENTION}></action-text-attachment> &amp; https://example.com</p>`, "", "");
     const names: Record<string, string> = { "0123456789abcdef": "Grace <3" };
-    expect(replyQuote(nodes, "Ada & co", "https://ember.test/rooms/general/@m%201", (userId) => names[userId]!)).toBe(
+    expect(replyQuote(nodes, "Ada & co", "https://ember.test/rooms/general/@m%201", (userId) => names[userId]!, () => "Design")).toBe(
       "<blockquote><p>Third time's a charm, Grace &lt;3 &amp; " +
         '<a href="https://example.com">https://example.com</a></p></blockquote>' +
         '<cite>Ada &amp; co <a href="https://ember.test/rooms/general/@m%201">#</a></cite><p><br></p>',

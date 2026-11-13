@@ -1,8 +1,8 @@
 import { createElement, useContext, type ComponentProps, type ReactNode } from "react";
-import { isAppPage, type User, type UserId } from "@ember/protocol";
+import { isAppPage, type GroupId, type User, type UserId } from "@ember/protocol";
 import type { DisplayElement, DisplayNode, DisplayPreview } from "@ember/richtext/dom";
 import { PageLink } from "@/components/page-link";
-import { mentionedPerson, PeopleContext } from "@/hooks/use-directory";
+import { GroupsContext, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
 import { cn } from "@/lib/utils";
 import { CodeBlock } from "./code-block";
 import { markedRanges, matchesIn, SearchMarks, type Matches } from "./search-marks";
@@ -47,6 +47,7 @@ export function MessageBody({ nodes, mentions, emoji = false, trailing, classNam
 function nodeOf(node: DisplayNode, mentions: User[], trailing?: ReactNode, inLink = false, matches: Matches | null = null): ReactNode {
   if (node.kind === "text") return markedRanges(node.value, matches?.get(node));
   if (node.kind === "mention") return createElement(Mention, { userId: node.userId, mentions, inLink });
+  if (node.kind === "group-mention") return createElement(GroupMention, { groupId: node.groupId });
   if (node.kind === "preview") return createElement(LinkPreview, { preview: node, mentions, inLink });
   const shown = TABLE_PARTS.has(node.name) ? node.children.filter((child) => child.kind !== "text" || child.value.trim() !== "") : node.children;
   const children = shown.map((child) => nodeOf(child, mentions, undefined, inLink || node.name === "a", matches));
@@ -79,6 +80,27 @@ function Mention({ userId, mentions, inLink }: { userId: UserId; mentions: User[
     <span className="relative inline-flex items-center ps-[calc(1.1em+1ch/3)] leading-[1.1em] font-semibold">
       {inLink ? <UserAvatar user={person} className={avatar} /> : <AvatarLink user={person} reach="none" className={avatar} />}
       {person.name}
+    </span>
+  );
+}
+
+/**
+ * A mention of a user group, styled as a person's but without an avatar, since a group has no face of
+ * its own: its name as the people directory lists it now, over a title naming everyone it stands for.
+ * A group the directory doesn't list, as a deleted one's mention isn't, shows what an unknown person's
+ * does.
+ */
+function GroupMention({ groupId }: { groupId: GroupId }) {
+  const groups = useContext(GroupsContext);
+  const people = useContext(PeopleContext);
+  const group = groups.get(groupId);
+  if (!group) return UNKNOWN_PERSON;
+  const members = group.memberIds.map((memberId) => people.get(memberId)?.name ?? "");
+  // A title only once everyone is named, for one that leaves a member out would say less than the mention stands for.
+  const title = members.every((name) => name !== "") ? members.join(", ") : undefined;
+  return (
+    <span className="relative inline-flex items-center leading-[1.1em] font-semibold" title={title}>
+      {group.name}
     </span>
   );
 }
