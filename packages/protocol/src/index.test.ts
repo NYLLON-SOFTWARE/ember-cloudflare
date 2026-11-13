@@ -184,6 +184,18 @@ describe("Custom reactions", () => {
   });
 });
 
+describe("Pin a message", () => {
+  it("takes the message a pin is of, and asks for the room's pins without anything else", () => {
+    expect(parse({ type: "pin.create", messageId: "m1" })).toEqual({ type: "pin.create", messageId: "m1" });
+    expect(parse({ type: "pin.delete", messageId: "m1" })).toEqual({ type: "pin.delete", messageId: "m1" });
+    expect(parse({ type: "pins.list" })).toEqual({ type: "pins.list" });
+    for (const bad of [undefined, "", 42, "x".repeat(65)]) {
+      expect(parse({ type: "pin.create", messageId: bad }), String(bad)).toBeNull();
+      expect(parse({ type: "pin.delete", messageId: bad }), String(bad)).toBeNull();
+    }
+  });
+});
+
 describe("Scroll back through history", () => {
   it("clamps history page sizes", () => {
     expect(parse({ type: "history.before", before: "m1", limit: 5000 })).toEqual({ type: "history.before", before: "m1", limit: 100 });
