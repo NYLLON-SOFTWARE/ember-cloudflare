@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useAccount } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
-import { DirectoryLoaded, PeopleContext, useDirectory } from "@/hooks/use-directory";
+import { DirectoryLoaded, GroupsContext, PeopleContext, useDirectory } from "@/hooks/use-directory";
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
@@ -872,13 +872,15 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   );
   return (
     <PeopleContext value={directory.people}>
-      <DirectoryLoaded value={directory.loaded}>
-        <SettingsLayout value={settings}>
-          <OpenSearchContext value={openSearch}>
-            <HuddlesContext value={huddles}>{layout}</HuddlesContext>
-          </OpenSearchContext>
-        </SettingsLayout>
-      </DirectoryLoaded>
+      <GroupsContext value={directory.groups}>
+        <DirectoryLoaded value={directory.loaded}>
+          <SettingsLayout value={settings}>
+            <OpenSearchContext value={openSearch}>
+              <HuddlesContext value={huddles}>{layout}</HuddlesContext>
+            </OpenSearchContext>
+          </SettingsLayout>
+        </DirectoryLoaded>
+      </GroupsContext>
     </PeopleContext>
   );
 }

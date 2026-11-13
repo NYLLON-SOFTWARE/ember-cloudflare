@@ -1,13 +1,19 @@
 import { createContext, useCallback, useContext, useState } from "react";
-import type { DirectoryUser, User, UserId } from "@ember/protocol";
+import type { DirectoryUser, GroupId, User, UserGroup, UserId } from "@ember/protocol";
 import { fetchDirectory, type DirectoryCopy } from "@/lib/api";
 import { oneAtATime } from "./use-sidebar";
 
 /** Everyone in the workspace by id, as the people directory last listed them. */
 export type People = ReadonlyMap<UserId, DirectoryUser>;
 
+/** The workspace's groups by id, as the people directory last listed them. */
+export type Groups = ReadonlyMap<GroupId, UserGroup>;
+
 /** The people directory, for avatars to find their images in. Empty until it loads. */
 export const PeopleContext = createContext<People>(new Map());
+
+/** The groups of the people directory, for a mention of one to say whom it stands for. Empty until it loads. */
+export const GroupsContext = createContext<Groups>(new Map());
 
 /**
  * Whether the people directory has loaded, and so lists everyone. Until then it lists no one, or only
@@ -22,6 +28,15 @@ export const DirectoryLoaded = createContext(false);
 export function useNameOf(): (user: User) => string {
   const people = useContext(PeopleContext);
   return useCallback((user: User) => people.get(user.id)?.name ?? user.name, [people]);
+}
+
+/**
+ * A group's name as the people directory lists it now, or null while it lists none of it, as it doesn't
+ * once the group is gone.
+ */
+export function useNameOfGroup(): (groupId: GroupId) => string | null {
+  const groups = useContext(GroupsContext);
+  return useCallback((groupId: GroupId) => groups.get(groupId)?.name ?? null, [groups]);
 }
 
 /**
@@ -46,8 +61,9 @@ function withChanges(people: People, changed: DirectoryUser[]): People {
  * here says they are now. The people stay as they were when a load fails or the server says they
  * haven't changed. It has `loaded` once a load has come.
  */
-export function useDirectory(): { people: People; loaded: boolean; reload: () => Promise<void>; update: (user: DirectoryUser) => void } {
+export function useDirectory(): { people: People; groups: Groups; loaded: boolean; reload: () => Promise<void>; update: (user: DirectoryUser) => void } {
   const [people, setPeople] = useState<People>(() => new Map());
+  const [groups, setGroups] = useState<Groups>(() => new Map());
   const [loaded, setLoaded] = useState(false);
   const [directory] = useState(() => {
     // The last directory the server sent, which it says is still current rather than send again.
@@ -61,6 +77,7 @@ export function useDirectory(): { people: People; loaded: boolean; reload: () =>
         if (loaded === copy) return;
         copy = loaded;
         setPeople(withChanges(new Map(loaded.directory.users.map((user) => [user.id, user])), changed));
+        setGroups(new Map(loaded.directory.groups.map((group) => [group.id, group])));
         setLoaded(true);
       } finally {
         changedSince = null;
@@ -72,5 +89,5 @@ export function useDirectory(): { people: People; loaded: boolean; reload: () =>
     };
     return { reload: load, update };
   });
-  return { people, loaded, ...directory };
+  return { people, groups, loaded, ...directory };
 }
