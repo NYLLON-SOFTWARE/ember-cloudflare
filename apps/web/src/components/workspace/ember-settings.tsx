@@ -84,7 +84,7 @@ export const WEB_SEARCH_OFF = `@ember answers from what its model learned in tra
 /** What the page says of Search the web while it's on, letting @ember do `webTools` on the web, while people can pick from `models`. */
 export function webSearchOn(webTools: WebTool[], models: readonly AssistantModel[]): string {
   const reads = webTools.includes("read") ? `, and reads the pages people link to or its searches find, at most ${PAGES_READ_PER_ANSWER}` : "";
-  const picked = models.length > 1 ? " A model someone picks searches too, if it's Anthropic's or OpenAI's." : "";
+  const picked = models.length > 1 ? " A model someone picks searches too, if it's Anthropic's, OpenAI's or xAI's." : "";
   return `@ember searches the web when a question needs it, at most ${WEB_SEARCHES_PER_ANSWER} times an answer${reads}, and lists the pages it used under its answer.${picked} AI Gateway's credits pay for each search.`;
 }
 

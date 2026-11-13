@@ -24,6 +24,7 @@ import {
   modelName,
   modelOf,
   PAGES_READ_PER_ANSWER,
+  searchFormatOf,
   WEB_SEARCHES_PER_ANSWER,
   WEB_TOOLS_IN,
   type AnswerLevels,
@@ -88,7 +89,7 @@ export const CONFIRM_DELETE_AGENT = "Are you sure you want to delete this agent?
 export const tryExplained = (name: string) => `Ask ${name} something, as it's set up above, before you save. Nobody else sees what it says.`;
 
 /** What Search the web says for a model, called `name`, that can't search. */
-export const cannotSearch = (name: string) => `${name} can't search the web through AI Gateway, but Anthropic's and OpenAI's models can.`;
+export const cannotSearch = (name: string) => `${name} can't search the web through AI Gateway, but Anthropic's, OpenAI's and xAI's models can.`;
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
@@ -358,9 +359,11 @@ function AgentForm({ me, saved, setup, rooms, onFailed }: FormProps) {
   const sameModel = saved?.model === model;
   const nameOfModel = sameModel ? saved.modelName : modelName(model, models);
   const format: ModelFormat = sameModel ? saved.format : formatOf(model, models);
-  const canSearch = WEB_TOOLS_IN[format].includes("search");
-  // What it does on the web: what its tests found, while it has the model it has, or else what its model's format allows.
-  const webTools = !fields.webSearch || !canSearch ? [] : sameModel && saved.webTools.length > 0 ? saved.webTools : [...WEB_TOOLS_IN[format]];
+  // The format it searches in, as Grok does only in xAI's own Responses, or null if it can't.
+  const searchFormat = searchFormatOf(model, format);
+  const canSearch = searchFormat !== null;
+  // What it does on the web: what its tests found, while it has the model it has, or else what the format it searches in allows.
+  const webTools = !fields.webSearch || !searchFormat ? [] : sameModel && saved.webTools.length > 0 ? saved.webTools : [...WEB_TOOLS_IN[searchFormat]];
   const where = { community, roomName: null, inThread: false };
   const web = webPromptFor(me.name, webTools, webTools.length > 0);
   const prompt: Prompt = promptAround(saved?.id ?? null, name || "Agent", me.name, where, ANSWER_WORDS[fields.levels.length], web, new Date(), fields.promptTemplate.trim());
@@ -604,7 +607,7 @@ function AgentForm({ me, saved, setup, rooms, onFailed }: FormProps) {
           called={called}
           modelName={nameOfModel}
           canSearch={canSearch}
-          reads={WEB_TOOLS_IN[format].includes("read")}
+          reads={searchFormat !== null && WEB_TOOLS_IN[searchFormat].includes("read")}
           on={fields.webSearch}
           refusal={refusal?.field === "webSearch" ? refusal.error : null}
           disabled={busy !== null}

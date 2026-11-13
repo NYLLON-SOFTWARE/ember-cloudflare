@@ -1,5 +1,6 @@
 import {
   formatOf,
+  isXaiModel,
   MODEL_FORMATS,
   PAGES_READ_PER_ANSWER,
   THINKING_LEVELS,
@@ -15,21 +16,27 @@ import type { Env } from "../env";
 import { isLoopback } from "../loopback";
 
 // Asking a model through Cloudflare's AI Gateway, with the AI REST API on api.cloudflare.com, in
-// whichever of its three formats the model takes (https://developers.cloudflare.com/ai-gateway/usage/rest-api/).
-// Every request goes through the account's default gateway, whose logs, caching, rate limits and spend
-// limits apply, and which Cloudflare makes on the account's first request. A model that may use the web
-// is given its provider's own tools for it, which AI Gateway passes on and the provider runs
-// (https://developers.cloudflare.com/ai-gateway/usage/web-search/): Anthropic's web search and web fetch
-// in Messages, and OpenAI's web search in Responses. Chat Completions has none.
+// whichever of its three formats the model takes (https://developers.cloudflare.com/ai-gateway/usage/rest-api/),
+// or, for xAI's Grok, through the gateway's xAI endpoint on gateway.ai.cloudflare.com, which passes on
+// xAI's own Responses (https://developers.cloudflare.com/ai-gateway/usage/providers/grok/), as the REST
+// API takes Grok's requests only in Chat Completions. Every request goes through the account's default
+// gateway, whose logs, caching, rate limits and spend limits apply, and which Cloudflare makes on the
+// account's first request. A model that may use the web is given its provider's own tools for it, which
+// AI Gateway passes on and the provider runs (https://developers.cloudflare.com/ai-gateway/usage/web-search/):
+// Anthropic's web search and web fetch in Messages, OpenAI's web search in Responses, and xAI's in its
+// own. Chat Completions has none.
 
 /** Where Cloudflare's API is. */
 const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
 
+/** Where AI Gateway's endpoints for each provider are, under an account and a gateway. */
+const PROVIDER_ENDPOINTS = "https://gateway.ai.cloudflare.com/v1";
+
 /** The gateway Ember's requests go through. Workers AI's models need it named; other companies' go through it anyway. */
 const GATEWAY_ID = "default";
 
-/** Where each format's requests go, under the account's `ai/v1`. */
-const PATHS: Record<ModelFormat, string> = { messages: "messages", responses: "responses", chat: "chat/completions" };
+/** Where each format's requests go: under the account's `ai/v1` on Cloudflare's API, or, for xAI's, under the gateway's xAI endpoint. */
+const PATHS: Record<ModelFormat, string> = { messages: "messages", responses: "responses", chat: "chat/completions", xai: "grok/v1/responses" };
 
 /** The most of Cloudflare's own words about a refusal that Ember passes on. */
 const MAX_QUOTED_LENGTH = 200;
@@ -108,7 +115,8 @@ export type RefusalReason =
  * Why a model didn't answer, in words an administrator can act on, with what went wrong, the status to
  * answer them with and the field of Set up Ember AI it's about, if one is: `wrongFormat` when the model
  * was refused in a way another format might not be, with Cloudflare's own word on that, if it gave one,
- * which the refusal ends with, in `cloudflareSays`.
+ * which the refusal ends with, in `cloudflareSays`, and `closed` when AI Gateway's xAI endpoint didn't
+ * let the request through, though Cloudflare's REST API might, where Grok can't search.
  */
 export interface GatewayRefusal {
   status: number;
@@ -117,9 +125,18 @@ export interface GatewayRefusal {
   field?: AssistantField;
   wrongFormat?: boolean;
   cloudflareSays?: string;
+  closed?: boolean;
 }
 
 export const GATEWAY_UNANSWERED = "AI Gateway didn't answer. Try again in a moment.";
+
+/** Why AI Gateway's xAI endpoint didn't take Ember AI's API token: it takes only one with AI Gateway's Run permission. */
+export const XAI_TOKEN_REFUSED =
+  "Grok searches the web through AI Gateway's xAI endpoint, which didn't take Ember AI's API token. Add the AI Gateway Run permission to the token in the Cloudflare dashboard, then try again.";
+
+/** Why nothing paid for asking Grok through AI Gateway's xAI endpoint, where a key of xAI's own, kept by the gateway, can. */
+export const XAI_UNPAID =
+  "AI Gateway's credits can't pay for Grok through its xAI endpoint, where it searches the web. Add an xAI API key under Provider Keys in the default gateway's settings in AI Gateway, then try again.";
 export const NOTHING_ANSWERED = "The model answered with nothing. Try again, or choose another model.";
 export const OUT_OF_ROOM = "The model took every token it could before it answered. Try again, or choose another model.";
 
@@ -198,7 +215,9 @@ export async function thinkingLevelsOf(env: Env, gateway: Gateway, question: Que
  * What the model `gateway` names answers in the first of `formats` it takes the question in, as
  * `questionIn` asks it in each, waiting at most `timeoutMs` in each (`ask`), with the format it took it
  * in, or why it didn't answer: the first format's refusal, unless another's says more, as one that isn't
- * about the format does.
+ * about the format does. AI Gateway's xAI endpoint not letting the request through, as for an API token
+ * without AI Gateway Run, is the next format's to answer, as Cloudflare's REST API may still take Grok's
+ * questions, which says more of the model, should it refuse it too.
  */
 export async function askInTurn(
   env: Env,
@@ -208,11 +227,12 @@ export async function askInTurn(
   timeoutMs: number,
 ): Promise<(Answered & { format: ModelFormat }) | GatewayRefusal> {
   let first: GatewayRefusal | null = null;
-  for (const format of formats) {
+  for (const [index, format] of formats.entries()) {
     const answered = await ask(env, { ...gateway, format }, questionIn(format), timeoutMs);
     if (!("refusal" in answered)) return { ...answered, format };
-    if (!answered.wrongFormat) return answered;
-    first ??= answered;
+    if (!answered.wrongFormat && !answered.closed) return answered;
+    if (answered.closed && index < formats.length - 1) console.error(`Asking ${gateway.model} through Cloudflare's REST API, as AI Gateway's xAI endpoint didn't let it through: ${answered.refusal}`);
+    if (!first || first.closed) first = answered;
   }
   return first!;
 }
@@ -266,14 +286,15 @@ const isWrongFormat = (answered: Answered | GatewayRefusal): answered is Gateway
 
 /** What AI Gateway answers `request`, which asks `question` of the model `gateway` names, or why it refused, by `signal`. */
 async function send(env: Env, gateway: Gateway, question: Question, request: Record<string, unknown>, signal: AbortSignal): Promise<{ body: unknown } | GatewayRefusal> {
+  const xai = gateway.format === "xai";
   let response: Response;
   try {
-    response = await fetch(`${cloudflareApiOf(env)}/accounts/${gateway.accountId}/ai/v1/${PATHS[gateway.format]}`, {
+    response = await fetch(addressOf(env, gateway), {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${gateway.apiToken}`,
+        // The xAI endpoint would take a token in Authorization as xAI's own key, and pass it on to xAI.
+        ...(xai ? { "cf-aig-authorization": `Bearer ${gateway.apiToken}` } : { Authorization: `Bearer ${gateway.apiToken}`, "cf-aig-gateway-id": GATEWAY_ID }),
         "Content-Type": "application/json",
-        "cf-aig-gateway-id": GATEWAY_ID,
         ...metadataOf(question),
       },
       body: JSON.stringify(request),
@@ -284,7 +305,13 @@ async function send(env: Env, gateway: Gateway, question: Question, request: Rec
     return { status: 502, reason: "unanswered", refusal: GATEWAY_UNANSWERED };
   }
   const body: unknown = await response.json().catch(() => null);
-  return response.ok ? { body } : refusalOf(response.status, body);
+  if (response.ok) return { body };
+  return xai ? xaiRefusalOf(response.status, body) : refusalOf(response.status, body);
+}
+
+/** Where a request asking the model `gateway` names in its format goes: Cloudflare's REST API, or the default gateway's xAI endpoint. */
+function addressOf(env: Env, { accountId, format }: Gateway): string {
+  return format === "xai" ? `${providerEndpointsOf(env)}/${accountId}/${GATEWAY_ID}/${PATHS.xai}` : `${cloudflareApiOf(env)}/accounts/${accountId}/ai/v1/${PATHS[format]}`;
 }
 
 /** The custom metadata AI Gateway keeps of a request asking `question`: who asked and who answers, of those it names, if it names either. */
@@ -305,24 +332,39 @@ function answeredIn(format: ModelFormat, body: unknown): Answered | GatewayRefus
 /**
  * The formats to ask `model` in, the one it's likeliest to take first (`formatOf`): a listed model's,
  * else Messages for Anthropic's, which take nothing else, Responses for OpenAI's, some of which take only
- * that, and Chat Completions for the rest.
+ * that, and Chat Completions for the rest, after xAI's own Responses for Grok, which lets it search the
+ * web. Nobody else's model is asked in xAI's.
  */
 export function formatsFor(model: string): ModelFormat[] {
   const first = formatOf(model);
-  return [first, ...MODEL_FORMATS.filter((format) => format !== first)];
+  const formats = [first, ...MODEL_FORMATS.filter((format) => format !== first)].filter((format) => format !== "xai");
+  return isXaiModel(model) ? ["xai", ...formats] : formats;
 }
 
 /** Where Cloudflare's API is: the browser tests' stand-in, which `AI_GATEWAY_URL` names at a loopback address, or Cloudflare's own. */
 export function cloudflareApiOf(env: Env): string {
+  return standInOf(env) ?? CLOUDFLARE_API;
+}
+
+/** Where AI Gateway's endpoints for each provider are: the browser tests' stand-in, under `/v1`, or Cloudflare's own. */
+function providerEndpointsOf(env: Env): string {
+  const standIn = standInOf(env);
+  return standIn ? `${standIn}/v1` : PROVIDER_ENDPOINTS;
+}
+
+/** The origin of the browser tests' stand-in for Cloudflare, which `AI_GATEWAY_URL` names at a loopback address, or null without one. */
+function standInOf(env: Env): string | null {
   const standIn = URL.parse(env.AI_GATEWAY_URL?.trim() ?? "");
-  return standIn && isLoopback(standIn) ? standIn.origin : CLOUDFLARE_API;
+  return standIn && isLoopback(standIn) ? standIn.origin : null;
 }
 
 /**
  * The body of a request asking `question` in `gateway`'s format, telling the model how much to think as
  * the format does: Anthropic's adaptive thinking at an effort, whose lowest is as little as their models
- * think, OpenAI's reasoning effort, or Chat Completions' `reasoning_effort`, "none" for no thinking. A
- * model that may use the web is given the format's tools for what it may do there.
+ * think, OpenAI's reasoning effort, which xAI's Responses takes too, or Chat Completions'
+ * `reasoning_effort`, "none" for no thinking. A model that may use the web is given the format's tools
+ * for what it may do there. xAI's Responses names Grok as xAI does, without Cloudflare's `xai/`, and
+ * asks xAI not to keep the conversation, which it keeps for 30 days unless it's told not to.
  */
 function requestOf({ model, format }: Gateway, { instructions, turns, maxTokens, thinking, webTools }: Question): Record<string, unknown> {
   const effort = thinking === "off" ? "none" : thinking;
@@ -333,10 +375,14 @@ function requestOf({ model, format }: Gateway, { instructions, turns, maxTokens,
     const thinks = effort && { thinking: { type: "adaptive" }, output_config: { effort: effort === "none" ? "low" : effort } };
     return { model, max_tokens: maxTokens, system: instructions, messages, ...thinks, ...withTools };
   }
-  if (format === "responses") {
-    // Its web search is its only built-in tool, so its calls of built-in tools are its searches.
-    const searches = tools.length > 0 && { max_tool_calls: WEB_SEARCHES_PER_ANSWER };
-    return { model, max_output_tokens: maxTokens, instructions, input: turns.map(({ role, text }) => ({ role, content: text })), ...(effort && { reasoning: { effort } }), ...withTools, ...searches };
+  if (format === "responses" || format === "xai") {
+    const input = turns.map(({ role, text }) => ({ role, content: text }));
+    const asked = { max_output_tokens: maxTokens, instructions, input, ...(effort && { reasoning: { effort } }), ...withTools };
+    // OpenAI's web search is its only built-in tool, so its calls of built-in tools are its searches.
+    if (format === "responses") return { model, ...asked, ...(tools.length > 0 && { max_tool_calls: WEB_SEARCHES_PER_ANSWER }) };
+    // xAI caps the turns its tools take, each of which may search more than once unless they take one at a time.
+    const searches = tools.length > 0 && { max_turns: WEB_SEARCHES_PER_ANSWER, parallel_tool_calls: false };
+    return { model: model.slice("xai/".length), ...asked, store: false, ...searches };
   }
   return {
     model,
@@ -349,7 +395,7 @@ function requestOf({ model, format }: Gateway, { instructions, turns, maxTokens,
 /**
  * The tools that let a model in `format` do on the web what `webTools` says it may, of what the format
  * has tools for: Anthropic's basic web search and web fetch, which every Claude model takes, each used no
- * more than an answer allows, or OpenAI's web search.
+ * more than an answer allows, or OpenAI's web search, or xAI's, which has its name.
  */
 export function toolsFor(format: ModelFormat, webTools: readonly WebTool[] = []): Record<string, unknown>[] {
   const may = (tool: WebTool) => webTools.includes(tool) && WEB_TOOLS_IN[format].includes(tool);
@@ -374,6 +420,9 @@ export function alternating(turns: Turn[]): Turn[] {
   return merged;
 }
 
+/** Whether answers in `format` come as OpenAI's Responses has them, as xAI's own Responses has them too. */
+const isResponses = (format: ModelFormat) => format === "responses" || format === "xai";
+
 /**
  * The text of a model's answer in `format`, leaving out its thinking, and what it said before it last
  * used a tool, which says what it'll look for, or null without any.
@@ -381,7 +430,7 @@ export function alternating(turns: Turn[]): Turn[] {
 function answerIn(format: ModelFormat, body: unknown): string | null {
   if (!isObject(body)) return null;
   if (format === "messages") return textOf(answeringBlocks(body.content), "text");
-  if (format === "responses") {
+  if (isResponses(format)) {
     const messages = answeringMessages(body.output);
     return messages.map((message) => textOf(message.content, "output_text") ?? "").join("") || (typeof body.output_text === "string" ? body.output_text : null);
   }
@@ -394,7 +443,7 @@ function answerIn(format: ModelFormat, body: unknown): string | null {
 function ranOutIn(format: ModelFormat, body: unknown): boolean {
   if (!isObject(body)) return false;
   if (format === "messages") return body.stop_reason === "max_tokens";
-  if (format === "responses") return body.status === "incomplete" && isObject(body.incomplete_details) && body.incomplete_details.reason === "max_output_tokens";
+  if (isResponses(format)) return body.status === "incomplete" && isObject(body.incomplete_details) && body.incomplete_details.reason === "max_output_tokens";
   const [choice] = Array.isArray(body.choices) ? body.choices : [];
   return isObject(choice) && choice.finish_reason === "length";
 }
@@ -423,11 +472,11 @@ function answeringMessages(output: unknown): Record<string, unknown>[] {
 /**
  * The pages a model's answer in `format` came from, each once, in the order it came to them, no more
  * than an answer names: the search results its words cite, then the pages it read, as Anthropic's
- * Messages has them, or the pages its words cite in OpenAI's Responses.
+ * Messages has them, or the pages its words cite in OpenAI's Responses, or xAI's.
  */
 function sourcesIn(format: ModelFormat, body: unknown): Source[] {
   if (!isObject(body)) return [];
-  const sources = format === "messages" ? messagesSources(body.content) : format === "responses" ? responsesSources(body.output) : [];
+  const sources = format === "messages" ? messagesSources(body.content) : isResponses(format) ? responsesSources(body.output) : [];
   const named = new Set<string>();
   const unnamed = ({ url }: Source) => {
     if (named.has(url)) return false;
@@ -450,12 +499,16 @@ function messagesSources(content: unknown): Source[] {
   return [...cited, ...read].filter((source) => source !== null);
 }
 
-/** The pages the answer in a Responses `output` cites. */
+/**
+ * The pages the answer in a Responses `output` cites, by their titles, but for the numbers xAI titles
+ * them by, which the answer shows its citations as, and which name no page.
+ */
 function responsesSources(output: unknown): Source[] {
+  const titleOf = (title: unknown) => (typeof title === "string" && /^\d+$/.test(title.trim()) ? null : title);
   return answeringMessages(output)
     .flatMap(({ content }) => (Array.isArray(content) ? content.filter(isObject) : []))
     .flatMap(({ annotations }) => (Array.isArray(annotations) ? annotations.filter(isObject) : []))
-    .map((annotation) => (annotation.type === "url_citation" ? sourceOf(annotation.url, annotation.title) : null))
+    .map((annotation) => (annotation.type === "url_citation" ? sourceOf(annotation.url, titleOf(annotation.title)) : null))
     .filter((source) => source !== null);
 }
 
@@ -493,6 +546,21 @@ export function refusalOf(status: number, body: unknown): GatewayRefusal {
 }
 
 /**
+ * Why AI Gateway's xAI endpoint refused a request with `status`, as Cloudflare's REST API would
+ * (`refusalOf`), but for what the REST API might let through (`closed`): an API token it doesn't take,
+ * as it takes only one with AI Gateway Run, which the REST API doesn't need, and nothing paying for the
+ * request, as AI Gateway's credits don't when Unified Billing isn't there for it (2049) or the gateway
+ * asks for a provider's own key (2044).
+ */
+function xaiRefusalOf(status: number, body: unknown): GatewayRefusal {
+  const { codes, message } = errorIn(body);
+  const said = (lead: string) => (message ? `${lead} Cloudflare says: ${quoted(message)}` : lead);
+  if (status === 401) return { status: 422, reason: "token", field: "apiToken", refusal: said(XAI_TOKEN_REFUSED), closed: true };
+  if (codes.includes(2049) || codes.includes(2044)) return { status: 422, reason: "credits", refusal: said(XAI_UNPAID), closed: true };
+  return refusalOf(status, body);
+}
+
+/**
  * Whether Cloudflare's API couldn't route a request to the account, as for an ID it has no account
  * with: 7000, "No route for that URI", or 7003, "Could not route to /client/v4/accounts/…, perhaps your
  * object identifier is invalid?". AI Gateway answers 7003 too, as its code for a request it or the
@@ -514,10 +582,13 @@ const BLOCKS: ReadonlyArray<{ code: number; reason: RefusalReason; refusal: stri
   { code: 2030, reason: "dlp answer", refusal: "AI Gateway's Data Loss Prevention blocked the model's answer. Change its policies in AI Gateway." },
 ];
 
-/** The codes and the first message of the errors in a refusal's body, in any of the shapes AI Gateway answers with. */
+/**
+ * The codes and the first message of the errors in a refusal's body, in any of the shapes AI Gateway
+ * answers with: Cloudflare's API's `errors`, the provider endpoints' `error` list, or a format's own `error`.
+ */
 function errorIn(body: unknown): { codes: number[]; message: string | null } {
   if (!isObject(body)) return { codes: [], message: null };
-  const errors = Array.isArray(body.errors) ? body.errors.filter(isObject) : [];
+  const errors = (Array.isArray(body.errors) ? body.errors : Array.isArray(body.error) ? body.error : []).filter(isObject);
   const codes = errors.map(({ code }) => code).filter((code): code is number => typeof code === "number");
   const error = isObject(body.error) ? body.error.message : body.error;
   const message = [errors[0]?.message, error, body.message].find((text): text is string => typeof text === "string" && text.trim() !== "");

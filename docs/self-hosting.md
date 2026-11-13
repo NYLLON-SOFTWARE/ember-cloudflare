@@ -570,10 +570,16 @@ both from Workers AI's Use REST API in the Cloudflare dashboard, then a model. T
 starts as the one Ember is deployed to, when the deploy gave it, leaving only the token to copy, and
 the dialog's links open that account's pages in the dashboard. Ember asks models through the
 account's default [AI Gateway](https://developers.cloudflare.com/ai-gateway/), whose
-logs, caching and spend limits apply. Workers AI's models come with Cloudflare's free daily
-allowance, and other companies', such as Anthropic's, OpenAI's and Google's, are paid for with AI
-Gateway's credits, as [What it costs](#what-it-costs) says. The model menu lists the text models in
-Cloudflare's [model catalog](https://developers.cloudflare.com/ai/models/), as the Worker reads it with
+logs, caching and spend limits apply. It asks xAI's Grok models through the gateway's
+[xAI endpoint](https://developers.cloudflare.com/ai-gateway/usage/providers/grok/), in xAI's own
+Responses API, the only one Grok searches the web in, once the token has the AI Gateway Run permission
+too, which the dialog's last step adds. Until it has, Ember asks Grok through Cloudflare's REST API, as
+it asks every other model, and Grok can't search. Ember tells xAI not to keep the conversations, as it
+otherwise does for 30 days. AI Gateway Run lets the token send requests through every gateway on the
+account, with any provider keys stored on them, so keep it as safe as those keys. Workers AI's models
+come with Cloudflare's free daily allowance, and other companies', such as Anthropic's, OpenAI's and
+Google's, are paid for with AI Gateway's credits, as [What it costs](#what-it-costs) says. The model
+menu lists the text models in Cloudflare's [model catalog](https://developers.cloudflare.com/ai/models/), as the Worker reads it with
 the token (`GET /accounts/{id}/ai/catalog/models`) as the dialog goes on to the model, so new models
 show up as Cloudflare adds them: Workers AI's first, then other companies', with what each
 million tokens costs where the catalog says. When the catalog can't be read, the menu has the models
@@ -683,16 +689,24 @@ tools, which AI Gateway passes on and the model's provider runs
 ([Cloudflare's guide](https://developers.cloudflare.com/ai-gateway/usage/web-search/)): Anthropic's
 [web search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool) and
 [web fetch](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-fetch-tool) for a model
-that takes Messages, and OpenAI's [web search](https://platform.openai.com/docs/guides/tools-web-search)
-for one that takes Responses. Chat Completions has no such tools, so a Workers AI or Google model
-can't search, which the page says, its switch opening Set up Ember AI to choose another model.
-Turning it on asks the model that answers everyone a question it has to search the web for, and keeps
-the tools AI Gateway took, reading pages only if it took that tool too, and says what the model found;
-a model that answers without searching leaves it off. Choosing another model to answer everyone, under
+that takes Messages, OpenAI's [web search](https://platform.openai.com/docs/guides/tools-web-search)
+for one that takes Responses, and xAI's [web search](https://docs.x.ai/developers/tools/web-search)
+for Grok, through the xAI endpoint [Ember AI](#ember-ai) describes. Chat Completions has no such
+tools, so a Workers AI or Google model can't search, which the page says, its switch opening Set up
+Ember AI to choose another model. Turning it on asks the model that answers everyone a question it has
+to search the web for, and keeps the tools AI Gateway took, reading pages only if it took that tool
+too, and says what the model found; a model that answers without searching leaves it off. Grok is
+asked through the xAI endpoint then, even if Ember asked it through the REST API before, as it did
+while the token lacked AI Gateway Run, and once it searches there, Ember asks it there from then on.
+Each other Grok model people pick is asked its test question there too, whichever model answers
+everyone, and moves there once it answers. A model that moves is asked again at each level of thinking,
+as the levels it takes there needn't be the ones it took before. While the token still lacks that
+permission, the switch says to add it. Choosing another model to answer everyone, under
 Models or in Set up Ember AI, or another Cloudflare account there, turns it off, as another model, or
 another account's AI Gateway, may not take the same tools, until it's turned on again. A model someone
 picks on their profile is given the same tools, of those its format has, so it searches too if it's
-Anthropic's or OpenAI's, and any other is told to say it can't, and that they can pick one that can.
+Anthropic's, OpenAI's or xAI's, and any other is told to say it can't, and that they can pick one that
+can.
 While it's on, @ember searches at most 5 times an answer and reads at most 3 pages, each cut to about
 10,000 tokens: pages people link to, or that its searches find. Its answer is what it writes after it
 last searches, and a line under it links to the pages it cites and the pages it read, by their titles,
@@ -723,8 +737,9 @@ agent's page, which changes it. The page sets up:
   own Thinking and Answer length, the dials @ember has, which people can't change on their profile as
   they can for @ember. For a model outside Workers AI, the page says the most an answer at those
   levels costs at the model's prices.
-- **Search the web**, as @ember's does, for Anthropic's and OpenAI's models. Turned on for another
-  model, it says in red that the model can't search, until the model or the switch changes.
+- **Search the web**, as @ember's does, for Anthropic's, OpenAI's and xAI's models, Grok through the
+  xAI endpoint, as [Ember AI](#ember-ai) says. Turned on for another model, it says in red that the
+  model can't search, until the model or the switch changes.
 - **Rooms**: every room open to everyone, new ones too, as @ember is, or only the open rooms chosen.
   People can still add it to a closed room or DM it, as they can anyone.
 
@@ -1005,8 +1020,8 @@ pages had them in October 2026:
   Each person's questions cost what the model they pick does, so add to the Models list only the
   models you're happy to pay for, and each [agent's](#ai-agents) what its own model does at its own
   dials, whose most its page says. While Search the web is on, an answer can also search up to 5 times,
-  which Anthropic charges $10 per 1,000 searches for and OpenAI its own price per search, and the
-  results and pages it reads count as input, up to about 10,000 tokens a page.
+  which Anthropic charges $10 per 1,000 searches for, xAI $5 per 1,000 and OpenAI its own price per
+  search, and the results and pages it reads count as input, up to about 10,000 tokens a page.
 - **Huddles**, if they're on: Cloudflare's Realtime SFU charges for what it sends to the people in a
   huddle, and nothing for what they send it. The first 1,000 GB a month are free, and it's $0.05 per GB
   after that, as its page had it in November 2026. A voice is about 50 kbps to each person who hears

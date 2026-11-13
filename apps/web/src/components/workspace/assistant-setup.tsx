@@ -27,7 +27,8 @@ import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER
 // Set up Ember AI, for administrators: the steps to give @ember a model through Cloudflare AI Gateway, in
 // a dialog that the AI assistant tab's Ember AI card opens. First the Cloudflare account's ID, filled in
 // with the account Ember is deployed to when the deploy gave it, and an API token of its, which Workers
-// AI's Use REST API makes, and with which the Worker lists the text models in Cloudflare's catalog. Then
+// AI's Use REST API makes, and which Grok searches the web with once it has AI Gateway's Run permission
+// too, and with which the Worker lists the text models in Cloudflare's catalog. Then
 // the model, which the Worker asks a test question through AI Gateway before keeping all three, saying on
 // the field it's about why it didn't answer, if it didn't, and which answers everyone who hasn't picked
 // another. Then what the model said, and that Search the web is off, when a change of model turned it
@@ -35,6 +36,9 @@ import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER
 
 /** Where Workers AI's Use REST API makes an API token and shows the account's ID, in the Cloudflare dashboard. */
 const workersAiDashboard = (accountId: string | null) => dashboard(accountId, "ai/workers-ai");
+
+/** Where the API tokens on someone's Cloudflare profile are, as the one Use REST API makes is, to add a permission to. */
+const API_TOKENS = "https://dash.cloudflare.com/profile/api-tokens";
 
 /**
  * What the last step says once a change of model, or of the Cloudflare account it's asked through, has
@@ -329,6 +333,10 @@ function KeysStep({
             Copy the <em>Account ID</em> shown there too.
           </li>
         )}
+        <li>
+          So that Grok can search the web, edit the token under <em>API Tokens</em> on your Cloudflare profile and add the <em>AI Gateway Run</em> permission.{" "}
+          <Out href={API_TOKENS}>Open your API tokens in the Cloudflare dashboard</Out>
+        </li>
       </ol>
       <div className="flex flex-col gap-4">
         <div>

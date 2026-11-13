@@ -65,10 +65,10 @@ function known(id: string): AssistantModel {
 
 /**
  * Ember AI on, running on `model`, with `most` the most its dials go to, people able to pick `others` too,
- * and doing `webTools` on the web: nothing yet for Anthropic's and OpenAI's models, which can search, and
- * null for the rest, which can't.
+ * and doing `webTools` on the web: nothing yet for Anthropic's, OpenAI's and xAI's models, which can
+ * search, and null for the rest, which can't.
  */
-const on = (model: string, most: AnswerLevels = TOP_LEVELS, others: string[] = [], webTools: WebTool[] | null = /^(?:anthropic|openai)\//.test(model) ? [] : null): Assistant => ({
+const on = (model: string, most: AnswerLevels = TOP_LEVELS, others: string[] = [], webTools: WebTool[] | null = /^(?:anthropic|openai|xai)\//.test(model) ? [] : null): Assistant => ({
   accountId: ACCOUNT_ID,
   model,
   models: [model, ...others].map(known),
@@ -934,12 +934,12 @@ describe("Search the web", () => {
     expect(webSearchOn(["search"], [known(SONNET)])).not.toContain("reads");
   });
 
-  it("says, while people can pick other models, that a model someone picks searches too, if it's Anthropic's or OpenAI's", () => {
+  it("says, while people can pick other models, that a model someone picks searches too, if it's Anthropic's, OpenAI's or xAI's", () => {
     serveWebSearch(() => turned(false));
     showLiveCard(on(SONNET, TOP_LEVELS, ["openai/gpt-6.1-sol", "@cf/zai-org/glm-4.7-flash"], ["search", "read"]));
     expect(webSwitch()).toBeChecked();
     expect(webSwitch()).toHaveAccessibleDescription(webSearchOn(["search", "read"], [SONNET, "openai/gpt-6.1-sol", "@cf/zai-org/glm-4.7-flash"].map(known)));
-    expect(webSearchOn(["search"], [known(SONNET), known("openai/gpt-6.1-sol")])).toContain("A model someone picks searches too, if it's Anthropic's or OpenAI's.");
+    expect(webSearchOn(["search"], [known(SONNET), known("openai/gpt-6.1-sol")])).toContain("A model someone picks searches too, if it's Anthropic's, OpenAI's or xAI's.");
     expect(webSearchOn(["search"], [known(SONNET)])).not.toContain("picks");
   });
 

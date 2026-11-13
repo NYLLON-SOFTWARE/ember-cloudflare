@@ -9,6 +9,7 @@ import {
   formatOf,
   INSTRUCTIONS_TOO_LONG,
   isWorkersAiModel,
+  isXaiModel,
   LEVELS_REFUSED,
   MAX_INSTRUCTIONS_LENGTH,
   MAX_MODEL_LENGTH,
@@ -24,6 +25,7 @@ import {
   parseAssistantSetup,
   parseNewAssistantModel,
   parseYourAssistantChanges,
+  searchFormatOf,
   THINKING_LEVELS,
   THINKING_TOKENS,
   thinkingTaken,
@@ -123,7 +125,18 @@ describe("Set up Ember AI", () => {
     expect(formatOf("google/gemini-5")).toBe("chat");
     expect(formatOf("openai/gpt-6.1-sol")).toBe("responses");
     expect([formatOf("anthropic/claude-mythos-6"), formatOf("openai/gpt-7"), formatOf("@cf/meta/llama-5")]).toEqual(["messages", "responses", "chat"]);
-    expect(WEB_TOOLS_IN).toEqual({ messages: ["search", "read"], responses: ["search"], chat: [] });
+    expect(formatOf("xai/grok-4.7")).toBe("chat");
+    expect(WEB_TOOLS_IN).toEqual({ messages: ["search", "read"], responses: ["search"], chat: [], xai: ["search"] });
+  });
+
+  it("searches the web in a model's own format if it can, or else, for Grok, in xAI's own Responses", () => {
+    expect([isXaiModel("xai/grok-4.7"), isXaiModel("@cf/xai/grok"), isXaiModel("openai/gpt-7")]).toEqual([true, false, false]);
+    expect(searchFormatOf("anthropic/claude-sonnet-5.5", "messages")).toBe("messages");
+    expect(searchFormatOf("openai/gpt-7", "responses")).toBe("responses");
+    expect(searchFormatOf("xai/grok-4.7", "chat")).toBe("xai");
+    expect(searchFormatOf("xai/grok-4.7", "xai")).toBe("xai");
+    expect(searchFormatOf("google/gemini-5", "chat")).toBeNull();
+    expect(searchFormatOf("@cf/meta/llama-5", "chat")).toBeNull();
   });
 });
 

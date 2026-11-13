@@ -18,10 +18,12 @@ import {
   parseNewAssistantModel,
   parseWebSearchChange,
   parseYourAssistantChanges,
+  searchFormatOf,
   WEB_TOOLS_IN,
   type AssistantCatalog,
   type AssistantChanged,
   type AssistantForgotten,
+  type AssistantModel,
   type AssistantSaved,
   type ModelFormat,
   type ThinkingLevel,
@@ -36,7 +38,7 @@ import type { Env } from "../env";
 import { pictureFormOf } from "../files/pictures";
 import { NO_STORAGE } from "../files/uploads";
 import { formAnswer } from "../pages";
-import { workspace, type Credentials } from "../workspace";
+import { workspace, type Credentials, type MovedModel } from "../workspace";
 import { catalogOf, keptCatalogOf } from "./catalog";
 import { askInTurn, askOnce, formatsFor, thinkingLevelsOf, type Gateway, type GatewayRefusal, type Question } from "./gateway";
 
@@ -268,12 +270,15 @@ function assistantAvatarAnswer(changed: AssistantChanged | "off" | "forbidden" |
 /**
  * `PUT /api/account/assistant/web_search`, `{ on }`: turns Search the web on or off while Ember AI is on,
  * as the Ember AI card's switch does, answering Ember AI as it is then, and, once it's on, what the model
- * that answers everyone said when it searched (`searchedBy`). The models people pick are given their
- * format's tools for the web then too. Someone who isn't an administrator hears so before anything they
- * sent is read, and turning it on for a model whose format has no tools for the web, that it can't
- * search. The model, or the Cloudflare account, being changed while it searched turns nothing on, as it's
- * the model that was asked, through that account, that searched, and nor does Search the web being
- * turned off meanwhile, or on again, as the latest change asked for is the one that stays.
+ * that answers everyone said when it searched (`searchedBy`), in the format it searches in, which it's
+ * asked in from then on, as Grok is in xAI's own Responses (`searchFormatOf`). The models people pick
+ * are given their format's tools for the web then too, in the one they search in (`movedModels`).
+ * Someone who isn't an administrator hears so
+ * before anything they sent is read, and turning it on for a model that has no tools for the web in any
+ * format, that it can't search. The model, or the Cloudflare account, being changed while it searched
+ * turns nothing on, as it's the model that was asked, through that account, that searched, and nor does
+ * Search the web being turned off meanwhile, or on again, as the latest change asked for is the one that
+ * stays.
  */
 export async function changeWebSearch(request: Request, env: Env): Promise<Response> {
   const askedAt = new Date().toISOString();
@@ -284,10 +289,13 @@ export async function changeWebSearch(request: Request, env: Env): Promise<Respo
   if (!change) return problem(422, WEB_SEARCH_REFUSED);
   const gateway = change.on ? await ember.assistantGateway() : null;
   if (change.on && !gateway) return problem(409, ASSISTANT_OFF);
-  if (gateway && WEB_TOOLS_IN[gateway.format].length === 0) return problem(422, cannotSearchWith(gateway.name));
-  const searched = gateway ? await searchedBy(env, gateway) : { webTools: [], found: null };
+  const searchFormat = gateway && searchFormatOf(gateway.model, gateway.format);
+  if (gateway && !searchFormat) return problem(422, cannotSearchWith(gateway.name));
+  const searched = gateway && searchFormat ? await searchedBy(env, { ...gateway, format: searchFormat }) : { webTools: [], found: null };
   if ("refusal" in searched) return problem(searched.status, searched.refusal);
-  const changed = await ember.changeAssistantWebTools(credentials, searched.webTools, gateway && { accountId: gateway.accountId, model: gateway.model, format: gateway.format }, askedAt);
+  const moved = gateway && searchFormat ? await movedModels(env, gateway, searchFormat, await ember.assistantModels()) : [];
+  const tested = gateway && { accountId: gateway.accountId, model: gateway.model, format: gateway.format };
+  const changed = await ember.changeAssistantWebTools(credentials, searched.webTools, tested, askedAt, moved);
   if (!changed) return problem(401, NOT_SIGNED_IN);
   if (changed === "forbidden") return problem(403, ASSISTANT_FORBIDDEN);
   if (changed === "off") return problem(409, ASSISTANT_OFF);
@@ -350,15 +358,49 @@ export interface Greeting {
 
 /**
  * What the model `gateway` names says to the test question, @ember's unless it's another `question`, the
- * format it took it in, trying each format in turn while the model is refused in one (`formatsFor`), and
- * the levels of thinking it takes in that format, as it answers the question again at each
- * (`thinkingLevelsOf`), or why it didn't answer: the first format's refusal, unless another's says more.
+ * format it took it in, trying each of `formats` in turn while the model is refused in one, as
+ * `formatsFor` orders them unless it's to be asked in others, and the levels of thinking it takes in that
+ * format (`testedLevelsOf`), or why it didn't answer: the first format's refusal, unless another's says more.
  */
-export async function greetingFrom(env: Env, gateway: Omit<Gateway, "format" | "thinkingLevels">, question = TEST_QUESTION): Promise<Greeting | GatewayRefusal> {
-  const answered = await askInTurn(env, gateway, formatsFor(gateway.model), () => question, TEST_TIMEOUT_MS);
+export async function greetingFrom(
+  env: Env,
+  gateway: Omit<Gateway, "format" | "thinkingLevels">,
+  question = TEST_QUESTION,
+  formats = formatsFor(gateway.model),
+): Promise<Greeting | GatewayRefusal> {
+  const answered = await askInTurn(env, gateway, formats, () => question, TEST_TIMEOUT_MS);
   if ("refusal" in answered) return answered;
-  const thinkingLevels = await thinkingLevelsOf(env, { ...gateway, format: answered.format }, question, TEST_TIMEOUT_MS);
+  const thinkingLevels = await testedLevelsOf(env, { ...gateway, format: answered.format }, question);
   return { format: answered.format, thinkingLevels, greeting: shownOf(answered.text) };
+}
+
+/** The levels of thinking the model `gateway` names takes in its format, as it answers the test question, @ember's unless it's another `question`, again at each (`thinkingLevelsOf`). */
+export const testedLevelsOf = (env: Env, gateway: Gateway, question = TEST_QUESTION) => thinkingLevelsOf(env, gateway, question, TEST_TIMEOUT_MS);
+
+/**
+ * The models that search the web in another format than they're saved in, now that Search the web is on,
+ * as Grok does in xAI's own Responses (`searchFormatOf`), with the levels of thinking each takes there,
+ * which needn't be those it took where it was: the one that answers everyone, `gateway`'s, which searched
+ * in `searchFormat`, and each other of those people pick, `models`, that answers its test question
+ * there, as Add a model would have found, but not one that doesn't, as through an API token without AI
+ * Gateway Run, which stays where it is.
+ */
+async function movedModels(env: Env, gateway: Gateway, searchFormat: ModelFormat, models: readonly Pick<AssistantModel, "id" | "format">[]): Promise<MovedModel[]> {
+  const through = { accountId: gateway.accountId, apiToken: gateway.apiToken };
+  const everyone = async (): Promise<MovedModel> => ({
+    id: gateway.model,
+    from: gateway.format,
+    format: searchFormat,
+    thinkingLevels: await testedLevelsOf(env, { ...through, model: gateway.model, format: searchFormat }),
+  });
+  const picked = async ({ id, format: from }: Pick<AssistantModel, "id" | "format">): Promise<MovedModel | null> => {
+    const format = searchFormatOf(id, from);
+    if (id === gateway.model || format === null || format === from) return null;
+    const answered = await greetingFrom(env, { ...through, model: id }, TEST_QUESTION, [format]);
+    return "refusal" in answered ? null : { id, from, format, thinkingLevels: answered.thinkingLevels };
+  };
+  const moved = await Promise.all([...(searchFormat === gateway.format ? [] : [everyone()]), ...models.map(picked)]);
+  return moved.filter((move) => move !== null);
 }
 
 /** `text` cut to what the dialog, or the card, shows. */
