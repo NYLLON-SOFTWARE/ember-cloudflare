@@ -144,8 +144,11 @@ const musicIn = (page: Page) =>
     return { at: audio?.currentTime ?? 0, playing: audio !== undefined && audio.isConnected && !audio.paused };
   });
 
+/** What the room's row in the sidebar ends with while a huddle is going on in it, which says who's in it under a pointer. */
+const sidebarMark = (page: Page, room: TestRoom) => page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: room.name, exact: true }).locator("[title]");
+
 test.describe("A huddle", () => {
-  test("two people start and join a room's huddle, hear each other and its sounds, and leave it", async ({ page, browser, baseURL, request }) => {
+  test("two people start and join a room's huddle, which their sidebars show, hear each other and its sounds, and leave it", async ({ page, browser, baseURL, request }) => {
     const administrator = await administratorSession(request);
     const headers = { Cookie: cookieHeader(administrator), ...SAME_ORIGIN };
     // In a room of the test's own, which everyone is in.
@@ -171,11 +174,15 @@ test.describe("A huddle", () => {
     const adasBar = huddleBar(page, room);
     await expect(adasBar).toContainText("Just you in the huddle");
     await expect(page.getByRole("button", { name: "Leave huddle", exact: true })).toBeVisible();
+    // The room's row in her sidebar ends with the headphones, her face and how many are in it.
+    await expect(sidebarMark(page, room)).toHaveAttribute("title", "Just you in the huddle");
+    await expect(sidebarMark(page, room).getByText("1", { exact: true })).toBeVisible();
+    await expect(sidebarMark(page, room).locator("img")).toHaveCount(1);
     // She hears herself join, and then, as she's alone in it, the huddle's music.
     await expect.poll(() => soundsHeard(page), { timeout: 15_000 }).toEqual(["joined", "music"]);
 
-    // Grace, who joins Ember with the join link, sees it going on in the room's header, and its link
-    // opens the room at the preview.
+    // Grace, who joins Ember with the join link, sees it going on in the room's header and at the end of
+    // its row in her sidebar, and its link opens the room at the preview.
     const { joinCode } = (await (await request.get("/api/account", { headers })).json()) as WorkspaceSettings;
     const context = await browser.newContext({ baseURL, ignoreHTTPSErrors: true });
     const joined = await context.request.post(`/api/join/${joinCode}`, {
@@ -189,6 +196,7 @@ test.describe("A huddle", () => {
     await useOwnAddress(grace);
     await grace.goto(`/rooms/${room.id}`);
     await expect(grace.getByRole("button", { name: "Join huddle, 1 in it" })).toBeVisible();
+    await expect(sidebarMark(grace, room)).toHaveAttribute("title", "Ada is in the huddle");
     await grace.goto(`/rooms/${room.id}/huddle`);
     const joining = grace.getByRole("dialog", { name: `Join the huddle in ${room.name}` });
     await expect(joining).toContainText("Ada is in it now.");
@@ -197,6 +205,10 @@ test.describe("A huddle", () => {
     const gracesBar = huddleBar(grace, room);
     await expect(gracesBar).toContainText("Ada and you are in the huddle");
     await expect(adasBar).toContainText("Grace and you are in the huddle");
+    await expect(sidebarMark(grace, room)).toHaveAttribute("title", "Ada and you are in the huddle");
+    await expect(sidebarMark(page, room)).toHaveAttribute("title", "Grace and you are in the huddle");
+    await expect(sidebarMark(page, room).getByText("2", { exact: true })).toBeVisible();
+    await expect(sidebarMark(page, room).locator("img")).toHaveCount(2);
 
     // Each hears the other, through the SFU. Ada heard Grace join, which stopped her music.
     await expect.poll(() => hears(grace, administrator.user.id), { timeout: 15_000 }).toBe(true);
@@ -216,6 +228,7 @@ test.describe("A huddle", () => {
     await gracesBar.getByRole("button", { name: "Leave", exact: true }).click();
     await expect(gracesBar).toHaveCount(0);
     await expect(grace.getByRole("button", { name: "Join huddle, 1 in it" })).toBeVisible();
+    await expect(sidebarMark(grace, room)).toHaveAttribute("title", "Ada is in the huddle");
     await expect(adasBar).toContainText("Just you in the huddle");
     await expect(page.locator("[data-huddle-voices] audio[data-user-id]")).toHaveCount(0);
     // Each heard Grace leave. Ada, alone again, hears the music go on from where it stopped.
@@ -230,6 +243,8 @@ test.describe("A huddle", () => {
     await expect.poll(() => soundsHeard(page)).toEqual(["joined", "music", "joined", "left", "music", "left"]);
     expect((await musicIn(page)).playing).toBe(false);
     await expect(grace.getByRole("button", { name: "Start huddle", exact: true })).toBeVisible();
+    await expect(sidebarMark(grace, room)).toHaveCount(0);
+    await expect(sidebarMark(page, room)).toHaveCount(0);
     await page.keyboard.press("Control+Alt+Shift+H");
     await expect(starting).toBeVisible();
     await starting.getByRole("button", { name: "Cancel", exact: true }).last().click();

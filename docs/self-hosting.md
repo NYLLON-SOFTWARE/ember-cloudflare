@@ -827,9 +827,11 @@ Modified.
 ### Huddles
 
 A huddle is a room's voice call, laid out as Slack's is. The headphones at the top of a room start its
-huddle, or join the one going on, and show the rest of the room how many are in it. A preview comes
-first, which asks the browser for a microphone and offers a choice of it and, where the browser has
-one, of the speaker; without a microphone you join to listen. While you're in a huddle, a bar along
+huddle, or join the one going on, and show the rest of the room how many are in it. So does the
+room's row in the sidebar, which ends with the faces of the first two people in the huddle, the
+headphones and how many are in it, and says who they are under a pointer. Starting or joining goes by
+a preview, which asks the browser for a microphone and offers a choice of it and, where the browser
+has one, of the speaker; without a microphone you join to listen. While you're in a huddle, a bar along
 the window's base follows you from page to page, with the microphone's switch and Leave. A sound
 plays as someone joins the huddle, yourself included, and another as someone leaves it. While you're
 the only one in it, quiet music plays on a loop, as Slack's does, from five seconds after you find

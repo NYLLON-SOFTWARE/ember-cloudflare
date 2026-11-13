@@ -2291,10 +2291,15 @@ describe("Huddles", () => {
     vi.mocked(joinHuddle).mockReset();
   });
 
-  it("has no huddle button until huddles are on", async () => {
+  /** What a room's row in the sidebar says of the huddle going on in it, or nothing with none. */
+  const inSidebar = (room: string) => within(screen.getByRole("region", { name: "Rooms" })).getByRole("link", { name: room }).querySelector("[title]");
+
+  it("has no huddle button until huddles are on, nor a sidebar that says a huddle is going on", async () => {
+    serveRooms({ ...roomList(rooms), huddles: { general: { startedAt: "2026-11-10T09:00:00.000Z", userIds: ["u2"] } } });
     showWorkspace("/rooms/general");
     await roomHeading();
     expect(screen.queryByRole("button", { name: /huddle/i })).not.toBeInTheDocument();
+    expect(inSidebar("general")).toBeNull();
   });
 
   it("has none in a DM", async () => {
@@ -2357,10 +2362,20 @@ describe("Huddles", () => {
     expect(await screen.findByRole("dialog", { name: "Start a huddle in general" })).toBeVisible();
   });
 
-  it("lists the huddles going on as the sidebar loads them", async () => {
+  it("lists the huddles going on as the sidebar loads them, in the room's header and at the end of its row in the sidebar", async () => {
     serveRooms({ ...roomList(rooms), huddles: { random: { startedAt: "2026-11-10T09:00:00.000Z", userIds: ["u2"] } } });
     showWorkspace("/rooms/random", ada, HUDDLES_ON);
     expect(await screen.findByRole("button", { name: "Join huddle, 1 in it" })).toBeInTheDocument();
+    expect(inSidebar("random")).toHaveTextContent(/^1/);
+    expect(inSidebar("general")).toBeNull();
+
+    // The row follows the huddle as the workspace socket tells of it.
+    await workspaceSends({ type: "room.huddle", roomId: "random", huddle: { startedAt: "2026-11-10T09:00:00.000Z", userIds: ["u2", "u3"] } });
+    await waitFor(() => expect(inSidebar("random")).toHaveTextContent(/^2/));
+    await workspaceSends({ type: "room.huddle", roomId: "general", huddle: { startedAt: "2026-11-10T09:05:00.000Z", userIds: ["u1"] } });
+    await waitFor(() => expect(inSidebar("general")).toHaveAttribute("title", "Just you in the huddle"));
+    await workspaceSends({ type: "room.huddle", roomId: "random", huddle: null });
+    await waitFor(() => expect(inSidebar("random")).toBeNull());
   });
 
   it("opens the preview from a huddle's link, and leaves the room's address in its place", async () => {
