@@ -13,6 +13,7 @@ import {
   LOGO_PATH,
   LOGO_TOO_LARGE,
   LOST_ACCESS,
+  ROOMS_ELSEWHERE_PATH,
   MAX_EMAIL_ADDRESS_LENGTH,
   MEMBERFUL_CALLBACK_PATH,
   MEMBERFUL_CONNECTIONS_PATH,
@@ -73,6 +74,7 @@ import {
   type MemberfulStatus,
   type NewJoinCode,
   type NewRoomForm,
+  type RoomsElsewhere,
   type PersonAnswer,
   type ProfileAnswer,
   type ReleaseCheck,
@@ -935,6 +937,14 @@ async function newRoomForm(request: Request, env: Env): Promise<Response> {
   return form === "forbidden" ? problem(403, ROOM_CREATION_FORBIDDEN) : json(form satisfies NewRoomForm);
 }
 
+/** The rooms an administrator isn't in, which Rooms and permissions lists for them to delete. */
+async function roomsElsewhere(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const rooms = credentials && (await workspace(env).roomsElsewhere(credentials));
+  if (!rooms) return problem(401, "Not signed in");
+  return rooms === "forbidden" ? problem(403, "Only administrators can change the workspace") : json({ rooms } satisfies RoomsElsewhere);
+}
+
 /** A room's settings page, for its members, read-only for those who can't change it. */
 async function roomSettings(request: Request, env: Env, roomId: RoomId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -1222,6 +1232,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/socket") return () => connectToWorkspace(request, env);
   if (pathname === "/api/rooms" && request.method === "POST") return () => createRoom(request, env);
   if (pathname === "/api/rooms/new" && request.method === "GET") return () => newRoomForm(request, env);
+  if (pathname === ROOMS_ELSEWHERE_PATH && request.method === "GET") return () => roomsElsewhere(request, env);
   if (pathname === "/api/directs" && request.method === "POST") return () => startDirect(request, env);
   if (pathname === "/api/directs" && request.method === "GET") return () => directPreviews(request, env);
   if (pathname === "/api/threads" && request.method === "GET") return () => listedThreads(request, env);

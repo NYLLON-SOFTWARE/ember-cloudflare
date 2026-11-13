@@ -2,6 +2,7 @@ import {
   AVATAR_PATH,
   LOGO_PATH,
   MEMBERFUL_CONNECTIONS_PATH,
+  ROOMS_ELSEWHERE_PATH,
   roomSocketQuery,
   searchQuery,
   WORKSPACE_PRELOADS,
@@ -84,6 +85,7 @@ import {
   type SearchSort,
   type SendingDomainCheck,
   type SentTestEmail,
+  type RoomsElsewhere,
   type SharedRoom,
   type Sidebar,
   type SignOut,
@@ -839,6 +841,11 @@ export async function fetchDirectory(copy: DirectoryCopy | null): Promise<Direct
 /** Who the New room forms list: everyone active, by name. */
 export async function fetchNewRoomForm(): Promise<NewRoomForm> {
   return request<NewRoomForm>("/api/rooms/new");
+}
+
+/** The rooms an administrator isn't in, by name, which Rooms and permissions lists for them to delete. */
+export async function fetchRoomsElsewhere(): Promise<SharedRoom[]> {
+  return (await request<RoomsElsewhere>(ROOMS_ELSEWHERE_PATH)).rooms;
 }
 
 /** Creates a room, answering it. */

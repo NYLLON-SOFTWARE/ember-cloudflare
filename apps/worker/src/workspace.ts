@@ -2704,6 +2704,18 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * The rooms but DMs that the administrator `credentials` signs in isn't in, by name, for Rooms and
+   * permissions to delete, as Slack's workspace admins can: "forbidden" for anyone else, or null without a
+   * valid session.
+   */
+  async roomsElsewhere(credentials: Credentials): Promise<SharedRoom[] | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    return this.store.roomsElsewhere(user.id);
+  }
+
+  /**
    * Whether the person `credentials` signs in may create rooms: anyone, unless an administrator has
    * turned on "Must be admin to create new rooms". Null without a valid session.
    */

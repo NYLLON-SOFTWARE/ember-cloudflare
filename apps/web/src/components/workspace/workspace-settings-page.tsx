@@ -50,6 +50,7 @@ import { InviteLink } from "./invite-link";
 import { PeopleList } from "./people-list";
 import { PicturePicker } from "./picture-picker";
 import { RoomOrder } from "./room-order";
+import { RoomsElsewhere } from "./rooms-elsewhere";
 import { workspaceSectionOf } from "./settings-navigation";
 import { CHANGES_SAVED, PageHeading, Panel, SECTION_HEADING, SettingsPage, TITLE, TITLE_LINK } from "./settings-page";
 import { TurnstileSettings } from "./turnstile-settings";
@@ -487,6 +488,7 @@ export function WorkspaceSettingsPage({
               />
             </div>
             {sharedRooms && <RoomOrder rooms={sharedRooms} sharedOrder={sharedOrder} onSaved={onSharedOrderSaved} onSessionChanged={onSessionChanged} />}
+            <RoomsElsewhere onFailed={onFailed} />
           </>
         ) : (
           settings && <p className="text-muted-foreground">Community admins manage room order and permissions.</p>

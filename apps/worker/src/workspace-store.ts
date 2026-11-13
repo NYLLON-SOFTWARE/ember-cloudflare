@@ -2452,9 +2452,20 @@ const ANOTHER_PERSON_IN_ROOM = `SELECT EXISTS (SELECT 1 FROM memberships JOIN us
   WHERE memberships.room_id = ?1 AND memberships.user_id <> ?2 AND users.role <> ${BOT} AND users.status IN (${ACTIVE}, ${SUSPENDED})) AS found`;
 
 /** A room someone is in, DMs included, by its kind, and whether they can change it. */
+/** The rooms but DMs that ?1 isn't in, by name, as an administrator may delete them (`ROOM_TO_DELETE`). */
+const ROOMS_ELSEWHERE = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${PARENT_COLUMNS} FROM rooms ${JOIN_PARENT}
+  WHERE rooms.kind <> 'direct'
+    AND NOT EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = rooms.id AND memberships.user_id = ?1)
+  ORDER BY rooms.name COLLATE NOCASE, rooms.id`;
+
+/**
+ * Room ?1, DMs included, as person ?2 may delete it: one they're in, and whether they can change it, or, for
+ * an administrator, any room but a DM, as Slack's workspace admins can, private ones they aren't in too.
+ */
 const ROOM_TO_DELETE = `SELECT rooms.kind, ${CAN_ADMINISTER}
-  FROM memberships JOIN rooms ON rooms.id = memberships.room_id JOIN users ON users.id = memberships.user_id
-  WHERE memberships.room_id = ? AND memberships.user_id = ?`;
+  FROM rooms JOIN users ON users.id = ?2
+    LEFT JOIN memberships ON memberships.room_id = rooms.id AND memberships.user_id = users.id
+  WHERE rooms.id = ?1 AND (memberships.user_id IS NOT NULL OR (users.role = ${ADMINISTRATOR} AND rooms.kind <> 'direct'))`;
 
 // Sub-rooms (`@ember/protocol`'s sub-rooms.ts): a room's parent_id names the room it's under. Access to
 // a sub-room needs access to its parent, so every change to who's in a room ends by taking anyone not in
@@ -4552,7 +4563,16 @@ export class WorkspaceStore {
     return left!.map((row) => row.room_id);
   }
 
-  /** The kind of room `roomId`, DMs included, and whether someone can change it, unless they aren't in it. */
+  /** The rooms but DMs that `userId` isn't in, by name, which an administrator may still delete. */
+  async roomsElsewhere(userId: UserId): Promise<SharedRoom[]> {
+    const rows = await this.db.all<Omit<RoomToChangeRow, "can_administer">>(ROOMS_ELSEWHERE, userId);
+    return rows.map((row) => ({ id: row.id, kind: row.kind, name: row.name, icon: row.icon, ...parentOf(row) }));
+  }
+
+  /**
+   * The kind of room `roomId`, DMs included, and whether someone can delete it, unless they aren't in it and
+   * aren't an administrator, who can delete any room but a DM (`ROOM_TO_DELETE`).
+   */
   async roomToDelete(roomId: RoomId, userId: UserId): Promise<{ kind: SidebarRoom["kind"]; canAdminister: boolean } | null> {
     const [row] = await this.db.all<{ kind: SidebarRoom["kind"]; can_administer: number }>(ROOM_TO_DELETE, roomId, userId);
     return row ? { kind: row.kind, canAdminister: row.can_administer === 1 } : null;

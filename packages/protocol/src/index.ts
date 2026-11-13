@@ -1532,6 +1532,14 @@ export type CloseCode = (typeof CloseCode)[keyof typeof CloseCode];
  */
 export const LOST_ACCESS = "LostAccess";
 
+/** Where an administrator asks for the rooms they aren't in, which they can still delete, as Slack's workspace admins can. */
+export const ROOMS_ELSEWHERE_PATH = "/api/rooms/elsewhere";
+
+/** The rooms but DMs an administrator isn't in, by name. */
+export interface RoomsElsewhere {
+  rooms: SharedRoom[];
+}
+
 /**
  * The shortest new password Ember takes, in characters rather than bytes.
  */

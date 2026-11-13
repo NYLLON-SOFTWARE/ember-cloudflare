@@ -22,6 +22,7 @@ import {
   type ReleaseCheck,
   type RoleChange,
   type RoomId,
+  type RoomsElsewhere,
   type SidebarRoom,
   type WorkspaceSettings,
 } from "@ember/protocol";
@@ -251,6 +252,9 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         return Response.json({ assistant });
       case "GET /api/account/agents":
         return Response.json({ agents: [RECAP] } satisfies Agents);
+      // Ada's in every room, so Rooms and permissions lists none she isn't in.
+      case "GET /api/rooms/elsewhere":
+        return Response.json({ rooms: [] } satisfies RoomsElsewhere);
       case "GET /api/account/apps":
         return Response.json({ apps: [{ id: "0mgk3x2a9b4c70", name: "Linear", url: "https://mcp.linear.example/mcp", toolCount: 23 }] });
       case "PUT /api/account/huddles":

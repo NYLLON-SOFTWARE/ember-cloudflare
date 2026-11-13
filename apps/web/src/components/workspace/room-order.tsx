@@ -116,7 +116,7 @@ const ON_HOVER = "opacity-0 group-hover/row:opacity-100 group-focus-within/row:o
 const SLOT = "size-9 shrink-0 touch:size-11";
 
 /** A slot's control. */
-const SLOT_CONTROL = cn(SLOT, "inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground");
+export const SLOT_CONTROL = cn(SLOT, "inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-hover hover:text-foreground");
 
 /** Who a room in the order is open to: for an open sub-room, its parent's people. */
 function accessOf(room: SharedRoom): string {
