@@ -453,7 +453,7 @@ describe("Your mood", () => {
 
     const response = await save(grace, { mood });
     expect(response.status).toBe(200);
-    expect((await response.json()).profile.mood).toEqual(mood);
+    expect((await response.json() as ProfileAnswer).profile.mood).toEqual(mood);
     // Another person sees it in the directory and on the page it names.
     expect(await moodOf(administrator, grace.user.id)).toEqual(mood);
     const page = (await (await api(`/api/users/${grace.user.id}`, { headers: as(administrator) })).json()) as { person: DirectoryUser };
@@ -468,21 +468,22 @@ describe("Your mood", () => {
     await save(grace, { mood });
     await socket.next();
 
-    expect((await (await save(grace, { mood: null })).json()).profile.mood).toBeNull();
+    expect((await (await save(grace, { mood: null })).json() as ProfileAnswer).profile.mood).toBeNull();
     expect(await moodOf(administrator, grace.user.id)).toBeNull();
     expect(await socket.next()).toEqual({ type: "user.updated", user: await listed(administrator, grace.user.id) });
 
     await save(grace, { mood });
     await socket.next();
     // A save that leaves the mood out wears the one they have.
-    expect((await (await save(grace, { bio: "Rear admiral" })).json()).profile.mood).toEqual(mood);
+    expect((await (await save(grace, { bio: "Rear admiral" })).json() as ProfileAnswer).profile.mood).toEqual(mood);
     expect(await socket.next()).toMatchObject({ type: "user.updated", user: { bio: "Rear admiral", mood } });
   });
 
   it("keeps a mood whose clear time has passed, which pages leave out", async () => {
     const grace = await signIn("Grace Hopper");
     const expired = { ...mood, clearAt: LONG_AGO };
-    expect((await (await save(grace, { mood: expired })).json()).profile.mood).toEqual(expired);
+    expect((await save(grace, { mood: expired })).status).toBe(200);
+    expect(await profileOf(grace)).toMatchObject({ mood: expired });
     expect(await moodOf(grace, grace.user.id)).toEqual(expired);
   });
 
