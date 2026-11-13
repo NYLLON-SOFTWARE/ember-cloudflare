@@ -575,7 +575,8 @@ on your machine.
 An administrator adds @ember, an AI assistant, on the AI assistant tab of community settings. Turning
 on its Ember AI card opens Set up Ember AI, which takes a Cloudflare account's ID and an API token,
 then a model. Its steps make the token under Account API tokens in the Cloudflare dashboard, as a
-custom token with the account's AI Gateway Run permission. The account's ID starts as the one Ember is
+custom token with the account's AI Gateway Run permission, and its Workers AI Read permission for
+Grok, which Ember asks through Cloudflare's REST API. The account's ID starts as the one Ember is
 deployed to, when the deploy gave it, leaving only the token to make, and the dialog's links open that
 account's pages in the dashboard. Ember asks models through the account's default
 [AI Gateway](https://developers.cloudflare.com/ai-gateway/), whose logs, caching and spend limits

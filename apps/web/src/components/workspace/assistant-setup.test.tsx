@@ -111,7 +111,7 @@ describe("Set up Ember AI", () => {
     const tokens = within(open!).getByRole("link", { name: "Open Account API tokens in the Cloudflare dashboard" });
     expect(tokens).toHaveAttribute("href", "https://dash.cloudflare.com/?to=/:account/api-tokens");
     expect(tokens).toHaveAttribute("target", "_blank");
-    expect(permission).toHaveTextContent("Under Custom Token, choose Get started, name the token, and under Permissions choose Account, AI Gateway and Run.");
+    expect(permission).toHaveTextContent("Under Custom Token, choose Get started, name the token, and under Permissions choose Account, AI Gateway and Run. For Grok, choose Add more too, then Account, Workers AI and Read.");
     expect(copy).toHaveTextContent("Choose Continue to summary, then Create Token, and copy the token here.");
     expect(account).toHaveTextContent("Copy the account's ID too: search the dashboard for Copy account ID.");
     expect(accountIdField()).toHaveValue("");
@@ -281,7 +281,7 @@ describe("Set up Ember AI", () => {
     expect(apiTokensLink()).toHaveAttribute("href", `https://dash.cloudflare.com/${ACCOUNT_ID}/api-tokens`);
     expect(apiTokenField()).toHaveValue("");
     expect(apiTokenField()).toHaveAccessibleDescription(
-      "Ember has an API token already. Leave this blank to keep it, or paste another to ask with it instead. Either needs the AI Gateway Run permission.",
+      "Ember has an API token already. Leave this blank to keep it, or paste another to ask with it instead. Either needs the AI Gateway Run permission, and Workers AI Read for Grok.",
     );
     expect(button("Continue")).toBeEnabled();
     await user.click(button("Continue"));
@@ -298,7 +298,7 @@ describe("Set up Ember AI", () => {
     await dialog("Set up Ember AI");
     expect(steps().map((step) => step.textContent)).toEqual([
       "In the Cloudflare dashboard, open Account API tokens and choose Create Token. Open Account API tokens in the Cloudflare dashboard",
-      "Under Custom Token, choose Get started, name the token, and under Permissions choose Account, AI Gateway and Run.",
+      "Under Custom Token, choose Get started, name the token, and under Permissions choose Account, AI Gateway and Run. For Grok, choose Add more too, then Account, Workers AI and Read.",
       "Choose Continue to summary, then Create Token, and copy the token here.",
     ]);
     expect(accountIdField()).toHaveValue(ACCOUNT_ID);

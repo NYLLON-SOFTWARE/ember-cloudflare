@@ -281,7 +281,7 @@ function KeysStep({
         </li>
         <li>
           Under <em>Custom Token</em>, choose <em>Get started</em>, name the token, and under <em>Permissions</em> choose <em>Account</em>, <em>AI Gateway</em>{" "}
-          and <em>Run</em>.
+          and <em>Run</em>. For Grok, choose <em>Add more</em> too, then <em>Account</em>, <em>Workers AI</em> and <em>Read</em>.
         </li>
         <li>
           Choose <em>Continue to summary</em>, then <em>Create Token</em>, and copy the token here.
@@ -336,7 +336,7 @@ function KeysStep({
           ) : (
             hasToken && (
               <p id="assistant-api-token-description" className={cn(NOTE, "mt-2")}>
-                Ember has an API token already. Leave this blank to keep it, or paste another to ask with it instead. Either needs the AI Gateway Run permission.
+                Ember has an API token already. Leave this blank to keep it, or paste another to ask with it instead. Either needs the AI Gateway Run permission, and Workers AI Read for Grok.
               </p>
             )
           )}
