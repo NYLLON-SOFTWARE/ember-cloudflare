@@ -165,6 +165,7 @@ export {
   type SearchSort,
 } from "./search.ts";
 export {
+  escapeMarkdown,
   parseTranscriptFormat,
   roomTranscriptMarkdown,
   roomTranscriptPath,
@@ -179,6 +180,7 @@ export {
   type RoomTranscript,
   type TranscriptFormat,
   type TranscriptMessage,
+  type TranscriptPage,
   type TranscriptRoom,
   type WorkspaceTranscript,
 } from "./transcripts.ts";

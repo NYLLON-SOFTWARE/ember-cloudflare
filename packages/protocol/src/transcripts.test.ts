@@ -127,21 +127,63 @@ Done.
     );
   });
 
-  it("puts replies under their parent, indented, even when the reply was also sent to the room", () => {
+  it("puts replies under their parent, quoted, even when the reply was also sent to the room", () => {
     const markdown = roomTranscriptMarkdown(roomTranscript([parent, { ...reply, alsoSent: true }, later]));
     expect(markdown).toContain("**Ada Lovelace** · 2026-11-13T12:00:00.000Z");
-    expect(markdown).toContain("  **Grace Hopper** · 2026-11-13T12:01:00.000Z");
-    expect(markdown).toContain("  Yes");
+    expect(markdown).toContain("> **Grace Hopper** · 2026-11-13T12:01:00.000Z");
+    expect(markdown).toContain("> Yes");
     expect(markdown.indexOf("Shall we ship it?")).toBeLessThan(markdown.indexOf("Grace Hopper"));
     expect(markdown.indexOf("Grace Hopper")).toBeLessThan(markdown.indexOf("Done."));
     expect(markdown.match(/Grace Hopper/g)).toHaveLength(1);
+  });
+
+  it("nests a reply in a block quote under its parent, so a viewer attaches it to the thread", () => {
+    const markdown = roomTranscriptMarkdown(roomTranscript([parent, reply, later]));
+    expect(markdown).toContain("> **Grace Hopper** · 2026-11-13T12:01:00.000Z");
+    expect(markdown).toMatch(/^> Yes$/m);
+    expect(markdown).toContain("\n>\n> Yes");
+    expect(markdown.indexOf("Shall we ship it?")).toBeLessThan(markdown.indexOf("> **Grace Hopper**"));
+    expect(markdown.indexOf("> **Grace Hopper**")).toBeLessThan(markdown.indexOf("Done."));
+    expect(markdown).not.toMatch(/^ {2}\*\*Grace Hopper\*\*/m);
   });
 
   it("says when a message was deleted, and still lists the replies that kept its place", () => {
     const gone: TranscriptMessage = { ...parent, text: "", deleted: true };
     const markdown = roomTranscriptMarkdown(roomTranscript([gone, reply]));
     expect(markdown).toContain("_Deleted._");
-    expect(markdown).toContain("  Yes");
+    expect(markdown).toContain("> Yes");
+  });
+
+  it("names a live image-only message as an image, not as deleted", () => {
+    const image: TranscriptMessage = { ...parent, text: "", attachment: "image" };
+    const markdown = roomTranscriptMarkdown(roomTranscript([image]));
+    expect(markdown).toContain("_Image._");
+    expect(markdown).not.toContain("_Deleted._");
+    expect(roomTranscriptMarkdown(roomTranscript([{ ...parent, text: "", deleted: true }]))).toContain("_Deleted._");
+    expect(roomTranscriptMarkdown(roomTranscript([{ ...parent, text: "", attachment: "file" }]))).toContain("_File._");
+    expect(roomTranscriptMarkdown(roomTranscript([{ ...parent, text: "", cards: true }]))).toContain("_Card._");
+  });
+
+  it("writes a message's text, its author's name and the room's as they were typed, not as Markdown", () => {
+    const markdown = roomTranscriptMarkdown({
+      room: { id: "design", name: "Design *lab*", kind: "open" },
+      exportedAt: "2026-11-13T12:03:00.000Z",
+      messages: [
+        {
+          ...parent,
+          author: { id: "ada", name: "Ada *Lovelace*" },
+          text: "*bold*\n# heading\n<em>html</em>",
+        },
+      ],
+    });
+    expect(markdown).toContain("\\*bold\\*");
+    expect(markdown).toContain("\\# heading");
+    expect(markdown).toContain("&lt;em&gt;html&lt;/em&gt;");
+    expect(markdown).not.toMatch(/(^|\n)# heading(\n|$)/);
+    expect(markdown).not.toContain("*bold*");
+    expect(markdown).toContain("Ada \\*Lovelace\\*");
+    expect(markdown).toContain("# Design \\*lab\\*");
+    expect(markdown).not.toContain("# Design *lab*");
   });
 
   it("keeps a reply whose parent isn't in the transcript, so nothing is dropped", () => {

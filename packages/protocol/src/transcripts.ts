@@ -32,7 +32,7 @@ export interface TranscriptMessage {
   id: string;
   author: User;
   createdAt: string;
-  /** Plain text, as the room keeps it. Empty once the message is deleted. */
+  /** Plain text, as the room keeps it. Empty once the message is deleted, or for a file or cards with none. */
   text: string;
   /** Markup as stored, when the message has any. */
   body?: string;
@@ -42,6 +42,19 @@ export interface TranscriptMessage {
   alsoSent?: boolean;
   /** A message deleted while replies in its thread are left, which keeps its place for them. */
   deleted?: boolean;
+  /**
+   * A live message's file, named without its address: an image, or any other file. The room keeps the
+   * file's signed addresses out of the transcript.
+   */
+  attachment?: "image" | "file";
+  /** A bot's cards, when it has any, without their contents. */
+  cards?: true;
+}
+
+/** One page of a room's transcript, oldest first. `after` is the last id, when another page follows. */
+export interface TranscriptPage {
+  messages: TranscriptMessage[];
+  after?: string;
 }
 
 /** One room or DM as a transcript names it: its id, the name the caller reads it by, and its kind. */
@@ -91,9 +104,19 @@ export const transcriptRoomOf = (room: Room, meId: UserId): TranscriptRoom => ({
 /** `transcript` as JSON, with a trailing newline. */
 export const transcriptJson = (transcript: RoomTranscript | WorkspaceTranscript) => `${JSON.stringify(transcript, null, 2)}\n`;
 
+/** Marks `text` so a Markdown viewer shows it as it was typed. */
+export function escapeMarkdown(text: string): string {
+  return text.split("\n").map(escapeMarkdownLine).join("\n");
+}
+
+function escapeMarkdownLine(line: string): string {
+  const inline = line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/([\\`*_{}[\]])/g, "\\$1");
+  return inline.replace(/^(#{1,6} |[+\-] |\d+[.)] )/, "\\$&");
+}
+
 /** A room's transcript as Markdown: its name, then each message, with replies under their parent. */
 export function roomTranscriptMarkdown({ room, exportedAt, messages }: RoomTranscript): string {
-  return [`# ${room.name}`, "", `Exported ${exportedAt}.`, "", ...markdownMessages(messages)].join("\n").trimEnd() + "\n";
+  return [`# ${escapeMarkdown(room.name)}`, "", `Exported ${exportedAt}.`, "", ...markdownMessages(messages)].join("\n").trimEnd() + "\n";
 }
 
 /** Every room's transcript as Markdown, each after a rule. */
@@ -119,23 +142,33 @@ function markdownMessages(messages: TranscriptMessage[]): string[] {
   const seen = new Set<string>();
   for (const message of roots) {
     seen.add(message.id);
-    lines.push(...markdownMessage(message, ""), "");
+    lines.push(...markdownMessage(message), "");
     for (const reply of replies.get(message.id) ?? []) {
       seen.add(reply.id);
-      lines.push(...markdownMessage(reply, "  "), "");
+      lines.push(...markdownMessage(reply, true), "");
     }
   }
   // A reply whose parent isn't in the transcript still appears, so nothing is dropped.
   for (const message of messages) {
     if (seen.has(message.id)) continue;
-    lines.push(...markdownMessage(message, ""), "");
+    lines.push(...markdownMessage(message), "");
   }
   return lines;
 }
 
-/** One message as Markdown lines, indented when it's a reply. */
-function markdownMessage(message: TranscriptMessage, indent: string): string[] {
-  const heading = `${indent}**${message.author.name}** · ${message.createdAt}`;
-  const body = message.deleted || message.text === "" ? `${indent}_Deleted._` : message.text.split("\n").map((line) => `${indent}${line}`);
-  return [heading, "", ...(typeof body === "string" ? [body] : body)];
+/** One message as Markdown lines, quoted when it's a reply so a viewer nests it under its parent. */
+function markdownMessage(message: TranscriptMessage, asReply = false): string[] {
+  const heading = `**${escapeMarkdown(message.author.name)}** · ${message.createdAt}`;
+  const lines = [heading, "", ...bodyOf(message).split("\n")];
+  return asReply ? lines.map((line) => (line === "" ? ">" : `> ${line}`)) : lines;
+}
+
+/** A message's body: deleted, its text as typed, or a placeholder for a live message that has none. */
+function bodyOf(message: TranscriptMessage): string {
+  if (message.deleted) return "_Deleted._";
+  if (message.text !== "") return escapeMarkdown(message.text);
+  if (message.attachment === "image") return "_Image._";
+  if (message.attachment === "file") return "_File._";
+  if (message.cards) return "_Card._";
+  return "_Attachment._";
 }

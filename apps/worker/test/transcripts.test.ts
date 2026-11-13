@@ -18,6 +18,7 @@ import {
   freshRoom,
   post,
   roomSql,
+  roomStub,
   shown,
   signIn,
   type Session,
@@ -164,8 +165,8 @@ describe("A room's transcript", () => {
     expect(markdown.indexOf("Shall we ship it?")).toBeLessThan(markdown.indexOf("Yes"));
     expect(markdown.indexOf("Yes")).toBeLessThan(markdown.indexOf("And tell the room"));
     expect(markdown.indexOf("And tell the room")).toBeLessThan(markdown.indexOf("Shipped."));
-    expect(markdown).toContain("  **Ada** ·");
-    expect(markdown).toContain("  Yes");
+    expect(markdown).toContain("> **Ada** ·");
+    expect(markdown).toMatch(/^> Yes$/m);
     expect(markdown.match(/And tell the room/g)).toHaveLength(1);
   });
 
@@ -206,6 +207,76 @@ describe("A room's transcript", () => {
     expect(json.messages[0]!.text).toBe("message 0");
     expect(json.messages.at(-1)!.text).toBe(`message ${count - 1}`);
     expect(await (await roomTranscript(ada, room)).text()).toContain(`message ${count - 1}`);
+  });
+
+  it("reads a room longer than one page a page at a time, and the download is complete", async () => {
+    const room = await freshRoom("paged");
+    const ada = await signIn("Ada");
+    await connect(room, ada);
+    const count = TRANSCRIPT_PAGE + 5;
+    for (let i = 0; i < count; i++) {
+      const id = `p${String(i).padStart(4, "0")}`;
+      await roomSql(
+        room,
+        `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'Ada', '<p>n</p>', ?, '2026-11-13T12:00:00.000Z', '2026-11-13T12:00:00.000Z')`,
+        id,
+        room,
+        id,
+        ada.user.id,
+        `page ${i}`,
+      );
+    }
+    const first = await roomStub(room).transcriptPage(room);
+    expect(first.messages.length).toBeLessThanOrEqual(TRANSCRIPT_PAGE);
+    expect(first.messages).toHaveLength(TRANSCRIPT_PAGE);
+    expect(first.after).toBe(first.messages.at(-1)!.id);
+    const second = await roomStub(room).transcriptPage(room, first.after);
+    expect(second.messages).toHaveLength(5);
+    expect(second.after).toBeUndefined();
+    expect(second.messages.at(-1)!.text).toBe("page 104");
+    expect(JSON.stringify(first).length).toBeLessThan(JSON.stringify([...first.messages, ...second.messages]).length);
+
+    const json = (await (await roomTranscript(ada, room, "json")).json()) as RoomTranscript;
+    expect(json.messages).toHaveLength(count);
+    expect(json.messages.map((message) => message.text)).toEqual([...first.messages, ...second.messages].map((message) => message.text));
+    expect(await (await roomTranscript(ada, room)).text()).toContain("page 104");
+  });
+
+  it("writes a live image-only message as an image, not as deleted, without its file's address", async () => {
+    const room = await freshRoom("photos");
+    const ada = await signIn("Ada");
+    await connect(room, ada);
+    await roomSql(
+      room,
+      `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, created_at, updated_at, attachment)
+       VALUES ('m1-img', ?, 'm1-img', ?, 'Ada', '', '', '2026-11-13T12:00:00.000Z', '2026-11-13T12:00:00.000Z', ?)`,
+      room,
+      ada.user.id,
+      JSON.stringify({ id: "secret-file-key", name: "photo.png", contentType: "image/png", byteSize: 12, url: "/files/secret-file-key", downloadUrl: "/files/secret-file-key?download=1" }),
+    );
+    await roomSql(
+      room,
+      `INSERT INTO messages (id, room_id, client_message_id, creator_id, creator_name, body, plain_text, created_at, updated_at, deleted)
+       VALUES ('m2-gone', ?, 'm2-gone', ?, 'Ada', '', '', '2026-11-13T12:00:01.000Z', '2026-11-13T12:00:01.000Z', 1)`,
+      room,
+      ada.user.id,
+    );
+
+    const json = (await (await roomTranscript(ada, room, "json")).json()) as RoomTranscript;
+    expect(json.messages[0]).toMatchObject({ id: "m1-img", text: "", attachment: "image" });
+    expect(json.messages[0]!.deleted).toBeUndefined();
+    expect(json.messages[1]).toMatchObject({ id: "m2-gone", deleted: true, text: "" });
+    const serialized = JSON.stringify(json);
+    expect(serialized).not.toContain("secret-file-key");
+    expect(serialized).not.toContain("downloadUrl");
+    expect(serialized).not.toContain("/files/");
+
+    const markdown = await (await roomTranscript(ada, room)).text();
+    expect(markdown).toContain("_Image._");
+    expect(markdown).toContain("_Deleted._");
+    expect(markdown.indexOf("_Image._")).toBeLessThan(markdown.indexOf("_Deleted._"));
+    expect(markdown).not.toContain("secret-file-key");
   });
 
   it("refuses a format that isn't Markdown or JSON", async () => {

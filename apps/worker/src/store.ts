@@ -1,4 +1,4 @@
-import { PARENT_TEXT_LENGTH, parentTextOf, THREAD_FACES, type Boost, type Card, type Message, type RoomId, type ThreadSummary, type TimelinePage, type TranscriptMessage, type User, type UserId } from "@ember/protocol";
+import { isWebImage, PARENT_TEXT_LENGTH, parentTextOf, THREAD_FACES, type Boost, type Card, type Message, type RoomId, type ThreadSummary, type TimelinePage, type TranscriptMessage, type TranscriptPage, type User, type UserId } from "@ember/protocol";
 import { hasLinkable, type PreparedBody } from "@ember/richtext";
 import { statement, type Db, type Statement } from "./db";
 import { fileSigner, type FileUrls } from "./files/addresses";
@@ -281,12 +281,20 @@ interface TranscriptRow {
   parent_id: string | null;
   in_room: number;
   deleted: number;
+  /** The file's type when the message has one, so the transcript can name an image without its address. */
+  content_type: string | null;
+  has_cards: number;
 }
 
-/** The room's messages for a transcript, oldest first, replies sent only to a thread included. */
-export const TRANSCRIPT_MESSAGES = `SELECT id, creator_id, creator_name, body, plain_text, created_at, parent_id, in_room, deleted
+/**
+ * The room's messages for a transcript, oldest first, replies sent only to a thread included. The file's
+ * type is enough to name an image; its signed addresses stay out.
+ */
+export const TRANSCRIPT_MESSAGES = `SELECT id, creator_id, creator_name, body, plain_text, created_at, parent_id, in_room, deleted,
+  json_extract(attachment, '$.contentType') AS content_type, CASE WHEN cards IS NULL THEN 0 ELSE 1 END AS has_cards
   FROM messages WHERE room_id = ? ORDER BY id LIMIT ?`;
-export const TRANSCRIPT_MESSAGES_AFTER = `SELECT id, creator_id, creator_name, body, plain_text, created_at, parent_id, in_room, deleted
+export const TRANSCRIPT_MESSAGES_AFTER = `SELECT id, creator_id, creator_name, body, plain_text, created_at, parent_id, in_room, deleted,
+  json_extract(attachment, '$.contentType') AS content_type, CASE WHEN cards IS NULL THEN 0 ELSE 1 END AS has_cards
   FROM messages WHERE room_id = ? AND id > ? ORDER BY id LIMIT ?`;
 
 const toTranscriptMessage = (row: TranscriptRow): TranscriptMessage => ({
@@ -297,6 +305,8 @@ const toTranscriptMessage = (row: TranscriptRow): TranscriptMessage => ({
   ...(row.body !== "" && { body: row.body }),
   ...(row.parent_id != null && { parentId: row.parent_id, alsoSent: row.in_room === 1 }),
   ...(row.deleted === 1 && { deleted: true }),
+  ...(row.content_type != null && { attachment: isWebImage(row.content_type) ? "image" : "file" }),
+  ...(row.has_cards === 1 && { cards: true }),
 });
 
 /** A thread's newest replies, and the page before one of them, as the room's pages are. */
@@ -448,22 +458,16 @@ export class MessageStore {
   }
 
   /**
-   * Every message in the room for a transcript, oldest first, including replies sent only to a thread
-   * and a parent kept without its text for those replies. Pages through the room so a long one is still
-   * one statement per page. Leaves out signed file addresses, join codes, and session tokens.
+   * One page of the room's transcript, oldest first, including replies sent only to a thread and a parent
+   * kept without its text for those replies. `after` is the last id already read, matching
+   * `TRANSCRIPT_MESSAGES_AFTER`. Leaves out signed file addresses, join codes, and session tokens.
    */
-  async transcript(): Promise<TranscriptMessage[]> {
-    const messages: TranscriptMessage[] = [];
-    let after: string | undefined;
-    for (;;) {
-      const rows =
-        after === undefined
-          ? await this.db.all<TranscriptRow>(TRANSCRIPT_MESSAGES, this.roomId, TRANSCRIPT_PAGE)
-          : await this.db.all<TranscriptRow>(TRANSCRIPT_MESSAGES_AFTER, this.roomId, after, TRANSCRIPT_PAGE);
-      for (const row of rows) messages.push(toTranscriptMessage(row));
-      if (rows.length < TRANSCRIPT_PAGE) return messages;
-      after = rows.at(-1)!.id;
-    }
+  async transcriptPage(after?: string): Promise<TranscriptPage> {
+    const rows = after
+      ? await this.db.all<TranscriptRow>(TRANSCRIPT_MESSAGES_AFTER, this.roomId, after, TRANSCRIPT_PAGE)
+      : await this.db.all<TranscriptRow>(TRANSCRIPT_MESSAGES, this.roomId, TRANSCRIPT_PAGE);
+    const messages = rows.map(toTranscriptMessage);
+    return { messages, ...(rows.length === TRANSCRIPT_PAGE && { after: rows.at(-1)!.id }) };
   }
 
   /**
