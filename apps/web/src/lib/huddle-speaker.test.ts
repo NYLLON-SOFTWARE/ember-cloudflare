@@ -63,6 +63,39 @@ describe("What a huddle's speaker plays until it's stopped", () => {
     expect(play.mock.contexts).toEqual([music, music]);
   });
 
+  it("plays again through the system's speaker what it had stopped when the chosen one was unplugged, and through the chosen one once that's back", async () => {
+    const setSinkId = choosesSpeakers();
+    const changeTo = lists("default", "headphones");
+    const speaker = huddleSpeaker("headphones");
+    const music = audio();
+    speaker.play(music);
+    speaker.stop(music);
+    expect(setSinkId.mock.calls).toEqual([["headphones"]]);
+
+    // Stopped, it isn't told as the speaker is unplugged, and would play nothing through it.
+    await changeTo("default");
+    expect(setSinkId).toHaveBeenCalledTimes(1);
+    speaker.play(music);
+    expect(setSinkId.mock.calls).toEqual([["headphones"], [""]]);
+
+    speaker.stop(music);
+    await changeTo("default", "headphones");
+    speaker.play(music);
+    expect(setSinkId.mock.calls).toEqual([["headphones"], [""], ["headphones"]]);
+    expect(setSinkId.mock.contexts).toEqual([music, music, music]);
+    speaker.stopAll();
+  });
+
+  it("leaves what it plays to the system's speaker when none was chosen", () => {
+    const setSinkId = choosesSpeakers();
+    const speaker = huddleSpeaker("");
+    const voice = audio();
+    speaker.play(voice);
+    speaker.playOnce(audio());
+    expect(setSinkId).not.toHaveBeenCalled();
+    speaker.stopAll();
+  });
+
   it("stops for good with the huddle, which takes its box out of the page", () => {
     const speaker = huddleSpeaker("");
     const [voice, music] = [audio(), audio()];

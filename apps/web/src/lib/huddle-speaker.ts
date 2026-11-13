@@ -39,6 +39,13 @@ export function huddleSpeaker(speakerId: string): HuddleSpeaker {
     for (const audio of playing) playThrough(audio, speaker);
   };
   const stopWatching = watchDevices(() => void followSpeaker());
+  /**
+   * Has `audio` play through the speaker of now, where it last played through another: what's played again
+   * may have played last through a speaker that has been unplugged since, or plugged back in.
+   */
+  const through = (audio: HTMLAudioElement) => {
+    if ((audio.sinkId ?? "") !== speaker) playThrough(audio, speaker);
+  };
   const playRefused = () => {
     for (const audio of playing) if (audio.paused) void audio.play().catch(() => {});
   };
@@ -53,7 +60,7 @@ export function huddleSpeaker(speakerId: string): HuddleSpeaker {
   };
   return {
     play(audio) {
-      if (speaker) playThrough(audio, speaker);
+      through(audio);
       playing.add(audio);
       if (!box.isConnected) document.body.append(box);
       box.append(audio);
@@ -61,8 +68,7 @@ export function huddleSpeaker(speakerId: string): HuddleSpeaker {
     },
     stop,
     playOnce(audio) {
-      // It may have played last through a speaker that has been unplugged since, or plugged back in.
-      if ((audio.sinkId ?? "") !== speaker) playThrough(audio, speaker);
+      through(audio);
       audio.currentTime = 0;
       // Refused, it plays nothing: by the person's next touch, the moment has passed.
       void audio.play().catch(() => {});
