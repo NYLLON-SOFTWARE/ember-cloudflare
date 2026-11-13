@@ -62,7 +62,15 @@ const fileMessage = (overrides: Partial<Message> = {}) => message({ body: "", pl
  */
 function show(
   m: Message | PendingMessage,
-  { me = ada, administrator = false, threaded = false, sent = true, thread = undefined as ThreadPlace | undefined, open = false } = {},
+  {
+    me = ada,
+    administrator = false,
+    threaded = false,
+    sent = true,
+    thread = undefined as ThreadPlace | undefined,
+    open = false,
+    pinnedIds = undefined as ReadonlySet<string> | undefined,
+  } = {},
 ) {
   const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), pin: vi.fn(() => sent), unpin: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent), click: vi.fn(() => Promise.resolve(sent)) };
   let setEditing: (editing: boolean) => void = () => {};
@@ -83,7 +91,7 @@ function show(
       <FlashProvider workspace>
         <RoomConnection value={connections}>
           <RefusedUnboosts value={refusals}>
-            <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} />
+            <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} pinnedIds={pinnedIds} />
           </RefusedUnboosts>
         </RoomConnection>
       </FlashProvider>
@@ -939,6 +947,49 @@ describe("More actions on a message", () => {
     await user.hover(optionsOn("Hello"));
     expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("tooltip")).toHaveTextContent("Message options");
+  });
+
+  describe("Pin a message", () => {
+    /** The message pinned to its room, which names Unpin among its actions. */
+    const pinned = () => new Set(["m1"]);
+
+    it("names Pin to room on the bar, and pins from it, handing focus back to Message options", async () => {
+      const { actions, user } = show(message(), { pinnedIds: new Set<string>() });
+      await user.click(optionsOn("Hello"));
+      expect(barNames()).toContain("Pin to room");
+      await user.click(within(actionBar()).getByRole("button", { name: "Pin to room" }));
+      expect(actions.pin).toHaveBeenCalledWith("m1");
+      expect(optionsOn("Hello")).toHaveFocus();
+      expect(optionsOn("Hello")).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("names Unpin on a pinned message, and unpins from it", async () => {
+      const { actions, user } = show(message(), { pinnedIds: pinned() });
+      await pressAction(user, "Unpin");
+      expect(actions.unpin).toHaveBeenCalledWith("m1");
+      expect(actions.pin).not.toHaveBeenCalled();
+    });
+
+    it("pins from More actions first, as Slack's menu has it, and Unpin on a pinned message", async () => {
+      withMouse();
+      const { actions, article, user } = show(message({ creator: grace }), { administrator: true, pinnedIds: new Set<string>() });
+      await openMoreActions(user, article);
+      expect(items()).toEqual(["Pin to room", "Quote", "Copy text", "Copy link", "Edit message", "Delete message"]);
+      await user.click(within(moreActions()).getByRole("button", { name: "Pin to room" }));
+      expect(actions.pin).toHaveBeenCalledWith("m1");
+      cleanup();
+
+      const pinnedMessage = show(message(), { pinnedIds: pinned() });
+      await openMoreActions(pinnedMessage.user, pinnedMessage.article);
+      expect(within(moreActions()).getByRole("button", { name: "Unpin" })).toBeInTheDocument();
+    });
+
+    it("offers no pinning without the room's pins, as a thread's panel does", async () => {
+      const { user } = show(message(), { me: grace });
+      await user.click(optionsOn("Hello"));
+      expect(within(actionBar()).queryByRole("button", { name: "Pin to room" })).not.toBeInTheDocument();
+      expect(barNames()).toEqual(["👍Thumbs up", "👏Clapping", "👋Waving hand", "More reactions", "Reply in thread", "Quote", "Copy link"]);
+    });
   });
 });
 

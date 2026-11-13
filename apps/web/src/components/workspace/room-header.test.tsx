@@ -185,6 +185,23 @@ describe("Group DMs and DM names", () => {
   });
 });
 
+describe("Pinned messages", () => {
+  it("shows the room's Pinned control with how many it has, and opens the panel with it", async () => {
+    const onPinned = vi.fn();
+    renderHeader({ pinned: 3, onPinned });
+    const pinned = screen.getByRole("button", { name: "Pinned messages (3)" });
+    expect(pinned).toHaveTextContent("3");
+    expect(screen.getByTitle("Pinned messages")).toBeInTheDocument();
+    await userEvent.click(pinned);
+    expect(onPinned).toHaveBeenCalledOnce();
+  });
+
+  it("shows nothing while the room has no pins, or none known yet", () => {
+    renderHeader();
+    expect(screen.queryByRole("button", { name: /Pinned messages/ })).not.toBeInTheDocument();
+  });
+});
+
 describe("Room settings page", () => {
   it("links to the room's settings at the address for its kind, showing them in place", async () => {
     renderHeader({ room: { id: "leads", name: "Leads", kind: "closed", icon: null } });
