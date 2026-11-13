@@ -64,6 +64,7 @@ import pins from "../migrations/0063_pins.sql";
 import userGroups from "../migrations/0064_user_groups.sql";
 import dnd from "../migrations/0065_dnd.sql";
 import profileFields from "../migrations/0066_profile_fields.sql";
+import reminders from "../migrations/0067_reminders.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -154,6 +155,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0064_user_groups.sql", scope: "workspace", sql: userGroups },
   { name: "0065_dnd.sql", scope: "workspace", sql: dnd },
   { name: "0066_profile_fields.sql", scope: "workspace", sql: profileFields },
+  { name: "0067_reminders.sql", scope: "workspace", sql: reminders },
 ];
 
 /**
