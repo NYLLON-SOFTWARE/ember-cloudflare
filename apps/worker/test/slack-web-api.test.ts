@@ -112,13 +112,15 @@ describe("Slack Web API posting", () => {
 
   it("takes a room's name for its channel, with or without its #, ignoring case", async () => {
     const { bot, general, random } = await withBot();
-    for (const channel of ["#general", "General", "#GENERAL", general]) {
+    // A bare name that reads as an id, which no room has, is the room of theirs the name names.
+    for (const channel of ["#general", "General", "#GENERAL", general, "random"]) {
       const answer = (await (await send("chat.postMessage", bot.key, { channel, text: "Hello" })).json()) as { ok: boolean; channel?: string };
-      expect([channel, answer.ok, answer.channel]).toEqual([channel, true, general]);
+      const expected = channel === "random" ? random : general;
+      expect([channel, answer.ok, answer.channel]).toEqual([channel, true, expected]);
     }
     const randomAnswer = (await (await send("chat.postMessage", bot.key, { channel: "#Random", text: "To random" })).json()) as { ok: boolean };
     expect(randomAnswer.ok).toBe(true);
-    expect(await historyOf(bot.key, "#Random")).toMatchObject({ ok: true, channel: random, messages: [{ text: "To random" }] });
+    expect(await historyOf(bot.key, "#Random")).toMatchObject({ ok: true, channel: random, messages: [{ text: "Hello" }, { text: "To random" }] });
   });
 
   it("reads its fields from a form's, urlencoded or multipart, or a payload field's JSON, as its webhooks are sent", async () => {

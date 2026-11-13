@@ -57,30 +57,41 @@ const refused = (error: SlackWebError) => Response.json({ ok: false, error });
 /** The bot key a request sends as its bearer token, or "" for anything else its header names. */
 const bearerKeyOf = (request: Request): string => (request.headers.get("Authorization") ?? "").match(/^Bearer\s+(\S+)\s*$/i)?.[1] ?? "";
 
-/** The active bot the request's bearer key names, or what every method answers for a key no bot has. */
+/**
+ * The bot the request's bearer key names, or what every method answers for a key no bot has, read
+ * before its body: the key is all a bot has, so keyless requests cost nothing to answer.
+ */
 async function botIn(env: Env, request: Request) {
   const found = await workspace(env).slackBot(bearerKeyOf(request));
   return found ?? refused("invalid_auth");
 }
 
-/**
- * The active bot the request's bearer key names, in the room the fields' `channel` names: its id, or one
- * of the bot's rooms by its name, with or without its "#". Or what its caller answers instead:
- * `invalid_auth` for a key no active bot has, `channel_not_found` for a channel that names no room,
- * `not_in_channel` for one that is there but keeps the bot out.
- */
-async function botChannelIn(env: Env, request: Request, fields: SlackPayload) {
+/** The key a request bears, or what a channel method answers before it reads its body, for a header that names no key. */
+const keyIn = (request: Request) => {
   const key = bearerKeyOf(request);
-  const parts = botKeyParts(key);
-  const bot = parts === null ? null : await workspace(env).slackBot(key);
-  if (parts === null || bot === null) return refused("invalid_auth");
-  const channel = textOf(fields.channel).replace(/^#/, "");
-  const roomId = bot.rooms.find(({ name }) => name.toLowerCase() === channel.toLowerCase())?.id ?? (isRoomId(channel) ? channel : null);
-  if (roomId === null) return refused("channel_not_found");
-  const access = await workspace(env).botInRoom(parts.botId, parts.token, roomId);
-  if (!access) return refused("invalid_auth");
-  if (access === "not found") return refused((await workspace(env).roomExists(roomId)) ? "not_in_channel" : "channel_not_found");
-  return { roomId, access };
+  return botKeyParts(key) === null ? refused("invalid_auth") : key;
+};
+
+/**
+ * The bot the key `key` names, in the room the fields' `channel` names: its id, or one of the bot's
+ * rooms by its name, with or without its "#". Or what its caller answers instead: `invalid_auth` for
+ * a key no active bot has, `channel_not_found` for a channel that names no room, `not_in_channel` for
+ * one that is there but keeps the bot out. One read answers whichever the channel is, and the rooms
+ * the bot answers by name with are its own memberships, so a room of theirs needs no other.
+ */
+async function botChannelIn(env: Env, key: string, fields: SlackPayload) {
+  const given = textOf(fields.channel);
+  const channel = given.replace(/^#/, "");
+  if (given[0] !== "#" && isRoomId(channel)) {
+    const access = await workspace(env).slackBotIn(key, channel);
+    if (access === null) return refused("invalid_auth");
+    if (access !== "not found") return { roomId: channel, access };
+    if (await workspace(env).roomExists(channel)) return refused("not_in_channel");
+  }
+  const bot = await workspace(env).slackBot(key);
+  if (bot === null) return refused("invalid_auth");
+  const named = bot.rooms.find(({ name }) => name.toLowerCase() === channel.toLowerCase());
+  return named ? { roomId: named.id, access: { bot: bot.bot, authorizedAt: Date.now() } } : refused("channel_not_found");
 }
 
 /**
@@ -136,9 +147,11 @@ async function authTest(env: Env, request: Request): Promise<Response> {
 
 /** `POST /api/chat.postMessage`: posts what the fields post, as the bot's message in the room or thread they name, and answers with where it is. */
 async function postMessage(env: Env, request: Request): Promise<Response> {
+  const key = keyIn(request);
+  if (key instanceof Response) return key;
   const fields = await fieldsIn(request);
   if (fields instanceof Response) return fields;
-  const inChannel = await botChannelIn(env, request, fields);
+  const inChannel = await botChannelIn(env, key, fields);
   if (inChannel instanceof Response) return inChannel;
   const thread = textOf(fields.thread_ts);
   const message = slackMessage(fields);
@@ -151,9 +164,11 @@ async function postMessage(env: Env, request: Request): Promise<Response> {
 
 /** `POST /api/chat.update`: replaces the bot's message `ts` with what the fields post, answering it as it is now. */
 async function chatUpdate(env: Env, request: Request): Promise<Response> {
+  const key = keyIn(request);
+  if (key instanceof Response) return key;
   const fields = await fieldsIn(request);
   if (fields instanceof Response) return fields;
-  const inChannel = await botChannelIn(env, request, fields);
+  const inChannel = await botChannelIn(env, key, fields);
   if (inChannel instanceof Response) return inChannel;
   const ts = textOf(fields.ts);
   if (ts === "") return refused("message_not_found");
@@ -168,9 +183,11 @@ async function chatUpdate(env: Env, request: Request): Promise<Response> {
 
 /** `POST /api/chat.delete`: takes the bot's message `ts` in the room `channel` names away. */
 async function chatDelete(env: Env, request: Request): Promise<Response> {
+  const key = keyIn(request);
+  if (key instanceof Response) return key;
   const fields = await fieldsIn(request);
   if (fields instanceof Response) return fields;
-  const inChannel = await botChannelIn(env, request, fields);
+  const inChannel = await botChannelIn(env, key, fields);
   if (inChannel instanceof Response) return inChannel;
   const ts = textOf(fields.ts);
   if (ts === "") return refused("message_not_found");
@@ -188,9 +205,11 @@ async function conversationsList(env: Env, request: Request): Promise<Response> 
 
 /** `POST /api/conversations.history`: the newest `limit` of the room's messages, oldest first, with whether there are older ones. */
 async function conversationsHistory(env: Env, request: Request): Promise<Response> {
+  const key = keyIn(request);
+  if (key instanceof Response) return key;
   const fields = await fieldsIn(request);
   if (fields instanceof Response) return fields;
-  const inChannel = await botChannelIn(env, request, fields);
+  const inChannel = await botChannelIn(env, key, fields);
   if (inChannel instanceof Response) return inChannel;
   const history = await historyIn(env, inChannel.roomId, limitOf(fields.limit));
   // The room is there, so its page is there to read.
@@ -198,29 +217,33 @@ async function conversationsHistory(env: Env, request: Request): Promise<Respons
   return answered({ channel: inChannel.roomId, messages: history.messages.map(messageJson), has_more: history.hasMore });
 }
 
-/** How many messages a history read takes: `limit`, between 1 and 1000, or 100, as Slack reads none. */
+/** How many messages a history read takes: `limit`, between 1 and 200 — five pages for the room to gather — or 100, as Slack reads none. */
 const limitOf = (limit: unknown) => {
   const asked = Number(limit);
-  return Number.isInteger(asked) && asked > 0 ? Math.min(asked, 1000) : 100;
+  return Number.isInteger(asked) && asked > 0 ? Math.min(asked, 200) : 100;
 };
 
 /**
  * The newest `limit` of a room's messages, oldest first, with whether the room has older ones than the
- * oldest answered: the pages a bot reads, gathered back from the newest until it has `limit`.
+ * oldest answered: the pages a bot reads, gathered back from the newest until it has `limit`, its
+ * deleted messages left out, so a room that keeps some answers a full limit still.
  */
 async function historyIn(env: Env, roomId: RoomId, limit: number): Promise<{ messages: Message[]; hasMore: boolean } | null> {
   const room = env.CHAT_ROOM.getByName(roomId);
   const first = await room.botPage(roomId, {});
   if (first === null) return null;
-  const collected = [...first.messages];
+  const collected = first.messages.filter(({ deleted }) => deleted !== true);
+  // The room pages from a deleted message all the same, so the cursor is the page's first, kept or not.
+  let oldest = first.messages[0]?.id;
   let hasMore = first.hasMore;
-  while (hasMore && collected.length < limit) {
-    const older = await room.botPage(roomId, { before: collected[0]!.id });
+  while (hasMore && collected.length < limit && oldest !== undefined) {
+    const older = await room.botPage(roomId, { before: oldest });
     if (!older || older.messages.length === 0) break;
-    collected.unshift(...older.messages);
+    collected.unshift(...older.messages.filter(({ deleted }) => deleted !== true));
+    oldest = older.messages[0]!.id;
     hasMore = older.hasMore;
   }
-  return { messages: collected.slice(-limit).filter(({ deleted }) => deleted !== true), hasMore: hasMore || collected.length > limit };
+  return { messages: collected.slice(-limit), hasMore: hasMore || collected.length > limit };
 }
 
 /** A message as Slack's API writes one: its plain text as `text`, its id as `ts`, and who wrote it as `user`. */
