@@ -38,6 +38,7 @@ import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PicturePicker } from "./picture-picker";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
+import { TranscriptDownload } from "./transcript-download";
 import { avatarUrlOf, avatarVersionOf } from "./user-avatar";
 
 interface Props {
@@ -376,6 +377,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
         )}
         {assistant && <AnswerLevels assistant={assistant} onChanged={setAssistant} onFailed={onFailed} />}
         {rooms && <ConversationNotifications me={me} rooms={rooms} askForRoom={askForRoom} onFailed={onFailed} />}
+        <TranscriptDownload heading="Transcript" description="Download every room and DM you're in, as Markdown or JSON. Replies stay with the message they reply to." />
         {transferId && <SignInLink transferId={transferId} mine />}
       </Panel>
     </SettingsPage>

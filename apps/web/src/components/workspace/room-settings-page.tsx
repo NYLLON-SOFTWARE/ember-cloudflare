@@ -10,6 +10,7 @@ import type { RoomAnswer } from "@/lib/room-list";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
 import { workspaceSectionPath } from "./settings-navigation";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
+import { TranscriptDownload } from "./transcript-download";
 import { UnsavedChanges } from "./unsaved-changes";
 
 /** Whether `error` says the room isn't there for this person. */
@@ -180,6 +181,15 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
           />
         )}
       </Panel>
+      {settings && (
+        <Panel>
+          <TranscriptDownload
+            roomId={roomId}
+            heading="Transcript"
+            description="Download this room's messages as Markdown or JSON. Replies stay with the message they reply to."
+          />
+        </Panel>
+      )}
       {settings && !settings.canAdminister && settings.room.kind === "closed" && (
         <Panel>
           <Button type="button" variant="outline" disabled={busy} onClick={() => goOnceConfirmed(CONFIRM_LEAVE, leaveRoom)} className="max-w-full touch:h-11">

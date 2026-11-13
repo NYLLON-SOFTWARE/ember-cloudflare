@@ -19,6 +19,7 @@ import {
   type RoomId,
   type ServerFrame,
   type TimelinePage,
+  type TranscriptMessage,
   type User,
   type UserId,
 } from "@ember/protocol";
@@ -527,6 +528,14 @@ export class ChatRoom extends DurableObject<Env> {
       const { parent, messages } = await this.storeFor(roomId).thread(parentId, HISTORY_PAGE_SIZE);
       return parent && [parent, ...messages];
     });
+  }
+
+  /**
+   * Every message in the room for a transcript, oldest first, including replies sent only to a thread.
+   * Nothing of files' signed addresses goes with them.
+   */
+  async transcript(roomId: RoomId): Promise<TranscriptMessage[]> {
+    return this.serially(() => this.storeFor(roomId).transcript());
   }
 
   /**

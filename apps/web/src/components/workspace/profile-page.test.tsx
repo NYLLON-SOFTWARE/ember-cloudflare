@@ -165,6 +165,14 @@ describe("Edit your profile", () => {
     expect(topBar).toContainElement(screen.getByRole("button", { name: "Log out" }));
   });
 
+  it("offers Markdown and JSON transcripts of every room and DM you're in", () => {
+    showPage();
+    expect(screen.getByRole("heading", { level: 2, name: "Transcript" })).toBeInTheDocument();
+    expect(screen.getByText("Download every room and DM you're in, as Markdown or JSON. Replies stay with the message they reply to.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Markdown" })).toHaveAttribute("href", "/api/transcripts");
+    expect(screen.getByRole("link", { name: "JSON" })).toHaveAttribute("href", "/api/transcripts?format=json");
+  });
+
   it("is busy until your profile loads, then shows it to change, with nothing focused", async () => {
     showPage();
     const panel = screen.getByRole("heading", { level: 1 }).closest("section")!;

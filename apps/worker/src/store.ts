@@ -1,4 +1,4 @@
-import { PARENT_TEXT_LENGTH, parentTextOf, THREAD_FACES, type Boost, type Card, type Message, type RoomId, type ThreadSummary, type TimelinePage, type User, type UserId } from "@ember/protocol";
+import { PARENT_TEXT_LENGTH, parentTextOf, THREAD_FACES, type Boost, type Card, type Message, type RoomId, type ThreadSummary, type TimelinePage, type TranscriptMessage, type User, type UserId } from "@ember/protocol";
 import { hasLinkable, type PreparedBody } from "@ember/richtext";
 import { statement, type Db, type Statement } from "./db";
 import { fileSigner, type FileUrls } from "./files/addresses";
@@ -264,6 +264,41 @@ export const MESSAGES_AFTER = `${SELECT_MESSAGES} WHERE room_id = ? AND in_room 
 /** How many messages the room's timeline shows, which reads every one. */
 export const COUNT_MESSAGES = `SELECT COUNT(*) AS count FROM messages WHERE room_id = ? AND in_room = 1`;
 
+/**
+ * How many messages a transcript reads at a time, oldest first, thread replies included. A page is one
+ * statement, so a long room doesn't bind a list of ids.
+ */
+export const TRANSCRIPT_PAGE = 100;
+
+/** A message as a transcript keeps it: who wrote it, when, its text, and which message it replies to. */
+interface TranscriptRow {
+  id: string;
+  creator_id: string;
+  creator_name: string;
+  body: string;
+  plain_text: string;
+  created_at: string;
+  parent_id: string | null;
+  in_room: number;
+  deleted: number;
+}
+
+/** The room's messages for a transcript, oldest first, replies sent only to a thread included. */
+export const TRANSCRIPT_MESSAGES = `SELECT id, creator_id, creator_name, body, plain_text, created_at, parent_id, in_room, deleted
+  FROM messages WHERE room_id = ? ORDER BY id LIMIT ?`;
+export const TRANSCRIPT_MESSAGES_AFTER = `SELECT id, creator_id, creator_name, body, plain_text, created_at, parent_id, in_room, deleted
+  FROM messages WHERE room_id = ? AND id > ? ORDER BY id LIMIT ?`;
+
+const toTranscriptMessage = (row: TranscriptRow): TranscriptMessage => ({
+  id: row.id,
+  author: { id: row.creator_id, name: row.creator_name },
+  createdAt: row.created_at,
+  text: row.plain_text,
+  ...(row.body !== "" && { body: row.body }),
+  ...(row.parent_id != null && { parentId: row.parent_id, alsoSent: row.in_room === 1 }),
+  ...(row.deleted === 1 && { deleted: true }),
+});
+
 /** A thread's newest replies, and the page before one of them, as the room's pages are. */
 export const NEWEST_REPLIES = `${SELECT_MESSAGES} WHERE room_id = ? AND parent_id = ? ORDER BY id DESC LIMIT ?`;
 export const REPLIES_BEFORE = `${SELECT_MESSAGES} WHERE room_id = ? AND parent_id = ? AND id < ? ORDER BY id DESC LIMIT ?`;
@@ -410,6 +445,25 @@ export class MessageStore {
   /** How many messages the room has. */
   async count(): Promise<number> {
     return (await this.db.all<{ count: number }>(COUNT_MESSAGES, this.roomId))[0]!.count;
+  }
+
+  /**
+   * Every message in the room for a transcript, oldest first, including replies sent only to a thread
+   * and a parent kept without its text for those replies. Pages through the room so a long one is still
+   * one statement per page. Leaves out signed file addresses, join codes, and session tokens.
+   */
+  async transcript(): Promise<TranscriptMessage[]> {
+    const messages: TranscriptMessage[] = [];
+    let after: string | undefined;
+    for (;;) {
+      const rows =
+        after === undefined
+          ? await this.db.all<TranscriptRow>(TRANSCRIPT_MESSAGES, this.roomId, TRANSCRIPT_PAGE)
+          : await this.db.all<TranscriptRow>(TRANSCRIPT_MESSAGES_AFTER, this.roomId, after, TRANSCRIPT_PAGE);
+      for (const row of rows) messages.push(toTranscriptMessage(row));
+      if (rows.length < TRANSCRIPT_PAGE) return messages;
+      after = rows.at(-1)!.id;
+    }
   }
 
   /**

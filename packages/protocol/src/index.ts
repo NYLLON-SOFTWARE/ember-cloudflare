@@ -164,6 +164,24 @@ export {
   type SearchResults,
   type SearchSort,
 } from "./search.ts";
+export {
+  parseTranscriptFormat,
+  roomTranscriptMarkdown,
+  roomTranscriptPath,
+  transcriptJson,
+  transcriptRoomOf,
+  transcriptTitle,
+  toSentence,
+  TRANSCRIPT_FORMAT_REFUSED,
+  TRANSCRIPT_FORMATS,
+  workspaceTranscriptMarkdown,
+  workspaceTranscriptPath,
+  type RoomTranscript,
+  type TranscriptFormat,
+  type TranscriptMessage,
+  type TranscriptRoom,
+  type WorkspaceTranscript,
+} from "./transcripts.ts";
 
 export type UserId = string;
 export type RoomId = string;

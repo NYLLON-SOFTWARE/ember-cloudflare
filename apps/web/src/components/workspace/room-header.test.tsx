@@ -190,6 +190,26 @@ describe("Room settings page", () => {
   });
 });
 
+describe("Download transcript", () => {
+  it("links to the room's Markdown transcript after Search, in rooms and DMs alike", () => {
+    for (const [room, name] of [
+      [general, "general"],
+      [adaDirect, "Ada"],
+    ] as const) {
+      const { unmount } = renderHeader({ room, name });
+      const download = screen.getByRole("link", { name: "Download transcript" });
+      expect(download).toHaveAttribute("title", "Download transcript");
+      expect(download).toHaveAttribute("href", `/api/rooms/${room.id}/transcript`);
+      expect(download).toHaveAttribute("download");
+      expect(download.querySelector("svg")).toHaveClass("iconoir-download");
+      const following = (a: Element, b: Element) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
+      expect(following(screen.getByRole("link", { name: "Search messages" }), download)).toBeTruthy();
+      expect(following(download, screen.getByRole("checkbox", { name: /^Notifying about/ }))).toBeTruthy();
+      unmount();
+    }
+  });
+});
+
 describe("Search box", () => {
   it("links to search before the room's settings, in rooms and DMs alike, opening the search box in place, in the room", async () => {
     for (const [room, name] of [[general, "general"], [adaDirect, "Ada"]] as const) {
@@ -262,7 +282,7 @@ describe("Room icons", () => {
 describe("Notification levels", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("puts the bell for your level between Search and the settings, in rooms and DMs alike", () => {
+  it("puts the bell for your level between Download transcript and the settings, in rooms and DMs alike", () => {
     for (const [room, name, involvement, label] of [
       [general, "general", "mentions", "Notifying about @ mentions"],
       [adaDirect, "Ada", "everything", "Notifying about all messages"],
@@ -271,7 +291,7 @@ describe("Notification levels", () => {
       const bell = screen.getByRole("checkbox", { name: label });
       expect(bell).toHaveClass("size-9", "[&>svg]:size-5");
       const following = (a: Element, b: Element) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING;
-      expect(following(screen.getByRole("link", { name: "Search messages" }), bell)).toBeTruthy();
+      expect(following(screen.getByRole("link", { name: "Download transcript" }), bell)).toBeTruthy();
       expect(following(bell, screen.getByRole("link", { name: /^Settings for this/ }))).toBeTruthy();
       unmount();
     }
@@ -332,12 +352,14 @@ describe("Huddles", () => {
     expect(screen.getByRole("link", { name: "Search messages" })).not.toHaveClass("max-[429px]:hidden");
   });
 
-  it("starts its actions with the huddle button once they are, and gives up Search for it under 430px wide", () => {
+  it("starts its actions with the huddle button once they are, and gives up Search and Download for it under 430px wide", () => {
     renderWithHuddles(general, "general");
     const search = screen.getByRole("link", { name: "Search messages" });
+    const download = screen.getByRole("link", { name: "Download transcript" });
     expect(following(screen.getByRole("button", { name: "Start huddle" }), search)).toBeTruthy();
     expect(following(screen.getByRole("button", { name: "Huddle options" }), search)).toBeTruthy();
     expect(search).toHaveClass("max-[429px]:hidden");
+    expect(download).toHaveClass("max-[429px]:hidden");
   });
 
   it("has none in a DM, which keeps Search", () => {

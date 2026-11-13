@@ -1,6 +1,6 @@
 import { useContext } from "react";
-import type { Favorites, Involvement, Me, Room, User } from "@ember/protocol";
-import { ChatBubbleEmpty, MoreHoriz, Search } from "@/components/icons/iconoir";
+import { roomTranscriptPath, type Favorites, type Involvement, type Me, type Room, type User } from "@ember/protocol";
+import { ChatBubbleEmpty, Download, MoreHoriz, Search } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { useAccount } from "@/hooks/use-account";
@@ -42,9 +42,10 @@ interface Props {
 
 /**
  * The room header: the room's name, its star, who's here, the huddle button once huddles are on, Search,
- * which opens the search box in the room, the bell, which turns notifications on until they're on and
- * is then your notification level's, and its settings. A DM's has a chat bubble in place of the room's
- * icon, and no star or huddle button, and a DM with an AI agent alone the agent badge after its name.
+ * which opens the search box in the room, Download transcript, the bell, which turns notifications on
+ * until they're on and is then your notification level's, and its settings. A DM's has a chat bubble in
+ * place of the room's icon, and no star or huddle button, and a DM with an AI agent alone the agent
+ * badge after its name.
  */
 export function RoomHeader({ room, name, present, status, offline, favorite, onStarred, involvement, askForRoom, onSessionChanged, onFailed }: Props) {
   const nameOf = useNameOf();
@@ -104,6 +105,10 @@ export function RoomHeader({ room, name, present, status, offline, favorite, onS
           <Search className="size-5" />
           <span className="sr-only">Search messages</span>
         </PageLink>
+        <a href={roomTranscriptPath(room.id)} download title="Download transcript" className={cn(HEADER_BUTTON, huddles && "max-[429px]:hidden")}>
+          <Download className="size-5" />
+          <span className="sr-only">Download transcript</span>
+        </a>
         <NotificationBell room={room} involvement={involvement} askForRoom={askForRoom} onFailed={onFailed} className={cn(HEADER_BUTTON, "[&>svg]:size-5")} />
         <PageLink href={roomSettingsPath(room.kind, room.id)} title="Conversation settings" className={HEADER_BUTTON}>
           <MoreHoriz className="size-5" />
