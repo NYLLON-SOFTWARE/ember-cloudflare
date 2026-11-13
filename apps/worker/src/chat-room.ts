@@ -1089,9 +1089,9 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * The room's pins, with their messages and who pinned each, under each name they did it with, as
-   * pins.list answers. The people of the pinners are the Workspace's to name, as a message's mentions
-   * are, and a pin whose message is gone is too late to show.
+   * The room's pins, with their messages and whoever pinned each under their name now, as pins.list
+   * answers. The people of the pinners are the Workspace's to name, as a message's mentions are, and a
+   * pin whose message is gone is too late to show.
    */
   private async listPins(store: MessageStore): Promise<PinnedMessage[]> {
     const pins = await store.pins();
