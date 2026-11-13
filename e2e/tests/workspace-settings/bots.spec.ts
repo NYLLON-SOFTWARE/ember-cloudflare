@@ -752,7 +752,7 @@ test.describe("A bot's profile", () => {
     await expect(page.getByRole("main").getByRole("textbox")).toHaveCount(0);
     await expect(page.getByRole("button", { name: `Ban ${name}` })).toHaveCount(0);
 
-    await page.getByRole("button", { name: `Ping ${name}` }).click();
+    await page.getByRole("button", { name: "Message" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Direct message with ${name}`);
 
     await page.goto("/account/bots");
@@ -764,7 +764,7 @@ test.describe("A bot's profile", () => {
     await page.goto(profile);
     await expect(page.getByText(`${name} is no longer on this account`)).toBeVisible();
     await expect(page.getByRole("img", { name: "Profile avatar" })).toBeVisible();
-    await expect(page.getByRole("button", { name: `Ping ${name}` })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Message" })).toHaveCount(0);
   });
 });
 

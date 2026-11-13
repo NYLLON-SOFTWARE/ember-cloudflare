@@ -161,7 +161,7 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
           // At the page's text size.
           <button type="button" aria-disabled={starting || undefined} onClick={startDirect} className={cn(DIRECT_BUTTON, "bg-background")}>
             <ChatLines className="size-[1.3em]" />
-            <span className="sr-only">Ping {person.name}</span>
+            <span>Message</span>
           </button>
         ) : (
           <NoLongerHere name={person.name} />
@@ -201,7 +201,6 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
           {person.status === "active" && (
             <>
               <div className="mx-[1ch] mt-4 px-[2ch] max-md:mx-0 max-md:px-0">
-                {/* Named for what it does, since its icon is hidden. */}
                 <button
                   type="button"
                   aria-disabled={starting || undefined}
@@ -209,7 +208,7 @@ export function PersonPage({ userId, me, onStartDirect, onPersonChanged, reloadP
                   className={cn(DIRECT_BUTTON, "border-transparent bg-primary text-[17px] text-primary-foreground hover:not-active:brightness-70")}
                 >
                   <ChatLines className="size-[1.3em]" />
-                  <span className="sr-only">Ping {person.name}</span>
+                  <span>Message</span>
                 </button>
               </div>
               {transferId && (

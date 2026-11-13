@@ -242,7 +242,7 @@ test.describe("Agents", () => {
     expect(gateway.asked.at(-1)!.body.system).toContain(CARDS_PROMPT);
 
     await page.goto(`/users/${recap.id}`);
-    await page.getByRole("button", { name: "Ping Recap" }).click();
+    await page.getByRole("button", { name: "Message" }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Direct message with Recap");
     const composer = editorField(page, "Write a message");
     await composer.pressSequentially(CARD_QUESTION);
@@ -284,7 +284,7 @@ test.describe("Agents", () => {
     await expect(profile.getByText(/^An AI agent running on /)).toHaveText(
       "An AI agent running on Claude Sonnet 5.5 through Cloudflare AI Gateway, which sends the conversation you ask it in to Anthropic. You set it up.",
     );
-    await expect(profile.getByRole("button", { name: "Ping Recap" })).toBeVisible();
+    await expect(profile.getByRole("button", { name: "Message" })).toBeVisible();
     // Its instructions are for administrators, on its settings page.
     await expect(profile).not.toContainText("Sum up the conversation so far");
   });

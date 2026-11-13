@@ -1387,7 +1387,7 @@ describe("Someone's profile page", () => {
     const { user } = showWorkspace("/users/u2");
     expect(await screen.findByRole("heading", { level: 1, name: "Grace" })).toBeInTheDocument();
     expect(railCurrent()).toEqual([]);
-    await user.click(screen.getByRole("button", { name: "Ping Grace" }));
+    await user.click(screen.getByRole("button", { name: "Message" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Direct message with Grace" })).toBeInTheDocument();
     expect(location.pathname).toBe("/rooms/d1");
     expect(fetch).toHaveBeenCalledWith("/api/directs", expect.objectContaining({ method: "POST", body: JSON.stringify({ userIds: [grace.id] }) }));
@@ -1513,6 +1513,9 @@ describe("Activity", () => {
     const { user } = showWorkspace("/activity");
     await within(await screen.findByRole("list", { name: "Activity items" })).findByRole("button", { name: /Look at this 1/ });
     await user.click(screen.getByRole("button", { name: "Unreads" }));
+    expect(within(feed()).getByRole("listitem")).toHaveTextContent(/^You’re all caught up\.$/);
+    // On any tab.
+    await user.click(screen.getByRole("button", { name: "Threads" }));
     expect(within(feed()).getByRole("listitem")).toHaveTextContent(/^You’re all caught up\.$/);
     await user.click(screen.getByRole("button", { name: "Search activity" }));
     await user.type(screen.getByRole("searchbox", { name: "Search activity" }), "nothing like it");
