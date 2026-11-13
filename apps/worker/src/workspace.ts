@@ -3618,6 +3618,23 @@ export class Workspace extends DurableObject<Env> {
     return this.store.roomExists(roomId);
   }
 
+  /**
+   * The active bot the key `key` names in room `roomId`, with when this checked: one read for the
+   * Slack-compatible Web API's channel methods, which have the room's id already and no room name to
+   * read from `slackBot`. Null unless `key` is an active bot's own key now, and "not found" when the
+   * bot isn't in the room, as `botInRoom` answers. A token only a webhook's delivery gives a bot has
+   * no "-" in it, so no key names it here.
+   */
+  async slackBotIn(key: string, roomId: RoomId): Promise<BotAccess | "not found" | null> {
+    const parts = botKeyParts(key);
+    if (!parts) return null;
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const found = await this.store.activeBotKey(parts.botId, roomId);
+    if (!found || !isBotToken(parts.token, found.token)) return null;
+    return found.member ? { bot: found.bot, authorizedAt } : "not found";
+  }
+
   /** Whether `token` is the one a delivery to the webhook of the bot `found` gives it in room `roomId`, as the webhook is now. */
   private async isWebhookToken(token: string, roomId: RoomId, { bot, token: own, webhook }: BotKey): Promise<boolean> {
     return webhook !== null && isBotToken(token, await webhookTokenOf(this.env.SESSION_SECRET, roomId, bot.id, { token: own, ...webhook }));
