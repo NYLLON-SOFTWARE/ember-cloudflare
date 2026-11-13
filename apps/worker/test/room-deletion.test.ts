@@ -1,4 +1,4 @@
-import { CloseCode, type RoomId, type Sidebar } from "@ember/protocol";
+import { CloseCode, ROOMS_ELSEWHERE_PATH, type RoomId, type RoomsElsewhere, type SharedRoom, type Sidebar } from "@ember/protocol";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +14,7 @@ import {
   closeOf,
   connect,
   createRoom,
+  direct,
   forwardUpgrade,
   freshDeploy,
   post,
@@ -43,6 +44,13 @@ afterEach(() => {
 const remove = (roomId: RoomId, session: Session) => api(`/api/rooms/${roomId}`, { method: "DELETE", headers: { Cookie: session.cookie } });
 
 /** Makes someone an administrator, as only first run can yet. */
+/** The rooms administrator `session` isn't in, as Rooms and permissions lists them to delete. */
+async function elsewhere(session: Session): Promise<SharedRoom[]> {
+  const response = await api(ROOMS_ELSEWHERE_PATH, { headers: { Cookie: session.cookie } });
+  expect(response.status).toBe(200);
+  return ((await response.json()) as RoomsElsewhere).rooms;
+}
+
 const promote = (session: Session) => workspaceSql("UPDATE users SET role = 1 WHERE id = ?", session.user.id);
 
 /** The ids of the rooms `session`'s person sees listed. */
@@ -191,9 +199,8 @@ describe("Delete a room", () => {
     expect(await listed(ada)).toEqual([]);
   });
 
-  it("answers 404 to people who aren't in the room, administrators included, and for missing rooms", async () => {
+  it("answers 404 to members who aren't in the room, and for missing rooms", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
-    await promote(grace);
     const room = await createRoom("Leads", { closedTo: [ada.user.id], as: ada });
 
     for (const [roomId, session] of [[room.id, grace], ["nowhere", ada], ["%FF", ada]] as const) {
@@ -202,6 +209,41 @@ describe("Delete a room", () => {
       expect(await response.json()).toEqual({ error: "Room not found or inaccessible" });
     }
     expect(await workspaceSql("SELECT id FROM rooms WHERE id = ?", room.id)).toEqual([{ id: room.id }]);
+  });
+
+  it("lists for administrators the rooms they aren't in, by name, and refuses anyone else", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    await promote(grace);
+    const [zebra, alpha] = [await createRoom("zebra", { closedTo: [ada.user.id], as: ada }), await createRoom("Alpha", { closedTo: [ada.user.id], as: ada })];
+    await createRoom("Theirs", { closedTo: [grace.user.id], as: grace });
+    expect((await elsewhere(grace)).filter((room) => [alpha.id, zebra.id].includes(room.id))).toEqual([alpha, zebra]);
+    expect((await elsewhere(grace)).map((room) => room.name)).not.toContain("Theirs");
+
+    const refused = await api(ROOMS_ELSEWHERE_PATH, { headers: { Cookie: ada.cookie } });
+    expect(refused.status).toBe(403);
+    expect((await api(ROOMS_ELSEWHERE_PATH)).status).toBe(401);
+  });
+
+  it("lets administrators delete any room, a private one they aren't in too, as one made without its maker, but no DM they aren't in", async () => {
+    const [ada, grace, linus] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus")];
+    await promote(grace);
+    // Made over the API without Ada, who made it, so nobody in it can change it.
+    const stuck = await createRoom("Stuck", { closedTo: [linus.user.id], as: ada });
+    const linusInRoom = await connect(stuck.id, linus);
+    expect((await remove(stuck.id, linus)).status).toBe(403);
+    expect((await remove(stuck.id, ada)).status).toBe(404);
+
+    const closed = closeOf(linusInRoom.ws);
+    expect((await remove(stuck.id, grace)).status).toBe(204);
+    expect(await closed).toMatchObject({ code: CloseCode.NotFound });
+    expect(await workspaceSql("SELECT id FROM rooms WHERE id = ?", stuck.id)).toEqual([]);
+    expect(await listed(linus)).toEqual([]);
+
+    const dm = await direct(ada, linus);
+    // Nor does it list one for them to delete.
+    expect(await elsewhere(grace)).not.toContainEqual(expect.objectContaining({ id: dm.id }));
+    expect((await remove(dm.id, grace)).status).toBe(404);
+    expect(await workspaceSql("SELECT id FROM rooms WHERE id = ?", dm.id)).toEqual([{ id: dm.id }]);
   });
 
   it("asks who's signed in, and refuses deletions from other sites", async () => {
