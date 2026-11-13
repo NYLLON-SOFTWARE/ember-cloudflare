@@ -27,7 +27,8 @@ import { anyOtherPage, formAnswer } from "../pages";
 import { asksModel, workspace, type AgentTrialAccess, type AskedModel } from "../workspace";
 import { answerOf, questionFor, waitFor } from "./answers";
 import { askInTurn, formatsFor, type Answered, type Gateway, type GatewayRefusal } from "./gateway";
-import { administratorOf, greetingFrom, searchedBy, TEST_QUESTION, testedLevelsOf, WEB_TEST_QUESTION } from "./settings";
+import { TEST_QUESTION, testedLevelsOf } from "./model-tests";
+import { administratorOf, greetingFrom, searchedBy, WEB_TEST_QUESTION } from "./settings";
 
 // AI agents, as administrators make, change and delete them beside @ember on the AI assistant tab of
 // workspace settings, each with its own instructions and the model it answers with, which Ember AI asks

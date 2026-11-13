@@ -8,6 +8,7 @@ import {
   DEFAULT_LEVELS,
   formatOf,
   INSTRUCTIONS_TOO_LONG,
+  isProviderFormat,
   isWorkersAiModel,
   isXaiModel,
   LEVELS_REFUSED,
@@ -25,6 +26,7 @@ import {
   parseAssistantSetup,
   parseNewAssistantModel,
   parseYourAssistantChanges,
+  providerFormatOf,
   searchFormatOf,
   THINKING_LEVELS,
   THINKING_TOKENS,
@@ -126,12 +128,20 @@ describe("Set up Ember AI", () => {
     expect(formatOf("openai/gpt-6.1-sol")).toBe("responses");
     expect([formatOf("anthropic/claude-mythos-6"), formatOf("openai/gpt-7"), formatOf("@cf/meta/llama-5")]).toEqual(["messages", "responses", "chat"]);
     expect(formatOf("xai/grok-4.7")).toBe("chat");
-    expect(WEB_TOOLS_IN).toEqual({ messages: ["search", "read"], responses: ["search"], chat: [], xai: ["search"] });
+    expect(WEB_TOOLS_IN).toEqual({ messages: ["search", "read"], responses: ["search"], chat: [], xai: ["search"], anthropic: ["search", "read"], openai: ["search"] });
+  });
+
+  it("asks Claude, GPT and Grok in their providers' own formats, and anyone else's model through the REST API alone", () => {
+    expect(["anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "xai/grok-4.7"].map(providerFormatOf)).toEqual(["anthropic", "openai", "xai"]);
+    expect(["google/gemini-3.7-flash", "@cf/openai/gpt-oss-120b", "workers-ai/@cf/openai/gpt-oss-120b", "moonshotai/kimi-k3"].map(providerFormatOf)).toEqual([null, null, null, null]);
+    expect(MODEL_FORMATS.filter(isProviderFormat)).toEqual(["xai", "anthropic", "openai"]);
   });
 
   it("searches the web in a model's own format if it can, or else, for Grok, in xAI's own Responses", () => {
     expect([isXaiModel("xai/grok-4.7"), isXaiModel("@cf/xai/grok"), isXaiModel("openai/gpt-7")]).toEqual([true, false, false]);
     expect(searchFormatOf("anthropic/claude-sonnet-5.5", "messages")).toBe("messages");
+    expect(searchFormatOf("anthropic/claude-sonnet-5.5", "anthropic")).toBe("anthropic");
+    expect(searchFormatOf("openai/gpt-7", "openai")).toBe("openai");
     expect(searchFormatOf("openai/gpt-7", "responses")).toBe("responses");
     expect(searchFormatOf("xai/grok-4.7", "chat")).toBe("xai");
     expect(searchFormatOf("xai/grok-4.7", "xai")).toBe("xai");

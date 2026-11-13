@@ -168,7 +168,9 @@ export interface SavedHuddles {
  * its test question in, the models people can pick from, that one among them, in the order they were
  * added, what @ember may do on the web, which Search the web found the model that answers everyone could
  * when it was turned on, or nothing while it's off, and when that was asked for, if Search the web has
- * been turned on or off for that model.
+ * been turned on or off for that model. Then when Ember asked the models it asks through Cloudflare's
+ * REST API, the agents' too, whether their providers' own endpoints answer them, which it does once
+ * after each time Ember AI is set up, or null until it has.
  */
 export interface SavedAssistant {
   accountId: string;
@@ -178,6 +180,19 @@ export interface SavedAssistant {
   models: SavedModel[];
   webTools: WebTool[];
   webToolsAskedAt: string | null;
+  providerEndpointsTriedAt: string | null;
+}
+
+/**
+ * A model that Ember asks in another format from now on than the one it was saved in, `from`, as Grok
+ * searches the web in xAI's own Responses, or any model its provider's own endpoint answers, with the
+ * levels of thinking it takes there, which asking it at each found.
+ */
+export interface MovedModel {
+  id: string;
+  from: ModelFormat;
+  format: ModelFormat;
+  thinkingLevels: ThinkingLevel[];
 }
 
 /**
@@ -966,6 +981,9 @@ const storedAgent = (row: AgentRow, rooms: AgentRoom[]): StoredAgent => ({
   rooms: row.every_open_room === 1 ? null : rooms,
 });
 
+/** The format an agent's model is asked in, as the agents table keeps it, `kept`, or Chat Completions for what can't be one. */
+const agentsFormatIn = (kept: string): ModelFormat => (isModelFormat(kept) ? kept : "chat");
+
 /**
  * How an agent answers, as the agents table keeps it: its instructions and what Ember adds around them,
  * its model's format and the levels of thinking it takes, its levels and what it may do on the web.
@@ -976,7 +994,7 @@ type AnsweringColumns = Pick<AgentSettingsRow, "instructions" | "prompt_template
 const answeringOf = (row: AnsweringColumns): Pick<AgentSetup, "instructions" | "promptTemplate" | "format" | "thinkingLevels" | "levels" | "webTools"> => ({
   instructions: row.instructions,
   promptTemplate: row.prompt_template,
-  format: isModelFormat(row.format) ? row.format : "chat",
+  format: agentsFormatIn(row.format),
   thinkingLevels: row.thinking_levels === null ? null : (thinkingLevelsIn(JSON.parse(row.thinking_levels)) ?? null),
   levels: { thinking: levelIn(THINKING_LEVELS, row.thinking) ?? DEFAULT_LEVELS.thinking, length: levelIn(ANSWER_LENGTHS, row.answer_length) ?? DEFAULT_LEVELS.length },
   webTools: webToolsIn(row.web_tools),
@@ -1097,17 +1115,28 @@ function huddlesIn(settings: Record<string, unknown> | null): SavedHuddles | nul
 }
 
 /**
- * How Ember AI asks AI Gateway, which the account's settings keep as `assistant`,
- * `{ account_id, api_token, model, format, models, web_tools, web_tools_asked_at }`, the API token sealed,
- * or null while it's off. Its models are `[{ id, name, format, thinking_levels }]`, which Ember AI set up
+ * How Ember AI asks AI Gateway, which the account's settings keep as `assistant`, `{ account_id,
+ * api_token, model, format, models, web_tools, web_tools_asked_at, provider_endpoints_tried_at }`, the
+ * API token sealed, or null while it's off. Its models are `[{ id, name, format, thinking_levels }]`, which Ember AI set up
  * before people could pick has none of: it then has its own model alone, as it does when they leave it
  * out. A model added before Ember asked models at each level of thinking has no `thinking_levels`. Without
- * `web_tools`, as Ember AI was kept before Search the web, @ember does nothing on the web.
+ * `web_tools`, as Ember AI was kept before Search the web, @ember does nothing on the web, and without
+ * `provider_endpoints_tried_at`, as it was kept before Ember asked Claude and GPT through their providers'
+ * endpoints, their models are yet to be asked there.
  */
 function assistantIn(settings: Record<string, unknown> | null): SavedAssistant | null {
   const kept = settings?.assistant;
   if (typeof kept !== "object" || kept === null) return null;
-  const { account_id: accountId, api_token: sealedApiToken, model, format, models, web_tools: webTools, web_tools_asked_at: webToolsAskedAt } = kept as Record<string, unknown>;
+  const {
+    account_id: accountId,
+    api_token: sealedApiToken,
+    model,
+    format,
+    models,
+    web_tools: webTools,
+    web_tools_asked_at: webToolsAskedAt,
+    provider_endpoints_tried_at: providerEndpointsTriedAt,
+  } = kept as Record<string, unknown>;
   if (typeof accountId !== "string" || typeof sealedApiToken !== "string" || typeof model !== "string" || !isModelFormat(format)) return null;
   const listed = savedModelsIn(models);
   const own = listed.some(({ id }) => id === model) ? listed : [{ id: model, name: modelName(model), format }, ...listed];
@@ -1119,6 +1148,7 @@ function assistantIn(settings: Record<string, unknown> | null): SavedAssistant |
     models: own,
     webTools: WEB_TOOLS.filter((tool) => Array.isArray(webTools) && webTools.includes(tool)),
     webToolsAskedAt: typeof webToolsAskedAt === "string" ? webToolsAskedAt : null,
+    providerEndpointsTriedAt: typeof providerEndpointsTriedAt === "string" ? providerEndpointsTriedAt : null,
   };
 }
 
@@ -1175,6 +1205,7 @@ const assistantSetting = (assistant: SavedAssistant | null) =>
       models: assistant.models.map(({ id, name, format, thinkingLevels }) => ({ id, name, format, ...(thinkingLevels && { thinking_levels: thinkingLevels }) })),
       web_tools: assistant.webTools,
       web_tools_asked_at: assistant.webToolsAskedAt,
+      provider_endpoints_tried_at: assistant.providerEndpointsTriedAt,
     },
   );
 
@@ -1995,6 +2026,9 @@ const AGENT_PROFILE = `SELECT agents.description, agents.model, agents.model_nam
 const INSERT_AGENT = `INSERT INTO agents (user_id, description, instructions, model, model_name, format, thinking, answer_length, web_tools,
     prompt_template, thinking_levels, every_open_room, created_by, updated_by, created_at, updated_at)
   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13, ?14, ?14)`;
+
+/** Has the agents that ask a model in a format ask it in another, with the levels of thinking it takes there, without recording a change to them. */
+const MOVE_AGENTS_MODEL = `UPDATE agents SET format = ?, thinking_levels = ? WHERE model = ? AND format = ?`;
 
 /** Changes an agent's setup, and records who changed it, and when. */
 const CHANGE_AGENT = `UPDATE agents SET description = ?2, instructions = ?3, model = ?4, model_name = ?5, format = ?6, thinking = ?7, answer_length = ?8,
@@ -3573,6 +3607,12 @@ export class WorkspaceStore {
     return row ? { description: row.description, model: row.model, modelName: row.model_name, setUpBy: { id: row.created_by, name: row.created_by_name } } : null;
   }
 
+  /** The models the agents answer with, whether Ember AI is on or off, each with a format an agent asks it in, once each. */
+  async agentModels(): Promise<Pick<AssistantModel, "id" | "format">[]> {
+    const rows = await this.db.all<{ model: string; format: string }>(`SELECT DISTINCT model, format FROM agents`);
+    return rows.map((row) => ({ id: row.model, format: agentsFormatIn(row.format) }));
+  }
+
   /** Every agent, whether Ember AI is on or off, as the people directory lists it. */
   async agentEntries(): Promise<DirectoryEntry[]> {
     return (await this.db.all<DirectoryRow>(AGENTS_LISTED)).map(directoryEntry);
@@ -3757,6 +3797,17 @@ export class WorkspaceStore {
       statement(REMEMBER_ASSISTANT_LIMITS, JSON.stringify(most)),
       statement(REMEMBER_ASSISTANT_INSTRUCTIONS, JSON.stringify(instructions)),
       statement(REMEMBER_ASSISTANT_PROMPT_TEMPLATE, JSON.stringify(promptTemplate)),
+    ]);
+  }
+
+  /**
+   * Saves Ember AI as `assistant` has it, without recording when, and has each agent whose model and
+   * format a move of `moves` names asked as the move says, in one batch.
+   */
+  async moveModels(assistant: SavedAssistant, moves: readonly MovedModel[]): Promise<void> {
+    await this.db.batch([
+      statement(REMEMBER_ASSISTANT, assistantSetting(assistant)),
+      ...moves.map(({ id, from, format, thinkingLevels }) => statement(MOVE_AGENTS_MODEL, format, JSON.stringify(thinkingLevels), id, from)),
     ]);
   }
 

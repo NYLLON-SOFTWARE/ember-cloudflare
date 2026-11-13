@@ -34,11 +34,16 @@ const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const API_TOKEN = "an-api-token-with-workers-ai-read_0123456";
 const SETUP = { accountId: ACCOUNT_ID, apiToken: API_TOKEN, model: "anthropic/claude-sonnet-5.5" };
 const CLOUDFLARE_API = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}`;
+/** Where the account's default gateway passes requests on to OpenAI's own Responses, as Ember asks GPT. */
+const OPENAI_ENDPOINT = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default/openai/responses`;
 const HELLO = "Hello, team!";
 
-/** The models people can pick, as Ember AI lists them once they've answered their test questions, which they did at every level of thinking. */
-const CLAUDE: AssistantModel = { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", format: "messages", thinkingLevels: [...THINKING_LEVELS] };
-const GPT: AssistantModel = { id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", format: "responses", thinkingLevels: [...THINKING_LEVELS] };
+/**
+ * The models people can pick, as Ember AI lists them once they've answered their test questions, which
+ * they did at every level of thinking, Claude and GPT through their providers' endpoints.
+ */
+const CLAUDE: AssistantModel = { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", format: "anthropic", thinkingLevels: [...THINKING_LEVELS] };
+const GPT: AssistantModel = { id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", format: "openai", thinkingLevels: [...THINKING_LEVELS] };
 const DEEPSEEK: AssistantModel = { id: "deepseek/deepseek-v4-pro", name: "DeepSeek V4 Pro", format: "chat", thinkingLevels: [...THINKING_LEVELS] };
 
 /** `model` as Cloudflare's catalog lists it, which says nothing of the levels of thinking it takes, as Ember lists one it hasn't asked at each. */
@@ -87,13 +92,13 @@ const ROWS = [
   { model_id: "not a model", name: "Not a model", task: "Text Generation" },
 ];
 
-/** The text models of `ROWS`, as Ember lists them: Workers AI's first, then by name, each once, with what they cost. */
+/** The text models of `ROWS`, as Ember lists them: Workers AI's first, then by name, each once, in the formats Cloudflare's REST API takes them in, with what they cost. */
 const LISTED: AssistantModel[] = [
   { id: "@cf/zai-org/glm-4.7-flash", name: "GLM-4.7 Flash", format: "chat" },
   { id: "@cf/meta/llama-4-scout-17b-16e-instruct", name: "llama-4-scout-17b-16e-instruct", format: "chat" },
-  { ...untested(CLAUDE), price: { input: 2, output: 10 } },
+  { ...untested(CLAUDE), format: "messages", price: { input: 2, output: 10 } },
   { ...untested(DEEPSEEK), price: { input: 1.74, output: 3.48 } },
-  { ...untested(GPT), price: { input: 2, output: 10 } },
+  { ...untested(GPT), format: "responses", price: { input: 2, output: 10 } },
 ];
 
 const as = (session?: Session | null): Record<string, string> => (session ? { Cookie: session.cookie } : {});
@@ -381,7 +386,7 @@ describe("The models people can pick", () => {
     // Without a name, a model is called as Ember knows it, or else by its ID.
     expect((await turnOn(ada)).assistant.models).toEqual([CLAUDE]);
     expect((await turnOn(ada, { ...SETUP, model: "openai/gpt-5.5" })).assistant.models).toEqual([
-      { id: "openai/gpt-5.5", name: "openai/gpt-5.5", format: "responses", thinkingLevels: [...THINKING_LEVELS] },
+      { id: "openai/gpt-5.5", name: "openai/gpt-5.5", format: "openai", thinkingLevels: [...THINKING_LEVELS] },
     ]);
   });
 
@@ -395,8 +400,8 @@ describe("The models people can pick", () => {
     expect(response.status, await response.clone().text()).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.json()).toEqual({ assistant: settingsWith([CLAUDE, GPT]), greeting: "Hi, I'm GPT." } satisfies AssistantSaved);
-    // Its test question, and then the same at each level of thinking.
-    expect(requests.map(({ url, authorization, body }) => [url, authorization, body?.model])).toEqual(Array(5).fill([`${CLOUDFLARE_API}/ai/v1/responses`, `Bearer ${API_TOKEN}`, GPT.id]));
+    // Its test question, and then the same at each level of thinking, through the gateway's OpenAI endpoint, as OpenAI names it.
+    expect(requests.map(({ url, authorization, body }) => [url, authorization, body?.model])).toEqual(Array(5).fill([OPENAI_ENDPOINT, null, "gpt-6.1-sol"]));
     const efforts = requests.map(({ body }) => (body?.reasoning as { effort: string } | undefined)?.effort);
     expect([efforts[0], efforts.slice(1).sort()]).toEqual([undefined, ["high", "low", "medium", "none"]]);
     expect((await storedAssistant())?.models).toEqual([kept(CLAUDE), kept(GPT)]);
@@ -427,7 +432,7 @@ describe("The models people can pick", () => {
     cloudflare({
       // While GPT answers its test question, Ember AI is turned off and set up again with another API token.
       answer: async (sent) => {
-        if (sent.body?.model === GPT.id) {
+        if (sent.url === OPENAI_ENDPOINT) {
           expect((await api("/api/account/assistant", { method: "DELETE", headers: as(ada) })).status).toBe(200);
           await turnOn(ada, { ...SETUP, apiToken: `${API_TOKEN}-2`, model: DEEPSEEK.id, modelName: DEEPSEEK.name });
         }
@@ -460,7 +465,7 @@ describe("The models people can pick", () => {
     const response = await change(ada, { model: GPT.id, thinking: "medium" });
     expect(response.status, await response.clone().text()).toBe(200);
     expect(await response.json()).toEqual({ assistant: { ...settingsWith([CLAUDE, GPT], GPT.id), most: { thinking: "medium", length: "long" } } });
-    expect(await storedAssistant()).toMatchObject({ model: GPT.id, format: "responses" });
+    expect(await storedAssistant()).toMatchObject({ model: GPT.id, format: "openai" });
     expect(await refusalOf(await change(ada, { model: DEEPSEEK.id }))).toEqual([422, MODEL_NOT_LISTED]);
     expect(await refusalOf(await change(ada, { model: "gpt" }))).toEqual([422, MODEL_NOT_LISTED]);
     expect((await settingsShown(ada))?.model).toBe(GPT.id);
@@ -632,7 +637,7 @@ describe("@ember's answers", () => {
     }
   }
 
-  /** What @ember answers `person` asking it something in general, and the model it asked. */
+  /** What @ember answers `person` asking it something in general, and the model it asked, as the model's provider names it. */
   async function askedAs(person: Session): Promise<[string, unknown]> {
     const client = await connect(await general(), person);
     const requests = cloudflare({ answer: answering("An answer.") });
@@ -652,11 +657,11 @@ describe("@ember's answers", () => {
     await pick(grace, { model: GPT.id });
     vi.restoreAllMocks();
 
-    expect(await askedAs(grace)).toEqual(["An answer.", GPT.id]);
-    expect(await askedAs(ada)).toEqual(["An answer.", CLAUDE.id]);
+    expect(await askedAs(grace)).toEqual(["An answer.", "gpt-6.1-sol"]);
+    expect(await askedAs(ada)).toEqual(["An answer.", "claude-sonnet-5-5"]);
 
     await removeModel(ada, GPT.id);
-    expect(await askedAs(grace)).toEqual(["An answer.", CLAUDE.id]);
+    expect(await askedAs(grace)).toEqual(["An answer.", "claude-sonnet-5-5"]);
   });
 
   it("come from the model you picked once administrators choose it to answer everyone, and once they choose another", async () => {
@@ -668,13 +673,13 @@ describe("@ember's answers", () => {
     await pick(grace, { model: GPT.id });
     await change(ada, { model: GPT.id });
     vi.restoreAllMocks();
-    expect(await askedAs(grace)).toEqual(["An answer.", GPT.id]);
+    expect(await askedAs(grace)).toEqual(["An answer.", "gpt-6.1-sol"]);
 
     cloudflare();
     await change(ada, { model: CLAUDE.id });
     vi.restoreAllMocks();
-    expect(await askedAs(grace)).toEqual(["An answer.", GPT.id]);
-    expect(await askedAs(ada)).toEqual(["An answer.", CLAUDE.id]);
+    expect(await askedAs(grace)).toEqual(["An answer.", "gpt-6.1-sol"]);
+    expect(await askedAs(ada)).toEqual(["An answer.", "claude-sonnet-5-5"]);
   });
 
   it("say you can pick another model when the one you picked can't answer", async () => {

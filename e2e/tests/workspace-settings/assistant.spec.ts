@@ -2,7 +2,7 @@ import { DEFAULT_LEVELS, TOP_LEVELS } from "@ember/protocol/assistant";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { administratorSession, cookieHeader, drawnPicture, editorField, expect, SAME_ORIGIN, shownPicture, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
-import { FOUND, HELLO, SOURCE, startFakeGateway, type FakeGateway } from "./fake-gateway";
+import { ANTHROPIC_PATH, FOUND, HELLO, SOURCE, startFakeGateway, type FakeGateway } from "./fake-gateway";
 
 // The AI assistant tab's Ember AI card and Set up Ember AI, @ember's page, with Add a model, and @ember
 // answering, on the second test server, which lists Cloudflare's model catalog and asks models through
@@ -146,10 +146,12 @@ test.describe("Ember AI", () => {
     await setup.getByRole("combobox", { name: "Model" }).selectOption("anthropic/claude-sonnet-5.5");
     await setup.getByRole("button", { name: "Save" }).click();
     await expect(setup).toHaveAccessibleName("Ember AI is set up");
+    // Through AI Gateway's Anthropic endpoint, which takes the API token in AI Gateway's own header.
     expect(gateway.asked.at(-1)).toMatchObject({
-      path: `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/v1/messages`,
-      authorization: `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}`,
-      body: { model: "anthropic/claude-sonnet-5.5", max_tokens: expect.any(Number) as unknown },
+      path: ANTHROPIC_PATH,
+      authorization: undefined,
+      aigAuthorization: `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}`,
+      body: { model: "claude-sonnet-5-5", max_tokens: expect.any(Number) as unknown },
     });
     await setup.getByRole("button", { name: "Done" }).click();
     await expect(emberRow(page)).toContainText("Claude Sonnet 5.5 · Every open room");
@@ -172,7 +174,7 @@ test.describe("Ember AI", () => {
     await expect(webSearch).toBeChecked();
     await expect(webSearch).toHaveAccessibleDescription(/^@ember searches the web when a question needs it, at most 5 times an answer, and reads the pages/);
     expect(gateway.asked.at(-1)).toMatchObject({
-      path: `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/v1/messages`,
+      path: ANTHROPIC_PATH,
       body: { tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }, { type: "web_fetch_20250910", name: "web_fetch", max_uses: 3 }] },
     });
 
@@ -200,7 +202,7 @@ test.describe("Ember AI", () => {
     await adding.getByRole("button", { name: "Add" }).click();
     await expect(adding).toHaveAccessibleName("Model added");
     await expect(adding).toContainText(HELLO);
-    expect(gateway.asked.at(-1)).toMatchObject({ path: `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/v1/messages`, body: { model: "anthropic/claude-sonnet-5.5" } });
+    expect(gateway.asked.at(-1)).toMatchObject({ path: ANTHROPIC_PATH, body: { model: "claude-sonnet-5-5" } });
     await adding.getByRole("button", { name: "Done" }).click();
     await expect(adding).toBeHidden();
     await expect(models.getByRole("radio", { name: "GLM-4.7 Flash" })).toBeChecked();
@@ -219,7 +221,7 @@ test.describe("Ember AI", () => {
     await expect(page.getByRole("region", { name: "Ember AI", exact: true }).getByRole("combobox", { name: "Model" })).toHaveValue("anthropic/claude-sonnet-5.5");
 
     await askEmber(page, "Which model are you?");
-    expect(gateway.asked.at(-1)).toMatchObject({ path: `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/v1/messages`, body: { model: "anthropic/claude-sonnet-5.5" } });
+    expect(gateway.asked.at(-1)).toMatchObject({ path: ANTHROPIC_PATH, body: { model: "claude-sonnet-5-5" } });
   });
 
   test("the administrator uploads a picture as @ember's avatar, which an open room shows at once, and brings back Ember's flame", async ({ page, request }) => {

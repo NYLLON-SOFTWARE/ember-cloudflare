@@ -91,6 +91,7 @@ import {
 import { MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type NewAgent } from "@ember/protocol/agents";
 import type { KeptCatalog } from "./assistant/catalog";
 import type { Gateway } from "./assistant/gateway";
+import { providerMovesOf } from "./assistant/model-tests";
 import { eachAtMost, ROOMS_AT_ONCE } from "./at-once";
 import { directoryOf, TooSoon, tooSoonAfter, versionOf } from "./avatar-tokens";
 import { banProblem, type BanProblem } from "./bans";
@@ -128,6 +129,7 @@ import {
   type JoinableAccount,
   type LinkedAccount,
   type LinkedPerson,
+  type MovedModel,
   type NewPerson,
   type OwnProfileEntry,
   type PendingRevocation,
@@ -319,17 +321,6 @@ const assistantSettingsOf = ({ assistant, assistantMost, assistantInstructions, 
  */
 type AskedAs = Pick<Gateway, "accountId" | "model" | "format">;
 
-/**
- * A model that searches the web in another format than the one it was saved in, `from`, as Grok does in
- * xAI's own Responses, with the levels of thinking it takes there, which asking it at each found.
- */
-export interface MovedModel {
-  id: string;
-  from: ModelFormat;
-  format: ModelFormat;
-  thinkingLevels: ThinkingLevel[];
-}
-
 /** Whether Ember AI, as `saved`, answers everyone as `asked` says: through its account, with its model, in its format. */
 const isAskedAs = (saved: SavedAssistant, asked: AskedAs) => saved.accountId === asked.accountId && saved.model === asked.model && saved.format === asked.format;
 
@@ -341,6 +332,16 @@ const isAskedAs = (saved: SavedAssistant, asked: AskedAs) => saved.accountId ===
  */
 const webToolsKept = (saved: SavedAssistant | null, asked: AskedAs, changedAt: string): Pick<SavedAssistant, "webTools" | "webToolsAskedAt"> =>
   saved && isAskedAs(saved, asked) ? { webTools: saved.webTools, webToolsAskedAt: saved.webToolsAskedAt } : { webTools: [], webToolsAskedAt: changedAt };
+
+/** Ember AI as `assistant` has it, but for each of its models that one of `moves` moves from the format it's in, asked as the move says. */
+function movedIn(assistant: SavedAssistant, moves: readonly MovedModel[]): SavedAssistant {
+  const moveOf = (id: string, format: ModelFormat) => moves.find((move) => move.id === id && move.from === format);
+  const models = assistant.models.map((model) => {
+    const move = moveOf(model.id, model.format);
+    return move ? { ...model, format: move.format, thinkingLevels: move.thinkingLevels } : model;
+  });
+  return { ...assistant, format: moveOf(assistant.model, assistant.format)?.format ?? assistant.format, models };
+}
 
 /** The hosts Ember knows reach it, as `account` keeps them: its custom domain, where a deploy puts it, and the domains it moved away from. */
 const addressesOf = (account: Pick<JoinableAccount, "customDomain" | "deployedAddress" | "otherAddresses">): string[] =>
@@ -719,6 +720,8 @@ export class Workspace extends DurableObject<Env> {
   private readonly probes = new Map<string, { answer: string; until: number }>();
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
   private lastChange: Promise<unknown> = Promise.resolve();
+  /** Ember AI's models being asked through their providers' endpoints, while they are (see `moveToProviderEndpoints`). */
+  private movingToProviderEndpoints: Promise<void> | null = null;
   /** The last delivery of revocations, which the next one waits for (see `deliverRevocations`). */
   private lastDelivery: Promise<unknown> = Promise.resolve();
   /**
@@ -1237,6 +1240,8 @@ export class Workspace extends DurableObject<Env> {
         format: chosen.format,
         models: modelsAfterSetup(account.assistant, chosen),
         ...webToolsKept(account.assistant, chosen, new Date().toISOString()),
+        // The models it kept, and the agents' models, may answer through their providers' endpoints, as through another API token.
+        providerEndpointsTriedAt: null,
       };
       const changed = await this.saveAccount({ ...account, assistant }, (now) => (assistant ? this.store.turnOnAssistant(assistant, now) : this.store.turnOffAssistant(now)));
       await this.publishPerson(ASSISTANT_ID);
@@ -1290,13 +1295,7 @@ export class Workspace extends DurableObject<Env> {
       if (!assistant) return "off";
       if (tested && !isAskedAs(assistant, tested)) return "changed";
       if (assistant.webToolsAskedAt !== null && assistant.webToolsAskedAt > askedAt) return "changed";
-      const moveOf = ({ id, format }: Pick<SavedModel, "id" | "format">) => moved.find((move) => move.id === id && move.from === format);
-      const models = assistant.models.map((model) => {
-        const move = moveOf(model);
-        return move ? { ...model, format: move.format, thinkingLevels: move.thinkingLevels } : model;
-      });
-      const format = moveOf({ id: assistant.model, format: assistant.format })?.format ?? assistant.format;
-      return this.storeAssistant(account, { ...assistant, format, models, webTools, webToolsAskedAt: askedAt });
+      return this.storeAssistant(account, { ...movedIn(assistant, moved), webTools, webToolsAskedAt: askedAt });
     });
   }
 
@@ -3609,6 +3608,7 @@ export class Workspace extends DurableObject<Env> {
     const [account, member, picks] = await Promise.all([this.joinableAccount(), this.store.isMember(roomId, ASSISTANT_ID), this.store.assistantPicks(askerId)]);
     if (!account?.assistant || !member) return null;
     const opened = await this.openedAssistant(account);
+    if (opened) this.moveToProviderEndpoints(account.assistant, opened);
     const picked = pickedModelOf(account.assistant, picks);
     const thinkingLevels = answeringModelOf(account.assistant, picked)?.thinkingLevels;
     const gateway = opened && { ...opened, ...(picked && { model: picked.id, format: picked.format }), thinkingLevels };
@@ -3632,11 +3632,49 @@ export class Workspace extends DurableObject<Env> {
     const [account, agent] = await Promise.all([this.joinableAccount(), this.store.answeringAgent(roomId, agentId)]);
     if (!account?.assistant || !agent) return null;
     const opened = await this.openedAssistant(account);
+    if (opened) this.moveToProviderEndpoints(account.assistant, opened);
     const gateway = opened && { ...opened, model: agent.model, format: agent.format, thinkingLevels: agent.thinkingLevels ?? undefined };
     const webTools = agent.webTools.filter((tool) => WEB_TOOLS_IN[agent.format].includes(tool));
     const bot = { id: agentId, name: agent.name };
     const { instructions, promptTemplate, levels } = agent;
     return { bot, authorizedAt, gateway, picked: false, instructions, promptTemplate, community: account.name, levels, webTools, webSearchOn: webTools.includes("search"), addresses: addressesOf(account) };
+  }
+
+  /**
+   * Has Ember AI, `assistant`, ask the models it asks through Cloudflare's REST API, the agents' too, that
+   * their providers' own endpoints answer through `gateway`'s account and API token there from then on,
+   * as it asks Claude, GPT and Grok there first now: once after each time it's set up, as the first
+   * answer after that finds it, in the background, a few models at each answer (`providerMovesOf`).
+   */
+  private moveToProviderEndpoints(assistant: SavedAssistant, gateway: Gateway): void {
+    if (assistant.providerEndpointsTriedAt !== null || this.movingToProviderEndpoints) return;
+    const moving = this.movedToProviderEndpoints(gateway)
+      .catch((error: unknown) => console.error("Moving models onto their providers' endpoints failed:", error instanceof Error ? error.message : "unknown error"))
+      .finally(() => (this.movingToProviderEndpoints = null));
+    this.movingToProviderEndpoints = moving;
+    this.ctx.waitUntil(moving);
+  }
+
+  /**
+   * Asks the models people can pick, and the agents' models, that Ember AI asks through Cloudflare's
+   * REST API, the test question through their providers' endpoints (`providerMovesOf`), then, one change
+   * at a time with the others, has each that answered asked there, wherever it's still where it was,
+   * with the levels of thinking it took there, while Ember AI still asks through `gateway`'s account and
+   * API token, which the endpoints answered, and records when unless there are more to ask at the next
+   * answer. What @ember and the agents may do on the web stays as it was, since a provider's own endpoint
+   * takes the tools the REST API passed on to it.
+   */
+  private async movedToProviderEndpoints(gateway: Gateway): Promise<void> {
+    const triedAt = new Date().toISOString();
+    const [account, agentModels] = await Promise.all([this.joinableAccount(), this.store.agentModels()]);
+    if (!account?.assistant || account.assistant.providerEndpointsTriedAt !== null) return;
+    const { moves, done } = await providerMovesOf(this.env, gateway, [...account.assistant.models, ...agentModels]);
+    await this.oneAtATime(async () => {
+      const changed = await this.joinableAccount();
+      if (!changed?.assistant || !(await this.asksThrough(changed, gateway))) return;
+      const assistant = { ...movedIn(changed.assistant, moves), providerEndpointsTriedAt: done ? triedAt : null };
+      await this.storeAccount({ ...changed, assistant }, () => this.store.moveModels(assistant, moves));
+    });
   }
 
   /**

@@ -117,16 +117,16 @@ const PAGE =
   '<meta property="og:url" content="https://example.com/"><meta property="og:title" content="Example"><meta property="og:description" content="An example page."><meta property="og:image" content="https://example.com/card.png">';
 
 /**
- * Stands in for AI Gateway, whose model answers each question with what `answer` makes of it, and for
- * the Internet, where every name is at one public address and http://www.example.com/ has a preview.
- * Keeps the questions, in the order they came.
+ * Stands in for AI Gateway, through Cloudflare's REST API or its endpoints for each provider, whose model
+ * answers each question with what `answer` makes of it, and for the Internet, where every name is at one
+ * public address and http://www.example.com/ has a preview. Keeps the questions, in the order they came.
  */
 function internet(answer: (asked: Asked) => Response | Promise<Response>): Asked[] {
   const questions: Asked[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
-    if (url.hostname === "api.cloudflare.com") {
+    if (url.hostname === "api.cloudflare.com" || url.hostname === "gateway.ai.cloudflare.com") {
       const asked = { url: request.url, metadata: request.headers.get("cf-aig-metadata"), body: (await request.json()) as Asked["body"] };
       questions.push(asked);
       return answer(asked);

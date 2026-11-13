@@ -32,8 +32,11 @@ const [OTHER_ACCOUNT_ID, OTHER_API_TOKEN] = ["fedcba9876543210fedcba9876543210",
 const [MESSAGES_MODEL, RESPONSES_MODEL, CHAT_MODEL] = ["anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol", "@cf/zai-org/glm-4.7-flash"];
 /** xAI's Grok, which searches the web only in xAI's own Responses, through AI Gateway's xAI endpoint, and another of xAI's. */
 const [GROK, OTHER_GROK] = ["xai/grok-4.7", "xai/grok-4.5"];
-/** Where the account's default gateway passes requests on to xAI's own Responses. */
-const XAI_ENDPOINT = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default/grok/v1/responses`;
+/** Where the account's default gateway passes requests on to each provider's own API: Anthropic's Messages, OpenAI's Responses and xAI's. */
+const PROVIDER_ENDPOINTS = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default`;
+const ANTHROPIC_ENDPOINT = `${PROVIDER_ENDPOINTS}/anthropic/v1/messages`;
+const OPENAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/openai/responses`;
+const XAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/grok/v1/responses`;
 
 /** Anthropic's tools for searching the web and reading pages, as Ember gives a model that may. */
 const SEARCH_TOOL = { type: "web_search_20250305", name: "web_search", max_uses: WEB_SEARCHES_PER_ANSWER };
@@ -73,10 +76,10 @@ function fakeGateway(answer: (asked: Asked) => Response | Promise<Response>): As
   return requests;
 }
 
-/** Whether a request to `url` goes to one of AI Gateway's endpoints for each provider, as Ember asks Grok, and not to Cloudflare's API. */
+/** Whether a request to `url` goes to one of AI Gateway's endpoints for each provider, as Ember asks Claude, GPT and Grok, and not to Cloudflare's API. */
 const toProvider = (url: string) => new URL(url).hostname === "gateway.ai.cloudflare.com";
 
-/** AI Gateway's xAI endpoint refusing a request, in its own shape, as it does an API token without AI Gateway Run. */
+/** One of AI Gateway's endpoints for each provider refusing a request, in its own shape, as it does an API token without AI Gateway Run. */
 const refusingRun = () => Response.json({ success: false, result: [], messages: [], error: [{ code: 2009, message: "Unauthorized" }] }, { status: 401 });
 
 /** Whether `asked` gives the model a tool of `type`'s. */
@@ -163,13 +166,13 @@ const XAI_SEARCHED = {
 /** A model that searches the web whenever it's given a tool for it, in the format of the API at `url`, and else says it can't. */
 function searching({ url, ...asked }: Asked): Response {
   if (!gives({ url, ...asked }, "web_search")) return unsearched(url, "I can't search the web.");
-  if (toProvider(url)) return Response.json(XAI_SEARCHED);
+  if (url === XAI_ENDPOINT) return Response.json(XAI_SEARCHED);
   return url.endsWith("/responses") ? Response.json(RESPONSES_SEARCHED) : messagesAnswer([...SEARCHING, ...CITED]);
 }
 
 /** Models `searching`, of which Grok, in xAI's own Responses, refuses being told not to think, as xAI does for a model whose thinking can't be turned off. */
 const thinkingGrok = (asked: Asked) =>
-  toProvider(asked.url) && asked.body.reasoning?.effort === "none"
+  asked.url === XAI_ENDPOINT && asked.body.reasoning?.effort === "none"
     ? Response.json({ code: "Client specified an invalid argument", error: `Model ${asked.body.model} does not support reasoning effort none.` }, { status: 400 })
     : searching(asked);
 
@@ -186,7 +189,7 @@ async function setUp(model = MESSAGES_MODEL, setup: { withoutRun?: boolean } = {
   return ada;
 }
 
-/** Stands in for AI Gateway as a model that answers without searching, refusing the xAI endpoint `withoutRun`, as it does an API token without AI Gateway Run. */
+/** Stands in for AI Gateway as a model that answers without searching, refusing the providers' endpoints `withoutRun`, as they do an API token without AI Gateway Run. */
 function greetingGateway(withoutRun = false): void {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const { url } = new Request(input, init);
@@ -197,7 +200,8 @@ function greetingGateway(withoutRun = false): void {
 /**
  * Sets Ember AI up as `administrator` with `model`, called `modelName`, if it's given one, through the
  * account `accountId` with `apiToken`, as Set up Ember AI does, answering Ember AI as it is then, with an
- * API token without AI Gateway Run, `withoutRun`, which asks Grok through Cloudflare's REST API.
+ * API token without AI Gateway Run, `withoutRun`, which asks Claude, GPT and Grok through Cloudflare's
+ * REST API.
  */
 async function setUpAssistant(
   administrator: Session,
@@ -288,7 +292,7 @@ describe("Search the web", () => {
     // What it said once it searched, without what it said it would look for.
     expect(found).toBe(FOUND);
     expect(requests).toHaveLength(1);
-    expect(requests[0]!.url).toBe(`https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/ai/v1/messages`);
+    expect(requests[0]!.url).toBe(ANTHROPIC_ENDPOINT);
     expect(requests[0]!.body.tools).toEqual([SEARCH_TOOL, READ_TOOL]);
     expect(requests[0]!.body.messages).toEqual([{ role: "user", content: expect.stringContaining("Search the web") as unknown }]);
 
@@ -316,7 +320,7 @@ describe("Search the web", () => {
     const { assistant, found } = await turnedWebSearch(ada, true);
     expect(assistant.webTools).toEqual(["search"]);
     expect(found).toBe(`${FOUND} ([developers.cloudflare.com](${DOCS.url}))`);
-    expect(requests.map(({ url, body }) => [url.split("/ai/v1/")[1], body.tools])).toEqual([["responses", [{ type: "web_search" }]]]);
+    expect(requests.map(({ url, body }) => [url, body.tools])).toEqual([[OPENAI_ENDPOINT, [{ type: "web_search" }]]]);
     // What caps its calls of built-in tools caps its searches, its only one.
     expect(requests[0]!.body).toHaveProperty("max_tool_calls", WEB_SEARCHES_PER_ANSWER);
   });
@@ -366,8 +370,8 @@ describe("Search the web", () => {
   it("asks the Grok models people pick through AI Gateway's xAI endpoint once Search the web is on, whatever answers everyone, while the endpoint takes Ember AI's API token", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(console, "log").mockImplementation(() => {});
-    // Grok was picked while the token had no AI Gateway Run, so it was asked through Cloudflare's REST API, where it can't search.
-    const ada = await setUp(MESSAGES_MODEL);
+    // Claude and Grok were picked while the token had no AI Gateway Run, so they were asked through Cloudflare's REST API, where Grok can't search.
+    const ada = await setUp(MESSAGES_MODEL, { withoutRun: true });
     greetingGateway(true);
     await changeModels(ada, "POST", GROK);
     vi.restoreAllMocks();
@@ -857,7 +861,7 @@ describe("@ember on the web", () => {
 
     const [searched, found] = await askedWith(RESPONSES_MODEL, "what's AI Gateway?");
     expect(found).toMatch(new RegExp(`\\n\\nSources: ${BLOG.title}$`));
-    expect(searched.map(({ url, body }) => [url.split("/ai/v1/")[1], body.tools])).toEqual([["responses", [{ type: "web_search" }]]]);
+    expect(searched.map(({ url, body }) => [url, body.tools])).toEqual([[OPENAI_ENDPOINT, [{ type: "web_search" }]]]);
     expect(searched[0]!.body).toHaveProperty("max_tool_calls", WEB_SEARCHES_PER_ANSWER);
     expect(searched[0]!.body.instructions).toContain("You can search the web when a question needs what's current");
 

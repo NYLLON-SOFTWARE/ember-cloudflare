@@ -7,9 +7,10 @@ import { AI_GATEWAY_ACCOUNT, AI_GATEWAY_PORT } from "../../projects/workspace-se
 // answers a request in any of AI Gateway's three formats with `HELLO` in that format, or, given a tool
 // for searching the web in Messages or Responses, with `FOUND`, citing `SOURCE`, as the model would once
 // it had searched, or, asked `CARD_QUESTION` last, with `CARDED` and a card's Slack payload, refusing as
-// Cloudflare does an account or a token it doesn't know. It's the default gateway's xAI endpoint too,
-// where Ember asks Grok in xAI's own Responses, which answers as Responses does, taking the API token in
-// AI Gateway's own header alone. A spec can hold its answers, to see what shows while a model answers.
+// Cloudflare does an account or a token it doesn't know. It's the default gateway's endpoints for
+// Anthropic, OpenAI and xAI too, where Ember asks Claude, GPT and Grok in their providers' own APIs first,
+// which answer as Messages and Responses do, taking the API token in AI Gateway's own header alone. A spec
+// can hold its answers, to see what shows while a model answers.
 
 /** What every model says, whatever it's asked. */
 export const HELLO = "Hello, team! Mention @ember whenever you'd like a hand.";
@@ -66,8 +67,13 @@ export interface GatewayAsked {
   body: Record<string, unknown>;
 }
 
-/** Where the account's default gateway passes requests on to xAI's own Responses. */
+/** Where the account's default gateway passes requests on to Anthropic's own Messages, OpenAI's own Responses and xAI's. */
+export const ANTHROPIC_PATH = `/v1/${AI_GATEWAY_ACCOUNT.accountId}/default/anthropic/v1/messages`;
+const OPENAI_PATH = `/v1/${AI_GATEWAY_ACCOUNT.accountId}/default/openai/responses`;
 export const XAI_PATH = `/v1/${AI_GATEWAY_ACCOUNT.accountId}/default/grok/v1/responses`;
+
+/** The format of Cloudflare's REST API whose answers each provider's endpoint answers with, by its path. */
+const PROVIDER_PATHS: Record<string, string> = { [ANTHROPIC_PATH]: "messages", [OPENAI_PATH]: "responses", [XAI_PATH]: "responses" };
 
 export interface FakeGateway {
   /** What it was asked, in order. */
@@ -151,10 +157,11 @@ async function answer(request: IncomingMessage, response: ServerResponse, asked:
   asked.push({ path, authorization: request.headers.authorization, aigAuthorization, gateway, body: sent });
   const [, account, endpoint] = path.match(/^\/accounts\/([^/]+)\/ai\/([^?]+)/) ?? [];
   const reply = (status: number, data: unknown) => void response.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(data));
-  if (path === XAI_PATH) {
-    // It would pass a token in Authorization on to xAI, as an xAI key of the account's own.
+  const provider = PROVIDER_PATHS[path];
+  if (provider !== undefined) {
+    // It would pass a token in Authorization on to the provider, as a key of the account's own there.
     if (aigAuthorization !== `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}` || request.headers.authorization !== undefined) return reply(401, { success: false, error: [{ code: 2009, message: "Unauthorized" }] });
-    return reply(200, (searches(sent) && SEARCHED_ANSWERS.responses) || (asksForCard(sent) ? CARD_ANSWERS : ANSWERS).responses);
+    return reply(200, (searches(sent) && SEARCHED_ANSWERS[provider]) || (asksForCard(sent) ? CARD_ANSWERS : ANSWERS)[provider]);
   }
   if (account !== AI_GATEWAY_ACCOUNT.accountId) {
     return reply(400, { success: false, errors: [{ code: 7003, message: `Could not route to /client/v4${path}, perhaps your object identifier is invalid?` }] });

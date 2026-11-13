@@ -38,9 +38,11 @@ import type { Env } from "../env";
 import { pictureFormOf } from "../files/pictures";
 import { NO_STORAGE } from "../files/uploads";
 import { formAnswer } from "../pages";
-import { workspace, type Credentials, type MovedModel } from "../workspace";
+import { workspace, type Credentials } from "../workspace";
+import type { MovedModel } from "../workspace-store";
 import { catalogOf, keptCatalogOf } from "./catalog";
-import { askInTurn, askOnce, formatsFor, thinkingLevelsOf, type Gateway, type GatewayRefusal, type Question } from "./gateway";
+import { askInTurn, askOnce, formatsFor, type Gateway, type GatewayRefusal, type Question } from "./gateway";
+import { TEST_QUESTION, TEST_TIMEOUT_MS, testedLevelsOf } from "./model-tests";
 
 // Ember AI's setup, as administrators turn it on, change it and turn it off on the AI assistant tab of
 // workspace settings, the models people can pick, which administrators add there from Cloudflare's
@@ -60,17 +62,6 @@ export const API_TOKEN_NEEDED = "Paste an API token. Ember doesn't have one yet.
 export const API_TOKEN_CHANGED = "Ember AI changed while the model answered, so Ember no longer has that API token. Paste an API token.";
 /** Why Add a model didn't add one: Ember AI was set up again, with another account or API token, while the model answered. */
 export const SETUP_CHANGED = "Ember AI was set up again while the model answered, so it wasn't added. Add it again.";
-
-/** What Set up Ember AI asks the model before Ember keeps it, so that it's known to answer. */
-export const TEST_QUESTION: Question = {
-  instructions: `You are ${ASSISTANT_NAME}, the AI assistant in a team's chat, where people ask you things by mentioning @ember. An administrator has just set you up.`,
-  turns: [{ role: "user", text: "Say hello to the team in one short sentence." }],
-  // Room for a model that thinks before it answers, however short the answer.
-  maxTokens: 2_000,
-};
-
-/** How long Set up Ember AI waits for each answer to its test question. */
-const TEST_TIMEOUT_MS = 30_000;
 
 /** What turning on Search the web asks the model, which it has to search the web to answer, so that it's known to. */
 export const WEB_TEST_QUESTION: Question = {
@@ -373,9 +364,6 @@ export async function greetingFrom(
   const thinkingLevels = await testedLevelsOf(env, { ...gateway, format: answered.format }, question);
   return { format: answered.format, thinkingLevels, greeting: shownOf(answered.text) };
 }
-
-/** The levels of thinking the model `gateway` names takes in its format, as it answers the test question, @ember's unless it's another `question`, again at each (`thinkingLevelsOf`). */
-export const testedLevelsOf = (env: Env, gateway: Gateway, question = TEST_QUESTION) => thinkingLevelsOf(env, gateway, question, TEST_TIMEOUT_MS);
 
 /**
  * The models that search the web in another format than they're saved in, now that Search the web is on,

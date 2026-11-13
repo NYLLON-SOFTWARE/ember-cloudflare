@@ -46,12 +46,15 @@ const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", passwor
 const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
 const API_TOKEN = "an-api-token-with-workers-ai-read_0123456";
 const OTHER_API_TOKEN = "another-api-token-with-workers-ai-read_01";
-const CLOUDFLARE_API = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/ai/v1`;
 /** Anthropic's models, which take Messages and can search the web, OpenAI's, which takes Responses, and one of Workers AI's, which takes Chat Completions and can't. */
 const [SONNET, HAIKU, GPT, GLM] = ["anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5", "openai/gpt-6.1-sol", "@cf/zai-org/glm-4.7-flash"];
 /** xAI's Grok, which searches the web only in xAI's own Responses, through the default gateway's xAI endpoint there. */
 const GROK = "xai/grok-4.7";
-const XAI_ENDPOINT = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default/grok/v1/responses`;
+/** Where the account's default gateway passes requests on to each provider's own API, as Ember asks Claude, GPT and Grok. */
+const PROVIDER_ENDPOINTS = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default`;
+const ANTHROPIC_ENDPOINT = `${PROVIDER_ENDPOINTS}/anthropic/v1/messages`;
+const OPENAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/openai/responses`;
+const XAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/grok/v1/responses`;
 const HELLO = "Hello, team!";
 
 /** An agent as New agent sends it: Recap, on Claude Haiku, in every open room. */
@@ -66,10 +69,11 @@ const RECAP: NewAgent = {
   rooms: null,
 };
 
-/** A request the fake AI Gateway was sent. */
+/** A request the fake AI Gateway was sent, with the API token as Cloudflare's API takes it, or as AI Gateway's endpoints for each provider do. */
 interface Asked {
   url: string;
   authorization: string | null;
+  aigAuthorization: string | null;
   body: { model?: string; system?: string; tools?: Array<{ type: string }>; reasoning?: { effort?: string } };
 }
 
@@ -133,7 +137,8 @@ beforeEach(async () => {
   asked = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
-    const sent = { url: request.url, authorization: request.headers.get("Authorization"), body: (await request.json()) as Asked["body"] };
+    const { headers } = request;
+    const sent = { url: request.url, authorization: headers.get("Authorization"), aigAuthorization: headers.get("cf-aig-authorization"), body: (await request.json()) as Asked["body"] };
     asked.push(sent);
     return answer(sent);
   });
@@ -377,7 +382,7 @@ describe("AI agents", () => {
         rooms: null,
         instructions: RECAP.instructions,
         promptTemplate: null,
-        format: "messages",
+        format: "anthropic",
         levels: { thinking: "off", length: "short" },
         thinkingLevels: [...THINKING_LEVELS],
         webTools: [],
@@ -386,9 +391,9 @@ describe("AI agents", () => {
         changedAt: expect.any(String) as string,
       } satisfies AgentSettings);
 
-      // Its model answered as it, through Ember AI's account and API token, and then again at each level of thinking.
+      // Its model answered as it, through Ember AI's account and API token, at the gateway's Anthropic endpoint, and then again at each level of thinking.
       expect(asked).toHaveLength(5);
-      for (const sent of asked) expect(sent).toMatchObject({ url: `${CLOUDFLARE_API}/messages`, authorization: `Bearer ${API_TOKEN}`, body: { model: HAIKU } });
+      for (const sent of asked) expect(sent).toMatchObject({ url: ANTHROPIC_ENDPOINT, authorization: null, aigAuthorization: `Bearer ${API_TOKEN}`, body: { model: "claude-haiku-5-5" } });
       expect(asked.map(thinks)).toEqual([false, true, true, true, true]);
       expect(asked.map(({ body }) => body.system)).toEqual(Array(5).fill(expect.stringContaining("You are Recap, an AI agent")));
 
@@ -430,7 +435,7 @@ describe("AI agents", () => {
     it("has its model search the web while Search the web is on, keeping the tools it took", async () => {
       const administrator = await setUp();
       const scout = await made(administrator, { name: "Scout", model: SONNET, webSearch: true });
-      expect(scout).toMatchObject({ format: "messages", webTools: ["search", "read"] });
+      expect(scout).toMatchObject({ format: "anthropic", webTools: ["search", "read"] });
       expect(unthinking().map(searches)).toEqual([false, true]);
       expect(unthinking()[1]!.body.system).toContain("You are Scout, an AI agent");
       // The AI assistant tab lists what it does on the web too.
@@ -652,15 +657,15 @@ describe("AI agents", () => {
       const scout = await made(administrator, { name: "Scout", model: SONNET, webSearch: true });
       asked.length = 0;
 
-      expect(await agentOf(await changeAgent(administrator, scout.id, { model: GPT, webSearch: false }))).toMatchObject({ model: GPT, modelName: "GPT-6.1 Sol", format: "responses", webTools: [] });
-      expect(asked.map(({ url }) => url)).toEqual(Array(5).fill(`${CLOUDFLARE_API}/responses`));
-      expect(asked[0]!.body).toMatchObject({ model: GPT });
+      expect(await agentOf(await changeAgent(administrator, scout.id, { model: GPT, webSearch: false }))).toMatchObject({ model: GPT, modelName: "GPT-6.1 Sol", format: "openai", webTools: [] });
+      expect(asked.map(({ url }) => url)).toEqual(Array(5).fill(OPENAI_ENDPOINT));
+      expect(asked[0]!.body).toMatchObject({ model: "gpt-6.1-sol" });
 
       asked.length = 0;
       expect(await agentOf(await changeAgent(administrator, scout.id, { model: SONNET, modelName: "Claude Sonnet", webSearch: true }))).toMatchObject({
         model: SONNET,
         modelName: "Claude Sonnet",
-        format: "messages",
+        format: "anthropic",
         webTools: ["search", "read"],
       });
       expect(unthinking().map(searches)).toEqual([false, true]);
@@ -675,7 +680,7 @@ describe("AI agents", () => {
         return Response.json({ success: false, errors: [{ code: 7003, message: `Model execution failed (User Input Error): Unsupported value: '${effort}'` }], messages: [], result: null }, { status: 400 });
       };
       const recap = await made(administrator, { model: GPT });
-      expect(recap).toMatchObject({ model: GPT, format: "responses", thinkingLevels: ["low", "high"] });
+      expect(recap).toMatchObject({ model: GPT, format: "openai", thinkingLevels: ["low", "high"] });
       expect(await workspaceSql("SELECT thinking_levels FROM agents WHERE user_id = ?", recap.id)).toEqual([{ thinking_levels: '["low","high"]' }]);
 
       // Kept while its model is, without asking it again.

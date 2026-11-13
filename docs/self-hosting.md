@@ -570,13 +570,23 @@ both from Workers AI's Use REST API in the Cloudflare dashboard, then a model. T
 starts as the one Ember is deployed to, when the deploy gave it, leaving only the token to copy, and
 the dialog's links open that account's pages in the dashboard. Ember asks models through the
 account's default [AI Gateway](https://developers.cloudflare.com/ai-gateway/), whose
-logs, caching and spend limits apply. It asks xAI's Grok models through the gateway's
-[xAI endpoint](https://developers.cloudflare.com/ai-gateway/usage/providers/grok/), in xAI's own
-Responses API, the only one Grok searches the web in, once the token has the AI Gateway Run permission
-too, which the dialog's last step adds. Until it has, Ember asks Grok through Cloudflare's REST API, as
-it asks every other model, and Grok can't search. Ember tells xAI not to keep the conversations, as it
-otherwise does for 30 days. AI Gateway Run lets the token send requests through every gateway on the
-account, with any provider keys stored on them, so keep it as safe as those keys. Workers AI's models
+logs, caching and spend limits apply. It asks Anthropic's Claude, OpenAI's GPT and xAI's Grok models
+through the gateway's endpoints for their providers,
+[Anthropic's](https://developers.cloudflare.com/ai-gateway/usage/providers/anthropic/),
+[OpenAI's](https://developers.cloudflare.com/ai-gateway/usage/providers/openai/) and
+[xAI's](https://developers.cloudflare.com/ai-gateway/usage/providers/grok/), in each provider's own
+API, which has all the model's features, and is the only one Grok searches the web in, once the token
+has the AI Gateway Run permission too, which the dialog's last step adds. Until it has, or when a
+provider's endpoint won't take a model, as one it doesn't know by that name, Ember asks the model
+through Cloudflare's REST API, as it asks every other model, and Grok can't search. Ember tells OpenAI
+and xAI not to keep the conversations, as each otherwise does for 30 days. AI Gateway Run lets the
+token send requests through every gateway on the account, with any provider keys stored on them, so
+keep it as safe as those keys. Where Ember AI was set up before Ember asked Claude and GPT there, its
+models move at the first answers after the update: in the background, Ember asks each Claude, GPT and
+Grok model it asks through the REST API, the agents' too, its test question through the provider's
+endpoint, at most 8 at an answer, and asks those that answer there from then on, at the levels of
+thinking they take there. The rest stay where they are, as they all do while the token lacks AI
+Gateway Run, until Ember AI is set up again, which has Ember ask them again. Workers AI's models
 come with Cloudflare's free daily allowance, and other companies', such as Anthropic's, OpenAI's and
 Google's, are paid for with AI Gateway's credits, as [What it costs](#what-it-costs) says. The model
 menu lists the text models in Cloudflare's [model catalog](https://developers.cloudflare.com/ai/models/), as the Worker reads it with

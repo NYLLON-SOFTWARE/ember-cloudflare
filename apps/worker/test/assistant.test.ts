@@ -28,12 +28,15 @@ const API_TOKEN = "an-api-token-with-workers-ai-read_0123456";
 /** What Set up Ember AI sends for Claude Sonnet. */
 const SETUP = { accountId: ACCOUNT_ID, apiToken: API_TOKEN, model: "anthropic/claude-sonnet-5.5" } satisfies AssistantSetup;
 const CLOUDFLARE_API = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/ai/v1`;
-/** Where the account's default gateway passes requests on to xAI's own Responses, as Ember asks Grok. */
-const XAI_ENDPOINT = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default/grok/v1/responses`;
+/** Where the account's default gateway passes requests on to each provider's own API, as Ember asks Claude, GPT and Grok. */
+const PROVIDER_ENDPOINTS = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default`;
+const ANTHROPIC_ENDPOINT = `${PROVIDER_ENDPOINTS}/anthropic/v1/messages`;
+const OPENAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/openai/responses`;
+const XAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/grok/v1/responses`;
 /** Claude Sonnet, as Ember lists it among the models people can pick, with the levels of thinking it took its test question at, every one. */
-const CLAUDE: AssistantModel = { id: SETUP.model, name: "Claude Sonnet 5.5", format: "messages", thinkingLevels: [...THINKING_LEVELS] };
+const CLAUDE: AssistantModel = { id: SETUP.model, name: "Claude Sonnet 5.5", format: "anthropic", thinkingLevels: [...THINKING_LEVELS] };
 /** The same, as the account's settings keep it. */
-const KEPT_CLAUDE = { id: SETUP.model, name: "Claude Sonnet 5.5", format: "messages", thinking_levels: [...THINKING_LEVELS] };
+const KEPT_CLAUDE = { id: SETUP.model, name: "Claude Sonnet 5.5", format: "anthropic", thinking_levels: [...THINKING_LEVELS] };
 const HELLO = "Hello, team! Mention @ember whenever you'd like a hand.";
 
 /** Sets Ember up with Ada as its administrator, signed in. */
@@ -89,12 +92,16 @@ async function inDirectory(viewer: Session, userId: string): Promise<DirectoryUs
   return users.find((user) => user.id === userId);
 }
 
-/** A request the fake AI Gateway was sent, with the API token as Cloudflare's API takes it, or as AI Gateway's endpoints for each provider do. */
+/**
+ * A request the fake AI Gateway was sent, with the API token as Cloudflare's API takes it, or as AI
+ * Gateway's endpoints for each provider do, and the version of Anthropic's API it's written for, if it says.
+ */
 interface SentToGateway {
   url: string;
   authorization: string | null;
   gateway: string | null;
   aigAuthorization: string | null;
+  anthropicVersion: string | null;
   body: Record<string, unknown>;
 }
 
@@ -115,14 +122,20 @@ function answering(text: string): GatewayAnswer {
 /** Cloudflare's answer to a request it refuses with `status`, in its own shape. */
 const refusing = (status: number, code: number, message: string): GatewayAnswer => () => Response.json({ success: false, errors: [{ code, message }], messages: [], result: null }, { status });
 
-/** AI Gateway's xAI endpoint refusing a request, in its own shape, as it does an API token without AI Gateway Run. */
-const refusingRun = () => Response.json({ success: false, result: [], messages: [], error: [{ code: 2009, message: "Unauthorized" }] }, { status: 401 });
+/** One of AI Gateway's endpoints for each provider refusing a request with `status`, in its own shape. */
+const endpointRefusing = (status: number, code: number, message: string) => Response.json({ success: false, result: [], messages: [], error: [{ code, message }] }, { status });
 
-/** `answer`, but for the requests to AI Gateway's xAI endpoint, which it refuses as it does an API token without AI Gateway Run. */
+/** The same, as it refuses an API token without AI Gateway Run. */
+const refusingRun = () => endpointRefusing(401, 2009, "Unauthorized");
+
+/** Whether `url` is one of AI Gateway's endpoints for each provider, and not Cloudflare's API. */
+const toProvider = (url: string) => url.startsWith(PROVIDER_ENDPOINTS);
+
+/** `answer`, but for the requests to AI Gateway's endpoints for each provider, which they refuse as they do an API token without AI Gateway Run. */
 const withoutRun =
   (answer: GatewayAnswer): GatewayAnswer =>
   (sent) =>
-    sent.url === XAI_ENDPOINT ? refusingRun() : answer(sent);
+    toProvider(sent.url) ? refusingRun() : answer(sent);
 
 /** The test questions among `requests`, leaving out the same questions asked again at each level of thinking, which tell the model how much to think. */
 const testQuestions = (requests: SentToGateway[]) => requests.filter(({ body }) => !("thinking" in body || "reasoning" in body || "reasoning_effort" in body));
@@ -138,6 +151,7 @@ function fakeGateway(answer: GatewayAnswer = answering(HELLO)): SentToGateway[] 
       authorization: headers.get("Authorization"),
       gateway: headers.get("cf-aig-gateway-id"),
       aigAuthorization: headers.get("cf-aig-authorization"),
+      anthropicVersion: headers.get("anthropic-version"),
       body: (await request.json()) as Record<string, unknown>,
     };
     requests.push(sent);
@@ -161,9 +175,12 @@ describe("Ember AI", () => {
       expect(response.headers.get("Cache-Control")).toBe("no-store");
       expect(await response.json()).toEqual({ assistant: { accountId: ACCOUNT_ID, model: SETUP.model, models: [CLAUDE], most: TOP_LEVELS, webTools: [], instructions: "", promptTemplate: null, ...WITH_THE_FLAME }, greeting: HELLO } satisfies AssistantSaved);
 
-      // Claude takes Anthropic's Messages, with the instructions as its system prompt.
-      expect(requests.map(({ body: _, ...sent }) => sent)).toEqual(Array(5).fill({ url: `${CLOUDFLARE_API}/messages`, authorization: `Bearer ${API_TOKEN}`, gateway: "default", aigAuthorization: null }));
-      const test = { model: SETUP.model, max_tokens: 2000, system: expect.stringContaining("@ember") as unknown, messages: [{ role: "user", content: "Say hello to the team in one short sentence." }] };
+      // Claude takes Anthropic's Messages, through the gateway's Anthropic endpoint, with the instructions as its system prompt.
+      // A token in Authorization would be taken as an Anthropic key of the account's own, and passed on to Anthropic.
+      const sent = { url: ANTHROPIC_ENDPOINT, authorization: null, gateway: null, aigAuthorization: `Bearer ${API_TOKEN}`, anthropicVersion: "2023-06-01" };
+      expect(requests.map(({ body: _, ...rest }) => rest)).toEqual(Array(5).fill(sent));
+      // As Anthropic names Claude Sonnet 5.5.
+      const test = { model: "claude-sonnet-5-5", max_tokens: 2000, system: expect.stringContaining("@ember") as unknown, messages: [{ role: "user", content: "Say hello to the team in one short sentence." }] };
       expect(requests[0]!.body).toEqual(test);
       // And then again at each level of thinking, all at once, Low for Off, as Anthropic's newest models don't turn thinking off.
       const efforts = requests.slice(1).map(({ body }) => {
@@ -178,10 +195,12 @@ describe("Ember AI", () => {
         account_id: ACCOUNT_ID,
         api_token: expect.stringMatching(/^v1\.[\w-]{16}\.[\w-]+$/) as unknown,
         model: SETUP.model,
-        format: "messages",
+        format: "anthropic",
         models: [KEPT_CLAUDE],
         web_tools: [],
         web_tools_asked_at: expect.any(String) as unknown,
+        // As every model Ember AI kept was asked through its provider's endpoint first, once one answers.
+        provider_endpoints_tried_at: null,
       });
       expect(JSON.stringify(await workspaceSql("SELECT * FROM accounts"))).not.toContain(API_TOKEN);
       expect(await assistantSettings(administrator)).toEqual({ accountId: ACCOUNT_ID, model: SETUP.model, models: [CLAUDE], most: TOP_LEVELS, webTools: [], instructions: "", promptTemplate: null, ...WITH_THE_FLAME });
@@ -265,18 +284,25 @@ describe("Ember AI", () => {
       expect(changed.assistant).toEqual({
         accountId: ACCOUNT_ID,
         model: "openai/gpt-6.1-sol",
-        models: [{ id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", format: "responses", thinkingLevels: [...THINKING_LEVELS] }],
+        models: [{ id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", format: "openai", thinkingLevels: [...THINKING_LEVELS] }],
         most: TOP_LEVELS,
         webTools: [],
         instructions: "",
         promptTemplate: null,
         ...WITH_THE_FLAME,
       });
-      expect(requests.map(({ url, authorization }) => [url, authorization])).toEqual([
-        ...Array(5).fill([`${CLOUDFLARE_API}/messages`, `Bearer ${API_TOKEN}`]),
-        ...Array(5).fill([`${CLOUDFLARE_API}/responses`, `Bearer ${API_TOKEN}`]),
+      expect(requests.map(({ url, aigAuthorization }) => [url, aigAuthorization])).toEqual([
+        ...Array(5).fill([ANTHROPIC_ENDPOINT, `Bearer ${API_TOKEN}`]),
+        ...Array(5).fill([OPENAI_ENDPOINT, `Bearer ${API_TOKEN}`]),
       ]);
-      expect(testQuestions(requests)[1]!.body).toEqual({ model: "openai/gpt-6.1-sol", max_output_tokens: 2000, instructions: expect.any(String) as unknown, input: [{ role: "user", content: expect.any(String) as unknown }] });
+      // As OpenAI names GPT-6.1 Sol, telling it to keep nothing, as it would for 30 days.
+      expect(testQuestions(requests)[1]!.body).toEqual({
+        model: "gpt-6.1-sol",
+        max_output_tokens: 2000,
+        instructions: expect.any(String) as unknown,
+        input: [{ role: "user", content: expect.any(String) as unknown }],
+        store: false,
+      });
       // Sealed afresh, and the same @ember as before.
       expect(((await storedSettings()).assistant as { api_token: string }).api_token).not.toBe(sealed);
       expect(await workspaceSql("SELECT id FROM users WHERE role = 2")).toEqual([{ id: ASSISTANT_ID }]);
@@ -313,15 +339,16 @@ describe("Ember AI", () => {
 
       const { assistant } = await saved(administrator, { ...SETUP, model: "openai/gpt-5.5" });
       expect(assistant.model).toBe("openai/gpt-5.5");
-      expect(testQuestions(requests).map(({ url }) => url.slice(CLOUDFLARE_API.length))).toEqual(["/responses", "/messages", "/chat/completions"]);
+      // OpenAI's own Responses first, through the gateway's OpenAI endpoint, then Cloudflare's REST API's formats.
+      expect(testQuestions(requests).map(({ url }) => url)).toEqual([OPENAI_ENDPOINT, `${CLOUDFLARE_API}/responses`, `${CLOUDFLARE_API}/messages`, `${CLOUDFLARE_API}/chat/completions`]);
       // Asked at each level of thinking in the format that took it.
-      expect(requests.slice(3).map(({ url, body }) => [url.slice(CLOUDFLARE_API.length), body.reasoning_effort]).sort()).toEqual([
+      expect(requests.slice(4).map(({ url, body }) => [url.slice(CLOUDFLARE_API.length), body.reasoning_effort]).sort()).toEqual([
         ["/chat/completions", "high"],
         ["/chat/completions", "low"],
         ["/chat/completions", "medium"],
         ["/chat/completions", "none"],
       ]);
-      expect(requests[2]!.body).toEqual({
+      expect(requests[3]!.body).toEqual({
         model: "openai/gpt-5.5",
         max_completion_tokens: 2000,
         messages: [
@@ -370,7 +397,7 @@ describe("Ember AI", () => {
       expect(assistant.webTools).toEqual([]);
       expect((await storedSettings()).assistant).toMatchObject({ model: grok, format: "xai" });
       // A token in Authorization would be taken as an xAI key of the account's own, and passed on to xAI.
-      expect(requests.map(({ body: _, ...sent }) => sent)).toEqual(Array(5).fill({ url: XAI_ENDPOINT, authorization: null, gateway: null, aigAuthorization: `Bearer ${API_TOKEN}` }));
+      expect(requests.map(({ body: _, ...sent }) => sent)).toEqual(Array(5).fill({ url: XAI_ENDPOINT, authorization: null, gateway: null, aigAuthorization: `Bearer ${API_TOKEN}`, anthropicVersion: null }));
       const test = {
         model: "grok-4.7",
         max_output_tokens: 2000,
@@ -430,6 +457,50 @@ describe("Ember AI", () => {
       expect(await response.json()).toEqual({ error: `AI Gateway didn't take that model. Cloudflare says: Model not found: ${grok}`, field: "model" });
     });
 
+    it("asks Claude and GPT through Cloudflare's REST API, as it did before, while their providers' endpoints don't take the API token, as without AI Gateway Run, or can't be paid for", async () => {
+      const administrator = await setUp();
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      const requests = fakeGateway(withoutRun(answering(HELLO)));
+
+      expect((await saved(administrator)).assistant.models).toEqual([{ ...CLAUDE, format: "messages" }]);
+      expect(testQuestions(requests).map(({ url, authorization, aigAuthorization }) => [url, authorization, aigAuthorization])).toEqual([
+        [ANTHROPIC_ENDPOINT, null, `Bearer ${API_TOKEN}`],
+        [`${CLOUDFLARE_API}/messages`, `Bearer ${API_TOKEN}`, null],
+      ]);
+      // By Cloudflare's name for it, as before.
+      expect(testQuestions(requests)[1]!.body).toMatchObject({ model: SETUP.model });
+      expect(requests.slice(2).every(({ url }) => url === `${CLOUDFLARE_API}/messages`)).toBe(true);
+      expect(errors).toHaveBeenCalledWith(
+        `Asking ${SETUP.model} through Cloudflare's REST API, as AI Gateway's Anthropic endpoint didn't let it through: Ember asks Claude through AI Gateway's Anthropic endpoint, which didn't take Ember AI's API token. Add the AI Gateway Run permission to the token in the Cloudflare dashboard, then try again. Cloudflare says: Unauthorized`,
+      );
+
+      // As AI Gateway answers when its credits can't pay for a provider's endpoint.
+      vi.restoreAllMocks();
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const unpaid = fakeGateway((sent) => (toProvider(sent.url) ? endpointRefusing(400, 2049, "Unified Billing is not available for this request.") : answering(HELLO)(sent)));
+      const gpt = "openai/gpt-6.1-sol";
+      expect((await saved(administrator, { ...SETUP, model: gpt })).assistant.models).toEqual([{ id: gpt, name: "GPT-6.1 Sol", format: "responses", thinkingLevels: [...THINKING_LEVELS] }]);
+      expect(testQuestions(unpaid).map(({ url }) => url)).toEqual([OPENAI_ENDPOINT, `${CLOUDFLARE_API}/responses`]);
+      // Cloudflare's REST API keeps nothing for OpenAI, so it isn't told to.
+      expect(testQuestions(unpaid)[1]!.body).toEqual({ model: gpt, max_output_tokens: 2000, instructions: expect.any(String) as unknown, input: [{ role: "user", content: expect.any(String) as unknown }] });
+    });
+
+    it("asks a model through Cloudflare's REST API when its provider's endpoint doesn't know it by the name Ember gives it there", async () => {
+      const administrator = await setUp();
+      const haiku = "anthropic/claude-3.5-haiku";
+      // As Anthropic names its older models with the date they came out, as Cloudflare's IDs don't.
+      const requests = fakeGateway((sent) =>
+        sent.url === ANTHROPIC_ENDPOINT ? Response.json({ type: "error", error: { type: "not_found_error", message: "model: claude-3-5-haiku" } }, { status: 404 }) : answering(HELLO)(sent),
+      );
+
+      const { assistant } = await saved(administrator, { ...SETUP, model: haiku });
+      expect(assistant.models).toEqual([{ id: haiku, name: haiku, format: "messages", thinkingLevels: [...THINKING_LEVELS] }]);
+      expect(testQuestions(requests).map(({ url, body }) => [url, body.model])).toEqual([
+        [ANTHROPIC_ENDPOINT, "claude-3-5-haiku"],
+        [`${CLOUDFLARE_API}/messages`, haiku],
+      ]);
+    });
+
     it.each([
       ["a model it doesn't have", 404, 2002, "Model not found: openai/gpt-0"],
       // AI Gateway's code for a request it or the provider refuses as invalid, which Cloudflare's API answers an account it can't route to with too.
@@ -440,22 +511,30 @@ describe("Ember AI", () => {
       const response = await setUpAssistant(administrator, { ...SETUP, model: "openai/gpt-0" });
       expect(response.status).toBe(422);
       expect(await response.json()).toEqual({ error: `AI Gateway didn't take that model. Cloudflare says: ${message}`, field: "model" });
-      expect(requests).toHaveLength(3);
+      // OpenAI's own Responses, then the REST API's three.
+      expect(requests.map(({ url }) => url)).toEqual([OPENAI_ENDPOINT, `${CLOUDFLARE_API}/responses`, `${CLOUDFLARE_API}/messages`, `${CLOUDFLARE_API}/chat/completions`]);
+      expect((await storedSettings()).assistant).toBeUndefined();
+      expect(await storedAssistant()).toBeUndefined();
+    });
+
+    it("refuses a token Cloudflare doesn't take, through the Anthropic endpoint or the REST API, saying what to do, and keeps nothing", async () => {
+      const administrator = await setUp();
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      const requests = fakeGateway(refusing(401, 10000, "Authentication error"));
+      const response = await setUpAssistant(administrator, SETUP);
+      expect(response.status).toBe(422);
+      // What the REST API says, as the Anthropic endpoint takes only a token with AI Gateway Run, which the REST API doesn't need.
+      expect(await response.json()).toEqual({
+        error: "Cloudflare didn't take that API token for this account. Check the account ID, and that the token has the Workers AI Read permission. Cloudflare says: Authentication error",
+        field: "apiToken",
+      });
+      expect(requests.map(({ url }) => url)).toEqual([ANTHROPIC_ENDPOINT, `${CLOUDFLARE_API}/messages`]);
+      expect(errors).toHaveBeenCalledWith(expect.stringContaining(`Asking ${SETUP.model} through Cloudflare's REST API, as AI Gateway's Anthropic endpoint didn't let it through`));
       expect((await storedSettings()).assistant).toBeUndefined();
       expect(await storedAssistant()).toBeUndefined();
     });
 
     it.each([
-      [
-        "a token Cloudflare doesn't take",
-        refusing(401, 10000, "Authentication error"),
-        422,
-        {
-          error:
-            "Cloudflare didn't take that API token for this account. Check the account ID, and that the token has the Workers AI Read permission. Cloudflare says: Authentication error",
-          field: "apiToken",
-        },
-      ],
       [
         "an account the token can't reach",
         refusing(404, 7003, "Could not route to /client/v4/accounts/0123/ai/v1/messages, perhaps your object identifier is invalid?"),
@@ -510,8 +589,8 @@ describe("Ember AI", () => {
       const response = await setUpAssistant(administrator, SETUP);
       expect(response.status).toBe(status);
       expect(await response.json()).toEqual(body);
-      // Only the model's name could be another format's to take.
-      expect(requests).toHaveLength(1);
+      // Only the model's name could be another format's to take, or a token the Anthropic endpoint doesn't take.
+      expect(requests.map(({ url }) => url)).toEqual([ANTHROPIC_ENDPOINT]);
       expect((await storedSettings()).assistant).toBeUndefined();
       expect(await storedAssistant()).toBeUndefined();
     });
@@ -553,9 +632,9 @@ describe("Ember AI", () => {
       ).toBe(200);
       expect((await setUpAssistant(administrator, SETUP, { AI_GATEWAY_URL: "https://gateway.example.com" })).status).toBe(200);
       expect(requests.map(({ url }) => url)).toEqual([
-        ...Array(5).fill(`${CLOUDFLARE_API}/messages`),
-        ...Array(5).fill(`http://127.0.0.1:8793/accounts/${ACCOUNT_ID}/ai/v1/messages`),
-        ...Array(5).fill(`${CLOUDFLARE_API}/messages`),
+        ...Array(5).fill(ANTHROPIC_ENDPOINT),
+        ...Array(5).fill(`http://127.0.0.1:8793/v1/${ACCOUNT_ID}/default/anthropic/v1/messages`),
+        ...Array(5).fill(ANTHROPIC_ENDPOINT),
       ]);
     });
   });

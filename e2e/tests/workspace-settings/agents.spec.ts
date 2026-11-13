@@ -3,7 +3,7 @@ import { CARDS_PROMPT } from "@ember/protocol/prompts";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { administratorSession, cookieHeader, editorField, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
-import { CARD_HEADER, CARD_LINK, CARD_QUESTION, CARDED, HELLO, startFakeGateway, XAI_PATH, type FakeGateway } from "./fake-gateway";
+import { ANTHROPIC_PATH, CARD_HEADER, CARD_LINK, CARD_QUESTION, CARDED, HELLO, startFakeGateway, XAI_PATH, type FakeGateway } from "./fake-gateway";
 
 // The AI assistant tab's Agents card, New agent and an agent's page, with Try it, an agent answering a
 // mention, and its badge and profile, on the second test server, through the AI Gateway this spec fakes.
@@ -91,7 +91,7 @@ test.describe("Agents", () => {
     await expect(tryIt).toContainText(HELLO);
     await expect(tryIt).toContainText(/Answered in [\d.]+ seconds\./);
     const tried = gateway.asked.at(-1)!;
-    expect(tried).toMatchObject({ path: `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/v1/messages`, body: { model: SONNET } });
+    expect(tried).toMatchObject({ path: ANTHROPIC_PATH, body: { model: "claude-sonnet-5-5" } });
     expect(tried.body.system).toMatch(/^You are Recap, an AI agent in the team chat "[^"]+"\. [^\n]+\n\nSum up the conversation so far as decisions and to-dos\.\n\nWrite in Markdown\.[\s\S]+\n\nYou're asked in a direct message\./);
 
     // Making it asks its model a test question, then goes back to the tab, which lists it.
@@ -143,7 +143,7 @@ test.describe("Agents", () => {
     searching();
     await expect(rowOf(card, "Scout")).toContainText("Looks up what's new on the web.Claude Sonnet 5.5 · Searches the web · general");
     expect(gateway.asked.at(-1)).toMatchObject({
-      path: `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/v1/messages`,
+      path: ANTHROPIC_PATH,
       body: { tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }, { type: "web_fetch_20250910", name: "web_fetch", max_uses: 3 }] },
     });
 
