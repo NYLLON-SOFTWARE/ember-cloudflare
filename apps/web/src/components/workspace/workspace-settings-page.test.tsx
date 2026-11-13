@@ -19,6 +19,8 @@ import {
   type EmailInvitation,
   type Invited,
   type Me,
+  type ProfileField,
+  type ProfileFieldChange,
   type ReleaseCheck,
   type RoleChange,
   type RoomId,
@@ -149,6 +151,8 @@ const RECAP: Agent = {
 /** Answers the page's requests as the server would for `settings`, or as `answers` says. */
 function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, removed, ordered, logoSaved }: Answers = {}) {
   let { account, emailDomains: keptDomains, email, turnstile, assistant, huddles } = settings;
+  // The workspace's profile fields, as its settings change them.
+  let fields: ProfileField[] = [];
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
     const person = request.match(/^PATCH \/api\/account\/users\/(.+)$/);
@@ -158,6 +162,23 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
     }
     const removing = request.match(/^DELETE \/api\/account\/users\/(.+)$/);
     if (removing) return removed ? removed() : Response.json({ user: { ...everyone.find((user) => user.id === removing[1]), status: "deactivated" } });
+    const field = request.match(/^(POST|PATCH|DELETE) \/api\/account\/profile_fields(?:\/([^/]+))?$/);
+    if (field && field[1] !== "GET") {
+      if (field[1] === "POST") {
+        const change = JSON.parse(String(init?.body)) as ProfileFieldChange;
+        fields = [...fields, { id: `field-${fields.length + 1}`, name: change.name, options: change.options ?? null }];
+      } else if (field[1] === "PATCH") {
+        const change = JSON.parse(String(init?.body)) as ProfileFieldChange;
+        fields = fields.map((listed) => (request.endsWith(listed.id) ? { ...listed, name: change.name, options: change.options ?? listed.options } : listed));
+      } else fields = fields.filter((listed) => !request.endsWith(listed.id));
+      return Response.json({ fields });
+    }
+    const reordering = request === "PUT /api/account/profile_fields/order";
+    if (reordering) {
+      const { ids } = JSON.parse(String(init?.body)) as { ids: string[] };
+      fields = ids.map((id) => fields.find((listed) => listed.id === id)!);
+      return Response.json({ fields });
+    }
     switch (request) {
       case "GET /api/account":
         return Response.json({ ...settings, account, emailDomains: keptDomains, email, turnstile, assistant, huddles });
@@ -250,6 +271,8 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         return Response.json({ assistant });
       case "GET /api/account/agents":
         return Response.json({ agents: [RECAP] } satisfies Agents);
+      case "GET /api/account/profile_fields":
+        return Response.json({ fields });
       case "PUT /api/account/huddles":
         huddles = { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId };
         return Response.json({ huddles });

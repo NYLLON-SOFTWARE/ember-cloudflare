@@ -65,6 +65,7 @@ const workspaceSettings: WorkspaceSettings = {
 function serve(responses: Record<string, () => Response | Promise<Response>> = {}) {
   const answers: typeof responses = {
     "GET /api/account": () => Response.json(workspaceSettings),
+    "GET /api/account/profile_fields": () => Response.json({ fields: [] }),
     "GET /api/users": () => Response.json({ users: [] }),
     ...responses,
   };
