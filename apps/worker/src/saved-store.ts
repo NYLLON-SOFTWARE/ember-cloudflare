@@ -36,11 +36,15 @@ export interface StoredSavedItem {
   available: boolean;
 }
 
-/** A message to keep: its room and id, and whether it's a file message, which keeps its file. */
+/**
+ * A message to keep: its room and id, whether it's a file message, which keeps its file, and when it
+ * reminds you, if it's to remind you anew, which only To-dos does.
+ */
 export interface MessageToKeep {
   roomId: RoomId;
   messageId: string;
   kind: "message" | "file";
+  remindAt: number | null;
 }
 
 /** A note of your own to keep in To-dos: its markup and plain text, its files, and when it reminds you, if it does. */
@@ -122,16 +126,18 @@ const ROOM_AND_COUNT = `SELECT EXISTS (SELECT 1 FROM memberships WHERE room_id =
   (SELECT count(*) FROM saved_items WHERE user_id = ?1 AND list = ?3) AS count`;
 
 /**
- * Keeps message ?5 of room ?4 for person ?2 in list ?3 as item ?1 of kind ?6, at ?7, while they're in the
- * room and the list has room for it, or moves the item that keeps it already to that list.
+ * Keeps message ?5 of room ?4 for person ?2 in list ?3 as item ?1 of kind ?6, at ?7, reminding them at ?9
+ * if that isn't null, while they're in the room and the list has room for it, or moves the item that keeps
+ * it already to that list, or keeps it there, as a full list can, to remind them anew.
  */
-const KEEP_MESSAGE = `INSERT INTO saved_items (id, user_id, list, kind, room_id, message_id, created_at, updated_at)
-  SELECT ?1, ?2, ?3, ?6, ?4, ?5, ?7, ?7
+const KEEP_MESSAGE = `INSERT INTO saved_items (id, user_id, list, kind, room_id, message_id, remind_at, created_at, updated_at)
+  SELECT ?1, ?2, ?3, ?6, ?4, ?5, ?9, ?7, ?7
   WHERE EXISTS (SELECT 1 FROM memberships WHERE room_id = ?4 AND user_id = ?2)
-    AND (SELECT count(*) FROM saved_items WHERE user_id = ?2 AND list = ?3) < ?8
+    AND ((SELECT count(*) FROM saved_items WHERE user_id = ?2 AND list = ?3) < ?8
+      OR EXISTS (SELECT 1 FROM saved_items WHERE user_id = ?2 AND message_id = ?5 AND list = ?3))
   ON CONFLICT (user_id, message_id) WHERE message_id IS NOT NULL DO UPDATE SET list = excluded.list, updated_at = excluded.updated_at,
-    remind_at = CASE WHEN excluded.list = 'saved' THEN NULL ELSE saved_items.remind_at END,
-    reminded_at = CASE WHEN excluded.list = 'saved' THEN NULL ELSE saved_items.reminded_at END`;
+    remind_at = CASE WHEN excluded.list = 'saved' THEN NULL ELSE coalesce(excluded.remind_at, saved_items.remind_at) END,
+    reminded_at = CASE WHEN excluded.list = 'saved' OR excluded.remind_at IS NOT NULL THEN NULL ELSE saved_items.reminded_at END`;
 
 /** Keeps a note for person ?2 in To-dos as item ?1, while the list has room for it. */
 const KEEP_NOTE = `INSERT INTO saved_items (id, user_id, list, kind, body, plain_text, files, remind_at, created_at, updated_at)
@@ -266,10 +272,10 @@ export class SavedStore {
    * Keeps a message for someone in `list` as a new item `id`, or moves the item that keeps it already
    * there, answering the item, or why it can't.
    */
-  async keepMessage(userId: UserId, id: string, list: SavedList, { roomId, messageId, kind }: MessageToKeep, now: string): Promise<StoredSavedItem | KeepRefusal> {
+  async keepMessage(userId: UserId, id: string, list: SavedList, { roomId, messageId, kind, remindAt }: MessageToKeep, now: string): Promise<StoredSavedItem | KeepRefusal> {
     const [[access], , [row]] = (await this.db.batch([
       statement(ROOM_AND_COUNT, userId, roomId, list),
-      statement(KEEP_MESSAGE, id, userId, list, roomId, messageId, kind, now, MAX_SAVED_ITEMS),
+      statement(KEEP_MESSAGE, id, userId, list, roomId, messageId, kind, now, MAX_SAVED_ITEMS, remindAt),
       statement(ITEM_OF_MESSAGE, userId, messageId),
     ])) as [Array<{ member: number; count: number }>, unknown[], SavedRow[]];
     if (row?.list === list) return itemOf(row);

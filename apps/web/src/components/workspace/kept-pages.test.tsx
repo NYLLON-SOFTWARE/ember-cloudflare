@@ -48,6 +48,7 @@ function showPage(Page: typeof TodosPage, items: SavedItem[], itemId?: string, e
       return Response.json({ ...changed, ...(change.completed !== undefined && { completedAt: change.completed ? "2026-11-12T00:00:00.000Z" : null }), ...(change.list && { list: change.list }) });
     }
     if (init?.method === "DELETE") return Response.json({ error: "That item isn't in your lists" }, { status: 404 });
+    if (init?.method === "POST") return Response.json({ ...items[0], id: "again" }, { status: 201 });
     const one = elsewhere.find(({ id }) => path === `/api/saved/${id}`);
     if (one) return Response.json(one);
     return Response.json({ items });
@@ -72,7 +73,7 @@ describe("To-dos", () => {
     expect(screen.getByText(/Thread in #general/)).toBeInTheDocument();
     expect(screen.getByText("Call Grace")).toBeInTheDocument();
     expect(screen.getByText(/Reply to Lin/)).toHaveClass("line-through");
-    expect(screen.queryByRole("main")).not.toBeInTheDocument();
+    expect(screen.getByRole("main", { name: "To-dos" })).toBeInTheDocument();
   });
 
   it("marks a to-do completed from its row, moving it to Completed", async () => {
@@ -93,9 +94,16 @@ describe("To-dos", () => {
   it("says an overdue to-do is overdue first, in place of its date, and a note of your own shows no face", async () => {
     showPage(TodosPage, [item("a", { message: message("m-a", "Ship the deck"), remindAt: "2026-11-02T09:00:00.000Z", reminded: true }), item("n", { kind: "note", roomId: undefined, messageId: undefined, body: "<p>Call Grace</p>", plainText: "Call Grace", files: [] })]);
     const row = (await screen.findByText("Ship the deck")).closest("li")!;
-    expect(within(row).getByText(/^Overdue ·/)).toHaveClass("text-negative");
+    expect(within(row).getByText("Overdue")).toHaveClass("text-negative");
+    expect(within(row).getByText("Overdue").parentElement).toHaveTextContent(/^Overdue · Grace · #general$/);
     expect(within(row).queryByRole("time")).not.toBeInTheDocument();
     expect(within(screen.getByText("Call Grace").closest("li")!).queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("says only Overdue under an overdue note of your own, with no separator after it", async () => {
+    showPage(TodosPage, [item("n", { kind: "note", roomId: undefined, messageId: undefined, body: "<p>Call Grace</p>", plainText: "Call Grace", files: [], remindAt: "2026-11-02T09:00:00.000Z", reminded: true })]);
+    const row = (await screen.findByText("Call Grace")).closest("li")!;
+    expect(within(row).getByText("Overdue").parentElement).toHaveTextContent(/^Overdue$/);
   });
 
   it("filters by the chips over the list", async () => {
@@ -125,6 +133,18 @@ describe("Saved", () => {
     expect(bar.getByRole("button", { name: "Remove from saved" })).toBeInTheDocument();
     await userEvent.click(bar.getByRole("button", { name: "Move to To-dos" }));
     expect(await screen.findByText("Nothing saved")).toBeInTheDocument();
+  });
+});
+
+describe("Remove from saved", () => {
+  it("offers Undo for a moment, which saves the message again", async () => {
+    const fetch = showPage(SavedPage, [item("a", { list: "saved", message: message("m-a", "Good read") })]);
+    const row = (await screen.findByText("Good read")).closest("li")!;
+    await userEvent.click(within(row).getByRole("button", { name: "Remove from saved" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Removed from saved");
+    await userEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(fetch).toHaveBeenCalledWith("/api/saved", expect.objectContaining({ method: "POST", body: JSON.stringify({ list: "saved", roomId: "general", messageId: "m-a" }) }));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });
 

@@ -272,6 +272,14 @@ export function ChatPlusIn(props: IconoirIconProps) {
   );
 }
 
+export function Check(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="check" {...props}>
+      <path d="M5 13L9 17L19 7" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
 export function CheckCircle(props: IconoirIconProps) {
   return (
     <IconoirIcon name="check-circle" {...props}>

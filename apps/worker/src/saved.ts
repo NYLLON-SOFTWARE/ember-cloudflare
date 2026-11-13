@@ -1,4 +1,5 @@
 import {
+  fileNameRefusal,
   isMessageTooLong,
   isRoomId,
   isRemindableAt,
@@ -127,17 +128,25 @@ export async function showSaved(request: Request, env: Env, id: string): Promise
 }
 
 /**
- * What the Workspace keeps of a note's markup, naming the people it mentions as they are now, or why it
- * keeps nothing. A note may be empty when it has files.
+ * What the Workspace keeps of a note's markup, without its control characters, naming the people it
+ * mentions as they are now, or why it keeps nothing. A note may be empty when it has files.
  */
-async function noteBodyOf(env: Env, markup: string): Promise<{ body: string; plainText: string } | string> {
+async function noteBodyOf(env: Env, sent: string): Promise<{ body: string; plainText: string } | string> {
+  const markup = withoutControls(sent);
   const ids = userIdsIn(markup);
   const people = new Map<UserId, User>(ids.length === 0 ? [] : (await workspace(env).mentionedPeople(ids)).map((person) => [person.id, person]));
   const prepared = prepareBody(markup, (sgid) => people.get(userIdFromSgid(sgid) ?? ""));
   if (prepared === null) return "Ember couldn't read that to-do";
-  if (isMessageTooLong(prepared.plainText)) return MESSAGE_TOO_LONG;
-  return prepared.blank || !isSeen(prepared.html) ? { body: "", plainText: "" } : { body: prepared.html, plainText: prepared.plainText };
+  // Character references, as `&#1;`, come back from preparing as the controls they name.
+  const [html, plainText] = [withoutControls(prepared.html), withoutControls(prepared.plainText)];
+  if (isMessageTooLong(plainText)) return MESSAGE_TOO_LONG;
+  return prepared.blank || !isSeen(html) ? { body: "", plainText: "" } : { body: html, plainText };
 }
+
+/** The control characters a note keeps none of: all but tab, line feed and carriage return. */
+const CONTROLS = /[\0-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g;
+
+const withoutControls = (text: string) => text.replace(CONTROLS, "");
 
 /**
  * Whether stored markup shows something: an attachment, as a mention, or text a reader could see. Its
@@ -154,9 +163,11 @@ const shownText = (html: string) => html.replace(/<[^>]*>/g, "").replace(/&(?:am
 /**
  * White space, and the characters that show nothing: those Unicode says to ignore when they can't be
  * shown, as zero-width spaces, joiners, direction marks, variation selectors, tags and the Hangul
- * fillers, and the blank Braille pattern.
+ * fillers, control characters, the blank Braille pattern, the Khitan filler, the Syriac abbreviation
+ * mark, the interlinear annotation marks and the object replacement character. Not every format
+ * character: U+0600 to U+0605 are Arabic number signs, which show.
  */
-const INVISIBLE = /[\p{White_Space}\p{Default_Ignorable_Code_Point}\u2800]/gu;
+const INVISIBLE = /[\p{White_Space}\p{Default_Ignorable_Code_Point}\p{Cc}\u2800\u{16FE4}\u070F\uFFF9-\uFFFC]/gu;
 
 /**
  * Takes the files `ids` names for a note: ones `userId` sent `NOTE_FILES_PATH` that no note carries yet, as
@@ -205,8 +216,8 @@ async function userOf(env: Env, credentials: Credentials | null): Promise<User |
 
 /**
  * `POST /api/saved`, a `NewSavedItem`: keeps a message in To-dos or Saved, or moves your item that keeps
- * it there, answering 201 with the item, or keeps a note of your own in To-dos. A file message keeps its
- * file. A message you can't see answers 404, and a full list 422.
+ * it there, answering 201 with the item, or keeps a note of your own in To-dos, either reminding you then
+ * if it's a to-do. A file message keeps its file. A message you can't see answers 404, and a full list 422.
  */
 export async function keepSaved(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -214,6 +225,9 @@ export async function keepSaved(request: Request, env: Env): Promise<Response> {
   if (!user) return problem(401, NOT_SIGNED_IN);
   const asked = parseNewSavedItem(await jsonBodyOf(request));
   if (typeof asked === "string") return problem(422, asked);
+  const remindAt = asked.remindAt ?? null;
+  if (remindAt !== null && !isRemindableAt(remindAt, Date.now())) return problem(422, REMINDER_NOT_AHEAD);
+  const remindTime = remindAt === null ? null : Date.parse(remindAt);
   const space = workspace(env);
   if ("messageId" in asked) {
     // The room is asked only once it's known to be theirs, so no request makes a room nobody may open.
@@ -222,7 +236,7 @@ export async function keepSaved(request: Request, env: Env): Promise<Response> {
     const [message] = await env.CHAT_ROOM.getByName(asked.roomId).messagesWithIds(asked.roomId, [asked.messageId]);
     if (!message || message.roomId !== asked.roomId || message.deleted) return problem(404, MESSAGE_NOT_FOUND);
     const kind = message.attachment ? "file" : "message";
-    const kept = await space.keepMessage(credentials!, asked.list, { roomId: asked.roomId, messageId: asked.messageId, kind });
+    const kept = await space.keepMessage(credentials!, asked.list, { roomId: asked.roomId, messageId: asked.messageId, kind, remindAt: remindTime });
     if (!kept) return problem(401, NOT_SIGNED_IN);
     if (kept === "forbidden") return problem(404, MESSAGE_NOT_FOUND);
     if (kept === "full") return problem(422, SAVED_LIST_FULL);
@@ -232,11 +246,9 @@ export async function keepSaved(request: Request, env: Env): Promise<Response> {
   if (typeof body === "string") return problem(422, body);
   const fileIds = asked.fileIds ?? [];
   if (body.body === "" && fileIds.length === 0) return problem(422, EMPTY_NOTE);
-  const remindAt = asked.remindAt === undefined ? null : asked.remindAt;
-  if (remindAt !== null && !isRemindableAt(remindAt, Date.now())) return problem(422, REMINDER_NOT_AHEAD);
   let kept: Awaited<ReturnType<typeof space.keepNote>> = null;
   const taken = await takeFiles(env, credentials!, user.id, fileIds, async (files) => {
-    kept = await space.keepNote(credentials!, { ...body, files, remindAt: remindAt === null ? null : Date.parse(remindAt) });
+    kept = await space.keepNote(credentials!, { ...body, files, remindAt: remindTime });
     return kept !== null && kept !== "full";
   });
   if (taken === null) return problem(422, FILE_NOT_FOUND);
@@ -327,20 +339,24 @@ async function forgetFiles(env: Env, files: KeptNoteFile[]): Promise<void> {
 }
 
 /**
- * `POST /api/saved/files?name=<name>`, a file's bytes, `MAX_NOTE_FILE_SIZE` at most: keeps a file in R2
- * for a note of yours, answering 201 with it, its addresses signed, for a new note or a change to name by
- * its id. Its type is what its bytes say, as a room's file's is. It waits a day for a note to take it, and
- * each person may have `MAX_WAITING_NOTE_UPLOADS` waiting, past which this answers 429.
+ * `POST /api/saved/files?name=<name>`, a file's bytes, `MAX_NOTE_FILE_SIZE` at most, named as a room's
+ * upload must be: keeps a file in R2 for a note of yours, answering 201 with it, its addresses signed, for
+ * a new note or a change to name by its id. Its type is what its bytes say, as a room's file's is. It waits
+ * a day for a note to take it, and each person may have `MAX_WAITING_NOTE_UPLOADS` waiting, past which
+ * this answers 429.
  */
 export async function uploadNoteFile(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, NOT_SIGNED_IN);
   if (!env.FILES) return problem(503, NO_STORAGE);
+  const sent = urlOf(request).searchParams.get("name") ?? "";
+  const refusal = fileNameRefusal(sent);
+  if (refusal) return problem(422, refusal);
   const declared = Number(request.headers.get("Content-Length"));
   if (declared > MAX_NOTE_FILE_SIZE) return problem(413, NOTE_FILE_TOO_LARGE);
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (bytes.length > MAX_NOTE_FILE_SIZE) return problem(413, NOTE_FILE_TOO_LARGE);
-  const name = sanitizedFilename(urlOf(request).searchParams.get("name") ?? "").slice(0, 255) || "file";
+  const name = sanitizedFilename(sent) || "file";
   const { contentType, metadata } = identifiedOf(bytes.subarray(0, 64 * 1024), name, request.headers.get("Content-Type") ?? "");
   const { width, height } = JSON.parse(metadata) as { width?: number; height?: number };
   const started = await workspace(env).startNoteUpload(credentials);

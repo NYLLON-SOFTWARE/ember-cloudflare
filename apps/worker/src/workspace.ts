@@ -4012,7 +4012,9 @@ export class Workspace extends DurableObject<Env> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const kept = await this.saved.keepMessage(user.id, sortableId(), list, message, new Date().toISOString());
-    if (typeof kept !== "string") await this.savedChanged(user.id);
+    if (typeof kept === "string") return kept;
+    if (message.remindAt !== null) await this.wakeAt(message.remindAt);
+    await this.savedChanged(user.id);
     return kept;
   }
 

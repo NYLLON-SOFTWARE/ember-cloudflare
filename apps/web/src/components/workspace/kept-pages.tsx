@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import {
   isWebImage,
   MAX_NOTE_FILES,
@@ -64,6 +64,9 @@ import { UserAvatar } from "./user-avatar";
 const NO_EDITORS: MessageEditors = { open() {}, close() {}, returnFocus() {}, attach() {}, reply() {} };
 
 /** What each list calls itself, and one of its items. */
+/** How long Undo stays after Remove from saved. */
+const UNDO_MS = 6000;
+
 const NAMES = {
   todo: { title: "To-dos", item: "To-do", empty: "No to-dos" },
   saved: { title: "Saved", item: "Saved item", empty: "Nothing saved" },
@@ -136,34 +139,66 @@ function backHome(event: MouseEvent<HTMLAnchorElement>) {
 }
 
 /** Where a new to-do's unsaved text is kept in this browser, or a note's being changed, by `userId`. */
-const draftKeyOf = (userId: UserId, itemId?: string) => `todo-draft-${userId}${itemId === undefined ? "" : `-${itemId}`}`;
+const draftKeyOf = (userId: UserId, itemId?: string) => `${draftPrefixOf(userId)}${itemId === undefined ? "" : `-${itemId}`}`;
+const draftPrefixOf = (userId: UserId) => `todo-draft-${userId}`;
+
+/** A draft: its text, and the note's text as of when it was started, which it's a change to. */
+interface Draft {
+  html: string;
+  /** The note's `updatedAt` it was written over, or "" for a new to-do. */
+  base: string;
+}
 
 /** The draft kept at `key`, or null with none, or where storage can't be reached. */
-function readDraft(key: string): string | null {
+function readDraft(key: string): Draft | null {
   try {
-    return localStorage.getItem(key);
+    const kept = JSON.parse(localStorage.getItem(key) ?? "null") as Partial<Draft> | null;
+    return typeof kept?.html === "string" && kept.html !== "" ? { html: kept.html, base: kept.base ?? "" } : null;
   } catch {
     return null;
   }
 }
 
-/** Keeps `html` as the draft at `key`, or forgets it for null. */
-function keepDraft(key: string, html: string | null): void {
+/** Keeps `draft` at `key`, or forgets the draft there for null. */
+function keepDraft(key: string, draft: Draft | null): void {
   try {
-    if (html) localStorage.setItem(key, html);
+    if (draft) localStorage.setItem(key, JSON.stringify(draft));
     else localStorage.removeItem(key);
   } catch {
     // Unkept, then.
   }
 }
 
-/** Moves the draft at `from` to `to`, saying whether there was one. */
-function moveDraft(from: string, to: string): boolean {
-  const html = readDraft(from);
-  if (!html) return false;
-  keepDraft(to, html);
+/** A note's text to start from: its draft, if it was written over the note as it is now, or else the note's own. */
+function startingText(key: string, item: SavedItem | undefined): string {
+  const draft = readDraft(key);
+  if (draft && draft.base === (item?.updatedAt ?? "")) return draft.html;
+  // Changed since, here or elsewhere: what's saved now wins over an older draft.
+  if (draft) keepDraft(key, null);
+  return item?.body ?? "";
+}
+
+/**
+ * Makes the draft of a note that's gone a new to-do's, after any new to-do's draft already there, saying
+ * whether there was one.
+ */
+function rescueDraft(from: string, to: string): boolean {
+  const draft = readDraft(from);
+  if (!draft) return false;
+  keepDraft(to, { html: (readDraft(to)?.html ?? "") + draft.html, base: "" });
   keepDraft(from, null);
   return true;
+}
+
+/** Forgets `userId`'s drafts of notes that aren't among `ids`, as when they were cleared in another tab, except `open`'s. */
+function forgetDraftsOfGone(userId: UserId, ids: ReadonlySet<string>, open: string | undefined): void {
+  const prefix = `${draftPrefixOf(userId)}-`;
+  try {
+    const gone = Object.keys(localStorage).filter((key) => key.startsWith(prefix) && !ids.has(key.slice(prefix.length)) && key.slice(prefix.length) !== open);
+    for (const key of gone) localStorage.removeItem(key);
+  } catch {
+    // Kept, then.
+  }
 }
 
 /** The keys typed while an editor opens, which it takes once it has focus. */
@@ -217,6 +252,18 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
   // The note Edit opened, whose text takes focus and the keys typed before it could.
   const [editing, setEditing] = useState<{ id: string; typed: TypedAhead } | null>(null);
   const [viewing, setViewing] = useState<StoredFile | null>(null);
+  // What Remove from saved just took out, which Undo saves again, for a few seconds.
+  const [removed, setRemoved] = useState<{ roomId: RoomId; messageId: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!removed) return;
+    const timer = setTimeout(() => setRemoved(null), UNDO_MS);
+    return () => clearTimeout(timer);
+  }, [removed]);
+  const undo = () => {
+    if (!removed) return;
+    setRemoved(null);
+    keepItem({ list: "saved", roomId: removed.roomId, messageId: removed.messageId }).then((item) => setItems((items) => items && [item, ...items.filter((i) => i.id !== item.id)]), failed);
+  };
   // A thread opened from a saved message's conversation, in the pane beside it, and that pane.
   // A saved reply opens with its thread, until that's closed.
   const [thread, setThread] = useState<OpenThread | "closed" | null>(null);
@@ -244,6 +291,11 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
     };
   }, [list, version, roomIds, onFailed]);
 
+  // Drafts of notes no longer in To-dos go, but for the one open, which may be rescued below.
+  useEffect(() => {
+    if (list === "todo" && items) forgetDraftsOfGone(me.id, new Set(items.map((item) => item.id)), itemId);
+  }, [list, items, me.id, itemId]);
+
   // An item's address in the other list, as a link from before it moved, goes on to its own.
   const missing = itemId !== undefined && items !== null && !items.some((item) => item.id === itemId);
   useEffect(() => {
@@ -253,7 +305,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
       (item) => current && item.list !== list && navigate(savedPath(item.list, item.id), { replace: true }),
       () => {
         // Cleared elsewhere while you changed it: what you'd written opens again as a new to-do.
-        if (!current || !moveDraft(draftKeyOf(me.id, itemId), draftKeyOf(me.id))) return;
+        if (!current || !rescueDraft(draftKeyOf(me.id, itemId), draftKeyOf(me.id))) return;
         setCreating(true);
         returnTo(savedPath(list));
       },
@@ -280,6 +332,8 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
       setItems((items) => items && items.filter((i) => i.id !== item.id));
       if (item.id === itemId) returnTo(savedPath(list));
       clearItem(item.id).catch(failed);
+      // A saved message or file can be saved again at once.
+      if (list === "saved" && item.roomId !== undefined && item.messageId !== undefined) setRemoved({ roomId: item.roomId, messageId: item.messageId, at: Date.now() });
     },
     open: (item) => {
       setCreating(false);
@@ -343,13 +397,15 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
       )}
     </>
   );
+  // The list is the page's main content until something opens beside it, which is then.
+  const ListLandmark = detailOpen ? "section" : MainContent;
   const listPane = (
-    <section aria-label={names.title} className="flex h-full min-h-0 min-w-0 flex-col bg-background">
+    <ListLandmark aria-label={names.title} className="flex h-full min-h-0 min-w-0 flex-col bg-background">
       {/* On phones the page's own top bar, with Back, stands over the list instead. */}
       {!phone && <div className="flex min-h-header items-center gap-3 border-b px-4 py-2.5">{header}</div>}
       {items !== null && items.length > 0 && (
         <div className="flex items-center gap-2 border-b py-2 pr-4 md:pl-4">
-          <div role="group" aria-label="Filter" className={cn("flex min-w-0 flex-1 gap-2", CHIPS_ROW)}>
+          <div role="group" aria-label="Filter" className={cn("flex min-w-0 flex-1 gap-2", CHIPS_ROW, "md:flex-nowrap md:overflow-x-auto md:[scrollbar-width:none]")}>
             {FILTERS[list].map((option) => (
               <Chip key={option} pressed={filter === option} onClick={() => setFilter(option)}>
                 {FILTER_LABELS[option]}
@@ -382,7 +438,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
           <ul>{shown.map(row)}</ul>
         )}
       </div>
-    </section>
+    </ListLandmark>
   );
 
   // A saved message opens where it is, in its conversation, as Slack's do; anything else opens its details.
@@ -445,6 +501,14 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
           !detailOpen && "max-md:row-span-1 max-md:row-start-2",
         )}
       />
+      {removed && (
+        <div role="status" className="fixed bottom-[max(24px,env(safe-area-inset-bottom))] left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-foreground py-1.5 pr-1.5 pl-4 text-sm text-background shadow-lg max-md:bottom-[calc(88px+env(safe-area-inset-bottom))]">
+          Removed from saved
+          <button type="button" onClick={undo} className="min-h-8 cursor-pointer rounded-lg px-3 font-semibold hover:bg-background/15 touch:min-h-11">
+            Undo
+          </button>
+        </div>
+      )}
       {viewing && <Lightbox src={viewing.url} downloadUrl={viewing.downloadUrl} filename={viewing.name} alt={viewing.name} onClose={() => setViewing(null)} />}
     </>
   );
@@ -516,7 +580,7 @@ function KeptRow({ item, list, selected, origin, actions }: { item: SavedItem; l
   const overdue = item.remindAt !== null && item.reminded === true && !done;
   const nameOf = useNameOf();
   return (
-    <li className={cn("group/row relative flex items-start gap-3 border-b px-4 py-3 last:border-b-0 hover:bg-hover", selected && "bg-hover")}>
+    <li className={cn("group/row relative flex items-start gap-3 px-4 py-3 hover:bg-hover", selected && "bg-hover")}>
       {gone ? (
         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-surface text-muted-foreground">
           <Page className="size-5" />
@@ -544,14 +608,23 @@ function KeptRow({ item, list, selected, origin, actions }: { item: SavedItem; l
         {/* An overdue to-do says so first, in place of its date; an upcoming reminder's time stays in sight. */}
         <span className="flex min-w-0 gap-1 text-[13px] text-muted-foreground max-md:text-[15px]">
           <span className="truncate">
-            {overdue && <span className="text-negative">Overdue · </span>}
-            {item.message && <>{nameOf(item.message.creator)} · </>}
-            {origin && <>{origin}{!overdue && " · "}</>}
-            {!overdue && (
-              <time dateTime={date} title={dateTimeLabel(new Date(date))}>
-                {shortDateLabel(new Date(date))}
-              </time>
-            )}
+            {[
+              overdue && <span className="text-negative">Overdue</span>,
+              item.message && nameOf(item.message.creator),
+              origin,
+              !overdue && (
+                <time dateTime={date} title={dateTimeLabel(new Date(date))}>
+                  {shortDateLabel(new Date(date))}
+                </time>
+              ),
+            ]
+              .filter(Boolean)
+              .map((part, index) => (
+                <Fragment key={index}>
+                  {index > 0 && " · "}
+                  {part}
+                </Fragment>
+              ))}
           </span>
           {item.remindAt && !done && !overdue && (
             <span className="shrink-0">
@@ -608,6 +681,13 @@ function RowActionBar({ item, list, actions }: { item: SavedItem; list: SavedLis
   );
 }
 
+/** What a to-do's reminder says where it's set: "Overdue · 5:25 AM" in red once it's fired, or else when it'll fire. */
+function reminderDetail(item: SavedItem): ReactNode {
+  if (item.remindAt === null) return undefined;
+  const at = new Date(item.remindAt);
+  return item.reminded && item.completedAt === null ? <span className="text-negative">Overdue · {shortDateLabel(at)}</span> : `Reminder: ${dateTimeLabel(at)}`;
+}
+
 /** What takes an item out of its list: a to-do's done with, and a saved item's no longer saved. */
 const CLEAR_LABELS = { todo: "Clear", saved: "Remove from saved" } as const satisfies Record<SavedList, string>;
 
@@ -627,7 +707,7 @@ function ItemMenu({ item, list, actions, className }: { item: SavedItem; list: S
     setOpen(open);
     if (!open) setView("actions");
   };
-  const row = (label: string, onSelect: () => void, { keepOpen = false, destructive = false, detail }: { keepOpen?: boolean; destructive?: boolean; detail?: string } = {}) => (
+  const row = (label: string, onSelect: () => void, { keepOpen = false, destructive = false, detail }: { keepOpen?: boolean; destructive?: boolean; detail?: ReactNode } = {}) => (
     <button
       key={label}
       type="button"
@@ -656,14 +736,22 @@ function ItemMenu({ item, list, actions, className }: { item: SavedItem; list: S
           className="mx-auto max-w-[560px] gap-1 rounded-t-[20px] border-x px-2 pt-2 pr-[max(8px,env(safe-area-inset-right))] pb-[max(12px,env(safe-area-inset-bottom))] pl-[max(8px,env(safe-area-inset-left))]"
         >
           <span aria-hidden="true" className="mx-auto mb-1 h-1 w-9 shrink-0 rounded-full bg-muted-foreground/40" />
-          <SheetTitle className="truncate px-4 pt-1 pb-2 text-[15px] font-semibold text-muted-foreground">{view === "actions" ? summaryOf(item) : "Remind me"}</SheetTitle>
+          <div className="flex items-center gap-1 px-4 pt-1 pb-2">
+            {/* Remind me's times, and Custom…, go back a step to where they came from. */}
+            {view !== "actions" && (
+              <button type="button" aria-label="Back" onClick={() => setView(view === "custom" ? "remind" : "actions")} className="-ml-3 grid size-11 shrink-0 cursor-pointer place-items-center rounded-full hover:bg-hover">
+                <ArrowLeft className="size-5" />
+              </button>
+            )}
+            <SheetTitle className="truncate text-[15px] font-semibold text-muted-foreground">{view === "actions" ? summaryOf(item) : "Remind me"}</SheetTitle>
+          </div>
           <SheetDescription className="sr-only">{view === "actions" ? `Actions for ${summaryOf(item)}` : "When to remind you"}</SheetDescription>
           {view === "actions" ? (
             <>
               {list === "todo" && row(done ? "Mark in progress" : "Mark completed", () => actions.complete(item))}
               {list === "todo" && row("Edit", () => actions.edit(item))}
               {row(list === "todo" ? "Move to Saved" : "Move to To-dos", () => actions.move(item))}
-              {list === "todo" && row("Remind me…", () => setView("remind"), { keepOpen: true, detail: item.remindAt ? dateTimeLabel(new Date(item.remindAt)) : undefined })}
+              {list === "todo" && row("Remind me…", () => setView("remind"), { keepOpen: true, detail: reminderDetail(item) })}
               <hr className="mx-4 my-1 border-t" />
               {row(CLEAR_LABELS[list], () => actions.clear(item), { destructive: true })}
             </>
@@ -831,13 +919,7 @@ function ItemDetail({ item, typed, me, origin, actions, onChanged, onFailed }: I
           <ReminderMenu item={item} onRemind={(at) => actions.remind(item, at)}>
             <DropdownMenuTrigger className={TOOLBAR_BUTTON}>
               <Clock className="size-4" />
-              {item.remindAt === null ? (
-                "Add reminder"
-              ) : item.reminded && item.completedAt === null ? (
-                <span className="text-negative">Overdue · {shortDateLabel(new Date(item.remindAt))}</span>
-              ) : (
-                `Reminder: ${dateTimeLabel(new Date(item.remindAt))}`
-              )}
+              {item.remindAt === null ? "Add reminder" : reminderDetail(item)}
             </DropdownMenuTrigger>
           </ReminderMenu>
         </div>
@@ -861,7 +943,7 @@ interface NoteEditorProps {
 
 function NoteEditor({ item, draftKey, typed = null, onSaved, onFailed }: NoteEditorProps) {
   // What was written and not saved, last time, through signing out or a reload, or else the note's text.
-  const [initialValue] = useState(() => readDraft(draftKey) ?? item?.body ?? "");
+  const [initialValue] = useState(() => startingText(draftKey, item));
   const editor = useRef<RichTextEditorHandle>(null);
   const picker = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<NoteFile[]>(item?.files ?? []);
@@ -953,7 +1035,7 @@ function NoteEditor({ item, draftKey, typed = null, onSaved, onFailed }: NoteEdi
               placeholder="What’s on your to-do list?"
               rows={2}
               initialValue={initialValue}
-              onChange={() => keepDraft(draftKey, editor.current?.isBlank() ? null : (editor.current?.value() ?? null))}
+              onChange={() => keepDraft(draftKey, editor.current && !editor.current.isBlank() ? { html: editor.current.value(), base: item?.updatedAt ?? "" } : null)}
               mentionsFrom="/api/autocompletable/users"
               autoFocus={item === undefined || typed !== null}
               toolbar={false}
@@ -969,10 +1051,11 @@ function NoteEditor({ item, draftKey, typed = null, onSaved, onFailed }: NoteEdi
             />
           </Suspense>
         </div>
+        {/* Held to the card's width, so a long name wraps rather than push its buttons out of reach. */}
         {files.length > 0 && (
-          <ul className="grid gap-2 py-2">
+          <ul className="grid grid-cols-[minmax(0,1fr)] gap-2 py-2">
             {files.map((file) => (
-              <li key={file.id} className="flex items-center gap-2">
+              <li key={file.id} className="flex min-w-0 items-center gap-2">
                 <div className="min-w-0 flex-1">
                   <Attachment file={file} />
                 </div>

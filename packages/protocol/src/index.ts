@@ -87,6 +87,7 @@ export type { HuddlesField, HuddlesForgotten, HuddlesSaved, HuddlesSettings, Hud
 export {
   FILE_NAME_NOT_KEPT,
   FILE_TOO_LARGE,
+  fileNameRefusal,
   isKeepableFileName,
   isPreviewableSize,
   isPreviewed,

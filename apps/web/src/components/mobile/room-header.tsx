@@ -1,5 +1,5 @@
 import { useContext, useEffect, useId, useState } from "react";
-import { ACTIVITY_PATH, DMS_PATH, type Room, type User } from "@ember/protocol";
+import { ACTIVITY_PATH, DMS_PATH, SAVED_PATH, type Room, type User } from "@ember/protocol";
 import { ChatBubbleEmpty, Lock } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { useAccount } from "@/hooks/use-account";
@@ -40,12 +40,13 @@ export function MobileRoomHeader(props: RoomHeaderProps) {
   const about = useAbout(room, person, here);
   const detail = offline ? (status === "connecting" ? "Connecting…" : "Reconnecting…") : about;
   const ids = { name: useId(), detail: useId() };
-  // With nothing to go back to, as when a link opened it, Back goes up to where it's shown: Activity, for a
-  // room it opened, or the DMs or Home.
-  const inActivity = usePath().startsWith(`${ACTIVITY_PATH}/`);
+  // With nothing to go back to, as when a link opened it, Back goes up to where it's shown: Activity or
+  // Saved, for a room either opened, or the DMs or Home.
+  const path = usePath();
+  const shownIn = [ACTIVITY_PATH, SAVED_PATH].find((page) => path.startsWith(`${page}/`));
   return (
     <PageHeader>
-      <BackButton fallback={inActivity ? ACTIVITY_PATH : direct ? DMS_PATH : "/"} />
+      <BackButton fallback={shownIn ?? (direct ? DMS_PATH : "/")} />
       {/* The pill reads as the room's name and its line, and a tap anywhere on it opens the room's details. */}
       <div className={`relative flex min-w-0 flex-1 items-center gap-2 py-1 pr-4 pl-3 text-foreground has-[>button:hover]:bg-hover ${CAPSULE}`}>
         {person ? (

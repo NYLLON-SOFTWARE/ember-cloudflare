@@ -158,12 +158,19 @@ export const FILE_NAME_NOT_KEPT = "That file's name can't be kept";
 /** Whether Ember can keep a file named `name`, once it has a name. */
 export const isKeepableFileName = (name: string) => name.length <= MAX_FILE_NAME_LENGTH && !LONE_SURROGATE.test(name);
 
+/** Why Ember keeps no file named `name`, as a room's upload or a to-do's file, or null when it can. */
+export function fileNameRefusal(name: string): string | null {
+  if (!name.trim()) return "A file needs a name";
+  return isKeepableFileName(name) ? null : FILE_NAME_NOT_KEPT;
+}
+
 /** Parses an untrusted `NewUpload`, or returns why it's refused: `FILE_TOO_LARGE` for a file too large. */
 export function parseNewUpload(data: unknown): NewUpload | string {
   if (typeof data !== "object" || data === null || Array.isArray(data)) return "Expected a JSON object";
   const { name, type, size, clientMessageId, parentId, alsoSend } = data as Record<string, unknown>;
-  if (typeof name !== "string" || !name.trim()) return "A file needs a name";
-  if (!isKeepableFileName(name)) return FILE_NAME_NOT_KEPT;
+  if (typeof name !== "string") return "A file needs a name";
+  const refusal = fileNameRefusal(name);
+  if (refusal) return refusal;
   if (typeof type !== "string" || type.length > MAX_FILE_TYPE_LENGTH) return "A file's type must be text";
   if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 0) return "A file's size must be a number of bytes";
   if (size > MAX_FILE_SIZE) return FILE_TOO_LARGE;
