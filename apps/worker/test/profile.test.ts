@@ -3,11 +3,14 @@ import {
   CURRENT_PASSWORD_NEEDED,
   CURRENT_PASSWORD_WRONG,
   MAX_BIO_LENGTH,
+  MAX_MOOD_EMOJI_LENGTH,
+  MAX_MOOD_TEXT_LENGTH,
   PASSWORD_TOO_SHORT,
   SIGN_IN_LIMITED,
   type Directory,
   type DirectoryUser,
   type NewWorkspace,
+  type PersonMood,
   type Profile,
   type ProfileAnswer,
   type UserId,
@@ -124,9 +127,9 @@ describe("Edit your profile", () => {
     const response = await api("/api/users/me/profile", { headers: as(administrator) });
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    const profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: null, ...(await initialsOf(administrator)), password: true, membershipNeeded: false, memberful: null, assistant: null };
+    const profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: null, mood: null, ...(await initialsOf(administrator)), password: true, membershipNeeded: false, memberful: null, assistant: null };
     expect(await response.json()).toEqual({ profile, transferId: expect.any(String) } satisfies ProfileAnswer);
-    expect(await profileOf(grace)).toEqual({ name: "Grace Hopper", emailAddress: null, bio: "Rear admiral", ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, assistant: null } satisfies Profile);
+    expect(await profileOf(grace)).toEqual({ name: "Grace Hopper", emailAddress: null, bio: "Rear admiral", mood: null, ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, assistant: null } satisfies Profile);
   });
 
   it("saves your name, email address and bio, answering your profile as it is then", async () => {
@@ -136,7 +139,7 @@ describe("Edit your profile", () => {
 
     const response = await save(grace, changed);
     expect(response.status).toBe(200);
-    const profile: Profile = { ...changed, ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, assistant: null };
+    const profile: Profile = { ...changed, mood: null, ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, assistant: null };
     expect(await response.json()).toEqual({ profile, transferId: expect.any(String) } satisfies ProfileAnswer);
     expect(await profileOf(grace)).toEqual(profile);
     expect(await (await me(grace)).json()).toEqual({ user: { id: grace.user.id, name: "Grace Brewster Hopper", administrator: false } });
@@ -151,14 +154,14 @@ describe("Edit your profile", () => {
     for (const body of [{}, { name: "Grace Hopper" }, { bio: "Rear admiral", password: "" }]) {
       const response = await save(grace, body);
       expect(response.status, JSON.stringify(body)).toBe(200);
-      expect(await response.json()).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Rear admiral", ...initials, password: false, membershipNeeded: true, memberful: null, assistant: null }, transferId: expect.any(String) });
+      expect(await response.json()).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Rear admiral", mood: null, ...initials, password: false, membershipNeeded: true, memberful: null, assistant: null }, transferId: expect.any(String) });
       expect((await stored(grace.user.id)).updated_at).toBe(LONG_AGO);
     }
 
     const answer = await (await save(grace, { bio: "Admiral" })).json();
     expect((await stored(grace.user.id)).updated_at > LONG_AGO).toBe(true);
     // The avatar's address changes with it, as it's versioned by when they last changed.
-    expect(answer).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Admiral", ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, assistant: null }, transferId: expect.any(String) });
+    expect(answer).toEqual({ profile: { name: "Grace Hopper", emailAddress: null, bio: "Admiral", mood: null, ...(await initialsOf(grace)), password: false, membershipNeeded: true, memberful: null, assistant: null }, transferId: expect.any(String) });
     expect((await initialsOf(grace)).avatarUrl).not.toBe(initials.avatarUrl);
   });
 
@@ -433,5 +436,70 @@ describe("Edit your profile", () => {
     }
     expect((await api(`/api/users/${grace.user.id}/profile`, { headers: as(grace) })).status).toBe(404);
     expect((await stored(grace.user.id)).name).toBe("Grace Hopper");
+  });
+});
+
+/** A mood to wear: an emoji, a few words beside it, and when it comes off by itself. */
+const mood: PersonMood = { emoji: "😌", text: "Pairing on the compiler", clearAt: "2027-01-01T09:00:00.000Z" };
+
+/** Whose mood `directory` lists for `userId`, or null while they wear none. */
+const moodOf = async (viewer: Session, userId: UserId): Promise<PersonMood | null> => (await listed(viewer, userId)).mood ?? null;
+
+describe("Your mood", () => {
+  it("wears an emoji and a few words beside your name, which your profile answers and everyone else is told", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace Hopper");
+    const socket = await openWorkspaceSocket(administrator);
+
+    const response = await save(grace, { mood });
+    expect(response.status).toBe(200);
+    expect((await response.json()).profile.mood).toEqual(mood);
+    // Another person sees it in the directory and on the page it names.
+    expect(await moodOf(administrator, grace.user.id)).toEqual(mood);
+    const page = (await (await api(`/api/users/${grace.user.id}`, { headers: as(administrator) })).json()) as { person: DirectoryUser };
+    expect(page.person.mood).toEqual(mood);
+    expect(await socket.next()).toEqual({ type: "user.updated", user: await listed(administrator, grace.user.id) });
+  });
+
+  it("takes the mood off with null, and keeps it while a save says nothing of it", async () => {
+    const administrator = await setUp();
+    const grace = await signIn("Grace Hopper");
+    const socket = await openWorkspaceSocket(administrator);
+    await save(grace, { mood });
+    await socket.next();
+
+    expect((await (await save(grace, { mood: null })).json()).profile.mood).toBeNull();
+    expect(await moodOf(administrator, grace.user.id)).toBeNull();
+    expect(await socket.next()).toEqual({ type: "user.updated", user: await listed(administrator, grace.user.id) });
+
+    await save(grace, { mood });
+    await socket.next();
+    // A save that leaves the mood out wears the one they have.
+    expect((await (await save(grace, { bio: "Rear admiral" })).json()).profile.mood).toEqual(mood);
+    expect(await socket.next()).toMatchObject({ type: "user.updated", user: { bio: "Rear admiral", mood } });
+  });
+
+  it("keeps a mood whose clear time has passed, which pages leave out", async () => {
+    const grace = await signIn("Grace Hopper");
+    const expired = { ...mood, clearAt: LONG_AGO };
+    expect((await (await save(grace, { mood: expired })).json()).profile.mood).toEqual(expired);
+    expect(await moodOf(grace, grace.user.id)).toEqual(expired);
+  });
+
+  it.each([
+    ["a mood without an emoji", { ...mood, emoji: "" }, "Emoji is required"],
+    ["an emoji longer than the form takes", { ...mood, emoji: "x".repeat(MAX_MOOD_EMOJI_LENGTH + 1) }, `Emoji must be at most ${MAX_MOOD_EMOJI_LENGTH} characters`],
+    ["a mood without words", { ...mood, text: "" }, "A few words are required"],
+    ["words longer than the form takes", { ...mood, text: "x".repeat(MAX_MOOD_TEXT_LENGTH + 1) }, `Words must be at most ${MAX_MOOD_TEXT_LENGTH} characters`],
+    ["a clear time that isn't a time", { ...mood, clearAt: "soon" }, "Clear time isn't a time"],
+    ["a clear time that isn't text or null", { ...mood, clearAt: 1 }, "Clear time must be a time or null"],
+    ["a mood that isn't an object", "😌", "Expected a JSON object"],
+  ])("refuses %s, saving nothing", async (_, change, error) => {
+    const grace = await signIn("Grace Hopper");
+    const before = await stored(grace.user.id);
+    const response = await save(grace, { mood: change });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error });
+    expect(await stored(grace.user.id)).toEqual(before);
   });
 });

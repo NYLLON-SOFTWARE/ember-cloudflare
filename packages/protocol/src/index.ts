@@ -195,12 +195,36 @@ export type Role = "member" | "administrator" | "bot";
  */
 export type UserStatus = "active" | "deactivated" | "banned" | "suspended";
 
+/** How long the emoji someone wears beside their name may be, which a made-up one can be more than a character of. */
+export const MAX_MOOD_EMOJI_LENGTH = 24;
+/** How long the few words beside someone's name may be. */
+export const MAX_MOOD_TEXT_LENGTH = 100;
+
+/**
+ * What someone wears beside their name: a small emoji and a few words, which comes off by itself at
+ * `clearAt`, or stays until they take it off while that's null. When `clearAt` has passed it counts as
+ * none, which the page showing it decides: the workspace keeps it and sets no alarm for it.
+ */
+export interface PersonMood {
+  emoji: string;
+  text: string;
+  /** When it comes off by itself, as an ISO time, or null to wear it until they take it off. */
+  clearAt: string | null;
+}
+
+/** Whether `a` and `b` are the same mood, word for word and to the minute. */
+export function sameMood(a: PersonMood | null | undefined, b: PersonMood | null | undefined): boolean {
+  return a === b || (a !== undefined && b !== undefined && a !== null && b !== null && a.emoji === b.emoji && a.text === b.text && a.clearAt === b.clearAt);
+}
+
 /** Someone as the people directory lists them. */
 export interface DirectoryUser extends User {
   /** What they say about themselves, or null when they haven't said. */
   bio: string | null;
   role: Role;
   status: UserStatus;
+  /** What they wear beside their name (`PersonMood`), or null while they wear none. */
+  mood?: PersonMood | null;
   /** Their avatar, `/users/<token>/avatar?v=<version>`, whose address changes whenever they do, and @ember's with each release too. */
   avatarUrl: string;
   /**
@@ -903,6 +927,8 @@ export interface Profile {
   emailAddress: string | null;
   /** What you say about yourself, or null when you haven't said. */
   bio: string | null;
+  /** What you wear beside your name, or null while you wear none. */
+  mood: PersonMood | null;
   /** Your avatar, as the people directory gives it (`DirectoryUser.avatarUrl`). */
   avatarUrl: string;
   /** Whether you've uploaded an avatar, which Remove avatar takes away, though one that can't be resized shows your initials. */
@@ -941,6 +967,8 @@ export interface ProfileChanges {
   emailAddress?: string;
   password?: string;
   bio?: string;
+  /** The mood you wear beside your name, or null to take it off. What's left out stays as it is. */
+  mood?: PersonMood | null;
   /** The password you have, which changing your email address or password needs while you have one. */
   currentPassword?: string;
   /**
@@ -2375,21 +2403,46 @@ const PROFILE_FIELDS = {
   bio: "Bio",
   currentPassword: "Current password",
   pushSubscriptionEndpoint: "Push subscription endpoint",
-} as const satisfies Record<keyof ProfileChanges, string>;
+} as const satisfies Record<Exclude<keyof ProfileChanges, "mood">, string>;
+
+/**
+ * Parses an untrusted mood someone wears beside their name. Returns why it's refused instead. The emoji
+ * and the words are both wanted: a mood without either is none, which taking it off is for.
+ */
+export function parseMood(data: unknown): PersonMood | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { emoji, text, clearAt } = data as Record<string, unknown>;
+  if (typeof emoji !== "string" || emoji === "") return "Emoji is required";
+  if (emoji.length > MAX_MOOD_EMOJI_LENGTH) return `Emoji must be at most ${MAX_MOOD_EMOJI_LENGTH} characters`;
+  if (typeof text !== "string" || text === "") return "A few words are required";
+  if (text.length > MAX_MOOD_TEXT_LENGTH) return `Words must be at most ${MAX_MOOD_TEXT_LENGTH} characters`;
+  if (clearAt !== null && typeof clearAt !== "string") return "Clear time must be a time or null";
+  if (typeof clearAt === "string" && Number.isNaN(Date.parse(clearAt))) return "Clear time isn't a time";
+  return { emoji, text, clearAt };
+}
 
 /**
  * Parses an untrusted change to your profile. Returns why it's refused instead. Each field is saved as
  * typed, even a blank name. The server keeps the form's limits too: a new password from the 8 characters
- * first run takes, to the 72 sign-in can take, and a 200-character bio.
+ * first run takes, to the 72 sign-in can take, and a 200-character bio. The mood comes as null to take
+ * it off, or an emoji, a few words and an optional clear time.
  */
 export function parseProfileChanges(data: unknown): ProfileChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
   const changes: ProfileChanges = {};
-  for (const [field, label] of Object.entries(PROFILE_FIELDS) as [keyof ProfileChanges, string][]) {
+  for (const [field, label] of Object.entries(PROFILE_FIELDS) as [Exclude<keyof ProfileChanges, "mood">, string][]) {
     const value = data[field];
     if (value === undefined) continue;
     if (typeof value !== "string") return `${label} must be text`;
     changes[field] = value;
+  }
+  if (data.mood !== undefined) {
+    if (data.mood === null) changes.mood = null;
+    else {
+      const mood = parseMood(data.mood);
+      if (typeof mood === "string") return mood;
+      changes.mood = mood;
+    }
   }
   if (changes.name !== undefined && changes.name.length > MAX_USER_NAME_LENGTH) return NAME_TOO_LONG;
   if (changes.emailAddress !== undefined && changes.emailAddress.length > MAX_EMAIL_ADDRESS_LENGTH) return EMAIL_ADDRESS_TOO_LONG;

@@ -19,6 +19,7 @@ import {
   parseWorkspaceClientFrame,
   PASSWORD_RESET_CODE_MINUTES,
   PASSWORD_RESETS_PER_NETWORK,
+  sameMood,
   sameName,
   SIGN_UPS_PER_ADDRESS,
   SIGN_UPS_PER_HOUR,
@@ -53,6 +54,7 @@ import {
   type NewRoom,
   type NewRoomForm,
   type NewWorkspace,
+  type PersonMood,
   type PersonRole,
   type Profile,
   type ProfileChanges,
@@ -2820,10 +2822,10 @@ export class Workspace extends DurableObject<Env> {
    * their sessions end, and their sockets close for good: here at once, and in every room they're in
    * through the outbox. Everyone's workspace sockets hear of it.
    */
-  private async deactivate({ id, name, bio, role, agent }: DirectoryEntry): Promise<DirectoryUser> {
+  private async deactivate({ id, name, bio, mood, role, agent }: DirectoryEntry): Promise<DirectoryUser> {
     const now = Date.now();
     const removedAt = new Date(now).toISOString();
-    const removed = await this.directoryUser({ id, name, bio, role, status: "deactivated", updatedAt: removedAt, agent });
+    const removed = await this.directoryUser({ id, name, bio, mood, role, status: "deactivated", updatedAt: removedAt, agent });
     // As when resetting a password, until the database says it queued nothing.
     let queued = true;
     try {
@@ -2919,8 +2921,8 @@ export class Workspace extends DurableObject<Env> {
         if (previous) await this.wakeAt(now);
         const changed = (await this.store.activeBot(botId))!;
         if (changed.name !== bot.name || avatar) {
-          const { id, name, bio, role, status, updatedAt, agent } = changed;
-          this.broadcast({ type: "user.updated", user: await this.directoryUser({ id, name, bio, role, status, updatedAt, agent }) });
+          const { id, name, bio, mood, role, status, updatedAt, agent } = changed;
+          this.broadcast({ type: "user.updated", user: await this.directoryUser({ id, name, bio, mood, role, status, updatedAt, agent }) });
         }
         return this.shownBotSettings(changed);
       }),
@@ -3405,8 +3407,8 @@ export class Workspace extends DurableObject<Env> {
    * Someone as the people directory lists them, with their avatar's address, and nothing else known of
    * them, such as their email address, whatever `person` brings.
    */
-  private async directoryUser({ id, name, bio, role, status, updatedAt, agent }: DirectoryEntry): Promise<DirectoryUser> {
-    return (await directoryOf([{ id, name, bio, role, status, updatedAt, agent }], this.env.SESSION_SECRET))[0]!;
+  private async directoryUser({ id, name, bio, mood, role, status, updatedAt, agent }: DirectoryEntry): Promise<DirectoryUser> {
+    return (await directoryOf([{ id, name, bio, mood, role, status, updatedAt, agent }], this.env.SESSION_SECRET))[0]!;
   }
 
   /** The profile of the person `credentials` signs in, or null without a valid session. */
@@ -3419,12 +3421,12 @@ export class Workspace extends DurableObject<Env> {
 
   /** `person`'s profile, as their own profile page shows it to their `session`. */
   private async yourProfile(person: OwnProfileEntry, session: StoredSession): Promise<YourProfile> {
-    const { name, emailAddress, bio, avatar, password, membershipNeeded } = person;
+    const { name, emailAddress, bio, mood, avatar, password, membershipNeeded } = person;
     const [{ avatarUrl }, account] = await Promise.all([this.directoryUser(person), this.joinableAccount()]);
     const memberful = session.guest ? null : { membersOnly: account?.memberfulSignIn ?? false, accounts: person.accounts };
     return {
       transfer: { userId: person.id, sessionId: session.id },
-      profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks) },
+      profile: { name, emailAddress, bio, mood, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks) },
       memberful,
     };
   }
@@ -3463,17 +3465,19 @@ export class Workspace extends DurableObject<Env> {
    * and they have a password whose digest isn't `checked`, the one the Worker checked their current
    * password against (`profileCheck`), "memberful" for a first password while Memberful signs them in at
    * `memberfulSite`, as `profileCheck` answers too, or null without a valid session. A blank email address or bio is
-   * saved as none, so any number of people can be without one. It writes only what differs. A new
+   * saved as none, so any number of people can be without one. A mood comes as none or as the one they
+   * wear: its emoji, a few words and when it comes off by itself, which the workspace sets no alarm for,
+   * so one whose time has passed is the pages' to leave out. It writes only what differs. A new
    * password ends their other sessions: their sockets close and are told to reconnect, here at once and
    * in every room they're in through the outbox, and their push subscriptions are forgotten but this
    * browser's, at `pushEndpoint`, and a password that replaces one they had unlinks the accounts
-   * elsewhere they connected with it. Everyone's workspace sockets hear of a new name or bio, which the
-   * people directory lists. A new name can't be @ember's ("name reserved"), or an agent's ("agent's
-   * name"), unless it was theirs before.
+   * elsewhere they connected with it. Everyone's workspace sockets hear of a new name, bio or mood,
+   * which the people directory lists. A new name can't be @ember's ("name reserved"), or an agent's
+   * ("agent's name"), unless it was theirs before.
    */
   async changeProfile(
     credentials: Credentials,
-    changes: Pick<ProfileChanges, "name" | "emailAddress" | "bio">,
+    changes: Pick<ProfileChanges, "name" | "emailAddress" | "bio" | "mood">,
     passwordDigest: string | null,
     checked: string | null,
     pushEndpoint: string | null,
@@ -3491,8 +3495,9 @@ export class Workspace extends DurableObject<Env> {
         name: changes.name ?? person.name,
         emailAddress: changes.emailAddress === undefined ? person.emailAddress : changes.emailAddress || null,
         bio: changes.bio === undefined ? person.bio : changes.bio || null,
+        mood: changes.mood === undefined ? person.mood : changes.mood,
       };
-      const listed = profile.name !== person.name || profile.bio !== person.bio;
+      const listed = profile.name !== person.name || profile.bio !== person.bio || !sameMood(profile.mood, person.mood);
       if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return this.yourProfile(person, session);
       if (takesReservedName(person.name, profile.name)) return "name reserved";
       if (await this.takesAgentsName(person.name, profile.name)) return "agent's name";

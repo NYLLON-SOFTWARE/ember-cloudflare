@@ -27,6 +27,7 @@ import {
   type Involvement,
   type NavigationIconChanges,
   type NavigationIcons,
+  type PersonMood,
   type PersonRole,
   type Profile,
   type PushSubscriptionKeys,
@@ -266,6 +267,8 @@ export interface StoredSession {
 /** Someone as the people directory lists them, with when they last changed, which their avatar's address follows. */
 export interface DirectoryEntry extends User {
   bio: string | null;
+  /** What they wear beside their name, or null while they wear none. */
+  mood: PersonMood | null;
   role: Role;
   status: UserStatus;
   updatedAt: string;
@@ -485,7 +488,7 @@ export interface AvatarChange {
 }
 
 /** What `WorkspaceStore.changeProfile` saves: someone's profile, and the digest of a new password, or null to keep theirs. */
-export interface ProfileChange extends Pick<Profile, "name" | "emailAddress" | "bio"> {
+export interface ProfileChange extends Pick<Profile, "name" | "emailAddress" | "bio" | "mood"> {
   passwordDigest: string | null;
 }
 
@@ -907,6 +910,8 @@ interface DirectoryRow {
   id: UserId;
   name: string;
   bio: string | null;
+  /** The JSON `moodIn` reads, or null while they wear none. */
+  mood: string | null;
   role: number;
   status: number;
   updated_at: string;
@@ -947,10 +952,28 @@ const roomsChange = (agentId: UserId, rooms: RoomId[] | null, now: string): Stat
         statement(GRANT_PICKED_ROOMS, agentId, JSON.stringify(rooms), now),
       ];
 
+/** The mood the JSON `kept` names, as the users table keeps it, or null for none or what can't be one, as nothing Ember writes isn't. */
+function moodIn(kept: string | null): PersonMood | null {
+  if (kept === null) return null;
+  let mood: unknown;
+  try {
+    mood = JSON.parse(kept);
+  } catch {
+    return null;
+  }
+  return typeof mood === "object" && mood !== null && isMood(mood) ? mood : null;
+}
+
+const isMood = (mood: object): mood is PersonMood =>
+  typeof (mood as PersonMood).emoji === "string" &&
+  typeof (mood as PersonMood).text === "string" &&
+  ((mood as PersonMood).clearAt === null || typeof (mood as PersonMood).clearAt === "string");
+
 const directoryEntry = (row: DirectoryRow): DirectoryEntry => ({
   id: row.id,
   name: row.name,
   bio: row.bio,
+  mood: moodIn(row.mood),
   role: ROLES[row.role] ?? "member",
   status: STATUSES[row.status] ?? "active",
   updatedAt: row.updated_at,
@@ -1956,7 +1979,7 @@ export const ACTIVE_PEOPLE = `SELECT id, name FROM users WHERE status = ${ACTIVE
  * an AI agent: a bot without a token, as @ember and the agents administrators make are and chat bots never
  * are, deleted agents too, whose answers stay.
  */
-const DIRECTORY_COLUMNS = `users.id, users.name, users.bio, users.role, users.status, users.updated_at,
+const DIRECTORY_COLUMNS = `users.id, users.name, users.bio, users.mood, users.role, users.status, users.updated_at,
   (users.role = ${BOT} AND users.bot_token IS NULL) AS agent`;
 
 /** Everyone, for the people directory: removed and banned people too, whose messages stay. */
@@ -2263,7 +2286,7 @@ const QUEUE_PICTURE_DELETION = `INSERT INTO pending_picture_deletions (object_ke
 const KEEP_PICTURE = `DELETE FROM pending_picture_deletions WHERE object_key = ?`;
 
 /** Saves someone's profile and records when, keeping their password unless given a new one's digest. */
-const CHANGE_PROFILE = `UPDATE users SET name = ?, email_address = ?, bio = ?, password_digest = coalesce(?, password_digest), updated_at = ?
+const CHANGE_PROFILE = `UPDATE users SET name = ?, email_address = ?, bio = ?, mood = ?, password_digest = coalesce(?, password_digest), updated_at = ?
   WHERE id = ?`;
 
 /** The same, with whether each is in a room, for its settings. */
@@ -3940,8 +3963,8 @@ export class WorkspaceStore {
    * password started connecting, or connected, if they had one and keep an email address to sign in
    * with (`UNLINK_ON_NEW_PASSWORD`). Answers whether it queued any.
    */
-  async changeProfile(userId: UserId, { name, emailAddress, bio, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
-    const change = statement(CHANGE_PROFILE, name, emailAddress, bio, passwordDigest, now, userId);
+  async changeProfile(userId: UserId, { name, emailAddress, bio, mood, passwordDigest }: ProfileChange, now: string, ended: EndedByPassword | null): Promise<boolean> {
+    const change = statement(CHANGE_PROFILE, name, emailAddress, bio, mood && JSON.stringify(mood), passwordDigest, now, userId);
     if (!ended) {
       await this.db.batch([change]);
       return false;
