@@ -2,6 +2,7 @@ import { Suspense, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffe
 import { flushSync } from "react-dom";
 import { isKeepableFileName, isWebImage, MAX_FILE_SIZE, reachesMore, type Message, type ShareWidening, type User } from "@ember/protocol";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent, writtenBody } from "@ember/richtext/dom";
+import { useOptionalFlash } from "@/components/flash";
 import { ArrowUp, Lock, Page, Xmark } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
@@ -10,7 +11,6 @@ import { useScheduled } from "@/hooks/use-scheduled";
 import { dropTarget } from "@/lib/drop-target";
 import { checkShare, fetchLinkPreview, mentionPromptSrc } from "@/lib/api";
 import { hasTouchKeyboard, pressedAlone } from "@/lib/keyboard";
-import { editedBody } from "@/lib/messages";
 import { isEmberFile, nameNotKept, sendableFacts, tooLargeToAttach, type EmberFile, type Sendable } from "@/lib/uploads";
 import { tellDraftsChanged } from "@/lib/draft-keys";
 import { cn } from "@/lib/utils";
@@ -20,7 +20,7 @@ import { useFormatting } from "./composer-formatting";
 import { RichTextEditor, editorLoaded, type PastedLink, type RichTextEditorHandle } from "./editor";
 import { PHONE_TOOL_GROUPS } from "./formatting";
 import { ScheduledNotice } from "./schedule-send";
-import { useEditableBody } from "./editable-body";
+import { CHANGED_MEANWHILE, editSave, useEditableBody, type EditOpened } from "./editable-body";
 import { ForwardQuote } from "./message-body";
 import { RarePage } from "./rare-pages";
 import { fileSize } from "./upload-card";
@@ -445,16 +445,28 @@ export function Composer({
 
   // While a message is edited here: what was written before, kept aside to come back, or null for nothing.
   const heldDraft = useRef<string | null | undefined>(undefined);
+  const flash = useOptionalFlash();
   const editable = useEditableBody(editing?.message ?? null);
+  // What the edit opened with, against which Save tells what's changed, and who else changed it meanwhile.
+  const opened = useRef<EditOpened | null>(null);
+  // Whether the edit's been saved, as a second Save before it's done with would send the same change again.
+  const savedEdit = useRef(false);
+  // When the last edit was done with, as a second tap on Save, landing after it, would send the draft
+  // just put back.
+  const editDone = useRef(-Infinity);
   useEffect(() => {
     const text = editor.current;
     if (!text) return;
     if (editing && editable !== null) {
       if (heldDraft.current === undefined) heldDraft.current = text.isBlank() ? null : text.value();
       text.replace(editable);
+      opened.current = { body: editing.message.body, written: [editable, text.value()] };
+      savedEdit.current = false;
     } else if (!editing && heldDraft.current !== undefined) {
       const draft = heldDraft.current;
       heldDraft.current = undefined;
+      opened.current = null;
+      editDone.current = performance.now();
       if (draft === null) {
         text.clear();
         text.focus();
@@ -466,9 +478,15 @@ export function Composer({
   // Saves the message edited, or cancels an edit that changes nothing, as the message editor does.
   const saveEdit = ({ message, onSave, onCancel }: ComposerEdit) => {
     const text = editor.current;
-    const body = text && !text.isBlank() ? editedBody(message, text.value()) : null;
-    if (body === null || body === message.body) return onCancel();
-    onSave(body);
+    if (savedEdit.current) return;
+    if (!text || text.isBlank() || !opened.current) return onCancel();
+    const saving = editSave(message, opened.current, text.value());
+    if (saving === "unchanged") return onCancel();
+    if (saving === "changed meanwhile") {
+      opened.current.body = message.body;
+      return flash?.("alert", CHANGED_MEANWHILE);
+    }
+    savedEdit.current = onSave(saving.body);
   };
 
   // A file from Files in Ember that would now reach people it wasn't attached knowing about, as the room it
@@ -488,6 +506,7 @@ export function Composer({
   // screens too. While the room is away what's written goes, to wait for it, and the files stay. Before the
   // editor shows, as its code loads, only the files go.
   const submit = (checked = false) => {
+    if (!editing && performance.now() - editDone.current < EDIT_SETTLING_MS) return;
     if (editing) return saveEdit(editing);
     const shared = picked.files.flatMap(({ file }) => (isEmberFile(file) && file.roomId !== roomId ? [file] : []));
     if (!checked && !disabled && shared.length > 0) return void checkThenSubmit(shared);
@@ -767,6 +786,9 @@ export function Composer({
 
 /** Where whether the toolbar shows is kept in this browser, which Aa changes. */
 const TOOLBAR_KEY = "composer-toolbar";
+
+/** How long after an edit's done with that Send does nothing, longer than a double tap's two taps take. */
+const EDIT_SETTLING_MS = 600;
 
 /**
  * Whether the formatting toolbar shows: as Aa last left it in this browser, or else `byDefault`. Showing

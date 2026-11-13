@@ -1,14 +1,14 @@
 import { Suspense, useImperativeHandle, useRef, useState, type Ref } from "react";
 import type { Message } from "@ember/protocol";
+import { useOptionalFlash } from "@/components/flash";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { mentionPromptSrc } from "@/lib/api";
 import { hasTouchKeyboard, pressedAlone } from "@/lib/keyboard";
-import { editedBody } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import { COMPOSER_CARD, TEXT_BUTTON } from "./composer-buttons";
 import { useFormatting } from "./composer-formatting";
 import { RichTextEditor, type RichTextEditorHandle } from "./editor";
-import { useEditableBody } from "./editable-body";
+import { CHANGED_MEANWHILE, editSave, useEditableBody, type EditOpened } from "./editable-body";
 import { ForwardQuote } from "./message-body";
 
 interface Props {
@@ -47,13 +47,26 @@ export function MessageEditor({ message, onSave, onClose, ref }: Props) {
 
   const loading = <div className="min-h-6" />;
 
+  // What it opened with, against which Save tells what's changed, and who else changed it meanwhile.
+  const opened = useRef<EditOpened>({ body: message.body, written: [] });
+  // Saved once, as a second click before it closes would send the same change again.
+  const saved = useRef(false);
+  const flash = useOptionalFlash();
+
   const save = () => {
     const written = editor.current;
+    if (saved.current) return;
     // Saving a message left blank or as it was only closes the editor. An edit that couldn't be sent
-    // keeps it open, so what was written isn't lost. Lexxy writes mentions with their content, so a
-    // message with them is sent as it was, which the room keeps as it is.
-    const body = written && !written.isBlank() ? editedBody(message, written.value()) : null;
-    if (body !== null && body !== message.body && !onSave(body)) return;
+    // keeps it open, so what was written isn't lost.
+    if (!written || written.isBlank() || editable === null) return onClose();
+    const saving = editSave(message, { ...opened.current, written: [editable] }, written.value());
+    if (saving === "unchanged") return onClose();
+    if (saving === "changed meanwhile") {
+      opened.current.body = message.body;
+      return flash?.("alert", CHANGED_MEANWHILE);
+    }
+    if (!onSave(saving.body)) return;
+    saved.current = true;
     onClose();
   };
 

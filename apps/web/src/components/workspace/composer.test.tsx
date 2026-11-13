@@ -1420,6 +1420,7 @@ describe("Edit a message in the composer", () => {
   async function editing({ saves = true, message: edited = mine } = {}) {
     const onSave = vi.fn((_body: string) => saves);
     const onCancel = vi.fn();
+    const onSend = vi.fn(() => true);
     let edit = (_next: Message) => {};
     let stop = () => {};
     function Room() {
@@ -1439,11 +1440,11 @@ describe("Edit a message in the composer", () => {
           done();
         },
       };
-      return <Composer roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} editing={editing} onSend={() => true} onSendFiles={() => {}} onTyping={() => {}} />;
+      return <Composer roomId="r1" roomName="general" userId="u1" typing={[]} disabled={false} editing={editing} onSend={onSend} onSendFiles={() => {}} onTyping={() => {}} />;
     }
     render(<Room />);
     const input = await screen.findByRole("textbox", { name: "Write a message" });
-    return { input, onSave, onCancel, edit: (next = edited) => act(() => edit(next)), stop: () => act(() => stop()), user: userEvent.setup() };
+    return { input, onSave, onCancel, onSend, edit: (next = edited) => act(() => edit(next)), stop: () => act(() => stop()), user: userEvent.setup() };
   }
 
   it("writes the message in place of what's written, saves on Enter, and gives what was written back", async () => {
@@ -1490,6 +1491,44 @@ describe("Edit a message in the composer", () => {
     expect(onSave).toHaveBeenCalledExactlyOnceWith(`<p>See this now</p>${quote}`);
     await vi.waitFor(() => expect(input).toHaveValue(""));
     expect(form.querySelector("blockquote")).not.toBeInTheDocument();
+  });
+
+  it("does nothing on a Save that changed nothing, rather than put back what someone else saved meanwhile", async () => {
+    const { input, onSave, onCancel, edit, user } = await editing();
+    edit();
+    await vi.waitFor(() => expect(input).toHaveValue("Hello"));
+    // Someone else's edit, or another tab's, comes in as this one's open.
+    edit({ ...mine, body: "<p>Hello from Maya</p>", plainText: "Hello from Maya" });
+    await user.type(input, "{Enter}");
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it("warns before replacing what someone else saved meanwhile, saving on a second Save", async () => {
+    const { input, onSave, edit, user } = await editing();
+    edit();
+    await vi.waitFor(() => expect(input).toHaveValue("Hello"));
+    await user.type(input, " again");
+    edit({ ...mine, body: "<p>Hello from Maya</p>", plainText: "Hello from Maya" });
+    await user.type(input, "{Enter}");
+    expect(onSave).not.toHaveBeenCalled();
+    expect(input).toHaveValue("Hello again");
+    await user.type(input, "{Enter}");
+    expect(onSave).toHaveBeenCalledExactlyOnceWith("<p>Hello again</p>");
+  });
+
+  it("saves once on a double tap, and doesn't send the draft it puts back", async () => {
+    const { input, onSave, onSend, edit, user } = await editing();
+    await user.type(input, "Draft");
+    edit();
+    await vi.waitFor(() => expect(input).toHaveValue("Hello"));
+    await user.type(input, " again");
+    const save = screen.getByRole("button", { name: "Save" });
+    await user.click(save);
+    await user.click(screen.getByRole("button", { name: /^(Save|Send Message)$/ }));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith("<p>Hello again</p>");
+    expect(onSend).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(input).toHaveValue("Draft"));
   });
 
   it("cancels on Escape, or as it's saved unchanged, and stays where the change didn't go", async () => {
