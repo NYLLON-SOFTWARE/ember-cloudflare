@@ -75,6 +75,7 @@ import {
   parsePasswordResetRequest,
   parsePasswordResetWithCode,
   parseMemberfulDisconnection,
+  parseDndChange,
   parseProfileChanges,
   parseResendApiKey,
   parseRoleChange,
@@ -991,6 +992,25 @@ describe("Make or revoke administrators", () => {
     ["an object without a role", { name: "Grace" }],
   ])("finds no role change in %s", (_, body) => {
     expect(parseRoleChange(body)).toBeNull();
+  });
+});
+
+describe("Do not disturb", () => {
+  it("takes a time to hush push notifications until", () => {
+    expect(parseDndChange({ until: "2026-11-14T09:00:00.000Z" })).toEqual({ until: "2026-11-14T09:00:00.000Z" });
+    expect(parseDndChange({ until: "2026-11-14T09:00" })).toEqual({ until: "2026-11-14T09:00" });
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["a list", [{ until: "2026-11-14T09:00" }], "Expected a JSON object"],
+    ["text", "2026-11-14T09:00", "Expected a JSON object"],
+    ["an object without a time", {}, "Until must be a time"],
+    ["a blank time", { until: "  " }, "Until must be a time"],
+    ["something else", { until: 1 }, "Until must be a time"],
+    ["a time that isn't one", { until: "soon" }, "Until must be a time"],
+  ])("refuses %s and says why", (_, body, error) => {
+    expect(parseDndChange(body)).toBe(error);
   });
 });
 
