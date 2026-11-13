@@ -1,7 +1,7 @@
 import type { ListedScheduledMessage, RoomId, UserId } from "@ember/protocol";
 import { statement, type Db, type Statement } from "./db";
 
-// Everyone's scheduled messages across rooms (migrations/0088_scheduled_listings.sql), as the Workspace
+// Everyone's scheduled messages across rooms (migrations/0072_scheduled_listings.sql), as the Workspace
 // lists them: a copy of what each room keeps, which the room sends it whenever one changes (see
 // `ScheduledMessages.changed` in scheduled.ts).
 
