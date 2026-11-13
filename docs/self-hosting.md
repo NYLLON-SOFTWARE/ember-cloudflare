@@ -442,10 +442,18 @@ one too, and sign in either way.
 The Memberful section of a profile names the account that's connected, as Memberful describes it,
 and Disconnect Memberful, with their password, unlinks it and ends their other sessions, as a new
 password does. A new password that replaces one they had disconnects it too, so a reset ends every
-other way into an account, while someone who joined with Memberful keeps theirs as they set a first
-password. Neither disconnects it from someone without an email address, which signing in with a
-password takes, so nobody is left with no way to sign in: the section asks them to add one first.
-Once disconnected, a member signing in with their password is asked to connect one again.
+other way into an account. Neither disconnects it from someone without an email address, which
+signing in with a password takes, so nobody is left with no way to sign in: the section asks them to
+add one first. Once disconnected, a member signing in with their password is asked to connect one
+again.
+
+Someone who joined with Memberful has no password, and while Memberful signs them in, as it does
+while the Worker has the keys to the site they're linked at, they aren't given one: their profile
+offers none, and the Worker refuses one. Memberful is their way in, and a password would be another
+that holding their session was enough to make. Their Memberful account stays connected, since
+they'd have no other way in. Should the Worker lose the keys, or `MEMBERFUL_URL` change, Memberful
+no longer signs them in: an administrator's sign-in link lets them in, and their profile offers a
+first password then, which keeps their Memberful account connected for when it signs them in again.
 
 A member whose membership lapses can't sign in with Memberful again. With the webhook, they're suspended too: their
 sessions end, their sockets close and their browsers' push subscriptions are forgotten, but their
@@ -945,9 +953,11 @@ What a self-hoster should know, beyond keeping the setup password and link to th
   cost, which takes about a quarter of a second of CPU in a Durable Object of its own; digests from
   before scrypt are replaced as their passwords sign in.
 - A session lasts until it goes 400 days unused. Changing your email address or password takes
-  your current password, so holding someone's session isn't enough to take their account, and a new
-  password ends your other sessions and forgets their browsers' push subscriptions. A password reset,
-  deactivation or ban ends all of a person's sessions within a minute.
+  your current password, so holding someone's session isn't enough to take their account, and
+  someone Memberful signs in without a password isn't given one, so it isn't enough to make another
+  way in either. A new password ends your other sessions and forgets their browsers' push
+  subscriptions. A password reset, deactivation or ban ends all of a person's sessions within a
+  minute.
 - Until Ember is set up, only the setup password, or the setup link a deploy printed, opens the form,
   so finding a new deployment's address isn't enough to become its administrator. Tries at the
   password count against one limit for the whole deployment, 10 every 10 minutes, kept in its
@@ -977,10 +987,11 @@ What a self-hoster should know, beyond keeping the setup password and link to th
   gmail.com. Its page answers the same whether or not an address has an account, emailing someone
   who has one a way to sign in instead, so it tells strangers nothing of who's here.
 - The Memberful site vouches for its members, so whoever runs it can sign in here as any of them who
-  have, and while Memberful is on, add new ones. Administrators keep their passwords, so the site being down never locks
-  them out. A webhook whose signature `MEMBERFUL_WEBHOOK_SECRET` doesn't check is refused, and even a
-  signed one only has Ember ask Memberful's API about a member, so one forged or sent again changes
-  nothing.
+  have, and while Memberful is on, add new ones. Administrators keep their passwords, so the site
+  being down never locks them out, though one who joined with Memberful has none, as no member does,
+  and signs in with it alone. A webhook whose signature `MEMBERFUL_WEBHOOK_SECRET` doesn't check is
+  refused, and even a signed one only has Ember ask Memberful's API about a member, so one forged or
+  sent again changes nothing.
 - Custom CSS runs on every page for everyone, so it's an administrator's to write, like the rest of
   the workspace, and `EMBER_RECOVERY_TOKEN` can take over any account, so keep it set only while
   resetting a password, as above.

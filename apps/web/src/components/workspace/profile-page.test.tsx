@@ -473,11 +473,32 @@ describe("Connect Memberful", () => {
     expect(passwordHelp()).toHaveTextContent("Leave blank to keep your current password. A new one disconnects your Memberful account.");
   });
 
-  it("says nothing of a new password disconnecting it to someone without a password, whose first keeps it", async () => {
-    serve({ loaded: () => Response.json({ profile: { ...profile, password: false, memberful: CONNECTED }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+  it("offers no password to someone without one whom Memberful signs in, whose way in it is, and saves the rest without one", async () => {
+    const theirs = { ...profile, password: false, memberful: CONNECTED };
+    serve({
+      loaded: () => Response.json({ profile: theirs, transferId: LOADED_LINK } satisfies ProfileAnswer),
+      saved: () => Response.json({ profile: { ...theirs, emailAddress: "countess@example.com" }, transferId: SAVED_LINK } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    expect(memberful()).toHaveTextContent("Connected to Memberful as Ada Lovelace (ada@example.com), so you sign in with it.");
+    expect(screen.queryByLabelText("New password")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Current password")).not.toBeInTheDocument();
+    expect(within(memberful()!).queryByRole("button", { name: "Disconnect Memberful" })).not.toBeInTheDocument();
+
+    await user.clear(field("Email address"));
+    await user.type(field("Email address"), "countess@example.com");
+    await user.click(saveButton());
+    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
+    expect(saved()).toEqual([{ emailAddress: "countess@example.com" }]);
+    expect(screen.queryByLabelText("New password")).not.toBeInTheDocument();
+  });
+
+  it("offers a first password to someone without one once Memberful doesn't sign them in, as at a deployment without its keys", async () => {
+    serve({ loaded: () => Response.json({ profile: { ...profile, password: false, memberful: null }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
     showPage();
     await loaded();
-    expect(memberful()).toHaveTextContent("Set a password above to disconnect it, so that you can still sign in.");
+    expect(memberful()).toBeNull();
     expect(passwordHelp()).toHaveTextContent("Leave blank to keep signing in without a password.");
     expect(passwordHelp()).not.toHaveTextContent("disconnects");
   });

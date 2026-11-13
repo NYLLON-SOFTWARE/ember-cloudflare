@@ -683,6 +683,14 @@ const changesSignIn = ({ emailAddress }: { emailAddress: string | null }, typed:
   newPassword || (typed !== undefined && (typed || null) !== emailAddress);
 
 /**
+ * Whether `person` signs in with Memberful alone: they have no password, and are linked at
+ * `memberfulSite`, the Memberful site the deployment has the keys to, if any. Memberful is their way in
+ * then, so they're given no password, which holding their session would be enough to set.
+ */
+const signsInWithMemberfulAlone = ({ password, accounts }: Pick<OwnProfileEntry, "password" | "accounts">, memberfulSite: string | null) =>
+  !password && memberfulSite !== null && accounts.some(({ issuer }) => issuer === memberfulSite);
+
+/**
  * How long a picture's key stays reserved for whatever gives someone the picture, which the Worker
  * calls once R2 has stored it: far longer than that takes. R2 then deletes whatever is there, unless
  * someone has the picture.
@@ -3193,19 +3201,26 @@ export class Workspace extends DurableObject<Env> {
    * What a change to the profile of the person `credentials` signs in checks first, when it gives them
    * `emailAddress`, if it's given, or a new password if `newPassword`: the digest of their password, if
    * they have one and the change is to what they sign in with, which the Worker checks their current
-   * password against, counting it against sign-in's limit for `ip`: "limited" past it. Null without a
-   * valid session. The passwords themselves stay in the Worker, as at sign-in.
+   * password against, counting it against sign-in's limit for `ip`: "limited" past it. "memberful" for
+   * a first password while Memberful signs them in, at `memberfulSite`, the site the deployment has the
+   * keys to, if any (`signsInWithMemberfulAlone`). Null without a valid session. The passwords
+   * themselves stay in the Worker, as at sign-in.
    */
   async profileCheck(
     credentials: Credentials,
     ip: string,
     emailAddress: string | undefined,
     newPassword: boolean,
-  ): Promise<{ passwordDigest: string | null } | "limited" | null> {
+    memberfulSite: string | null,
+  ): Promise<{ passwordDigest: string | null } | "limited" | "memberful" | null> {
     const session = await this.session(credentials);
     const signIn = session && (await this.store.signInOf(session.user.id));
     if (!signIn) return null;
-    if (signIn.passwordDigest === null || !changesSignIn(signIn, emailAddress, newPassword)) return { passwordDigest: null };
+    if (signIn.passwordDigest === null) {
+      const person = newPassword && memberfulSite !== null ? await this.store.ownProfile(session.user.id) : null;
+      return person && signsInWithMemberfulAlone(person, memberfulSite) ? "memberful" : { passwordDigest: null };
+    }
+    if (!changesSignIn(signIn, emailAddress, newPassword)) return { passwordDigest: null };
     return this.signInAttempts.attempt(ip) ? { passwordDigest: signIn.passwordDigest } : "limited";
   }
 
@@ -3214,7 +3229,8 @@ export class Workspace extends DurableObject<Env> {
    * password if it isn't null, answering the profile as it is then: "email address taken" when someone
    * else has the email address, "password needed" when the change is to their email address or password
    * and they have a password whose digest isn't `checked`, the one the Worker checked their current
-   * password against (`profileCheck`), or null without a valid session. A blank email address or bio is
+   * password against (`profileCheck`), "memberful" for a first password while Memberful signs them in at
+   * `memberfulSite`, as `profileCheck` answers too, or null without a valid session. A blank email address or bio is
    * saved as none, so any number of people can be without one. It writes only what differs. A new
    * password ends their other sessions: their sockets close and are told to reconnect, here at once and
    * in every room they're in through the outbox, and their push subscriptions are forgotten but this
@@ -3229,7 +3245,8 @@ export class Workspace extends DurableObject<Env> {
     passwordDigest: string | null,
     checked: string | null,
     pushEndpoint: string | null,
-  ): Promise<YourProfile | "email address taken" | "password needed" | "name reserved" | "agent's name" | null> {
+    memberfulSite: string | null,
+  ): Promise<YourProfile | "email address taken" | "password needed" | "memberful" | "name reserved" | "agent's name" | null> {
     return this.closingSockets(async () => {
       // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
       // save whose session was still valid before then mustn't put back a password of its own.
@@ -3251,6 +3268,8 @@ export class Workspace extends DurableObject<Env> {
       if (person.password && changesSignIn(person, changes.emailAddress, passwordDigest !== null) && (await this.store.signInOf(user.id))?.passwordDigest !== checked) {
         return "password needed";
       }
+      // Read again here too, since an account can be connected meanwhile.
+      if (passwordDigest !== null && signsInWithMemberfulAlone(person, memberfulSite)) return "memberful";
       if (profile.emailAddress !== person.emailAddress && profile.emailAddress !== null && (await this.store.personWithEmailAddress(profile.emailAddress))) {
         return "email address taken";
       }

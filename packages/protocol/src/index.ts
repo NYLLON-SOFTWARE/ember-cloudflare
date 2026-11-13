@@ -1360,8 +1360,8 @@ export const MEMBERFUL_PASSWORD_NEEDED = "Enter your password to connect Memberf
 
 /** Why disconnecting it is refused without your password. */
 export const MEMBERFUL_DISCONNECT_PASSWORD_NEEDED = "Enter your password to disconnect Memberful.";
-/** Why it's refused while you have no password, which you'd have nothing to sign in with without. */
-export const MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD = "Set a password first, so that you can still sign in once Memberful is disconnected.";
+/** Why it's refused while you have no password, which you'd have nothing to sign in with without, and which Memberful signing you in gives you none of. */
+export const MEMBERFUL_DISCONNECT_WITHOUT_PASSWORD = "You sign in with Memberful alone, so it can't be disconnected.";
 /** Why it's refused while you have no email address, which signing in with your password takes. */
 export const MEMBERFUL_DISCONNECT_WITHOUT_EMAIL = "Add your email address first, so that you can still sign in once Memberful is disconnected.";
 /** Why it's refused while you haven't connected a Memberful account. */
@@ -1446,6 +1446,11 @@ export const PASSWORD_TOO_LONG = "Password must be at most 72 characters.";
 export const CURRENT_PASSWORD_NEEDED = "Enter your current password to change your email address or password.";
 /** Why it's refused with a current password that isn't yours. */
 export const CURRENT_PASSWORD_WRONG = "That isn't your current password.";
+/**
+ * Why a first password is refused to someone Memberful signs in, while it does: it's their way in, and
+ * a password that whoever holds their session could set would be another.
+ */
+export const PASSWORD_WITH_MEMBERFUL = "You sign in with Memberful, so there's no password to set.";
 
 export interface Boost {
   id: string;
