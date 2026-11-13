@@ -14,6 +14,7 @@ import {
   isRoomId,
   mailboxOf,
   mailboxUnder,
+  MAX_PROFILE_FIELDS,
   NAVIGATION_SLOTS,
   othersAfterMove,
   parseWorkspaceClientFrame,
@@ -56,6 +57,9 @@ import {
   type PersonRole,
   type Profile,
   type ProfileChanges,
+  type ProfileFieldChange,
+  type ProfileFieldEntry,
+  type ProfileField,
   type PushSubscriptionSave,
   type ResentInvitation,
   type Room,
@@ -141,6 +145,7 @@ import {
   type StoredAgentSettings,
   type StoredBot,
   type StoredBotSettings,
+  type StoredProfileField,
   type StoredPushSubscription,
   type StoredSession,
 } from "./workspace-store";
@@ -466,6 +471,8 @@ export interface YourProfile {
 /** Someone as their page shows them to the person asking. */
 export interface ShownPerson {
   person: DirectoryEntry | ProfileEntry;
+  /** The workspace's profile fields, with what this person saved for each, "" for none. */
+  fields: ProfileFieldEntry[];
   /**
    * The sign-in link the page gives for them, by the session asking, as Campfire's gives one to
    * administrators when they're active and aren't a bot (users/show.html.erb), or null.
@@ -1085,6 +1092,92 @@ export class Workspace extends DurableObject<Env> {
       await this.saveAccount({ ...account, joinCode }, (now) => this.store.changeJoinCode(joinCode, now));
       return { joinCode };
     });
+  }
+
+  /**
+   * The workspace's profile fields, as its settings manage them, in the order they come in the profile:
+   * "forbidden" unless the person `credentials` signs in is an administrator, or null without a valid
+   * session.
+   */
+  async profileFields(credentials: Credentials): Promise<ProfileField[] | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    return this.profileFieldList();
+  }
+
+  /**
+   * Adds a field named `change.name`, with its choices or none, as the person `credentials` signs in,
+   * answering the fields then: undefined adds nothing, once who's asking is checked, "full" once the
+   * workspace has as many fields as it can, "forbidden" unless they're an administrator, or null
+   * without a valid session.
+   */
+  async createProfileField(credentials: Credentials, change: ProfileFieldChange | undefined): Promise<ProfileField[] | "forbidden" | "full" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (change === undefined) return this.profileFieldList();
+      if ((await this.store.profileFields()).length >= MAX_PROFILE_FIELDS) return "full";
+      await this.store.createProfileField({ id: sortableId(), name: change.name, options: change.options }, Date.now());
+      return this.profileFieldList();
+    });
+  }
+
+  /**
+   * Saves a field's new name and choices, which its values keep, as the person `credentials` signs in,
+   * answering the fields then: undefined changes nothing, once who's asking is checked, "not found" for
+   * an id nobody has, "forbidden" unless they're an administrator, or null without a valid session.
+   */
+  async changeProfileField(credentials: Credentials, id: string, change: ProfileFieldChange | undefined): Promise<ProfileField[] | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const fields = await this.store.profileFields();
+      if (!fields.some((field) => field.id === id)) return "not found";
+      if (change === undefined) return this.profileFieldList();
+      await this.store.changeProfileField(id, change.name, change.options, Date.now());
+      return this.profileFieldList();
+    });
+  }
+
+  /**
+   * Puts the fields in the order `ids` names them, as the person `credentials` signs in, answering the
+   * fields then: "not the fields" unless `ids` names each of them, once, "forbidden" unless they're an
+   * administrator, or null without a valid session.
+   */
+  async reorderProfileFields(credentials: Credentials, ids: string[]): Promise<ProfileField[] | "forbidden" | "not the fields" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const fields = await this.store.profileFields();
+      // The same ids, whatever their order, each once.
+      if (fields.length !== ids.length || new Set([...fields.map((field) => field.id), ...ids]).size !== fields.length) return "not the fields";
+      await this.store.reorderProfileFields(ids, Date.now());
+      return this.profileFieldList();
+    });
+  }
+
+  /**
+   * Takes the field `id` names away, with everything anyone saved for it, as the person `credentials`
+   * signs in, answering the fields then: "forbidden" unless they're an administrator, or null without a
+   * valid session.
+   */
+  async deleteProfileField(credentials: Credentials, id: string): Promise<ProfileField[] | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      await this.store.deleteProfileField(id);
+      return this.profileFieldList();
+    });
+  }
+
+  /** The workspace's profile fields, in the order they come in the profile, which is all pages tell of them. */
+  private async profileFieldList(): Promise<ProfileField[]> {
+    return (await this.store.profileFields()).map(({ id, name, options }: StoredProfileField) => ({ id, name, options }));
   }
 
   /**
@@ -2639,15 +2732,19 @@ export class Workspace extends DurableObject<Env> {
   async person(credentials: Credentials, userId: UserId): Promise<ShownPerson | "not found" | null> {
     const session = await this.session(credentials);
     if (!session) return null;
-    const [person, administrator] = await Promise.all([this.store.personWithProfile(userId), this.store.isAdministrator(session.user.id)]);
+    const [person, administrator, fields] = await Promise.all([
+      this.store.personWithProfile(userId),
+      this.store.isAdministrator(session.user.id),
+      this.store.profileFieldsWithValues(userId),
+    ]);
     if (!person) return "not found";
     const agent = person.agent ? await this.store.agentProfile(userId) : null;
     if (administrator) {
       const transferable = person.status === "active" && person.role !== "bot";
-      return { person, transfer: transferable ? { userId: person.id, sessionId: session.id } : null, agent };
+      return { person, fields, transfer: transferable ? { userId: person.id, sessionId: session.id } : null, agent };
     }
     const { emailAddress, ...listed } = person;
-    return { person: listed, transfer: null, agent };
+    return { person: listed, fields, transfer: null, agent };
   }
 
   /**
@@ -3188,11 +3285,11 @@ export class Workspace extends DurableObject<Env> {
   /** `person`'s profile, as their own profile page shows it to their `session`. */
   private async yourProfile(person: OwnProfileEntry, session: StoredSession): Promise<YourProfile> {
     const { name, emailAddress, bio, avatar, password, membershipNeeded } = person;
-    const [{ avatarUrl }, account] = await Promise.all([this.directoryUser(person), this.joinableAccount()]);
+    const [{ avatarUrl }, account, fields] = await Promise.all([this.directoryUser(person), this.joinableAccount(), this.store.profileFieldsWithValues(person.id)]);
     const memberful = session.guest ? null : { membersOnly: account?.memberfulSignIn ?? false, accounts: person.accounts };
     return {
       transfer: { userId: person.id, sessionId: session.id },
-      profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks) },
+      profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks), fields },
       memberful,
     };
   }
@@ -3241,12 +3338,12 @@ export class Workspace extends DurableObject<Env> {
    */
   async changeProfile(
     credentials: Credentials,
-    changes: Pick<ProfileChanges, "name" | "emailAddress" | "bio">,
+    changes: Pick<ProfileChanges, "name" | "emailAddress" | "bio" | "fieldValues">,
     passwordDigest: string | null,
     checked: string | null,
     pushEndpoint: string | null,
     memberfulSite: string | null,
-  ): Promise<YourProfile | "email address taken" | "password needed" | "memberful" | "name reserved" | "agent's name" | null> {
+  ): Promise<YourProfile | "email address taken" | "password needed" | "memberful" | "name reserved" | "agent's name" | "unknown field" | "not a choice" | null> {
     return this.closingSockets(async () => {
       // Checked in line, unlike most changes: a password reset ahead of it ends their sessions, and a
       // save whose session was still valid before then mustn't put back a password of its own.
@@ -3260,8 +3357,15 @@ export class Workspace extends DurableObject<Env> {
         emailAddress: changes.emailAddress === undefined ? person.emailAddress : changes.emailAddress || null,
         bio: changes.bio === undefined ? person.bio : changes.bio || null,
       };
+      // What they gave the fields, checked against them as they are then: every field named must still
+      // be there, and a filled value must be one of its choices, which it has if it has any.
+      const fieldValues = await this.checkedFieldValues(changes.fieldValues);
+      if (typeof fieldValues === "string") return fieldValues;
       const listed = profile.name !== person.name || profile.bio !== person.bio;
-      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) return this.yourProfile(person, session);
+      if (!listed && profile.emailAddress === person.emailAddress && passwordDigest === null) {
+        if (fieldValues) await this.store.changeProfileFieldValues(user.id, fieldValues);
+        return this.yourProfile(person, session);
+      }
       if (takesReservedName(person.name, profile.name)) return "name reserved";
       if (await this.takesAgentsName(person.name, profile.name)) return "agent's name";
       // Read again here, since a reset ahead of this in line, or another change, can have replaced the password checked.
@@ -3297,8 +3401,28 @@ export class Workspace extends DurableObject<Env> {
       }
       const changed = { ...person, ...profile, password: person.password || passwordDigest !== null, accounts: unlinked ? [] : person.accounts, updatedAt: at };
       if (listed) this.broadcast({ type: "user.updated", user: await this.directoryUser(changed) });
+      if (fieldValues) await this.store.changeProfileFieldValues(user.id, fieldValues);
       return this.yourProfile(changed, session);
     });
+  }
+
+  /**
+   * What saving `values` for the workspace's profile fields would save, null for nothing, or why it's
+   * refused: a field nobody has anymore ("unknown field"), or a value one of its choices isn't ("not a
+   * choice"), for a field that has choices. Nothing is saved for a field named with "".
+   */
+  private async checkedFieldValues(values: Record<string, string> | undefined): Promise<Record<string, string> | null | "unknown field" | "not a choice"> {
+    if (values === undefined || Object.keys(values).length === 0) return null;
+    const fields = await this.store.profileFields();
+    const byId = new Map(fields.map((field) => [field.id, field]));
+    const checked: Record<string, string> = {};
+    for (const [id, value] of Object.entries(values)) {
+      const field = byId.get(id);
+      if (!field) return "unknown field";
+      if (value !== "" && field.options !== null && !field.options.includes(value)) return "not a choice";
+      checked[id] = value;
+    }
+    return checked;
   }
 
   /**

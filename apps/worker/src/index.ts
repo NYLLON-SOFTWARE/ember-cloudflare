@@ -38,11 +38,17 @@ import {
   parseNewDirect,
   parseNewRoom,
   parseProfileChanges,
+  parseProfileFieldChange,
+  parseProfileFieldOrder,
   parseResendApiKey,
   parseRoleChange,
   parseSendingDomainCheck,
   parseRoomChanges,
   parseTurnstileKeysChange,
+  PROFILE_FIELD_ORDER_REFUSED,
+  PROFILE_FIELD_UNKNOWN,
+  PROFILE_FIELD_VALUE_NOT_A_CHOICE,
+  PROFILE_FIELDS_FULL,
   PROFILE_PATH,
   SIGN_IN_LIMITED,
   SIGN_IN_REJECTED,
@@ -67,6 +73,7 @@ import {
   type NewRoomForm,
   type PersonAnswer,
   type ProfileAnswer,
+  type ProfileField,
   type ReleaseCheck,
   type RoomId,
   type RoomSettings,
@@ -490,6 +497,65 @@ async function changeCustomStyles(request: Request, env: Env): Promise<Response>
   return typeof change === "string" ? problem(422, change) : json({ account });
 }
 
+/** The workspace's profile fields, as its settings manage them, which only administrators can read. */
+async function listProfileFields(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const fields = credentials && (await workspace(env).profileFields(credentials));
+  if (!fields) return problem(401, "Not signed in");
+  if (fields === "forbidden") return problem(403, "Only administrators can manage profile fields");
+  return json({ fields } satisfies { fields: ProfileField[] });
+}
+
+/** What a change to the profile fields answers: the fields as they are then, or why it was refused. */
+function profileFieldsAnswer(fields: ProfileField[] | "forbidden" | null): Response {
+  if (!fields) return problem(401, "Not signed in");
+  if (fields === "forbidden") return problem(403, "Only administrators can manage profile fields");
+  return json({ fields } satisfies { fields: ProfileField[] });
+}
+
+/** Adds a profile field, as workspace settings does, answering the fields as they are then. */
+async function addProfileField(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const change = parseProfileFieldChange(await jsonBodyOf(request));
+  // A change that doesn't parse adds nothing, but who's asking is still checked first.
+  const fields = await workspace(env).createProfileField(credentials, typeof change === "string" ? undefined : change);
+  if (fields === "forbidden" || !fields) return profileFieldsAnswer(fields);
+  if (typeof change === "string") return problem(422, change);
+  if (fields === "full") return problem(422, PROFILE_FIELDS_FULL);
+  return profileFieldsAnswer(fields);
+}
+
+/** Renames a profile field and sets its choices, answering the fields as they are then. */
+async function changeProfileField(request: Request, env: Env, id: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const change = parseProfileFieldChange(await jsonBodyOf(request));
+  // A change that doesn't parse changes nothing, but who's asking is still checked first.
+  const fields = await workspace(env).changeProfileField(credentials, id, typeof change === "string" ? undefined : change);
+  if (fields === "not found") return problem(404, "Not found");
+  if (fields === "forbidden" || !fields) return profileFieldsAnswer(fields);
+  return typeof change === "string" ? problem(422, change) : profileFieldsAnswer(fields);
+}
+
+/** Puts the fields in the order `ids` name them, answering the fields as they are then. */
+async function setProfileFieldOrder(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const order = parseProfileFieldOrder(await jsonBodyOf(request));
+  // An order that doesn't parse orders nothing, but who's asking is still checked first.
+  const fields = await workspace(env).reorderProfileFields(credentials, typeof order === "string" ? [] : order);
+  if (fields === "not the fields") return problem(422, PROFILE_FIELD_ORDER_REFUSED);
+  if (fields === "forbidden" || !fields) return profileFieldsAnswer(fields);
+  return typeof order === "string" ? problem(422, order) : profileFieldsAnswer(fields);
+}
+
+/** Takes a profile field away, with everything anyone saved for it, answering the fields as they are then. */
+async function removeProfileField(request: Request, env: Env, id: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  return profileFieldsAnswer(credentials && (await workspace(env).deleteProfileField(credentials, id)));
+}
+
 /**
  * Gives the workspace the logo the form brings, answering the account then. Who's asking is checked
  * before the logo is read, and again as it's given to the workspace.
@@ -662,6 +728,8 @@ async function changeProfile(request: Request, env: Env): Promise<Response> {
   if (yours === "name reserved") return problem(422, NAME_RESERVED);
   if (yours === "agent's name") return problem(422, agentsName(rest.name!));
   if (yours === "password needed") return problem(422, currentPassword ? CURRENT_PASSWORD_WRONG : CURRENT_PASSWORD_NEEDED);
+  if (yours === "unknown field") return problem(422, PROFILE_FIELD_UNKNOWN);
+  if (yours === "not a choice") return problem(422, PROFILE_FIELD_VALUE_NOT_A_CHOICE);
   return profileAnswer(yours, env);
 }
 
@@ -824,7 +892,7 @@ async function showPerson(request: Request, env: Env, userId: UserId): Promise<R
   if (found === "not found") return problem(404, "Not found");
   const [shown] = await directoryOf([found.person], env.SESSION_SECRET);
   const transferId = found.transfer ? await newTransferId(found.transfer, env.SESSION_SECRET, Date.now()) : undefined;
-  return json({ person: shown!, transferId, ...(found.agent && { agent: found.agent }) } satisfies PersonAnswer, { headers: { "Cache-Control": "no-store" } });
+  return json({ person: shown!, fields: found.fields, transferId, ...(found.agent && { agent: found.agent }) } satisfies PersonAnswer, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**
@@ -1117,6 +1185,13 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/account/custom_styles" && request.method === "GET") return () => customStyles(request, env);
   if (pathname === "/api/account/custom_styles" && request.method === "PATCH") return () => changeCustomStyles(request, env);
   if (pathname === "/api/account/room_order" && request.method === "PUT") return () => setSharedOrder(request, env);
+  if (pathname === "/api/account/profile_fields" && request.method === "GET") return () => listProfileFields(request, env);
+  if (pathname === "/api/account/profile_fields" && request.method === "POST") return () => addProfileField(request, env);
+  // Before a field's id, which "order" could name.
+  if (pathname === "/api/account/profile_fields/order" && request.method === "PUT") return () => setProfileFieldOrder(request, env);
+  const profileField = pathname.match(/^\/api\/account\/profile_fields\/([^/]+)$/);
+  if (profileField && request.method === "PATCH") return () => changeProfileField(request, env, profileField[1]!);
+  if (profileField && request.method === "DELETE") return () => removeProfileField(request, env, profileField[1]!);
   // The ids of people who can be active never need percent-encoding, so an encoded segment can't name one.
   const person = pathname.match(/^\/api\/account\/users\/([^/]+)$/);
   if (person && request.method === "PATCH") return () => changeRole(request, env, person[1]!);

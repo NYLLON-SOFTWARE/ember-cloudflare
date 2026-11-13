@@ -29,6 +29,7 @@ import {
   type NavigationIcons,
   type PersonRole,
   type Profile,
+  type ProfileFieldEntry,
   type PushSubscriptionKeys,
   type Role,
   type Room,
@@ -471,6 +472,16 @@ export interface AvatarChange {
 /** What `WorkspaceStore.changeProfile` saves: someone's profile, and the digest of a new password, or null to keep theirs. */
 export interface ProfileChange extends Pick<Profile, "name" | "emailAddress" | "bio"> {
   passwordDigest: string | null;
+}
+
+/** A field of the workspace's profiles, as its tables keep it. */
+export interface StoredProfileField {
+  id: string;
+  name: string;
+  /** The choices it takes, or null for free text. */
+  options: string[] | null;
+  /** Where it comes in the profile, fields before it coming first. */
+  position: number;
 }
 
 /** What someone's avatar is drawn from: the picture they uploaded, if any, else their name, or the bot picture for a bot. */
@@ -2186,6 +2197,15 @@ const OWN_PROFILE = `SELECT ${DIRECTORY_COLUMNS}, email_address, avatar_key, ava
 /** How much someone picked for @ember to think, how long its answers to them are, and the model it answers them with. */
 const ASSISTANT_PICKS = `SELECT assistant_thinking, assistant_answer_length, assistant_model FROM users WHERE id = ?`;
 
+/** The workspace's profile fields, in the order they come in the profile. */
+const PROFILE_FIELDS = `SELECT id, name, options, position FROM profile_fields ORDER BY position, id`;
+
+/** What someone saved for the workspace's profile fields, by their ids. */
+const PROFILE_FIELD_VALUES = `SELECT field_id, value FROM profile_field_values WHERE user_id = ?`;
+
+/** Where the next field added comes: after the last one, or first for a workspace without any. */
+const NEXT_FIELD_POSITION = `SELECT coalesce(max(position), 0) + 1 AS position FROM profile_fields`;
+
 /**
  * Changes the dials someone picks a level of, ?1 and ?2, a null one staying as it is, and when ?3 is 1,
  * the model they pick, to ?4, or to none with null.
@@ -3721,6 +3741,70 @@ export class WorkspaceStore {
       change,
     ]);
     return queued!.length > 0;
+  }
+
+  /** The workspace's profile fields, in the order they come in the profile. */
+  async profileFields(): Promise<StoredProfileField[]> {
+    const rows = await this.db.all<{ id: string; name: string; options: string | null; position: number }>(PROFILE_FIELDS);
+    return rows.map(({ id, name, options, position }) => ({ id, name, options: options === null ? null : (JSON.parse(options) as string[]), position }));
+  }
+
+  /**
+   * The workspace's profile fields, in the order they come in the profile, with what `userId` saved for
+   * each, "" for none, as their profile and someone else's page show them.
+   */
+  async profileFieldsWithValues(userId: UserId): Promise<ProfileFieldEntry[]> {
+    const [fields, values] = await Promise.all([this.profileFields(), this.db.all<{ field_id: string; value: string }>(PROFILE_FIELD_VALUES, userId)]);
+    const saved = new Map(values.map(({ field_id, value }) => [field_id, value]));
+    return fields.map(({ id, name, options }) => ({ id, name, options, value: saved.get(id) ?? "" }));
+  }
+
+  /** Adds a field after the workspace's last, which the Workspace counts against the cap beforehand. */
+  async createProfileField({ id, name, options }: { id: string; name: string; options: string[] | null }, now: number): Promise<void> {
+    const [row] = await this.db.all<{ position: number }>(NEXT_FIELD_POSITION);
+    await this.db.run(
+      `INSERT INTO profile_fields (id, name, options, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      id,
+      name,
+      options === null ? null : JSON.stringify(options),
+      row!.position,
+      now,
+      now,
+    );
+  }
+
+  /** Saves a field's new name and choices. Whether it's still there, the Workspace has checked. */
+  async changeProfileField(id: string, name: string, options: string[] | null, now: number): Promise<void> {
+    await this.db.run(`UPDATE profile_fields SET name = ?, options = ?, updated_at = ? WHERE id = ?`, name, options === null ? null : JSON.stringify(options), now, id);
+  }
+
+  /** Takes a field away, with everything anyone saved for it, in one batch. */
+  async deleteProfileField(id: string): Promise<void> {
+    await this.db.batch([statement(`DELETE FROM profile_field_values WHERE field_id = ?`, id), statement(`DELETE FROM profile_fields WHERE id = ?`, id)]);
+  }
+
+  /** Puts the fields in the order `ids` lists them, which the Workspace has checked names them all, once each. */
+  async reorderProfileFields(ids: string[], now: number): Promise<void> {
+    await this.db.batch(ids.map((id, position) => statement(`UPDATE profile_fields SET position = ?, updated_at = ? WHERE id = ?`, position + 1, now, id)));
+  }
+
+  /**
+   * Saves what `userId` gave the fields named: upserting each value, and taking out the rows of the
+   * ones cleared with "", in one batch.
+   */
+  async changeProfileFieldValues(userId: UserId, values: Record<string, string>): Promise<void> {
+    await this.db.batch(
+      Object.entries(values).map(([fieldId, value]) =>
+        value === ""
+          ? statement(`DELETE FROM profile_field_values WHERE field_id = ? AND user_id = ?`, fieldId, userId)
+          : statement(
+              `INSERT INTO profile_field_values (field_id, user_id, value) VALUES (?, ?, ?) ON CONFLICT (field_id, user_id) DO UPDATE SET value = excluded.value`,
+              fieldId,
+              userId,
+              value,
+            ),
+      ),
+    );
   }
 
   /** What whoever has id `userId` signs in with, whatever their status, or null if nobody does. */
