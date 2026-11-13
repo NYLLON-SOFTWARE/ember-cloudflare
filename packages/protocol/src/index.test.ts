@@ -82,6 +82,7 @@ import {
   parseRoomSocketParams,
   parseServerFrame,
   parseSharedOrder,
+  parseSkinTone,
   parseSignUp,
   parseTurnstileKeysChange,
   parseWorkspaceClientFrame,
@@ -181,6 +182,15 @@ describe("Custom reactions", () => {
   it("limits reactions to the stored column width", () => {
     expect(parse({ type: "boost.create", messageId: "m1", content: "x".repeat(MAX_BOOST_LENGTH) })).not.toBeNull();
     expect(parse({ type: "boost.create", messageId: "m1", content: "x".repeat(MAX_BOOST_LENGTH + 1) })).toBeNull();
+  });
+});
+
+describe("Default skin tone", () => {
+  it("takes the default or one of Unicode's five tones, as a whole number", () => {
+    for (const skinTone of [0, 1, 3, 5]) expect(parseSkinTone({ skinTone })).toBe(skinTone);
+    for (const body of [{ skinTone: 6 }, { skinTone: -1 }, { skinTone: 2.5 }, { skinTone: "3" }, {}, null, "3"]) {
+      expect(parseSkinTone(body)).toBe("skinTone must be a whole number from 0 to 5");
+    }
   });
 });
 

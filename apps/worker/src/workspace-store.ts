@@ -12,6 +12,7 @@ import {
   emailDomainOf,
   isHost,
   isRoomIcon,
+  isSkinTone,
   mailboxOf,
   mailboxText,
   parseSearch,
@@ -39,6 +40,7 @@ import {
   type Search,
   type SharedRoom,
   type SidebarRoom,
+  type SkinTone,
   type User,
   type UserId,
   type UserStatus,
@@ -243,6 +245,8 @@ export interface StoredSession {
   administrator: boolean;
   /** Whether the person signed in with just a name. */
   guest: boolean;
+  /** The skin tone the person chose for emoji. */
+  skinTone: SkinTone;
   /** When the session was last refreshed, in milliseconds since the epoch. */
   lastActiveAt: number;
 }
@@ -608,6 +612,7 @@ interface SessionRow {
   name: string;
   administrator: number;
   guest: number;
+  skin_tone: number;
 }
 
 const INSERT_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
@@ -869,7 +874,7 @@ const INSERT_TRANSFERRED_SESSION = `INSERT INTO sessions (id, user_id, token_dig
 
 /** The session a token's digest names, if its person is still active. */
 const SESSION = `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name,
-    users.role = ${ADMINISTRATOR} AS administrator, users.guest
+    users.role = ${ADMINISTRATOR} AS administrator, users.guest, users.skin_tone
   FROM sessions JOIN users ON users.id = sessions.user_id
   WHERE sessions.token_digest = ? AND users.status = ${ACTIVE}`;
 
@@ -1313,6 +1318,7 @@ const storedSession = (row: SessionRow): StoredSession => ({
   user: { id: row.user_id, name: row.name },
   administrator: row.administrator === 1,
   guest: row.guest === 1,
+  skinTone: isSkinTone(row.skin_tone) ? row.skin_tone : 0,
   lastActiveAt: Date.parse(row.last_active_at),
 });
 
@@ -3738,6 +3744,11 @@ export class WorkspaceStore {
   async assistantPicks(userId: UserId): Promise<AssistantPicks | null> {
     const [row] = await this.db.all<PickColumns>(ASSISTANT_PICKS, userId);
     return row ? assistantPicksOf(row) : null;
+  }
+
+  /** Changes the skin tone `userId` chose for emoji to `skinTone`. */
+  async setSkinTone(userId: UserId, skinTone: SkinTone): Promise<void> {
+    await this.db.run("UPDATE users SET skin_tone = ? WHERE id = ?", skinTone, userId);
   }
 
   /** Changes what `userId` picks of @ember's dials and its model to `changes`, keeping what they leave out. */

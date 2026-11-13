@@ -83,6 +83,7 @@ import {
   type Sidebar,
   type SignOut,
   type SignUp,
+  type SkinTone,
   type StartedDirect,
   type TurnstileKeysChange,
   type TurnstileSettings,
@@ -685,6 +686,11 @@ export async function tryAgent(trial: AgentTrial, agentId: UserId | null): Promi
  */
 export async function changeYourAssistant(changes: YourAssistantChanges): Promise<YourAssistantChanged["assistant"]> {
   return (await request<YourAssistantChanged>("/api/users/me/assistant", { method: "PATCH", body: JSON.stringify(changes) })).assistant;
+}
+
+/** Gives you the skin tone `skinTone` for the emoji of people and hands, answering it as saved. */
+export async function changeSkinTone(skinTone: SkinTone): Promise<SkinTone> {
+  return (await request<{ skinTone: SkinTone }>("/api/users/me/skin_tone", { method: "PUT", body: JSON.stringify({ skinTone }) })).skinTone;
 }
 
 /**

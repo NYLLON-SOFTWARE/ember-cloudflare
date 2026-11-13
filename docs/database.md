@@ -570,6 +570,12 @@ Objects, D1 or speed call for something else.
   in the `assistant` setting, beside the API token, at most 20 of them, so they're forgotten with
   the token when Ember AI is turned off. A pick that's no longer among them is kept, and followed
   again once the model is added back.
+- **Your skin tone for emoji is a column of the person.** Campfire has no emoji by their codes. The
+  tone someone chooses on their profile for the people and hands they type by their `:codes:` and add as
+  quick reactions, as Slack's default skin tone is, is `users.skin_tone` (workspace migration 0055),
+  0 for the emoji's own yellow and 1 to 5 for Unicode's tones. A session reads it with the person, in
+  the statement that already reads them, so it comes with who's signed in at no cost, and choosing
+  another has the Workspace read their sessions again and tell their tabs.
 
 ## Writing SQL here
 

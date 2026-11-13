@@ -5,6 +5,7 @@ declare module "@37signals/lexxy" {
 
   /** The parts of Lexical's LexicalNode that the composer uses. */
   export class LexicalNode {
+    getKey(): string;
     getType(): string;
     getParent(): ElementNode | null;
     getIndexWithinParent(): number;
@@ -30,10 +31,12 @@ declare module "@37signals/lexxy" {
   /** Lexical's ParagraphNode. */
   export class ParagraphNode extends ElementNode {}
 
-  /** The parts of Lexical's TextNode that the composer uses. */
+  /** The parts of Lexical's TextNode that the composer and :codes use. */
   export class TextNode extends LexicalNode {
     select(anchorOffset?: number, focusOffset?: number): unknown;
     setTextContent(text: string): this;
+    hasFormat(format: "code"): boolean;
+    spliceText(offset: number, deleteCount: number, text: string, moveSelection?: boolean): TextNode;
   }
 
   /** A place in the editor: in a text node, at an offset, or in an element, before its child at an offset. */

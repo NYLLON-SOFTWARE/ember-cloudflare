@@ -41,6 +41,7 @@ import {
   parseRoleChange,
   parseSendingDomainCheck,
   parseRoomChanges,
+  parseSkinTone,
   parseTurnstileKeysChange,
   PROFILE_PATH,
   SIGN_IN_LIMITED,
@@ -72,6 +73,7 @@ import {
   type SendingDomainCheck,
   type SentTestEmail,
   type Sidebar,
+  type SkinTone,
   type StartedDirect,
   type TurnstileSettings,
   type UserId,
@@ -995,6 +997,20 @@ async function setFavoriteOrder(request: Request, env: Env): Promise<Response> {
   return json({ favorites } satisfies { favorites: Favorites });
 }
 
+/**
+ * Gives the signed-in person the skin tone the body names for the emoji of people and hands, as their
+ * profile's Skin tone does, answering it: 400 for a body it can't read.
+ */
+async function setSkinTone(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const skinTone = parseSkinTone(await jsonBodyOf(request));
+  if (typeof skinTone === "string") return problem(400, skinTone);
+  const saved = await workspace(env).setSkinTone(credentials, skinTone);
+  if (saved === null) return problem(401, "Not signed in");
+  return json({ skinTone: saved } satisfies { skinTone: SkinTone });
+}
+
 /** What someone hears when they can't put rooms in the shared order. */
 const SHARED_ORDER_FORBIDDEN = "Only administrators can put rooms in order for everyone, and only the rooms in their sidebar";
 
@@ -1131,6 +1147,7 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
+  if (pathname === "/api/users/me/skin_tone" && request.method === "PUT") return () => setSkinTone(request, env);
   if (pathname === MEMBERFUL_CONNECTIONS_PATH && request.method === "POST") return () => connectMemberful(request, env);
   if (pathname === MEMBERFUL_CONNECTIONS_PATH && request.method === "DELETE") return () => disconnectMemberful(request, env);
   if (pathname === AVATAR_PATH && request.method === "PUT") return () => changeAvatar(request, env);

@@ -12,6 +12,7 @@ import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
 import { useSidebar } from "@/hooks/use-sidebar";
+import { SkinToneContext, withSkinToneOf } from "@/hooks/use-skin-tone";
 import { ApiError, dismissInvitation, isSignedOut, startDirect } from "@/lib/api";
 import { hearHuddleEnd, leaveHuddle, muteHuddle } from "@/lib/huddle-store";
 import { whenIdle } from "@/lib/idle";
@@ -690,7 +691,16 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           <AgentSettingsPage key={route.agentId} agentId={route.agentId} me={me} rooms={rooms} onMissing={showNotFound} onFailed={failed} />
         ));
       case "profile":
-        return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />);
+        return rarePage(({ ProfilePage }) => (
+          <ProfilePage
+            me={me}
+            rooms={rooms}
+            askForRoom={askForRoom}
+            onSkinToneChanged={(skinTone) => onSessionChanged(withSkinToneOf(me, skinTone))}
+            onSignOut={onSignOut}
+            onFailed={failed}
+          />
+        ));
       case "push-subscriptions":
         return rarePage(({ PushSubscriptionsPage }) => <PushSubscriptionsPage back={back} onFailed={failed} />);
       case "search":
@@ -875,7 +885,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       <DirectoryLoaded value={directory.loaded}>
         <SettingsLayout value={settings}>
           <OpenSearchContext value={openSearch}>
-            <HuddlesContext value={huddles}>{layout}</HuddlesContext>
+            <HuddlesContext value={huddles}>
+              <SkinToneContext value={me.skinTone ?? 0}>{layout}</SkinToneContext>
+            </HuddlesContext>
           </OpenSearchContext>
         </SettingsLayout>
       </DirectoryLoaded>

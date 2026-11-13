@@ -22,9 +22,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { mentionedPerson, PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { permalinkOf } from "@/hooks/use-route";
+import { useSkinTone } from "@/hooks/use-skin-tone";
 import { copyWithSuccess } from "@/lib/clipboard";
 import { replyQuote } from "@/lib/messages";
 import { canShare } from "@/lib/share";
+import { takesSkinTone, withSkinTone } from "@/lib/skin-tone";
 import { cn } from "@/lib/utils";
 import { COPY_CODE } from "./code-block";
 import { UNKNOWN_PERSON } from "./message-body";
@@ -404,7 +406,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
           >
             <div role="group" aria-label="Quick reactions" className="flex flex-wrap group-data-[two-rows]/menu:col-span-3">
               {REACTIONS.slice(0, QUICK_REACTION_COUNT).map(([emoji, title]) => (
-                <Reaction key={emoji} emoji={emoji} title={title} onClick={() => react(emoji)} />
+                <Reaction key={emoji} emoji={emoji} title={title} onReact={react} />
               ))}
             </div>
             <ActionTooltip label="More reactions">
@@ -466,7 +468,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
             <span className="mx-[3px] mb-[5px] block text-[11px] leading-normal font-medium text-muted-foreground">More reactions</span>
             <div className="flex flex-wrap">
               {REACTIONS.slice(QUICK_REACTION_COUNT).map(([emoji, title]) => (
-                <Reaction key={emoji} emoji={emoji} title={title} onClick={() => react(emoji)} />
+                <Reaction key={emoji} emoji={emoji} title={title} onReact={react} />
               ))}
               <ActionTooltip label="New boost">
                 <button type="button" className={ACTION} onClick={newBoost}>
@@ -540,13 +542,15 @@ function ActionTooltip({ label, children }: { label: string; children: ReactElem
   );
 }
 
-/** One of the reactions: the emoji, named by its title. */
-function Reaction({ emoji, title, onClick }: { emoji: string; title: string; onClick: () => void }) {
+/** One of the reactions: the emoji, a hand in the skin tone you chose, as Slack's are, named by its title. */
+function Reaction({ emoji, title, onReact }: { emoji: string; title: string; onReact: (emoji: string) => void }) {
+  const skinTone = useSkinTone();
+  const shown = takesSkinTone(emoji) ? withSkinTone(emoji, skinTone) : emoji;
   return (
     <ActionTooltip label={title}>
-      <button type="button" className={ACTION} onClick={onClick}>
+      <button type="button" className={ACTION} onClick={() => onReact(shown)}>
         <span aria-hidden className="text-[1.3rem] leading-normal">
-          {emoji}
+          {shown}
         </span>
         <span className="sr-only">{title}</span>
       </button>

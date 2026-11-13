@@ -176,6 +176,23 @@ export interface User {
 /** Who's signed in, as the app keeps them: someone, and whether they're one of the workspace's administrators. */
 export interface Me extends User {
   administrator: boolean;
+  /**
+   * The skin tone they've chosen for the emoji of people and hands they type by their :codes and add as
+   * quick reactions, as Slack's default skin tone is. Left out while it's the default, the emoji's own yellow.
+   */
+  skinTone?: SkinTone;
+}
+
+/** The emoji's own yellow, 0, then Unicode's five skin tones, light to dark, as their modifiers U+1F3FB to U+1F3FF are. */
+export type SkinTone = 0 | 1 | 2 | 3 | 4 | 5;
+
+/** Whether `value` is a skin tone. */
+export const isSkinTone = (value: unknown): value is SkinTone => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 5;
+
+/** Parses the untrusted body of a change to your skin tone, `{ skinTone }`. Returns why it's refused instead of the tone. */
+export function parseSkinTone(data: unknown): SkinTone | string {
+  const skinTone = typeof data === "object" && data !== null ? (data as Record<string, unknown>).skinTone : undefined;
+  return isSkinTone(skinTone) ? skinTone : "skinTone must be a whole number from 0 to 5";
 }
 
 /** What someone is in the workspace: Campfire's user roles (`User::Role`). */
@@ -1678,6 +1695,8 @@ export type WorkspaceServerFrame =
   | { type: "room.huddle"; roomId: RoomId; huddle: LiveHuddle | null }
   /** They've starred or unstarred a room, in this tab or another: their stars as they are now. */
   | { type: "favorites.changed"; favorites: Favorites }
+  /** They've chosen another skin tone for emoji, in this tab or another browser. */
+  | { type: "skin_tone.changed"; skinTone: SkinTone }
   /** They've given a room of theirs another notification level, in this tab or another. */
   | { type: "room.involvement"; roomId: RoomId; involvement: Involvement }
   /** They've dismissed the welcome card, in this tab or another, so their sidebar has no invitation from now on. */

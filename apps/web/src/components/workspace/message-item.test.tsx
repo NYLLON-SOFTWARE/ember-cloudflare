@@ -1,12 +1,13 @@
-import type { Boost, Card, DirectoryUser, Message, StoredFile, User } from "@ember/protocol";
+import type { Boost, Card, DirectoryUser, Message, SkinTone, StoredFile, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { FlashProvider } from "@/components/flash";
 import { DirectoryLoaded, PeopleContext, type People } from "@/hooks/use-directory";
 import { RefusedUnboosts, RoomConnection } from "@/hooks/use-room";
+import { SkinToneContext } from "@/hooks/use-skin-tone";
 import { timeLabel } from "@/lib/messages";
 import type { PendingMessage, PendingUpload } from "@/lib/room-state";
 import { MessageItem, type ThreadPlace } from "./message-item";
@@ -62,7 +63,15 @@ const fileMessage = (overrides: Partial<Message> = {}) => message({ body: "", pl
  */
 function show(
   m: Message | PendingMessage,
-  { me = ada, administrator = false, threaded = false, sent = true, thread = undefined as ThreadPlace | undefined, open = false } = {},
+  {
+    me = ada,
+    administrator = false,
+    threaded = false,
+    sent = true,
+    thread = undefined as ThreadPlace | undefined,
+    open = false,
+    skinTone = 0 as SkinTone,
+  } = {},
 ) {
   const actions = { boost: vi.fn(() => sent), unboost: vi.fn(() => sent), edit: vi.fn(() => sent), remove: vi.fn(() => sent) };
   let setEditing: (editing: boolean) => void = () => {};
@@ -81,11 +90,13 @@ function show(
     setRefusals = setRefused;
     return (
       <FlashProvider workspace>
-        <RoomConnection value={connections}>
-          <RefusedUnboosts value={refusals}>
-            <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} />
-          </RefusedUnboosts>
-        </RoomConnection>
+        <SkinToneContext value={skinTone}>
+          <RoomConnection value={connections}>
+            <RefusedUnboosts value={refusals}>
+              <MessageItem message={shown} me={{ ...me, administrator }} threaded={threaded} editing={editing} actions={actions} editors={editors} thread={thread} open={open} />
+            </RefusedUnboosts>
+          </RoomConnection>
+        </SkinToneContext>
       </FlashProvider>
     );
   }
@@ -1136,6 +1147,18 @@ describe("React to a message", () => {
     expect(optionsOn("Hello")).toHaveFocus();
   });
 
+  it("offers its hands in the skin tone you chose, and adds them in it", async () => {
+    const { actions, user } = show(message(), { me: grace, skinTone: 3 });
+    await user.click(optionsOn("Hello"));
+    expect(barNames().slice(0, 3)).toEqual(["👍🏽Thumbs up", "👏🏽Clapping", "👋🏽Waving hand"]);
+    await user.click(within(actionBar()).getByRole("button", { name: "Thumbs up" }));
+    expect(actions.boost).toHaveBeenCalledWith("m1", "👍🏽");
+
+    await pressAction(user, "More reactions");
+    const tray = screen.getByRole("group", { name: "More reactions" });
+    expect(within(tray).getAllByRole("button").map((b) => b.textContent).slice(0, 3)).toEqual(["💪🏽Muscle", "❤️Red heart", "😂Face with tears of joy"]);
+  });
+
   it("lists reactions oldest first, each with its booster's avatar, and emoji larger than words", () => {
     show(message({ boosts: [boost("b1", grace, "👍"), boost("b2", ada, "🎉"), boost("b3", grace, "Nice one!"), boost("b4", ada, "👍")] }));
     const pills = reactions().getAllByRole("listitem");
@@ -1199,7 +1222,7 @@ describe("Custom reactions", () => {
     expect(field).toHaveFocus();
     expect(field).toHaveAttribute("placeholder", "Emoji or a word");
     expect(field).toHaveAttribute("maxlength", "16");
-    expect(field).toHaveAccessibleDescription("Up to 16 characters.");
+    expect(field).toHaveAccessibleDescription("Up to 16 characters. Type a colon and a word to find emoji.");
 
     await user.type(field, "Ship it{Enter}");
     expect(actions.boost).toHaveBeenCalledWith("m1", "Ship it");
@@ -1272,6 +1295,93 @@ describe("Custom reactions", () => {
     expect(screen.queryByRole("textbox", { name: "Custom reaction" })).not.toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("textbox", { name: "Custom reaction" })).not.toBeInTheDocument();
+  });
+
+  it("lists the emoji a :code finds, Enter putting the one picked in its place, and a second Enter adding it", async () => {
+    const { actions, user } = show(message());
+    await newBoost(user);
+    await user.type(customField(), ":rock");
+    const list = await screen.findByRole("listbox", { name: "Emoji matching :rock" });
+    expect(within(list).getAllByRole("option").map((option) => option.textContent).slice(0, 2)).toEqual(["🪨:rock:", "🚀:rocket:"]);
+    expect(customField()).toHaveAttribute("aria-activedescendant", within(list).getAllByRole("option")[0]!.id);
+
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(customField()).toHaveValue("🚀");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(actions.boost).not.toHaveBeenCalled();
+    await user.keyboard("{Enter}");
+    expect(actions.boost).toHaveBeenCalledWith("m1", "🚀");
+  });
+
+  it("puts a :code's emoji in its place as its closing colon's typed", async () => {
+    const { user } = show(message());
+    await newBoost(user);
+    await user.type(customField(), ":fire");
+    await screen.findByRole("listbox");
+    await user.type(customField(), ": hot :nope:");
+    expect(customField()).toHaveValue("🔥 hot :nope:");
+  });
+
+  it("puts a :code's emoji in its place as a phone's keyboard writes its closing colon without saying which key it was", async () => {
+    const { user } = show(message());
+    await newBoost(user);
+    await user.type(customField(), ":fire");
+    await screen.findByRole("listbox");
+    fireEvent.keyDown(customField(), { key: "Unidentified" });
+    fireEvent.input(customField(), { target: { value: ":fire:" }, inputType: "insertText", data: ":" });
+    expect(customField()).toHaveValue("🔥");
+  });
+
+  it("leaves a :code as it's written when its closing colon is typed over selected text", async () => {
+    const { user } = show(message());
+    await newBoost(user);
+    await user.type(customField(), ":fireoops");
+    (customField() as HTMLInputElement).setSelectionRange(5, 9);
+    fireEvent.select(customField());
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    await user.keyboard(":");
+    expect(customField()).toHaveValue(":fire:");
+  });
+
+  it("keeps the emoji list by its field as the page scrolls", async () => {
+    const { user } = show(message());
+    await newBoost(user);
+    const where = vi.spyOn(customField().closest("form")!, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 100, 120, 32));
+    await user.type(customField(), ":fire");
+    const list = (await screen.findByRole("listbox")).parentElement!;
+    expect(list.style.top).toBe("138px");
+    where.mockReturnValue(new DOMRect(20, 400, 120, 32));
+    fireEvent.scroll(document.body);
+    expect(list.style.top).toBe("");
+    expect(list.style.bottom).toBe(`${window.innerHeight - 400 + 6}px`);
+  });
+
+  it("keeps the emoji list by its field as messages above change, with nothing scrolling", async () => {
+    const { user, article } = show(message());
+    article.parentElement!.setAttribute("role", "log");
+    await newBoost(user);
+    const where = vi.spyOn(customField().closest("form")!, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 100, 120, 32));
+    await user.type(customField(), ":fire");
+    const list = (await screen.findByRole("listbox")).parentElement!;
+    expect(list.style.top).toBe("138px");
+
+    // A message above grows, as when someone reacts to it, moving the field down.
+    where.mockReturnValue(new DOMRect(20, 180, 120, 32));
+    article.parentElement!.prepend(document.createElement("article"));
+    await waitFor(() => expect(list.style.top).toBe("218px"));
+  });
+
+  it("shuts the emoji list on Escape, keeping the form, which a second Escape cancels", async () => {
+    const { actions, user } = show(message());
+    await newBoost(user);
+    await user.type(customField(), ":tad");
+    await screen.findByRole("listbox");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(customField()).toHaveValue(":tad");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("textbox", { name: "Custom reaction" })).not.toBeInTheDocument();
+    expect(actions.boost).not.toHaveBeenCalled();
   });
 
   it("focuses the form open already, keeping what's written, when New boost is chosen again", async () => {

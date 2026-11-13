@@ -553,6 +553,53 @@ describe("Welcome card for administrators, until they dismiss it", () => {
   });
 });
 
+describe("Default skin tone", () => {
+  /** Ada's sidebar, connected, telling `onSessionChanged`. */
+  async function connected() {
+    const onSessionChanged = vi.fn();
+    renderHook(() => useSidebar(ada, onSessionChanged, { people: new Map(), reload: async () => {}, update: () => {} }));
+    await settle();
+    socket().connect();
+    await settle();
+    return onSessionChanged;
+  }
+
+  it("gives the page the tone Ada chose in another tab or browser, and the default again", async () => {
+    const onSessionChanged = await connected();
+    socket().receive({ type: "skin_tone.changed", skinTone: 4 });
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, skinTone: 4 });
+    socket().receive({ type: "skin_tone.changed", skinTone: 0 });
+    expect(onSessionChanged).toHaveBeenLastCalledWith(ada);
+  });
+
+  it("keeps her tone when her role changes", async () => {
+    const onSessionChanged = await connected();
+    socket().receive({ type: "skin_tone.changed", skinTone: 2 });
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, administrator: true, skinTone: 2 });
+  });
+
+  it("takes a tone heard before the welcome over the welcome's, and the welcome's name and role still", async () => {
+    const onSessionChanged = vi.fn();
+    renderHook(() => useSidebar(ada, onSessionChanged, { people: new Map(), reload: async () => {}, update: () => {} }));
+    await settle();
+    socket().open();
+    socket().receive({ type: "skin_tone.changed", skinTone: 3 });
+    socket().receive({ type: "welcome", you: { ...ada, name: "Ada L.", administrator: true }, account: ember });
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, name: "Ada L.", administrator: true, skinTone: 3 });
+  });
+
+  it("takes a role heard before the welcome over the welcome's, and the welcome's tone still", async () => {
+    const onSessionChanged = vi.fn();
+    renderHook(() => useSidebar(ada, onSessionChanged, { people: new Map(), reload: async () => {}, update: () => {} }));
+    await settle();
+    socket().open();
+    socket().receive({ type: "user.updated", user: listed(ada, "administrator") });
+    socket().receive({ type: "welcome", you: { ...ada, skinTone: 5 }, account: ember });
+    expect(onSessionChanged).toHaveBeenLastCalledWith({ ...ada, administrator: true, skinTone: 5 });
+  });
+});
+
 describe("Shared room order", () => {
   it("loads its rooms again a while after the workspace socket says the shared order changed, once for the news that comes meanwhile", async () => {
     const onReload = vi.fn(async () => {});

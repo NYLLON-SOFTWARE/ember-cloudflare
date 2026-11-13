@@ -14,6 +14,7 @@ import {
   type ProfileAnswer,
   type ProfileChanges,
   type SidebarRoom,
+  type SkinTone,
 } from "@ember/protocol";
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
@@ -38,6 +39,7 @@ import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PicturePicker } from "./picture-picker";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
+import { SkinToneSetting } from "./skin-tone-setting";
 import { avatarUrlOf, avatarVersionOf } from "./user-avatar";
 
 interface Props {
@@ -46,6 +48,8 @@ interface Props {
   rooms: SidebarRoom[] | null;
   /** Called as a bell saves your level in a room, with what gives the room the level the server answers. */
   askForRoom: () => (answer: RoomAnswer) => void;
+  /** Gives the app the skin tone you chose for emoji, as it's saved. */
+  onSkinToneChanged: (skinTone: SkinTone) => void;
   /** Signs out, settling with whether it did. */
   onSignOut: () => Promise<boolean>;
   /** Says why loading or saving failed, as the workspace's alerts do. */
@@ -104,13 +108,14 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
  * current password while you have one, which changing your email address or password takes, and your
  * bio, which Save changes saves with the notice "✓", keeping the page, then, while members sign in with
  * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
- * unlinks with the notice "Your Memberful account is disconnected.", then, while Ember AI is on, how much @ember thinks and
+ * unlinks with the notice "Your Memberful account is disconnected.", then the skin tone of the emoji
+ * of people and hands you add, then, while Ember AI is on, how much @ember thinks and
  * how long it answers you, then your notification level in each of your rooms and DMs, then a sign-in
  * link for you, a new one each time the page loads or saves, and Log out in the top bar. Go Back
  * returns to the page it was opened from. Your avatar, name and bio reach everyone's open pages at
  * once, through the workspace socket, as they reach the rail.
  */
-export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Props) {
+export function ProfilePage({ me, rooms, askForRoom, onSkinToneChanged, onSignOut, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
   /** The profile as the page last loaded or saved it. */
   const saved = useRef<Fields | null>(null);
@@ -374,6 +379,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
             onFailed={onFailed}
           />
         )}
+        <SkinToneSetting skinTone={me.skinTone ?? 0} onChanged={onSkinToneChanged} onFailed={onFailed} />
         {assistant && <AnswerLevels assistant={assistant} onChanged={setAssistant} onFailed={onFailed} />}
         {rooms && <ConversationNotifications me={me} rooms={rooms} askForRoom={askForRoom} onFailed={onFailed} />}
         {transferId && <SignInLink transferId={transferId} mine />}
