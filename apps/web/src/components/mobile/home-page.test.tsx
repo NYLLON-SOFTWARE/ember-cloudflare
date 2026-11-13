@@ -58,6 +58,14 @@ describe("Home on a phone", () => {
     expect(cards.getByRole("link", { name: /^Huddles/ })).toHaveAttribute("href", "/rooms/general");
   });
 
+  it("says how many to-dos are overdue alone, in red, when any are", () => {
+    const cards = renderHome();
+    act(() => heardSaved({ marks: [], openTodos: 11, overdueTodos: 3, savedItems: 2 }));
+    expect(cardTexts(cards).slice(3, 5)).toEqual([["Saved", "2 items"], ["To-dos", "3 overdue"]]);
+    expect(cards.getByText("3 overdue")).toHaveClass("text-negative");
+    expect(cards.getByText("2 items")).not.toHaveClass("text-negative");
+  });
+
   it("says nothing of People until the directory has loaded", () => {
     const cards = renderHome({ loaded: false });
     expect(cardTexts(cards)[2]).toEqual(["People"]);

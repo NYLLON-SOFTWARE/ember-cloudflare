@@ -29,7 +29,7 @@ export function PageHeader({ children, back, className }: { children?: ReactNode
       <nav
         aria-label="Page"
         className={cn(
-          "flex min-h-header items-center gap-3 border-b bg-background py-2.5 pr-[max(22px,env(safe-area-inset-right))] pl-[22px] narrow:pr-[max(18px,env(safe-area-inset-right))] narrow:pl-[18px] max-md:min-h-14 max-md:gap-1.5 max-md:pt-[env(safe-area-inset-top)] max-md:pb-0 max-md:pr-[max(8px,env(safe-area-inset-right))] max-md:pl-[max(8px,env(safe-area-inset-left))]",
+          "flex min-h-header items-center gap-3 border-b bg-background py-2.5 pr-[max(22px,env(safe-area-inset-right))] pl-[22px] narrow:pr-[max(18px,env(safe-area-inset-right))] narrow:pl-[18px] max-md:min-h-14 max-md:gap-1.5 max-md:pt-[env(safe-area-inset-top)] max-md:pb-0 max-md:pr-[max(16px,env(safe-area-inset-right))] max-md:pl-[max(16px,env(safe-area-inset-left))]",
           settings && "md:col-span-2",
           className,
         )}

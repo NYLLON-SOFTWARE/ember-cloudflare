@@ -59,9 +59,9 @@ export function PhoneProfile({ back, person, links, children }: Props) {
   );
 }
 
-/** One of the row of actions, as the profile pane's: an icon over a short label, in a tile. */
+/** One of the row of actions, as the profile pane's: an icon over a short label, in a tile as wide as the others. */
 const ACTION_TILE =
-  "flex min-h-16 flex-1 flex-col items-center justify-center gap-1 rounded-xl bg-hover px-2 py-2.5 text-[13px] font-semibold hover:bg-border aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-hover data-[state=open]:bg-border";
+  "flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl bg-hover px-2 py-2.5 text-[13px] font-semibold hover:bg-border aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-hover data-[state=open]:bg-border";
 
 /** Where huddles start, which a DM isn't. */
 const HUDDLE_FROM_ROOM = "Start a huddle from a room you’re both in";
@@ -141,7 +141,7 @@ export function PhoneAbout({ person, mine, administrator, transferId, starting, 
         <h1 className="leading-[1.2] font-bold">{person.name}</h1>
         <StatusLine person={person} />
       </div>
-      <div className="flex gap-2">
+      <div className="grid auto-cols-fr grid-flow-col gap-2">
         {active && !mine && (
           <button type="button" aria-disabled={starting || undefined} onClick={onMessage} className={ACTION_TILE}>
             <ChatLines className="size-5" />
@@ -155,7 +155,7 @@ export function PhoneAbout({ person, mine, administrator, transferId, starting, 
             Huddle
           </button>
         )}
-        <button ref={more} type="button" aria-label="More actions" aria-haspopup="dialog" onClick={() => setShown("more")} className={cn(ACTION_TILE, "max-w-20")}>
+        <button ref={more} type="button" aria-label="More actions" aria-haspopup="dialog" onClick={() => setShown("more")} className={ACTION_TILE}>
           <MoreHoriz className="size-5" />
           More
         </button>

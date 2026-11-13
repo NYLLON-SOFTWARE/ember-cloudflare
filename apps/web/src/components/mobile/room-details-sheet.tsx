@@ -160,7 +160,11 @@ export function RoomDetailsSheet({ open, onOpenChange, room, me, name, present, 
             onClick={() => {
               handOver();
               setMembersShown(true);
-              closeMembers.current = openOverlay(() => setMembersShown(false));
+              // Back, the page's or the phone's, goes back to the details, where Members was.
+              closeMembers.current = openOverlay(() => {
+                setMembersShown(false);
+                onOpenChange(true);
+              });
             }}
             className={ROW}
           >

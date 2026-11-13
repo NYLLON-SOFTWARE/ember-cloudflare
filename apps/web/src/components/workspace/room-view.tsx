@@ -173,6 +173,7 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
               onJumpToNewest={() => jump(null)}
               onDropFiles={(files) => composer.current?.addFiles(files)}
               openThread={threadId}
+              editedHere={edit?.message.id}
               newSince={newSince}
               editing={edit}
             />

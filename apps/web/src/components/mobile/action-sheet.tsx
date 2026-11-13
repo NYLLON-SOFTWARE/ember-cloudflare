@@ -29,8 +29,8 @@ interface BottomSheetProps {
 export const ROW = "flex min-h-13 w-full shrink-0 cursor-pointer items-center gap-3 rounded-xl px-4 py-2.5 text-start text-base hover:bg-hover active:bg-hover";
 
 /**
- * A phone's sheet, Slack's and iOS's: a card that slides up from the bottom of the screen, under a grabber,
- * which a tap outside it or Escape closes. What doesn't fit under the top of the screen scrolls.
+ * A phone's sheet, Slack's and iOS's: a card that slides up from the bottom of the screen, which a tap
+ * outside it or Escape closes, with no grabber, since it doesn't drag. What doesn't fit scrolls.
  */
 export function BottomSheet({ open, onOpenChange, title, titleHidden = false, description, onCloseAutoFocus, children }: BottomSheetProps) {
   return (
@@ -50,8 +50,6 @@ export function BottomSheet({ open, onOpenChange, title, titleHidden = false, de
           "pr-[max(8px,env(safe-area-inset-right))] pl-[max(8px,env(safe-area-inset-left))]",
         )}
       >
-        {/* The grabber, drawn as iOS draws a sheet's. */}
-        <span aria-hidden="true" className="mx-auto mb-1 h-1 w-9 shrink-0 rounded-full bg-muted-foreground/40" />
         <SheetTitle className={titleHidden ? "sr-only" : "px-4 pt-1 pb-2 text-[15px] font-semibold text-muted-foreground"}>{title}</SheetTitle>
         <SheetDescription className="sr-only">{description ?? title}</SheetDescription>
         {children}

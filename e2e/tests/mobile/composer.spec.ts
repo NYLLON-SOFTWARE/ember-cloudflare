@@ -154,9 +154,13 @@ test("closing Custom time leaves the composer open, with Send, rather than its p
   await composer.tap();
   await page.keyboard.type("Later, please");
   const send = page.getByRole("button", { name: "Send Message" });
-  // A long press on Send opens Send later.
-  await send.dispatchEvent("contextmenu");
-  await page.getByRole("dialog", { name: "Send later" }).getByRole("button", { name: "Custom time" }).tap();
+  // A long press on Send opens Send later, once there's something to schedule and the room can take it.
+  const later = page.getByRole("dialog", { name: "Send later" });
+  await expect(async () => {
+    await send.dispatchEvent("contextmenu");
+    await expect(later).toBeVisible({ timeout: 2000 });
+  }).toPass();
+  await later.getByRole("button", { name: "Custom time" }).tap();
   const custom = page.getByRole("dialog", { name: "Schedule message" });
   await expect(custom.getByLabel("Time")).toBeVisible();
   await custom.getByRole("button", { name: "Cancel" }).tap();

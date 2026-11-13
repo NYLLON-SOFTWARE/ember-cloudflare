@@ -114,7 +114,11 @@ export function MessageSheets({ message, nodes, editable, threadPath, onReact, o
             onDelete();
           }}
           onCancel={() => onShow(null)}
-          onClosed={() => onCloseAutoFocus(new Event("close"))}
+          onClosed={() => {
+            onCloseAutoFocus(new Event("close"));
+            // A long press left focus nowhere, so it goes to the message's own options rather than the page.
+            if (document.activeElement === document.body) options.current?.focus({ preventScroll: true });
+          }}
         />
       )}
     </>
