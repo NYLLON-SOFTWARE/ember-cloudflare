@@ -599,6 +599,18 @@ export interface BotKey {
   webhook: Pick<BotWebhook, "url" | "savedAt"> | null;
 }
 
+/**
+ * A room the Slack-compatible Web API lists of a bot's: its id and name, whether it's closed to those
+ * who aren't in it, and who made it, and when.
+ */
+export interface BotSlackRoom {
+  id: RoomId;
+  name: string;
+  closed: boolean;
+  createdAt: string;
+  creatorId: UserId | null;
+}
+
 /** A revocation the Workspace has yet to deliver to its room. */
 export interface PendingRevocation extends Revocation {
   id: number;
@@ -1965,6 +1977,18 @@ const ACTIVE_BOT_KEY = `SELECT users.id, users.name, users.bot_token, webhooks.u
 /** The rooms a bot is in but its DMs, by name. */
 const BOT_ROOMS = `SELECT rooms.id, rooms.name FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? AND rooms.kind <> 'direct' ORDER BY lower(rooms.name), rooms.id`;
+
+/** An active bot's token, for the Slack-compatible Web API to compare a key with. @ember and the agents aren't, as the bots page's keys aren't theirs. */
+const SLACK_BOT = `SELECT id, name, bot_token FROM users
+  WHERE id = ? AND status = ${ACTIVE} AND role = ${BOT} AND id <> '${ASSISTANT_ID}' AND ${NOT_AN_AGENT}`;
+
+/** The rooms an active bot is in but its DMs, by name, each with whether it's closed, and who made it, and when. */
+const SLACK_BOT_ROOMS = `SELECT rooms.id, rooms.name, rooms.kind, rooms.created_at, rooms.creator_id
+  FROM memberships JOIN rooms ON rooms.id = memberships.room_id
+  WHERE memberships.user_id = ? AND rooms.kind <> 'direct' ORDER BY lower(rooms.name), rooms.id`;
+
+/** Whether a room is there at all, whatever its kind. */
+const ROOM_EXISTS = `SELECT 1 AS one FROM rooms WHERE id = ?`;
 
 /** What the AI assistant tab lists of an agent, of its user and its row. */
 const AGENT_COLUMNS = `${DIRECTORY_COLUMNS},
@@ -3537,6 +3561,37 @@ export class WorkspaceStore {
       BotRoom[],
     ];
     return row ? { ...storedBot(row, rooms), webhookUrl: row.webhook_url } : null;
+  }
+
+  /**
+   * The active bot `botId`, with its token and the rooms it's in but its DMs, by name, each with
+   * whether it's closed, and who made it, and when, for the Slack-compatible Web API to compare a key
+   * against and to list. Null unless it's one.
+   */
+  async activeSlackBot(botId: UserId): Promise<{ bot: User; token: string | null; rooms: BotSlackRoom[] } | null> {
+    const [[row], rooms] = (await this.db.batch([statement(SLACK_BOT, botId), statement(SLACK_BOT_ROOMS, botId)])) as [
+      Array<{ id: UserId; name: string; bot_token: string | null }>,
+      Array<{ id: RoomId; name: string; kind: string; created_at: string; creator_id: UserId | null }>,
+    ];
+    return row
+      ? {
+          bot: { id: row.id, name: row.name },
+          token: row.bot_token,
+          rooms: rooms.map(({ id, name, kind, created_at, creator_id }) => ({
+            id,
+            name,
+            closed: kind === "closed",
+            createdAt: created_at,
+            creatorId: creator_id,
+          })),
+        }
+      : null;
+  }
+
+  /** Whether a room `roomId` names is there at all, whatever its kind. */
+  async roomExists(roomId: RoomId): Promise<boolean> {
+    const [row] = await this.db.all<{ one: number }>(ROOM_EXISTS, roomId);
+    return row !== undefined;
   }
 
   /**
