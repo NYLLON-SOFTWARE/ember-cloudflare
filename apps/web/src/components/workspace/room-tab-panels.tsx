@@ -21,7 +21,8 @@ import {
   type RoomTabKind,
   type TabFile,
 } from "@ember/protocol/library";
-import { ArrowDown, ArrowUp, Download, Link as LinkIcon, MediaImage, MediaVideo, OpenNewWindow, Plus, Trash, Xmark } from "@/components/icons/iconoir";
+import { ArrowDown, ArrowUp, Download, Link as LinkIcon, MessageText, Plus, Trash, Xmark } from "@/components/icons/iconoir";
+import { MediaImage, MediaVideo, OpenNewWindow } from "@/components/icons/iconoir-more";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -31,9 +32,10 @@ import { messagePath, navigate } from "@/hooks/use-route";
 import { isSignedOut, type Room } from "@/lib/api";
 import { addFolderItem, addTab, fetchFiles, fetchRoomLibrary, markFile, openTab, orderTabs, removeFolderItem, removeTab, renameTab } from "@/lib/library";
 import { dateLabel } from "@/lib/messages";
+import { forgetUnsaved } from "@/lib/canvas-unsaved";
 import { cn } from "@/lib/utils";
 import { PageLink } from "@/components/page-link";
-import { CONTROLS_ROW, FileRow, FileSearch, FileTypeIcon, FilterButton, FilterDialog, LIST_CHIPS, NothingHere, ROW_ACTIONS, sizeLabel, SortMenu, TypesMenu, useLongPress } from "./file-list";
+import { CLOSE_BY_TITLE, CONTROLS_ROW, FileRow, FileSearch, FileTypeIcon, FilterButton, FilterDialog, LIST_CHIPS, NothingHere, ROW_ACTIONS, sizeLabel, SortMenu, TypesMenu, useLongPress } from "./file-list";
 import { Chip, useSearchNames } from "./search-box";
 import { CanvasEditor, TAB_ICONS, type ShownTab } from "./room-tab-icons";
 
@@ -70,8 +72,11 @@ function AddedTab({ room, me, tabId, onTabChanged, onTabGone, onFailed }: { room
       (opened) => !stopped && setOpened(opened),
       (error: unknown) => {
         if (stopped && !isSignedOut(error)) return;
-        if (isGone(error)) onTabGone();
-        else onFailed(error);
+        if (isGone(error)) {
+          // A canvas deleted as this browser kept what it had unsaved leaves nothing to merge it into.
+          forgetUnsaved(tabId);
+          onTabGone();
+        } else onFailed(error);
       },
     );
     return () => void (stopped = true);
@@ -102,16 +107,20 @@ function FilePreview({ title, roomId, file: { messageId, file } }: { title: stri
   const video = file.contentType.startsWith("video/");
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="flex flex-wrap items-center gap-2 border-b px-[22px] py-3 max-md:px-3">
-        <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold">{title}</h2>
-        <a href={file.url} target="_blank" rel="noopener" className={OUTLINE_BUTTON}>
-          <OpenNewWindow className="size-4" /> Open
+      {/* A phone's tab strip names the file already, so its header is just the actions, as 44pt icons. */}
+      <div className="flex flex-wrap items-center gap-2 border-b px-[22px] py-3 max-md:justify-end max-md:gap-1 max-md:px-2 max-md:py-1">
+        <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold max-md:sr-only">{title}</h2>
+        <a href={file.url} target="_blank" rel="noopener" title="Open" className={FILE_ACTION}>
+          <OpenNewWindow className="size-4 max-md:size-5" />
+          <span className="max-md:sr-only">Open</span>
         </a>
-        <a href={file.downloadUrl} download={file.name} className={OUTLINE_BUTTON}>
-          <Download className="size-4" /> Download
+        <a href={file.downloadUrl} download={file.name} title="Download" className={FILE_ACTION}>
+          <Download className="size-4 max-md:size-5" />
+          <span className="max-md:sr-only">Download</span>
         </a>
-        <PageLink href={messagePath(roomId, messageId)} className={OUTLINE_BUTTON}>
-          View message
+        <PageLink href={messagePath(roomId, messageId)} title="View message" className={FILE_ACTION}>
+          <MessageText className="size-4 max-md:size-5" />
+          <span className="max-md:sr-only">View message</span>
         </PageLink>
       </div>
       <div className="grid flex-1 place-items-center p-6">
@@ -133,8 +142,21 @@ function FilePreview({ title, roomId, file: { messageId, file } }: { title: stri
   );
 }
 
+/**
+ * A tab's dialog: a 520px card with its × on the title's line, and on a phone a sheet from the bottom of the
+ * screen, over the keyboard, whose buttons are a fingertip's 44pt.
+ */
+const TAB_DIALOG = cn(
+  "max-w-[520px] gap-4",
+  CLOSE_BY_TITLE,
+  "max-md:top-auto max-md:bottom-[var(--keyboard-inset,0px)] max-md:left-0 max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-t-[20px] max-md:rounded-b-none max-md:border-x-0 max-md:border-b-0 max-md:pb-[max(16px,env(safe-area-inset-bottom))]",
+  "max-md:[&_button]:min-h-11 max-md:[&_input]:h-11",
+);
+
 const OUTLINE_BUTTON =
   "inline-flex min-h-8 cursor-pointer items-center gap-1.5 rounded-lg border bg-background px-3 text-[13px] font-medium text-foreground hover:bg-hover touch:min-h-11";
+/** A file tab's actions: outlined buttons, and on a phone 44pt icons alone. */
+const FILE_ACTION = cn(OUTLINE_BUTTON, "max-md:size-11 max-md:justify-center max-md:border-0 max-md:bg-transparent max-md:px-0");
 
 /** The kind of a tab's file, as the Files page reads it. */
 const fileTypeFor = (file: TabFile["file"]) => fileTypeOf(file.contentType, file.name);
@@ -468,7 +490,7 @@ function AddDialog({ room, me, kind, heading, onClose, onSubmit, onFailed }: Omi
   };
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[520px] gap-4">
+      <DialogContent className={TAB_DIALOG}>
         <DialogTitle className="text-xl font-bold">{heading}</DialogTitle>
         <DialogDescription className="sr-only">{heading} to this conversation’s tabs.</DialogDescription>
         <form onSubmit={submit} className="grid gap-4">
@@ -605,7 +627,7 @@ export function EditTabsDialog({ room, tabs, onClose, onSaved, onFailed }: { roo
   };
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[520px] gap-4">
+      <DialogContent className={TAB_DIALOG}>
         <DialogTitle className="text-xl font-bold">Edit tabs</DialogTitle>
         <DialogDescription className="sr-only">Rename, remove and reorder this conversation’s tabs.</DialogDescription>
         <ul className="grid gap-2">

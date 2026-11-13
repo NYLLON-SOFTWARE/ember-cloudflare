@@ -1,7 +1,7 @@
 import type { Me, Room, User } from "@ember/protocol";
 import { parseCanvasSave, type Canvas, type OpenedTab } from "@ember/protocol/library";
 import type { Editor } from "@tiptap/core";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CanvasEditor } from "./canvas-editor";
 
@@ -128,6 +128,18 @@ describe("Canvas", () => {
     expect(saves()).toHaveLength(0);
   });
 
+  it("lets go of a kept copy whose closing save went, once the canvas has moved past it, so nothing taken out since comes back (E-R5-31b)", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(opened(doc())));
+    const base = doc(paragraph("Alpha"), paragraph("Bravo"), paragraph("Charlie"));
+    const mine = doc(paragraph("Alpha"), paragraph("Bravo MAYA"), paragraph("Charlie"));
+    // Maya's save landed as version 2; Sam then took " MAYA" out again, as version 3.
+    localStorage.setItem("ember:canvas-unsaved:t1", JSON.stringify({ base, body: mine, version: 1, sent: true }));
+    render(<CanvasEditor room={room} me={maya} opened={{ ...opened(base), canvas: canvas(base, 3, sam) }} onSaved={vi.fn()} onFailed={vi.fn()} />);
+    expect(editorOf().getText()).toBe("Alpha\n\nBravo\n\nCharlie");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(localStorage.getItem("ember:canvas-unsaved:t1")).toBeNull();
+  });
+
   it("says a canvas deleted as you write it is gone, and stops, keeping nothing", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ error: "That tab isn't there anymore" }, { status: 404 }));
     const [failed, gone] = [vi.fn(), vi.fn()];
@@ -151,6 +163,17 @@ describe("Canvas", () => {
     expect(toolbar).not.toHaveTextContent(/[•≡❝↶↷<>{}]/);
     act(() => screen.getByRole("button", { name: "Bold" }).click());
     expect(screen.getByRole("button", { name: "Bold" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("shows a phone's toolbar only while you write (R5-3)", () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json(opened(doc())));
+    renderCanvas(doc({ type: "paragraph" }));
+    const toolbar = () => screen.getByRole("toolbar", { name: "Formatting", hidden: true });
+    expect(toolbar()).toHaveClass("max-md:hidden", "max-md:order-last");
+    fireEvent.focus(document.querySelector(".ProseMirror")!);
+    expect(toolbar()).not.toHaveClass("max-md:hidden");
+    fireEvent.blur(document.querySelector(".ProseMirror")!);
+    expect(toolbar()).toHaveClass("max-md:hidden");
   });
 
   it("writes only what the server takes as a canvas, whatever the toolbar makes", () => {

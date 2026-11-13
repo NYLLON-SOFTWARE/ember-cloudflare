@@ -1269,6 +1269,11 @@ export class ChatRoom extends DurableObject<Env> {
     return this.canvases;
   }
 
+  /** Tells everyone with canvas `tabId` open that it's gone, as the Workspace has removed its tab. */
+  async canvasGone(roomId: RoomId, tabId: string): Promise<void> {
+    await this.serially(async () => this.canvasesFor(roomId).gone(tabId));
+  }
+
   /**
    * Saves canvas `tabId` sent whole over `save.version` by `actor`, whom the Workspace has let write it, as a
    * page going away sends one: through what people writing it together have, if anyone is.

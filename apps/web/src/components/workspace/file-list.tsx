@@ -13,29 +13,10 @@ import {
   type FileType,
   type LibraryFile,
 } from "@ember/protocol/library";
-import {
-  Code,
-  Download,
-  EmptyPage,
-  FilterList,
-  JournalPage,
-  Lock,
-  MediaImage,
-  MediaVideo,
-  MoreHoriz,
-  MusicDoubleNote,
-  NavArrowDown,
-  OpenNewWindow,
-  Page,
-  PageEdit,
-  Presentation,
-  Search as SearchIcon,
-  Sort,
-  Star,
-  StarSolid,
-  Table2Columns,
-  type IconoirIconProps,
-} from "@/components/icons/iconoir";
+import { Download, EmptyPage, Link, Lock, MessageText, MoreHoriz, NavArrowDown, Page, PageEdit, Search as SearchIcon, Star, StarSolid, type IconoirIconProps } from "@/components/icons/iconoir";
+import { Code, FilterList, JournalPage, MediaImage, MediaVideo, MusicDoubleNote, OpenNewWindow, Presentation, Sort, Table2Columns } from "@/components/icons/iconoir-more";
+import { useOptionalFlash, type Flasher } from "@/components/flash";
+import { ActionSheet, type SheetAction } from "@/components/mobile/action-sheet";
 import { PageLink } from "@/components/page-link";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog";
@@ -234,7 +215,7 @@ function Choice({ id, label, value, options, onChange }: { id: string; label: st
  * The dialog's own ×, as Ember's other dialogs have it: a 32px square, 44px for fingers, 12px from the
  * edge and centred on the title's line, under the dialog's 24px padding, with the hover's fill.
  */
-const CLOSE_BY_TITLE =
+export const CLOSE_BY_TITLE =
   "[&>[data-slot=dialog-close]]:top-[38px] [&>[data-slot=dialog-close]]:right-3 [&>[data-slot=dialog-close]]:grid [&>[data-slot=dialog-close]]:size-8 [&>[data-slot=dialog-close]]:-translate-y-1/2 [&>[data-slot=dialog-close]]:place-items-center [&>[data-slot=dialog-close]]:rounded-[9px] [&>[data-slot=dialog-close]]:opacity-100 [&>[data-slot=dialog-close]]:hover:bg-hover [&>[data-slot=dialog-close]]:touch:size-11 [&>[data-slot=dialog-close]_svg]:size-4";
 
 export function FilterDialog({ open, onOpenChange, me, filters, rooms, names, onApply, onClear }: FilterDialogProps) {
@@ -435,6 +416,7 @@ export function FileRow({ file, room, names, showRoom, sort, onOpened, onStar }:
   const compact = touch || phone;
   const [menuOpen, setMenuOpen] = useState(false);
   const holding = useLongPress(() => setMenuOpen(true));
+  const flash = useOptionalFlash();
   const opened = (event: React.MouseEvent) => {
     onOpened(file);
     if (!canvas) return;
@@ -458,15 +440,15 @@ export function FileRow({ file, room, names, showRoom, sort, onOpened, onStar }:
   return (
     <li
       {...holding}
-      className="group relative flex min-h-[68px] items-center gap-3 rounded-lg px-3 py-2 [-webkit-touch-callout:none] hover:bg-hover"
+      className="group relative flex min-h-[68px] items-center gap-3 rounded-lg px-3 py-2 [-webkit-touch-callout:none] hover:bg-hover max-md:px-2"
     >
       <FileTypeIcon file={file} />
-      {/* For fingers, the name's link takes taps anywhere on the row but its buttons, which sit over it. */}
       <div className="min-w-0 flex-1">
         <a
           href={openAddress(file)}
           onClick={opened}
           {...(!canvas && { target: "_blank", rel: "noopener" })}
+          // For fingers, it takes taps anywhere on the row but its buttons, which sit over it.
           className="block truncate text-[15px] font-semibold text-foreground hover:underline touch:after:absolute touch:after:inset-0 touch:after:rounded-lg"
         >
           {file.name}
@@ -503,38 +485,75 @@ export function FileRow({ file, room, names, showRoom, sort, onOpened, onStar }:
           </div>
         )}
         {file.starred && (compact ? <StarSolid aria-label="Starred" className="mx-1 size-[18px] text-muted-foreground" /> : star)}
-        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-          {/* On a touch screen, holding the row opens it, as Slack's does, and it's only there to place the
-              menu; in a window as narrow as a phone's, without one, it's a muted ⋯. */}
-          <DropdownMenuTrigger
-            title="More actions"
-            tabIndex={touch ? -1 : undefined}
-            className={cn(ROW_BUTTON, !compact && ROW_ACTIONS, touch && "pointer-events-none invisible size-0 touch:size-0")}
-          >
-            <MoreHoriz />
-            <span className="sr-only">More actions for {file.name}</span>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {file.messageId && (
-              <DropdownMenuItem asChild>
-                <PageLink href={messagePath(file.roomId, file.messageId)}>{room?.kind === "direct" ? "View in conversation" : "View in room"}</PageLink>
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onSelect={() => void navigator.clipboard?.writeText(new URL(openAddress(file), location.href).href)}>Copy link</DropdownMenuItem>
-            {/* What the row's own buttons do, for a phone or touch screen, which shows none. */}
-            {compact && file.file && (
-              <DropdownMenuItem asChild>
-                <a href={file.file.downloadUrl} download={file.file.name}>
-                  Download
-                </a>
-              </DropdownMenuItem>
-            )}
-            {compact && <DropdownMenuItem onSelect={() => onStar(file, !file.starred)}>{file.starred ? "Unstar" : "Star"}</DropdownMenuItem>}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {touch ? (
+          // A finger holds the row for its actions, as Slack's, which a phone's sheet shows.
+          <ActionSheet open={menuOpen} onOpenChange={setMenuOpen} title={file.name} actions={sheetActions(file, room, onOpened, onStar, flash)} />
+        ) : (
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            {/* In a window as narrow as a phone's, it's a muted ⋯; on a computer, it shows as the pointer comes. */}
+            <DropdownMenuTrigger title="More actions" className={cn(ROW_BUTTON, !compact && ROW_ACTIONS)}>
+              <MoreHoriz />
+              <span className="sr-only">More actions for {file.name}</span>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {file.messageId && (
+                <DropdownMenuItem asChild>
+                  <PageLink href={messagePath(file.roomId, file.messageId)}>{viewInLabel(room)}</PageLink>
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onSelect={() => copyLink(file, flash)}>Copy link</DropdownMenuItem>
+              {/* What the row's own buttons do, for a narrow window, which shows none. */}
+              {compact && file.file && (
+                <DropdownMenuItem asChild>
+                  <a href={file.file.downloadUrl} download={file.file.name}>
+                    Download
+                  </a>
+                </DropdownMenuItem>
+              )}
+              {compact && <DropdownMenuItem onSelect={() => onStar(file, !file.starred)}>{file.starred ? "Unstar" : "Star"}</DropdownMenuItem>}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
     </li>
   );
+}
+
+/** What the row's menu calls going to the message a file came in. */
+const viewInLabel = (room: Room | null) => (room?.kind === "direct" ? "View in conversation" : "View in room");
+
+/** Copies the address that opens `file`, saying so. */
+function copyLink(file: LibraryFile, flash: Flasher | null) {
+  void navigator.clipboard?.writeText(new URL(openAddress(file), location.href).href).then(() => flash?.("notice", "Link copied"));
+}
+
+/** A held row's actions, in a phone's sheet: Open, View in room, Copy link, Download and Star, each with its icon. */
+function sheetActions(file: LibraryFile, room: Room | null, onOpened: (file: LibraryFile) => void, onStar: (file: LibraryFile, starred: boolean) => void, flash: Flasher | null): SheetAction[] {
+  const actions: SheetAction[] = [
+    {
+      label: "Open",
+      icon: <OpenNewWindow className="size-5" />,
+      onSelect: () => {
+        onOpened(file);
+        if (file.kind === "canvas") navigate(openAddress(file));
+        else window.open(openAddress(file), "_blank", "noopener");
+      },
+    },
+  ];
+  if (file.messageId) actions.push({ label: viewInLabel(room), icon: <MessageText className="size-5" />, onSelect: () => navigate(messagePath(file.roomId, file.messageId!)) });
+  actions.push({ label: "Copy link", icon: <Link className="size-5" />, onSelect: () => copyLink(file, flash) });
+  const stored = file.file;
+  if (stored) actions.push({ label: "Download", icon: <Download className="size-5" />, onSelect: () => download(stored.downloadUrl, stored.name) });
+  actions.push({ label: file.starred ? "Unstar" : "Star", icon: file.starred ? <StarSolid className="size-5" /> : <Star className="size-5" />, onSelect: () => onStar(file, !file.starred) });
+  return actions;
+}
+
+/** Downloads `url` as `name`, as a link that says to download it does when it's followed. */
+function download(url: string, name: string) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
 }
 
 /** A conversation as a row names it: a DM by its people, a private room after a lock, and an open one after `#`. */

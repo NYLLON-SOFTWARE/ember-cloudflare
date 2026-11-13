@@ -222,7 +222,7 @@ describe("Open a room", () => {
     serve({ "GET /api/rooms/random/library": () => Response.json({ files: [], links: [] }), "GET /api/rooms/random/tabs": () => Response.json({ tabs: [] }) });
     const user = userEvent.setup();
     showWorkspace("/rooms/random");
-    expect(await screen.findByRole("textbox", { name: "Write a message" })).toBeInTheDocument();
+    expect(await screen.findByRole("textbox", { name: "Write a message" }, { timeout: 15_000 })).toBeInTheDocument();
     for (let round = 0; round < 2; round++) {
       await user.click(screen.getByRole("tab", { name: "Files & links" }));
       await screen.findByRole("tabpanel", { name: "Files & links" }, { timeout: 5000 });

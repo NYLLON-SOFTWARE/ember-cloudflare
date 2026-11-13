@@ -64,12 +64,15 @@ const MAX_KEPTALIVE_BYTES = 60_000;
 
 /**
  * Saves a canvas as the page goes away, in a request that outlives it, unless the canvas is too long to
- * send so, saying whether it sent it. What the server answers is never read.
+ * send so, saying whether it sent it. `onAnswer` hears whether it saved, if the page is still there then.
  */
-export function saveCanvasOnLeaving(roomId: RoomId, tabId: string, body: string, version: number): boolean {
+export function saveCanvasOnLeaving(roomId: RoomId, tabId: string, body: string, version: number, onAnswer?: (saved: boolean) => void): boolean {
   const sent = JSON.stringify({ body, version });
   if (new Blob([sent]).size > MAX_KEPTALIVE_BYTES) return false;
-  void fetch(`${roomTabPath(roomId, tabId)}/canvas`, { method: "PUT", keepalive: true, headers: { "Content-Type": "application/json" }, body: sent }).catch(() => {});
+  void fetch(`${roomTabPath(roomId, tabId)}/canvas`, { method: "PUT", keepalive: true, headers: { "Content-Type": "application/json" }, body: sent }).then(
+    (response) => onAnswer?.(response.ok),
+    () => onAnswer?.(false),
+  );
   return true;
 }
 

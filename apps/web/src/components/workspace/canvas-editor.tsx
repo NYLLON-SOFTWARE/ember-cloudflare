@@ -6,6 +6,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { useNameOf } from "@/hooks/use-directory";
 import { ApiError, type Room } from "@/lib/api";
 import { holdsChange, mergeCanvas } from "@/lib/canvas-merge";
+import { forgetUnsaved, keepUnsaved, settleUnsaved, takeUnsaved } from "@/lib/canvas-unsaved";
 import { CanvasConflict, openTab, saveCanvas, saveCanvasOnLeaving } from "@/lib/library";
 import { dateTimeLabel } from "@/lib/messages";
 import { cn } from "@/lib/utils";
@@ -66,37 +67,6 @@ const isGone = (error: unknown) => error instanceof ApiError && error.status ===
 /** The document as a canvas keeps it. */
 const bodyOf = (editor: Editor) => JSON.stringify(editor.getJSON());
 
-/**
- * What a canvas had unsaved as its page went, which this browser keeps until the canvas next opens, in
- * case the room never had it: what it was written over, and what was written.
- */
-interface Unsaved {
-  base: string;
-  body: string;
-}
-
-const unsavedKey = (tabId: string) => `ember:canvas-unsaved:${tabId}`;
-
-function keepUnsaved(tabId: string, unsaved: Unsaved): void {
-  try {
-    localStorage.setItem(unsavedKey(tabId), JSON.stringify(unsaved));
-  } catch {
-    // Kept nowhere, as in a private window: the save sent as the page went is all there is.
-  }
-}
-
-/** What canvas `tabId` had unsaved as its page last went, taken out of what the browser keeps. */
-function takeUnsaved(tabId: string): Unsaved | null {
-  try {
-    const kept = localStorage.getItem(unsavedKey(tabId));
-    localStorage.removeItem(unsavedKey(tabId));
-    const unsaved = kept === null ? null : (JSON.parse(kept) as Partial<Unsaved> | null);
-    return typeof unsaved?.base === "string" && typeof unsaved.body === "string" ? { base: unsaved.base, body: unsaved.body } : null;
-  } catch {
-    return null;
-  }
-}
-
 export function CanvasEditor({ room, opened, onSaved, onFailed, onGone }: Props) {
   const nameOf = useNameOf();
   const canvas = opened.canvas!;
@@ -134,6 +104,7 @@ export function CanvasEditor({ room, opened, onSaved, onFailed, onGone }: Props)
   const gone = useEffectEvent((error: ApiError) => {
     if (deleted.current) return;
     deleted.current = true;
+    forgetUnsaved(opened.tab.id);
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
     if (editor && !editor.isDestroyed) editor.setEditable(false);
@@ -168,8 +139,9 @@ export function CanvasEditor({ room, opened, onSaved, onFailed, onGone }: Props)
     const unsaved = takeUnsaved(opened.tab.id);
     if (!unsaved) return;
     const now = bodyOf(editor);
-    // The save the page sent as it went arrived, and the canvas has moved on from it.
-    if (holdsChange(unsaved.base, unsaved.body, now)) return;
+    // The save the page sent as it went arrived: the canvas has moved past what it was written over, or
+    // holds it still. Merging it in again would bring back what others have changed or taken out since.
+    if ((unsaved.sent && canvas.version > unsaved.version) || holdsChange(unsaved.base, unsaved.body, now)) return;
     const merge = mergeCanvas(unsaved.base, unsaved.body, now);
     if (merge.body === now) return;
     showDocument(editor, merge.body, MERGED);
@@ -216,7 +188,7 @@ export function CanvasEditor({ room, opened, onSaved, onFailed, onGone }: Props)
     } catch (error) {
       if (isGone(error)) return gone(error as ApiError);
       // A canvas closed since keeps what it couldn't save in this browser, to merge in as it next opens.
-      if (editor.isDestroyed) return keepUnsaved(opened.tab.id, { base: saved.current, body });
+      if (editor.isDestroyed) return keepUnsaved(opened.tab.id, { base: saved.current, body, version: version.current, sent: false });
       if (error instanceof CanvasConflict) takeIn(error.canvas);
       else {
         more = false;
@@ -270,13 +242,13 @@ export function CanvasEditor({ room, opened, onSaved, onFailed, onGone }: Props)
     if (live) {
       const confirmed = together.flush();
       if (!together.pending()) return;
-      saveCanvasOnLeaving(room.id, opened.tab.id, body, confirmed);
-      keepUnsaved(opened.tab.id, { base: together.confirmed() ?? canvas.body, body });
+      const sent = saveCanvasOnLeaving(room.id, opened.tab.id, body, confirmed, (saved) => settleUnsaved(opened.tab.id, saved));
+      keepUnsaved(opened.tab.id, { base: together.confirmed() ?? canvas.body, body, version: confirmed, sent: sent && navigator.onLine });
       return;
     }
     if (body === saved.current) return;
-    if (body.length <= MAX_CANVAS_LENGTH) saveCanvasOnLeaving(room.id, opened.tab.id, body, version.current);
-    keepUnsaved(opened.tab.id, { base: saved.current, body });
+    const sent = body.length <= MAX_CANVAS_LENGTH && saveCanvasOnLeaving(room.id, opened.tab.id, body, version.current, (saved) => settleUnsaved(opened.tab.id, saved));
+    keepUnsaved(opened.tab.id, { base: saved.current, body, version: version.current, sent: sent && navigator.onLine });
   });
   const unsavedOnLeaving = useEffectEvent((event: BeforeUnloadEvent) => {
     if (live ? together.pending() : timer.current || saving.current) event.preventDefault();
@@ -364,10 +336,20 @@ function Toolbar({ editor }: { editor: Editor }) {
     code: editor.isActive("code"),
     codeBlock: editor.isActive("codeBlock"),
   }));
+  const editing = useEditing(editor);
   const chain = () => editor.chain().focus();
   const rule = <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />;
   return (
-    <div role="toolbar" aria-label="Formatting" className="flex flex-none items-center gap-0.5 overflow-x-auto border-b px-[18px] py-1.5 [scrollbar-width:none] max-md:px-2">
+    <div
+      role="toolbar"
+      aria-label="Formatting"
+      className={cn(
+        "flex flex-none items-center gap-0.5 overflow-x-auto border-b px-[18px] py-1.5 [scrollbar-width:none]",
+        // A phone's shows only while you write, as one row at the bottom of the canvas, over the keyboard.
+        "max-md:order-last max-md:border-t max-md:border-b-0 max-md:px-2",
+        !editing && "max-md:hidden",
+      )}
+    >
       <Tool tool="bold" label="Bold" pressed={active.bold} onClick={() => chain().toggleBold().run()} />
       <Tool tool="italic" label="Italic" pressed={active.italic} onClick={() => chain().toggleItalic().run()} />
       <Tool tool="strikethrough" label="Strikethrough" pressed={active.strikethrough} onClick={() => chain().toggleStrike().run()} />
@@ -397,6 +379,22 @@ function useActive<T>(editor: Editor, select: (editor: Editor) => T): T {
     return () => void editor.off("transaction", changed);
   }, [editor]);
   return select(editor);
+}
+
+/** Whether someone's writing in `editor`: whether it has focus. */
+function useEditing(editor: Editor): boolean {
+  const [editing, setEditing] = useState(editor.isFocused);
+  useEffect(() => {
+    const focused = () => setEditing(true);
+    const blurred = () => setEditing(false);
+    editor.on("focus", focused);
+    editor.on("blur", blurred);
+    return () => {
+      editor.off("focus", focused);
+      editor.off("blur", blurred);
+    };
+  }, [editor]);
+  return editing;
 }
 
 /**

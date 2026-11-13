@@ -1,6 +1,6 @@
 import type { DirectoryUser, Me, Room } from "@ember/protocol";
 import type { Library, LibraryFile } from "@ember/protocol/library";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
@@ -174,10 +174,14 @@ describe("Files page", () => {
     serve();
     renderPage();
     await waitFor(() => expect(rows()).toHaveLength(3));
-    for (const trigger of screen.getAllByRole("button", { name: /^More actions for/, hidden: true })) {
-      expect(trigger).toHaveClass("invisible", "size-0", "touch:size-0");
-      expect(trigger).not.toHaveClass("touch:size-11");
-    }
+    expect(screen.queryByRole("button", { name: /^More actions for/, hidden: true })).not.toBeInTheDocument();
+    // Holding a row opens a phone's sheet of its actions (R4-RE-2).
+    fireEvent.contextMenu(screen.getByRole("link", { name: "Budget.csv" }).closest("li")!);
+    const sheet = await screen.findByRole("dialog", { name: "Budget.csv" });
+    expect(within(sheet).getAllByRole("button").map((button) => button.textContent)).toEqual(["Open", "View in room", "Copy link", "Download", "Star"]);
+    expect(within(sheet).getAllByRole("button").every((button) => button.querySelector("svg"))).toBe(true);
+    await userEvent.click(within(sheet).getByRole("button", { name: "Star" }));
+    expect(within(within(screen.getByRole("list", { name: "All files" })).getByRole("link", { name: "Budget.csv" }).closest("li")!).getByRole("img", { name: "Starred" })).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 
