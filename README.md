@@ -40,8 +40,8 @@ Cloudflare's network, quiet rooms hibernate, and every push to your copy deploys
 
 Rooms for every project, private rooms for the few who need them, and DMs with one person or a few.
 Reply in a thread to keep a room on topic, and tick **Also send to the room** when everyone should see
-the answer. Mention people, quote a message, react with any emoji or a few words of your own, and edit
-or delete what you wrote.
+the answer. Mention people, quote a message, react with any emoji or a few words of your own, ask a
+message to come back to you when you pick, and edit or delete what you wrote.
 
 Unread rooms stand out, **Activity** narrows the list to what you haven't read, and each room's bell
 says whether you hear about every message, only mentions, or nothing. You see who's here and who's
@@ -147,6 +147,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **Rooms, private rooms and DMs** | ✅ | ✅ |
 | **Threads** | ✅ with Also send to the room | ✅ with Also send to the channel |
 | **Mentions, quotes, reactions and edits** | ✅ react with any emoji or a few words | ✅ plus custom emoji |
+| **Reminders** | ✅ ask a message to come back when you pick | ✅ |
 | **Rich text, code blocks and link previews** | ✅ | ✅ |
 | **Files** | ✅ up to 250 MB each | ✅ up to 1 GB each |
 | **Search** | ✅ every message in your rooms and DMs, with Slack's filters for rooms, people, links, files and threads | ✅ (Free: the last 90 days) |
@@ -168,7 +169,7 @@ it's yours. Slack's plans are as [slack.com/pricing](https://slack.com/pricing) 
 | **AI** | @ember and agents of your own answer when you mention or DM them, each on the model you choose | ✅ summaries, recaps and AI search on every plan, more on Business+ |
 | **Canvases, lists and clips** | — | ✅ |
 | **Channels shared with other companies** | — | ✅ Slack Connect |
-| **Scheduled messages and reminders** | — | ✅ |
+| **Scheduled messages** | — | ✅ |
 | **Guest accounts** | — | ✅ on paid plans |
 | **Exports of every message, DMs included** | — not yet | ✅ on Business+ and up |
 | **Support** | GitHub issues | ✅ 24/7 on Business+ |
