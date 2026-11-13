@@ -15,6 +15,8 @@ import { PageHeader } from "./page-header";
 interface Props {
   /** The room that's gone, or null for an address naming a room this person can't see. */
   room: Room | null;
+  /** The address's room, whose messages this person never sent there show though the page no longer knows the room, as after a reload. */
+  roomId: string;
   gone: RoomGone;
   /** The room the button goes to: the last one visited that they can still see, if any. */
   goTo: Room | null;
@@ -25,7 +27,7 @@ interface Props {
  * What takes the place of a room that's gone for this person, header and all, saying why, with a way on to
  * a room they can see.
  */
-export function RoomUnavailable({ room, gone, goTo, me }: Props) {
+export function RoomUnavailable({ room, roomId, gone, goTo, me }: Props) {
   const nameOf = useNameOf();
   const named = (room: Room) => (room.kind === "direct" ? roomName(room, me.id, nameOf) : `#${roomName(room, me.id, nameOf)}`);
   const title = !room
@@ -47,7 +49,7 @@ export function RoomUnavailable({ room, gone, goTo, me }: Props) {
             {gone === "lost access" && <Lock aria-hidden className="size-8 text-muted-foreground" />}
             <h1 className="text-lg font-semibold text-balance wrap-anywhere">{title}</h1>
           </div>
-          {room && <Unsent roomId={room.id} me={me} />}
+          <Unsent roomId={room?.id ?? roomId} me={me} />
           {goTo && (
             <Button type="button" className="touch:h-11" onClick={() => navigate(roomPath(goTo.id))}>
               Go to {named(goTo)}

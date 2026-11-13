@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { NewRoom, ParentChoice, Room, RoomIconName, RoomId, User, UserId } from "@ember/protocol";
+import type { Me, NewRoom, ParentChoice, Room, RoomIconName, RoomId, User, UserId } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, newRoomPath, roomPath, type Access } from "@/hooks/use-route";
@@ -24,7 +24,7 @@ const askedParent = (): RoomId | null => new URLSearchParams(location.search).ge
 interface Props {
   /** Which of the two forms the address shows: a room for everyone, or a private one. */
   access: Access;
-  me: User;
+  me: Me;
   /** Lists the room made, for the sidebar. The page then shows it, unless it was left first. */
   onCreated: (room: Room) => void;
   /** Says why something failed, as the workspace's alerts do. */
@@ -47,6 +47,10 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
   const [name, setName] = useState(DEFAULT_ROOM_NAME);
   const [icon, setIcon] = useState<RoomIconName | null>(null);
   const [chosen, setChosen] = useState<ReadonlySet<UserId>>(new Set());
+  // A private room is its maker's too, as Slack's are, unless an administrator making it for others takes
+  // themselves out before it's made.
+  const [withMe, setWithMe] = useState(true);
+  const inRoom = (person: User) => (person.id === me.id ? withMe || !me.administrator : chosen.has(person.id));
   const [saving, setSaving] = useState(false);
   // The room the unsaved changes dialog's Save made, while the app goes on to where the person was going.
   const [created, setCreated] = useState<Room | null>(null);
@@ -78,10 +82,10 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
 
   /** Creates the room and lists it in the sidebar. */
   const send = () => {
-    // The private form lists its creator with a check mark and sends them as one of its members.
+    // The private form lists its creator, in it, and sends them as one of its members.
     const under = parent ? { parentId: parent.id } : {};
     // Only people in its parent can be in a sub-room.
-    const memberIds = peopleIn(people ?? [], parent).flatMap((person) => (person.id === me.id || chosen.has(person.id) ? [person.id] : []));
+    const memberIds = peopleIn(people ?? [], parent).flatMap((person) => (inRoom(person) ? [person.id] : []));
     const room: NewRoom = access === "open" ? { kind: access, name, icon: icon ?? "", ...under } : { kind: access, name, icon: icon ?? "", ...under, memberIds };
     return createRoom(room).then((room) => {
       onCreated(room);
@@ -113,7 +117,7 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
     people !== null &&
     !saving &&
     !created &&
-    (name !== DEFAULT_ROOM_NAME || icon !== null || access !== opened || parentId !== asked || (access === "closed" && chosen.size > 0));
+    (name !== DEFAULT_ROOM_NAME || icon !== null || access !== opened || parentId !== asked || (access === "closed" && (chosen.size > 0 || !withMe)));
   return (
     // Go Back returns to Rooms and permissions.
     <SettingsPage back={workspaceSectionPath("channel-settings")}>
@@ -136,10 +140,14 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
             parent={{ value: parent?.id ?? null, choices: parents, onChange: setParentId }}
             groups={[peopleIn(people, parent)]}
             mark={(person) =>
-              access === "open" || person.id === me.id ? (
+              access === "open" || (person.id === me.id && !me.administrator) ? (
                 <CheckMark />
               ) : (
-                <AccessSwitch person={person} checked={chosen.has(person.id)} onCheckedChange={(checked) => setChosen((chosen) => withChoice(chosen, person, checked))} />
+                <AccessSwitch
+                  person={person}
+                  checked={inRoom(person)}
+                  onCheckedChange={(checked) => (person.id === me.id ? setWithMe(checked) : setChosen((chosen) => withChoice(chosen, person, checked)))}
+                />
               )
             }
             saving={saving}

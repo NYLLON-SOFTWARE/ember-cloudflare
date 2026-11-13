@@ -6,8 +6,10 @@ test.describe("Rename the workspace", () => {
     await useOwnAddress(page);
     await page.goto("/account/edit");
     await signInAsAdministrator(page);
-    await expect(page.getByRole("navigation", { name: "Page" }).getByRole("heading", { level: 1 })).toHaveText("Community settings");
+    // The bar is labelled Community settings, and the page's title is its one h1.
+    await expect(page.getByRole("navigation", { name: "Page" })).toContainText("Community settings");
     await expect(page.getByRole("heading", { level: 1, name: "Basic community settings" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
     await expect(page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Admin" })).toHaveAttribute("aria-current", "page");
 
     const name = page.getByRole("textbox", { name: "Community name" });

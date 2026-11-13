@@ -2500,12 +2500,15 @@ describe("Community settings page", () => {
   const sectionMarked = () => within(settingsNavigation()).getByRole("link", { current: "page" });
   const settingsRequests = () => vi.mocked(fetch).mock.calls.filter(([input]) => String(input) === "/api/account").length;
 
-  it("puts community settings' links in the sidebar's place, under a header titled Community settings, in the order they show", async () => {
+  it("puts community settings' links in the sidebar's place, under a header labelled Community settings, in the order they show", async () => {
     showWorkspace("/account/edit");
     expect(await communitySettings()).toBeInTheDocument();
     expect(screen.queryByRole("complementary", { name: "Conversations" })).not.toBeInTheDocument();
     const header = screen.getByRole("navigation", { name: "Page" });
-    expect(within(header).getByRole("heading", { level: 1, name: "Community settings" })).toBeInTheDocument();
+    // Labelled, not headed: the page's own title is its one h1.
+    expect(header).toHaveTextContent("Community settings");
+    expect(within(header).queryByRole("heading")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(sectionMarked()).toHaveTextContent("General");
     // Ada isn't an administrator.
     expect(within(settingsNavigation()).getAllByRole("link").map((link) => link.textContent)).toEqual(["General", "Rooms and permissions", "Membership"]);

@@ -48,7 +48,8 @@ export function PageHeader({ children, back, className }: { children?: ReactNode
           </SheetTrigger>
         )}
         {children}
-        {settings && <h1 className="min-w-0 flex-1 text-[17px] leading-[1.4] font-[650] max-md:text-base">Community settings</h1>}
+        {/* A label, not a heading: each page of them has its own, the page's one h1. */}
+        {settings && <p className="min-w-0 flex-1 text-[17px] leading-[1.4] font-[650] max-md:text-base">Community settings</p>}
       </nav>
       {settings && <SettingsNavigation {...settings} />}
     </>

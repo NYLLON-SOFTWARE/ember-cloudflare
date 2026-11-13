@@ -888,9 +888,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             <DirectSettingsPage key={direct.id} room={direct} me={me} back={back} askForRoom={askForRoom} onMissing={missing} onFailed={failed} />
           ));
         // A room that's gone, or an address naming one this person can't see, says so in the room's place.
-        if (route.page === "room" && goneHere) return rarePage(({ RoomUnavailable }) => <RoomUnavailable room={goneHere.room} gone={goneHere.why} goTo={lastRoom} me={me} />);
+        if (route.page === "room" && goneHere) return rarePage(({ RoomUnavailable }) => <RoomUnavailable room={goneHere.room} roomId={route.roomId} gone={goneHere.why} goTo={lastRoom} me={me} />);
         if (route.page === "room" && !room && rooms && !askingAgain && !unansweredHere)
-          return rarePage(({ RoomUnavailable }) => <RoomUnavailable room={null} gone="lost access" goTo={lastRoom} me={me} />);
+          return rarePage(({ RoomUnavailable }) => <RoomUnavailable room={null} roomId={route.roomId} gone="lost access" goTo={lastRoom} me={me} />);
         if (room)
           return (
             <RoomView
