@@ -40,6 +40,8 @@ declare module "@37signals/lexxy" {
   /** A place in the editor: in a text node, at an offset, or in an element, before its child at an offset. */
   interface Point {
     type: "text" | "element";
+    /** The node's key. */
+    key: string;
     offset: number;
     getNode(): LexicalNode;
   }
@@ -52,6 +54,7 @@ declare module "@37signals/lexxy" {
     hasFormat(format: string): boolean;
     focus: Point;
     setFormat(format: number): void;
+    toggleFormat(format: string): void;
     setStyle(style: string): void;
     insertText(text: string): void;
   }
