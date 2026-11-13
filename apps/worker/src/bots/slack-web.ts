@@ -39,7 +39,7 @@ export function slackWebAction(request: Request, env: Env, pathname: string): ((
     case "/api/conversations.list":
       return request.method === "GET" || request.method === "POST" ? () => conversationsList(env, request) : null;
     case "/api/conversations.history":
-      return request.method === "POST" ? () => conversationsHistory(env, request) : null;
+      return request.method === "GET" || request.method === "POST" ? () => conversationsHistory(env, request) : null;
     default:
       return null;
   }
@@ -76,8 +76,8 @@ const keyIn = (request: Request) => {
  * The bot the key `key` names, in the room the fields' `channel` names: its id, or one of the bot's
  * rooms by its name, with or without its "#". Or what its caller answers instead: `invalid_auth` for
  * a key no active bot has, `channel_not_found` for a channel that names no room, `not_in_channel` for
- * one that is there but keeps the bot out. One read answers whichever the channel is, and the rooms
- * the bot answers by name with are its own memberships, so a room of theirs needs no other.
+ * one that is there but keeps the bot out. Whichever the channel is, the room is answered by one
+ * read stamped before it checks the room, so a bot taken out while it runs can write nothing.
  */
 async function botChannelIn(env: Env, key: string, fields: SlackPayload) {
   const given = textOf(fields.channel);
@@ -88,10 +88,16 @@ async function botChannelIn(env: Env, key: string, fields: SlackPayload) {
     if (access !== "not found") return { roomId: channel, access };
     if (await workspace(env).roomExists(channel)) return refused("not_in_channel");
   }
+  // Not an id of a room, or one the bot isn't in that isn't there: a name, then, of one of its rooms.
   const bot = await workspace(env).slackBot(key);
   if (bot === null) return refused("invalid_auth");
   const named = bot.rooms.find(({ name }) => name.toLowerCase() === channel.toLowerCase());
-  return named ? { roomId: named.id, access: { bot: bot.bot, authorizedAt: Date.now() } } : refused("channel_not_found");
+  if (named === undefined) return refused("channel_not_found");
+  const access = await workspace(env).slackBotIn(key, named.id);
+  if (access === null) return refused("invalid_auth");
+  // It was just in the bot's list of its own rooms, so only taken out between the two reads says not found.
+  if (access === "not found") return refused("not_in_channel");
+  return { roomId: named.id, access };
 }
 
 /**
@@ -203,7 +209,7 @@ async function conversationsList(env: Env, request: Request): Promise<Response> 
   return bot instanceof Response ? bot : answered({ channels: bot.rooms.map(channelJson) });
 }
 
-/** `POST /api/conversations.history`: the newest `limit` of the room's messages, oldest first, with whether there are older ones. */
+/** `POST` or `GET /api/conversations.history`: the newest `limit` of the room's messages, newest first as Slack reads them, with whether there are older ones. */
 async function conversationsHistory(env: Env, request: Request): Promise<Response> {
   const key = keyIn(request);
   if (key instanceof Response) return key;
@@ -217,16 +223,20 @@ async function conversationsHistory(env: Env, request: Request): Promise<Respons
   return answered({ channel: inChannel.roomId, messages: history.messages.map(messageJson), has_more: history.hasMore });
 }
 
-/** How many messages a history read takes: `limit`, between 1 and 200 — five pages for the room to gather — or 100, as Slack reads none. */
+/** How many messages a history read takes: `limit`, between 1 and 200, or 100, as Slack reads none. */
 const limitOf = (limit: unknown) => {
   const asked = Number(limit);
   return Number.isInteger(asked) && asked > 0 ? Math.min(asked, 200) : 100;
 };
 
+/** The most pages of a room's messages a history read gathers, first page included, whatever the limit. */
+const HISTORY_PAGES = 5;
+
 /**
- * The newest `limit` of a room's messages, oldest first, with whether the room has older ones than the
- * oldest answered: the pages a bot reads, gathered back from the newest until it has `limit`, its
- * deleted messages left out, so a room that keeps some answers a full limit still.
+ * The newest `limit` of a room's messages, newest first, as Slack's history reads them, with whether
+ * the room has older ones than the oldest answered: the pages a bot reads, gathered back from the
+ * newest until it has `limit`, its deleted messages left out, at five pages of the room's at most, so
+ * a room whose tail is its deleted messages' places can't be walked page by page.
  */
 async function historyIn(env: Env, roomId: RoomId, limit: number): Promise<{ messages: Message[]; hasMore: boolean } | null> {
   const room = env.CHAT_ROOM.getByName(roomId);
@@ -236,14 +246,15 @@ async function historyIn(env: Env, roomId: RoomId, limit: number): Promise<{ mes
   // The room pages from a deleted message all the same, so the cursor is the page's first, kept or not.
   let oldest = first.messages[0]?.id;
   let hasMore = first.hasMore;
-  while (hasMore && collected.length < limit && oldest !== undefined) {
+  for (let pages = 1; pages < HISTORY_PAGES && hasMore && collected.length < limit && oldest !== undefined; pages++) {
     const older = await room.botPage(roomId, { before: oldest });
     if (!older || older.messages.length === 0) break;
     collected.unshift(...older.messages.filter(({ deleted }) => deleted !== true));
     oldest = older.messages[0]!.id;
     hasMore = older.hasMore;
   }
-  return { messages: collected.slice(-limit), hasMore: hasMore || collected.length > limit };
+  // Short of the limit with pages still behind it says so, as Slack's own truncated pages do.
+  return { messages: collected.slice(-limit).reverse(), hasMore: hasMore || collected.length > limit };
 }
 
 /** A message as Slack's API writes one: its plain text as `text`, its id as `ts`, and who wrote it as `user`. */
