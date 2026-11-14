@@ -183,6 +183,65 @@ test.describe("Apps", () => {
     }
   });
 
+  test("the administrator connects an app whose service wants Ember registered there, by giving the client ID and secret it got, which signing in again keeps", async ({ page, baseURL }) => {
+    const client = { id: "ember-at-tracker", secret: "e2e-client-secret" };
+    const signsIn = await startFakeMcp({ signsIn: true, client });
+    try {
+      const signIn = signsIn.signIn!;
+      const host = new URL(signsIn.url).host;
+      const card = await openApps(page);
+      const signInButton = page.getByRole("button", { name: `Sign in to ${host}` });
+      const clientId = page.getByRole("textbox", { name: "Client ID" });
+      const clientSecret = page.getByLabel("Client secret", { exact: true });
+
+      // Its sign-in doesn't let Ember register itself, so the form asks who Ember is there, with the address to register it with.
+      await connectAt(page, card, signsIn.url);
+      await signInButton.click();
+      await expect(page.getByLabel("Token", { exact: true })).toHaveAccessibleDescription(
+        `${host} has a sign-in, but doesn't let Ember register itself for it. Register Ember there yourself and give its client ID, or give a token, if it has one.`,
+      );
+      await expect(page.getByRole("textbox", { name: "Redirect address" })).toHaveValue(`${baseURL}/account/apps/signed-in`);
+
+      // A secret the service doesn't know is refused once the browser is back, which the page says.
+      await clientId.fill(client.id);
+      await clientSecret.fill("not-its-secret");
+      await signInButton.click();
+      await page.getByRole("link", { name: "Allow" }).click();
+      await expect(page.getByRole("alert")).toHaveText(`${host} didn't take the client ID or secret Ember signed in with. Check both, and start the sign-in again.`);
+      await page.getByRole("link", { name: "Back to the apps" }).click();
+      await expect(card).toContainText("No apps are connected yet.");
+
+      // With the client ID and secret it got, Ember signs in as that client and connects the app, whose page shows the ID alone.
+      await connectAt(page, card, signsIn.url);
+      await signInButton.click();
+      await clientId.fill(client.id);
+      await clientSecret.fill(client.secret);
+      await signInButton.click();
+      await page.getByRole("link", { name: "Allow" }).click();
+      await expect(page.getByRole("alert")).toHaveText("Tracker is connected. Ember read 2 tools from it.");
+      expect(signIn.exchanged).toBe(1);
+      const kept = page.getByRole("group", { name: "Sign-in" });
+      await expect(kept.getByRole("textbox", { name: "Client ID" })).toHaveValue(client.id);
+      await expect(kept.getByLabel("Client secret", { exact: true })).toHaveValue("");
+      await expect(kept.getByLabel("Client secret", { exact: true })).toHaveAttribute("placeholder", "Unchanged");
+
+      // It gets itself another token as that client, and signing in again, once the sign-in has ended, asks for neither again.
+      const tools = page.getByRole("region", { name: /^Tools/ });
+      await tools.getByRole("button", { name: "Read its tools again" }).click();
+      await expect.poll(() => signIn.refreshed).toBe(1);
+      signIn.end();
+      await tools.getByRole("button", { name: "Read its tools again" }).click();
+      await expect(tools.getByRole("status")).toHaveText("Ember's sign-in to Tracker has ended. An administrator has to sign in to it again, on its page.");
+      await kept.getByRole("button", { name: "Sign in again" }).click();
+      await page.getByRole("link", { name: "Allow" }).click();
+      await expect(page.getByRole("alert")).toHaveText("Ember is signed in to Tracker again.");
+      expect(signIn.exchanged).toBe(2);
+      await expect(kept.getByRole("textbox", { name: "Client ID" })).toHaveValue(client.id);
+    } finally {
+      await signsIn.close();
+    }
+  });
+
   test("the administrator renames an app, which reads nothing from its server, and an address with no MCP server is refused", async ({ page, request }) => {
     const connected = await request.post("/api/account/apps", { data: { name: "Tracker", url: mcp.url, token: MCP_TOKEN }, headers: await asAdministrator(request) });
     expect(connected.status(), await connected.text()).toBe(201);

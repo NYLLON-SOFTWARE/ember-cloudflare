@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import type { StoredOAuthClientInformation } from "@modelcontextprotocol/client";
 import type { AppRefused } from "@ember/protocol/apps";
 import type { Env } from "../env";
 import { callApp, readApp, type CalledTool, type Key, type ReadApp, type ReadTool } from "./mcp";
@@ -31,10 +32,10 @@ export class AppConnector extends DurableObject<Env> {
   /**
    * `startSignIn`: where to send an administrator's browser to sign in to the app at `url`, the state it
    * comes back to `redirectUrl` with, and what to keep of the sign-in until then, or why Ember can't
-   * sign in there.
+   * sign in there. `client` is who Ember is there, as JSON, when an administrator gave that.
    */
-  async startSignIn(url: string, redirectUrl: string, clientUrl: string | null): Promise<BegunSignIn | AppRefused> {
-    const begun = await startSignIn(url, redirectUrl, clientUrl);
+  async startSignIn(url: string, redirectUrl: string, clientUrl: string | null, client: string | null): Promise<BegunSignIn | AppRefused> {
+    const begun = await startSignIn(url, redirectUrl, clientUrl, client === null ? null : (JSON.parse(client) as StoredOAuthClientInformation));
     return "error" in begun ? begun : { authorizationUrl: begun.authorizationUrl, state: begun.state, kept: JSON.stringify(begun.signIn) };
   }
 

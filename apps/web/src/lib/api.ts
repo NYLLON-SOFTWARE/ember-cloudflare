@@ -93,7 +93,7 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol";
 import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTrial, AgentTrialAnswer, NewAgent } from "@ember/protocol/agents";
-import type { AgentToolPicks, AgentTools, App, AppAnswer, AppChanges, AppId, Apps, AppSignedIn, AppSignInBegun, AppSignInReturn, AppSummary, NewApp, NewAppSignIn, OfferedApp, ToolPick } from "@ember/protocol/apps";
+import type { AgentToolPicks, AgentTools, App, AppAnswer, AppChanges, AppClient, AppId, Apps, AppSignedIn, AppSignInBegun, AppSignInReturn, AppSummary, NewApp, NewAppSignIn, OfferedApp, ToolPick } from "@ember/protocol/apps";
 import type { LogoVariants } from "@/lib/previews";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and socket,
@@ -111,6 +111,8 @@ export class ApiError extends Error {
     readonly redirect?: string,
     /** Whether an app's server refused for want of a sign-in, which Ember can begin. */
     readonly signIn?: boolean,
+    /** Whether an app's sign-in wants a client ID that Ember can't get itself, which the app's form then asks for. */
+    readonly client?: boolean,
   ) {
     super(message);
   }
@@ -121,8 +123,10 @@ export const isSignedOut = (error: unknown) => error instanceof ApiError && erro
 
 /** What an answer carries, or the ApiError it says why it failed with. */
 async function dataOf<T>(response: Response): Promise<T> {
-  const data = (await response.json().catch(() => ({}))) as T & { error?: string; field?: string; redirect?: string; signIn?: unknown };
-  if (!response.ok) throw new ApiError(response.status, data.error ?? `Request failed (${response.status})`, data.field, data.redirect, data.signIn === true || undefined);
+  const data = (await response.json().catch(() => ({}))) as T & { error?: string; field?: string; redirect?: string; signIn?: unknown; client?: unknown };
+  if (!response.ok) {
+    throw new ApiError(response.status, data.error ?? `Request failed (${response.status})`, data.field, data.redirect, data.signIn === true || undefined, data.client === true || undefined);
+  }
   return data;
 }
 
@@ -702,9 +706,14 @@ export async function beginNewAppSignIn(app: NewAppSignIn): Promise<string> {
   return (await request<AppSignInBegun>("/api/account/app-sign-ins", { method: "POST", body: JSON.stringify(app) })).authorizationUrl;
 }
 
-/** Begins a sign-in to the server of the connected app `appId`, again or in place of its token, as `beginNewAppSignIn` does. Fails as it and `fetchApp` do. */
-export async function beginAppSignIn(appId: AppId): Promise<string> {
-  return (await request<AppSignInBegun>(`/api/account/apps/${encodeURIComponent(appId)}/sign-in`, { method: "POST" })).authorizationUrl;
+/**
+ * Begins a sign-in to the server of the connected app `appId`, again or in place of its token, as
+ * `beginNewAppSignIn` does, as `client` when the app's page asks who Ember is there, and otherwise as
+ * the app last signed in. Fails as it and `fetchApp` do.
+ */
+export async function beginAppSignIn(appId: AppId, client?: AppClient): Promise<string> {
+  const body = client && { body: JSON.stringify(client) };
+  return (await request<AppSignInBegun>(`/api/account/apps/${encodeURIComponent(appId)}/sign-in`, { method: "POST", ...body })).authorizationUrl;
 }
 
 /**

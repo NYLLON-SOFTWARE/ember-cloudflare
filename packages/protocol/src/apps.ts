@@ -14,6 +14,8 @@ export const MAX_APPS = 10;
 export const MAX_APP_NAME_LENGTH = 60;
 export const MAX_APP_URL_LENGTH = 2048;
 export const MAX_APP_TOKEN_LENGTH = 4096;
+export const MAX_APP_CLIENT_ID_LENGTH = 512;
+export const MAX_APP_CLIENT_SECRET_LENGTH = 1024;
 
 /** The most tools Ember reads from an app: the rest are left out, which its page says. */
 export const MAX_APP_TOOLS = 100;
@@ -56,14 +58,16 @@ export interface App {
 }
 
 /**
- * An app's sign-in: who signed in to its server, if they're still known, and when, and whether it has
+ * An app's sign-in: who signed in to its server, if they're still known, and when, whether it has
  * `ended`, as it has once its server won't give Ember another token, so that its agents are without
- * its tools until an administrator signs in again.
+ * its tools until an administrator signs in again, and the client ID Ember signed in as, when an
+ * administrator gave one (`AppClient`), or null when the service came to know Ember by itself.
  */
 export interface AppSignIn {
   by: { id: UserId; name: string } | null;
   at: string;
   ended: boolean;
+  clientId: string | null;
 }
 
 /**
@@ -119,15 +123,31 @@ export interface AppChanges {
   token?: string;
 }
 
-/** Why a field of an app's form is refused, and whether that's because its server asks for a sign-in, which Ember can begin. */
+/**
+ * Why a field of an app's form is refused, and whether that's because its server asks for a sign-in,
+ * which Ember can begin, or because its sign-in wants a client ID Ember can't get itself, `client`,
+ * which the form then asks for.
+ */
 export interface AppRefused {
   error: string;
-  field?: "name" | "url" | "token";
+  field?: "name" | "url" | "token" | "clientId" | "clientSecret";
   signIn?: true;
+  client?: true;
 }
 
-/** What `POST /api/account/app-sign-ins` takes: the name and server address of an app to connect by signing in to its server. */
-export type NewAppSignIn = Pick<NewApp, "name" | "url">;
+/**
+ * Who Ember is to a service whose sign-in neither reads who a client is nor lets one register itself:
+ * the client ID the service gave an administrator who registered Ember there, and its secret, if it
+ * gave one. On a sign-in to a connected app, a `clientId` left out keeps the one the app signed in
+ * as, with its secret when none is given, and "" has Ember go without one.
+ */
+export interface AppClient {
+  clientId?: string;
+  clientSecret?: string;
+}
+
+/** What `POST /api/account/app-sign-ins` takes: the name and server address of an app to connect by signing in to its server, and who Ember is there, if the service doesn't find out by itself. */
+export type NewAppSignIn = Pick<NewApp, "name" | "url"> & AppClient;
 
 /** What beginning a sign-in answers: where to send the administrator's browser, which comes back to `/account/apps/signed-in`. */
 export interface AppSignInBegun {
@@ -161,6 +181,31 @@ export function parseAppSignInReturn(data: unknown): AppSignInReturn | AppRefuse
   const isText = (value: unknown): value is string => typeof value === "string" && value !== "" && value.length <= MAX_RETURN_LENGTH;
   if (!isText(state) || !isText(code) || (iss !== undefined && !isText(iss))) return { error: APP_SIGN_IN_ENDED };
   return { state, code, ...(iss !== undefined && { iss }) };
+}
+
+/**
+ * Parses who an administrator says Ember is to a service, untrusted, or says why it's refused: a client
+ * ID and a secret are what a form's field and a header can carry, kept but for the spaces around them,
+ * and a secret is some client ID's.
+ */
+export function parseAppClient(data: unknown): AppClient | AppRefused {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return { error: "Expected a JSON object" };
+  const { clientId, clientSecret } = data as Record<string, unknown>;
+  const client: AppClient = {};
+  if (clientId !== undefined) {
+    if (typeof clientId !== "string") return { error: "Client ID must be text", field: "clientId" };
+    if (clientId.trim().length > MAX_APP_CLIENT_ID_LENGTH) return { error: `Client ID can't be longer than ${MAX_APP_CLIENT_ID_LENGTH} characters`, field: "clientId" };
+    if (/[^\x20-\x7e]/.test(clientId.trim())) return { error: "Client ID can't have characters a header can't carry", field: "clientId" };
+    client.clientId = clientId.trim();
+  }
+  if (clientSecret !== undefined && clientSecret !== "") {
+    if (typeof clientSecret !== "string") return { error: "Client secret must be text", field: "clientSecret" };
+    if (clientSecret.trim().length > MAX_APP_CLIENT_SECRET_LENGTH) return { error: `Client secret can't be longer than ${MAX_APP_CLIENT_SECRET_LENGTH} characters`, field: "clientSecret" };
+    if (/[^\x20-\x7e]/.test(clientSecret.trim())) return { error: "Client secret can't have characters a header can't carry", field: "clientSecret" };
+    if (!client.clientId) return { error: "A client secret goes with a client ID", field: "clientId" };
+    if (clientSecret.trim() !== "") client.clientSecret = clientSecret.trim();
+  }
+  return client;
 }
 
 /**

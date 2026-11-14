@@ -282,7 +282,9 @@ function whyNot(what: "Reading the tools of" | "Calling a tool of", address: URL
   }
   if (error instanceof UnauthorizedError || status === 401 || status === 403) {
     if (key === null) return { error: `${host} asks for a sign-in. Sign in to it, or give a token for it, if it has one.`, field: "token", signIn: true };
-    return { error: key.signedIn ? `${host} didn't take Ember's sign-in. Sign in to it again.` : `${host} didn't take that token.`, field: "token" };
+    if (key.signedIn) return { error: `${host} didn't take Ember's sign-in. Sign in to it again.`, field: "token" };
+    // A server that takes no token it's given may have come to sign people in, which the form then offers to try.
+    return { error: `${host} didn't take that token.`, field: "token", ...(status !== 403 && { signIn: true as const }) };
   }
   if (status !== null && status >= 300 && status < 400) return { error: `${host} sends that address on to another, which Ember doesn't follow. Give the address it ends at.`, field: "url" };
   if (status === 404 || status === 405) return { error: `${host} has no MCP server at that address. Check the address, which often ends in /mcp.`, field: "url" };

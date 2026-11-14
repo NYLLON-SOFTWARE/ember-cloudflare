@@ -27,7 +27,7 @@ const LINEAR: App = {
   toolsReadAt: "2026-11-14T08:00:00.000Z",
   connectedBy: { id: ada.id, name: ada.name },
   setAside: [],
-  signIn: { by: { id: ada.id, name: ada.name }, at: "2026-11-14T08:00:00.000Z", ended: false },
+  signIn: { by: { id: ada.id, name: ada.name }, at: "2026-11-14T08:00:00.000Z", ended: false, clientId: null },
 };
 
 const FINISH = "POST /api/account/app-sign-ins/finish";

@@ -952,9 +952,21 @@ app's page says who signed in, and when, in place of a token.
 - **Ember finds the sign-in from the server**, as the protocol says to: the server names its
   authorization server, which describes itself. Ember says who it is with a document it serves at
   `/oauth/client.json` where the authorization server reads one, and otherwise registers itself
-  there; a service that does neither can't be signed in to yet. It asks for the access the server
-  says it needs, proves each sign-in with PKCE, and names the server's address as what the tokens
-  are for, so they're no good anywhere else.
+  there. It asks for the access the server says it needs, proves each sign-in with PKCE, and names
+  the server's address as what the tokens are for, so they're no good anywhere else.
+- **A service that does neither wants Ember registered there by you.** The form then says so, and
+  asks for a **Client ID** and a **Client secret**. Register Ember with the service as an OAuth app
+  (a "connected app" or "integration", by some services' names), giving it the **Redirect address**
+  the form shows, `https://<your Ember>/account/apps/signed-in`, as where it sends people back, and
+  type the client ID it gives you, with its secret if it gives one. Ember signs in as that client,
+  shows its ID on the app's page from then on, and keeps what the service knows it by encrypted,
+  for that app alone, never showing the secret again. Signing in again uses the same client without
+  asking, even after the sign-in has ended; type another ID, or another secret, to change it, or
+  clear the ID to have the service come to know Ember by itself. A secret the service doesn't take
+  is said once your browser is back, and changes nothing.
+- **An app that has a token can be signed in to instead.** When its server takes the token no
+  longer, saving it or reading its tools again says so and offers **Sign in to** its host. The
+  sign-in then takes the token's place.
 - **Every address in it is checked** as the server's own is: `https` only, unless the server is one
   you're developing on `localhost`, each looked up first and refused where it resolves to a private
   address, with no redirect followed. An authorization server that says it's another service's, or

@@ -148,6 +148,7 @@ import {
   type SavedAssistant,
   type SavedModel,
   type SavedRoomChange,
+  type SignInClient,
   type StoredAgent,
   type StoredApp,
   type StoredAppRead,
@@ -839,7 +840,7 @@ const shownApp = (app: StoredApp, everyPicks: readonly AgentToolPicks[]): App =>
   toolsReadAt: app.toolsReadAt,
   connectedBy: app.connectedBy,
   setAside: setAsideTools(app, everyPicks),
-  signIn: app.signedIn && { ...app.signedIn, ended: app.sealedSignIn === null },
+  signIn: app.signedIn && { ...app.signedIn, ended: app.sealedSignIn === null, clientId: app.signInClient?.id ?? null },
 });
 
 /**
@@ -3248,6 +3249,20 @@ export class Workspace extends DurableObject<Env> {
     return app ? this.accessTo(app) : "not found";
   }
 
+  /**
+   * What a sign-in to the connected app `appId` begins with, for the administrator `credentials` signs
+   * in: its name, its server's address, and the client Ember last signed in to it as, as JSON, when an
+   * administrator gave one, or why not, as `connectedApp` answers. Its server isn't asked for this,
+   * nor its authorization server for another token.
+   */
+  async appSignInTarget(credentials: Credentials, appId: AppId): Promise<{ name: string; url: string; client: string | null } | "off" | "forbidden" | "not found" | null> {
+    const allowed = await this.mayAdministerAgents(credentials);
+    if (allowed !== true) return allowed;
+    const app = await this.store.app(appId);
+    if (!app) return "not found";
+    return { name: app.name, url: app.url, client: app.signInClient && (await this.openedSignIn(`client ${appId}`, app.signInClient.sealed)) };
+  }
+
   /** Where `app` is asked (`AppAccess`): one signed in to as it's signed in to once its access token is had, which an administrator may have done again meanwhile. */
   private async accessTo(app: StoredApp): Promise<AppAccess> {
     const asked = { name: app.name, url: app.url, sealedToken: app.sealedToken, signedIn: app.signedIn !== null };
@@ -3263,8 +3278,8 @@ export class Workspace extends DurableObject<Env> {
     return this.administerAgents(credentials, async (user) => {
       const id = sortableId();
       const sealedToken = app.token === undefined || signIn ? null : await this.sealedAppToken(id, app.token);
-      const sealedSignIn = signIn && (await this.sealedSignIn(id, signIn));
-      const connected = await this.store.connectApp({ id, name: app.name, url: app.url, sealedToken, sealedSignIn, ...read, connectedBy: user.id, now: new Date().toISOString() }, MAX_APPS);
+      const signedIn = signIn ? { sealed: await this.sealedSignIn(id, signIn), client: await this.signInClientOf(id, signIn) } : undefined;
+      const connected = await this.store.connectApp({ id, name: app.name, url: app.url, sealedToken, signIn: signedIn, ...read, connectedBy: user.id, now: new Date().toISOString() }, MAX_APPS);
       return connected ? shownApp((await this.store.app(id))!, []) : "full";
     });
   }
@@ -3306,7 +3321,8 @@ export class Workspace extends DurableObject<Env> {
     return this.administerAgents(credentials, async (user) => {
       if (!(await this.store.app(appId))) return "not found";
       const picks = picksChangedBy(appId, read, await this.store.everyAgentsToolPicks());
-      const signedIn = await this.store.signInToApp(appId, { sealed: await this.sealedSignIn(appId, signIn), by: user.id }, read, picks, url, new Date().toISOString());
+      const made = { sealed: await this.sealedSignIn(appId, signIn), by: user.id, client: await this.signInClientOf(appId, signIn) };
+      const signedIn = await this.store.signInToApp(appId, made, read, picks, url, new Date().toISOString());
       if (!signedIn) return "changed";
       const [app, everyPicks] = await Promise.all([this.store.app(appId), this.store.everyAgentsToolPicks()]);
       return app ? shownApp(app, everyPicks) : "not found";
@@ -3492,6 +3508,12 @@ export class Workspace extends DurableObject<Env> {
     const saved = await this.store.keepAppSignIn(appId, refreshed === "lapsed" ? null : await this.sealedSignIn(appId, refreshed.kept), app.sealedSignIn);
     if (!saved) return this.currentSignInKey(appId);
     return keyed(refreshed === "lapsed" ? null : refreshed.token);
+  }
+
+  /** The client `signIn`, a sign-in to the app `appId` as JSON, was made as, to keep beside it when an administrator gave it: its ID, and what its service knows it by, sealed for that app's client alone. */
+  private async signInClientOf(appId: AppId, signIn: string): Promise<SignInClient | null> {
+    const { ownClient, client } = JSON.parse(signIn) as SignIn;
+    return ownClient && client ? { id: client.client_id, sealed: await this.sealedSignIn(`client ${appId}`, JSON.stringify(client)) } : null;
   }
 
   /** `signIn`, a sign-in as JSON, sealed for `boundTo` alone, an app's id or a sign-in under way's state: under the key for apps' sign-ins, with what it's for, so that one doesn't open as another's. */

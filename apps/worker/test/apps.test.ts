@@ -289,7 +289,7 @@ describe("Connecting an app", () => {
     const administrator = await setUp();
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     server.token = "right";
-    expect(await refusalOf(await connect(administrator, { name: "Tracker", url: LOCAL, token: "not-the-token-1234" }), 422)).toEqual({ error: "localhost:3845 didn't take that token.", field: "token" });
+    expect(await refusalOf(await connect(administrator, { name: "Tracker", url: LOCAL, token: "not-the-token-1234" }), 422)).toEqual({ error: "localhost:3845 didn't take that token.", field: "token", signIn: true });
     expect(await refusalOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 422)).toEqual({
       error: "localhost:3845 asks for a sign-in. Sign in to it, or give a token for it, if it has one.",
       field: "token",
@@ -416,7 +416,7 @@ describe("A connected app", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     server = { pages: [[SEARCH_ISSUES]], token: "new-token" };
-    expect(await refusalOf(await change(administrator, app.id, { token: "typo" }), 422)).toEqual({ error: "localhost:3845 didn't take that token.", field: "token" });
+    expect(await refusalOf(await change(administrator, app.id, { token: "typo" }), 422)).toEqual({ error: "localhost:3845 didn't take that token.", field: "token", signIn: true });
     expect(await appOf(await show(administrator, app.id))).toEqual(app);
 
     const withToken = await appOf(await change(administrator, app.id, { token: "new-token" }));

@@ -50,10 +50,21 @@ export interface FakeMcp {
 /** What the server's authorization server asks whoever is sent to it, over its Allow and Deny. */
 export const ALLOW_HEADING = "Allow Ember to use Tracker?";
 
-/** A fake server's sign-in: the access token it takes now and the token that gets the next one, neither once it's `end`ed. */
+/** The one client a fake authorization server gives tokens to, which an administrator registered there: its ID, and the secret it proves itself with. */
+export interface FakeClient {
+  id: string;
+  secret: string;
+}
+
+/**
+ * A fake server's sign-in: the access token it takes now and the token that gets the next one, neither
+ * once it's `end`ed, and the one client its authorization server knows, or null for one that registers
+ * whoever asks.
+ */
 export interface FakeSignIn {
   access: string | null;
   refresh: string | null;
+  client: FakeClient | null;
   /** The codes it sent a browser back with, each with what the browser was sent to it with. */
   codes: Map<string, URLSearchParams>;
   /** How many times it gave tokens for a code, and for a token that gets the next one. */
@@ -97,8 +108,14 @@ function nextTokens(signIn: FakeSignIn) {
   return { access_token: signIn.access, token_type: "Bearer", expires_in: ACCESS_LASTS, refresh_token: signIn.refresh };
 }
 
-/** What the token endpoint answers `form`: tokens for a code it sent a browser back with, proven with its verifier, or for the token it gave last to get another with. */
-function tokensFor(signIn: FakeSignIn, form: URLSearchParams, reply: Reply): void {
+/**
+ * What the token endpoint answers `form`: tokens for a code it sent a browser back with, proven with
+ * its verifier, or for the token it gave last to get another with, and only to its one client, proven
+ * by `authorization`, when it has one.
+ */
+function tokensFor(signIn: FakeSignIn, form: URLSearchParams, authorization: string | undefined, reply: Reply): void {
+  const { client } = signIn;
+  if (client && authorization !== `Basic ${Buffer.from(`${client.id}:${client.secret}`).toString("base64")}`) return reply(401, { error: "invalid_client" });
   if (form.get("grant_type") === "refresh_token") {
     if (signIn.refresh === null || form.get("refresh_token") !== signIn.refresh) return reply(400, { error: "invalid_grant" });
     signIn.refreshed += 1;
@@ -125,25 +142,25 @@ function allowPage(signIn: FakeSignIn, query: URLSearchParams): string {
   return `<!doctype html><title>${SERVER_NAME}</title><h1>${ALLOW_HEADING}</h1><p><a href="${back({ code })}">Allow</a> <a href="${back({ error: "access_denied" })}">Deny</a></p>`;
 }
 
-/** What the server says of its sign-in at `origin`, as OAuth has an authorization server describe itself. */
-const describedAt = (origin: string) => ({
+/** What the server says of its sign-in at `origin`, as OAuth has an authorization server describe itself: one that registers whoever asks, unless it knows one `client` alone. */
+const describedAt = (origin: string, client: FakeClient | null) => ({
   issuer: origin,
   authorization_endpoint: `${origin}/authorize`,
   token_endpoint: `${origin}/token`,
-  registration_endpoint: `${origin}/register`,
+  ...(client === null && { registration_endpoint: `${origin}/register` }),
   response_types_supported: ["code"],
   grant_types_supported: ["authorization_code", "refresh_token"],
   code_challenge_methods_supported: ["S256"],
-  token_endpoint_auth_methods_supported: ["none"],
+  token_endpoint_auth_methods_supported: client === null ? ["none"] : ["client_secret_basic"],
 });
 
 /** Answers what's asked of the server's sign-in at `url`, as the protocol finds an authorization server and OAuth asks one: whether that's what was asked. */
 async function answerSignIn(signIn: FakeSignIn, url: URL, request: IncomingMessage, response: ServerResponse, reply: Reply): Promise<boolean> {
   const { origin, pathname } = url;
   if (pathname === "/.well-known/oauth-protected-resource/mcp") reply(200, { resource: `${origin}/mcp`, authorization_servers: [origin] });
-  else if (pathname === "/.well-known/oauth-authorization-server") reply(200, describedAt(origin));
-  else if (pathname === "/register" && request.method === "POST") reply(201, { ...(JSON.parse(await bodyOf(request)) as object), client_id: "ember-e2e" });
-  else if (pathname === "/token" && request.method === "POST") tokensFor(signIn, new URLSearchParams(await bodyOf(request)), reply);
+  else if (pathname === "/.well-known/oauth-authorization-server") reply(200, describedAt(origin, signIn.client));
+  else if (pathname === "/register" && request.method === "POST" && signIn.client === null) reply(201, { ...(JSON.parse(await bodyOf(request)) as object), client_id: "ember-e2e" });
+  else if (pathname === "/token" && request.method === "POST") tokensFor(signIn, new URLSearchParams(await bodyOf(request)), request.headers.authorization, reply);
   else if (pathname === "/authorize") response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(allowPage(signIn, url.searchParams));
   else return false;
   return true;
@@ -172,9 +189,13 @@ async function answer(mcp: FakeMcp, request: IncomingMessage, response: ServerRe
   reply(200, { jsonrpc: "2.0", id: message.id, result });
 }
 
-/** Starts the server on a port of its own, on this machine: one that takes its token, or one that `signsIn` whoever its authorization server allows. */
-export async function startFakeMcp({ signsIn = false } = {}): Promise<FakeMcp> {
-  const signIn: FakeSignIn = { access: null, refresh: null, codes: new Map(), exchanged: 0, refreshed: 0, end: () => void Object.assign(signIn, { access: null, refresh: null }) };
+/**
+ * Starts the server on a port of its own, on this machine: one that takes its token, or one that
+ * `signsIn` whoever its authorization server allows, which registers whoever asks, or knows the one
+ * `client` an administrator registered there.
+ */
+export async function startFakeMcp({ signsIn = false, client = null as FakeClient | null } = {}): Promise<FakeMcp> {
+  const signIn: FakeSignIn = { access: null, refresh: null, client, codes: new Map(), exchanged: 0, refreshed: 0, end: () => void Object.assign(signIn, { access: null, refresh: null }) };
   const mcp: FakeMcp = { url: "", tools: [...TOOLS], asked: [], calls: [], signIn: signsIn ? signIn : null, close: async () => {} };
   const server = createServer((request, response) => {
     answer(mcp, request, response).catch(() => response.destroy());
