@@ -1,6 +1,6 @@
 import type { ScheduledMessage, ServerFrame, User } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { changeScheduled, SCHEDULED_CHANGE_TIMEOUT_MS } from "./scheduled-actions";
+import { changeScheduled, REFUSED, restoreScheduled, restoringOf, SCHEDULED_CHANGE_TIMEOUT_MS } from "./scheduled-actions";
 
 /** Stands in for the browser's WebSocket; tests play the room. */
 class FakeSocket {
@@ -49,6 +49,7 @@ const lunch: ScheduledMessage = { id: "s1", body: "<p>lunch?</p>", sendAt: later
 const reply: ScheduledMessage = { id: "s2", body: "<p>on it</p>", sendAt: later + 1, parentId: "m7", alsoSend: true };
 
 beforeEach(() => {
+  localStorage.clear();
   FakeSocket.all = [];
   vi.stubGlobal("WebSocket", FakeSocket);
   vi.useFakeTimers();
@@ -85,24 +86,53 @@ describe("Changing a scheduled message from outside its room", () => {
     await expect(moved).resolves.toEqual(reply);
   });
 
-  it("schedules a deleted one again, as Undo does, in its thread", async () => {
-    const restored = changeScheduled("random", { type: "restore", message: reply });
+  it("schedules a deleted one again, as Undo does, in its thread, with the id it's given", async () => {
+    const restored = changeScheduled("random", { type: "restore", message: reply, clientMessageId: "c1" });
     socket().letIn([]);
-    expect(socket().sent).toEqual([{ type: "scheduled.create", clientMessageId: expect.any(String), body: reply.body, sendAt: reply.sendAt, parentId: "m7", alsoSend: true }]);
+    expect(socket().sent).toEqual([{ type: "scheduled.create", clientMessageId: "c1", body: reply.body, sendAt: reply.sendAt, parentId: "m7", alsoSend: true }]);
     socket().receive({ type: "scheduled", messages: [{ ...reply, id: "s3" }] });
     await expect(restored).resolves.toEqual(reply);
   });
 
-  it("answers null when the room refuses the change, or doesn't answer in time", async () => {
+  it("answers when the room refuses the change, and null when it doesn't answer in time", async () => {
     const refused = changeScheduled("general", { type: "send", id: "s1" });
     socket().letIn([lunch]);
     socket().receive({ type: "error", message: "That scheduled message is gone.", failed: "scheduled.send" });
-    await expect(refused).resolves.toBeNull();
+    await expect(refused).resolves.toBe(REFUSED);
     expect(socket().closed).toBe(true);
 
     const unanswered = changeScheduled("general", { type: "delete", id: "s1" });
     vi.advanceTimersByTime(SCHEDULED_CHANGE_TIMEOUT_MS);
     await expect(unanswered).resolves.toBeNull();
     expect(socket().closed).toBe(true);
+  });
+
+  it("keeps an Undo in this browser until its room has it, so a reload or a room out of reach doesn't lose it", async () => {
+    const what = { roomId: "general", message: lunch, clientMessageId: "c1" };
+    const unanswered = restoreScheduled("u1", what);
+    // Kept before anything is sent: a reload now finds it.
+    expect(restoringOf("u1")).toEqual([what]);
+    expect(restoringOf("u2")).toEqual([]);
+    vi.advanceTimersByTime(SCHEDULED_CHANGE_TIMEOUT_MS);
+    await expect(unanswered).resolves.toBeNull();
+    expect(restoringOf("u1")).toEqual([what]);
+
+    // Sent again, with the same id, which the room keeps once, it's forgotten once the room has it.
+    const again = restoreScheduled("u1", what);
+    socket().letIn([]);
+    expect(socket().sent).toEqual([expect.objectContaining({ type: "scheduled.create", clientMessageId: "c1" })]);
+    socket().receive({ type: "scheduled", messages: [{ ...lunch, id: "s9" }] });
+    await expect(again).resolves.toBe("restored");
+    expect(restoringOf("u1")).toEqual([]);
+  });
+
+  it("writes one the room won't schedule again back into its composer's draft, after what's written there", async () => {
+    localStorage.setItem("composer-draft-u1-random/threads/m7", "<p>also</p>");
+    const drafted = restoreScheduled("u1", { roomId: "random", message: reply, clientMessageId: "c2" });
+    socket().letIn([]);
+    socket().receive({ type: "error", message: "Pick a time that's still ahead.", failed: "scheduled.create", clientMessageId: "c2" });
+    await expect(drafted).resolves.toBe("drafted");
+    expect(localStorage.getItem("composer-draft-u1-random/threads/m7")).toBe("<p>also</p><p>on it</p>");
+    expect(restoringOf("u1")).toEqual([]);
   });
 });

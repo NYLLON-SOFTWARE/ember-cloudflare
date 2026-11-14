@@ -6,10 +6,10 @@ import { describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
 import type { RoomFrames } from "@/hooks/use-room";
 import { useScheduled } from "@/hooks/use-scheduled";
-import { changeScheduled } from "@/lib/scheduled-actions";
+import { changeScheduled, restoreScheduled, restoringOf } from "@/lib/scheduled-actions";
 import { DraftsPage, SCHEDULED_DELAY_MS, scheduledLabel } from "./drafts-page";
 
-vi.mock("@/lib/scheduled-actions", () => ({ changeScheduled: vi.fn() }));
+vi.mock("@/lib/scheduled-actions", () => ({ REFUSED: "refused", changeScheduled: vi.fn(), restoreScheduled: vi.fn(), restoringOf: vi.fn(() => []) }));
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
 const general: Room = { id: "general", name: "general", kind: "open", icon: null };
@@ -90,7 +90,8 @@ describe("Drafts & sent", () => {
     ];
     vi.spyOn(globalThis, "fetch").mockClear().mockImplementation(async () => Response.json({ messages }));
     const asTheRoomHadIt = { id: "s2", body: "<p>for later</p>", sendAt: later + 1 };
-    vi.mocked(changeScheduled).mockClear().mockImplementation(async (_roomId, change) => (change.type === "restore" ? change.message : asTheRoomHadIt));
+    vi.mocked(changeScheduled).mockClear().mockResolvedValue(asTheRoomHadIt);
+    vi.mocked(restoreScheduled).mockClear().mockResolvedValue("restored");
     showPage("scheduled");
     const user = userEvent.setup();
     const row = async (text: string) => (await screen.findByText(text)).closest("li")!;
@@ -113,8 +114,30 @@ describe("Drafts & sent", () => {
     expect(screen.queryByText("for later")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toHaveFocus();
     await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(changeScheduled).toHaveBeenLastCalledWith("random", { type: "restore", message: asTheRoomHadIt });
+    expect(restoreScheduled).toHaveBeenLastCalledWith("u1", { roomId: "random", message: asTheRoomHadIt, clientMessageId: expect.any(String) });
     expect(await screen.findByText("for later")).toBeInTheDocument();
+  });
+
+  it("asks before the page is left while an Undo is on its way, and finishes an earlier visit's as the tab opens", async () => {
+    const later = Date.now() + 3_600_000;
+    const messages: ListedScheduledMessage[] = [{ id: "s1", roomId: "general", sendAt: later, preview: "for soon" }];
+    vi.spyOn(globalThis, "fetch").mockClear().mockImplementation(async () => Response.json({ messages }));
+    vi.mocked(changeScheduled).mockClear().mockResolvedValue({ id: "s1", body: "<p>for soon</p>", sendAt: later });
+    let answer: (restored: "restored") => void = () => {};
+    vi.mocked(restoreScheduled).mockClear().mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    const unfinished = { roomId: "random", message: { id: "s7", body: "<p>left</p>", sendAt: later }, clientMessageId: "c7" };
+    vi.mocked(restoringOf).mockReturnValueOnce([unfinished]);
+    showPage("scheduled");
+    // What a reload cut short goes again, with its id, which the room keeps it once by.
+    await vi.waitFor(() => expect(restoreScheduled).toHaveBeenCalledWith("u1", unfinished));
+    const leaving = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(leaving()).toBe(true);
+    answer("restored");
+    await vi.waitFor(() => expect(leaving()).toBe(false));
   });
 
   it("keeps a row whose change didn't go", async () => {
