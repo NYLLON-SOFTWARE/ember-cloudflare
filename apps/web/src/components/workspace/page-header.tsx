@@ -4,7 +4,8 @@ import { SheetTrigger } from "@/components/ui/sheet";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { cn } from "@/lib/utils";
 import { BackButton } from "../mobile/back-button";
-import { SettingsLayout, SettingsNavigation } from "./settings-navigation";
+import { RarePage } from "./rare-pages";
+import { SettingsLayout } from "./settings-navigation";
 
 /** Whether the drawer is open, which the header's button for it says in its name. */
 export const DrawerOpen = createContext(false);
@@ -51,7 +52,8 @@ export function PageHeader({ children, back, className }: { children?: ReactNode
         {/* A label, not a heading: each page of them has its own, the page's one h1. */}
         {settings && <p className="min-w-0 flex-1 text-[17px] leading-[1.4] font-[650] max-md:text-base">Community settings</p>}
       </nav>
-      {settings && <SettingsNavigation {...settings} />}
+      {/* With the settings pages, which load with the pages few visits need. */}
+      {settings && <RarePage show={({ SettingsNavigation }) => <SettingsNavigation {...settings} />} loading={null} />}
     </>
   );
 }

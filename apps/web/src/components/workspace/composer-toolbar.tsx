@@ -1,11 +1,11 @@
-import { Fragment, useEffect, useEffectEvent, useId, useState, type KeyboardEvent } from "react";
-import { NavArrowDown } from "@/components/icons/iconoir";
+import { Fragment, useEffectEvent, useState, type KeyboardEvent } from "react";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { appleKeyboard } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
-import { TEXT_BUTTON, TOOL, TOOL_ICON } from "./composer-buttons";
-import { BLOCKS, isActive, isDisabled, linkAddress, TOOL_GROUPS, type Block, type Format, type Formats, type Tool } from "./formatting";
+import { TOOL, TOOL_ICON } from "./composer-buttons";
+import { BLOCKS, isActive, isDisabled, TOOL_GROUPS, type Block, type Format, type Formats, type Tool } from "./formatting";
 import { PopoverMenu } from "./popover-menu";
+import { RarePage } from "./rare-pages";
 
 /** Iconoir's icon for each button, painted from its file (rich-text-editor.css). */
 function ToolIcon({ tool }: { tool: Tool }) {
@@ -159,10 +159,6 @@ interface LinkFieldProps extends ToolButton {
   onReturnFocus: () => void;
 }
 
-/** The Link field's text boxes, 36px tall, or 44px with 16px text on touch screens. */
-const FIELD =
-  "h-9 w-full rounded-md border bg-background px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-selected-dark aria-invalid:border-negative touch:h-11 touch:text-base";
-const LABEL = "mb-1 block text-[13px] font-semibold";
 /**
  * Link, which opens Slack's pair of fields above it: Text, what's selected or the link's own, and Link, its
  * address. Enter or Save links the text to the address, Cancel leaves it, and Remove link, there for a link
@@ -219,54 +215,11 @@ function LinkField({ linked, open, onOpenChange, onLink, draft, onReturnFocus, .
           onReturnFocus();
         }}
       >
-        <label htmlFor={ids.text} className={LABEL}>
-          Text
-        </label>
-        <input id={ids.text} type="text" autoComplete="off" value={text} onChange={(event) => setText(event.target.value)} onKeyDown={saveOnEnter} className={cn(FIELD, "mb-2.5")} />
-        <label htmlFor={ids.address} className={LABEL}>
-          Link
-        </label>
-        <input
-          id={ids.address}
-          type="text"
-          inputMode="url"
-          autoComplete="off"
-          // Where text is selected, the address is what's left to give.
-          autoFocus
-          value={address}
-          aria-invalid={refused || undefined}
-          onChange={(event) => {
-            setAddress(event.target.value);
-            setRefused(false);
-          }}
-          onKeyDown={saveOnEnter}
-          className={FIELD}
+        {/* The fields load with the pages, as they open; the address takes focus as they appear. */}
+        <RarePage
+          show={({ LinkForm }) => <LinkForm linked={linked} onOpenChange={onOpenChange} onLink={onLink} draft={draft} />}
+          loading={<div className="h-[150px]" />}
         />
-        {refused && (
-          <p role="alert" className="mt-1.5 text-[12px] text-negative">
-            Enter a web address, such as example.com.
-          </p>
-        )}
-        <div className="mt-2.5 flex items-center justify-end gap-2">
-          {linked && (
-            <button
-              type="button"
-              onClick={() => {
-                onOpenChange(false);
-                onLink(null, text);
-              }}
-              className={cn(TEXT_BUTTON, "mr-auto px-2.5 font-normal text-negative hover:bg-hover")}
-            >
-              Remove link
-            </button>
-          )}
-          <button type="button" onClick={() => onOpenChange(false)} className={cn(TEXT_BUTTON, "hover:bg-hover")}>
-            Cancel
-          </button>
-          <button type="button" onClick={save} className={cn(TEXT_BUTTON, "bg-foreground text-background hover:brightness-85")}>
-            Save
-          </button>
-        </div>
       </PopoverContent>
     </Popover>
   );
