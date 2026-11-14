@@ -1,6 +1,8 @@
 import type { Reminder, WorkspaceServerFrame } from "@ember/protocol";
-import { runDurableObjectAlarm } from "cloudflare:test";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Workspace } from "../src/workspace";
+import type { WorkspaceStore } from "../src/workspace-store";
 import {
   api,
   connect,
@@ -9,10 +11,13 @@ import {
   freshRoom,
   openWorkspaceSocket,
   post,
+  pushBrowser,
   settle,
   signIn,
+  withWorkspaceEnv,
   workspaceSql,
   workspaceStub,
+  type PushBrowser,
   type Session,
   type WorkspaceSocket,
 } from "./support";
@@ -24,6 +29,25 @@ const remind = (session: Session, roomId: string, messageId: string, remindAt: s
     headers: { Cookie: session.cookie },
     body: JSON.stringify({ roomId, messageId, remindAt }),
   });
+
+/** Saves a subscription for `session` at Chrome's push service, at `/fcm/send/<label>`, for `browser`'s keys. */
+async function subscribe(session: Session, label: string, browser?: PushBrowser): Promise<string> {
+  const { p256dh, auth } = browser ?? (await pushBrowser());
+  const endpoint = `https://fcm.googleapis.com/fcm/send/${label}`;
+  const response = await api("/api/push-subscriptions", { method: "POST", headers: { Cookie: session.cookie }, body: JSON.stringify({ endpoint, p256dhKey: p256dh, authKey: auth }) });
+  expect(response.status, await response.clone().text()).toBe(204);
+  return endpoint;
+}
+
+/** Stands in for every push service, answering each push with 201, and keeps what was pushed where. */
+function pushServices() {
+  const pushed: Array<{ endpoint: string; body: Uint8Array }> = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    pushed.push({ endpoint: input instanceof Request ? input.url : String(input), body: init!.body as Uint8Array });
+    return new Response(null, { status: 201 });
+  });
+  return pushed;
+}
 
 /** What `socket` has heard, up to the next pong. */
 async function heard(socket: WorkspaceSocket): Promise<WorkspaceServerFrame[]> {
@@ -145,5 +169,122 @@ describe("Reminders", () => {
     expect(await heard(tab)).toEqual([
       { type: "reminder.due", reminder: expect.objectContaining({ messageId: message.id, excerpt: "Gone by noon" }) },
     ]);
+  });
+
+  it("lands in every browser they saved, saying what the message read and where it lives", async () => {
+    const pushed = pushServices();
+    const room = await freshRoom("landing");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await signIn("Grace");
+    // Grace has the room open, so Ada's messages mark nothing unread for her tabs here.
+    await connect(room, grace, { visible: true });
+    const [phones, laptops] = [await pushBrowser(), await pushBrowser()];
+    const phone = await subscribe(grace, "grace-phone", phones);
+    const laptop = await subscribe(grace, "grace-laptop", laptops);
+
+    const message = await post(ada, "<p>Back to this by noon</p>");
+    await remind(grace, room, message.id, soon());
+    ada.send({ type: "message.create", clientMessageId: "reply", body: "<p>The reply itself</p>", parentId: message.id });
+    const reply = (await ada.next("message.created")).message;
+    await remind(grace, room, reply.id, soon());
+    await makeRemindersDue();
+
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    await vi.waitFor(() => expect(pushed).toHaveLength(4));
+    const notices = {
+      "Back to this by noon": { title: "Reminder", options: { body: "Back to this by noon", icon: "/account/logo", data: { path: `/rooms/${room}/@${message.id}`, badge: 0 } } },
+      "The reply itself": { title: "Reminder", options: { body: "The reply itself", icon: "/account/logo", data: { path: `/rooms/${room}/threads/${message.id}/@${reply.id}`, badge: 0 } } },
+    };
+    for (const [browser, endpoint] of [[phones, phone], [laptops, laptop]] as const) {
+      const received = pushed.filter(({ endpoint: sentTo }) => sentTo === endpoint);
+      expect(received).toHaveLength(2);
+      const opened = await Promise.all(received.map(async ({ body }) => JSON.parse(await browser.open(body))));
+      expect(opened).toEqual(expect.arrayContaining([notices["Back to this by noon"], notices["The reply itself"]]));
+    }
+    // Told, they aren't set for the alarm again: the next run would have nothing of them to push.
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(false);
+    expect(pushed).toHaveLength(4);
+  });
+
+  it("tells nothing of a reminder that isn't there any more by its turn to be told", async () => {
+    const pushed = pushServices();
+    const room = await freshRoom("meanwhile");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await signIn("Grace");
+    await connect(room, grace, { visible: true });
+    const browser = await pushBrowser();
+    await subscribe(grace, "grace", browser);
+    const tab = await openWorkspaceSocket(grace);
+
+    const firstMessage = await post(ada, "<p>First to tell</p>");
+    const secondMessage = await post(ada, "<p>Taken back meanwhile</p>");
+    const first = await (await remind(grace, room, firstMessage.id, soon())).json() as { reminder: Reminder };
+    const takenBack = await (await remind(grace, room, secondMessage.id, soon())).json() as { reminder: Reminder };
+    await makeRemindersDue();
+    // The second reminder is gone by its turn, as one dismissed while the first's push waited is. The
+    // stand-in holds for the test, since the run that skips it leaves it due, and the run the wake set
+    // for that mustn't tell it either.
+    let restore!: () => void;
+    try {
+      await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+        const store = (workspace as unknown as { store: WorkspaceStore }).store;
+        const telling = store.reminder.bind(store);
+        restore = () => {
+          store.reminder = telling;
+        };
+        store.reminder = (id: string) => (id === takenBack.reminder.id ? Promise.resolve(null) : telling(id));
+      });
+
+      expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+      expect(await heard(tab)).toEqual([
+        { type: "reminder.due", reminder: expect.objectContaining({ excerpt: "First to tell" }) },
+      ]);
+      expect(pushed).toHaveLength(1);
+      expect(JSON.parse(await browser.open(pushed[0]!.body))).toMatchObject({ options: { body: "First to tell" } });
+      // Only the one told is marked so: had the dismissal come later, it would wait to be asked for again.
+      expect(await workspaceSql("SELECT id FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ id: first.reminder.id }]);
+    } finally {
+      restore?.();
+    }
+  });
+
+  it("pushes no reminder to someone who signed in with just a name while EMBER_GUEST_SIGN_IN doesn't let them stay signed in, though they keep their subscription", async () => {
+    const pushed = pushServices();
+    const room = await freshRoom("guests");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await signIn("Grace");
+    const browser = await pushBrowser();
+    await subscribe(grace, "grace", browser);
+    const message = await post(ada, "While guests may stay");
+    await remind(grace, room, message.id, soon());
+    await makeRemindersDue();
+
+    await withWorkspaceEnv({ EMBER_GUEST_SIGN_IN: undefined }, async () => {
+      expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+      expect(pushed).toEqual([]);
+      expect(await workspaceSql("SELECT count(*) AS n FROM push_subscriptions")).toEqual([{ n: 1 }]);
+      // Told all the same, since the reminder was due and nobody is there to show it to.
+      expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NOT NULL")).toEqual([{ n: 1 }]);
+    });
+  });
+
+  it("sends no more pushes than one run may, leaving the rest for the next", async () => {
+    const pushed = pushServices();
+    const room = await freshRoom("budgeting");
+    const ada = await connect(room, "Ada", { visible: true });
+    const grace = await signIn("Grace");
+    await connect(room, grace, { visible: true });
+    // Ten browsers is the most someone saves, so five reminders ask fifty pushes, one run's worth more than the forty it may send.
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) await subscribe(grace, `grace-${n}`);
+    const message = await post(ada, "<p>Tell me at noon</p>");
+    for (const n of [1, 2, 3, 4, 5]) await remind(grace, room, message.id, soon());
+    await makeRemindersDue();
+
+    expect(await runDurableObjectAlarm(workspaceStub())).toBe(true);
+    expect(pushed).toHaveLength(40);
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NULL")).toEqual([{ n: 1 }]);
+    // What the run left, the run it sets for the rest takes, whether that's asked for or comes of its wake.
+    await vi.waitFor(() => expect(pushed).toHaveLength(50));
+    expect(await workspaceSql("SELECT count(*) AS n FROM reminders WHERE reminded_at IS NULL")).toEqual([{ n: 0 }]);
   });
 });

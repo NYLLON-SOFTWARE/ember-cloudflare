@@ -158,6 +158,23 @@ describe("Live sidebar updates", () => {
     expect(sidebarRequests()).toEqual([null, 'W/"1"', 'W/"2"']);
   });
 
+  it("has the reminders loaded again each time the workspace socket connects", async () => {
+    const reloadReminders = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, undefined, undefined, reloadReminders));
+    await settle();
+    // The first connect is included, as the sidebar's own load is.
+    socket().connect();
+    await settle();
+    expect(reloadReminders).toHaveBeenCalledOnce();
+
+    socket().drop();
+    await wait(500);
+    socket().connect();
+    await settle();
+    // Whatever came due while the socket was away is caught up.
+    expect(reloadReminders).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps the list it has while the server says it's current", async () => {
     const { result } = await showSidebar();
     const shown = result.current.list;

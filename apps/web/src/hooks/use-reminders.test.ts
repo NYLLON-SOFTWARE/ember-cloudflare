@@ -102,6 +102,85 @@ describe("useReminders", () => {
     });
     await waitFor(() => expect(result.current.reminders?.map((r) => r.id)).toEqual([waiting.id]));
   });
+
+  it("doesn't let an answer taken before a dismissal bring what left back", async () => {
+    const waiting = reminder("waiting", new Date(Date.now() + 60_000).toISOString());
+    let resolveAnswer: (reminders: Reminder[]) => void = () => {};
+    fetchRemindersMock.mockImplementation(() => new Promise((resolve) => { resolveAnswer = resolve; }));
+    const { result } = renderHook(() => useReminders());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      resolveAnswer([waiting]);
+    });
+    await waitFor(() => expect(result.current.reminders).toEqual([waiting]));
+
+    // Another load goes out, and the dismissal another tab made arrives while it's out.
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => result.current.cameGone("waiting"));
+
+    // Its answer was taken before the dismissal and would have the reminder still waiting; the tab knows better.
+    await act(async () => {
+      resolveAnswer([waiting]);
+    });
+    await waitFor(() => expect(result.current.reminders).toEqual([]));
+  });
+
+  it("ignores an older answer that lands after a newer one", async () => {
+    const waiting = reminder("waiting", new Date(Date.now() + 60_000).toISOString());
+    const due = reminder("due", new Date().toISOString());
+    let answer: (reminders: Reminder[]) => void = () => {};
+    fetchRemindersMock.mockImplementation(() => new Promise((resolve) => { answer = resolve; }));
+    const { result } = renderHook(() => useReminders());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    act(() => result.current.cameDue(due));
+
+    // A second load goes out; the newer one answers first, and the older one lands after it.
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const newer = answer;
+    await act(async () => {
+      newer([waiting, due]);
+    });
+    await waitFor(() => expect(result.current.reminders?.map((r) => r.id)).toEqual(["waiting", "due"]));
+    await act(async () => {
+      answer([waiting]);
+    });
+    // The older answer's list is stale, and the notice the newer one brought stays.
+    expect(result.current.reminders?.map((r) => r.id)).toEqual(["waiting", "due"]);
+  });
+
+  it("doesn't let an answer taken before a dismissal here bring it back either", async () => {
+    const waiting = reminder("waiting", new Date(Date.now() + 60_000).toISOString());
+    let resolveAnswer: (reminders: Reminder[]) => void = () => {};
+    fetchRemindersMock.mockImplementation(() => new Promise((resolve) => { resolveAnswer = resolve; }));
+    dismissMock.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useReminders());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      resolveAnswer([waiting]);
+    });
+    await waitFor(() => expect(result.current.reminders).toEqual([waiting]));
+
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      await result.current.dismiss("waiting");
+    });
+
+    await act(async () => {
+      resolveAnswer([waiting]);
+    });
+    await waitFor(() => expect(result.current.reminders).toEqual([]));
+  });
 });
 
 const isDueOf = (reminder: Reminder) => new Date(reminder.remindAt).getTime() <= Date.now();

@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useEffect, useRef, useState } from "react";
 import type { Reminder } from "@ember/protocol";
 import { dismissReminder, fetchReminders } from "@/lib/api";
 
 /** Whether a reminder has come due: its time is the past, or this very moment is as good as the past. */
 export const isDue = (reminder: Reminder) => new Date(reminder.remindAt).getTime() <= Date.now();
 
+/** Dismissing a reminder as this hook does, which every tab of theirs hears of: what Remind me takes one back with. */
+export const DismissReminder = createContext<(id: string) => Promise<void>>(async () => {});
+
 /**
  * The reminders of the person signed in, as this tab knows them: what the Worker keeps when the page
- * loads — and again whenever the tab is shown again or comes back online, which is also when a
- * disconnected socket returns, so whatever came due while away is caught up — what the Workspace tells
- * this tab as each one comes due or is dismissed in another tab, and what this tab dismisses itself.
+ * loads — and again whenever the tab is shown again or comes back online, as the sidebar has this load
+ * again whenever the socket connects too, so whatever came due while away is caught up — what the
+ * Workspace tells this tab as each one comes due or is dismissed in another tab, and what this tab
+ * dismisses itself.
  */
 export function useReminders() {
   const [reminders, setReminders] = useState<Reminder[] | null>(null);
@@ -17,17 +21,27 @@ export function useReminders() {
   // carries it (its snapshot couldn't have known it); one the frame predates is the Worker's truth,
   // dismissed elsewhere included, and the frame leaves.
   const frameArrived = useRef(new Map<string, { reminder: Reminder; at: number }>());
+  // Reminders heard gone, by frame or dismissed here, with when each left. An answer taken before one
+  // left doesn't know it has, and mustn't bring it back; one taken after has it gone already.
+  const goneAt = useRef(new Map<string, number>());
+  // When the newest answer this tab took went out. An older one that lands after it is out of order, and
+  // leaves what's shown as it is, since what's newer has spoken since.
+  const askedNewest = useRef(0);
 
   const load = useCallback(() => {
     const askedAt = Date.now();
     void fetchReminders().then((loaded) => {
-      const snapshot = [...frameArrived.current];
-      const kept = snapshot
-        .filter(([, { at }]) => at >= askedAt)
-        .filter(([id]) => !loaded.some((r) => r.id === id))
+      if (askedAt < askedNewest.current) return;
+      askedNewest.current = askedAt;
+      const known = loaded.filter(({ id }) => (goneAt.current.get(id) ?? 0) < askedAt);
+      const arrived = [...frameArrived.current].filter(([, { at }]) => at >= askedAt);
+      const kept = arrived
+        .filter(([id]) => !known.some((r) => r.id === id))
         .map(([, { reminder }]) => reminder);
-      frameArrived.current = new Map(snapshot.filter(([id]) => kept.some((r) => r.id === id)));
-      setReminders(kept.length > 0 ? [...loaded, ...kept] : loaded);
+      frameArrived.current = new Map(arrived.filter(([id]) => kept.some((r) => r.id === id)));
+      // What left before this answer went out the Worker has gone already; this tab needn't remember those.
+      goneAt.current = new Map([...goneAt.current].filter(([, at]) => at >= askedAt));
+      setReminders(kept.length > 0 ? [...known, ...kept] : known);
     }, () => {});
   }, []);
 
@@ -50,6 +64,7 @@ export function useReminders() {
 
   /** Another tab of theirs dismissed a reminder, which leaves this one's corner as well. */
   const cameGone = useCallback((id: string) => {
+    goneAt.current.set(id, Date.now());
     frameArrived.current.delete(id);
     setReminders((current) => current?.filter((reminder) => reminder.id !== id) ?? current);
   }, []);
@@ -60,9 +75,10 @@ export function useReminders() {
    */
   const dismiss = useCallback(async (id: string) => {
     await dismissReminder(id);
+    goneAt.current.set(id, Date.now());
     frameArrived.current.delete(id);
     setReminders((current) => current?.filter((reminder) => reminder.id !== id) ?? current);
   }, []);
 
-  return { reminders, cameDue, cameGone, dismiss };
+  return { reminders, cameDue, cameGone, dismiss, load };
 }
