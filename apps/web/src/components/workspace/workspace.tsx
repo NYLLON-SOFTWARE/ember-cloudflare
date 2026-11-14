@@ -277,7 +277,8 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // crescent on your avatar. How many hushes have been heard counts as each change is applied, so a
   // page's answer about them shows only if none has been heard since it was asked for, as about the
   // account. A welcome speaks of what the hush was as the socket let it in, so it stands down to
-  // whatever was heard since the last one, and the next is trusted again.
+  // whatever was heard since the last one — counted again at each connection, whose welcome reads over
+  // what the one before it heard — and the next is trusted again.
   const [dndUntil, setDndUntil] = useState<string | null>(null);
   const dndsHeard = useRef(0);
   const heardAtWelcome = useRef(0);
@@ -291,13 +292,18 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     }
     setDndUntil(until);
   }, []);
+  // What was heard of the hush before a connection began belongs to the connection that brought it,
+  // which its own welcome says over, so only what this one hears or the page saves first can stale it.
+  const dndConnecting = useCallback(() => {
+    heardAtWelcome.current = dndsHeard.current;
+  }, []);
   const askForDnd = useCallback(() => {
     const heard = dndsHeard.current;
     return (until: string | null) => {
       if (dndsHeard.current === heard) hearDnd(until);
     };
   }, [hearDnd]);
-  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, hearDnd);
+  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, hearDnd, dndConnecting);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.

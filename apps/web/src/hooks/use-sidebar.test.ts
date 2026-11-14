@@ -833,4 +833,24 @@ describe("Do not disturb", () => {
     socket().receive({ type: "dnd.changed", dndUntil: null });
     expect(onDndChanged).toHaveBeenLastCalledWith(null);
   });
+
+  it("says what the hush has become once a connection that dropped has come back", async () => {
+    const onDndChanged = vi.fn();
+    const onDndConnecting = vi.fn();
+    renderHook(() => useSidebar(ada, () => {}, undefined, undefined, undefined, onDndChanged, onDndConnecting));
+    await settle();
+    socket().connect();
+    expect(onDndConnecting).toHaveBeenCalled();
+    // A tab of yours hushes, and the connection drops before another lifts the hush, which this tab misses.
+    socket().receive({ type: "dnd.changed", dndUntil: HUSHED });
+    expect(onDndChanged).toHaveBeenLastCalledWith(HUSHED);
+    socket().drop();
+    const heardOnConnecting = onDndConnecting.mock.calls.length;
+    await wait(500);
+    // The next try to connect says so before its welcome, whose read over what the last one heard
+    // counts from there.
+    expect(onDndConnecting.mock.calls.length).toBeGreaterThan(heardOnConnecting);
+    socket().connect(ada, ember, null);
+    expect(onDndChanged).toHaveBeenLastCalledWith(null, true);
+  });
 });

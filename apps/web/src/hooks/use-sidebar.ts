@@ -83,7 +83,9 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * it connects and whenever an administrator changes it. `onDndChanged` hears when your push
  * notifications are hushed until (Do not disturb), as the welcome says they were when it let the
  * socket in, with `read`, and as the socket says a tab of yours has changed them, without it, since
- * the welcome may have read before a change the page made meanwhile. `onGone` hears of each room the
+ * the welcome may have read before a change the page made meanwhile. `onDndConnecting` hears of each
+ * try to connect the socket, as what was heard of the hush before it belongs to the connection that
+ * brought it, which its own welcome says over. `onGone` hears of each room the
  * socket says is gone as it leaves the list.
  */
 export function useSidebar(
@@ -93,6 +95,7 @@ export function useSidebar(
   onAccountChanged: (account: Account) => void = () => {},
   onGone: (roomId: RoomId) => void = () => {},
   onDndChanged: (dndUntil: string | null, read?: boolean) => void = () => {},
+  onDndConnecting: () => void = () => {},
 ) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
   // Whether a list the server sent has come, rather than only the empty one a failed first load leaves.
@@ -121,6 +124,7 @@ export function useSidebar(
   const reloadPeople = useEffectEvent(() => void directory.reload().catch(() => {}));
   const gone = useEffectEvent(onGone);
   const dndChanged = useEffectEvent(onDndChanged);
+  const dndConnecting = useEffectEvent(onDndConnecting);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
   // Whether `user`, active now, is someone the directory lists as removed, banned or suspended, rather
   // than someone new, whom it doesn't list yet.
@@ -166,7 +170,10 @@ export function useSidebar(
     // before its welcome. The welcome may have read it before that change, so it doesn't undo it. Each
     // try starts afresh, after a close or a socket that stopped answering alike.
     let toldOf = { you: false, account: false };
-    const onConnecting = () => void (toldOf = { you: false, account: false });
+    const onConnecting = () => {
+      toldOf = { you: false, account: false };
+      dndConnecting();
+    };
     const heardOf = (roomId: RoomId) => roomFrames.current.lastOf.set(roomId, ++roomFrames.current.count);
     const onMessage = (data: string) => {
       const frame = parseServerFrame<WorkspaceServerFrame>(data);

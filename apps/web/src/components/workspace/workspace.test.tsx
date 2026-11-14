@@ -123,6 +123,7 @@ class WorkspaceSocket extends QuietSocket {
   static dndUntil: string | null = null;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
   constructor(url: string) {
     super();
     if (!url.includes("/api/socket")) return;
@@ -1007,6 +1008,45 @@ describe("Do not disturb", () => {
     // The page's answer read before that, and doesn't take the hush back off.
     await act(async () => answer(Response.json({ profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, dndUntil: null } })));
     expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+  });
+
+  it("shows the hush as a connection's welcome brings it back, over what the one before it heard", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    // A tab of yours hushes, which the rail shows, and the connection drops before another lifts the
+    // hush, which this tab misses.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: HUSHED } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed");
+    act(() => WorkspaceSocket.last!.onclose?.({ code: 1006 }));
+    // The connection comes back, and its welcome reads over what the last one heard: the hush is lifted.
+    WorkspaceSocket.dndUntil = null;
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada"), { timeout: 4000 });
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
+  });
+
+  it("keeps the hush the socket brought while a save was on its way over what the save's answer says", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    let answer!: (response: Response) => void;
+    serve({
+      "GET /api/users/me/profile": () =>
+        Response.json({
+          profile: { name: "Ada", emailAddress: "ada@example.com", bio: null, avatarUrl: "", avatar: false, password: false, membershipNeeded: false, dndUntil: null, assistant: null, memberful: { membersOnly: false, connected: null } },
+        }),
+      "PUT /api/users/me/dnd": () => new Promise((resolve) => (answer = resolve)),
+    });
+    const { user } = showWorkspace("/users/me/profile");
+    const hush = within(screen.getByRole("region", { name: "Do not disturb" })).getByRole("switch", { name: "Hush my push notifications" });
+    await waitFor(() => expect(hush).toBeEnabled());
+    await user.click(hush);
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // Another tab lifts the hush while this save is on its way.
+    act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "dnd.changed", dndUntil: null } satisfies WorkspaceServerFrame) }));
+    expect(profileLink()).toHaveAttribute("title", "Ada");
+    // The save's answer read before that, and doesn't hush the rail again.
+    await act(async () => answer(Response.json({ dndUntil: HUSHED })));
+    expect(profileLink()).toHaveAttribute("title", "Ada");
+    expect(hush).not.toBeDisabled();
   });
 });
 

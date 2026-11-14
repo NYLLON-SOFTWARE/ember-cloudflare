@@ -15,17 +15,34 @@ const HUSHED = "2026-11-14T09:00:00.000Z";
 /** The section, hushed until `hushedUntil` at first, as the workspace has it, with what it says and sends. */
 function showSection(hushedUntil: string | null = null) {
   const [onChanged, onFailed] = [vi.fn(), vi.fn()];
+  /** The hush as the workspace keeps it: how many changes have been heard counts as each is applied. */
+  const workspace = { heard: 0, change: (_: string | null) => {} };
   function Section() {
     const [dndUntil, setDndUntil] = useState<string | null>(hushedUntil);
     const changed = (until: string | null) => {
+      workspace.heard++;
       onChanged(until);
       setDndUntil(until);
     };
-    return <DoNotDisturb dndUntil={dndUntil} onChanged={changed} onFailed={onFailed} />;
+    workspace.change = changed;
+    const askForDnd = () => {
+      const heard = workspace.heard;
+      return (until: string | null) => {
+        if (workspace.heard === heard) changed(until);
+      };
+    };
+    return <DoNotDisturb dndUntil={dndUntil} askForDnd={askForDnd} onChanged={changed} onFailed={onFailed} />;
   }
   const { unmount } = render(<Section />);
   const user = userEvent.setup();
-  return { onChanged, onFailed, unmount, user };
+  return {
+    onChanged,
+    onFailed,
+    unmount,
+    user,
+    /** The socket says a tab of yours has changed the hush, as the workspace hears of it. */
+    socketSays: (until: string | null) => act(() => workspace.change(until)),
+  };
 }
 
 const dnd = () => screen.getByRole("region", { name: "Do not disturb" });
@@ -173,6 +190,50 @@ describe("Do not disturb", () => {
 
     await act(async () => answer(Response.json({ dndUntil: HUSHED } satisfies DndAnswer)));
     await waitFor(() => expect(hush()).toBeEnabled());
+    expect(hush()).toBeChecked();
+  });
+
+  it("keeps a hush the socket brought while a save was on its way over what the save's answer says", async () => {
+    const LATER = new Date(Date.parse(HUSHED) + 60 * 60_000).toISOString();
+    let answer = (_: Response) => {};
+    vi.mocked(fetch).mockImplementation(
+      async (input, init) =>
+        new Promise((resolve) => {
+          if (`${init?.method} ${String(input)}` === "PUT /api/users/me/dnd") answer = resolve;
+        }) as Promise<Response>,
+    );
+    const { user, onChanged, onFailed, socketSays } = showSection(null);
+    await user.click(hush());
+    expect(hush()).toBeChecked();
+    // Another tab hushes for longer while this save is on its way, which the socket brings first.
+    socketSays(LATER);
+    expect(onChanged).toHaveBeenLastCalledWith(LATER);
+    // The answer read before that, and doesn't take the shorter hush back on.
+    await act(async () => answer(Response.json({ dndUntil: HUSHED } satisfies DndAnswer)));
+    await waitFor(() => expect(hush()).toBeEnabled());
+    expect(onChanged).toHaveBeenLastCalledWith(LATER);
+    expect(hush()).toBeChecked();
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
+  it("keeps a hush the socket brought while a save was failing over what it was before the save", async () => {
+    const LATER = new Date(Date.parse(HUSHED) + 60 * 60_000).toISOString();
+    let answer = (_: Response) => {};
+    vi.mocked(fetch).mockImplementation(
+      async (input, init) =>
+        new Promise((resolve) => {
+          if (`${init?.method} ${String(input)}` === "PUT /api/users/me/dnd") answer = resolve;
+        }) as Promise<Response>,
+    );
+    const { user, onChanged, onFailed, socketSays } = showSection(null);
+    await user.click(hush());
+    // Another tab hushes for longer while this save is failing, which the socket brings first.
+    socketSays(LATER);
+    expect(onChanged).toHaveBeenLastCalledWith(LATER);
+    // The failing save says why all the same, and the hush stays as the socket now has it, not as it was.
+    await act(async () => answer(Response.json({ error: "Pick a time that hasn't passed yet" }, { status: 422 })));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
+    expect(onChanged).toHaveBeenLastCalledWith(LATER);
     expect(hush()).toBeChecked();
   });
 });
