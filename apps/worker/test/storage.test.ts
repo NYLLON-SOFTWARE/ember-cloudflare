@@ -16,6 +16,7 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "agents",
     "apps",
     "bans",
+    "custom_emoji",
     "deleted_rooms",
     "email_link_requests",
     "email_links",
