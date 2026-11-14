@@ -51,7 +51,10 @@ export function heardSaved({ marks, ...counts }: SavedMarks): void {
 
 /** Loads what you keep afresh, as a workspace socket that has just connected may have missed a change. */
 export async function reloadSaved(): Promise<void> {
-  heardSaved(await dataOf<SavedMarks>(await fetch("/api/saved/marks")));
+  const asked = state.version;
+  const marks = await dataOf<SavedMarks>(await fetch("/api/saved/marks"));
+  // A change heard since, or another person signed in, is newer than what this read.
+  if (state.version === asked) heardSaved(marks);
 }
 
 /** Forgets what the last person signed in kept. */

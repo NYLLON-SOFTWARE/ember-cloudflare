@@ -1,4 +1,4 @@
-import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import {
   isWebImage,
   MAX_NOTE_FILES,
@@ -9,7 +9,6 @@ import {
   type NoteFile,
   type Room,
   type RoomId,
-  type UserId,
   type SavedItem,
   type SavedList,
   type StoredFile,
@@ -37,6 +36,7 @@ import { useTitle } from "@/hooks/use-title";
 import { isSignedOut } from "@/lib/api";
 import { dateOf, FILTER_LABELS, shortDateLabel, FILTERS, localInputValue, originOf, reminderChoices, shows, sorted, SORT_LABELS, SORTS, summaryOf, type KeptFilter, type KeptSort } from "@/lib/kept";
 import { dateTimeLabel } from "@/lib/messages";
+import { baseOf, draftKeyOf, forgetDraftsOfGone, keepDraft, rescueDraft, startingDraft } from "@/lib/note-drafts";
 import { clearItem, keepItem, useSavedVersion } from "@/lib/saved";
 import { changeItem, fetchSavedItem, fetchSavedList, uploadNoteFile } from "@/lib/saved-lists";
 import { cn } from "@/lib/utils";
@@ -138,69 +138,6 @@ function backHome(event: MouseEvent<HTMLAnchorElement>) {
   returnTo("/");
 }
 
-/** Where a new to-do's unsaved text is kept in this browser, or a note's being changed, by `userId`. */
-const draftKeyOf = (userId: UserId, itemId?: string) => `${draftPrefixOf(userId)}${itemId === undefined ? "" : `-${itemId}`}`;
-const draftPrefixOf = (userId: UserId) => `todo-draft-${userId}`;
-
-/** A draft: its text, and the note's text as of when it was started, which it's a change to. */
-interface Draft {
-  html: string;
-  /** The note's `updatedAt` it was written over, or "" for a new to-do. */
-  base: string;
-}
-
-/** The draft kept at `key`, or null with none, or where storage can't be reached. */
-function readDraft(key: string): Draft | null {
-  try {
-    const kept = JSON.parse(localStorage.getItem(key) ?? "null") as Partial<Draft> | null;
-    return typeof kept?.html === "string" && kept.html !== "" ? { html: kept.html, base: kept.base ?? "" } : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Keeps `draft` at `key`, or forgets the draft there for null. */
-function keepDraft(key: string, draft: Draft | null): void {
-  try {
-    if (draft) localStorage.setItem(key, JSON.stringify(draft));
-    else localStorage.removeItem(key);
-  } catch {
-    // Unkept, then.
-  }
-}
-
-/** A note's text to start from: its draft, if it was written over the note as it is now, or else the note's own. */
-function startingText(key: string, item: SavedItem | undefined): string {
-  const draft = readDraft(key);
-  if (draft && draft.base === (item?.updatedAt ?? "")) return draft.html;
-  // Changed since, here or elsewhere: what's saved now wins over an older draft.
-  if (draft) keepDraft(key, null);
-  return item?.body ?? "";
-}
-
-/**
- * Makes the draft of a note that's gone a new to-do's, after any new to-do's draft already there, saying
- * whether there was one.
- */
-function rescueDraft(from: string, to: string): boolean {
-  const draft = readDraft(from);
-  if (!draft) return false;
-  keepDraft(to, { html: (readDraft(to)?.html ?? "") + draft.html, base: "" });
-  keepDraft(from, null);
-  return true;
-}
-
-/** Forgets `userId`'s drafts of notes that aren't among `ids`, as when they were cleared in another tab, except `open`'s. */
-function forgetDraftsOfGone(userId: UserId, ids: ReadonlySet<string>, open: string | undefined): void {
-  const prefix = `${draftPrefixOf(userId)}-`;
-  try {
-    const gone = Object.keys(localStorage).filter((key) => key.startsWith(prefix) && !ids.has(key.slice(prefix.length)) && key.slice(prefix.length) !== open);
-    for (const key of gone) localStorage.removeItem(key);
-  } catch {
-    // Kept, then.
-  }
-}
-
 /** The keys typed while an editor opens, which it takes once it has focus. */
 interface TypedAhead {
   take: () => string;
@@ -291,9 +228,11 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
     };
   }, [list, version, roomIds, onFailed]);
 
-  // Drafts of notes no longer in To-dos go, but for the one open, which may be rescued below.
+  // Drafts of notes no longer in To-dos go, but for the one open, which may be rescued below, and those
+  // being cleared, which stay until they are.
+  const clearing = useRef(new Set<string>());
   useEffect(() => {
-    if (list === "todo" && items) forgetDraftsOfGone(me.id, new Set(items.map((item) => item.id)), itemId);
+    if (list === "todo" && items) forgetDraftsOfGone(me.id, new Set([...items.map((item) => item.id), ...clearing.current]), itemId);
   }, [list, items, me.id, itemId]);
 
   // An item's address in the other list, as a link from before it moved, goes on to its own.
@@ -328,10 +267,23 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
     move: (item) => act(changeItem(item.id, { list: list === "todo" ? "saved" : "todo" })),
     remind: (item, at) => act(changeItem(item.id, { remindAt: at && at.toISOString() })),
     clear: (item) => {
-      keepDraft(draftKeyOf(me.id, item.id), null);
+      const draftKey = draftKeyOf(me.id, item.id);
       setItems((items) => items && items.filter((i) => i.id !== item.id));
       if (item.id === itemId) returnTo(savedPath(list));
-      clearItem(item.id).catch(failed);
+      // Its draft goes once it's cleared; if it can't be, it's back where it was, draft and all.
+      clearing.current.add(item.id);
+      clearItem(item.id)
+        .then(
+          () => keepDraft(draftKey, null),
+          (error: unknown) => {
+            if (mounted.current) {
+              setItems((items) => items && (items.some((i) => i.id === item.id) ? items : [...items, item]));
+              setRemoved(null);
+            }
+            failed(error);
+          },
+        )
+        .finally(() => clearing.current.delete(item.id));
       // A saved message or file can be saved again at once.
       if (list === "saved" && item.roomId !== undefined && item.messageId !== undefined) setRemoved({ roomId: item.roomId, messageId: item.messageId, at: Date.now() });
     },
@@ -942,12 +894,14 @@ interface NoteEditorProps {
 }
 
 function NoteEditor({ item, draftKey, typed = null, onSaved, onFailed }: NoteEditorProps) {
-  // What was written and not saved, last time, through signing out or a reload, or else the note's text.
-  const [initialValue] = useState(() => startingText(draftKey, item));
+  // What was written and not saved, last time, through signing out or a reload, or else the note's own.
+  const [start] = useState(() => startingDraft(draftKey, item));
   const editor = useRef<RichTextEditorHandle>(null);
   const picker = useRef<HTMLInputElement>(null);
-  const [files, setFiles] = useState<NoteFile[]>(item?.files ?? []);
+  const [files, setFiles] = useState<NoteFile[]>(start.files);
   const [uploading, setUploading] = useState(0);
+  // Files chosen and not yet uploaded, which count toward the most a note carries, however fast they're picked.
+  const pending = useRef(0);
   const [saving, setSaving] = useState(false);
   const [formats, setFormats] = useState<Formats>(NO_FORMATS);
   const [linkOpen, setLinkOpen] = useState(false);
@@ -958,18 +912,37 @@ function NoteEditor({ item, draftKey, typed = null, onSaved, onFailed }: NoteEdi
 
   const attach = async (chosen: FileList | null) => {
     if (!chosen) return;
-    for (const file of [...chosen].slice(0, MAX_NOTE_FILES - files.length)) {
-      setUploading((n) => n + 1);
+    const taking = [...chosen].slice(0, Math.max(0, MAX_NOTE_FILES - files.length - pending.current));
+    pending.current += taking.length;
+    setUploading(pending.current);
+    for (const file of taking) {
       try {
         const sent = await uploadNoteFile(file);
         if (mounted.current) setFiles((files) => [...files, sent]);
       } catch (error) {
         onFailed(error);
       } finally {
-        if (mounted.current) setUploading((n) => n - 1);
+        pending.current -= 1;
+        if (mounted.current) setUploading(pending.current);
       }
     }
   };
+
+  /** Keeps what's written and attached and not saved, in this browser, or forgets it once it's the note's own again. */
+  const remember = (files: NoteFile[]) => {
+    if (!editor.current) return;
+    const html = editor.current.isBlank() ? "" : editor.current.value();
+    const ids = (files: NoteFile[]) => files.map(({ id }) => id).join();
+    const changed = html !== (item?.body ?? "") || ids(files) !== ids(item?.files ?? []);
+    keepDraft(draftKey, changed && (html !== "" || files.length > 0) ? { html, files, base: baseOf(item) } : null);
+  };
+  // Files attached or taken off are part of the draft, as its text is.
+  const rememberFiles = useEffectEvent(remember);
+  const filesChanged = useRef(false);
+  useEffect(() => {
+    if (filesChanged.current) rememberFiles(files);
+    filesChanged.current = true;
+  }, [files]);
 
   // Saving waits for files still uploading, as Add does, and saves once at a time, however often it's pressed.
   const savingNow = useRef(false);
@@ -1034,8 +1007,8 @@ function NoteEditor({ item, draftKey, typed = null, onSaved, onFailed }: NoteEdi
               label="To-do"
               placeholder="What’s on your to-do list?"
               rows={2}
-              initialValue={initialValue}
-              onChange={() => keepDraft(draftKey, editor.current && !editor.current.isBlank() ? { html: editor.current.value(), base: item?.updatedAt ?? "" } : null)}
+              initialValue={start.html}
+              onChange={() => remember(files)}
               mentionsFrom="/api/autocompletable/users"
               autoFocus={item === undefined || typed !== null}
               toolbar={false}
@@ -1099,7 +1072,7 @@ function NoteEditor({ item, draftKey, typed = null, onSaved, onFailed }: NoteEdi
                 type="button"
                 aria-label={uploading > 0 ? "Uploading…" : "Attach a file"}
                 title="Attach a file"
-                disabled={saving || files.length >= MAX_NOTE_FILES}
+                disabled={saving || files.length + uploading >= MAX_NOTE_FILES}
                 className={ATTACH_BUTTON}
                 onClick={() => picker.current?.click()}
               >

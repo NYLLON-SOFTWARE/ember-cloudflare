@@ -2,7 +2,7 @@ import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useReducer, us
 import { CloseCode, parseServerFrame, type ActivityFrame, type Account, type DirectoryUser, type Me, type RoomId, type User, type UserId, type WorkspaceServerFrame } from "@ember/protocol";
 import { fetchMe, fetchSidebar, isSignedOut, workspaceSocketUrl, type SidebarCopy } from "@/lib/api";
 import { reconnectingSocket } from "@/lib/reconnecting-socket";
-import { heardSaved, reloadSaved } from "@/lib/saved";
+import { forgetSaved, heardSaved, reloadSaved } from "@/lib/saved";
 import { NO_ROOM_LIST, roomListReducer, type RoomAnswer } from "@/lib/room-list";
 
 /**
@@ -116,6 +116,8 @@ export function useSidebar(
       }
     });
   });
+  // What one person keeps isn't another's, nor left behind once they've gone.
+  useEffect(() => forgetSaved, [me.id]);
   // A list that doesn't come leaves the sidebar as it is, until it loads again.
   useEffect(() => {
     if (askAgain) void refresh().catch(() => {});

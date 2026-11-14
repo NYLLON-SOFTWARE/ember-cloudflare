@@ -1,5 +1,6 @@
 import { MAX_SAVED_ITEMS, type RoomId, type SavedKind, type SavedList, type SavedMarks, type UserId } from "@ember/protocol";
 import { statement, type Db } from "./db";
+import { objectKey } from "./files/blobs";
 import type { DeliveryRow } from "./workspace-store";
 
 // Each person's To-dos and Saved (migrations/0085_saved_items.sql), as the Workspace keeps them.
@@ -62,6 +63,8 @@ export interface StoredSavedChange {
   remindAt?: number | null;
   note?: { body: string; plainText: string };
   files?: KeptNoteFile[];
+  /** The files the note had as `files` was chosen: the change makes no change if it has others by then. */
+  filesWere?: KeptNoteFile[];
 }
 
 /** A reminder that's gone off: whose item it is and what it says. */
@@ -145,28 +148,57 @@ const KEEP_NOTE = `INSERT INTO saved_items (id, user_id, list, kind, body, plain
   WHERE (SELECT count(*) FROM saved_items WHERE user_id = ?2 AND list = 'todo') < ?8`;
 
 /**
- * Moves person ?1's item ?2 to list ?3 at ?4, as long as that list has room for it. Saved keeps no reminder.
+ * Which item a change's statements change, so that a change changes all it asks or nothing: person ?1's
+ * item ?2, in list ?<list> when it's moving there, as the move leaves it, and with the files ?<files>, as
+ * JSON or '' for none, when they're changing, as they are until the change's last statement.
+ */
+const CHANGING = (list: number, files: number) =>
+  `saved_items.id = ?2 AND saved_items.user_id = ?1 AND saved_items.list = coalesce(?${list}, saved_items.list)
+    AND coalesce(saved_items.files, '') = coalesce(?${files}, saved_items.files, '')`;
+
+/**
+ * Moves person ?1's item ?2 to list ?3 at ?4, as long as that list has room for it, and the item has the
+ * files ?6 if they're changing. Saved keeps no reminder.
  */
 const MOVE = `UPDATE saved_items SET list = ?3, updated_at = ?4,
     remind_at = CASE WHEN ?3 = 'saved' THEN NULL ELSE remind_at END, reminded_at = CASE WHEN ?3 = 'saved' THEN NULL ELSE reminded_at END
-  WHERE id = ?2 AND user_id = ?1 AND list <> ?3
+  WHERE id = ?2 AND user_id = ?1 AND list <> ?3 AND coalesce(files, '') = coalesce(?6, files, '')
     AND (SELECT count(*) FROM saved_items WHERE user_id = ?1 AND list = ?3) < ?5`;
 
-const COMPLETE = `UPDATE saved_items SET completed_at = ?3, updated_at = ?4 WHERE id = ?2 AND user_id = ?1`;
+const COMPLETE = `UPDATE saved_items SET completed_at = ?3, updated_at = ?4 WHERE ${CHANGING(5, 6)}`;
 /** Saved has no reminders, so only a to-do takes one; the Worker refuses one for an item in Saved. */
-const REMIND = `UPDATE saved_items SET remind_at = ?3, reminded_at = NULL, updated_at = ?4 WHERE id = ?2 AND user_id = ?1 AND list = 'todo'`;
-const REWRITE_NOTE = `UPDATE saved_items SET body = ?3, plain_text = ?4, updated_at = ?5 WHERE id = ?2 AND user_id = ?1 AND kind = 'note'`;
-const REFILE_NOTE = `UPDATE saved_items SET files = ?3, updated_at = ?4 WHERE id = ?2 AND user_id = ?1 AND kind = 'note'`;
+const REMIND = `UPDATE saved_items SET remind_at = ?3, reminded_at = NULL, updated_at = ?4 WHERE ${CHANGING(5, 6)} AND list = 'todo'`;
+const REWRITE_NOTE = `UPDATE saved_items SET body = ?3, plain_text = ?4, updated_at = ?5 WHERE ${CHANGING(6, 7)} AND kind = 'note'`;
+/**
+ * Has R2 delete the files ?4, a JSON list of their R2 keys, at ?3, which a note's change takes off it.
+ * Notes' files go through the pictures' outbox (migrations/0032_avatars.sql), which keeps each key until
+ * R2 has deleted it, trying again while R2 fails.
+ */
+const QUEUE_DROPPED_FILES = `INSERT INTO pending_picture_deletions (object_key, due_at)
+  SELECT value, ?3 FROM json_each(?4) WHERE EXISTS (SELECT 1 FROM saved_items WHERE ${CHANGING(5, 6)} AND kind = 'note')
+  ON CONFLICT (object_key) DO NOTHING`;
+const REFILE_NOTE = `UPDATE saved_items SET files = ?3, updated_at = ?4 WHERE ${CHANGING(5, 6)} AND kind = 'note'`;
+
+/** Has R2 delete the files of person ?1's item ?2 at ?3, as it's forgotten. */
+const QUEUE_ITEM_FILES = `INSERT INTO pending_picture_deletions (object_key, due_at)
+  SELECT '${objectKey("")}' || json_extract(value, '$.key'), ?3 FROM saved_items, json_each(saved_items.files)
+  WHERE saved_items.id = ?2 AND saved_items.user_id = ?1
+  ON CONFLICT (object_key) DO NOTHING`;
 
 /** Forgets person ?1's item ?2, answering its files. */
 const CLEAR = `DELETE FROM saved_items WHERE id = ?2 AND user_id = ?1 RETURNING files`;
 
+/** Whether an item's reminder still reminds anyone (`DueReminder.live`). */
+const LIVE = `list = 'todo' AND completed_at IS NULL
+  AND (room_id IS NULL OR EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = saved_items.room_id AND memberships.user_id = saved_items.user_id))`;
+
 /** The reminders yet to go off that are due at ?1, ?2 at most, the earliest first. */
-const DUE_REMINDERS = `SELECT id, user_id, kind, room_id, message_id, plain_text,
-    (list = 'todo' AND completed_at IS NULL
-      AND (room_id IS NULL OR EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = saved_items.room_id AND memberships.user_id = saved_items.user_id))) AS live
+const DUE_REMINDERS = `SELECT id, user_id, kind, room_id, message_id, plain_text, (${LIVE}) AS live
   FROM saved_items
   WHERE remind_at <= ?1 AND remind_at IS NOT NULL AND reminded_at IS NULL ORDER BY remind_at LIMIT ?2`;
+
+/** Which of items ?1, a JSON list, still remind anyone. */
+const LIVE_REMINDERS = `SELECT id FROM saved_items WHERE id IN (SELECT value FROM json_each(?1)) AND ${LIVE}`;
 
 /** Records that the reminders of items ?1, a JSON list, due at ?2, went off then, leaving any set again since for later. */
 const SETTLE_REMINDERS = `UPDATE saved_items SET reminded_at = ?2 WHERE id IN (SELECT value FROM json_each(?1)) AND remind_at <= ?2 AND reminded_at IS NULL`;
@@ -190,8 +222,16 @@ const CLAIM_UPLOADS = `DELETE FROM note_uploads WHERE user_id = ?1 AND key IN (S
 /** Puts files ?2, a JSON list, back as person ?1's waiting, as of ?3, as a note that took them failed. */
 const RELEASE_UPLOADS = `INSERT INTO note_uploads (key, user_id, created_at) SELECT value, ?1, ?3 FROM json_each(?2) WHERE true ON CONFLICT (key) DO NOTHING`;
 
-/** Forgets the files waiting since ?1 or before, ?2 at most, answering them, for R2 to delete. */
-const STALE_UPLOADS = `DELETE FROM note_uploads WHERE key IN (SELECT key FROM note_uploads WHERE created_at <= ?1 ORDER BY created_at LIMIT ?2) RETURNING key`;
+/** The files waiting since ?1 or before, ?2 at most. */
+const STALE = `SELECT key FROM note_uploads WHERE created_at <= ?1 ORDER BY created_at, key LIMIT ?2`;
+
+/** Has R2 delete the files waiting since ?1 or before, ?2 at most, at ?3. */
+const QUEUE_STALE_UPLOADS = `INSERT INTO pending_picture_deletions (object_key, due_at)
+  SELECT '${objectKey("")}' || key, ?3 FROM note_uploads WHERE key IN (${STALE})
+  ON CONFLICT (object_key) DO NOTHING`;
+
+/** Forgets the files waiting since ?1 or before, ?2 at most, answering them. */
+const STALE_UPLOADS = `DELETE FROM note_uploads WHERE key IN (${STALE}) RETURNING key`;
 
 /** When the oldest file waiting for a note is due to be deleted. */
 export const NEXT_UPLOAD_DUE = `SELECT min(created_at) + ${NOTE_UPLOAD_TTL_MS} FROM note_uploads`;
@@ -236,6 +276,13 @@ const itemOf = (row: SavedRow): StoredSavedItem => ({
 });
 
 const filesJson = (files: KeptNoteFile[]) => (files.length === 0 ? null : JSON.stringify(files));
+
+/** The R2 keys of the files `change` takes off its note. */
+export function droppedFiles({ files, filesWere = [] }: StoredSavedChange): string[] {
+  if (!files) return [];
+  const keeping = new Set(files.map(({ key }) => key));
+  return filesWere.flatMap(({ key }) => (keeping.has(key) ? [] : [objectKey(key)]));
+}
 
 /** Why keeping an item failed: its person isn't in the message's room, or the list is full. */
 export type KeepRefusal = "forbidden" | "full";
@@ -292,27 +339,37 @@ export class SavedStore {
   }
 
   /**
-   * Changes someone's item `id`, answering it as it is then, null if they have none, or "full" when the
-   * list it's to move to has no room for it, having changed nothing.
+   * Changes someone's item `id`, answering it as it is then, null if they have none, or, having changed
+   * nothing, "full" when the list it's to move to has no room for it, or "stale" when its note's files
+   * aren't `change.filesWere` by then. The files the change takes off the note are queued for R2 to delete.
    */
-  async change(userId: UserId, id: string, change: StoredSavedChange, now: string): Promise<StoredSavedItem | "full" | null> {
-    // It moves first, so a reminder set as it moves to To-dos is kept, as only a to-do takes one.
+  async change(userId: UserId, id: string, change: StoredSavedChange, now: string): Promise<StoredSavedItem | "full" | "stale" | null> {
+    const filesWere = change.filesWere && (filesJson(change.filesWere) ?? "");
+    const [list, files] = [change.list ?? null, filesWere ?? null];
+    // It moves first, so a reminder set as it moves to To-dos is kept, as only a to-do takes one. The
+    // files change last, as each statement before finds the files they're changing from.
     const changes = [
-      ...(change.list ? [statement(MOVE, userId, id, change.list, now, MAX_SAVED_ITEMS)] : []),
-      ...(change.completedAt !== undefined ? [statement(COMPLETE, userId, id, change.completedAt, now)] : []),
-      ...(change.remindAt !== undefined ? [statement(REMIND, userId, id, change.remindAt, now)] : []),
-      ...(change.note ? [statement(REWRITE_NOTE, userId, id, change.note.body, change.note.plainText, now)] : []),
-      ...(change.files ? [statement(REFILE_NOTE, userId, id, filesJson(change.files), now)] : []),
+      ...(change.list ? [statement(MOVE, userId, id, change.list, now, MAX_SAVED_ITEMS, files)] : []),
+      ...(change.completedAt !== undefined ? [statement(COMPLETE, userId, id, change.completedAt, now, list, files)] : []),
+      ...(change.remindAt !== undefined ? [statement(REMIND, userId, id, change.remindAt, now, list, files)] : []),
+      ...(change.note ? [statement(REWRITE_NOTE, userId, id, change.note.body, change.note.plainText, now, list, files)] : []),
+      ...(change.files
+        ? [
+            statement(QUEUE_DROPPED_FILES, userId, id, Date.parse(now), JSON.stringify(droppedFiles(change)), list, files),
+            statement(REFILE_NOTE, userId, id, filesJson(change.files), now, list, files),
+          ]
+        : []),
     ];
-    const results = await this.db.batch([...changes, statement(ITEM, userId, id)]);
-    const [row] = results.at(-1) as SavedRow[];
-    if (!row) return null;
+    const results = await this.db.batch([statement(ITEM, userId, id), ...changes, statement(ITEM, userId, id)]);
+    const [[before], [row]] = [results[0] as SavedRow[], results.at(-1) as SavedRow[]];
+    if (!before || !row) return null;
+    if (filesWere !== undefined && (before.files ?? "") !== filesWere) return "stale";
     return change.list && row.list !== change.list ? "full" : itemOf(row);
   }
 
-  /** Forgets someone's item `id`, answering its note's files, or null if they had no such item. */
+  /** Forgets someone's item `id`, answering its note's files, queued for R2 to delete, or null if they had no such item. */
   async clear(userId: UserId, id: string): Promise<KeptNoteFile[] | null> {
-    const [row] = await this.db.all<{ files: string | null }>(CLEAR, userId, id);
+    const [, [row]] = (await this.db.batch([statement(QUEUE_ITEM_FILES, userId, id, Date.now()), statement(CLEAR, userId, id)])) as [unknown[], Array<{ files: string | null }>];
     return row ? filesOf(row.files) : null;
   }
 
@@ -324,6 +381,12 @@ export class SavedStore {
       limit,
     );
     return rows.map((row) => ({ id: row.id, userId: row.user_id, kind: row.kind, live: row.live === 1, roomId: row.room_id, messageId: row.message_id, plainText: row.plain_text }));
+  }
+
+  /** Which of `ids`' reminders still remind anyone (`DueReminder.live`). */
+  async liveReminders(ids: string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set();
+    return new Set((await this.db.all<{ id: string }>(LIVE_REMINDERS, JSON.stringify(ids))).map(({ id }) => id));
   }
 
   /** Takes back the reminders of `ids`, due at `now`, that went by unsaid, so their to-dos aren't overdue. */
@@ -352,9 +415,10 @@ export class SavedStore {
     if (keys.length > 0) await this.db.run(RELEASE_UPLOADS, userId, JSON.stringify(keys), now);
   }
 
-  /** Forgets up to `limit` files that have waited for a note since `before`, answering them. */
+  /** Forgets up to `limit` files that have waited for a note since `before`, answering them, queued for R2 to delete. */
   async staleUploads(before: number, limit: number): Promise<string[]> {
-    return (await this.db.all<{ key: string }>(STALE_UPLOADS, before, limit)).map(({ key }) => key);
+    const [, rows] = (await this.db.batch([statement(QUEUE_STALE_UPLOADS, before, limit, Date.now()), statement(STALE_UPLOADS, before, limit)])) as [unknown[], Array<{ key: string }>];
+    return rows.map(({ key }) => key);
   }
 
   /** Where someone's reminder is pushed: their push subscriptions, while they're active. */

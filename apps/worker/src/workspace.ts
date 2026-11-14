@@ -138,7 +138,7 @@ import type { RecordedReminder } from "./activity";
 import { messagesOf } from "./kept-messages";
 import { objectKey } from "./files/blobs";
 import { ScheduledListings, type ScheduledChange } from "./scheduled-listings";
-import { NOTE_UPLOAD_TTL_MS, SavedStore, type DueReminder, type KeepRefusal, type KeptNoteFile, type MessageToKeep, type NoteToKeep, type StoredSavedChange, type StoredSavedItem } from "./saved-store";
+import { droppedFiles, NOTE_UPLOAD_TTL_MS, SavedStore, type DueReminder, type KeepRefusal, type MessageToKeep, type NoteToKeep, type StoredSavedChange, type StoredSavedItem } from "./saved-store";
 import {
   deployedMemberfulOf,
   memberfulApiOf,
@@ -4977,9 +4977,10 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Changes the person's item `id`, answering it as it is then, "missing" when they have none, "full"
-   * when the list it's to move to has no room, or null without a valid session.
+   * when the list it's to move to has no room, "stale" when its note's files aren't the ones the change
+   * was made over, or null without a valid session. R2 deletes the files it takes off a note.
    */
-  async changeSavedItem(credentials: Credentials, id: string, change: StoredSavedChange): Promise<StoredSavedItem | "missing" | "full" | null> {
+  async changeSavedItem(credentials: Credentials, id: string, change: StoredSavedChange): Promise<StoredSavedItem | "missing" | "full" | "stale" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const changed = await this.saved.change(user.id, id, change, new Date().toISOString());
@@ -4987,20 +4988,22 @@ export class Workspace extends DurableObject<Env> {
     if (typeof changed === "string") return changed;
     if (typeof change.remindAt === "number") await this.wakeAt(change.remindAt);
     await this.savedChanged(user.id);
+    await this.deleteObjects(droppedFiles(change), "a to-do's files");
     return changed;
   }
 
   /**
-   * Forgets the person's item `id`, answering its note's files, for R2 to forget too, "missing" when they
-   * have none, or null without a valid session.
+   * Forgets the person's item `id`, and has R2 delete its note's files, answering "missing" when they have
+   * none, or null without a valid session.
    */
-  async clearSavedItem(credentials: Credentials, id: string): Promise<KeptNoteFile[] | "missing" | null> {
+  async clearSavedItem(credentials: Credentials, id: string): Promise<"cleared" | "missing" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const files = await this.saved.clear(user.id, id);
     if (!files) return "missing";
     await this.savedChanged(user.id);
-    return files;
+    await this.deleteObjects(files.map(({ key }) => objectKey(key)), "a to-do's files");
+    return "cleared";
   }
 
   /**
@@ -5023,7 +5026,10 @@ export class Workspace extends DurableObject<Env> {
     const live = due.filter((reminder) => reminder.live);
     const refs = live.flatMap(({ roomId, messageId }) => (roomId !== null && messageId !== null ? [{ roomId, messageId }] : []));
     const messages = await messagesOf(this.env, refs);
+    // Someone may have been taken out of a room as its messages were read.
+    const still = await this.saved.liveReminders(live.map(({ id }) => id));
     return live.flatMap(({ id, userId, roomId, messageId, plainText }): RecordedReminder[] => {
+      if (!still.has(id)) return [];
       if (messageId === null) return [{ userId, savedId: id, roomId, messageId, parentId: null, text: plainText ?? "" }];
       const message = messages.get(messageId);
       if (!message || message.deleted) return [];
@@ -5059,12 +5065,7 @@ export class Workspace extends DurableObject<Env> {
   /** Has R2 delete the files sent for notes a day ago that no note took, up to `DELIVERIES_PER_RUN`. */
   private async deleteStaleNoteUploads(): Promise<void> {
     const stale = await this.saved.staleUploads(Date.now() - NOTE_UPLOAD_TTL_MS, DELIVERIES_PER_RUN);
-    if (stale.length === 0 || !this.env.FILES) return;
-    try {
-      await this.env.FILES.delete(stale.map(objectKey));
-    } catch (error) {
-      console.error("Could not delete unused note files from R2", error);
-    }
+    await this.deleteObjects(stale.map(objectKey), "unused note files");
   }
 
   /** Tells every tab of `userId`'s what they keep now, so their lists load again. */
@@ -5595,20 +5596,28 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Has R2 delete the pictures due now, up to `limit` of them, with their variants, in one call: the
-   * avatars and logos people replaced or removed, and those nobody was given once their reservations ran out.
-   * When R2 fails, they're tried again later, as a revocation is.
+   * avatars and logos people replaced or removed, and those nobody was given once their reservations ran
+   * out, and the notes' files queued with them.
    */
   private async deletePictures(limit: number): Promise<void> {
     if (limit <= 0) return;
-    const due = await this.store.duePictureDeletions(Date.now(), limit);
-    if (due.length === 0) return;
+    await this.deleteObjects(await this.store.duePictureDeletions(Date.now(), limit), "pictures");
+  }
+
+  /**
+   * Has R2 delete the objects at `keys`, which the pictures' outbox holds, with any variants, forgetting
+   * them once it has. When R2 fails, they're tried again later, as a revocation is.
+   */
+  private async deleteObjects(keys: string[], what: string): Promise<void> {
+    if (keys.length === 0) return;
     try {
       if (!this.env.FILES) throw new Error("No R2 bucket is bound as FILES");
-      await this.env.FILES.delete(due.flatMap(pictureObjects));
-      await this.store.settlePictureDeletions(due, [], Date.now());
+      await this.env.FILES.delete(keys.flatMap(pictureObjects));
+      await this.store.settlePictureDeletions(keys, [], Date.now());
     } catch (error) {
-      console.error("Could not delete pictures from R2; trying again later", error);
-      await this.store.settlePictureDeletions([], due, Date.now());
+      console.error(`Could not delete ${what} from R2; trying again later`, error);
+      await this.store.settlePictureDeletions([], keys, Date.now());
+      await this.scheduleDelivery();
     }
   }
 

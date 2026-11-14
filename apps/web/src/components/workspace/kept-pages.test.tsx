@@ -1,9 +1,10 @@
 import type { Me, Message, Room, SavedItem, User } from "@ember/protocol";
 import { bodyFromPlainText } from "@ember/richtext/dom";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { Sheet } from "@/components/ui/sheet";
+import { baseOf, draftKeyOf, keepDraft, readDraft } from "@/lib/note-drafts";
 import { SavedPage, TodosPage } from "./kept-pages";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
@@ -120,6 +121,43 @@ describe("To-dos", () => {
     showPage(TodosPage, [item("a", { message: null }), item("b", { unavailable: true })]);
     expect(await screen.findByText("This message was deleted")).toBeInTheDocument();
     expect(screen.getByText("This message is unavailable")).toBeInTheDocument();
+  });
+});
+
+describe("A to-do of your own", () => {
+  const callGrace = item("n", { kind: "note", roomId: undefined, messageId: undefined, body: "<p>Call Grace</p>", plainText: "Call Grace", files: [] });
+
+  it("comes back with its draft when it can't be cleared", async () => {
+    keepDraft(draftKeyOf(ada.id, "n"), { html: "<p>Call Grace at 3</p>", files: [], base: baseOf(callGrace) });
+    const fetch = showPage(TodosPage, [callGrace]);
+    const answer = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (input, init) => (init?.method === "DELETE" ? Response.json({ error: "Offline" }, { status: 503 }) : answer(input, init)));
+    const row = (await screen.findByText("Call Grace")).closest("li")!;
+    await userEvent.click(within(row).getByRole("button", { name: "Clear" }));
+    expect(await screen.findByText("Call Grace")).toBeInTheDocument();
+    expect(fetch.failed).toHaveBeenCalled();
+    expect(readDraft(draftKeyOf(ada.id, "n"))?.html).toBe("<p>Call Grace at 3</p>");
+    localStorage.clear();
+  });
+
+  it("uploads no more than a to-do carries, however quickly files are picked", async () => {
+    const fetch = showPage(TodosPage, []);
+    const answer = fetch.getMockImplementation()!;
+    let sent = 0;
+    fetch.mockImplementation(async (input, init) => {
+      if (!String(input).startsWith("/api/saved/files")) return answer(input, init);
+      sent++;
+      return Response.json({ id: `f${sent}`, name: `f${sent}.txt`, contentType: "text/plain", byteSize: 1, url: `/f/${sent}`, downloadUrl: `/f/${sent}` }, { status: 201 });
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Add To-do" }));
+    const picker = screen.getByLabelText("Attach a file", { selector: "input" });
+    const files = (n: number) => Array.from({ length: n }, (_, i) => new File(["x"], `f${i}.txt`, { type: "text/plain" }));
+    // A second pick while the first is still uploading.
+    fireEvent.change(picker, { target: { files: files(6) } });
+    fireEvent.change(picker, { target: { files: files(6) } });
+    await vi.waitFor(() => expect(screen.getAllByRole("button", { name: /^Remove f/ })).toHaveLength(10));
+    expect(sent).toBe(10);
+    expect(screen.getByRole("button", { name: "Attach a file" })).toBeDisabled();
   });
 });
 

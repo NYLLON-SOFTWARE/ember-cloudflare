@@ -24,7 +24,7 @@ import {
 } from "@ember/protocol";
 import { prepareBody, userIdFromSgid, userIdsIn } from "@ember/richtext";
 import { credentialsOf } from "./auth";
-import { jsonBodyOf } from "./bodies";
+import { bytesUpTo, jsonBodyOf } from "./bodies";
 import type { Env } from "./env";
 import { fileSigner } from "./files/addresses";
 import { objectKey } from "./files/blobs";
@@ -48,6 +48,7 @@ const NO_STORAGE = "Ember isn't set up to store files";
 const FILE_NOT_FOUND = "That file isn't one of yours";
 const EMPTY_NOTE = "Write something or add a file";
 const TOO_MANY_WAITING = "Add the files you've sent to a to-do, or wait a day, before sending more.";
+const FILES_CHANGED = "That to-do's files have changed since you opened it";
 
 const isList = (value: string | null): value is SavedList => SAVED_LISTS.includes(value as SavedList);
 
@@ -261,7 +262,8 @@ export async function keepSaved(request: Request, env: Env): Promise<Response> {
  * `PATCH /api/saved/<id>`, a `SavedChange`: moves your item to the other list, marks it completed or in
  * progress, sets or clears its reminder, or changes a note's text and files, answering it as it is then.
  * A reminder for an item in Saved answers 422, unless it moves to To-dos with it. Files a note no longer
- * carries are deleted from R2.
+ * carries are deleted from R2. A change to a note's files made over files it no longer has, as another tab
+ * changed them, answers 409, changing nothing.
  */
 export async function changeSaved(request: Request, env: Env, id: string): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -282,7 +284,6 @@ export async function changeSaved(request: Request, env: Env, id: string): Promi
     change.note = body;
   }
   const space = workspace(env);
-  let dropped: KeptNoteFile[] = [];
   let added: string[] = [];
   // A reminder set with no move is for the list the item's in, which has to be To-dos.
   const reminding = typeof asked.remindAt === "string" && asked.list === undefined;
@@ -300,7 +301,7 @@ export async function changeSaved(request: Request, env: Env, id: string): Promi
       const files = await ownFiles(env, user.id, added);
       if (!files) return problem(422, FILE_NOT_FOUND);
       change.files = [...before.files.filter(({ key }) => keeping.has(key)), ...files];
-      dropped = before.files.filter(({ key }) => !keeping.has(key));
+      change.filesWere = before.files;
     }
   }
   const claimed = await space.claimNoteUploads(credentials!, added);
@@ -313,7 +314,7 @@ export async function changeSaved(request: Request, env: Env, id: string): Promi
   if (!changed) return problem(401, NOT_SIGNED_IN);
   if (changed === "missing") return problem(404, ITEM_NOT_FOUND);
   if (changed === "full") return problem(422, SAVED_LIST_FULL);
-  await forgetFiles(env, dropped);
+  if (changed === "stale") return problem(409, FILES_CHANGED);
   return Response.json((await shownItems(env, [changed]))[0]);
 }
 
@@ -321,21 +322,10 @@ export async function changeSaved(request: Request, env: Env, id: string): Promi
 export async function clearSaved(request: Request, env: Env, id: string): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   if (!credentials) return problem(401, NOT_SIGNED_IN);
-  const files = await workspace(env).clearSavedItem(credentials, id);
-  if (!files) return problem(401, NOT_SIGNED_IN);
-  if (files === "missing") return problem(404, ITEM_NOT_FOUND);
-  await forgetFiles(env, files);
+  const cleared = await workspace(env).clearSavedItem(credentials, id);
+  if (!cleared) return problem(401, NOT_SIGNED_IN);
+  if (cleared === "missing") return problem(404, ITEM_NOT_FOUND);
   return new Response(null, { status: 204 });
-}
-
-/** Has R2 delete `files`, logging rather than failing if it can't. */
-async function forgetFiles(env: Env, files: KeptNoteFile[]): Promise<void> {
-  if (files.length === 0 || !env.FILES) return;
-  try {
-    await env.FILES.delete(files.map(({ key }) => objectKey(key)));
-  } catch (error) {
-    console.error("Could not delete a to-do's files from R2", error);
-  }
 }
 
 /**
@@ -347,19 +337,19 @@ async function forgetFiles(env: Env, files: KeptNoteFile[]): Promise<void> {
  */
 export async function uploadNoteFile(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
-  if (!credentials) return problem(401, NOT_SIGNED_IN);
+  // The session's checked before a byte is read, and no more than the largest file is.
+  if (!(await userOf(env, credentials))) return problem(401, NOT_SIGNED_IN);
   if (!env.FILES) return problem(503, NO_STORAGE);
   const sent = urlOf(request).searchParams.get("name") ?? "";
   const refusal = fileNameRefusal(sent);
   if (refusal) return problem(422, refusal);
-  const declared = Number(request.headers.get("Content-Length"));
-  if (declared > MAX_NOTE_FILE_SIZE) return problem(413, NOTE_FILE_TOO_LARGE);
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.length > MAX_NOTE_FILE_SIZE) return problem(413, NOTE_FILE_TOO_LARGE);
+  const read = await bytesUpTo(request, MAX_NOTE_FILE_SIZE);
+  if (!read) return problem(413, NOTE_FILE_TOO_LARGE);
+  const bytes = new Uint8Array(read);
   const name = sanitizedFilename(sent) || "file";
   const { contentType, metadata } = identifiedOf(bytes.subarray(0, 64 * 1024), name, request.headers.get("Content-Type") ?? "");
   const { width, height } = JSON.parse(metadata) as { width?: number; height?: number };
-  const started = await workspace(env).startNoteUpload(credentials);
+  const started = await workspace(env).startNoteUpload(credentials!);
   if (!started) return problem(401, NOT_SIGNED_IN);
   if (started === "limited") return problem(429, TOO_MANY_WAITING);
   const { key, userId } = started;

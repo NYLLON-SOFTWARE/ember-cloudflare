@@ -1,6 +1,7 @@
 import { CloseCode, type Account, type DirectoryUser, type Me, type SharedRoom, type Sidebar, type SidebarRoom, type WorkspaceServerFrame } from "@ember/protocol";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { heardSaved, useSavedMark } from "@/lib/saved";
 import { RELOAD_AFTER_HIDDEN_MS, RELOAD_SPREAD_MS, useSidebar } from "./use-sidebar";
 
 const ada: Me = { id: "u1", name: "Ada", administrator: false };
@@ -139,6 +140,17 @@ afterEach(() => {
 });
 
 describe("Live sidebar updates", () => {
+  it("forgets what one person keeps once someone else is signed in", async () => {
+    const hook = renderHook(({ me }) => useSidebar(me, () => {}), { initialProps: { me: ada } });
+    await settle();
+    act(() => heardSaved({ marks: [{ id: "s1", list: "saved", messageId: "m1" }], openTodos: 0, overdueTodos: 0, savedItems: 1 }));
+    const mark = renderHook(() => useSavedMark("m1"));
+    expect(mark.result.current).toBeDefined();
+    hook.rerender({ me: grace });
+    mark.rerender();
+    expect(mark.result.current).toBeUndefined();
+  });
+
   it("loads, and loads again each time the workspace socket connects, the first time included", async () => {
     const { result } = await showSidebar();
     expect(result.current.list).toEqual(unstarred([design]));

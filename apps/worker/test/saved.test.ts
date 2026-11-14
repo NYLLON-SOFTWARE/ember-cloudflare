@@ -1,7 +1,8 @@
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
-import { FILE_NAME_NOT_KEPT, MAX_SAVED_ITEMS, NOTE_FILES_PATH, REMINDER_NOT_AHEAD, REMINDER_NOT_IN_SAVED, SAVED_LIST_FULL, type NoteFile, type SavedItem, type SavedItems, type SavedList, type SavedMark, type SavedMarks, type WorkspaceServerFrame, type ActivityPage } from "@ember/protocol";
+import { FILE_NAME_NOT_KEPT, MAX_NOTE_FILE_SIZE, MAX_SAVED_ITEMS, NOTE_FILES_PATH, REMINDER_NOT_AHEAD, REMINDER_NOT_IN_SAVED, SAVED_LIST_FULL, type NoteFile, type SavedItem, type SavedItems, type SavedList, type SavedMark, type SavedMarks, type WorkspaceServerFrame, type ActivityPage } from "@ember/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, connect, createRoom, freshDeploy, freshRoom, openWorkspaceSocket, post, pushBrowser, signIn, startUpload, upload, workspaceSql, workspaceStub, type Session } from "./support";
+import type { Env } from "../src/env";
+import { api, connect, createRoom, freshDeploy, freshRoom, openWorkspaceSocket, post, pushBrowser, signIn, startUpload, upload, withWorkspaceEnv, workspaceSql, workspaceStub, type Session } from "./support";
 
 const as = (session: Session) => ({ headers: { Cookie: session.cookie } });
 
@@ -52,6 +53,26 @@ async function said(room: string, session: Session, text: string) {
 /** Sends `text` as a file for a note, as `session`, answering how the Worker answered. */
 const sendNoteFile = (session: Session, name: string, text: string) =>
   api(`${NOTE_FILES_PATH}?name=${encodeURIComponent(name)}`, { method: "POST", headers: { Cookie: session.cookie, "Content-Type": "text/plain" }, body: text });
+
+/**
+ * Streams a note's file of zeros as `cookie` with no Content-Length, `CHUNK` bytes each time the Worker
+ * reads, without end, answering how the Worker answered and how many bytes it read.
+ */
+async function streamNoteFile(cookie: string) {
+  const CHUNK = 1_000_000;
+  let read = 0;
+  const body = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        read += CHUNK;
+        controller.enqueue(new Uint8Array(CHUNK));
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  const response = await api(`${NOTE_FILES_PATH}?name=big.bin`, { method: "POST", headers: { Cookie: cookie }, body });
+  return { status: response.status, read };
+}
 
 /** Makes `id`'s reminder due now and runs the Workspace's alarm, answering where pushes went. */
 async function remindNow(id: string): Promise<string[]> {
@@ -332,6 +353,70 @@ describe("To-dos of your own", () => {
     expect(longest.name).toHaveLength(255);
     expect(((await (await api(NOTE_FILES_PATH, { method: "POST", ...as(ada), body: "x" })).json()) as { error: string }).error).toBe("A file needs a name");
   });
+
+  it("reads no more of a file sent without its length than a note's file may be, and none of it without a session", async () => {
+    const ada = await signIn("Ada");
+    const unsigned = await streamNoteFile(`${ada.cookie.split("=")[0]}=${crypto.randomUUID()}`);
+    expect(unsigned.status).toBe(401);
+    expect(unsigned.read).toBeLessThanOrEqual(2_000_000);
+    const signed = await streamNoteFile(ada.cookie);
+    expect(signed.status).toBe(413);
+    expect(signed.read).toBeLessThanOrEqual(MAX_NOTE_FILE_SIZE + 2_000_000);
+    expect((await workspaceSql("SELECT key FROM note_uploads")).length).toBe(0);
+  });
+
+  it("refuses a change to a note's files made over files it no longer has, deleting none it keeps", async () => {
+    const ada = await signIn("Ada");
+    const [a, b] = [(await (await sendNoteFile(ada, "a.txt", "aaa")).json()) as NoteFile, (await (await sendNoteFile(ada, "b.txt", "bbb")).json()) as NoteFile];
+    const note = await kept(ada, { list: "todo", body: "", fileIds: [a.id, b.id] });
+
+    // Two tabs, each having read both files, take one each away at once.
+    const answers = await Promise.all([change(ada, note.id, { fileIds: [a.id] }), change(ada, note.id, { fileIds: [b.id] })]);
+    expect(answers.map(({ status }) => status).sort()).toEqual([200, 409]);
+    const [{ files }] = (await listOf(ada, "todo")) as [SavedItem];
+    expect(files).toHaveLength(1);
+    expect((await api(files![0]!.url)).status).toBe(200);
+    expect((await api((files![0]!.id === a.id ? b : a).url)).status).toBe(404);
+  });
+
+  it("changes nothing else of a note when the list it's to move to is full", async () => {
+    const ada = await signIn("Ada");
+    const note = await kept(ada, { list: "todo", body: "<p>Groceries</p>" });
+    const file = (await (await sendNoteFile(ada, "list.txt", "milk")).json()) as NoteFile;
+    await workspaceSql(
+      "INSERT INTO saved_items (id, user_id, list, kind, body, plain_text, created_at, updated_at) SELECT 'n' || value, ?, 'saved', 'note', '', '', ?, ? FROM json_each(?)",
+      ada.user.id,
+      note.createdAt,
+      note.createdAt,
+      JSON.stringify(Array.from({ length: MAX_SAVED_ITEMS }, (_, n) => n)),
+    );
+
+    const response = await change(ada, note.id, { list: "saved", fileIds: [file.id], body: "<p>Milk</p>", completed: true });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: SAVED_LIST_FULL });
+    expect((await listOf(ada, "todo"))[0]).toMatchObject({ id: note.id, plainText: "Groceries", files: [], completedAt: null });
+    expect(await workspaceSql("SELECT key FROM note_uploads")).toEqual([{ key: file.id }]);
+  });
+
+  it("deletes a note's files R2 failed to delete once it can", async () => {
+    const ada = await signIn("Ada");
+    const [a, b, unused] = await Promise.all(["a", "b", "c"].map(async (name) => (await (await sendNoteFile(ada, `${name}.txt`, name)).json()) as NoteFile));
+    const note = await kept(ada, { list: "todo", body: "<p>Files</p>", fileIds: [a!.id, b!.id] });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await withWorkspaceEnv({ FILES: { delete: () => Promise.reject(new Error("R2 is down")) } as unknown as R2Bucket }, async () => {
+      await changed(ada, note.id, { fileIds: [a!.id] });
+      expect((await api(`/api/saved/${note.id}`, { method: "DELETE", ...as(ada) })).status).toBe(204);
+      await workspaceSql("UPDATE note_uploads SET created_at = ?", Date.now() - 25 * 60 * 60 * 1000);
+      await runDurableObjectAlarm(workspaceStub());
+      for (const file of [a, b, unused]) expect((await api(file!.url)).status).toBe(200);
+    });
+    expect(errors).toHaveBeenCalled();
+
+    await workspaceSql("UPDATE pending_picture_deletions SET due_at = 0");
+    await runDurableObjectAlarm(workspaceStub());
+    for (const file of [a, b, unused]) expect((await api(file!.url)).status).toBe(404);
+    expect(await workspaceSql("SELECT object_key FROM pending_picture_deletions")).toEqual([]);
+  });
 });
 
 describe("Reminders", () => {
@@ -351,6 +436,28 @@ describe("Reminders", () => {
     for (let frame = await tab.next(); frame.type !== "pong"; frame = await tab.next()) heard.push(frame);
     expect(heard.map(({ type }) => type)).not.toContain("activity.added");
     expect(JSON.stringify(heard)).not.toContain("Secret plans");
+    expect(await activityOf(leo)).toEqual([]);
+    expect((await countsOf(leo)).overdueTodos).toBe(0);
+  });
+
+  it("says nothing of a room its person is taken out of as its message is read", async () => {
+    const [ada, leo] = [await signIn("Ada"), await signIn("Leo")];
+    await subscribe(leo, "leo");
+    const { id: room } = await createRoom("Board", { closedTo: [ada.user.id, leo.user.id], as: ada });
+    const message = await said(room, ada, "Secret plans");
+    const item = await kept(leo, { list: "todo", roomId: room, messageId: message.id });
+    await changed(leo, item.id, { remindAt: inAMinute() });
+    const messagesWithIds = async () => {
+      await workspaceSql("DELETE FROM memberships WHERE room_id = ? AND user_id = ?", room, leo.user.id);
+      return [message];
+    };
+
+    // The Workspace reads the message from its room on either backend, so Leo can be taken out meanwhile.
+    let pushed: string[] = [];
+    await withWorkspaceEnv({ STORAGE_BACKEND: "do-sqlite", CHAT_ROOM: { getByName: () => ({ messagesWithIds }) } as unknown as Env["CHAT_ROOM"] }, async () => {
+      pushed = await remindNow(item.id);
+    });
+    expect(pushed).toEqual([]);
     expect(await activityOf(leo)).toEqual([]);
     expect((await countsOf(leo)).overdueTodos).toBe(0);
   });
