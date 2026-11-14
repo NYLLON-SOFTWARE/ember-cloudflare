@@ -338,7 +338,10 @@ async function askWorkersAi(env: Env, gateway: Gateway, question: Question, sign
     const message = messageIn(answered.body);
     const calls = (Array.isArray(message?.tool_calls) ? message.tool_calls : []).map(toolCallOf);
     tokensLeft -= completionTokensIn(answered.body);
-    if (calls.length === 0 || searched > WEB_SEARCHES_PER_ANSWER || tokensLeft < 1) return withSearches(answeredIn(gateway.format, answered.body), found, searchRefused);
+    if (calls.length === 0 || searched > WEB_SEARCHES_PER_ANSWER || tokensLeft < 1) {
+      const said = answeredIn(gateway.format, answered.body);
+      return withSearches(calls.length > 0 && tokensLeft < 1 ? cutShort(said) : said, found, searchRefused);
+    }
     const content = typeof message?.content === "string" ? message.content : "";
     messages.push({ role: "assistant", content, tool_calls: calls.map(({ id, name, query }) => ({ id, type: "function", function: { name, arguments: JSON.stringify({ query }) } })) });
     // A model given no tool may call one all the same, which Ember doesn't run.
@@ -363,6 +366,12 @@ async function askWorkersAi(env: Env, gateway: Gateway, question: Question, sign
     searched += searches.filter((query) => query !== null).length || 1;
     messages.push(...calls.map(({ id }, index) => ({ role: "tool", tool_call_id: id, content: said[index] })));
   }
+}
+
+/** `answered` once the answer ran out of tokens as it called a tool, which its finish doesn't say: cut short, or out of room, with nothing said. */
+function cutShort(answered: Answered | GatewayRefusal): Answered | GatewayRefusal {
+  if (!("refusal" in answered)) return { ...answered, cut: true };
+  return answered.reason === "nothing" ? { status: 502, reason: "out of room", refusal: OUT_OF_ROOM, field: "model" } : answered;
 }
 
 /** The message a Chat Completions answer `body` gives, if it gives one. */

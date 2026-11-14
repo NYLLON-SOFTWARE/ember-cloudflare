@@ -590,6 +590,23 @@ describe("Workers AI's models", () => {
     expect((requests[1]!.body!.messages as Array<Record<string, unknown>>).at(-1)).toEqual({ role: "tool", tool_call_id: "call_0", content: "You can't search the web for this answer. Answer without it." });
   });
 
+  it("answer what they said cut short when they take every token an answer may as they call Ember's tool, searching no more", async () => {
+    const ada = await setUpWithAssistant({ ...SETUP, model: GLM.id });
+    cloudflare({ model: searchingModel });
+    expect((await turnWebSearch(ada, true)).status).toBe(200);
+    vi.restoreAllMocks();
+
+    const client = await connect(await general(), ada);
+    const tool_calls = [{ id: "call_0", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "AI Gateway" }) } }];
+    const requests = cloudflare({
+      model: () => Response.json({ choices: [{ message: { role: "assistant", content: "Let me look that up.", tool_calls }, finish_reason: "tool_calls" }], usage: { completion_tokens: 1_000_000 } }),
+    });
+    await post(client, `<p>${mention} what's AI Gateway?</p>`);
+    expect((await nextAnswer(client)).plainText).toBe("Let me look that up.\n\n…");
+    client.close();
+    expect(placesOf(requests)).toEqual([CHAT_COMPLETIONS]);
+  });
+
   it(`search at most ${WEB_SEARCHES_PER_ANSWER} times an answer, then are told to answer with what they found`, async () => {
     const ada = await setUpWithAssistant({ ...SETUP, model: GLM.id });
     cloudflare({ model: searchingModel });
