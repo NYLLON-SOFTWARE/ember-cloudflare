@@ -1,6 +1,7 @@
 import { useContext, type MouseEvent } from "react";
 import type { Me, NavigationSlot } from "@ember/protocol";
 import { PageLink } from "@/components/page-link";
+import { Bookmark } from "@/components/icons/iconoir";
 import { useAccount } from "@/hooks/use-account";
 import { NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
@@ -72,6 +73,42 @@ function ActivityButton({ on, unread, onToggle }: Activity) {
   );
 }
 
+/** The Saved control: whether the pane is open, and how many messages are saved for later. */
+export interface Saved {
+  on: boolean;
+  count: number;
+  onToggle: () => void;
+}
+
+/**
+ * Saved, which opens the pane of messages you've saved for later while it's pressed, with how many there
+ * are in an ink pill at its corner, hidden at none, as Activity counts its unread. Saved isn't one of the
+ * icons an administrator picks, so it's Iconoir's bookmark itself.
+ */
+function SavedButton({ on, count, onToggle }: Saved) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      aria-description={count > 0 ? `${count} saved` : undefined}
+      title="Show saved messages"
+      onClick={onToggle}
+      className={cn(RAIL_LINK, "aria-pressed:bg-hover aria-pressed:text-foreground")}
+    >
+      <Bookmark className="size-[22px]" />
+      <span>Saved</span>
+      {count > 0 && (
+        <span
+          aria-hidden="true"
+          className="absolute top-px right-[5px] inline-flex h-[17px] min-w-[17px] items-center justify-center rounded-[12px] border-2 border-surface bg-foreground px-[3px] text-[10px] leading-none font-semibold text-background"
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
 /**
  * The page shown, whose links the rail marks: every link to the page's own path (the logo and Home at
  * home, Search on search, whatever's searched for, Admin or Workspace on workspace settings, your avatar
@@ -85,6 +122,8 @@ interface Props {
   workspaceName: string;
   current: RailPage;
   activity: Activity;
+  /** The Saved control: whether the pane is open, and how many messages are saved for later. */
+  saved: Saved;
   /** The release of Ember out since this one, such as "0.2", which Admin marks for an administrator, or null for none. */
   newRelease: string | null;
   /** Opens New direct message, which DMs does in place, from the link that opened it. */
@@ -96,7 +135,7 @@ interface Props {
  * else with Iconoir's, as the project's owner chose. Admin has a dot while a newer release of Ember is
  * out, which General, where it goes, tells of.
  */
-export function Rail({ me, workspaceName, current, activity, newRelease, onNewDirect }: Props) {
+export function Rail({ me, workspaceName, current, activity, saved, newRelease, onNewDirect }: Props) {
   const { logo } = useAccount();
   const openSearch = useContext(OpenSearchContext);
   const marked = activity.on ? null : current;
@@ -124,6 +163,7 @@ export function Rail({ me, workspaceName, current, activity, newRelease, onNewDi
       {/* Never marked, since its address opens New direct message over the last room visited. */}
       <RailLink slot="dms" label="DMs" href={NEW_DIRECT_PATH} current={false} onClick={opensNewDirect(onNewDirect)} />
       <ActivityButton {...activity} />
+      <SavedButton {...saved} />
       {/* Opens the search box in place, for everything. */}
       <RailLink slot="search" label="Search" href={SEARCHES_PATH} current={marked === "search"} onClick={opensSearch(openSearch)} />
       <hr className="my-1 w-8 border-t" />

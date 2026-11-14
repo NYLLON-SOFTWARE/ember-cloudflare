@@ -3,15 +3,16 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
-import { Rail, type Activity, type RailPage } from "./rail";
+import { Rail, type Activity, type RailPage, type Saved } from "./rail";
 import { OpenSearchContext } from "./search-box";
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const activityOff: Activity = { on: false, unread: 0, onToggle: () => {} };
+const savedClosed: Saved = { on: false, count: 0, onToggle: () => {} };
 
-/** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's. */
-const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect = () => {}, newRelease: string | null = null) => (
-  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} newRelease={newRelease} onNewDirect={onNewDirect} />
+/** The rail for the page `current` names, as `me` sees it, with `newRelease` out since this Ember's, and `saved` beside Activity. */
+const railAt = (current: RailPage, activity = activityOff, me = ada, onNewDirect = () => {}, newRelease: string | null = null, saved = savedClosed) => (
+  <Rail me={me} workspaceName="Analytical Engines" current={current} activity={activity} saved={saved} newRelease={newRelease} onNewDirect={onNewDirect} />
 );
 
 afterEach(() => history.replaceState(null, "", "/"));
@@ -25,6 +26,7 @@ describe("Rail", () => {
       "Home",
       "DMs",
       "Activity",
+      "Saved",
       "Search",
       "Workspace",
       "Appearance: System",
@@ -113,6 +115,7 @@ describe("Rail", () => {
       Home: "iconoir-home",
       DMs: "iconoir-multi-bubble",
       Activity: "iconoir-bell",
+      Saved: "iconoir-bookmark",
       Search: "iconoir-search",
       Workspace: "iconoir-box",
       "Appearance: System": "iconoir-computer",
@@ -188,6 +191,35 @@ describe("Activity filter", () => {
     rerender(railAt("room", { ...activityOff, unread: 0 }));
     expect(activity).not.toHaveAttribute("aria-description");
     expect(activity).toHaveTextContent(/^Activity$/);
+  });
+});
+
+describe("Saved control", () => {
+  it("toggles Saved and shows it pressed while the pane is open", async () => {
+    const onToggle = vi.fn();
+    const { rerender } = render(railAt("home", activityOff, ada, () => {}, null, { on: false, count: 0, onToggle }));
+    const saved = screen.getByRole("button", { name: "Saved" });
+    expect(saved).toHaveAttribute("title", "Show saved messages");
+    expect(saved).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(saved);
+    expect(onToggle).toHaveBeenCalledOnce();
+
+    rerender(railAt("home", activityOff, ada, () => {}, null, { on: true, count: 1, onToggle }));
+    expect(saved).toHaveAttribute("aria-pressed", "true");
+    expect(saved).toHaveClass("aria-pressed:bg-hover", "aria-pressed:text-foreground");
+  });
+
+  it("counts saved messages in a pill at its corner, hidden at none", () => {
+    const { rerender } = render(railAt("room", activityOff, ada, () => {}, null, { on: false, count: 2, onToggle: () => {} }));
+    const saved = screen.getByRole("button", { name: "Saved" });
+    expect(saved).toHaveAccessibleDescription("2 saved");
+    const pill = within(saved).getByText("2");
+    expect(pill).toHaveAttribute("aria-hidden", "true");
+    expect(pill).toHaveClass("absolute", "h-[17px]", "min-w-[17px]", "border-2", "border-surface", "bg-foreground", "text-[10px]", "text-background");
+
+    rerender(railAt("room", activityOff, ada, () => {}, null, { on: false, count: 0, onToggle: () => {} }));
+    expect(saved).not.toHaveAttribute("aria-description");
+    expect(saved).toHaveTextContent(/^Saved$/);
   });
 });
 
