@@ -480,14 +480,11 @@ function applyFrame(state: RoomState, frame: ServerFrame, now: number): RoomStat
     // A thread's, which its own state keeps, and a click's answer, which its button waits for.
     case "thread.opened":
     case "thread.history":
-<<<<<<< HEAD
     case "card.clicked":
-=======
     // Pins have a hook of their own, which the room's header and Pinned panel read.
     case "pins.listed":
     case "pin.created":
     case "pin.deleted":
->>>>>>> 346f0e5f (Pin and unpin a room's messages, telling everyone)
     case "pong":
       return state;
   }
