@@ -33,6 +33,7 @@ import {
   type EmailLinkSignUp,
   type EmailSettings,
   type Favorites,
+  type GuestAnswer,
   type HuddlesForgotten,
   type HuddlesSaved,
   type HuddlesSettings,
@@ -70,6 +71,7 @@ import {
   type ResentInvitation,
   type Room,
   type RoomChanges,
+  type RoomGuest,
   type RoomId,
   type RoomSettings,
   type RoomSocketParams,
@@ -994,6 +996,28 @@ export async function deleteRoom(roomId: RoomId): Promise<void> {
 /** Takes this person out of a private room they can't change, as Leave on its settings page does. */
 export async function leaveRoom(roomId: RoomId): Promise<void> {
   await request(`/api/rooms/${encodeURIComponent(roomId)}/membership`, { method: "DELETE" });
+}
+
+/**
+ * Adds a guest of a room, named `name`, whose stay ends at `until`, as its settings' guests panel asks,
+ * answering them as its people list then marks them. Fails with a 403 ApiError for someone who can't
+ * change the room, and a 422 one for a name one of its guests stays under or a time that has passed.
+ */
+export async function addGuest(roomId: RoomId, name: string, until: string): Promise<RoomGuest> {
+  return (await request<GuestAnswer>(`/api/rooms/${encodeURIComponent(roomId)}/guests`, { method: "POST", body: JSON.stringify({ name, until }) })).guest;
+}
+
+/**
+ * Extends the stay of a room's guest `userId` to end at `until`, as its settings' guests panel asks,
+ * answering them as its people list then marks them. Fails with a 404 ApiError once their stay is gone.
+ */
+export async function extendGuest(roomId: RoomId, userId: UserId, until: string): Promise<RoomGuest> {
+  return (await request<GuestAnswer>(`/api/rooms/${encodeURIComponent(roomId)}/guests/${encodeURIComponent(userId)}`, { method: "PUT", body: JSON.stringify({ until }) })).guest;
+}
+
+/** Ends the stay of a room's guest `userId`, as its settings' guests panel asks. Fails with a 404 ApiError once their stay is gone. */
+export async function endGuest(roomId: RoomId, userId: UserId): Promise<void> {
+  await request(`/api/rooms/${encodeURIComponent(roomId)}/guests/${encodeURIComponent(userId)}`, { method: "DELETE" });
 }
 
 /**

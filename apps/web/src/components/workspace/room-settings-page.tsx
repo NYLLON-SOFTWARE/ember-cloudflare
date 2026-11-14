@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { RoomChanges, RoomIconName, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
+import type { RoomChanges, RoomGuest, RoomIconName, RoomId, RoomSettings, User, UserId } from "@ember/protocol";
 import { Button } from "@/components/ui/button";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, roomPath, roomSettingsPath, type Access } from "@/hooks/use-route";
@@ -8,6 +8,7 @@ import { LogOut, Trash } from "@/components/icons/iconoir";
 import { ApiError, changeRoom, deleteRoom, fetchRoomSettings, isSignedOut, leaveRoom } from "@/lib/api";
 import type { RoomAnswer } from "@/lib/room-list";
 import { AccessSwitch, CheckMark, RoomForm, withChoice } from "./room-form";
+import { RoomGuests } from "./room-guests";
 import { workspaceSectionPath } from "./settings-navigation";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { UnsavedChanges } from "./unsaved-changes";
@@ -140,6 +141,21 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
     }, failed);
   };
 
+  /** Shows a guest as their stay's answer named them, adding one who isn't listed yet, in place. */
+  const guestSaved = (guest: RoomGuest) =>
+    setSettings((settings) => {
+      if (!settings) return settings;
+      const listed = settings.people.some((person) => person.id === guest.userId);
+      const people = listed
+        ? settings.people.map((person) => (person.id === guest.userId ? { ...person, member: true, guestUntil: guest.untilAt } : person))
+        : [...settings.people, { id: guest.userId, name: guest.name, member: true, guestUntil: guest.untilAt }];
+      return { ...settings, people };
+    });
+
+  /** Stops marking a guest whose stay has ended, which takes them out of the list once the server has heard of it. */
+  const guestEnded = (userId: UserId) =>
+    setSettings((settings) => settings && { ...settings, people: settings.people.map((person) => (person.id === userId ? { ...person, guestUntil: undefined } : person)) });
+
   const open = access === "open";
   const flip = () => navigate(roomSettingsPath(open ? "closed" : "open", roomId), { replace: true });
   // Whether the form differs from how it loaded or was last saved, the form its address names included.
@@ -186,6 +202,17 @@ export function RoomSettingsPage({ roomId, access, me, askForRoom, onMissing, on
             <LogOut className="size-[1.3em] shrink-0" />
             <span className="truncate">Leave {settings.room.name}</span>
           </Button>
+        </Panel>
+      )}
+      {settings?.canAdminister && (
+        <Panel>
+          <RoomGuests
+            roomId={roomId}
+            guests={settings.people.filter((person) => person.guestUntil !== undefined)}
+            onSaved={guestSaved}
+            onEnded={guestEnded}
+            onFailed={onFailed}
+          />
         </Panel>
       )}
       {settings?.canAdminister && (

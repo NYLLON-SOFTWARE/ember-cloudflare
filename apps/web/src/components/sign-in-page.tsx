@@ -51,7 +51,8 @@ function memberfulProblemOnArrival() {
 export function SignInPage({ workspace, onSignedIn }: { workspace: SignedOutWorkspace; onSignedIn: (me: Me) => void }) {
   const { memberfulSignIn: membersOnly } = workspace.account;
   const [arrival] = useState(memberfulProblemOnArrival);
-  const [asGuest, setAsGuest] = useState(false);
+  // Someone sent by a guest's link arrives at the name form, which is theirs to fill in; ?guest=1 says so.
+  const [asGuest, setAsGuest] = useState(() => new URLSearchParams(location.search).has("guest"));
   // Someone whose Memberful email address is someone's here is asked for that someone's password.
   const [withPassword, setWithPassword] = useState(!membersOnly || arrival === "taken");
   const [emailAddress, setEmailAddress] = useState(() => new URLSearchParams(location.search).get("email_address") ?? "");
