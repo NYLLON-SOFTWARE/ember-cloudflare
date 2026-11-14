@@ -1,4 +1,5 @@
 import { MAX_FILE_SIZE, type LinkPreview, type User } from "@ember/protocol";
+import type { Command, Commands } from "@ember/protocol/bots";
 import { OPENGRAPH_EMBED_CONTENT_TYPE, previewContent } from "@ember/richtext/dom";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -12,10 +13,19 @@ import { editorLoaded } from "./editor";
 // and every test starts before its code has loaded.
 vi.mock("./editor", async (importOriginal) => ({ ...(await importOriginal<typeof import("./editor")>()), editorLoaded: vi.fn(() => false) }));
 
-async function showComposer({ typing = [] as User[], disabled = false, roomId = "r1", threadId = undefined as string | undefined, direct = false, autoFocus = true } = {}) {
+async function showComposer({
+  typing = [] as User[],
+  disabled = false,
+  roomId = "r1",
+  threadId = undefined as string | undefined,
+  direct = false,
+  autoFocus = true,
+  servedCommands = null as Commands["commands"] | null,
+} = {}) {
   const onSend = vi.fn((_body: string, _alsoSend: boolean) => true);
   const onSendFiles = vi.fn((_files: File[], _alsoSend: boolean) => {});
   const onTyping = vi.fn();
+  const onRunCommand = servedCommands === null ? undefined : vi.fn(async (_name: string, _text: string) => true);
   const composer = createRef<ComposerHandle>();
   const view = render(
     <Composer
@@ -29,13 +39,26 @@ async function showComposer({ typing = [] as User[], disabled = false, roomId = 
       threadId={threadId}
       onSend={onSend}
       onSendFiles={onSendFiles}
+      onRunCommand={onRunCommand}
       onTyping={onTyping}
       autoFocus={autoFocus}
     />,
   );
   // The editor loads as the first composer shows.
   const input = await screen.findByRole("textbox", { name: threadId === undefined ? "Write a message" : "Write a reply" });
-  return { onSend, onSendFiles, onTyping, composer, view, user: userEvent.setup(), input };
+  return { onSend, onSendFiles, onTyping, onRunCommand, composer, view, user: userEvent.setup(), input };
+}
+
+/** The workspace's commands, as the server has them, which the menu of commands offers. */
+const DEPLOY_COMMAND: Command = { id: "c1", name: "deploy", description: "Ship the build", bot: { id: "b1", name: "Build Bot" } };
+const RESTART_COMMAND: Command = { id: "c2", name: "restart", description: null, bot: { id: "b1", name: "Build Bot" } };
+
+/** Answers the workspace's commands with `commands`, until the test ends. */
+function serveCommands(commands: Command[]) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    if (String(input).endsWith("/api/account/commands")) return Response.json({ commands, subscriptions: [] } satisfies Commands);
+    throw new Error(`Unexpected request for ${String(input)}`);
+  });
 }
 
 function touchScreen() {
@@ -47,6 +70,7 @@ const formattingOptions = () => screen.getByRole("button", { name: "Rich text" }
 const attachFiles = () => screen.getByLabelText("Attach a file");
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.mocked(editorLoaded).mockReturnValue(false);
 });
@@ -670,5 +694,95 @@ describe("Only members see a room", () => {
     expect(notice).toHaveTextContent("This room was deleted.");
     expect(notice).toHaveClass("text-negative", "border-negative", "motion-safe:animate-shake");
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+});
+
+describe("Slash commands", () => {
+  const menu = () => screen.getByRole("listbox", { name: "Commands" });
+
+  it("offers the workspace's commands once what's written begins with a slash, and asks for them once", async () => {
+    const served = serveCommands([DEPLOY_COMMAND, RESTART_COMMAND]);
+    const { input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND, RESTART_COMMAND] });
+    await user.type(input, "a message");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).not.toBeInTheDocument();
+    expect(served).not.toHaveBeenCalled();
+
+    await user.clear(input);
+    await user.type(input, "/");
+    const menuBox = await screen.findByRole("listbox", { name: "Commands" });
+    const options = within(menuBox).getAllByRole("option");
+    expect(options.map((option) => option.getAttribute("aria-selected"))).toEqual(["true", "false"]);
+    expect(within(options[0]!).getByText(/^\/deploy$/)).toBeInTheDocument();
+    expect(within(options[0]!).getByText("Ship the build")).toBeInTheDocument();
+    expect(within(options[0]!).getByText("Build Bot")).toBeInTheDocument();
+    // Asked for once, whatever the typing that needs them after.
+    expect(served).toHaveBeenCalledTimes(1);
+    expect(String(served.mock.calls[0]![0])).toBe("/api/account/commands");
+
+    // A command one of the workspace's names whole leaves the menu, for Enter to send.
+    await user.clear(input);
+    await user.type(input, "/deploy prod");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).not.toBeInTheDocument();
+  });
+
+  it("narrows the menu to what's typed, and Enter picks the highlighted one, completing it", async () => {
+    serveCommands([DEPLOY_COMMAND, RESTART_COMMAND]);
+    const { input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND, RESTART_COMMAND] });
+    await user.type(input, "/");
+    const menuBox = await screen.findByRole("listbox", { name: "Commands" });
+    expect(within(menuBox).getAllByRole("option").map((option) => within(option).getByText(/^\/(deploy|restart)$/).textContent)).toEqual(["/deploy", "/restart"]);
+
+    await user.type(input, "re");
+    const options = within(menu()).getAllByRole("option");
+    expect(options.map((option) => within(option).getByText(/^\/(deploy|restart)$/).textContent)).toEqual(["/restart"]);
+
+    // The arrows move the highlight, and Enter completes the one it's on.
+    await user.keyboard("{ArrowDown}");
+    expect(options.map((option) => option.getAttribute("aria-selected"))).toEqual(["true"]);
+    await user.keyboard("{Enter}");
+    expect(input).toHaveValue("/restart ");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).not.toBeInTheDocument();
+    // Nothing was sent: the command is being typed, with a space after it for what it's to be told.
+    expect(input).toHaveFocus();
+  });
+
+  it("shuts the menu on Escape, and Enter then runs the command it was offering", async () => {
+    serveCommands([DEPLOY_COMMAND]);
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    await user.type(input, "/deploy");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox", { name: "Commands" })).not.toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("runs what's written as an invocation once it begins with a command, and not as a message", async () => {
+    serveCommands([DEPLOY_COMMAND, RESTART_COMMAND]);
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND, RESTART_COMMAND] });
+    await user.type(input, "/deploy production{Enter}");
+    expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "production");
+    expect(onSend).not.toHaveBeenCalled();
+    // The box is left clear, and the menu with it: the command's name is typed whole by then.
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+  });
+
+  it("runs a command typed whole with nothing after it, whatever case it was typed in", async () => {
+    serveCommands([DEPLOY_COMMAND]);
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    await user.type(input, "/DEPLOY{Enter}");
+    expect(onRunCommand).toHaveBeenCalledExactlyOnceWith("deploy", "");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue("");
+  });
+
+  it("sends what a slash that's no command begins as a message, as it was typed", async () => {
+    serveCommands([DEPLOY_COMMAND]);
+    const { onSend, onRunCommand, input, user } = await showComposer({ servedCommands: [DEPLOY_COMMAND] });
+    await user.type(input, "/etc/hosts says otherwise{Enter}");
+    expect(onRunCommand).not.toHaveBeenCalled();
+    expect(onSend).toHaveBeenCalledExactlyOnceWith("<p>/etc/hosts says otherwise</p>", false);
   });
 });
