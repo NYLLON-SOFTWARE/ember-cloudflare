@@ -1,5 +1,23 @@
-import type { Me, NewWorkspace } from "@ember/protocol";
-import { APP_CHANGED, APP_URL_REFUSED, APPS_FORBIDDEN, APPS_FULL, MAX_APP_TOOLS, MAX_APPS, MAX_TOOL_DESCRIPTION_LENGTH, type App, type AppAnswer, type Apps } from "@ember/protocol/apps";
+import { ASSISTANT_ID, type Me, type NewWorkspace, type UserId } from "@ember/protocol";
+import type { AgentSettings, NewAgent } from "@ember/protocol/agents";
+import {
+  AGENT_TOOLS_FULL,
+  APP_CHANGED,
+  APP_URL_REFUSED,
+  APPS_FORBIDDEN,
+  APPS_FULL,
+  MAX_AGENT_TOOLS,
+  MAX_APP_TOOLS,
+  MAX_APPS,
+  MAX_TOOL_DESCRIPTION_LENGTH,
+  TOOL_GONE,
+  type AgentTools,
+  type App,
+  type AppAnswer,
+  type Apps,
+  type OfferedApp,
+  type ToolPick,
+} from "@ember/protocol/apps";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fingerprintOf, MAX_TOOL_SCHEMA_LENGTH } from "../src/apps/mcp";
@@ -121,6 +139,22 @@ const show = (session: Session | null, id: string) => api(`/api/account/apps/${i
 const change = (session: Session | null, id: string, body: unknown) => api(`/api/account/apps/${id}`, { method: "PATCH", headers: as(session), body: JSON.stringify(body) });
 const readAgain = (session: Session | null, id: string) => api(`/api/account/apps/${id}/tools`, { method: "POST", headers: as(session) });
 const disconnect = (session: Session | null, id: string) => api(`/api/account/apps/${id}`, { method: "DELETE", headers: as(session) });
+
+const offered = (session: Session | null, agentId: UserId) => api(`/api/account/agents/${agentId}/tools`, { headers: as(session) });
+const pick = (session: Session | null, agentId: UserId, tools: unknown) => api(`/api/account/agents/${agentId}/tools`, { method: "PUT", headers: as(session), body: JSON.stringify({ tools }) });
+
+/** The apps `response` offers an agent the tools of, which it answers with 200, for no cache to keep. */
+async function offeredBy(response: Response): Promise<OfferedApp[]> {
+  expect(response.status, await response.clone().text()).toBe(200);
+  expect(response.headers.get("Cache-Control")).toBe("no-store");
+  return ((await response.json()) as AgentTools).apps;
+}
+
+/** The names of the tools `apps` have an agent use. */
+const pickedIn = (apps: OfferedApp[]) => apps.flatMap(({ tools }) => tools.filter(({ picked }) => picked).map(({ name }) => name));
+
+/** An agent as New agent sends it. */
+const RECAP: NewAgent = { name: "Recap", description: "Sums up long threads", instructions: "Sum up the thread.", model: SONNET, thinking: "off", length: "short", webSearch: false, rooms: null };
 
 /** The app `response` answers, which it answers with `status`. */
 async function appOf(response: Response, status = 200): Promise<App> {
@@ -249,6 +283,11 @@ describe("Connecting an app", () => {
     expect(await refusalOf(await connect(administrator, { name: "Tracker", url: LOCAL, token: "not-the-token-1234" }), 422)).toEqual({ error: "localhost:3845 didn't take that token.", field: "token" });
     expect(await refusalOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 422)).toEqual({
       error: "localhost:3845 asks for a sign-in. Give a token for it, if it has one: Ember can't sign in to an app any other way yet.",
+      field: "token",
+    });
+    server = { pages: [], instead: () => new Response("Forbidden", { status: 403, headers: { "WWW-Authenticate": 'Bearer error="insufficient_scope", scope="tools:read"' } }) };
+    expect(await refusalOf(await connect(administrator, { name: "Tracker", url: LOCAL, token: "a-narrow-token-9012" }), 422)).toEqual({
+      error: "localhost:3845 took that token, but says it doesn't allow this. Give one that does.",
       field: "token",
     });
     server = { pages: [], instead: () => new Response("Not found", { status: 404 }) };
@@ -458,5 +497,121 @@ describe("A connected app", () => {
       expect([shown.status, await shown.text()], path).toEqual([200, "page /"]);
     }
     expect((await page("/account/apps/nonesuch/edit")).status).toBe(404);
+  });
+});
+
+describe("An agent's tools", () => {
+  it("offers every connected app's tools, by the apps' names, and keeps the ones picked for @ember and for each agent apart", async () => {
+    const administrator = await setUp();
+    const tracker = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
+    server = { pages: [[{ name: "send_email", description: "Sends an email." }]] };
+    const mail = await appOf(await connect(administrator, { name: "Mail", url: TRACKER }), 201);
+    const made = await api("/api/account/agents", { method: "POST", headers: as(administrator), body: JSON.stringify(RECAP) });
+    expect(made.status, await made.clone().text()).toBe(201);
+    const { agent } = (await made.json()) as { agent: AgentSettings };
+
+    const unpicked = { picked: false, changed: false };
+    expect(await offeredBy(await offered(administrator, ASSISTANT_ID))).toEqual([
+      { id: mail.id, name: "Mail", tools: [{ name: "send_email", title: null, description: "Sends an email.", ...unpicked }] },
+      {
+        id: tracker.id,
+        name: "Tracker",
+        tools: [
+          { name: "search_issues", title: "Search issues", description: "Finds issues by their words.", ...unpicked },
+          { name: "create_issue", title: null, description: "Opens an issue.", ...unpicked },
+        ],
+      },
+    ]);
+
+    // Each pick is every tool the agent may use from then on, however often it's named.
+    const search: ToolPick = { appId: tracker.id, name: "search_issues" };
+    expect(pickedIn(await offeredBy(await pick(administrator, ASSISTANT_ID, [search, search, { appId: mail.id, name: "send_email" }])))).toEqual(["send_email", "search_issues"]);
+    expect(pickedIn(await offeredBy(await pick(administrator, agent.id, [{ appId: tracker.id, name: "create_issue" }])))).toEqual(["create_issue"]);
+    expect(pickedIn(await offeredBy(await offered(administrator, ASSISTANT_ID)))).toEqual(["send_email", "search_issues"]);
+    expect(pickedIn(await offeredBy(await pick(administrator, ASSISTANT_ID, [search])))).toEqual(["search_issues"]);
+    expect(pickedIn(await offeredBy(await pick(administrator, agent.id, [])))).toEqual([]);
+    const kept = await fingerprintOf({ name: "search_issues", title: "Search issues", description: "Finds issues by their words.", takes: SEARCH_ISSUES.inputSchema as Record<string, unknown> });
+    expect(await workspaceSql("SELECT agent_id, tools, updated_by FROM agent_tools ORDER BY agent_id")).toEqual([
+      { agent_id: agent.id, tools: "[]", updated_by: administrator.user.id },
+      { agent_id: ASSISTANT_ID, tools: JSON.stringify([{ ...search, fingerprint: kept }]), updated_by: administrator.user.id },
+    ]);
+    // Picking tools calls none of them.
+    expect(asked.filter(({ rpc }) => rpc === "tools/call")).toEqual([]);
+
+    // Deleting an agent forgets what was picked for it.
+    expect(pickedIn(await offeredBy(await pick(administrator, agent.id, [search])))).toEqual(["search_issues"]);
+    expect((await api(`/api/account/agents/${agent.id}`, { method: "DELETE", headers: as(administrator) })).status).toBe(204);
+    expect((await offered(administrator, agent.id)).status).toBe(404);
+    expect(await workspaceSql("SELECT agent_id FROM agent_tools")).toEqual([{ agent_id: ASSISTANT_ID }]);
+  });
+
+  it("sets aside a tool its server describes another way since it was picked, until it's picked again, and one whose app is removed", async () => {
+    const administrator = await setUp();
+    const tracker = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
+    const picks: ToolPick[] = [
+      { appId: tracker.id, name: "search_issues" },
+      { appId: tracker.id, name: "create_issue" },
+    ];
+    expect(pickedIn(await offeredBy(await pick(administrator, ASSISTANT_ID, picks)))).toEqual(["search_issues", "create_issue"]);
+
+    server.pages = [[SEARCH_ISSUES, { ...CREATE_ISSUE, description: "Opens an issue, and emails everyone." }]];
+    await appOf(await readAgain(administrator, tracker.id));
+    const [now] = await offeredBy(await offered(administrator, ASSISTANT_ID));
+    expect(now!.tools.map(({ name, picked, changed }) => ({ name, picked, changed }))).toEqual([
+      { name: "search_issues", picked: true, changed: false },
+      { name: "create_issue", picked: false, changed: true },
+    ]);
+    // Picked again, it's the tool as its server describes it now.
+    const [again] = await offeredBy(await pick(administrator, ASSISTANT_ID, picks));
+    expect(again!.tools.map(({ picked, changed }) => ({ picked, changed }))).toEqual([
+      { picked: true, changed: false },
+      { picked: true, changed: false },
+    ]);
+
+    expect((await disconnect(administrator, tracker.id)).status).toBe(204);
+    expect(await offeredBy(await offered(administrator, ASSISTANT_ID))).toEqual([]);
+    // The same server connected again is another app, whose tools nobody has picked.
+    await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
+    expect(pickedIn(await offeredBy(await offered(administrator, ASSISTANT_ID)))).toEqual([]);
+  });
+
+  it("refuses a tool no connected app has, more tools than an agent uses, and anything that isn't picks, keeping what was picked", async () => {
+    const administrator = await setUp();
+    server = { pages: [Array.from({ length: MAX_AGENT_TOOLS + 1 }, (_, index) => ({ name: `tool_${index}` }))] };
+    const tracker = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
+    const every = tracker.tools.map(({ name }): ToolPick => ({ appId: tracker.id, name }));
+    expect(pickedIn(await offeredBy(await pick(administrator, ASSISTANT_ID, every.slice(0, MAX_AGENT_TOOLS))))).toHaveLength(MAX_AGENT_TOOLS);
+
+    expect(await refusalOf(await pick(administrator, ASSISTANT_ID, every), 422)).toEqual({ error: AGENT_TOOLS_FULL });
+    expect(await refusalOf(await pick(administrator, ASSISTANT_ID, [{ appId: tracker.id, name: "nonesuch" }]), 409)).toEqual({ error: TOOL_GONE });
+    expect(await refusalOf(await pick(administrator, ASSISTANT_ID, [{ appId: "nonesuch", name: "tool_0" }]), 409)).toEqual({ error: TOOL_GONE });
+    for (const tools of ["tool_0", [{ appId: tracker.id }], [null], undefined]) {
+      expect((await pick(administrator, ASSISTANT_ID, tools)).status, JSON.stringify(tools)).toBe(422);
+    }
+    expect(pickedIn(await offeredBy(await offered(administrator, ASSISTANT_ID)))).toHaveLength(MAX_AGENT_TOOLS);
+  });
+
+  it("is for administrators, while Ember AI is on, and for @ember and agents alone", async () => {
+    const administrator = await setUp();
+    const member = await joinAsGrace();
+    const tracker = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
+    const search: ToolPick[] = [{ appId: tracker.id, name: "search_issues" }];
+    for (const who of [member, null]) {
+      expect((await offered(who, ASSISTANT_ID)).status).toBe(who ? 403 : 401);
+      expect((await pick(who, ASSISTANT_ID, search)).status).toBe(who ? 403 : 401);
+    }
+    // A person isn't an agent, and neither is an id nobody has.
+    for (const id of [administrator.user.id, member.user.id, "nonesuch"]) {
+      expect((await offered(administrator, id)).status, id).toBe(404);
+      expect((await pick(administrator, id, search)).status, id).toBe(404);
+    }
+    expect(await workspaceSql("SELECT agent_id FROM agent_tools")).toEqual([]);
+
+    expect(pickedIn(await offeredBy(await pick(administrator, ASSISTANT_ID, search)))).toEqual(["search_issues"]);
+    expect((await api("/api/account/assistant", { method: "DELETE", headers: as(administrator) })).status).toBe(200);
+    expect(await refusalOf(await offered(administrator, ASSISTANT_ID), 409)).toEqual({ error: ASSISTANT_OFF });
+    expect(await refusalOf(await pick(administrator, ASSISTANT_ID, []), 409)).toEqual({ error: ASSISTANT_OFF });
+    // Turning Ember AI off keeps the picks, as it keeps the apps.
+    expect(await workspaceSql("SELECT agent_id FROM agent_tools")).toEqual([{ agent_id: ASSISTANT_ID }]);
   });
 });

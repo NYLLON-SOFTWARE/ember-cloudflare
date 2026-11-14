@@ -96,7 +96,7 @@ import {
   tokenDigest,
 } from "./auth";
 import { directoryOf } from "./avatar-tokens";
-import { appPage, changeApp, connectApp, disconnectApp, listApps, readAppTools, showApp } from "./apps/api";
+import { appPage, changeApp, connectApp, disconnectApp, listApps, pickAgentTools, readAppTools, showAgentTools, showApp } from "./apps/api";
 import { agentPage, changeAgent, createAgent, deleteAgent, listAgents, removeAgentAvatar, showAgent, tryAgent } from "./assistant/agents";
 import {
   addAssistantModel,
@@ -1108,6 +1108,9 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (agentAvatar && request.method === "DELETE") return () => removeAgentAvatar(request, env, agentAvatar[1]!);
   const agentTrials = pathname.match(/^\/api\/account\/agents\/([^/]+)\/trials$/);
   if (agentTrials && request.method === "POST") return () => tryAgent(request, env, agentTrials[1]!);
+  const agentTools = pathname.match(/^\/api\/account\/agents\/([^/]+)\/tools$/);
+  if (agentTools && request.method === "GET") return () => showAgentTools(request, env, agentTools[1]!);
+  if (agentTools && request.method === "PUT") return () => pickAgentTools(request, env, agentTools[1]!);
   if (pathname === "/api/account/apps" && request.method === "GET") return () => listApps(request, env);
   if (pathname === "/api/account/apps" && request.method === "POST") return () => connectApp(request, env);
   const app = pathname.match(/^\/api\/account\/apps\/([^/]+)$/);

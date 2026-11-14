@@ -21,7 +21,7 @@ Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, wh
 room's change log, its log of messages for the search index, its recent deletions and its files, and
 `workspace` for the workspace-wide tables (the account, people, sessions, linked accounts, push
 subscriptions, webhooks, bans, recent searches, rooms, memberships, stars, pending revocations,
-purges and reindexes, the rooms deleted, and the apps connected). On DO SQLite, an object applies only its own scope's
+purges and reindexes, the rooms deleted, the apps connected, and the tools picked for each agent). On DO SQLite, an object applies only its own scope's
 files, so a room's storage never holds workspace tables. Wrangler applies every file to D1, where
 all the tables share one database and each room's rows carry its `room_id`. The search index's
 schema is in `apps/worker/search-migrations/`, which only the index applies, listed in
@@ -32,7 +32,7 @@ So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
 `bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`,
 `memberships`, `favorites`, `pending_revocations`, `pending_purges`, `pending_reindexes`,
-`deleted_rooms` and `apps`, and the search index keeps `search_messages`, `search_mentions`, `search_rooms` and the
+`deleted_rooms`, `apps` and `agent_tools`, and the search index keeps `search_messages`, `search_mentions`, `search_rooms` and the
 FTS5 table `search_index`. A room's id also
 names its Durable Object, and the Worker asks the Workspace whether someone is a member before it
 wakes the room for their socket. First run creates the account and its administrator, who signs in

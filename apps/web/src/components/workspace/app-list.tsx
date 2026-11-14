@@ -15,7 +15,7 @@ import { ROUND_BUTTON } from "./link-buttons";
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
 /** What the card says of apps. */
-export const APPS_EXPLAINED = `Connect another service by the address of its MCP server, and Ember reads the tools it offers. Agents can't use them yet. You can connect up to ${MAX_APPS}.`;
+export const APPS_EXPLAINED = `Connect another service by the address of its MCP server, and Ember reads the tools it offers, which you pick for @ember and for each agent on its page. Agents can't call them yet. You can connect up to ${MAX_APPS}.`;
 
 /** What the card says in place of its list, with no app connected. */
 export const NO_APPS = "No apps are connected yet.";

@@ -2424,6 +2424,13 @@ export interface AppChange {
   now: string;
 }
 
+/** A connected app's tool as it was picked for an agent: its app, its name there, and its fingerprint then. */
+export interface StoredToolPick {
+  appId: AppId;
+  name: string;
+  fingerprint: string;
+}
+
 interface AppRow {
   id: AppId;
   name: string;
@@ -2437,9 +2444,11 @@ interface AppRow {
   connected_by_name: string | null;
 }
 
-const APP = `SELECT apps.id, apps.name, apps.url, apps.token, apps.server_name, apps.tools, apps.tools_left_out, apps.tools_read_at,
+const APPS = `SELECT apps.id, apps.name, apps.url, apps.token, apps.server_name, apps.tools, apps.tools_left_out, apps.tools_read_at,
   users.id AS connected_by_id, users.name AS connected_by_name
-  FROM apps LEFT JOIN users ON users.id = apps.created_by WHERE apps.id = ?`;
+  FROM apps LEFT JOIN users ON users.id = apps.created_by`;
+
+const APP = `${APPS} WHERE apps.id = ?`;
 
 /** A connected app as `APP` reads it. */
 const storedApp = (row: AppRow): StoredApp => ({
@@ -3783,12 +3792,14 @@ export class WorkspaceStore {
   }
 
   /**
-   * Deletes agent `agentId`, in one batch: forgets what made it an agent, takes it out of every room but
-   * its DMs, and deactivates it, recording when, as deleting a bot does. Its messages and avatar stay.
+   * Deletes agent `agentId`, in one batch: forgets what made it an agent and the tools picked for it,
+   * takes it out of every room but its DMs, and deactivates it, recording when, as deleting a bot does.
+   * Its messages and avatar stay.
    */
   async deleteAgent(agentId: UserId, now: string): Promise<void> {
     await this.db.batch([
       statement(`DELETE FROM agents WHERE user_id = ?`, agentId),
+      statement(`DELETE FROM agent_tools WHERE agent_id = ?`, agentId),
       statement(LEAVE_SHARED_ROOMS, agentId),
       statement(`UPDATE users SET status = ${DEACTIVATED}, updated_at = ? WHERE id = ? AND status = ${ACTIVE}`, now, agentId),
     ]);
@@ -3800,6 +3811,30 @@ export class WorkspaceStore {
       `SELECT id, name, url, json_array_length(tools) AS tool_count FROM apps ORDER BY name COLLATE NOCASE, id`,
     );
     return rows.map(({ id, name, url, tool_count }) => ({ id, name, url, toolCount: tool_count }));
+  }
+
+  /** Every connected app, by name, with its sealed token and the tools read from it. */
+  async apps(): Promise<StoredApp[]> {
+    const rows = await this.db.all<AppRow>(`${APPS} ORDER BY apps.name COLLATE NOCASE, apps.id`);
+    return rows.map(storedApp);
+  }
+
+  /** The tools picked for the agent `agentId`, @ember or an agent, as they were picked. */
+  async toolPicks(agentId: UserId): Promise<StoredToolPick[]> {
+    const [row] = await this.db.all<{ tools: string }>(`SELECT tools FROM agent_tools WHERE agent_id = ?`, agentId);
+    return row ? (JSON.parse(row.tools) as StoredToolPick[]) : [];
+  }
+
+  /** Has `picks` be every tool the agent `agentId` may use, picked by `pickedBy`. */
+  async pickTools(agentId: UserId, picks: StoredToolPick[], pickedBy: UserId, now: string): Promise<void> {
+    await this.db.run(
+      `INSERT INTO agent_tools (agent_id, tools, updated_by, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT (agent_id) DO UPDATE SET tools = excluded.tools, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+      agentId,
+      JSON.stringify(picks),
+      pickedBy,
+      now,
+    );
   }
 
   /** How many apps are connected. */

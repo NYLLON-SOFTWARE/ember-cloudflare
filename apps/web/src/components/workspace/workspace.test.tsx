@@ -2117,6 +2117,9 @@ describe("Agent pages", () => {
       "GET /api/account/agents": () => Response.json({ agents: [recap] }),
       "GET /api/account/apps": () => Response.json({ apps: [{ id: linear.id, name: linear.name, url: linear.url, toolCount: linear.tools.length }] }),
       "POST /api/account/assistant/offered": () => Response.json(SHIPPED_MODELS),
+      // The Tools card of each agent's page.
+      "GET /api/account/agents/a1/tools": () => Response.json({ apps: [] }),
+      "GET /api/account/agents/ember/tools": () => Response.json({ apps: [] }),
       ...responses,
     });
   const sectionMarked = () => within(screen.getByRole("navigation", { name: "Community settings" })).getByRole("link", { current: "page" });

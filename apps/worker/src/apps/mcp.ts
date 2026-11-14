@@ -1,4 +1,4 @@
-import { Client, SdkError, SdkErrorCode, SdkHttpError, StreamableHTTPClientTransport, UnauthorizedError } from "@modelcontextprotocol/client";
+import { Client, InsufficientScopeError, SdkError, SdkErrorCode, SdkHttpError, StreamableHTTPClientTransport, UnauthorizedError } from "@modelcontextprotocol/client";
 import { MAX_APP_TOOLS, MAX_TOOL_DESCRIPTION_LENGTH, type AppRefused } from "@ember/protocol/apps";
 import { toHex } from "../encoding";
 import { isLoopback } from "../loopback";
@@ -197,6 +197,8 @@ function whyUnread(address: URL, token: string | null, error: unknown, held: Hel
   console.error(`Reading the tools of the app at ${host} failed${status === null ? "" : ` with ${status}`}: ${kind}`);
   if (held.bytesLeft < 0) return { error: saidTooMuch(host), field: "url" };
   if (held.deadline.aborted) return { error: tookTooLong(host), field: "url" };
+  // A token that opens the server but not what was asked of it: the client has no status for that refusal.
+  if (error instanceof InsufficientScopeError) return { error: `${host} took that token, but says it doesn't allow this. Give one that does.`, field: "token" };
   if (error instanceof UnauthorizedError || status === 401 || status === 403) {
     return token === null
       ? { error: `${host} asks for a sign-in. Give a token for it, if it has one: Ember can't sign in to an app any other way yet.`, field: "token" }

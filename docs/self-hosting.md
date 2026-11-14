@@ -874,8 +874,9 @@ said on its field, in words about what the server did: it asked for a sign-in, d
 has no MCP server there, sent the address on to another, took longer than 20 seconds, or answered
 with more than 4 MB.
 
-This release connects apps and reads their tools. Agents can't use them yet, and a server that signs
-people in with OAuth can't be connected, only one that takes a token or nothing.
+This release connects apps, reads their tools, and has an administrator pick the tools each agent may
+use. Agents can't call them yet, and a server that signs people in with OAuth can't be connected, only
+one that takes a token or nothing.
 
 - **The address** is an `https` one, or `http` on `localhost`, for a server you're developing, with no
   name and password in it. Ember asks only that address: it follows no redirect, and it looks the name
@@ -892,6 +893,14 @@ people in with OAuth can't be connected, only one that takes a token or nothing.
   server again, and leaves the app as it was if the server doesn't answer.
 - **Remove app** forgets the app, its token and its tools. Up to 10 apps can be connected, and they're
   kept while Ember AI is off.
+- **An agent's tools** are picked on its page, and @ember's on its own, in the **Tools** card: every
+  connected app's tools, by app, each with a checkbox, up to 20 an agent. A pick is saved as it's made.
+  An agent is given nothing that isn't picked for it, and anyone who can ask the agent could have it
+  use what is, with the token its app was connected with, so pick for the rooms the agent is in. Ember
+  keeps each pick with the tool as its server described it then: when Ember reads the app's tools again
+  and the server describes one another way, in its name, title, description or what it takes, that
+  tool is set aside for every agent that had it, and its page says so, until an administrator picks it
+  again. Removing an app takes its tools from every agent.
 
 Reading an app's tools runs in a Durable Object of its own, `AppConnector`, apart from the rooms and
 the workspace, with the protocol's own client, pinned to one version. Only JSON comes back, and none

@@ -93,7 +93,7 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol";
 import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTrial, AgentTrialAnswer, NewAgent } from "@ember/protocol/agents";
-import type { App, AppAnswer, AppChanges, AppId, Apps, AppSummary, NewApp } from "@ember/protocol/apps";
+import type { AgentToolPicks, AgentTools, App, AppAnswer, AppChanges, AppId, Apps, AppSummary, NewApp, OfferedApp, ToolPick } from "@ember/protocol/apps";
 import type { LogoVariants } from "@/lib/previews";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and socket,
@@ -699,6 +699,24 @@ export async function changeApp(appId: AppId, changes: AppChanges): Promise<App>
 /** Reads app `appId`'s tools from its server again, answering it as its page then shows it. Fails as `fetchApp` does, and with a 422 ApiError when its server doesn't answer as one does. */
 export async function readAppTools(appId: AppId): Promise<App> {
   return (await request<AppAnswer>(`/api/account/apps/${encodeURIComponent(appId)}/tools`, { method: "POST" })).app;
+}
+
+/**
+ * Every connected app's tools as the page of `agentId`, @ember or an agent, offers them, with which it
+ * may use. Fails as `fetchApps` does, and with a 404 ApiError for an id that isn't @ember's or an agent's.
+ */
+export async function fetchAgentTools(agentId: UserId): Promise<OfferedApp[]> {
+  return (await request<AgentTools>(`/api/account/agents/${encodeURIComponent(agentId)}/tools`)).apps;
+}
+
+/**
+ * Has `tools` be every tool `agentId` may use from then on, answering what its page then offers. Fails
+ * as `fetchAgentTools` does, with a 422 ApiError for more than an agent uses, and with a 409 for a tool
+ * that isn't a connected app's any more.
+ */
+export async function pickAgentTools(agentId: UserId, tools: ToolPick[]): Promise<OfferedApp[]> {
+  const picks: AgentToolPicks = { tools };
+  return (await request<AgentTools>(`/api/account/agents/${encodeURIComponent(agentId)}/tools`, { method: "PUT", body: JSON.stringify(picks) })).apps;
 }
 
 /** Disconnects app `appId`. Fails as `fetchApp` does. */

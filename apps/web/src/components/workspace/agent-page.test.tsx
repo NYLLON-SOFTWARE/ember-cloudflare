@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,6 +25,7 @@ import { ApiError } from "@/lib/api";
 import { dateLabel } from "@/lib/messages";
 import { AGENTS_PATH } from "./agent-list";
 import { AGENT_CHANGES, AGENT_EXPLAINED, AgentSettingsPage, cannotSearch, CONFIRM_DELETE_AGENT, INSTRUCTIONS_EXPLAINED, NewAgentPage, tryExplained } from "./agent-page";
+import { toolsExplained } from "./agent-tools";
 import { searchingWith } from "./ember-settings";
 import { cautionFor, PLACEHOLDER_MEANINGS } from "./prompt-preview";
 
@@ -123,6 +124,9 @@ function serve({
         return offered();
       case `GET /api/account/agents/${RECAP.id}`:
         return loaded();
+      // The Tools card's, which has tests of its own.
+      case `GET /api/account/agents/${RECAP.id}/tools`:
+        return Response.json({ apps: [] });
       case "POST /api/account/agents/trials":
       case `POST /api/account/agents/${RECAP.id}/trials`:
         return tried();
@@ -685,6 +689,18 @@ describe("What Ember adds around them", () => {
 });
 
 describe("An agent's settings", () => {
+  it("has the Tools card, for the agent by its name, which a new agent's page doesn't have until it's saved", async () => {
+    showSettings();
+    await loaded();
+    expect(await screen.findByRole("region", { name: "Tools" })).toHaveTextContent(toolsExplained("Recap"));
+    expect(requests().map(([request]) => request)).toContain(`GET /api/account/agents/${RECAP.id}/tools`);
+
+    cleanup();
+    showNewAgent();
+    await screen.findByRole("heading", { level: 1, name: "New agent" });
+    expect(screen.queryByRole("region", { name: "Tools" })).toBeNull();
+  });
+
   it("shows the agent as it's saved, titled Edit agent, with who last changed it, and Delete agent", async () => {
     showSettings();
     expect(document.title).toBe("Edit agent");
