@@ -1,4 +1,4 @@
-import { MAX_PINS, PINS_FULL, type ServerFrame } from "@ember/protocol";
+import { MAX_PINS, PINS_FULL, ROOM_PROTOCOL, type ServerFrame } from "@ember/protocol";
 import { describe, expect, it } from "vitest";
 import { api, connect, forwardUpgrade, freshRoom, framesOf, post, settle, signIn } from "./support";
 
@@ -115,6 +115,25 @@ describe("Pin a message", () => {
 
     ada.send({ type: "pin.create", messageId: parent.id });
     expect((await ada.next("error")).message).toBe("That message no longer exists");
+  });
+});
+
+describe("What a tab running the app from before the pins hears", () => {
+  it("hears that Ember has been updated at once, and none of the room's pin frames", async () => {
+    const room = await freshRoom("pin-outdated");
+    const ada = await connect(room, "Ada");
+    // The app before the pins named revision 4, as a tab still running it does.
+    const old = await connect(room, "Grace", ROOM_PROTOCOL - 1);
+    expect(await old.next("error")).toEqual({ type: "error", message: "Ember has been updated. Reload the page to keep chatting." });
+
+    const message = await post(ada, "Pinned while Grace was away");
+    ada.send({ type: "pin.create", messageId: message.id });
+    await ada.next("pin.created");
+    ada.send({ type: "pin.delete", messageId: message.id });
+    await ada.next("pin.deleted");
+    await settle(old);
+    expect(old.pending("pin.created")).toEqual([]);
+    expect(old.pending("pin.deleted")).toEqual([]);
   });
 });
 
