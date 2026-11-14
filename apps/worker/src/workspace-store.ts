@@ -39,6 +39,7 @@ import {
   type RoomId,
   type RoomKind,
   type RoomSettings,
+  type SavedMessage,
   type Search,
   type SharedRoom,
   type SidebarRoom,
@@ -2307,6 +2308,30 @@ const TRIM_PUSH_SUBSCRIPTIONS = `DELETE FROM push_subscriptions WHERE user_id = 
 const FORGET_SESSION_PUSH_ENDPOINT = `DELETE FROM push_subscriptions
   WHERE user_id = (SELECT user_id FROM sessions WHERE token_digest = ?1) AND endpoint = ?2`;
 
+/**
+ * Saves a message for later for someone, unless they have it saved already, which the WHERE leaves
+ * alone. In one batch with the count of what it added, since the two read each other's writes and D1
+ * has no other kind of transaction.
+ */
+const SAVE_MESSAGE = `INSERT INTO saves (id, user_id, room_id, message_id, created_at)
+  SELECT ?1, ?2, ?3, ?4, ?5
+  WHERE NOT EXISTS (SELECT 1 FROM saves WHERE user_id = ?2 AND room_id = ?3 AND message_id = ?4)`;
+
+/** How many rows the statement before it added: 1 when it saved the message, 0 when it was saved already. */
+const SAVE_MESSAGE_COUNT = `SELECT changes() AS inserted`;
+
+/** Someone's saves, newest save first, as the index on (user_id, created_at) reads them. */
+const SAVES_FOR_USER = `SELECT id, room_id, message_id, created_at FROM saves WHERE user_id = ? ORDER BY created_at DESC`;
+
+/** Deletes someone's save ?2, if it's theirs. */
+const FORGET_SAVE = `DELETE FROM saves WHERE id = ?1 AND user_id = ?2`;
+
+/** The number of rows the statement before it deleted. */
+const FORGET_SAVE_COUNT = `SELECT changes() AS gone`;
+
+/** Deletes the saves `ids` name, which an answer about someone's saves has dropped: the messages are gone, or their rooms are. */
+const FORGET_SAVES = `DELETE FROM saves WHERE id IN (SELECT value FROM json_each(?))`;
+
 /** Gives someone a role and records when. */
 const CHANGE_ROLE = `UPDATE users SET role = ?, updated_at = ? WHERE id = ?`;
 
@@ -3945,6 +3970,36 @@ export class WorkspaceStore {
   /** Lifts the hush on someone's push notifications, taking their row away. */
   async clearDnd(userId: UserId): Promise<void> {
     await this.db.run(CLEAR_DND, userId);
+   * Saves the message `messageId` of room `roomId` for later for someone, answering the save, or null
+   * once they have it saved already. The insert and its count run as one batch, so two asks at once
+   * save it once.
+   */
+  async saveMessage(userId: UserId, roomId: RoomId, messageId: string, now: number): Promise<SavedMessage | null> {
+    const id = crypto.randomUUID();
+    // The insert's own cursor has no rows; the count's has the one.
+    const [, [{ inserted }]] = (await this.db.batch([
+      statement(SAVE_MESSAGE, id, userId, roomId, messageId, now),
+      statement(SAVE_MESSAGE_COUNT),
+    ])) as [[], [{ inserted: number }]];
+    return inserted === 1 ? { id, roomId, messageId, createdAt: now } : null;
+  }
+
+  /** The messages someone has saved for later, newest save first. */
+  async savesOf(userId: UserId): Promise<SavedMessage[]> {
+    const rows = await this.db.all<{ id: string; room_id: RoomId; message_id: string; created_at: number }>(SAVES_FOR_USER, userId);
+    return rows.map(({ id, room_id, message_id, created_at }) => ({ id, roomId: room_id, messageId: message_id, createdAt: created_at }));
+  }
+
+  /** Deletes someone's save `id`, answering whether it was theirs to forget. */
+  async forgetSave(userId: UserId, id: string): Promise<boolean> {
+    const [, [{ gone }]] = (await this.db.batch([statement(FORGET_SAVE, id, userId), statement(FORGET_SAVE_COUNT)])) as [[], [{ gone: number }]];
+    return gone === 1;
+  }
+
+  /** Forgets the saves with `ids`, whose messages are gone or whose rooms their person can no longer see. */
+  async forgetSaves(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    await this.db.run(FORGET_SAVES, JSON.stringify(ids));
   }
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
