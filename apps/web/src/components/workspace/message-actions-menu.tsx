@@ -15,12 +15,13 @@ import {
 } from "react";
 import { QUICK_REACTION_COUNT, REACTIONS, type Message, type StoredFile } from "@ember/protocol";
 import type { DisplayNode } from "@ember/richtext/dom";
-import { ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, Pin, QuoteMessage, ShareAndroid, Timer, Trash } from "@/components/icons/iconoir";
+import { Bookmark, ChatPlusIn, Copy, Download, Edit, Emoji, MessageText, MoreHoriz, Pin, QuoteMessage, ShareAndroid, Timer, Trash } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { ShareButton } from "@/components/share-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { mentionedPerson, PeopleContext, useNameOf, useNameOfGroup } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
+import { useSaver } from "@/hooks/use-saves";
 import { permalinkOf } from "@/hooks/use-route";
 import { copyWithSuccess } from "@/lib/clipboard";
 import { replyQuote } from "@/lib/messages";
@@ -102,7 +103,8 @@ export interface MessageActionsHandle {
  * shut, so Copy link keeps its color.
  *
  * With a mouse, Message options then opens More actions under the bar, as Slack's does: Pin to room, or
- * Unpin, Quote, Copy text, Copy link, and on messages you can change, Edit message and Delete message.
+ * Unpin, Save for later, Quote, Copy text, Copy link, and on messages you can change, Edit message and
+ * Delete message.
  */
 export function MessageActionsMenu({ message, nodes, row, threaded, editable, threadPath, pinned, onPin, onReact, onQuote, onEdit, onDelete, onNewBoost, ref }: Props) {
   const [open, setOpen] = useState(false);
@@ -133,6 +135,9 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   // What Copy text copies: the message's plain text, which holds a bot's cards' too. A file message has none
   // but its file's name.
   const text = message.attachment ? null : message.plainText;
+  // The message's save, when the workspace has heard of one, which More actions saves or forgets.
+  const saver = useSaver();
+  const savedHere = saver?.saveOf(message.id) ?? null;
 
   const show = (byHovering: boolean) => {
     hoverOpened.current = byHovering;
@@ -197,6 +202,14 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
     if (!confirm("Are you sure you want to delete this message?")) return;
     close();
     if (!onDelete()) trigger.current?.focus({ preventScroll: true });
+  };
+
+  // Save for later, or forget it again, closes the bar as the other items that act at once do.
+  const toggleSaved = () => {
+    if (!saver) return;
+    close();
+    if (savedHere) void saver.forget(savedHere.id);
+    else void saver.save(message.roomId, message.id);
   };
 
   const focusFirstReaction = () => {
@@ -518,6 +531,12 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
               <button type="button" className={ITEM} onClick={pin}>
                 <Pin />
                 {pinned ? "Unpin" : "Pin to room"}
+            {/* What the workspace keeps of someone's saves knows whether this message is one of them, so the
+                item saves it for later, or forgets it again. Where nobody's saves are kept, it's nothing. */}
+            {saver && (
+              <button type="button" aria-pressed={savedHere !== null} className={ITEM} onClick={toggleSaved}>
+                <Bookmark />
+                {savedHere ? "Saved" : "Save for later"}
               </button>
             )}
             {/* Quoting a file message would quote nothing, as its text is empty. */}

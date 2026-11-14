@@ -59,6 +59,9 @@ export interface ThreadPlace {
   direct: boolean;
 }
 
+/** Results can't be edited or replied to, so nothing opens an editor or writes in a composer. */
+export const NO_EDITORS: MessageEditors = { open() {}, close() {}, returnFocus() {}, attach() {}, reply() {} };
+
 interface Props {
   message: Message | PendingMessage;
   me: Me;
