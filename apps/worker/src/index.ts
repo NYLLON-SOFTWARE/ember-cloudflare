@@ -34,6 +34,8 @@ import {
   parseFavoriteOrder,
   parseInvolvementChange,
   parseMemberfulDisconnection,
+  parseGuestChange,
+  parseNewGuest,
   parseSharedOrder,
   parseNewDirect,
   parseNewRoom,
@@ -60,6 +62,7 @@ import {
   type Directory,
   type EmailSettings,
   type Favorites,
+  type GuestAnswer,
   type Involvement,
   type MemberfulConnection,
   type MemberfulStatus,
@@ -253,19 +256,22 @@ async function signInWithPassword({ emailAddress, password, returnTo }: Record<s
 }
 
 /**
- * Signs someone in with just a name, as someone new every time, when EMBER_GUEST_SIGN_IN allows it,
- * unless Memberful is members only, or the name is @ember's or an agent's.
+ * Signs someone in with just a name: one of the guests of one room, by the name their stay stays under,
+ * or, when EMBER_GUEST_SIGN_IN allows it, someone new every time. Memberful being members only answers
+ * 403, the name being @ember's or an agent's 422, and the name alone being turned off 403, which a name
+ * no stay stays under hears, as does a stay that ended as it signed them in.
  */
 async function signInGuest(given: unknown, request: Request, env: Env): Promise<Response> {
-  if (!guestSignIn(env)) return problem(403, "Signing in with just a name is turned off");
   const name = typeof given === "string" ? given.trim() : "";
   if (!name || name.length > MAX_NAME_LENGTH) return problem(422, `Name must be 1 to ${MAX_NAME_LENGTH} characters`);
   if (isReservedName(name)) return problem(422, NAME_RESERVED);
 
   const token = newSessionToken();
-  const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request));
+  const user = await workspace(env).signInGuest(name, await tokenDigest(token, env.SESSION_SECRET), clientOf(request), guestSignIn(env));
   if (user === "memberful") return problem(403, MEMBERFUL_SIGN_IN_NEEDED);
   if (user === "agent's name") return problem(422, agentsName(name));
+  if (user === "off") return problem(403, "Signing in with just a name is turned off");
+  if (user === "ended") return problem(403, "Your stay in this workspace has ended. Ask whoever added you for another.");
   return json({ user }, { status: 201, headers: { "Set-Cookie": sessionCookie(request, token) } });
 }
 
@@ -921,7 +927,9 @@ async function startDirect(request: Request, env: Env): Promise<Response> {
   const direct = parseNewDirect(await jsonBodyOf(request));
   if (typeof direct === "string") return problem(422, direct);
   const started = await workspace(env).startDirect(credentials, direct.userIds);
-  return started ? json({ room: started.room } satisfies StartedDirect, { status: started.started ? 201 : 200 }) : problem(401, "Not signed in");
+  if (!started) return problem(401, "Not signed in");
+  if (started === "forbidden") return problem(403, "You're a guest of one room, so direct messages aren't yours to start");
+  return json({ room: started.room } satisfies StartedDirect, { status: started.started ? 201 : 200 });
 }
 
 /** Who New room's forms list: everyone active, by name, for anyone who may create rooms. */
@@ -981,7 +989,63 @@ async function leaveRoom(request: Request, env: Env, roomId: RoomId): Promise<Re
   if (left === "not found") return problem(404, ROOM_NOT_FOUND);
   if (left === "open") return problem(403, "Everyone is in an open room, so nobody can leave it");
   if (left === "can change") return problem(403, "You can change this room, so take yourself out in its settings");
+  if (left === "guest") return problem(403, "You're a guest of this room, so only whoever added you can take you out");
   if (left === "last") return problem(403, "Nobody else could open this room, so you can't leave it");
+  return new Response(null, { status: 204 });
+}
+
+/**
+ * Adds a guest to a room, as its settings' guests panel asks: a name, and when their stay ends. 404
+ * unless whoever asks is in the room, 403 unless they can change it, 422 for a name it can't read, one
+ * of its guests stays under already, or a time that has passed, and 401 without a valid session.
+ */
+async function addGuest(request: Request, env: Env, roomId: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  if (!isRoomId(roomId)) return problem(400, "invalid room ID");
+  const stay = parseNewGuest(await jsonBodyOf(request));
+  if (typeof stay === "string") return problem(422, stay);
+  const guest = await workspace(env).addGuest(credentials, roomId, stay.name, stay.until);
+  if (!guest) return problem(401, "Not signed in");
+  if (guest === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (guest === "forbidden") return problem(403, "Only administrators and the room's creator can add guests to it");
+  if (guest === "agent's name") return problem(422, agentsName(stay.name));
+  if (guest === "taken") return problem(422, `${stay.name} is already one of this room's guests`);
+  if (guest === "passed") return problem(422, "Pick a time that hasn't passed yet");
+  return json({ guest } satisfies GuestAnswer, { status: 201 });
+}
+
+/**
+ * Extends the stay of a room's guest `userId`, as its settings' guests panel asks, answering the guest:
+ * 404 unless whoever asks can change the room and their stay is in it, 422 for a time that has passed,
+ * and 401 without a valid session.
+ */
+async function extendGuestStay(request: Request, env: Env, roomId: string, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  if (!isRoomId(roomId)) return problem(400, "invalid room ID");
+  const change = parseGuestChange(await jsonBodyOf(request));
+  if (typeof change === "string") return problem(422, change);
+  const guest = await workspace(env).extendGuestStay(credentials, roomId, userId, change.until);
+  if (!guest) return problem(401, "Not signed in");
+  if (guest === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (guest === "forbidden") return problem(403, "Only administrators and the room's creator can extend a guest's stay");
+  if (guest === "passed") return problem(422, "Pick a time that hasn't passed yet");
+  return json({ guest } satisfies GuestAnswer);
+}
+
+/**
+ * Ends the stay of a room's guest `userId`, as its settings' guests panel asks, answering 204: 404
+ * unless whoever asks can change the room and their stay is in it, and 401 without a valid session.
+ */
+async function endGuestStay(request: Request, env: Env, roomId: string, userId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  if (!isRoomId(roomId)) return problem(400, "invalid room ID");
+  const ended = await workspace(env).endGuestStay(credentials, roomId, userId);
+  if (!ended) return problem(401, "Not signed in");
+  if (ended === "not found") return problem(404, ROOM_NOT_FOUND);
+  if (ended === "forbidden") return problem(403, "Only administrators and the room's creator can end a guest's stay");
   return new Response(null, { status: 204 });
 }
 
@@ -1249,6 +1313,15 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
     return () => (isRoomId(involvement[1]!) ? setInvolvement(request, env, involvement[1]!) : problem(404, ROOM_NOT_FOUND));
   const membership = pathname.match(/^\/api\/rooms\/([^/]+)\/membership$/);
   if (membership && request.method === "DELETE") return () => (isRoomId(membership[1]!) ? leaveRoom(request, env, membership[1]!) : problem(404, ROOM_NOT_FOUND));
+  const guests = pathname.match(/^\/api\/rooms\/([^/]+)\/guests$/);
+  if (guests && request.method === "POST") return () => addGuest(request, env, guests[1]!);
+  const guest = pathname.match(/^\/api\/rooms\/([^/]+)\/guests\/([^/]+)$/);
+  // Guest ids are user ids, which never need percent-encoding, so an encoded segment names none.
+  if (guest) {
+    const [roomId, userId] = [guest[1]!, guest[2]!];
+    if (request.method === "PUT") return () => (isRoomId(roomId) ? extendGuestStay(request, env, roomId, userId) : problem(404, ROOM_NOT_FOUND));
+    if (request.method === "DELETE") return () => (isRoomId(roomId) ? endGuestStay(request, env, roomId, userId) : problem(404, ROOM_NOT_FOUND));
+  }
   const uploads = pathname.match(/^\/api\/rooms\/([^/]+)\/uploads$/);
   if (uploads && request.method === "POST") return () => (isRoomId(uploads[1]!) ? startUpload(request, env, uploads[1]!) : problem(404, ROOM_NOT_FOUND));
   // A file's key never needs percent-encoding either, so an encoded segment names no upload.
