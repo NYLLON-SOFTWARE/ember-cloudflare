@@ -12,6 +12,7 @@ import {
   type DirectoryUser,
   type MemberfulDisconnection,
   type MemberfulStatus,
+  type PersonMood,
   type Platform,
   type Profile,
   type ProfileAnswer,
@@ -1045,22 +1046,57 @@ describe("Your mood", () => {
     await waitFor(() => expect(field("Words")).toHaveValue("Sailing the seas"));
   });
 
-  it("keeps the mood it just saved when a save that read the older one answers after", async () => {
+  it("keeps the mood it just saved while its save is out and answers that read before it come, then shows a mood saved since", async () => {
+    const newer = { emoji: "🚀", text: "Sailing the seas", clearAt: null };
+    /** Each save of the profile answers when the test lets it, saying the mood it sent, if it sent one. */
+    const answers: Array<{ mood: PersonMood | null; resolve: (response: Response) => void }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = `${init?.method ?? "GET"} ${String(input)}`;
+      if (request === "GET /api/users/me/profile") return Response.json({ profile, transferId: LOADED_LINK } satisfies ProfileAnswer);
+      if (request === "PATCH /api/users/me/profile") {
+        const { mood } = JSON.parse(String(init?.body)) as ProfileChanges;
+        return new Promise((resolve) => answers.push({ mood: mood ?? null, resolve }));
+      }
+      throw new Error(`Unexpected request for ${request}`);
+    });
     const { user } = showPage();
     await loaded();
     await user.type(field("Emoji"), "😌");
     await user.type(field("Words"), "Pairing on the compiler");
     await user.selectOptions(field("Clear at"), "hour");
     await user.click(screen.getByRole("button", { name: "Save mood" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Changes saved");
-    expect(field("Clear at")).toHaveValue("hour");
 
-    // A save of the profile sent before the mood was, answering after it, says the mood it read.
-    serve({ saved: () => Response.json({ profile: { ...profile, name: "Ada King" }, transferId: SAVED_LINK } satisfies ProfileAnswer) });
+    // A save of the profile sent before the mood was answers first, saying the mood it read.
     await user.click(saveButton());
+    await waitFor(() => expect(answers).toHaveLength(2));
+    await act(async () => answers[1]!.resolve(Response.json({ profile: { ...profile, name: "Ada King" }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
     await waitFor(() => expect(field("Name")).toHaveValue("Ada King"));
     expect(field("Emoji")).toHaveValue("😌");
     expect(field("Words")).toHaveValue("Pairing on the compiler");
     expect(field("Clear at")).toHaveValue("hour");
+
+    // One that says the mood the save sent has the save echoed back in it, so an answer after it that
+    // says another mood is a change made since the save, as another tab's newer one, and shows.
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    await user.click(saveButton());
+    await waitFor(() => expect(answers).toHaveLength(3));
+    await act(async () =>
+      answers[2]!.resolve(Response.json({ profile: { ...profile, name: "Ada King", mood: answers[0]!.mood }, transferId: SAVED_LINK } satisfies ProfileAnswer)),
+    );
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+
+    // The mood's save answers itself, saying what it left the profile as.
+    await act(async () => answers[0]!.resolve(Response.json({ profile: { ...profile, name: "Ada King", mood: answers[0]!.mood }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(field("Emoji")).toHaveValue("😌");
+    expect(field("Words")).toHaveValue("Pairing on the compiler");
+    expect(field("Clear at")).toHaveValue("hour");
+
+    await user.click(saveButton());
+    await waitFor(() => expect(answers).toHaveLength(4));
+    await act(async () => answers[3]!.resolve(Response.json({ profile: { ...profile, name: "Ada King", mood: newer }, transferId: SAVED_LINK } satisfies ProfileAnswer)));
+    await waitFor(() => expect(field("Emoji")).toHaveValue("🚀"));
+    expect(field("Words")).toHaveValue("Sailing the seas");
+    expect(field("Clear at")).toHaveValue("never");
   });
 });

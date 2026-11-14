@@ -142,9 +142,11 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   /** The mood you wear beside your name, or null while you wear none. */
   const [mood, setMood] = useState<Profile["mood"]>(null);
   /**
-   * The mood this page last saved, once a save of it or its clearing has answered, and nothing before
-   * that: an answer that read the profile before the save says the mood it read, and would take the
-   * save off again, so it's only shown while it says the mood saved here.
+   * The mood a save of the mood section has sent, and nothing once its save has answered or an answer
+   * has said it: an answer that read the profile before the save says the mood it read, and would take
+   * the save off again, so while the save is out, answers saying another mood are held off, until one
+   * says the mood that was sent, which has the save echoed back in it, and answers after it that
+   * differ are changes made since the save, as another tab's newer save, and show.
    */
   const savedMood = useRef<PersonMood | null | undefined>(undefined);
   const [saving, setSaving] = useState(false);
@@ -198,9 +200,14 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
     const { memberful } = profile;
     setMemberful(disconnectedMemberful.current && memberful?.connected ? (memberful.membersOnly ? { membersOnly: true, connected: null } : null) : memberful);
     setMembershipNeeded(profile.membershipNeeded);
-    // A mood this page has saved answers for itself, so another answer shows the mood it read only
-    // while that's still the one saved here, as a field typed since keeps what was typed.
-    if (savedMood.current === undefined || sameMood(profile.mood, savedMood.current)) setMood(profile.mood);
+    // While a mood this page has sent is out for its save's answer, an answer saying another mood may
+    // be one that read the profile before the save, and is held off; one saying the mood that was sent
+    // has the save echoed back in it, so answers after it that differ are changes made since, as
+    // another tab's newer save, and show.
+    if (savedMood.current === undefined || sameMood(profile.mood, savedMood.current)) {
+      savedMood.current = undefined;
+      setMood(profile.mood);
+    }
     setTransferId(transferId);
   }
 
@@ -213,9 +220,21 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
 
   /** Shows your mood as a save of it or its clearing answered it, with the notice. */
   function answered(answer: ProfileAnswer) {
-    savedMood.current = answer.profile.mood;
+    // The save's own answer says the profile as the save left it, so the wait it armed is over.
+    savedMood.current = undefined;
     showAnswer(answer);
     flash("notice", "✓");
+  }
+
+  /** Arms the wait with the mood `worn` a save of the mood section has sent, or none, that answers before its own are held against. */
+  function savingMood(worn: PersonMood | null) {
+    savedMood.current = worn;
+  }
+
+  /** Says why saving the mood failed, letting answers through again, since nothing was saved for them to take off. */
+  function failedMood(error: unknown) {
+    savedMood.current = undefined;
+    onFailed(error);
   }
 
   /** Saves `file` as your avatar, once a photo is picked. */
@@ -391,7 +410,7 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
           </Field>
           <SubmitButton disabled={!fields || saving}>Save changes</SubmitButton>
         </form>
-        {fields !== null && <MoodEditor mood={mood} onSaved={answered} onFailed={onFailed} />}
+        {fields !== null && <MoodEditor mood={mood} onSaving={savingMood} onSaved={answered} onFailed={failedMood} />}
         {memberful && (
           <MemberfulConnection
             connected={memberful.connected}

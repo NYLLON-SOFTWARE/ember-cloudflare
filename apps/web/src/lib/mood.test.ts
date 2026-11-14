@@ -41,6 +41,13 @@ describe("Your mood", () => {
     expect(choiceOf(clearAtOf("today", late)!, new Date(2026, 9, 16, 0, 0, 30))).toBe("today");
   });
 
+  it("reads a week saved on a Saturday evening back as This week, and the hours as themselves, by a clock that sits on the Saturday", () => {
+    // Nine in the evening on Saturday, October 17th, 2026, the week's last day, when a week's clear
+    // time has fewer hours left to it than an In 4 hours' would.
+    const saturdayEvening = new Date(2026, 9, 17, 21, 0);
+    for (const choice of ["hour", "four", "today", "week"] as ClearChoice[]) expect(choiceOf(clearAtOf(choice, saturdayEvening)!, saturdayEvening)).toBe(choice);
+  });
+
   it("wears an hour or four as time itself, so a change to or from daylight saving time doesn't take one", () => {
     const shift = nextShift(Date.UTC(2026, 0, 1));
     // Where the clock never changes (UTC), the hours it counts and time itself agree.

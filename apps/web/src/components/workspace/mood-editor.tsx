@@ -13,6 +13,8 @@ import { NOTE, SELECT } from "./model-picker";
 interface Props {
   /** The mood you wear, or null while you wear none. */
   mood: PersonMood | null;
+  /** Says the mood `worn` a save of it is sending, or that a clearing is sending none, before its answer comes. */
+  onSaving: (worn: PersonMood | null) => void;
   /** Shows your mood as a save or its clearing answered it, flashing what they did. */
   onSaved: (answer: ProfileAnswer) => void;
   /** Says why saving failed, as the workspace's alerts do. */
@@ -38,7 +40,7 @@ const choiceOfClearAt = (mood: PersonMood | null): ClearChoice => {
  * Clear takes it off. Save mood wears what's typed, with the notice "✓", keeping the page. Another
  * tab's change replaces what's typed that shows it.
  */
-export function MoodEditor({ mood, onSaved, onFailed }: Props) {
+export function MoodEditor({ mood, onSaving, onSaved, onFailed }: Props) {
   const [emoji, setEmoji] = useState(mood?.emoji ?? "");
   const [text, setText] = useState(mood?.text ?? "");
   const [clearAt, setClearAt] = useState<ClearChoice>(choiceOfClearAt(mood));
@@ -75,6 +77,7 @@ export function MoodEditor({ mood, onSaved, onFailed }: Props) {
     const worn = moodOf(emoji, text, clearAt, new Date());
     if (!worn || saving) return;
     setSaving(true);
+    onSaving(worn);
     changeProfile({ mood: worn }).then(
       (answer) => mounted.current && settled(answer),
       (error: unknown) => {
@@ -88,6 +91,7 @@ export function MoodEditor({ mood, onSaved, onFailed }: Props) {
   const clear = () => {
     if (mood === null || saving) return;
     setSaving(true);
+    onSaving(null);
     changeProfile({ mood: null }).then(
       (answer) => mounted.current && settled(answer),
       (error: unknown) => {
