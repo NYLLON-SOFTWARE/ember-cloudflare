@@ -198,7 +198,7 @@ describe("Connecting an app", () => {
       signIn: null,
     });
     expect(await appOf(await show(administrator, app.id))).toEqual(app);
-    expect(((await (await listApps(administrator)).json()) as Apps).apps).toEqual([{ id: app.id, name: "Tracker", url: LOCAL, toolCount: 2, setAside: 0, signInEnded: false }]);
+    expect(((await (await listApps(administrator)).json()) as Apps).apps).toEqual([{ id: app.id, name: "Tracker", url: LOCAL, toolCount: 2, setAside: 0, signInEnded: false, wantsAccess: false }]);
 
     // Ember asks as the protocol has it, at the address it was given, and follows no redirect.
     expect(asked.filter(({ rpc }) => rpc !== undefined).map(({ rpc }) => rpc)).toEqual(["initialize", "notifications/initialized", "tools/list"]);

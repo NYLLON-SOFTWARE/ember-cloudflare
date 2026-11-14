@@ -8,6 +8,7 @@ import {
   OAuthErrorCode,
   refreshAuthorization,
   RegistrationRejectedError,
+  selectClientAuthMethod,
   StreamableHTTPClientTransport,
   type OAuthClientMetadata,
   type OAuthClientProvider,
@@ -20,6 +21,7 @@ import { toHex } from "../encoding";
 import { isLoopback } from "../loopback";
 import { checkHost, GuardError, resolveOverHttps } from "../unfurl/guard";
 import { VERSION } from "../version";
+import { scopesWith } from "./scopes";
 import { heldTo, READ_DEADLINE_MS, MAX_READ_BYTES, saidTooMuch, tookTooLong, type Held, type Send } from "./mcp";
 
 // Signing in to an app whose server asks for one, with OAuth as the Model Context Protocol has it
@@ -30,6 +32,8 @@ import { heldTo, READ_DEADLINE_MS, MAX_READ_BYTES, saidTooMuch, tookTooLong, typ
 // who Ember is from the document Ember serves, where it reads one, or else Ember registers itself.
 // Where it does neither, an administrator registers Ember there themselves, and gives Ember the client
 // ID they got, with its secret, if it has one, which Ember then proves itself with as well.
+// A server that refuses a call for want of a scope has that asked for at the next sign-in, with what
+// the last one had, and removing an app takes its tokens back at the service, where it says how.
 // Everything asked about a sign-in is asked the way an app's server is: over https, of names that
 // resolve only to public addresses, without following a redirect to another host, within one deadline.
 
@@ -42,13 +46,15 @@ const UNSAID_LIFETIME_MS = 60 * 60_000;
 const EARLY_MS = 60_000;
 /** The most characters of a sign-in Ember keeps: what was found of its authorization server makes most of it. */
 const MAX_SIGN_IN_LENGTH = 40_000;
+/** How long taking a sign-in's tokens back may take in all, which removing its app waits for. */
+const REVOKE_DEADLINE_MS = 10_000;
 
 /**
  * A sign-in to an app, as Ember keeps it, sealed: where its authorization server sends the browser
  * back, where Ember's client document is, if it serves one there, what was found of the authorization
  * server, who Ember is to it, and whether that's a client an administrator gave, `ownClient`, the
- * resource the tokens are for, the PKCE verifier of a sign-in that's under way, and, once it's done,
- * the tokens, with when the access token ends, if it does.
+ * resource the tokens are for, the PKCE verifier of a sign-in that's under way, with the scopes it
+ * asks for, if any, and, once it's done, the tokens, with when the access token ends, if it does.
  */
 export interface SignIn {
   redirectUrl: string;
@@ -58,6 +64,7 @@ export interface SignIn {
   ownClient?: true;
   resource?: string;
   codeVerifier?: string;
+  scopeAsked?: string;
   tokens?: { access: string; refresh: string | null; scope: string | null };
   expiresAt?: number | null;
 }
@@ -91,9 +98,17 @@ export const isDue = ({ expiresAt }: SignIn, now: number) => expiresAt != null &
  * Begins a sign-in to the app at `url`, for an administrator whose browser comes back to `redirectUrl`:
  * finds the server's authorization server, has it know Ember, as `client` when an administrator gave
  * one, and otherwise by Ember's client document at `clientUrl` where it reads one, or by registering,
- * and answers where to send the browser, or why Ember can't sign in there.
+ * and answers where to send the browser, or why Ember can't sign in there. The sign-in asks for what
+ * the server and its authorization server say to, and for the scopes of `more` besides, if there are any.
  */
-export async function startSignIn(url: string, redirectUrl: string, clientUrl: string | null, client: StoredOAuthClientInformation | null = null, send: Send = fetch): Promise<StartedSignIn | AppRefused> {
+export async function startSignIn(
+  url: string,
+  redirectUrl: string,
+  clientUrl: string | null,
+  client: StoredOAuthClientInformation | null = null,
+  more: string | null = null,
+  send: Send = fetch,
+): Promise<StartedSignIn | AppRefused> {
   const address = new URL(url);
   const held: Held = { deadline: AbortSignal.timeout(READ_DEADLINE_MS), bytesLeft: MAX_READ_BYTES };
   const guard = guarded(address, held, send);
@@ -105,6 +120,9 @@ export async function startSignIn(url: string, redirectUrl: string, clientUrl: s
     if (!authorizationUrl || !signIn.discovery?.authorizationServerMetadata) return noSignIn(address.host);
     // The browser is sent only where Ember itself would ask: not into whatever network the administrator is on.
     await guard.allows(authorizationUrl);
+    const asksFor = scopesWith(authorizationUrl.searchParams.get("scope"), more);
+    if (more !== null && asksFor !== null) authorizationUrl.searchParams.set("scope", asksFor);
+    if (asksFor !== null) signIn.scopeAsked = asksFor;
     if (JSON.stringify(signIn).length > MAX_SIGN_IN_LENGTH) return { error: saidTooMuch(address.host), field: "url" };
     return { authorizationUrl: authorizationUrl.href, state: session.stateId, signIn };
   } catch (error) {
@@ -133,8 +151,8 @@ export async function finishSignIn(url: string, signIn: SignIn, code: string, is
       resource,
       fetchFn: guarded(address, held, send).send,
     });
-    const { codeVerifier: _, ...kept } = signIn;
-    return signedIn(kept, tokens, address);
+    const { codeVerifier: _, scopeAsked, ...kept } = signIn;
+    return signedIn(kept, tokens, address, scopeAsked);
   } catch (error) {
     return whyNotFinished(address, error, held, signIn.ownClient === true);
   }
@@ -166,17 +184,66 @@ export async function refreshSignIn(url: string, signIn: SignIn, send: Send = fe
   }
 }
 
+/**
+ * Takes back what `signIn`, a sign-in to the app at `url`, gave Ember, at its authorization server,
+ * as RFC 7009 has it: the token to get another with, which ends the sign-in there, and the access
+ * token. Answers whether the service took each back, which it can't where it doesn't say how.
+ */
+export async function revokeSignIn(url: string, signIn: SignIn, send: Send = fetch): Promise<boolean> {
+  const address = new URL(url);
+  const held: Held = { deadline: AbortSignal.timeout(REVOKE_DEADLINE_MS), bytesLeft: MAX_READ_BYTES };
+  const { discovery, client, tokens } = signIn;
+  const metadata: Revocation | undefined = discovery?.authorizationServerMetadata;
+  const endpoint = metadata?.revocation_endpoint;
+  if (!metadata || !endpoint || !client || !tokens) return false;
+  const guard = guarded(address, held, send);
+  const methods = metadata.revocation_endpoint_auth_methods_supported ?? metadata.token_endpoint_auth_methods_supported ?? [];
+  const revoke = async (token: string, hint: "refresh_token" | "access_token") => {
+    const headers = new Headers({ "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" });
+    const form = new URLSearchParams({ token, token_type_hint: hint });
+    asClient(client, selectClientAuthMethod(client, methods), headers, form);
+    const answer = await guard.send(endpoint, { method: "POST", headers, body: form, signal: held.deadline });
+    await answer.body?.cancel();
+    return answer.ok;
+  };
+  try {
+    const revoked = tokens.refresh === null || (await revoke(tokens.refresh, "refresh_token"));
+    return (await revoke(tokens.access, "access_token")) && revoked;
+  } catch (error) {
+    logged("Taking back the sign-in to", address, error);
+    return false;
+  }
+}
+
+/** What an authorization server's description says of taking tokens back, where it says: OpenID's own, as the protocol's client reads it, never does. */
+interface Revocation {
+  revocation_endpoint?: string;
+  revocation_endpoint_auth_methods_supported?: string[];
+  token_endpoint_auth_methods_supported?: string[];
+}
+
+/** Has a request to an authorization server say it's from `client`, by `method`: its secret in a header or the form, or its ID alone. */
+function asClient(client: StoredOAuthClientInformation, method: ReturnType<typeof selectClientAuthMethod>, headers: Headers, form: URLSearchParams): void {
+  if (method === "client_secret_basic" && client.client_secret !== undefined) return headers.set("Authorization", `Basic ${btoa(`${client.client_id}:${client.client_secret}`)}`);
+  form.set("client_id", client.client_id);
+  if (method === "client_secret_post" && client.client_secret !== undefined) form.set("client_secret", client.client_secret);
+}
+
 /** What an authorization server answers once a sign-in is over: the token to get another with is no good, or Ember isn't its client any more. */
 const LAPSED: ReadonlySet<string> = new Set([OAuthErrorCode.InvalidGrant, OAuthErrorCode.InvalidClient, OAuthErrorCode.UnauthorizedClient]);
 
-/** `signIn` with the `tokens` its authorization server gave, or why Ember can't use them: it sends a token only as a bearer's. */
-function signedIn(signIn: SignIn, tokens: OAuthTokens, address: URL): SignedIn | AppRefused {
+/**
+ * `signIn` with the `tokens` its authorization server gave, or why Ember can't use them: it sends a
+ * token only as a bearer's. An authorization server that doesn't say which scopes its tokens allow
+ * has given what was asked for (RFC 6749, 5.1): `asked`, of a sign-in, or what the last tokens had.
+ */
+function signedIn(signIn: SignIn, tokens: OAuthTokens, address: URL, asked?: string): SignedIn | AppRefused {
   if (tokens.token_type.toLowerCase() !== "bearer") return { error: `${address.host} signs in with a kind of token Ember can't send.` };
   const refresh = tokens.refresh_token ?? null;
   const lasts = tokens.expires_in === undefined ? (refresh === null ? null : UNSAID_LIFETIME_MS) : tokens.expires_in * 1000;
   const kept: SignedIn = {
     ...signIn,
-    tokens: { access: tokens.access_token, refresh, scope: tokens.scope ?? signIn.tokens?.scope ?? null },
+    tokens: { access: tokens.access_token, refresh, scope: tokens.scope ?? asked ?? signIn.tokens?.scope ?? null },
     expiresAt: lasts === null ? null : Date.now() + lasts,
   };
   return JSON.stringify(kept).length > MAX_SIGN_IN_LENGTH ? { error: saidTooMuch(address.host) } : kept;

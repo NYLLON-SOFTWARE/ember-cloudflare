@@ -3,10 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { APPS_FULL, MAX_APPS, type AppSummary } from "@ember/protocol/apps";
 import { appSettingsPath, NEW_APP_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
-import { addressOf, AppList, APPS_EXPLAINED, NO_APPS, setAsideOf, SIGN_IN_ENDED, toolsOf } from "./app-list";
+import { addressOf, AppList, APPS_EXPLAINED, NO_APPS, setAsideOf, SIGN_IN_ENDED, toolsOf, WANTS_ACCESS } from "./app-list";
 
-const LINEAR: AppSummary = { id: "0mgk3x2a9b4c70", name: "Linear", url: "https://mcp.linear.example/mcp", toolCount: 23, setAside: 0, signInEnded: false };
-const NOTES: AppSummary = { id: "0mgk3x2a9b4c71", name: "Notes", url: "https://notes.example/", toolCount: 1, setAside: 0, signInEnded: false };
+const LINEAR: AppSummary = { id: "0mgk3x2a9b4c70", name: "Linear", url: "https://mcp.linear.example/mcp", toolCount: 23, setAside: 0, signInEnded: false, wantsAccess: false };
+const NOTES: AppSummary = { id: "0mgk3x2a9b4c71", name: "Notes", url: "https://notes.example/", toolCount: 1, setAside: 0, signInEnded: false, wantsAccess: false };
 
 /** Answers listing the apps with `apps`, or as `listed` says. */
 const serve = (listed: () => Response | Promise<Response> = () => Response.json({ apps: [LINEAR, NOTES] })) =>
@@ -59,6 +59,16 @@ describe("The Apps card", () => {
     const [linear, notes] = within(card()).getAllByRole("listitem");
     expect(linear).toHaveTextContent(SIGN_IN_ENDED);
     expect(notes).not.toHaveTextContent("sign-in");
+  });
+
+  it("says on an app's row that its server asks for more than its sign-in allows, unless the sign-in has ended, which says to sign in again already", async () => {
+    serve(() => Response.json({ apps: [{ ...LINEAR, wantsAccess: true }, { ...NOTES, wantsAccess: true, signInEnded: true }] }));
+    showList();
+    await loaded();
+    const [linear, notes] = within(card()).getAllByRole("listitem");
+    expect(linear).toHaveTextContent(WANTS_ACCESS);
+    expect(notes).toHaveTextContent(SIGN_IN_ENDED);
+    expect(notes).not.toHaveTextContent(WANTS_ACCESS);
   });
 
   it("says what apps are, with Connect an app, which goes to its page", async () => {

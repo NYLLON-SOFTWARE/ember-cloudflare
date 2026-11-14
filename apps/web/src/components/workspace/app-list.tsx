@@ -27,6 +27,9 @@ export const setAsideOf = (count: number) => (count === 1 ? "1 picked tool is se
 /** What a row says of an app whose sign-in has ended, which its page signs in to again. */
 export const SIGN_IN_ENDED = "Its sign-in has ended: sign in to it again on its page";
 
+/** What a row says of an app whose server asks for more than Ember's sign-in to it allows, which signing in again on its page asks for. */
+export const WANTS_ACCESS = "Its server asks for more than its sign-in allows: sign in to it again on its page";
+
 /** How many tools a row says Ember read from an app. */
 export const toolsOf = (count: number) => (count === 1 ? "1 tool" : `${count} tools`);
 
@@ -85,12 +88,13 @@ export function AppList({ onFailed }: Props) {
       {apps?.length === 0 && <p className={cn(NOTE, "rounded-[10px] border border-dashed border-muted-foreground px-[1ch] py-4 text-center")}>{NO_APPS}</p>}
       {apps !== null && apps.length > 0 && (
         <ul aria-labelledby="apps-heading" className="flex flex-col">
-          {apps.map(({ id, name, url, toolCount, setAside, signInEnded }) => (
+          {apps.map(({ id, name, url, toolCount, setAside, signInEnded, wantsAccess }) => (
             <li key={id} className="flex items-center gap-x-[1.5ch] border-t py-3 last:pb-0">
               <div className="min-w-0 flex-1">
                 <strong className="block truncate">{name}</strong>
                 <p className={cn(NOTE, "wrap-anywhere")}>{[addressOf(url), toolsOf(toolCount)].join(" · ")}</p>
                 {signInEnded && <p className={cn(NOTE, "text-negative")}>{SIGN_IN_ENDED}</p>}
+                {wantsAccess && !signInEnded && <p className={cn(NOTE, "text-negative")}>{WANTS_ACCESS}</p>}
                 {setAside > 0 && <p className={cn(NOTE, "text-negative")}>{setAsideOf(setAside)}</p>}
               </div>
               <PageLink href={appSettingsPath(id)} className={ROUND_BUTTON}>

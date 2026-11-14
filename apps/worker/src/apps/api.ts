@@ -16,6 +16,7 @@ import {
   type AppClient,
   type AppId,
   type AppRefused,
+  type AppRemoved,
   type Apps,
   type AppSignedIn,
   type AppSignInBegun,
@@ -110,7 +111,7 @@ export async function beginNewAppSignIn(request: Request, env: Env): Promise<Res
   if ("error" in client) return formAnswer(client, 422);
   const slot = await workspace(env).appSlot(credentials);
   if (slot !== true) return refused(slot);
-  return begunSignIn(request, env, credentials, { appId: null, name: app.name, url: app.url }, clientGiven(client, null));
+  return begunSignIn(request, env, credentials, { appId: null, name: app.name, url: app.url }, clientGiven(client, null), null);
 }
 
 /**
@@ -127,7 +128,7 @@ export async function beginAppSignIn(request: Request, env: Env, appId: AppId): 
   if (typeof target === "string") return refused(target);
   const client = parseAppClient((await jsonBodyOf(request)) ?? {});
   if ("error" in client) return formAnswer(client, 422);
-  return begunSignIn(request, env, credentials, { appId, name: target.name, url: target.url }, clientGiven(client, target.client));
+  return begunSignIn(request, env, credentials, { appId, name: target.name, url: target.url }, clientGiven(client, target.client), target.scope);
 }
 
 /**
@@ -143,10 +144,10 @@ function clientGiven({ clientId, clientSecret }: AppClient, kept: string | null)
 }
 
 /** Begins the sign-in to `app`'s server, as `client` if one's given, for whoever `credentials` signs in, whose browser comes back to where `request` came: where to send it, or why not. */
-async function begunSignIn(request: Request, env: Env, credentials: Credentials, app: Pick<BegunAppSignIn, "appId" | "name" | "url">, client: string | null): Promise<Response> {
+async function begunSignIn(request: Request, env: Env, credentials: Credentials, app: Pick<BegunAppSignIn, "appId" | "name" | "url">, client: string | null, more: string | null): Promise<Response> {
   const { origin, protocol } = urlOf(request);
   // An authorization server reads who Ember is only from an https address.
-  const begun = await appConnector(env).startSignIn(app.url, `${origin}${APP_SIGNED_IN_PATH}`, protocol === "https:" ? `${origin}${CLIENT_DOCUMENT_PATH}` : null, client);
+  const begun = await appConnector(env).startSignIn(app.url, `${origin}${APP_SIGNED_IN_PATH}`, protocol === "https:" ? `${origin}${CLIENT_DOCUMENT_PATH}` : null, client, more);
   if ("error" in begun) return formAnswer(begun, 422);
   const kept = await workspace(env).beginAppSignIn(credentials, { ...app, state: begun.state, signIn: begun.kept });
   if (kept !== true) return refused(kept);
@@ -231,14 +232,19 @@ export async function readAppTools(request: Request, env: Env, appId: AppId): Pr
   if (typeof access === "string") return refused(access);
   if (hasEnded(access)) return problem(422, signInEnded(access.name));
   const read = await appConnector(env).read(access.url, access.key, true);
-  if ("error" in read) return Response.json({ error: read.error, ...(read.signIn && { signIn: true }) } satisfies AppRefused, { status: 422 });
+  if ("error" in read) {
+    // What its server asked for beyond the sign-in is kept, for signing in again to ask for.
+    if (read.scope !== undefined) await ember.keepAppScopeWanted(appId, read.scope, access);
+    return Response.json({ error: read.error, ...(read.signIn && { signIn: true }) } satisfies AppRefused, { status: 422 });
+  }
   return appAnswer(await ember.changeApp(credentials, appId, {}, { read, askedAt: access }));
 }
 
-/** `DELETE /api/account/apps/:id`: disconnects the app `id`, answering 204. */
+/** `DELETE /api/account/apps/:id`: disconnects the app `id`, answering 204, or, for one Ember was signed in to, whether its service took the sign-in back. */
 export async function disconnectApp(request: Request, env: Env, appId: AppId): Promise<Response> {
   const credentials = await credentialsOf(request, env);
   const disconnected = credentials && (await workspace(env).disconnectApp(credentials, appId));
+  if (disconnected === "revoked" || disconnected === "unrevoked") return Response.json({ revoked: disconnected === "revoked" } satisfies AppRemoved);
   if (!disconnected || disconnected !== "disconnected") return refused(disconnected);
   return new Response(null, { status: 204 });
 }

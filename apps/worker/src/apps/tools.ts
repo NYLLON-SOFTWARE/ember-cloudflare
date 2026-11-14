@@ -68,8 +68,8 @@ const describedAs = ({ appName, title, description, alwaysAllowed }: PickedTool)
     .filter((line) => line !== "")
     .join("\n");
 
-/** Why a call the room was shown wasn't made after all: its server has changed the tool, or couldn't be asked for it. */
-export type Unmade = "changed" | "unasked";
+/** Why a call the room was shown wasn't made after all: its server has changed the tool, couldn't be asked for it, or refused it as more than Ember's sign-in allows. */
+export type Unmade = "changed" | "unasked" | "refused";
 
 /** A call the room was shown, which it's told wasn't made after all, and why, with `unmade`. */
 export interface ShownCall {
@@ -106,6 +106,9 @@ export const hasEnded = (access: Pick<AppCallAccess, "signedIn" | "key">) => acc
 /** What's said of an app whose sign-in has ended, to a model whose call of its tool isn't made, and to an administrator who has its tools read. */
 export const signInEnded = (appName: string) => `Ember's sign-in to ${appName} has ended. An administrator has to sign in to it again, on its page.`;
 
+/** What's said to a model of a call an app's server refused as more than Ember's sign-in to it allows, which signing in again asks for. */
+export const wantsMoreAccess = (appName: string) => `${appName} says this takes more access than Ember's sign-in to it has. An administrator has to sign in to it again, on its page, to allow it.`;
+
 /** What a model is told of a call made without asking first that the room couldn't be shown. */
 export const CALL_NOT_SHOWN = "Not run: the room couldn't be shown this call, and a call nobody is shown isn't made.";
 
@@ -115,7 +118,9 @@ export const CALL_NOT_SHOWN = "Not run: the room couldn't be shown this call, an
  * the model to read. The Workspace says where it goes, as it finds the tool then: one no longer picked
  * for the agent, changed since, or, with nobody asked, no longer always allowed, isn't called, and
  * neither is one the room can't be shown, or one of an app whose sign-in has ended. A call shown that
- * then isn't made, as its tool is found changed or its server can't be asked, has the room told so.
+ * then isn't made, as its tool is found changed, its server can't be asked, or its server refuses it as
+ * more than Ember's sign-in allows, has the room told so, and why. One refused so has the Workspace
+ * keep what its server asked for, for an administrator to sign in again with.
  */
 async function called(env: Env, agentId: UserId, tool: GivenTool, input: Record<string, unknown>, shown?: ShowsCall): Promise<string> {
   const access = await workspace(env).appToolCall(agentId, tool, shown !== undefined);
@@ -126,8 +131,9 @@ async function called(env: Env, agentId: UserId, tool: GivenTool, input: Record<
     console.error(`A call of the tool ${tool.name} of app ${tool.appId} wasn't made, as the room couldn't be shown it: ${shownCall}`);
     throw new ToolError(CALL_NOT_SHOWN);
   }
-  const { text, failed, unmade, changed } = await appConnector(env).call(access.url, access.key, { name: tool.name, fingerprint: tool.fingerprint }, input);
-  await Promise.all([changed && readAgain(env, tool, access), unmade && shownCall?.unmade(changed ? "changed" : "unasked")]);
+  const { text, failed, unmade, changed, scope } = await appConnector(env).call(access.url, access.key, { name: tool.name, fingerprint: tool.fingerprint }, input);
+  await Promise.all([changed && readAgain(env, tool, access), scope !== undefined && wantsScope(env, tool, scope, access), unmade && shownCall?.unmade(changed ? "changed" : scope !== undefined ? "refused" : "unasked")]);
+  if (scope !== undefined) throw new ToolError(`Not run: ${wantsMoreAccess(tool.appName)}`);
   if (failed) throw new ToolError(text);
   return text;
 }
@@ -144,6 +150,15 @@ async function readAgain(env: Env, tool: GivenTool, access: AppCallAccess): Prom
     if (!("error" in read)) await workspace(env).keepAppRead(tool.appId, read, access);
   } catch (error) {
     console.error(`Reading the tools of app ${tool.appId} again, after a call found one changed, failed: ${error instanceof Error ? error.name : "unknown error"}`);
+  }
+}
+
+/** Has the Workspace keep the `scope` that `tool`'s app, asked as `access` has it, refused a call for want of. A Workspace that can't be told leaves the call refused all the same. */
+async function wantsScope(env: Env, tool: GivenTool, scope: string, access: AppCallAccess): Promise<void> {
+  try {
+    await workspace(env).keepAppScopeWanted(tool.appId, scope, access);
+  } catch (error) {
+    console.error(`Keeping what app ${tool.appId} asked for beyond its sign-in failed: ${error instanceof Error ? error.name : "unknown error"}`);
   }
 }
 
@@ -201,11 +216,13 @@ export function callCard(botName: string, askerName: string, tool: GivenTool, in
 /** What the card of a call made without asking first says of why it was. */
 export const alwaysAllowedFor = (botName: string) => `An administrator always allows ${botName} this tool, so nobody was asked first.`;
 
-/** What the card of a call made without asking first says once the call wasn't made after all: it found its tool changed, or couldn't ask its server for it. */
+/** What the card of a call made without asking first says once the call wasn't made after all: it found its tool changed, couldn't ask its server for it, or was refused for want of access. */
 export const unmadeFor = (botName: string, appName: string, why: Unmade = "changed") =>
   why === "changed"
     ? `Not run: ${appName} has changed this tool since an administrator picked it for ${botName}, who is without it until one picks it again.`
-    : `Not run: Ember couldn't get through to ${appName} to make this call.`;
+    : why === "refused"
+      ? `Not run: ${wantsMoreAccess(appName)}`
+      : `Not run: Ember couldn't get through to ${appName} to make this call.`;
 
 /**
  * The card a room posts for a call made without asking first, as the agent's calls of the tool are

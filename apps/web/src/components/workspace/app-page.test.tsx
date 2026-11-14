@@ -22,6 +22,7 @@ import {
   NO_TOOLS,
   READING_TOOLS,
   REDIRECT_EXPLAINED,
+  removedNotice,
   SET_ASIDE_EXPLAINED,
   SIGN_IN_EXPLAINED,
   SIGN_IN_HAS_ENDED,
@@ -32,6 +33,7 @@ import {
   TOOL_IS_GONE,
   toolsLeftOut,
   URL_EXPLAINED,
+  wantsMore,
 } from "./app-page";
 import { CHANGES_SAVED } from "./settings-page";
 
@@ -58,7 +60,7 @@ const LINEAR: App = {
 };
 
 /** The app as it is once an administrator signed in to its server, in place of a token. */
-const SIGNED_IN: App = { ...LINEAR, hasToken: false, signIn: { by: { id: ada.id, name: ada.name }, at: "2026-11-14T08:00:00.000Z", ended: false, clientId: null } };
+const SIGNED_IN: App = { ...LINEAR, hasToken: false, signIn: { by: { id: ada.id, name: ada.name }, at: "2026-11-14T08:00:00.000Z", ended: false, clientId: null, wantsScope: null } };
 
 /** The app as it is once an administrator signed in to its server as a client they registered there. */
 const SIGNED_IN_AS_CLIENT: App = { ...SIGNED_IN, signIn: { ...SIGNED_IN.signIn!, clientId: "ember-at-linear" } };
@@ -361,6 +363,19 @@ describe("A connected app's page", () => {
     // Its name is still its administrators' to change.
     await user.type(await nameField(), " issues");
     expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+  });
+
+  it("says what an app's server has asked for beyond its sign-in, which Sign in again then asks for", async () => {
+    const requests = serve({ loaded: () => answer({ ...SIGNED_IN, signIn: { ...SIGNED_IN.signIn!, wantsScope: "issues:write projects:read" } }), sent: begun });
+    const { user } = showSettings();
+    await nameField();
+    const signIn = within(screen.getByRole("group", { name: "Sign-in" }));
+    expect(signIn.getByRole("alert")).toHaveTextContent(wantsMore("issues:write projects:read"));
+    expect(wantsMore("issues:write projects:read")).toContain("(issues:write, projects:read)");
+
+    await user.click(signIn.getByRole("button", { name: "Sign in again" }));
+    await waitFor(() => expect(openPage).toHaveBeenCalledWith(AUTHORIZE));
+    expect(requests).toEqual([{ request: SIGN_IN, body: undefined }]);
   });
 
   it("says a sign-in has ended, and signs in again by sending the browser where its server signs people in", async () => {
@@ -671,6 +686,27 @@ describe("A connected app's page", () => {
     await user.click(screen.getByRole("button", { name: "Remove Linear" }));
     await waitFor(() => expect(location.pathname + location.hash).toBe(AGENTS_PATH));
     expect(requests).toEqual([{ request: `DELETE /api/account/apps/${LINEAR.id}`, body: undefined }]);
+  });
+
+  it("says whether its service took back Ember's sign-in, once an app Ember was signed in to is removed", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    serve({ loaded: () => answer(SIGNED_IN), sent: () => Response.json({ revoked: true }) });
+    const { user } = showSettings();
+    await nameField();
+    await user.click(screen.getByRole("button", { name: "Remove Linear" }));
+    expect(await flashed()).toHaveTextContent("Linear is removed, and mcp.linear.example took back Ember's sign-in.");
+    expect(location.pathname + location.hash).toBe(AGENTS_PATH);
+  });
+
+  it("says to remove Ember's access at its service, once an app is removed whose service didn't take back Ember's sign-in", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    serve({ loaded: () => answer(SIGNED_IN), sent: () => Response.json({ revoked: false }) });
+    const { user } = showSettings();
+    await nameField();
+    await user.click(screen.getByRole("button", { name: "Remove Linear" }));
+    expect(await flashed()).toHaveTextContent(removedNotice("Linear", LINEAR.url, false));
+    expect(removedNotice("Linear", LINEAR.url, false)).toBe("Linear is removed. Ember couldn't take back its sign-in at mcp.linear.example, so remove Ember's access there.");
+    expect(location.pathname + location.hash).toBe(AGENTS_PATH);
   });
 
   it("shows the 404 page for an id that isn't a connected app's", async () => {

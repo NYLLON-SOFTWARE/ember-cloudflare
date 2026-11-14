@@ -2,8 +2,8 @@ import { DurableObject } from "cloudflare:workers";
 import type { StoredOAuthClientInformation } from "@modelcontextprotocol/client";
 import type { AppRefused } from "@ember/protocol/apps";
 import type { Env } from "../env";
-import { callApp, readApp, type CalledTool, type Key, type ReadApp, type ReadTool } from "./mcp";
-import { finishSignIn, refreshSignIn, startSignIn, type SignIn } from "./oauth";
+import { callApp, readApp, type CalledTool, type Key, type ReadApp, type ReadTool, type UnreadApp } from "./mcp";
+import { finishSignIn, refreshSignIn, revokeSignIn, startSignIn, type SignIn } from "./oauth";
 
 /**
  * Asks connected apps where there's CPU time for it, and subrequests of its own: reading what a server
@@ -20,7 +20,7 @@ export interface BegunSignIn {
 
 export class AppConnector extends DurableObject<Env> {
   /** `readApp`: the tools of the app at `url`, asked with `key`, or why Ember couldn't read them, which having none is unless it's a connected app's read `again`. */
-  read(url: string, key: Key | null, again = false): Promise<ReadApp | AppRefused> {
+  read(url: string, key: Key | null, again = false): Promise<ReadApp | UnreadApp> {
     return readApp(url, key, again);
   }
 
@@ -32,10 +32,11 @@ export class AppConnector extends DurableObject<Env> {
   /**
    * `startSignIn`: where to send an administrator's browser to sign in to the app at `url`, the state it
    * comes back to `redirectUrl` with, and what to keep of the sign-in until then, or why Ember can't
-   * sign in there. `client` is who Ember is there, as JSON, when an administrator gave that.
+   * sign in there. `client` is who Ember is there, as JSON, when an administrator gave that, and `more`
+   * the scopes to ask for besides those the sign-in asks for by itself, if there are any.
    */
-  async startSignIn(url: string, redirectUrl: string, clientUrl: string | null, client: string | null): Promise<BegunSignIn | AppRefused> {
-    const begun = await startSignIn(url, redirectUrl, clientUrl, client === null ? null : (JSON.parse(client) as StoredOAuthClientInformation));
+  async startSignIn(url: string, redirectUrl: string, clientUrl: string | null, client: string | null, more: string | null): Promise<BegunSignIn | AppRefused> {
+    const begun = await startSignIn(url, redirectUrl, clientUrl, client === null ? null : (JSON.parse(client) as StoredOAuthClientInformation), more);
     return "error" in begun ? begun : { authorizationUrl: begun.authorizationUrl, state: begun.state, kept: JSON.stringify(begun.signIn) };
   }
 
@@ -58,6 +59,11 @@ export class AppConnector extends DurableObject<Env> {
   async refreshSignIn(url: string, signIn: string): Promise<{ kept: string; token: string } | "lapsed" | "failed"> {
     const refreshed = await refreshSignIn(url, JSON.parse(signIn) as SignIn);
     return typeof refreshed === "string" ? refreshed : { kept: JSON.stringify(refreshed), token: refreshed.tokens.access };
+  }
+
+  /** `revokeSignIn`: whether the service of the app at `url` took back what `signIn` gave Ember. */
+  revokeSignIn(url: string, signIn: string): Promise<boolean> {
+    return revokeSignIn(url, JSON.parse(signIn) as SignIn);
   }
 }
 

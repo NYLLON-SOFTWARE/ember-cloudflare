@@ -8,14 +8,18 @@ import {
   type App,
   type AppAnswer,
   type AppClient,
+  type AppRemoved,
   type Apps,
   type AppSignedIn,
   type AppSignInBegun,
 } from "@ember/protocol/apps";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
+import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { signInEnded } from "../src/apps/tools";
+import { scopesOf, scopesWith } from "../src/apps/scopes";
+import { appTool, signInEnded, unmadeFor, wantsMoreAccess, type Unmade } from "../src/apps/tools";
 import { toBase64url } from "../src/encoding";
+import type { Env } from "../src/env";
 import { api, cookieOf, freshDeploy, origin, shown, workspaceSql, workspaceStub, type Session } from "./support";
 
 // Signing in to an app whose server asks for a sign-in, with OAuth as the Model Context Protocol has
@@ -61,8 +65,11 @@ let addresses: Record<string, string[]>;
  * gives a token to get another with, and what it answers in place of all that, if anything, once
  * whatever that does meanwhile is done. `codes` are the ones it has sent a browser back with, each
  * with what the browser was sent to it with, and `access` and `refresh` the tokens it gave last, the
- * `issued`th. `tools` are what the fake server lists, and `listing` what happens while it lists them,
- * if anything, once it has decided what to answer.
+ * `issued`th, which allow the scopes of `scope`, which it says with them unless `saysScope` is off. `tools` are what the fake server lists, and `listing`
+ * what happens while it lists them, if anything, once it has decided what to answer. `needs` is the
+ * scope the fake server asks of whoever sends it a `method`, if it asks one. `revokes` is whether the
+ * authorization server takes tokens back, which it answers with `revoked` in place of doing so, if
+ * that answers anything.
  */
 interface AuthorizationServer {
   readsDocuments: boolean;
@@ -78,8 +85,13 @@ interface AuthorizationServer {
   issued: number;
   access: string | null;
   refresh: string | null;
+  scope: string | undefined;
+  saysScope: boolean;
   tools: unknown[];
   listing: (() => Promise<unknown>) | undefined;
+  needs: { method: string; scope: string } | null;
+  revokes: boolean;
+  revoked: () => Response | null;
 }
 let auth: AuthorizationServer;
 
@@ -93,12 +105,13 @@ function nextTokens(scope: string | undefined): Response {
   auth.issued += 1;
   auth.access = `access-${auth.issued}`;
   auth.refresh = auth.refreshes ? `refresh-${auth.issued}` : null;
+  if (scope !== undefined) auth.scope = scope;
   return Response.json({
     access_token: auth.access,
     token_type: "Bearer",
     ...(auth.expiresIn !== undefined && { expires_in: auth.expiresIn }),
     ...(auth.refresh !== null && { refresh_token: auth.refresh }),
-    ...(scope !== undefined && { scope }),
+    ...(scope !== undefined && auth.saysScope && { scope }),
   });
 }
 
@@ -142,6 +155,7 @@ async function signInAnswer(url: URL, request: Request, sent: Asked): Promise<Re
       authorization_endpoint: `${AUTH}/authorize`,
       token_endpoint: `${AUTH}/token`,
       ...(auth.registers && { registration_endpoint: `${AUTH}/register` }),
+      ...(auth.revokes && { revocation_endpoint: `${AUTH}/revoke` }),
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
@@ -153,7 +167,19 @@ async function signInAnswer(url: URL, request: Request, sent: Asked): Promise<Re
   }
   if (url.pathname === "/register" && request.method === "POST" && auth.registers) return Response.json({ ...sent.json, client_id: "ember-at-tracker" }, { status: 201 });
   if (url.pathname === "/token" && request.method === "POST") return tokensFor(sent);
+  if (url.pathname === "/revoke" && request.method === "POST" && auth.revokes) return revocationOf(sent);
   return new Response(null, { status: 404 });
+}
+
+/** What the fake authorization server answers at its revocation endpoint: it takes back the token it's sent, from the client it's for, which is no good from then on. */
+function revocationOf(sent: Asked): Response {
+  const instead = auth.revoked();
+  if (instead) return instead;
+  const client = clientOf(sent);
+  if (auth.client && (client.id !== auth.client.id || client.secret !== auth.client.secret)) return oauthError("invalid_client", 401);
+  if (sent.form?.token === auth.refresh) auth.refresh = null;
+  if (sent.form?.token === auth.access) auth.access = null;
+  return new Response(null, { status: 200 });
 }
 
 /** The fake server's answer to a JSON-RPC `message`, as Streamable HTTP has it. */
@@ -161,11 +187,14 @@ function answerTo(message: { id?: number; method?: string; params?: { protocolVe
   const result = (result: unknown) => Response.json({ jsonrpc: "2.0", id: message.id, result });
   if (message.method === "initialize") return result({ protocolVersion: message.params?.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: "Tracker", version: "1.2.3" } });
   if (message.method === "tools/list") return result({ tools: auth.tools });
+  if (message.method === "tools/call") return result({ content: [{ type: "text", text: "Done." }] });
   if (message.id === undefined) return new Response(null, { status: 202 });
   return Response.json({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Method not found" } });
 }
 
 const CHALLENGE = `Bearer resource_metadata="https://mcp.tracker.example/.well-known/oauth-protected-resource/mcp", scope="issues"`;
+/** What the fake server refuses a request with for want of `scope`. */
+const wants = (scope: string) => new Response("Forbidden", { status: 403, headers: { "WWW-Authenticate": `Bearer error="insufficient_scope", scope="${scope}"` } });
 
 beforeEach(async () => {
   await freshDeploy();
@@ -185,8 +214,13 @@ beforeEach(async () => {
     issued: 0,
     access: null,
     refresh: null,
+    scope: undefined,
+    saysScope: true,
     tools: [SEARCH_ISSUES],
     listing: undefined,
+    needs: null,
+    revokes: false,
+    revoked: () => null,
   };
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
@@ -213,6 +247,8 @@ beforeEach(async () => {
     if (request.url !== TRACKER) return signInAnswer(url, request, sent);
     if (auth.access === null || sent.authorization !== `Bearer ${auth.access}`) return new Response("Unauthorized", { status: 401, headers: { "WWW-Authenticate": CHALLENGE } });
     if (!sent.json) return new Response(null, { status: 405 });
+    const allowed = (auth.scope ?? "").split(" ");
+    if (auth.needs && sent.json.method === auth.needs.method && !auth.needs.scope.split(" ").every((scope) => allowed.includes(scope))) return wants(auth.needs.scope);
     const answer = answerTo(sent.json);
     if (sent.json.method !== "tools/list") return answer;
     const meanwhile = auth.listing;
@@ -311,6 +347,43 @@ const UNREGISTERED = {
   client: true,
 };
 
+/** The tool the fake server lists, picked for @ember, as its model is given it: calling it asks the server, as a call someone allowed does. */
+async function pickedTool(administrator: Session, app: App) {
+  await pick(administrator, true);
+  const { name, fingerprint } = (await offered(administrator))[0]!.tools[0]!;
+  return appTool(env as unknown as Env, ASSISTANT_ID, { appId: app.id, appName: app.name, name, fingerprint, as: name });
+}
+
+/** What removing a signed-in app answers of its sign-in: whether its service took it back. */
+async function removed(response: Response): Promise<AppRemoved> {
+  expect(response.status, await response.clone().text()).toBe(200);
+  return response.json();
+}
+
+/** The requests Ember sent the fake authorization server's revocation endpoint: what each carried, and how it was held. */
+const revocations = () => asked.filter(({ url }) => url === `${AUTH}/revoke`).map(({ form, authorization, redirect, timed }) => ({ form, authorization, redirect, timed }));
+
+/** Waits until Ember has no app connected, as once one that's being removed is gone. */
+const noApps = () => vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM apps")).toEqual([{ n: 0 }]));
+
+/**
+ * Removes the app `id` as `administrator` while Ember asks the fake authorization server for its
+ * sign-in's next token, as `asks` has it do, which it's answered once the app is gone, with `given`,
+ * the tokens it was given before that, if it was: what `asks` came to, and what removing the app answered.
+ */
+async function removedWhileAsking<T>(administrator: Session, id: string, asks: () => Promise<T>, given: () => Response | null = () => null): Promise<[T, Response]> {
+  let asking = false;
+  auth.token = async () => {
+    const tokens = given();
+    asking = true;
+    await noApps();
+    return tokens;
+  };
+  const asked = asks();
+  await vi.waitFor(() => expect(asking).toBe(true));
+  return Promise.all([asked, disconnect(administrator, id)]);
+}
+
 /** The requests Ember sent the fake authorization server's token endpoint. */
 const tokenRequests = () => asked.filter(({ url }) => url === `${AUTH}/token`).map(({ form }) => form!);
 
@@ -366,7 +439,7 @@ describe("Signing in to an app", () => {
     const app = await signedInBy(await finish(administrator, back));
 
     expect(app).toMatchObject({ name: "Tracker", url: TRACKER, hasToken: false, tools: [{ name: "search_issues" }], connectedBy: administrator.user });
-    expect(app.signIn).toEqual({ by: administrator.user, at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) as string, ended: false, clientId: null });
+    expect(app.signIn).toEqual({ by: administrator.user, at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) as string, ended: false, clientId: null, wantsScope: null });
     expect(await appOf(await show(administrator, app.id))).toEqual(app);
     expect(tokenRequests()).toEqual([
       { grant_type: "authorization_code", code: back.code, code_verifier: expect.stringMatching(/^[\w.~-]{43,128}$/) as string, redirect_uri: BACK, client_id: "ember-at-tracker", resource: TRACKER },
@@ -612,8 +685,10 @@ describe("Signing in to an app", () => {
     await pick(administrator, true);
     expect(await called()).toMatchObject({ key: { token: "access-4" } });
 
-    auth.token = async () => (expect((await disconnect(administrator, app.id)).status).toBe(204), null);
-    expect(await called()).toBeNull();
+    // Its removal waits for the token Ember is getting, to have its service take that back too.
+    const [uncalled, removing] = await removedWhileAsking(administrator, app.id, called);
+    expect(uncalled).toBeNull();
+    expect(await removed(removing)).toEqual({ revoked: false });
   });
 
   it("keeps a signed-in app's address, and takes no token for it, as its sign-in is to the server there", async () => {
@@ -652,7 +727,7 @@ describe("Signing in to an app", () => {
     const app = await signIn(administrator);
     const back = comeBack(await sentTo(await beginAgain(administrator, app.id)));
 
-    expect((await disconnect(administrator, app.id)).status).toBe(204);
+    expect((await disconnect(administrator, app.id)).status).toBe(200);
     expect(await workspaceSql("SELECT count(*) AS n FROM app_sign_ins")).toEqual([{ n: 0 }]);
     expect(await refusalOf(await finish(administrator, back))).toEqual({ error: APP_SIGN_IN_ENDED });
   });
@@ -756,5 +831,240 @@ describe("Signing in to an app", () => {
     expect(await refusalOf(await begin(administrator))).toEqual({ error: "mcp.tracker.example doesn't say how to sign in to it. Give a token for it, if it has one.", field: "token" });
 
     expect(await workspaceSql("SELECT count(*) AS n FROM app_sign_ins")).toEqual([{ n: 0 }]);
+  });
+});
+
+describe("An app whose server asks for more than Ember's sign-in to it allows", () => {
+  const MORE = "mcp.tracker.example took Ember's sign-in, but says it doesn't allow this. Sign in to it again to allow it.";
+  const listed = async (administrator: Session) => ((await (await api("/api/account/apps", { headers: as(administrator) })).json()) as Apps).apps;
+
+  it("keeps what a call was refused for want of, tells the model who can allow it, and asks for it with what the sign-in had when an administrator signs in again", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = await signIn(administrator);
+    const tool = await pickedTool(administrator, app);
+    expect(await tool.run({})).toBe("Done.");
+    expect(app.signIn).toMatchObject({ wantsScope: null });
+    expect(await listed(administrator)).toMatchObject([{ wantsAccess: false }]);
+
+    // The server refuses the call, which then hasn't run, and names what would allow it.
+    auth.needs = { method: "tools/call", scope: "issues:write" };
+    await expect(tool.run({})).rejects.toThrow(`Not run: ${wantsMoreAccess("Tracker")}`);
+    expect(await appOf(await show(administrator, app.id))).toMatchObject({ signIn: { ended: false, wantsScope: "issues:write" } });
+    expect(await listed(administrator)).toMatchObject([{ wantsAccess: true, signInEnded: false }]);
+
+    // Asked for again, it's kept once, and something else it asks for is kept beside it.
+    await expect(tool.run({})).rejects.toThrow(wantsMoreAccess("Tracker"));
+    auth.needs = { method: "tools/call", scope: "projects:read issues:write" };
+    await expect(tool.run({})).rejects.toThrow(wantsMoreAccess("Tracker"));
+    expect(await workspaceSql("SELECT scope_wanted FROM apps")).toEqual([{ scope_wanted: "issues:write projects:read" }]);
+
+    // Signing in again asks for what the sign-in had and for what was asked since, and nothing is wanted once it's made.
+    const authorizationUrl = await sentTo(await beginAgain(administrator, app.id));
+    expect(authorizationUrl.searchParams.get("scope")).toBe("issues issues:write projects:read");
+    const again = await signedInBy(await finish(administrator, comeBack(authorizationUrl)), 200);
+    expect(again.signIn).toMatchObject({ ended: false, wantsScope: null });
+    expect(await workspaceSql("SELECT scope_wanted FROM apps")).toEqual([{ scope_wanted: null }]);
+    expect(await listed(administrator)).toMatchObject([{ wantsAccess: false }]);
+    expect(await tool.run({})).toBe("Done.");
+  });
+
+  it("takes an authorization server that doesn't say what its tokens allow to have given what was asked for, which the next sign-in asks for again", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    auth.saysScope = false;
+    const app = await signIn(administrator);
+    const tool = await pickedTool(administrator, app);
+    auth.needs = { method: "tools/call", scope: "issues:write" };
+    await expect(tool.run({})).rejects.toThrow(wantsMoreAccess("Tracker"));
+    const authorizationUrl = await sentTo(await beginAgain(administrator, app.id));
+    expect(authorizationUrl.searchParams.get("scope")).toBe("issues issues:write");
+    await signedInBy(await finish(administrator, comeBack(authorizationUrl)), 200);
+    expect(await tool.run({})).toBe("Done.");
+
+    // What that sign-in was given isn't forgotten when the server asks for something else.
+    auth.needs = { method: "tools/call", scope: "projects:read" };
+    await expect(tool.run({})).rejects.toThrow(wantsMoreAccess("Tracker"));
+    expect((await sentTo(await beginAgain(administrator, app.id))).searchParams.get("scope")).toBe("issues issues:write projects:read");
+  });
+
+  it("keeps each of the scopes two calls are refused for want of at once", async () => {
+    const administrator = await setUp();
+    const app = await signIn(administrator);
+    await pick(administrator, true);
+    const { name, fingerprint } = (await offered(administrator))[0]!.tools[0]!;
+    const askedAt = (await workspaceStub().appToolCall(ASSISTANT_ID, { appId: app.id, name, fingerprint }, false))!;
+
+    await Promise.all(["issues:write", "projects:read", "labels:write"].map((scope) => workspaceStub().keepAppScopeWanted(app.id, scope, askedAt)));
+    expect(await workspaceSql("SELECT scope_wanted FROM apps")).toEqual([{ scope_wanted: "issues:write projects:read labels:write" }]);
+  });
+
+  it("tells the room that a call it was shown, made without asking first, wasn't made for want of access", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = await signIn(administrator);
+    const { name, fingerprint } = (await offered(administrator))[0]!.tools[0]!;
+    const always = { tools: [{ appId: app.id, name, fingerprint, alwaysAllowed: true }] };
+    expect((await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { method: "PUT", headers: as(administrator), body: JSON.stringify(always) })).status).toBe(200);
+    const told: Unmade[] = [];
+    const shown = async () => ({ unmade: async (why: Unmade) => void told.push(why) });
+    const tool = appTool(env as unknown as Env, ASSISTANT_ID, { appId: app.id, appName: app.name, name, fingerprint, as: name }, { shown });
+
+    expect(await tool.run({})).toBe("Done.");
+    auth.needs = { method: "tools/call", scope: "issues:write" };
+    await expect(tool.run({})).rejects.toThrow(`Not run: ${wantsMoreAccess("Tracker")}`);
+    expect(told).toEqual(["refused"]);
+    expect(unmadeFor("Ember", "Tracker", "refused")).toBe(`Not run: ${wantsMoreAccess("Tracker")}`);
+  });
+
+  it("keeps what reading its tools again was refused for want of, which says to sign in again", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = await signIn(administrator);
+    auth.needs = { method: "tools/list", scope: "tools:read" };
+
+    expect(await refusalOf(await readAgain(administrator, app.id))).toEqual({ error: MORE });
+    expect(await appOf(await show(administrator, app.id))).toMatchObject({ signIn: { wantsScope: "tools:read" } });
+    const authorizationUrl = await sentTo(await beginAgain(administrator, app.id));
+    expect(authorizationUrl.searchParams.get("scope")).toBe("issues tools:read");
+    expect(await signedInBy(await finish(administrator, comeBack(authorizationUrl)), 200)).toMatchObject({ signIn: { wantsScope: null } });
+    expect((await readAgain(administrator, app.id)).status).toBe(200);
+  });
+
+  it("asks for what was asked since once the sign-in has ended too, with what the server asks of a sign-in", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    auth.expiresIn = 30;
+    const app = await signIn(administrator);
+    const tool = await pickedTool(administrator, app);
+    auth.needs = { method: "tools/call", scope: "issues:write" };
+    await expect(tool.run({})).rejects.toThrow(wantsMoreAccess("Tracker"));
+
+    auth.token = ({ grant_type: grant }) => (grant === "refresh_token" ? oauthError("invalid_grant") : null);
+    await expect(tool.run({})).rejects.toThrow(`Not run: ${signInEnded("Tracker")}`);
+    expect(await appOf(await show(administrator, app.id))).toMatchObject({ signIn: { ended: true, wantsScope: "issues:write" } });
+    expect((await sentTo(await beginAgain(administrator, app.id))).searchParams.get("scope")).toBe("issues issues:write");
+  });
+
+  it("keeps nothing a server asks for that's no scope, or once the app is signed in to again, and a token's refusal offers no sign-in again", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = await signIn(administrator);
+    const tool = await pickedTool(administrator, app);
+
+    // What isn't a scope is asked of nobody, and the model is told what the server said.
+    auth.needs = { method: "tools/call", scope: "issues\\write" };
+    await expect(tool.run({})).rejects.toThrow("Not run: mcp.tracker.example took Ember's sign-in, but says it doesn't allow this.");
+    expect(await workspaceSql("SELECT scope_wanted FROM apps")).toEqual([{ scope_wanted: null }]);
+
+    // What a server asked of a sign-in that an administrator has made again since isn't that one's to ask for.
+    const before = (await workspaceStub().appToolCall(ASSISTANT_ID, { appId: app.id, name: "search_issues", fingerprint: (await offered(administrator))[0]!.tools[0]!.fingerprint }, false))!;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await signInAgain(administrator, app.id);
+    await workspaceStub().keepAppScopeWanted(app.id, "issues:write", before);
+    expect(await workspaceSql("SELECT scope_wanted FROM apps")).toEqual([{ scope_wanted: null }]);
+    await workspaceStub().keepAppScopeWanted(app.id, "x".repeat(1001), (await workspaceStub().appToolCall(ASSISTANT_ID, { appId: app.id, name: "search_issues", fingerprint: (await offered(administrator))[0]!.tools[0]!.fingerprint }, false))!);
+    expect(await workspaceSql("SELECT scope_wanted FROM apps")).toEqual([{ scope_wanted: null }]);
+  });
+
+  it("reads scopes as OAuth has them, each once", () => {
+    expect(scopesOf("issues  issues:write issues")).toBe("issues issues:write");
+    expect(scopesOf("https://tracker.example/auth/issues.read openid")).toBe("https://tracker.example/auth/issues.read openid");
+    for (const none of [undefined, null, "", "  ", 'issues"write', "issues\\write", "issues\twrite", "ißues", "x".repeat(1001)]) expect(scopesOf(none)).toBeNull();
+    expect(scopesWith("issues", "issues:write issues")).toBe("issues issues:write");
+    expect(scopesWith(null, "issues")).toBe("issues");
+    expect(scopesWith(null, null)).toBeNull();
+  });
+});
+
+describe("Removing an app Ember is signed in to", () => {
+  it("takes back what the sign-in gave, at the service, as the client it signed in as, once the app is gone", async () => {
+    const administrator = await setUp();
+    auth.revokes = true;
+    const app = await signIn(administrator);
+    asked = [];
+
+    expect(await removed(await disconnect(administrator, app.id))).toEqual({ revoked: true });
+    expect(revocations()).toEqual([
+      { form: { token: "refresh-1", token_type_hint: "refresh_token", client_id: "ember-at-tracker" }, authorization: null, redirect: "manual", timed: true },
+      { form: { token: "access-1", token_type_hint: "access_token", client_id: "ember-at-tracker" }, authorization: null, redirect: "manual", timed: true },
+    ]);
+    expect([auth.access, auth.refresh]).toEqual([null, null]);
+    expect(await workspaceSql("SELECT count(*) AS n FROM apps")).toEqual([{ n: 0 }]);
+  });
+
+  it("proves itself with the secret of the client an administrator gave, and takes back a sign-in that has no token to get another with", async () => {
+    const administrator = await setUp();
+    Object.assign(auth, { revokes: true, registers: false, refreshes: false, client: { id: "ember-registered", secret: "s3cret" } });
+    const app = await signedInBy(await finish(administrator, comeBack(await sentTo(await begin(administrator, { ...TRACKER_APP, clientId: "ember-registered", clientSecret: "s3cret" })))));
+    asked = [];
+
+    expect(await removed(await disconnect(administrator, app.id))).toEqual({ revoked: true });
+    expect(revocations()).toEqual([{ form: { token: "access-1", token_type_hint: "access_token" }, authorization: `Basic ${btoa("ember-registered:s3cret")}`, redirect: "manual", timed: true }]);
+  });
+
+  it("removes the app all the same where the service doesn't take the sign-in back, or doesn't say how, which it answers", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // A service that says nothing of taking tokens back is asked nothing.
+    const unsaid = await signIn(administrator);
+    asked = [];
+    expect(await removed(await disconnect(administrator, unsaid.id))).toEqual({ revoked: false });
+    expect(asked).toEqual([]);
+
+    // One that fails, and one that names somewhere Ember doesn't ask.
+    auth.revokes = true;
+    auth.revoked = () => new Response(null, { status: 503 });
+    const failing = await signIn(administrator);
+    expect(await removed(await disconnect(administrator, failing.id))).toEqual({ revoked: false });
+    auth.metadata = (metadata) => ({ ...metadata, revocation_endpoint: "https://auth.internal.example/revoke" });
+    const inside = await signIn(administrator);
+    asked = [];
+    expect(await removed(await disconnect(administrator, inside.id))).toEqual({ revoked: false });
+    expect(asked.some(({ url }) => url.startsWith("https://auth.internal.example"))).toBe(false);
+    expect(await workspaceSql("SELECT count(*) AS n FROM apps")).toEqual([{ n: 0 }]);
+  });
+
+  it("takes back the tokens Ember was getting as the app went, too, which ended the ones it kept", async () => {
+    const administrator = await setUp();
+    Object.assign(auth, { revokes: true, expiresIn: 30 });
+    const app = await signIn(administrator);
+    await pick(administrator, true);
+    const { name, fingerprint } = (await offered(administrator))[0]!.tools[0]!;
+    const called = (id: string) => () => workspaceStub().appToolCall(ASSISTANT_ID, { appId: id, name, fingerprint }, false);
+    asked = [];
+
+    // The service gives the sign-in's next tokens, and the app is removed before Ember has them.
+    const [uncalled, removing] = await removedWhileAsking(administrator, app.id, called(app.id), () => nextTokens(undefined));
+    expect(uncalled).toBeNull();
+    expect(await removed(removing)).toEqual({ revoked: true });
+    expect(
+      revocations()
+        .map(({ form }) => form?.token)
+        .sort(),
+    ).toEqual(["access-1", "access-2", "refresh-1", "refresh-2"]);
+    expect([auth.access, auth.refresh]).toEqual([null, null]);
+
+    // A service that doesn't take those back hasn't taken the sign-in back.
+    const again = await signIn(administrator);
+    await pick(administrator, true);
+    auth.revoked = () => (asked.some(({ form }) => form?.token === auth.refresh) ? new Response(null, { status: 503 }) : null);
+    const [, unrevoked] = await removedWhileAsking(administrator, again.id, called(again.id), () => nextTokens(undefined));
+    expect(await removed(unrevoked)).toEqual({ revoked: false });
+  });
+
+  it("asks nothing of the service of an app whose sign-in has ended, or that has a token", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    auth.revokes = true;
+    auth.expiresIn = 30;
+    const app = await signIn(administrator);
+    auth.token = ({ grant_type: grant }) => (grant === "refresh_token" ? oauthError("invalid_grant") : null);
+    expect(await refusalOf(await readAgain(administrator, app.id))).toEqual({ error: signInEnded("Tracker") });
+    asked = [];
+
+    expect((await disconnect(administrator, app.id)).status).toBe(204);
+    expect(asked).toEqual([]);
   });
 });

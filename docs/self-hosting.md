@@ -984,9 +984,20 @@ app's page says who signed in, and when, in place of a token.
   model so, the app's page and its row on the AI assistant tab say so, and **Sign in again** on the
   app's page restores it, keeping the app and every agent's picks. A service that couldn't be reached
   for a new token ends nothing: Ember goes on with the token it has.
+- **A server can ask for more than the sign-in allows.** When it refuses a call, or a read of its
+  tools, and names the access that would allow it (OAuth's `insufficient_scope`), the call isn't
+  run, the model is told that an administrator has to sign in again, and the app's page and its row
+  say what the server asked for. **Sign in again** then asks the service for that as well as for
+  what the sign-in had, which the service shows you before you allow it. Nothing is asked for on
+  Ember's own: more access is only ever given by an administrator, at the service.
 - **A signed-in app keeps its address** and takes no token, since its sign-in is to the server there.
-  To move it, remove it and connect it again. Removing it forgets the sign-in; take Ember's access
-  back at the service too, which Ember doesn't do for you.
+  To move it, remove it and connect it again.
+- **Removing a signed-in app takes the sign-in back at the service**, where the service says how
+  (a revocation endpoint, as RFC 7009 has it): Ember sends back the token that renews the sign-in
+  and the access token, as the client it signed in as, once the app is gone, waiting at most ten
+  seconds. The tab then says whether the service took them back. Where it didn't, couldn't be
+  reached, or doesn't say how, remove Ember's access at the service yourself. A sign-in replaced
+  by signing in again isn't taken back: the service decides what becomes of the last one.
 
 ### Huddles
 
