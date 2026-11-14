@@ -1291,6 +1291,25 @@ describe("A sign-in someone makes to an app themselves", () => {
     expect(await yourApps(member)).toEqual([]);
   });
 
+  it("is taken back when its app is removed after Ember's own sign-in has ended", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    auth.revokes = true;
+    auth.expiresIn = 30;
+    const { administrator, member, app } = await withGrace();
+    await signInAsSelf(member, app.id);
+    auth.token = ({ refresh_token: refresh }) => (refresh === "refresh-1" ? oauthError("invalid_grant") : null);
+    expect(await refusalOf(await readAgain(administrator, app.id))).toEqual({ error: signInEnded("Tracker") });
+    asked = [];
+
+    expect(await removed(await disconnect(administrator, app.id))).toEqual({ revoked: true });
+    expect(
+      revocations()
+        .map(({ form }) => form?.token)
+        .sort(),
+    ).toEqual(["access-2", "refresh-2"]);
+    expect(await workspaceSql("SELECT count(*) AS n FROM own_app_sign_ins")).toEqual([{ n: 0 }]);
+  });
+
   it("goes with its person, when they're removed or banned", async () => {
     const { administrator, member, app } = await withGrace();
     const hal = await joinAs({ name: "Hal Abelson", emailAddress: "hal@example.com", password: "structure and interpretation" });

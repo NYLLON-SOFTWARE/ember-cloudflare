@@ -3445,8 +3445,8 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Keeps `signIn`, the sign-in the person `credentials` signs in made to the server of the connected
    * app `appId`, at `url`, themselves, in place of any they had, answering the app as their profile
-   * then lists it: "changed" once the app is gone, when its service is asked to take back what the
-   * sign-in gave, which Ember doesn't keep, or why not, as `changeOwnSignIns` answers.
+   * then lists it: "changed" once the app is gone, or why not, as `changeOwnSignIns` answers. Its
+   * service is asked to take back what a sign-in gave that Ember doesn't keep.
    */
   async signInToAppAsSelf(credentials: Credentials, appId: AppId, url: string, signIn: string): Promise<YourApp | "changed" | "off" | "forbidden" | null> {
     const signedIn = await this.changeOwnSignIns(credentials, async (user) => {
@@ -3455,7 +3455,7 @@ export class Workspace extends DurableObject<Env> {
       const own = kept ? await this.store.ownAppSignIn(appId, user.id) : null;
       return own ? yourApp(own) : "changed";
     });
-    if (typeof signedIn === "string") this.ctx.waitUntil(this.unkeptRevoked(url, signIn));
+    if (signedIn === null || typeof signedIn === "string") this.ctx.waitUntil(this.unkeptRevoked(url, signIn));
     return signedIn;
   }
 
@@ -3526,8 +3526,10 @@ export class Workspace extends DurableObject<Env> {
   async disconnectApp(credentials: Credentials, appId: AppId): Promise<"disconnected" | "revoked" | "unrevoked" | "off" | "forbidden" | "not found" | null> {
     const removed = await this.administerAgents(credentials, async () => (await this.store.disconnectApp(appId)) ?? "not found");
     if (removed === null || typeof removed === "string") return removed;
-    if (removed.sealedSignIn === null) return "disconnected";
-    const signIns = [{ signIn: appId, sealed: removed.sealedSignIn }, ...removed.own.slice(0, MAX_OWN_SIGN_INS_REVOKED).map(({ userId, sealed }) => ({ signIn: signInOf(appId, userId), sealed }))];
+    const own = removed.own.slice(0, MAX_OWN_SIGN_INS_REVOKED).map(({ userId, sealed }) => ({ signIn: signInOf(appId, userId), sealed }));
+    // Ember's sign-in may have ended while people's own, which are kept apart from it, are still good.
+    const signIns = removed.sealedSignIn === null ? own : [{ signIn: appId, sealed: removed.sealedSignIn }, ...own];
+    if (signIns.length === 0) return "disconnected";
     const revoked = await Promise.all(signIns.flatMap(({ signIn, sealed }) => [this.signInRevoked(signIn, removed.url, sealed), this.strayTokensRevoked(signIn)]));
     return revoked.every(Boolean) && removed.own.length <= MAX_OWN_SIGN_INS_REVOKED ? "revoked" : "unrevoked";
   }

@@ -73,6 +73,8 @@ export function YourApps({ apps, onChanged, onFailed }: Props) {
   const signIn = ({ id }: YourApp) => {
     setBusy(id);
     beginOwnAppSignIn(id).then((authorizationUrl) => {
+      // Leaving your profile meanwhile leaves the sign-in unmade, rather than taking you from where you went.
+      if (!mounted.current) return;
       noteOwnSignIn(authorizationUrl);
       openPage(authorizationUrl);
     }, failed);
