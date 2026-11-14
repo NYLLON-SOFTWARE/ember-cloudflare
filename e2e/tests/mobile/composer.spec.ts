@@ -168,3 +168,19 @@ test("closing Custom time leaves the composer open, with Send, rather than its p
   await expect(composer).toBeFocused();
   await expect(send).toBeVisible();
 });
+
+test("with a file picked, the composer stays open once the text loses focus, so the first tap on its × takes it out", async ({ page, room }) => {
+  test.skip(!hasPhoneLayout(page), "Wider than 900px the composer is the desktop's");
+  await openRoom(page, room);
+  const composer = editorField(page, "Write a message");
+  await composer.tap();
+  await page.locator(".composer input[type=file]").setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("Bring snacks") });
+  const files = page.getByRole("list", { name: "Files to send" });
+  await expect(files.getByRole("listitem")).toHaveCount(1);
+  const card = page.locator("[data-composer-card]");
+  const open = (await card.boundingBox())!.height;
+  await composer.blur();
+  expect((await card.boundingBox())!.height).toBe(open);
+  await files.getByRole("button", { name: "Remove notes.txt" }).tap();
+  await expect(files).toHaveCount(0);
+});

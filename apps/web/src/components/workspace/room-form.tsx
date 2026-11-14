@@ -2,7 +2,8 @@ import { Fragment, useEffect, useRef, useState, type ChangeEvent, type FormEvent
 import { MAX_ROOM_NAME_LENGTH, type RoomIconName, type User, type UserId } from "@ember/protocol";
 import { ParentPicker, type ParentField } from "./parent-picker";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
-import { CheckCircle, Community } from "@/components/icons/iconoir";
+import { CheckCircle } from "@/components/icons/iconoir";
+import { Community } from "@/components/icons/iconoir-more";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { usePhoneLayout } from "@/hooks/use-phone-layout";

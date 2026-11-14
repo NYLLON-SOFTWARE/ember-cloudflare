@@ -838,7 +838,7 @@ describe("New direct message dialog", () => {
 
   beforeEach(() => serve({ "GET /api/users": () => Response.json({ users: people }), "POST /api/directs": () => Response.json({ room: withGrace }, { status: 201 }) }));
 
-  it("opens over the DMs page from its New direct message, which the rail's DMs goes to, and closes back on the link", async () => {
+  it("opens over the DMs page from its New direct message, which the rail's DMs goes to, turning Activity off, and closes back on the link", async () => {
     const { user } = showWorkspace("/rooms/general");
     await roomHeading();
     await user.click(dms());

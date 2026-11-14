@@ -1,20 +1,7 @@
 import { useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { savedPath, workspacePageOf, type ActivityItem, type Me, type RoomId, type SidebarRoom, type UserId } from "@ember/protocol";
-import {
-  ArrowLeft,
-  AtSign,
-  ChatBubbleEmpty,
-  CheckCircle,
-  Clock,
-  Emoji,
-  EyeClosed,
-  FilterList,
-  MessageText,
-  MoreHoriz,
-  Search,
-  UserPlus,
-  Xmark,
-} from "@/components/icons/iconoir";
+import { ArrowLeft, AtSign, ChatBubbleEmpty, CheckCircle, Clock, Emoji, EyeClosed, MessageText, MoreHoriz, Search, Xmark } from "@/components/icons/iconoir";
+import { FilterList, UserPlus } from "@/components/icons/iconoir-more";
 import { MAIN_CONTENT, MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -37,6 +24,7 @@ import { DEFAULT_SIDE_PX } from "./side-column";
 import { ONE_PANE, SplitPanes, type Pane, type PaneStack } from "./split-panes";
 import { AvatarLink } from "./user-avatar";
 import { BottomSheet } from "../mobile/action-sheet";
+import { YouLink } from "../mobile/tab-page";
 
 // Activity, as Slack's is: a feed of what's happened to you beside the conversation an item opens, with
 // its thread, or the profile of someone in it, in a third pane, each pane as wide as you drag it.
@@ -211,11 +199,13 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
           takes the place of, and the panes from 900px wide. */}
       <div className={cn("hidden", !conversation && "max-md:contents")}>
         <PageHeader>
-          {/* The feed's heading names the page, for screen readers, here too. */}
-          <span aria-hidden="true" className="text-base font-[650]">
+          {/* The feed's heading names the page, for screen readers, here too. As the phone's other tabs do,
+              it ends with your avatar. */}
+          <span aria-hidden="true" className="min-w-0 flex-1 truncate pl-2 text-[22px] leading-7 font-bold">
             Activity
           </span>
           {phone && <div className="ml-auto flex items-center">{tools}</div>}
+          <YouLink me={me} />
         </PageHeader>
       </div>
       <SplitPanes
@@ -517,9 +507,10 @@ const LONG_PRESS_SLOP_PX = 10;
 function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
   const people = useContext(PeopleContext);
   const { icon: Icon, word } = KINDS[item.kind];
-  const where = names.roomNameOf(item.roomId);
-  // A reminder is your own, so it names itself rather than you.
+  // A reminder is your own, from To-dos: it names itself rather than you, and its to-do's conversation,
+  // or To-dos for a note of your own.
   const reminder = item.kind === "reminder";
+  const where = reminder && item.roomId === "" ? "To-dos" : names.roomNameOf(item.roomId);
   const author = reminder ? "Reminder" : names.nameOf(item.actorId);
   const actor = { id: item.actorId, name: author, avatarUrl: people.get(item.actorId)?.avatarUrl };
   const date = new Date(item.at);
@@ -601,9 +592,13 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
       )}
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 pr-8 touch:pr-0">
-          <PageLink href={personPath(item.actorId)} className={cn("relative z-[1] truncate text-[15px] hover:underline touch:pointer-events-none", item.read ? "font-medium" : "font-bold")}>
-            {author}
-          </PageLink>
+          {reminder ? (
+            <span className={cn("truncate text-[15px]", item.read ? "font-medium" : "font-bold")}>{author}</span>
+          ) : (
+            <PageLink href={personPath(item.actorId)} className={cn("relative z-[1] truncate text-[15px] hover:underline touch:pointer-events-none", item.read ? "font-medium" : "font-bold")}>
+              {author}
+            </PageLink>
+          )}
           <time dateTime={item.at} className={cn("shrink-0 text-xs", metaTone(item.read))}>
             {when}
           </time>

@@ -116,12 +116,12 @@ import { pictureObjects, type StoredPicture } from "./files/pictures";
 import type { SfuApp } from "./huddles/sfu";
 import { alphanumeric, base36, sortableId } from "./ids";
 import { sendEmail, sendEmails, senderOf, type Sender } from "./mail";
-import { ScheduledListings, type ScheduledChange } from "./scheduled-listings";
 import { sendPushes } from "./push/delivery";
 import { reminderPayload } from "./push/payload";
 import type { RecordedReminder } from "./activity";
 import { messagesOf } from "./kept-messages";
 import { objectKey } from "./files/blobs";
+import { ScheduledListings, type ScheduledChange } from "./scheduled-listings";
 import { NOTE_UPLOAD_TTL_MS, SavedStore, type DueReminder, type KeepRefusal, type KeptNoteFile, type MessageToKeep, type NoteToKeep, type StoredSavedChange, type StoredSavedItem } from "./saved-store";
 import { memberfulApiOf, membershipsOf, namelessMember, type MemberfulMember } from "./memberful-api";
 import { webPush } from "./push/keys";
@@ -4412,6 +4412,18 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * The author of a message scheduled in room `roomId`, as the room posts it, with when this checked:
+   * null once they're no longer active or in the room, so that removing, banning or taking someone out
+   * of a room stops what they scheduled there.
+   */
+  async scheduledAuthor(roomId: RoomId, userId: UserId): Promise<AuthorAccess | null> {
+    // Before anything is read, as `roomAccess` takes it.
+    const authorizedAt = Date.now();
+    const user = await this.store.activeMember(roomId, userId);
+    return user && { user, authorizedAt };
+  }
+
+  /**
    * Has Ember AI, `assistant`, ask the models it asks through Cloudflare's REST API, the agents' too, that
    * their providers' own endpoints answer through `gateway`'s account and API token there from then on,
    * as it asks Claude and GPT there first now: once after each time it's set up, as the first
@@ -4450,18 +4462,6 @@ export class Workspace extends DurableObject<Env> {
       const assistant = { ...movedIn(changed.assistant, moves), providerEndpointsTriedAt: done ? triedAt : null };
       await this.storeAccount({ ...changed, assistant }, () => this.store.moveModels(assistant, moves));
     });
-  }
-
-  /**
-   * The author of a message scheduled in room `roomId`, as the room posts it, with when this checked:
-   * null once they're no longer active or in the room, so that removing, banning or taking someone out
-   * of a room stops what they scheduled there.
-   */
-  async scheduledAuthor(roomId: RoomId, userId: UserId): Promise<AuthorAccess | null> {
-    // Before anything is read, as `roomAccess` takes it.
-    const authorizedAt = Date.now();
-    const user = await this.store.activeMember(roomId, userId);
-    return user && { user, authorizedAt };
   }
 
   /**

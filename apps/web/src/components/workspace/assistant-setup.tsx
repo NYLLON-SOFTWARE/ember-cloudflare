@@ -20,6 +20,7 @@ import { useMounted } from "@/hooks/use-mounted";
 import { useOfferedModels } from "@/hooks/use-offered-models";
 import { ApiError, isSignedOut, saveAssistant } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { dashboard, FieldRefusal, ModelPicker, NOTE, Out, startingModelOf, type Refusal } from "./model-picker";
 import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER_ACTION } from "./dialog-styles";
 
 // Set up Ember AI, for administrators: the steps to give @ember a model through Cloudflare AI Gateway, in

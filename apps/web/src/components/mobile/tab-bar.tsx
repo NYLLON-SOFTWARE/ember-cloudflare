@@ -43,7 +43,14 @@ export function TabBar({ current, notices, roomId }: Props) {
     return () => document.documentElement.removeAttribute("data-typing");
   }, [typing]);
   return (
-    <nav aria-label="Tabs" data-tab-bar onPointerDown={preloadRarePages} onFocus={preloadRarePages} data-typing={typing || undefined} className="relative z-[3] col-start-1 row-[-2/-1] data-typing:hidden md:hidden">
+    // Touching a tab starts loading the pages few visits need, before the tap that follows it.
+    <nav
+      aria-label="Tabs"
+      data-tab-bar
+      onPointerDown={preloadRarePages}
+      onFocus={preloadRarePages}
+      data-typing={typing || undefined}
+      className="relative z-[3] col-start-1 row-[-2/-1] data-typing:hidden md:hidden">
       <div className="flex items-center gap-2 bg-background pt-1.5 pr-[max(16px,env(safe-area-inset-right))] pb-[max(8px,env(safe-area-inset-bottom))] pl-[max(16px,env(safe-area-inset-left))] [@media(height<37.5rem)]:pt-1">
         <div className="flex min-w-0 flex-1 items-center rounded-full border bg-surface p-1 shadow-[0_2px_12px_var(--color-drag-shadow)]">
           <TabLink tab="home" label="Home" current={current} notice={notices.home} icon={<NavigationIcon slot="home" size={ICON_SIZE} className={ICON} />} />

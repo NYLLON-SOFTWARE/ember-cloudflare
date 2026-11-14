@@ -1117,7 +1117,7 @@ async function connectToRoom(request: Request, env: Env, roomId: RoomId, huddle 
   // Without waking the room's object, so a room nobody may open is never created. The app hears
   // that the room is gone for this person, deleted or theirs no longer, which the reason tells apart,
   // and stops connecting.
-  if (!access.member) return closedAtOnce(CloseCode.NotFound, access.found ? LOST_ACCESS : undefined);
+  if (!access.member) return closedAtOnce(CloseCode.NotFound, access.found && !huddle ? LOST_ACCESS : undefined);
   if (huddle && access.banned) return closedAtOnce(CloseCode.NotFound);
 
   const headers = new Headers(request.headers);

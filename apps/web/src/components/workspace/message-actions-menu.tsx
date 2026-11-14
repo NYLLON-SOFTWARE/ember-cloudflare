@@ -47,7 +47,7 @@ import { canShare } from "@/lib/share";
 import { cn } from "@/lib/utils";
 import { COPY_CODE } from "./code-block";
 import { UNKNOWN_PERSON } from "./message-body";
-import { RarePage } from "./rare-pages";
+import { RarePage, useOpenedRarePage } from "./rare-pages";
 
 /** With a mouse, the bar overlaps its message. */
 export const OVERLAPPING = "(hover: hover) and (pointer: fine)";
@@ -243,7 +243,7 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
   // On a touch screen whose timeline can't hold the bar and enough of the tray to use, as a phone's held
   // sideways, More reactions opens the reactions sheet a phone's Add reaction does instead, over everything.
   const [reactionSheetOpen, setReactionSheetOpen] = useState(false);
-  const [reactionSheetShown, reactionSheetFailed] = [reactionSheetOpen, () => setReactionSheetOpen(false)] as const;
+  const [reactionSheetShown, reactionSheetFailed] = useOpenedRarePage(reactionSheetOpen, () => setReactionSheetOpen(false));
   const trayTooShort = () => {
     const timeline = row.current?.closest('[role="log"]')?.getBoundingClientRect();
     if (!timeline?.height) return false;
@@ -478,7 +478,6 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
                 </button>
               </ActionTooltip>
             )}
-            {/* After Forward message, as Slack's bar has it, and a file's Save, as a file's own save is in Slack. */}
             <KeepButton list="todo" kept={kept} onKeep={keep} />
             <KeepButton list="saved" kept={kept} onKeep={keep} />
             {/* More actions holds Quote and Copy link with a mouse. */}

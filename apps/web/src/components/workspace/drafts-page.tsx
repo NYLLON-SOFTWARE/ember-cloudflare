@@ -51,8 +51,10 @@ export function DraftsPage({ me, tab, rooms, onFailed }: Props) {
   useTitle(TABS.find((shown) => shown.tab === tab)!.label);
   return (
     <>
-      <PageHeader>
-        <h1 className="min-w-0 flex-1 truncate text-[17px] leading-[1.4] font-[650] max-md:text-base">Drafts &amp; sent</h1>
+      <PageHeader back="/">
+        <h1 className="min-w-0 flex-1 truncate text-[17px] leading-[1.4] font-[650] max-md:text-center max-md:font-bold">Drafts &amp; sent</h1>
+        {/* As wide as Back, so the title stays in the middle on a phone. */}
+        <span aria-hidden="true" className="hidden w-11 shrink-0 max-md:block" />
       </PageHeader>
       <MainContent className="flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
         <nav aria-label="Drafts and sent" className="flex flex-none gap-1 border-b px-[22px] max-md:px-3">

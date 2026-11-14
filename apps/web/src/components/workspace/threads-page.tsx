@@ -92,8 +92,10 @@ export function ThreadsPage({ me, rooms, onFailed }: Props) {
   };
   return (
     <>
-      <PageHeader>
-        <h1 className="min-w-0 flex-1 truncate text-[17px] leading-[1.4] font-[650] max-md:text-base">Threads</h1>
+      <PageHeader back="/">
+        <h1 className="min-w-0 flex-1 truncate text-[17px] leading-[1.4] font-[650] max-md:text-center max-md:font-bold">Threads</h1>
+        {/* As wide as Back, so the title stays in the middle on a phone. */}
+        <span aria-hidden="true" className="hidden w-11 shrink-0 max-md:block" />
       </PageHeader>
       <MainContent className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain bg-background pr-[env(safe-area-inset-right)] [scrollbar-gutter:stable] max-md:pl-[env(safe-area-inset-left)]">
         <div className="flex w-full max-w-[960px] flex-col gap-4 px-[22px] pt-4 pb-[max(18px,env(safe-area-inset-bottom))] max-md:px-3 max-md:pt-3">

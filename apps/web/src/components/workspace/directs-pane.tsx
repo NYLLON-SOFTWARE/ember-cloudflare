@@ -1,4 +1,4 @@
-import { useContext, useEffect, useId, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type { DirectPreview, RoomId, SidebarRoom, User, UserId } from "@ember/protocol";
 import { ChatBubbleEmpty, ChatPlusIn, CheckCircle, Search } from "@/components/icons/iconoir";
 import { MainContent } from "@/components/main-content";

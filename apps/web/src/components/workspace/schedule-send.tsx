@@ -206,7 +206,8 @@ export function ScheduledNotice({ messages, scheduled, disabled, onReturnFocus, 
       <button
         type="button"
         data-undo
-        onPointerDown={(event) => event.preventDefault()}
+        // A mouse's press keeps focus in the composer. Preventing a touch's would keep WebKit from clicking.
+        onMouseDown={(event) => event.preventDefault()}
         onClick={() => undo(message)}
         className="inline-flex shrink-0 cursor-pointer items-center justify-center font-medium text-link hover:underline touch:min-h-11 touch:min-w-11"
       >
@@ -227,8 +228,9 @@ export function ScheduledNotice({ messages, scheduled, disabled, onReturnFocus, 
           </span>
           <button
             type="button"
-            // Keeps focus in the composer, so one tap opens the list in WebKit, as Send keeps it.
-            onPointerDown={(event) => event.preventDefault()}
+            // Keeps focus in the composer, as Send does: only a mouse's press, as preventing a touch's would keep
+            // WebKit from clicking at all.
+            onMouseDown={(event) => event.preventDefault()}
             onClick={() => setOpen(true)}
             className="inline-flex shrink-0 cursor-pointer items-center justify-center text-link hover:underline touch:min-h-11 touch:min-w-11"
           >

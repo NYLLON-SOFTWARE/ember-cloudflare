@@ -40,6 +40,7 @@ import { MovedNotice } from "./moved-notice";
 import { opensProfile, PROFILE_PARAM, ProfilePaneContext, type ProfilePane } from "./profile-pane";
 import { DrawerOpen, PageHeader } from "./page-header";
 import { Rail, type RailPage } from "./rail";
+import { addressShowing } from "./room-tabs";
 import { RoomView, type RoomPanes, type RoomViewHandle } from "./room-view";
 import { OpenSearchContext, type SearchBoxOptions } from "./open-search";
 import { SettingsLayout, settingsSectionOf, type SettingsPlace } from "./settings-navigation";
@@ -61,6 +62,8 @@ const RARE_PAGES = new Set<Route["page"]>([
   "bot-settings",
   "new-agent",
   "agent-settings",
+  "new-app",
+  "app-settings",
   "profile",
   "push-subscriptions",
   "person",
@@ -108,6 +111,8 @@ const RAIL_PAGES = {
   "bot-settings": "workspace",
   "new-agent": "workspace",
   "agent-settings": "workspace",
+  "new-app": "workspace",
+  "app-settings": "workspace",
   profile: "profile",
   "push-subscriptions": null,
   person: null,
@@ -498,6 +503,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   };
   const goneHere = gone?.route === route ? gone : null;
   const goneRoom = goneHere?.room ?? null;
+  // A room that's gone has no tabs, so its address names none.
+  const tabAddressed = new URLSearchParams(useQuery()).has("tab");
+  useEffect(() => {
+    if (goneHere && tabAddressed) navigate(addressShowing("messages"), { replace: true });
+  }, [goneHere, tabAddressed]);
   // A room shown as gone that's listed again, as when someone is put back in it, shows as it is on a page
   // started afresh, since its own socket may have stopped. `returns` counts the rooms that came back so.
   const [returns, setReturns] = useState(0);
@@ -745,10 +755,12 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   ) : (
     <Sidebar
       workspaceName={workspaceName}
+      meId={me.id}
       rooms={rooms ?? NO_ROOMS}
       loaded={rooms !== null}
       favorites={favorites}
       sharedOrder={sharedOrder}
+      huddles={huddlesOn ? liveHuddles : NO_HUDDLES}
       currentRoomId={currentRoomId}
       currentPage={SIDEBAR_PAGES[route.page] ?? null}
       draftCount={draftCount}
@@ -851,6 +863,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
         return rarePage(({ AgentSettingsPage }) => (
           <AgentSettingsPage key={route.agentId} agentId={route.agentId} me={me} rooms={rooms} onMissing={showNotFound} onFailed={failed} />
         ));
+      case "new-app":
+        return rarePage(({ NewAppPage }) => <NewAppPage me={me} onFailed={failed} />);
+      case "app-settings":
+        return rarePage(({ AppSettingsPage }) => <AppSettingsPage key={route.appId} appId={route.appId} me={me} onMissing={showNotFound} onFailed={failed} />);
       case "profile":
         return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />);
       case "push-subscriptions":

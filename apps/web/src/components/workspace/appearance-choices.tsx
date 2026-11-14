@@ -5,30 +5,34 @@ import { cn } from "@/lib/utils";
 import { APPEARANCES } from "./appearance-menu";
 import { NavigationIcon } from "./navigation-icon";
 
-
 interface ChoicesProps {
   ref?: Ref<HTMLFieldSetElement>;
+  /** Classes for the choices' fieldset, as a sheet spaces its rows. */
+  className?: string;
   /** Classes for the legend and each choice, over the menu's, as a phone's You sheet sizes them. */
   legendClassName?: string;
   choiceClassName?: string;
   /** Each choice's icon's size: the menu's 18px, or a sheet's 24px, as its other rows' icons are. */
   iconSize?: 18 | 24;
+  /** Whether the check alone marks the one shown, as a sheet's rows do, rather than the menu's fill too. */
+  checkOnly?: boolean;
 }
 
 /**
  * Light, Dark and System as radio buttons under an Appearance legend, each with its icon and a check on
  * the one shown. A choice applies and is saved at once.
  */
-export function AppearanceChoices({ ref, legendClassName, choiceClassName, iconSize = 18 }: ChoicesProps) {
+export function AppearanceChoices({ ref, className, legendClassName, choiceClassName, iconSize = 18, checkOnly = false }: ChoicesProps) {
   const appearance = useAppearance();
   return (
-    <fieldset ref={ref}>
+    <fieldset ref={ref} className={className}>
       <legend className={cn("px-2 pt-1 pb-2 text-xs font-semibold text-muted-foreground", legendClassName)}>Appearance</legend>
       {APPEARANCES.map(({ value, label }) => (
         <label
           key={value}
           className={cn(
-            "relative flex min-h-10 cursor-pointer items-center gap-2.5 rounded-[7px] p-2 hover:bg-hover has-checked:bg-hover has-focus-visible:outline-2 has-focus-visible:-outline-offset-2 has-focus-visible:outline-foreground touch:min-h-11",
+            "relative flex min-h-10 cursor-pointer items-center gap-2.5 rounded-[7px] p-2 hover:bg-hover has-focus-visible:outline-2 has-focus-visible:-outline-offset-2 has-focus-visible:outline-foreground touch:min-h-11",
+            !checkOnly && "has-checked:bg-hover",
             choiceClassName,
           )}
         >

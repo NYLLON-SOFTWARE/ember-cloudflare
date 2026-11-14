@@ -21,6 +21,7 @@ import { isPending } from "@/lib/room-state";
 import { Composer, RoomGoneNotice, type ComposerHandle, type RoomGone } from "./composer";
 import { MessageList } from "./message-list";
 import { MobileRoomHeader } from "../mobile/room-header";
+import { PROFILE_PARAM } from "./profile-pane";
 import { RoomHeader } from "./room-header";
 import { RoomNotice } from "./room-notice";
 import { RoomFramesContext } from "./room-tab-icons";
@@ -97,18 +98,21 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   // in it, or the room's own link, goes there, or to the newest, even when it's the page shown. One
   // followed while the room is away goes there once the room lets the page in again. Opening a thread,
   // even at a permalink, whose address the thread's takes the place of, going to one of its replies, or
-  // closing it leaves the room's messages as they are. So does going from one of the room's tabs to another.
+  // closing it leaves the room's messages as they are. So does going from one of the room's tabs to another,
+  // or opening or closing someone's profile beside the room.
   const visit = useVisit();
-  const tab = new URLSearchParams(useQuery()).get("tab");
-  const visited = useRef({ messageId, visit, threadId, tab });
+  const query = new URLSearchParams(useQuery());
+  const tab = query.get("tab");
+  const profile = query.get(PROFILE_PARAM);
+  const visited = useRef({ messageId, visit, threadId, tab, profile });
   const goTo = useEffectEvent((messageId: string | null) => jump(messageId));
   useEffect(() => {
     const last = visited.current;
     if (last.messageId === messageId && last.visit === visit) return;
     const inThread = threadId !== undefined || (last.threadId !== undefined && last.messageId === messageId);
-    const toTab = last.tab !== tab && last.messageId === messageId;
-    if (inThread || toTab || goTo(messageId ?? null)) visited.current = { messageId, visit, threadId, tab };
-  }, [messageId, visit, threadId, tab, state.connections]);
+    const beside = (last.tab !== tab || last.profile !== profile) && last.messageId === messageId;
+    if (inThread || beside || goTo(messageId ?? null)) visited.current = { messageId, visit, threadId, tab, profile };
+  }, [messageId, visit, threadId, tab, profile, state.connections]);
   const typingUsers = Object.values(state.typing)
     .map((t) => t.user)
     .filter((u) => u.id !== me.id);
@@ -135,92 +139,92 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   return (
     <RoomTabsContext value={tabs}>
       <RoomFramesContext value={frames}>
-        {/* The room's header and messages, placed in the page's grid as if they were its own. */}
-        <div className={panes ? "grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)]" : "contents"} inert={covered}>
-          <Header
-            room={room}
+      {/* The room's header and messages, placed in the page's grid as if they were its own. */}
+      <div className={panes ? "grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)]" : "contents"} inert={covered}>
+        <Header
+          room={room}
+          me={me}
+          name={name}
+          present={state.present}
+          status={state.status}
+          offline={state.offline}
+          favorite={favorite}
+          onStarred={onStarred}
+          involvement={involvement}
+          askForRoom={askForRoom}
+          onSessionChanged={onSessionChanged}
+          onFailed={onFailed}
+        />
+        {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
+        <MainContent className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
+          <RoomTabs room={room} me={me} state={tabs} onFailed={onFailed} />
+          <RoomNotice notice={state.notice} onDismiss={dismissNotice} />
+          <MessageList
+            roomName={name}
+            direct={direct}
+            parentName={room.kind === "direct" ? undefined : room.parent?.name}
+            closed={room.kind === "closed"}
+            invitation={invitation}
+            onDismissInvitation={onDismissInvitation}
+            state={state}
             me={me}
-            name={name}
-            present={state.present}
-            status={state.status}
-            offline={state.offline}
-            favorite={favorite}
-            onStarred={onStarred}
-            involvement={involvement}
-            askForRoom={askForRoom}
-            onSessionChanged={onSessionChanged}
-            onFailed={onFailed}
+            actions={whyGone ? null : messageActions}
+            editing={editing}
+            editors={editors}
+            onLoadOlder={loadOlder}
+            onLoadNewer={loadNewer}
+            onJumpToNewest={() => jump(null)}
+            onDropFiles={(files) => composer.current?.addFiles(files)}
+            openThread={threadId}
+            editedHere={edit?.message.id}
+            newSince={newSince}
           />
           {edit && <EditingBar onCancel={edit.onCancel} />}
-          {/* Backgrounds run under a landscape phone's notch; the room's contents stay clear of it. */}
-          <MainContent className="relative flex min-h-0 min-w-0 flex-col bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]">
-            <RoomTabs room={room} me={me} state={tabs} onFailed={onFailed} />
-            <RoomNotice notice={state.notice} onDismiss={dismissNotice} />
-            <MessageList
+          {whyGone ? (
+            <RoomGoneNotice gone={whyGone} />
+          ) : (
+            <Composer
+              ref={composer}
+              roomId={room.id}
               roomName={name}
               direct={direct}
-              parentName={room.kind === "direct" ? undefined : room.parent?.name}
               closed={room.kind === "closed"}
-              invitation={invitation}
-              onDismissInvitation={onDismissInvitation}
-              state={state}
-              me={me}
-              actions={whyGone ? null : messageActions}
-              editing={editing}
-              editors={editors}
-              onLoadOlder={loadOlder}
-              onLoadNewer={loadNewer}
-              onJumpToNewest={() => jump(null)}
-              onDropFiles={(files) => composer.current?.addFiles(files)}
-              openThread={threadId}
-              editedHere={edit?.message.id}
-              newSince={newSince}
+              userId={me.id}
+              typing={typingUsers}
+              disabled={state.offline}
+              // Only while the room's first messages are on their way, not once it's been out of reach a while.
+              deferEditor={state.status === "connecting" && !state.offline}
+              // The thread open beside the room takes focus as it opens.
+              autoFocus={threadId === undefined}
+              frames={frames}
+              onSend={postMessage}
+              onSendFiles={postFiles}
+              onTyping={typing}
+              onEditLastMessage={editLastMessage}
               editing={edit}
             />
-            {whyGone ? (
-              <RoomGoneNotice gone={whyGone} />
-            ) : (
-              <Composer
-                ref={composer}
-                roomId={room.id}
-                roomName={name}
-                direct={direct}
-                closed={room.kind === "closed"}
-                userId={me.id}
-                typing={typingUsers}
-                disabled={state.offline}
-                // Only while the room's first messages are on their way, not once it's been out of reach a while.
-                deferEditor={state.status === "connecting" && !state.offline}
-                // The thread open beside the room takes focus as it opens.
-                autoFocus={threadId === undefined}
-                frames={frames}
-                onSend={postMessage}
-                onSendFiles={postFiles}
-                onTyping={typing}
-                onEditLastMessage={editLastMessage}
-              />
-            )}
-          </MainContent>
-        </div>
-        {threadId !== undefined &&
-          placed(
-            <ThreadPanel
-              key={threadId}
-              room={room}
-              name={name}
-              me={me}
-              parentId={threadId}
-              replyId={replyId}
-              frames={frames}
-              status={state.status}
-              offline={state.offline}
-              gone={whyGone}
-              roomNotice={covered ? state.notice : null}
-              onDismissRoomNotice={dismissNotice}
-              placement={panes ? "pane" : "column"}
-              onClose={panes?.onCloseThread}
-            />,
           )}
+        </MainContent>
+      </div>
+      {threadId !== undefined &&
+        placed(
+          <ThreadPanel
+            key={threadId}
+            room={room}
+            name={name}
+            me={me}
+            parentId={threadId}
+            replyId={replyId}
+            frames={frames}
+            status={state.status}
+            offline={state.offline}
+            gone={whyGone}
+            roomNotice={covered ? state.notice : null}
+            onDismissRoomNotice={dismissNotice}
+            placement={panes ? "pane" : "column"}
+            onClose={panes?.onCloseThread}
+          />,
+        )}
       </RoomFramesContext>
     </RoomTabsContext>
   );

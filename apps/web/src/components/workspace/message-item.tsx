@@ -1,5 +1,5 @@
 import { memo, useCallback, useContext, useMemo, useRef, useState } from "react";
-import type { Me, Message, User } from "@ember/protocol";
+import type { CardAction, Me, Message, User } from "@ember/protocol";
 import { isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
 import { BookmarkSolid, NavArrowRight } from "@/components/icons/iconoir";
 import { useSavedMark } from "@/lib/saved";
@@ -37,6 +37,8 @@ export interface MessageActions {
   retry?: (clientMessageId: string) => void;
   /** Forgets a message shown as not sent. */
   discard?: (clientMessageId: string) => void;
+  /** Clicks a button that acts on one of a message's cards, answering whether its bot took the click, once the room says. */
+  click: (messageId: string, action: CardAction) => Promise<boolean>;
 }
 
 /**
@@ -440,7 +442,9 @@ export const MessageItem = memo(function MessageItem({ message, me, threaded: fo
           )
         )}
 
-        {message.cards && !editing && <BotCards cards={message.cards} className={threaded ? "col-start-1" : clearOfOptions} />}
+        {message.cards && !editing && (
+          <BotCards cards={message.cards} className={threaded ? "col-start-1" : clearOfOptions} onAction={actions && !pending ? (action) => actions.click(message.id, action) : undefined} />
+        )}
 
         {pending && !upload && (message.failed ? <NotSent message={message} actions={actions} editors={editors} /> : message.queued && <p className="col-span-full text-xs text-message-muted">Sending…</p>)}
 

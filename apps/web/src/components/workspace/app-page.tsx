@@ -4,7 +4,7 @@ import { APPS_FORBIDDEN, MAX_APP_NAME_LENGTH, MAX_APP_TOKEN_LENGTH, MAX_APP_TOOL
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { RefreshDouble } from "@/components/icons/iconoir";
+import { RefreshDouble } from "@/components/icons/iconoir-more";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
 import { appSettingsPath, navigate } from "@/hooks/use-route";

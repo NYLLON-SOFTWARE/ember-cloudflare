@@ -1835,6 +1835,11 @@ export type ServerFrame =
    * `clientMessageIds` the messages it was about, or `clickId` the click.
    */
   | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"] }
+  /**
+   * The messages you've scheduled in the room, soonest first: sent to each of your sockets as it opens and
+   * whenever the list changes, and only to yours.
+   */
+  | { type: "scheduled"; messages: ScheduledMessage[] }
   /** A canvas as it is now, for a writer whose version the room has no steps after. */
   | { type: "canvas.state"; tabId: string; canvas: Canvas }
   /**
@@ -1845,11 +1850,6 @@ export type ServerFrame =
   | { type: "canvas.steps"; tabId: string; version: number; steps: unknown[]; clientIds: string[]; updatedBy: User; updatedAt: string }
   /** Why the room took none of a writer's steps, or can't let them write the canvas, which may be gone. */
   | { type: "canvas.refused"; tabId: string; message: string }
-  /**
-   * The messages you've scheduled in the room, soonest first: sent to each of your sockets as it opens and
-   * whenever the list changes, and only to yours.
-   */
-  | { type: "scheduled"; messages: ScheduledMessage[] }
   | { type: "pong" };
 
 /**
@@ -1917,14 +1917,14 @@ export type WorkspaceServerFrame =
   | { type: "activity.marked"; ids: number[] | null; read: boolean }
   /** Items gone from their Activity, as a reaction taken back or a message deleted takes them. */
   | { type: "activity.removed"; ids: number[] }
-  /** Items of their Activity that say what an edited message says now. */
-  | { type: "activity.updated"; items: ActivityItem[] }
   /**
    * They've changed their To-dos or Saved, in this tab or another, or a reminder of theirs has gone off:
    * the messages kept in their lists now, so each message's actions say Add or Remove, and their lists'
    * counts, and the lists' pages load again.
    */
   | ({ type: "saved.changed" } & SavedMarks)
+  /** Items of their Activity that say what an edited message says now. */
+  | { type: "activity.updated"; items: ActivityItem[] }
   | { type: "error"; message: string }
   | { type: "pong" };
 

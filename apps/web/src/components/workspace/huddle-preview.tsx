@@ -1,7 +1,8 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { LiveHuddle, Me, SharedRoom } from "@ember/protocol";
 import { Field } from "@/components/field";
-import { Microphone, MicrophoneMute, Xmark } from "@/components/icons/iconoir";
+import { Xmark } from "@/components/icons/iconoir";
+import { Microphone, MicrophoneMute } from "@/components/icons/iconoir-more";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { PeopleContext } from "@/hooks/use-directory";
 import { useHuddle } from "@/hooks/use-huddle";

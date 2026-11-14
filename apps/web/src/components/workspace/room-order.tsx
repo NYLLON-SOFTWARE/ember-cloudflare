@@ -1,6 +1,7 @@
 import { useId, useState, type ReactNode } from "react";
 import type { Me, RoomId, SharedRoom } from "@ember/protocol";
-import { DotsGrid3x3, NavArrowRight, Plus } from "@/components/icons/iconoir";
+import { NavArrowRight, Plus } from "@/components/icons/iconoir";
+import { DotsGrid3x3 } from "@/components/icons/iconoir-more";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
 import { newSubRoomPath, roomSettingsPath, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";

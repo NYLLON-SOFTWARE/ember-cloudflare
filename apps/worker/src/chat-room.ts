@@ -1661,9 +1661,23 @@ export class ChatRoom extends DurableObject<Env> {
       workspace: new Courier(() => this.sendEvents(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s log to the Workspace`),
       index: new Courier(() => this.sendMessages(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s messages to the search index`, true),
       files: new Courier(() => this.purgeFiles(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s deleted files to R2`, true),
-      scheduled: new Courier(() => this.sendScheduled(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s scheduled messages to the Workspace`),
       forwards: new Courier(() => this.tellForwards(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s deleted originals to their forwards' rooms`, true),
+      scheduled: new Courier(() => this.sendScheduled(roomId), (time) => this.wakeAt(roomId, time), `room ${roomId}'s scheduled messages to the Workspace`),
     });
+  }
+
+  /**
+   * Sends the Workspace the oldest changes to the room's scheduled messages that it hasn't taken, as many
+   * as one call takes, each message as it is now or gone, and forgets them once it has. Answers how many
+   * it sent. A message changed again meanwhile is logged again, so the Workspace hears of that too.
+   */
+  private async sendScheduled(roomId: RoomId): Promise<number> {
+    const scheduled = this.scheduledFor(roomId);
+    const changes = await this.serially(() => scheduled.changed(ENTRIES_PER_CALL));
+    if (changes.length === 0) return 0;
+    await workspace(this.env).scheduledChanged(roomId, changes.map(({ id, listing }) => ({ id, listing })));
+    await this.serially(() => scheduled.synced(changes.at(-1)!.seq));
+    return changes.length;
   }
 
   /**
@@ -1702,20 +1716,6 @@ export class ChatRoom extends DurableObject<Env> {
     const unheard = orphaned.length + changed.length - heardOrphaned.length - heardChanged.length;
     if (unheard > 0) throw new Error(`${unheard} forwards' rooms couldn't hear`);
     return Math.max(orphaned.length, changed.length);
-  }
-
-  /**
-   * Sends the Workspace the oldest changes to the room's scheduled messages that it hasn't taken, as many
-   * as one call takes, each message as it is now or gone, and forgets them once it has. Answers how many
-   * it sent. A message changed again meanwhile is logged again, so the Workspace hears of that too.
-   */
-  private async sendScheduled(roomId: RoomId): Promise<number> {
-    const scheduled = this.scheduledFor(roomId);
-    const changes = await this.serially(() => scheduled.changed(ENTRIES_PER_CALL));
-    if (changes.length === 0) return 0;
-    await workspace(this.env).scheduledChanged(roomId, changes.map(({ id, listing }) => ({ id, listing })));
-    await this.serially(() => scheduled.synced(changes.at(-1)!.seq));
-    return changes.length;
   }
 
   /**

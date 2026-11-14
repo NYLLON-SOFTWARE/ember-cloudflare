@@ -81,14 +81,14 @@ test("a room's top bar is Back and its name with how many are in it, which opens
     expect(await capsule.evaluate((element) => parseFloat(getComputedStyle(element).borderTopLeftRadius))).toBeGreaterThanOrEqual(22);
   }
   // The star and the bell are in its details, with the room's tabs, which have no strip on a phone.
-  await expect(header.getByRole("button", { name: "Favorite room" })).toHaveCount(0);
+  await expect(header.getByRole("button", { name: "Star room" })).toHaveCount(0);
   await expect(page.getByRole("tablist", { name: "Room tabs" })).toBeHidden();
   await screenIsFine();
 
   await pill.tap();
   const details = page.getByRole("dialog", { name: room.name });
   await expect(details.getByRole("button", { name: "Messages" })).toHaveAttribute("aria-current", "true");
-  await expect(details.getByRole("button", { name: "Favorite room" })).toBeVisible();
+  await expect(details.getByRole("button", { name: "Star room" })).toBeVisible();
   await screenIsFine();
   await details.getByRole("link", { name: "Settings" }).tap();
   await expect(page).toHaveURL(new RegExp(`/rooms/(opens|closeds)/${room.id}/edit$`));

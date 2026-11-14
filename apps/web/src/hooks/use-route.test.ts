@@ -489,6 +489,20 @@ describe("Back on a phone", () => {
     act(() => closeOverlay());
     expect(close).toHaveBeenCalledOnce();
   });
+
+  it("closes overlays open over one another innermost first", async () => {
+    navigate("/activity", { replace: true });
+    const closed: string[] = [];
+    act(() => {
+      openOverlay(() => closed.push("conversation"));
+      openOverlay(() => closed.push("thread"));
+    });
+    act(() => history.back());
+    await waitFor(() => expect(closed).toEqual(["thread"]));
+    act(() => history.back());
+    await waitFor(() => expect(closed).toEqual(["thread", "conversation"]));
+    expect(location.pathname).toBe("/activity");
+  });
 });
 
 describe("Pages under a page", () => {

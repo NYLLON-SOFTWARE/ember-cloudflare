@@ -78,8 +78,8 @@ import { ADDRESS_TAG_PREFIX, EVERYONE, SESSION_TAG_PREFIX, type Revocation } fro
 import { addRecorded, readInRoom, recordedRows, recordMessage, type RecordedItems } from "./activity";
 import type { RoomEvent } from "./room-log";
 import { forgettingRoomTabs } from "./room-tabs";
-import { NEXT_REMINDER_DUE, NEXT_UPLOAD_DUE } from "./saved-store";
 import { forgettingScheduledListings } from "./scheduled-listings";
+import { NEXT_REMINDER_DUE, NEXT_UPLOAD_DUE } from "./saved-store";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
 // storage or in D1 (see db.ts).
@@ -1455,7 +1455,8 @@ const ACTIVE_AT = `coalesce(rooms.last_message_at, rooms.created_at) AS active_a
  * they were listed.
  */
 export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}, memberships.unread_at IS NOT NULL AS unread,
-    memberships.unread_at AS unread_since, memberships.unread_count, memberships.unread_mentioned, memberships.involvement, rooms.shared_position, rooms.huddle_started_at, rooms.huddle_user_ids, ${PARENT_COLUMNS}
+    memberships.unread_at AS unread_since, memberships.unread_count, memberships.unread_mentioned, memberships.involvement, rooms.shared_position, rooms.huddle_started_at, rooms.huddle_user_ids,
+    ${PARENT_COLUMNS}
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id ${JOIN_PARENT}
   WHERE memberships.user_id = ? ORDER BY rooms.created_at, rooms.id`;
 
@@ -2421,7 +2422,9 @@ const MENTIONABLE_MEMBERS = `SELECT ${DIRECTORY_COLUMNS}
   WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.name LIKE '%' || ?1 || '%'
   ${MENTIONABLE_ORDER} LIMIT ${MENTIONABLE_PAGE}`;
 
-/** The people sharing from room ?1 in room ?2 would reach: active people in room ?2 who aren't in room ?1, and aren't bots. */
+/**
+ * The people sharing from room ?1 in room ?2 would reach: active people in room ?2 who aren't in room ?1, and aren't bots.
+ */
 const NEW_VIEWERS = `FROM memberships JOIN users ON users.id = memberships.user_id
   WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.role <> ${BOT}
     AND NOT EXISTS (SELECT 1 FROM memberships AS seeing WHERE seeing.room_id = ?1 AND seeing.user_id = memberships.user_id)`;

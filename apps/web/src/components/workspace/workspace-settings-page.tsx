@@ -19,7 +19,8 @@ import {
 import { AccountLogo, STOCK_LOGO } from "@/components/account-logo";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
 import { useFlash } from "@/components/flash";
-import { Crown, Plus } from "@/components/icons/iconoir";
+import { Plus } from "@/components/icons/iconoir";
+import { Crown } from "@/components/icons/iconoir-more";
 import { scrollMainContentToTop } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { Input } from "@/components/ui/input";
