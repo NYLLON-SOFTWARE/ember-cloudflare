@@ -1245,8 +1245,9 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * Posts scheduled `message` as `author`'s, as message.create would have posted it, in its thread if it's
-   * a reply, taking it from what's scheduled. Answers why the room can't post it, if it can't, marking it
-   * not sent.
+   * a reply, then takes it from what's scheduled, so one that fails to post is still there to try again.
+   * One the room has posted already, as a D1 batch that failed may have, is only taken. Answers why the
+   * room can't post it, if it can't, marking it not sent. It runs one event at a time, after `find`.
    */
   private async postAs(store: MessageStore, author: User, message: DueMessage): Promise<string | null> {
     const scheduled = this.scheduledFor(store.roomId);
@@ -1258,8 +1259,9 @@ export class ChatRoom extends DurableObject<Env> {
     if (inThread === null) return unsent(SCHEDULED_THREAD_GONE, true);
     const body = await this.prepare(message.body);
     if (typeof body === "string") return unsent(body);
-    if (!(await scheduled.remove(message.id))) return null;
-    await this.create(store, author, message.clientMessageId, body, new Date().toISOString(), { inThread });
+    const postedAlready = (await store.storedClientMessageIds(author, [message.clientMessageId])).length > 0;
+    if (!postedAlready) await this.create(store, author, message.clientMessageId, body, new Date().toISOString(), { inThread });
+    await scheduled.remove(message.id);
     return null;
   }
 
@@ -1283,7 +1285,7 @@ export class ChatRoom extends DurableObject<Env> {
             return undefined;
           });
         if (access === undefined) return this.serially(() => this.wakeToPostBy(roomId, Date.now() + SCHEDULED_RETRY_MS));
-        await this.serially(async () => {
+        const posted = await this.serially(async () => {
           // Unless its author has sent, moved or deleted it since.
           const waiting = await scheduled.find(message.id);
           if (!waiting || waiting.failed !== undefined || waiting.sendAt > Date.now()) return;
@@ -1291,7 +1293,15 @@ export class ChatRoom extends DurableObject<Env> {
           if (allowed) await this.postAs(this.storeFor(roomId), access.user, waiting);
           else await scheduled.fail(waiting.id, SCHEDULED_AUTHOR_GONE);
           await this.tellScheduled(roomId, waiting.authorId);
-        });
+        }).then(
+          () => true,
+          (error: unknown) => {
+            console.error("Could not post a scheduled message:", error instanceof Error ? error.name : "unknown error");
+            return false;
+          },
+        );
+        // Still scheduled, as posting it failed, to try again shortly.
+        if (!posted) return this.serially(() => this.wakeToPostBy(roomId, Date.now() + SCHEDULED_RETRY_MS));
       }
     } while (due.length === POSTED_AT_ONCE);
     await this.serially(async () => {

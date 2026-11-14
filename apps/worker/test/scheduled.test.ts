@@ -204,4 +204,55 @@ describe("Scheduled messages", () => {
       roomSql(room, "INSERT INTO scheduled_messages (id, room_id, author_id, client_message_id, body, send_at, created_at) VALUES ('x', ?, ?, 'c', 'b', 1, 'now'), ('y', ?, ?, 'c', 'b', 1, 'now')", room, ada.me.id, room, ada.me.id),
     ).rejects.toThrow(/UNIQUE/);
   });
+
+  it("keeps a scheduled message whose post fails, saying so to Send now, and posts it once the alarm tries again", async () => {
+    const room = await freshRoom("scheduled-post-fails");
+    const [ada, grace] = [await connect(room, "Ada"), await connect(room, "Grace")];
+    const [message] = await schedule(ada, "<p>Still here</p>");
+
+    // Posting fails once from Send now, and once from the alarm, as a D1 error would.
+    await failToPost(room, 2);
+    ada.send({ type: "scheduled.send", id: message!.id });
+    expect(await ada.next("error")).toMatchObject({ failed: "scheduled.send" });
+    await timeComes(room);
+    await settle(grace);
+    expect(grace.pending("message.created")).toEqual([]);
+    expect(await roomSql(room, "SELECT body FROM scheduled_messages WHERE room_id = ?", room)).toEqual([{ body: "<p>Still here</p>" }]);
+    // The alarm comes back for it.
+    expect(await runDurableObjectAlarm(roomStub(room))).toBe(true);
+    expect((await grace.next("message.created")).message).toMatchObject({ plainText: "Still here", creator: { id: ada.me.id } });
+    expect((await ada.next("scheduled")).messages).toEqual([]);
+  });
+
+  it("posts a scheduled message once when its post was saved though the call failed, as D1's can be", async () => {
+    const room = await freshRoom("scheduled-saved-failed");
+    const [ada, grace] = [await connect(room, "Ada"), await connect(room, "Grace")];
+    await schedule(ada, "<p>Only once</p>");
+    await failToPost(room, 1, true);
+    await timeComes(room);
+    expect((await grace.next("message.created")).message).toMatchObject({ plainText: "Only once" });
+    expect(await runDurableObjectAlarm(roomStub(room))).toBe(true);
+    await settle(grace);
+    expect(grace.pending("message.created")).toEqual([]);
+    expect(await roomSql(room, "SELECT count(*) AS n FROM messages WHERE room_id = ? AND plain_text = ?", room, "Only once")).toEqual([{ n: 1 }]);
+    expect(await roomSql(room, "SELECT count(*) AS n FROM scheduled_messages WHERE room_id = ?", room)).toEqual([{ n: 0 }]);
+  });
 });
+
+/**
+ * Has `room` fail to post its next `times` messages, throwing as a failed D1 call does, after saving
+ * each, when `saved`, as a D1 batch that fails may.
+ */
+async function failToPost(room: RoomId, times: number, saved = false): Promise<void> {
+  await runInDurableObject(roomStub(room), (instance) => {
+    const chatRoom = instance as unknown as { create: (...args: unknown[]) => Promise<unknown> };
+    const create = chatRoom.create.bind(chatRoom);
+    let left = times;
+    chatRoom.create = async (...args) => {
+      if (left === 0) return create(...args);
+      left--;
+      if (saved) await create(...args);
+      throw new Error("D1_ERROR: injected");
+    };
+  });
+}
