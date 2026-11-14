@@ -24,6 +24,7 @@ import {
   type UserId,
 } from "@ember/protocol";
 import { parseHuddleSocketParams } from "@ember/protocol/huddles";
+import type { CanvasSave } from "@ember/protocol/library";
 import { prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
 import {
   AGENT_NOTES,
@@ -46,6 +47,7 @@ import { roomSearch } from "./assistant/room-search";
 import { appTool, callCard, callDecisionOf, CALL_OUTCOMES, givenAs, givenTools, usedCard, type GivenTool, type PickedTool, type ShowsCall, type Unmade } from "./apps/tools";
 import { CALL_WAITS_MS, fits, WaitingCalls, type WaitingCall } from "./apps/waiting-calls";
 import { JobQueue } from "./at-once";
+import { CanvasSessions, type CanvasAnswer } from "./canvas-sessions";
 import { actingButton, clickPayload } from "./bots/clicks";
 import { payloadOf, slackMessage, type SlackMessage, type SlackPayload } from "./bots/slack";
 import { postClick, postWebhook, WebhookError, webhookPayload, type ClickAnswer, type Reply } from "./bots/webhooks";
@@ -82,6 +84,8 @@ interface Attachment extends Viewing {
   banned?: true;
   /** Set while the tab is typing, from its typing.start until its typing.stop or message, so closing it stops only typing it did. */
   typing?: true;
+  /** The canvas tab the tab is writing together with others, from its canvas.join until its canvas.leave (canvas-sessions.ts). */
+  canvas?: string;
 }
 
 export const USER_HEADER = "X-Ember-User";
@@ -118,8 +122,10 @@ const OUTDATED = "Ember has been updated. Reload the page to keep chatting.";
  * of the 429 the Worker answers such a request with.
  */
 const BANNED = "Request failed (429)";
+/** Why the room takes no steps to a canvas from a socket that isn't writing it. */
+const NOT_WRITING = "Open the canvas again to keep writing.";
 /** The frames that change something, which a banned address's sockets can't send. */
-const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete", "card.click"]);
+const CHANGES = new Set<ClientFrame["type"]>(["message.create", "message.update", "message.delete", "boost.create", "boost.delete", "canvas.steps", "card.click"]);
 /** Whether `ws`'s tab runs an app older than the room protocol. */
 const isOutdated = (ws: WebSocket) => ((ws.deserializeAttachment() as Attachment).protocol ?? 1) < ROOM_PROTOCOL;
 
@@ -301,12 +307,14 @@ export class ChatRoom extends DurableObject<Env> {
   private readonly seenBy = new Map<string, UserId[]>();
   /** The room's huddle, whose sockets it keeps beside the room's own. */
   private readonly huddle: Huddle;
+  /** The canvases people are writing together, made once one is. */
+  private canvases: CanvasSessions | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // Heartbeats are answered by the runtime without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'));
-    this.huddle = new Huddle(ctx, env, (time) => this.serially(() => this.checkHuddleBy(time)));
+    this.huddle = new Huddle(ctx, env, (time) => this.serially(() => this.ringBy(time)));
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -363,7 +371,7 @@ export class ChatRoom extends DurableObject<Env> {
     return this.serially(async () => {
       if (await this.revocationsFor(roomId).refuse(tags, authorizedAt)) return closedAtOnce(CloseCode.Reconnect);
       const response = await this.huddle.join(user, roomId, tags, muted);
-      if (this.huddle.live) await this.checkHuddleBy(Date.now() + HUDDLE_CHECK_MS);
+      if (this.huddle.live) await this.ringBy(Date.now() + HUDDLE_CHECK_MS);
       return response;
     });
   }
@@ -425,6 +433,7 @@ export class ChatRoom extends DurableObject<Env> {
    */
   private async destroy(roomId: RoomId, code: CloseCode): Promise<void> {
     this.huddle.end(code, true);
+    this.canvases?.forget();
     for (const socket of this.roomSockets()) this.close(socket, code);
     while (await this.storeFor(roomId).deleteMessages(MESSAGES_DELETED_AT_ONCE));
     await this.logFor(roomId).forget();
@@ -436,8 +445,9 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Erases what's left of a deleted room, once R2 has deleted its files. Otherwise, checks the room's
-   * huddle, and comes back to check it while one goes on, and sends the room's logs. While a huddle
+   * Erases what's left of a deleted room, once R2 has deleted its files. Otherwise, saves and lets go of
+   * the canvases people have stopped writing, checks the room's huddle, and comes back to check it while
+   * one goes on, and sends the room's logs. While a huddle
    * goes on, the alarm rings far more often than a log that failed is sent again, so the logs wait
    * until they're due.
    */
@@ -446,6 +456,8 @@ export class ChatRoom extends DurableObject<Env> {
       Promise.all([this.ctx.storage.get<RoomId>(DELETED_ROOM), this.ctx.storage.get<RoomId>(UNDELIVERED_ROOM), this.ctx.storage.get<number>(LOGS_DUE)]),
     );
     if (deleted !== undefined) return this.erase(deleted);
+    const canvases = this.canvases;
+    const nextCanvas = canvases ? await this.serially(() => canvases.ring()) : null;
     const nextCheck = await this.huddle.check().catch((error: unknown) => {
       console.error("Checking the room's huddle failed:", error instanceof Error ? error.name : "unknown error");
       return Date.now() + HUDDLE_CHECK_MS;
@@ -453,7 +465,9 @@ export class ChatRoom extends DurableObject<Env> {
     const logsWait = nextCheck !== null && logsDue !== undefined && logsDue > Date.now();
     if (undelivered !== undefined && !logsWait) await this.sendLogs(undelivered);
     // Logs that waited are due before the huddle's next check, or after it. Logs just sent have set the alarm for whatever is left of them.
-    if (nextCheck !== null) await this.serially(() => this.checkHuddleBy(logsWait ? Math.min(nextCheck, logsDue) : nextCheck));
+    const huddleBy = nextCheck === null ? null : logsWait ? Math.min(nextCheck, logsDue) : nextCheck;
+    const next = [huddleBy, nextCanvas].filter((time) => time !== null);
+    if (next.length > 0) await this.serially(() => this.ringBy(Math.min(...next)));
   }
 
   /**
@@ -638,11 +652,12 @@ export class ChatRoom extends DurableObject<Env> {
       const now = new Date().toISOString();
       if (await this.revocationsFor(roomId).refuse([bot.id], authorizedAt)) return NOT_FOUND;
       const store = this.storeFor(roomId);
-      if (!(await this.findUndeleted(store, messageId))) return NOT_FOUND;
+      const message = await this.findUndeleted(store, messageId);
+      if (!message) return NOT_FOUND;
       const trimmed = content.trim();
       if (trimmed === "") return BLANK;
       if (trimmed.length > MAX_BOOST_LENGTH) return BOOST_TOO_LONG;
-      return this.addBoost(store, messageId, bot, trimmed, now);
+      return this.addBoost(store, message, bot, trimmed, now);
     });
   }
 
@@ -917,7 +932,7 @@ export class ChatRoom extends DurableObject<Env> {
         if (!message) return this.refuse(ws, "That message no longer exists");
         // A person adds each reaction once, so one they've already added is a repeated click.
         if (message.boosts.some((b) => b.booster.id === user.id && b.content === frame.content)) return;
-        await this.addBoost(store, frame.messageId, user, frame.content, now);
+        await this.addBoost(store, message, user, frame.content, now);
         return;
       }
       case "boost.delete": {
@@ -978,9 +993,53 @@ export class ChatRoom extends DurableObject<Env> {
         this.ctx.waitUntil(this.deliverClick(store.roomId, ws, user, frame));
         return;
       }
+      case "canvas.join": {
+        const { canvas: previous, ...attachment } = ws.deserializeAttachment() as Attachment;
+        ws.serializeAttachment({ ...attachment, canvas: frame.tabId } satisfies Attachment);
+        if (previous !== undefined && previous !== frame.tabId) await this.canvasesFor(store.roomId).left(previous);
+        if (!(await this.canvasesFor(store.roomId).join(ws, frame.tabId, frame.version))) ws.serializeAttachment(attachment satisfies Attachment);
+        return;
+      }
+      case "canvas.steps": {
+        // Only a socket writing the canvas changes it, as the one that hears what others change.
+        if ((ws.deserializeAttachment() as Attachment).canvas !== frame.tabId) return this.send(ws, { type: "canvas.refused", tabId: frame.tabId, message: NOT_WRITING });
+        return this.canvasesFor(store.roomId).apply(ws, user, frame.tabId, frame.version, frame.clientId, frame.steps);
+      }
+      case "canvas.leave": {
+        const { canvas, ...attachment } = ws.deserializeAttachment() as Attachment;
+        if (canvas !== frame.tabId) return;
+        ws.serializeAttachment(attachment satisfies Attachment);
+        return this.canvasesFor(store.roomId).left(canvas);
+      }
       case "ping":
         return this.send(ws, { type: "pong" });
     }
+  }
+
+  /** The canvases of room `roomId` that people write together over its sockets. */
+  private canvasesFor(roomId: RoomId): CanvasSessions {
+    this.canvases ??= new CanvasSessions({
+      roomId,
+      writers: (tabId) => this.roomSockets().filter((socket) => socket.readyState === WebSocket.OPEN && (socket.deserializeAttachment() as Attachment).canvas === tabId),
+      send: (ws, frame) => this.send(ws, frame),
+      ringBy: (time) => this.ringBy(time),
+      load: (tabId) => workspace(this.env).roomCanvas(roomId, tabId),
+      keep: (tabId, body, version, by) => workspace(this.env).keepRoomCanvas(roomId, tabId, body, version, by),
+      save: async (tabId, actor, save) => {
+        const answer = await workspace(this.env).saveRoomCanvas(roomId, tabId, actor, save);
+        if (typeof answer === "object" && "conflict" in answer) return { conflict: answer.conflict };
+        return typeof answer === "object" && "canvas" in answer && answer.canvas ? { canvas: answer.canvas } : "not found";
+      },
+    });
+    return this.canvases;
+  }
+
+  /**
+   * Saves canvas `tabId` sent whole over `save.version` by `actor`, whom the Workspace has let write it, as a
+   * page going away sends one: through what people writing it together have, if anyone is.
+   */
+  async saveCanvas(roomId: RoomId, tabId: string, actor: User, save: CanvasSave): Promise<CanvasAnswer> {
+    return this.serially(() => this.canvasesFor(roomId).saveWhole(tabId, actor, save));
   }
 
   /**
@@ -1053,6 +1112,8 @@ export class ChatRoom extends DurableObject<Env> {
     if (body.html === message.body && JSON.stringify(body.cards) === JSON.stringify(message.cards)) return message;
     const { message: edited, seq } = await store.updateBody(message, body, now);
     this.broadcast({ type: "message.updated", message: edited, seq });
+    // People's Activity says what it says now, so nothing edited out of it stays there.
+    this.ctx.waitUntil(workspace(this.env).messageEdited(store.roomId, edited.id, edited.plainText).catch(() => {}));
     this.couriersFor(store.roomId).index.deliver();
     return edited;
   }
@@ -1062,16 +1123,24 @@ export class ChatRoom extends DurableObject<Env> {
    * everyone in the room and sending the search index its log, and has R2 delete its file, if it has one.
    */
   private async deleteMessage(store: MessageStore, message: Message): Promise<void> {
-    this.broadcastDeletion(await store.delete([message.id]));
+    const deletion = await store.delete([message.id]);
+    this.broadcastDeletion(deletion);
+    // What people's Activity says of it goes with it, even when it keeps its place for its thread.
+    for (const messageId of new Set([message.id, ...deletion.deletedIds])) this.ctx.waitUntil(workspace(this.env).messageDeleted(store.roomId, messageId).catch(() => {}));
     const couriers = this.couriersFor(store.roomId);
     couriers.index.deliver();
     if (message.attachment) couriers.files.deliver();
   }
 
-  /** Adds `user`'s boost of `content` to the message `messageId`, telling everyone in the room, and answers it. */
-  private async addBoost(store: MessageStore, messageId: string, user: User, content: string, now: string): Promise<Boost> {
-    const { boost, seq } = await store.addBoost(sortableId(), messageId, user, content, now);
+  /**
+   * Adds `user`'s boost of `content` to `message`, telling everyone in the room, and the message's author
+   * in their Activity, and answers it.
+   */
+  private async addBoost(store: MessageStore, message: Message, user: User, content: string, now: string): Promise<Boost> {
+    const { boost, seq } = await store.addBoost(sortableId(), message.id, user, content, now);
     this.broadcast({ type: "boost.created", boost, seq });
+    const reacted = workspace(this.env).reacted(store.roomId, message.id, message.creator.id, user.id, content, message.plainText, now);
+    this.ctx.waitUntil(reacted.catch(() => {}));
     // Search results show a message's boosts, so the index takes it again.
     this.couriersFor(store.roomId).index.deliver();
     return boost;
@@ -1081,6 +1150,7 @@ export class ChatRoom extends DurableObject<Env> {
   private async removeBoost(store: MessageStore, boost: Boost): Promise<void> {
     const seq = await store.removeBoost(boost);
     this.broadcast({ type: "boost.deleted", boostId: boost.id, messageId: boost.messageId, seq });
+    this.ctx.waitUntil(workspace(this.env).unreacted(boost.messageId, boost.booster.id, boost.content).catch(() => {}));
     this.couriersFor(store.roomId).index.deliver();
   }
 
@@ -1859,11 +1929,11 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /**
-   * Sets the alarm to check the room's huddle by `time`, unless it's set for sooner. A deleted room's
+   * Sets the alarm to ring by `time`, to check the room's huddle or save its canvases, unless it's set for sooner. A deleted room's
    * alarm is left as it is, as `wakeAt` leaves it, and like it this runs one event at a time with
    * deleting the room.
    */
-  private async checkHuddleBy(time: number): Promise<void> {
+  private async ringBy(time: number): Promise<void> {
     if (await this.isDeleted()) return;
     const alarm = await this.ctx.storage.getAlarm();
     if (alarm === null || alarm > time) await this.ctx.storage.setAlarm(time);
@@ -1915,9 +1985,11 @@ export class ChatRoom extends DurableObject<Env> {
   }
 
   /** Lets everyone know a socket has closed, unless the room closed it for a revocation and said so already. */
-  private leave(ws: WebSocket): void {
-    const { user, revoked, typing } = ws.deserializeAttachment() as Attachment;
+  private async leave(ws: WebSocket): Promise<void> {
+    const { user, roomId, revoked, typing, canvas } = ws.deserializeAttachment() as Attachment;
     if (!revoked) this.depart(user, ws, typing === true);
+    // The canvas it was writing is saved once nobody else is.
+    if (canvas !== undefined) await this.canvasesFor(roomId).left(canvas, ws);
   }
 
   /**

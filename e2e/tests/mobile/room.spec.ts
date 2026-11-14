@@ -66,7 +66,7 @@ test("a busy room fits the phone", async ({ page, room, participant, screenIsFin
 test("the room's star, and a starred room's row in the drawer, fit the phone", async ({ page, room, screenIsFine }) => {
   await isolateRoom(page, room);
   await openRoom(page, room);
-  const star = page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" });
+  const star = page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Star room" });
   await star.tap();
   await expect(star).toHaveAttribute("aria-pressed", "true");
   await screenIsFine();
@@ -83,8 +83,8 @@ test("a star that can't be saved says so on the phone, however long the room's n
   await isolateRoom(page, named);
   await page.route("**/api/rooms/*/favorite", (route) => route.fulfill({ status: 503, json: { error: "Workspace unavailable" } }));
   await openRoom(page, named);
-  await page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Favorite room" }).tap();
-  await expect(page.getByRole("status").filter({ hasText: "Couldn’t save your favorite. Please try again." })).toBeVisible();
+  await page.getByRole("navigation", { name: "Page" }).getByRole("button", { name: "Star room" }).tap();
+  await expect(page.getByRole("status").filter({ hasText: "Couldn’t save your star. Please try again." })).toBeVisible();
   await screenIsFine();
 });
 

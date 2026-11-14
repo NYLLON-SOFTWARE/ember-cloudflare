@@ -2,11 +2,13 @@
 // object with a `type`, and what the API sends and takes. Keep this file dependency-free: the
 // worker and the web app both import it directly as TypeScript.
 
+import type { ActivityItem } from "./activity.ts";
 import type { AgentProfile } from "./agents.ts";
 import type { AssistantSettings, YourAssistant } from "./assistant.ts";
 import { isActionId, isActionValue, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
 import type { HuddlesSettings, LiveHuddle } from "./huddles.ts";
+import type { Canvas } from "./library.ts";
 import { MAX_ID_LENGTH } from "./pages.ts";
 import { MAX_PUSH_ENDPOINT_LENGTH } from "./push.ts";
 import { ROOM_ICON_NAMES } from "./room-icons.ts";
@@ -133,6 +135,7 @@ export {
   type RoomAccess,
   type WorkspacePage,
 } from "./pages.ts";
+export { FILES_PATH, filesPath, type FilesPlace } from "./pages.ts";
 export {
   MAX_PUSH_ENDPOINT_LENGTH,
   MAX_PUSH_KEY_LENGTH,
@@ -146,6 +149,23 @@ export {
   type SignOut,
 } from "./push.ts";
 export { TRANSLATIONS, type TranslationKey } from "./translations.ts";
+export { dmPath, DMS_PATH, DRAFTS_PATH, PEOPLE_PATH, SENT_PATH, THREADS_PATH } from "./pages.ts";
+export { THREAD_CONTEXT, THREADS_LIMIT, type DirectPreview, type DirectPreviews, type ListedThread, type ListedThreads } from "./conversations.ts";
+export {
+  ACTIVITY_KINDS,
+  ACTIVITY_PAGE_SIZE,
+  ACTIVITY_PATH,
+  ACTIVITY_PREVIEW_LENGTH,
+  MAX_ACTIVITY_MARKS,
+  mentionsEveryone,
+  parseActivityCursor,
+  parseActivityMarks,
+  previewOf,
+  type ActivityItem,
+  type ActivityKind,
+  type ActivityMarks,
+  type ActivityPage,
+} from "./activity.ts";
 export {
   hasFilters,
   hasWords,
@@ -274,9 +294,14 @@ export const startingInvolvement = (room: Room): Involvement => (room.kind === "
  * A room in someone's sidebar, with whether a message has come since they last had it open in a shown
  * tab, which marks it unread for them until they do again, when the first of those messages came, while
  * it's marked, and their level in it. A room they've hidden is listed too, since they can still open it,
- * but their sidebar leaves it out.
+ * but their sidebar leaves it out. `unreadCount` is how many messages have come since it was marked
+ * unread, up to `UNREAD_COUNT_CAP`, counting only those that mention them where they follow the room at
+ * @mentions or not at all; it's left out at none. `unreadMentioned` says one of them mentions them.
  */
-export type SidebarRoom = Room & { unread: boolean; unreadSince?: string; involvement: Involvement };
+export type SidebarRoom = Room & { unread: boolean; unreadSince?: string; unreadCount?: number; unreadMentioned?: boolean; involvement: Involvement };
+
+/** The most unread messages a sidebar room's count goes to, after which it says "9+", so nothing has to count them all. */
+export const UNREAD_COUNT_CAP = 10;
 
 /**
  * The rooms someone has starred, which their sidebar lists first, in the order they starred them.
@@ -882,6 +907,8 @@ export interface ChangedPerson {
 export interface Person extends DirectoryUser {
   /** Their email address, or null when they have none, which only administrators are told. */
   emailAddress?: string | null;
+  /** The IANA time zone their browser last said it's in, for their local time, or null before it has. */
+  timeZone?: string | null;
 }
 
 /** What `GET /api/users/<id>` answers: anyone, whatever their status. */
@@ -1584,6 +1611,20 @@ export type ClientFrame =
    * makes up.
    */
   | { type: "card.click"; clickId: string; messageId: string; actionId: string; blockId?: string; value?: string }
+  /**
+   * Starts writing a canvas tab of the room's together with whoever else is, in place of any canvas the
+   * socket wrote before: from `version`, where the tab's editor has one, which the room answers with the
+   * steps since, if it has them, or else the canvas as it is now (`canvas.state`).
+   */
+  | { type: "canvas.join"; tabId: string; version?: number }
+  /**
+   * ProseMirror steps, as JSON, that the editor `clientId` made over the canvas at `version`, up to
+   * `MAX_CANVAS_STEPS`. The room applies them, and sends them to everyone writing the canvas, the sender
+   * too, or, over an older version, sends the sender the steps it missed, for its editor to rebase its own over.
+   */
+  | { type: "canvas.steps"; tabId: string; version: number; clientId: string; steps: unknown[] }
+  /** Stops writing the canvas, as its tab closes. */
+  | { type: "canvas.leave"; tabId: string }
   | { type: "ping" };
 
 /**
@@ -1655,6 +1696,16 @@ export type ServerFrame =
    * `clientMessageIds` the messages it was about, or `clickId` the click.
    */
   | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"] }
+  /** A canvas as it is now, for a writer whose version the room has no steps after. */
+  | { type: "canvas.state"; tabId: string; canvas: Canvas }
+  /**
+   * Steps someone made to a canvas over `version`, each by the editor `clientIds` names at its index, in
+   * the order the room applied them: to everyone writing it, as they're made, and to a writer who's behind,
+   * the ones they missed.
+   */
+  | { type: "canvas.steps"; tabId: string; version: number; steps: unknown[]; clientIds: string[]; updatedBy: User; updatedAt: string }
+  /** Why the room took none of a writer's steps, or can't let them write the canvas, which may be gone. */
+  | { type: "canvas.refused"; tabId: string; message: string }
   | { type: "pong" };
 
 /**
@@ -1669,9 +1720,11 @@ export type WorkspaceServerFrame =
   | { type: "welcome"; you: Me; account: Account }
   /**
    * A room of theirs has a message they haven't seen, which marks it unread, as of `at`, when that message
-   * came. Sent only to the person marked, as their mark changes.
+   * came, with how many messages have come since, up to `UNREAD_COUNT_CAP` (`SidebarRoom.unreadCount`), and
+   * whether one of them mentions them (`SidebarRoom.unreadMentioned`).
+   * Sent only to the person marked, as their mark changes, and again as each message it counts comes.
    */
-  | { type: "room.unread"; roomId: RoomId; at: string }
+  | { type: "room.unread"; roomId: RoomId; at: string; count?: number; mentioned?: boolean }
   /** They've read a room marked unread, in this tab or another. */
   | { type: "room.read"; roomId: RoomId }
   /**
@@ -1711,8 +1764,19 @@ export type WorkspaceServerFrame =
   | { type: "rooms.reordered" }
   /** An administrator changed the workspace's name, settings or custom CSS, which every page applies at once. Sent to everyone. */
   | { type: "account.updated"; account: Account }
+  /** New items in their Activity, oldest first. Sent only to the person whose they are. */
+  | { type: "activity.added"; items: ActivityItem[] }
+  /** Items of their Activity marked read or unread, in this tab or another, or with `ids` null, every item marked read. */
+  | { type: "activity.marked"; ids: number[] | null; read: boolean }
+  /** Items gone from their Activity, as a reaction taken back or a message deleted takes them. */
+  | { type: "activity.removed"; ids: number[] }
+  /** Items of their Activity that say what an edited message says now. */
+  | { type: "activity.updated"; items: ActivityItem[] }
   | { type: "error"; message: string }
   | { type: "pong" };
+
+/** What the workspace socket says of someone's Activity. */
+export type ActivityFrame = Extract<WorkspaceServerFrame, { type: "activity.added" | "activity.marked" | "activity.removed" | "activity.updated" }>;
 
 /**
  * The revision of the room protocol the app speaks, which its room sockets' addresses name. The room
@@ -1882,6 +1946,17 @@ const text = (v: unknown, max: number): string | null => {
 };
 
 /** The JSON object `raw` holds, or null if it holds anything else. */
+/** The most steps one `canvas.steps` frame carries: an editor sends what it has every tenth of a second or so. */
+export const MAX_CANVAS_STEPS = 500;
+/** How long the id an editor names itself by on a canvas can be. */
+export const MAX_CANVAS_CLIENT_ID_LENGTH = 64;
+
+const canvasVersion = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+const canvasClientId = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= MAX_CANVAS_CLIENT_ID_LENGTH;
+/** Whether `v` could be a frame's steps: objects, which the room parses as steps, at least one, up to `MAX_CANVAS_STEPS`. */
+const canvasSteps = (v: unknown): v is unknown[] =>
+  Array.isArray(v) && v.length > 0 && v.length <= MAX_CANVAS_STEPS && v.every((step) => typeof step === "object" && step !== null && !Array.isArray(step));
+
 function parseObject(raw: string): Record<string, unknown> | null {
   try {
     const data: unknown = JSON.parse(raw);
@@ -1941,6 +2016,14 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       const { blockId, value } = f;
       return { type: f.type, clickId: f.clickId, messageId: f.messageId, actionId: f.actionId, ...(blockId !== undefined && { blockId }), ...(value !== undefined && { value }) };
     }
+    case "canvas.join":
+      return id(f.tabId) && (f.version === undefined || canvasVersion(f.version)) ? { type: f.type, tabId: f.tabId, ...(f.version !== undefined && { version: f.version }) } : null;
+    case "canvas.steps":
+      return id(f.tabId) && canvasVersion(f.version) && canvasClientId(f.clientId) && canvasSteps(f.steps)
+        ? { type: f.type, tabId: f.tabId, version: f.version, clientId: f.clientId, steps: f.steps }
+        : null;
+    case "canvas.leave":
+      return id(f.tabId) ? { type: f.type, tabId: f.tabId } : null;
     case "typing.start":
     case "typing.stop":
     case "ping":

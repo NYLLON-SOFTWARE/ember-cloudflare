@@ -4,7 +4,7 @@ import { displayBody, isAllEmoji, type DisplayNode } from "@ember/richtext/dom";
 import { NavArrowRight } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { PeopleContext } from "@/hooks/use-directory";
-import { messagePath, permalinkOf, threadPath } from "@/hooks/use-route";
+import { messagePath, permalinkOf, personPath, threadPath } from "@/hooks/use-route";
 import { cardsQuote, dateTimeLabel, lastReplyLabel, timeLabel } from "@/lib/messages";
 import { isPending, type PendingMessage } from "@/lib/room-state";
 import { cn } from "@/lib/utils";
@@ -190,15 +190,16 @@ function DeletedMessage({ message, thread, open }: { message: Message; thread?: 
 
 /**
  * The author's name as the people directory lists them now, which runs to an ellipsis rather than wrap,
- * and shows their bio on hover, then the agent badge for an AI agent.
+ * and shows their bio on hover, then the agent badge for an AI agent. It links to their page, as their
+ * avatar does, which opens their profile beside the conversation where there's a pane for it.
  */
 function Author({ user }: { user: User }) {
   const listed = useContext(PeopleContext).get(user.id) ?? user;
   return (
     <>
-      <strong title={userTitle(listed)} className="truncate font-bold text-message-ink">
+      <PageLink href={personPath(user.id)} title={userTitle(listed)} className="truncate font-bold text-message-ink hover:underline">
         {listed.name}
-      </strong>
+      </PageLink>
       {isAgent(listed) && <AgentBadge />}
     </>
   );

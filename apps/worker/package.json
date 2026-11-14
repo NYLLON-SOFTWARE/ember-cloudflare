@@ -15,6 +15,9 @@
     "@ember/protocol": "workspace:*",
     "@ember/richtext": "workspace:*",
     "@modelcontextprotocol/client": "2.4.0",
+    "@tiptap/core": "^3.33.1",
+    "@tiptap/pm": "^3.33.1",
+    "@tiptap/starter-kit": "^3.33.1",
     "entities": "8.1.0",
     "marked": "18.1.0",
     "parse5": "^8.0.1"

@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 import {
+  ACTIVITY_PATH,
   EMAIL_SIGN_UP_PATH,
   INVITATION_PATH,
   KIND_SEGMENTS,
@@ -17,7 +18,8 @@ import {
 // Worker too: a small typed router over the History API rather than a library. A page with changes to
 // lose can hold the app on it by guarding against leaving.
 
-export { BOTS_PATH, CUSTOM_STYLES_PATH, huddlePath, NEW_AGENT_PATH, NEW_APP_PATH, NEW_BOT_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, threadPath, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
+export { ACTIVITY_PATH, BOTS_PATH, CUSTOM_STYLES_PATH, huddlePath, NEW_AGENT_PATH, NEW_APP_PATH, NEW_BOT_PATH, NEW_DIRECT_PATH, PROFILE_PATH, SEARCHES_PATH, threadPath, WORKSPACE_SETTINGS_PATH } from "@ember/protocol";
+export { dmPath, DMS_PATH, DRAFTS_PATH, PEOPLE_PATH, SENT_PATH, THREADS_PATH } from "@ember/protocol";
 
 /** Whether a room's form makes it open to everyone or private, as the form's address says. */
 export type Access = RoomAccess;
@@ -33,6 +35,15 @@ export const messagePath = (roomId: RoomId, messageId: string) => `${roomPath(ro
 /** Where a message's time and Copy link go: its permalink, or a reply's in its thread, which opens the thread at it. */
 export const permalinkOf = ({ roomId, id, parentId }: Pick<Message, "roomId" | "id" | "parentId">) =>
   parentId === undefined ? messagePath(roomId, id) : threadPath(roomId, parentId, id);
+/**
+ * Activity with a conversation open beside it, as `place` says, a room's address after its own: at its
+ * thread, or a reply there, when one's open, or else at its message, if it names one.
+ */
+export function activityPath(place: { roomId: RoomId; messageId?: string; threadId?: string; replyId?: string } | null): string {
+  if (!place) return ACTIVITY_PATH;
+  const room = place.threadId !== undefined ? threadPath(place.roomId, place.threadId, place.replyId) : place.messageId !== undefined ? messagePath(place.roomId, place.messageId) : roomPath(place.roomId);
+  return ACTIVITY_PATH + room;
+}
 export const newRoomPath = (access: Access) => `/rooms/${KIND_SEGMENTS[access]}/new`;
 /** A room's settings page, at the address for its kind. */
 export const roomSettingsPath = (kind: RoomKind, roomId: RoomId) => `/rooms/${KIND_SEGMENTS[kind]}/${encodeURIComponent(roomId)}/edit`;
@@ -195,6 +206,15 @@ export function navigate(path: string, { replace = false } = {}): void {
     notify();
   };
   if (shownAddress() === path.split("#", 1)[0] || !guard?.(path, go)) go();
+}
+
+/**
+ * Shows `path` in place of the page shown: by going back, as Back would, when the app opened this page
+ * from it, so Back doesn't return to what it closes, or else in the current entry's place.
+ */
+export function returnTo(path: string): void {
+  if (openedFrom(history.state) === path) history.back();
+  else navigate(path, { replace: true });
 }
 
 /**
