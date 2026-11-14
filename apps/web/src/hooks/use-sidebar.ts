@@ -86,8 +86,9 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * socket in, with `read`, and as the socket says a tab of yours has changed them, without it, since
  * the welcome may have read before a change the page made meanwhile. `onDndConnecting` hears of each
  * try to connect the socket, as what was heard of the hush before it belongs to the connection that
- * brought it, which its own welcome says over. `onGone` hears of each room the
- * socket says is gone as it leaves the list.
+ * brought it, which its own welcome says over. `onGone` hears of each room the socket says is gone
+ * as it leaves the list. `reloadReminders` runs each time the socket connects too, so a reminder
+ * that came due while it was away is caught up.
  */
 export function useSidebar(
   me: Me,
@@ -98,6 +99,7 @@ export function useSidebar(
   onReminderDue: (reminder: Reminder) => void = () => {},
   onReminderDue: (reminder: Reminder) => void = () => {},
   onReminderGone: (id: string) => void = () => {},
+  reloadReminders: () => void = () => {},
   onDndChanged: (dndUntil: string | null, read?: boolean) => void = () => {},
   onDndConnecting: () => void = () => {},
 ) {
@@ -198,6 +200,7 @@ export function useSidebar(
           // The welcome speaks of what the hush was as the socket let it in, which may have read before
           // a change the page made or heard since.
           dndChanged(frame.dndUntil ?? null, true);
+          reloadReminders();
           return reload();
         case "room.saved":
           heardOf(frame.room.id);
