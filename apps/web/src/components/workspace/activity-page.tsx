@@ -1,3 +1,4 @@
+import { useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { savedPath, workspacePageOf, type ActivityItem, type Me, type RoomId, type SidebarRoom, type UserId } from "@ember/protocol";
 import {
   ArrowLeft,
@@ -21,7 +22,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { PeopleContext, useNameOf } from "@/hooks/use-directory";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { activityPath, navigate, personPath, returnTo } from "@/hooks/use-route";
-import { navigate } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import type { ActivityState } from "@/hooks/use-activity";
 import { ALL_ACTIVITY, filterCount, shows, type ActivityFilter, type ActivityFilterKind, type ActivityNames, type ActivityTab } from "@/lib/activity-feed";

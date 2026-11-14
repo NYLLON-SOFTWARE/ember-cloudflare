@@ -1,3 +1,5 @@
+import { useContext, useId, useMemo, useState, type ComponentType, type MouseEvent, type ReactNode } from "react";
+import type { Favorites, LiveHuddle, Me, RoomId, SidebarRoom, UserId } from "@ember/protocol";
 import { Bookmark, EditPencil, Group, Headset, Lock, MultiBubble, NavArrowDown, type IconoirIconProps } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";

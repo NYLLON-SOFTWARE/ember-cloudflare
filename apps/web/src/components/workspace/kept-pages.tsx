@@ -44,7 +44,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useNameOf } from "@/hooks/use-directory";
-import { usePhoneLayout } from "@/hooks/use-phone-layout";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useMounted } from "@/hooks/use-mounted";
 import { navigate, permalinkOf } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
@@ -63,8 +63,7 @@ import { RichTextEditor, type RichTextEditorHandle } from "./editor";
 import { MessageItem, type MessageEditors } from "./message-item";
 import { HEADER_TEXT_BUTTON, PageHeader } from "./page-header";
 import type { RoomPanes } from "./room-view";
-import { SplitPanes, type Pane, type PaneStack } from "./split-panes";
-import { ROUND_BUTTON } from "../mobile/back-button";
+import { ONE_PANE, SplitPanes, type Pane, type PaneStack } from "./split-panes";
 import { UserAvatar } from "./user-avatar";
 
 // To-dos and Saved, after Slack's: a list of what you keep, filtered and sorted, beside the item you've
@@ -252,7 +251,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
   const inProgress = shown.filter((item) => item.completedAt === null);
   const completed = shown.filter((item) => item.completedAt !== null);
 
-  const phone = usePhoneLayout();
+  const phone = useMediaQuery(ONE_PANE);
   const header = (
     <>
       <h1 className="min-w-0 flex-1 truncate text-[17px] leading-[1.4] font-[650] max-md:text-center max-md:font-bold">{names.title}</h1>
@@ -340,7 +339,7 @@ function KeptPage({ list, itemId, me, rooms, onFailed, renderRoom, onPaneStack }
 
   return (
     <>
-      {phone && !detailOpen && <PageHeader back="/">{header}</PageHeader>}
+      {phone && !detailOpen && <PageHeader>{header}</PageHeader>}
       <SplitPanes
         layoutKey={list === "todo" ? "todos" : "saved"}
         panes={panes}
@@ -629,12 +628,12 @@ function CustomReminder({ onRemind }: { onRemind: (at: Date) => void }) {
 
 /** The pane beside the list: its title and ×, over what's open, or on a phone, where it covers the list, Back and its title. */
 function Detail({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  const phone = usePhoneLayout();
+  const phone = useMediaQuery(ONE_PANE);
   return (
     <MainContent className="flex h-full min-h-0 flex-col border-l bg-background">
       <div className="flex min-h-header items-center gap-2 border-b px-5 max-md:min-h-14 max-md:px-2 max-md:pt-[env(safe-area-inset-top)]">
         {phone && (
-          <button type="button" aria-label="Back" title="Back" onClick={onClose} className={ROUND_BUTTON}>
+          <button type="button" aria-label="Back" title="Back" onClick={onClose} className="grid size-11 shrink-0 place-items-center rounded-full border bg-surface text-foreground hover:bg-hover">
             <ArrowLeft className="size-[22px]" />
           </button>
         )}
@@ -765,6 +764,7 @@ function NoteEditor({ item, autoFocus = false, onSaved, onFailed }: { item?: Sav
           onFormat={(format) => editor.current?.format(format)}
           onBlock={(block) => editor.current?.setBlock(block)}
           onLink={(url) => editor.current?.link(url)}
+          linkDraft={() => editor.current?.linkDraft() ?? { text: "", url: "" }}
           linkOpen={linkOpen}
           onLinkOpenChange={setLinkOpen}
           onReturnFocus={() => editor.current?.focus()}

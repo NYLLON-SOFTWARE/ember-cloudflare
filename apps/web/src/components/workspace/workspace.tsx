@@ -751,7 +751,6 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
           onDismissInvitation={dismissCard}
           me={me}
           favorite={starred.has(shown.id)}
-          gone={false}
           onStarred={starredRooms}
           involvement={shown.involvement}
           askForRoom={askForRoom}
