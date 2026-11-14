@@ -1,0 +1,470 @@
+import type { Me, NewWorkspace, ProfileAnswer, WorkspaceSettings } from "@ember/protocol";
+import {
+  MAX_OUTSIDE_CONNECTIONS,
+  OUTSIDE_ASK_REFUSED,
+  OUTSIDE_CONNECTION_GONE,
+  OUTSIDE_FORBIDDEN,
+  OUTSIDE_FULL,
+  OUTSIDE_GUEST,
+  OUTSIDE_OFF,
+  type OutsideAnswered,
+  type OutsideAsk,
+  type OutsideAsked,
+  type YourOutsideAi,
+} from "@ember/protocol/outside";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toBase64url } from "../src/encoding";
+import { api, cookieOf, createRoom, direct, freshDeploy, origin, shown, signIn, workspaceSql, type Session } from "./support";
+
+// Outside AI: an AI app connects to Ember over the Model Context Protocol, at `/mcp`, and signs in
+// with OAuth, where Ember is the authorization server. The tests are the app: they find out how to sign
+// in, register, are allowed by a person on Ember's page, exchange the code they're sent back with, and
+// ask with the token that gives them.
+
+const ada = { name: "Ada Lovelace", emailAddress: "ada@example.com", password: "analytical engine" };
+const grace = { name: "Grace Hopper", emailAddress: "grace@example.com", password: "nanoseconds" };
+
+/** Where the app has browsers sent back, and the address it connects to. */
+const BACK = "https://claude.example/api/mcp/auth_callback";
+const MCP = `${origin}/mcp`;
+/** An app whose id is the address of a document about it. */
+const DOCUMENT = "https://claude.example/oauth/client.json";
+
+const VERIFIER = "a-verifier-only-the-app-that-began-has-0123456789";
+let challenge: string;
+
+const as = (session?: Session | null): Record<string, string> => (session ? { Cookie: session.cookie } : {});
+
+/** Sets Ember up with Ada as its administrator, signed in. */
+async function setUp(): Promise<Session> {
+  const response = await api("/api/first_run", { method: "POST", body: JSON.stringify(ada) });
+  expect(response.status).toBe(201);
+  return { user: shown(((await response.json()) as NewWorkspace).user), cookie: cookieOf(response) };
+}
+
+/** Grace joins with the join link, as a member, signed in. */
+async function joinAsGrace(): Promise<Session> {
+  const [{ join_code: joinCode }] = (await workspaceSql("SELECT join_code FROM accounts")) as [{ join_code: string }];
+  const response = await api(`/api/join/${joinCode}`, { method: "POST", body: JSON.stringify(grace) });
+  expect(response.status, await response.clone().text()).toBe(201);
+  return { user: shown(((await response.json()) as { user: Me }).user), cookie: cookieOf(response) };
+}
+
+const turn = (session: Session | null, on: unknown) => api("/api/account/outside_ai", { method: "PUT", headers: as(session), body: JSON.stringify({ on }) });
+
+/** Sets Ember up with outside AI on, and Grace in it. */
+async function setUpOn(): Promise<{ administrator: Session; member: Session }> {
+  const administrator = await setUp();
+  expect((await turn(administrator, true)).status).toBe(200);
+  return { administrator, member: await joinAsGrace() };
+}
+
+const form = (fields: Record<string, string>) => ({ method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(fields).toString() });
+
+const register = (body: unknown, ip = "203.0.113.9") => api("/oauth/register", { method: "POST", headers: { "Content-Type": "application/json", "CF-Connecting-IP": ip }, body: JSON.stringify(body) });
+
+/** Registers the app, answering the id Ember gives it. */
+async function registered(): Promise<string> {
+  const response = await register({ client_name: "Claude", redirect_uris: [BACK] });
+  expect(response.status, await response.clone().text()).toBe(201);
+  return ((await response.json()) as { client_id: string }).client_id;
+}
+
+/** The app's request to connect, as the page reads it from its address. */
+const askOf = (clientId: string, more: Partial<OutsideAsk> = {}): OutsideAsk => ({
+  responseType: "code",
+  clientId,
+  redirectUri: BACK,
+  state: "kept-by-the-app",
+  codeChallenge: challenge,
+  codeChallengeMethod: "S256",
+  scope: "read",
+  resource: MCP,
+  ...more,
+});
+
+const describeAsk = (session: Session | null, ask: unknown) => api("/api/outside/asks", { method: "POST", headers: as(session), body: JSON.stringify(ask) });
+const answer = (session: Session | null, ask: unknown, allow: unknown) => api("/api/outside/answers", { method: "POST", headers: as(session), body: JSON.stringify({ ask, allow }) });
+
+/** Where the page sends the browser once `session` allows `ask`. */
+async function allowed(session: Session, ask: OutsideAsk): Promise<URL> {
+  const response = await answer(session, ask, true);
+  expect(response.status, await response.clone().text()).toBe(200);
+  expect(response.headers.get("Cache-Control")).toBe("no-store");
+  return new URL(((await response.json()) as OutsideAnswered).redirectTo);
+}
+
+interface Tokens {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+  scope: string;
+}
+
+const exchange = (clientId: string, code: string, more: Record<string, string> = {}) =>
+  api("/oauth/token", form({ grant_type: "authorization_code", client_id: clientId, code, code_verifier: VERIFIER, redirect_uri: BACK, resource: MCP, ...more }));
+const refresh = (clientId: string, refreshToken: string) => api("/oauth/token", form({ grant_type: "refresh_token", client_id: clientId, refresh_token: refreshToken }));
+
+/** Connects the app as `session`, from registering to its tokens. */
+async function connected(session: Session): Promise<{ clientId: string; tokens: Tokens }> {
+  const clientId = await registered();
+  const back = await allowed(session, askOf(clientId));
+  const response = await exchange(clientId, back.searchParams.get("code")!);
+  expect(response.status, await response.clone().text()).toBe(200);
+  return { clientId, tokens: await response.json() };
+}
+
+/** What Ember answers the app's `method` over the protocol, asked with `token`. */
+async function asked(token: string | null, method: string, params: Record<string, unknown> = {}): Promise<{ status: number; challenge: string | null; result?: Record<string, unknown>; error?: unknown }> {
+  const response = await api("/mcp", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      "MCP-Protocol-Version": "2025-06-18",
+      ...(token !== null && { Authorization: `Bearer ${token}` }),
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  const text = await response.text();
+  const sent = response.headers.get("Content-Type")?.includes("event-stream") ? (text.split("\n").find((line) => line.startsWith("data: "))?.slice(6) ?? "{}") : text;
+  const { result, error } = (text === "" ? {} : JSON.parse(sent)) as { result?: Record<string, unknown>; error?: unknown };
+  return { status: response.status, challenge: response.headers.get("WWW-Authenticate"), result, error };
+}
+
+/** The rooms Ember lists for the app that asks with `token`. */
+async function roomsFor(token: string): Promise<Array<{ id: string; kind: string; name: string; unread: boolean }>> {
+  const { status, result } = await asked(token, "tools/call", { name: "list_rooms", arguments: {} });
+  expect(status).toBe(200);
+  const [{ text }] = result!.content as [{ text: string }];
+  return (JSON.parse(text) as { rooms: Array<{ id: string; kind: string; name: string; unread: boolean }> }).rooms;
+}
+
+/** Whether AI apps may connect, as the workspace's settings tell the person `session` signs in, which is only ever so for an administrator. */
+const isOnFor = async (session: Session) => ((await (await api("/api/account", { headers: as(session) })).json()) as WorkspaceSettings).outsideAi;
+/** The AI apps connected as the person `session` signs in, as their profile lists them: null when none can be. */
+const yours = async (session: Session) => ((await (await api("/api/users/me/profile", { headers: as(session) })).json()) as ProfileAnswer).profile.outsideAi;
+const connections = () => workspaceSql("SELECT count(*) AS n FROM outside_connections") as Promise<Array<{ n: number }>>;
+
+/** The addresses names resolve to, for the lookups Ember makes before it reads a document about an app. */
+let addresses: Record<string, string[]>;
+/** What's at the address of the document about an app. */
+let document: () => Response;
+
+beforeEach(async () => {
+  await freshDeploy();
+  challenge = toBase64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(VERIFIER)))).replace(/=+$/, "");
+  addresses = { "claude.example": ["93.184.216.34"] };
+  document = () => Response.json({ client_id: DOCUMENT, client_name: "Claude", redirect_uris: [BACK, "claude://callback"] });
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = new URL(new Request(input, init).url);
+    if (url.hostname !== "cloudflare-dns.com") return url.href === DOCUMENT ? document() : new Response("Not found", { status: 404 });
+    const found = url.searchParams.get("type") === "A" ? (addresses[url.searchParams.get("name")!] ?? []) : [];
+    return Response.json({ Status: 0, Answer: found.map((data) => ({ type: 1, data })) });
+  });
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+describe("Outside AI", () => {
+  it("answers nothing until an administrator turns it on", async () => {
+    const administrator = await setUp();
+    const member = await joinAsGrace();
+    for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-authorization-server"]) expect((await api(path)).status, path).toBe(404);
+    expect((await asked(null, "tools/list")).status).toBe(404);
+    expect((await register({ redirect_uris: [BACK] })).status).toBe(404);
+    expect((await exchange("an-app", "a-code")).status).toBe(404);
+    expect(await (await describeAsk(member, askOf("an-app"))).json()).toEqual({ error: OUTSIDE_OFF });
+    expect(await yours(member)).toBeNull();
+
+    expect((await turn(null, true)).status).toBe(401);
+    expect(await (await turn(member, true)).json()).toEqual({ error: OUTSIDE_FORBIDDEN });
+    expect((await turn(administrator, "yes")).status).toBe(422);
+    expect(await isOnFor(administrator)).toBe(false);
+    expect(await (await turn(administrator, true)).json()).toEqual({ on: true });
+    expect(await isOnFor(administrator)).toBe(true);
+    expect(await isOnFor(member)).toBe(false);
+    expect(await yours(member)).toEqual([]);
+  });
+
+  it("says how to sign in to it, to an app from any origin", async () => {
+    await setUpOn();
+    const unsigned = await asked(null, "tools/list");
+    expect(unsigned.status).toBe(401);
+    expect(unsigned.challenge).toBe(`Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp", scope="read"`);
+    expect((await asked("not-a-token", "tools/list")).challenge).toContain('error="invalid_token"');
+
+    for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"]) {
+      const resource = await api(path);
+      expect(resource.headers.get("Access-Control-Allow-Origin")).toBe("*");
+      expect(await resource.json()).toEqual({ resource: MCP, authorization_servers: [origin], scopes_supported: ["read"], bearer_methods_supported: ["header"], resource_name: "Ember" });
+    }
+    expect(await (await api("/.well-known/oauth-authorization-server")).json()).toMatchObject({
+      issuer: origin,
+      authorization_endpoint: `${origin}/oauth/authorize`,
+      token_endpoint: `${origin}/oauth/token`,
+      registration_endpoint: `${origin}/oauth/register`,
+      revocation_endpoint: `${origin}/oauth/revoke`,
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["none"],
+      client_id_metadata_document_supported: true,
+      authorization_response_iss_parameter_supported: true,
+    });
+
+    const preflight = await api("/oauth/token", { method: "OPTIONS", headers: { Origin: "https://inspector.example", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type" } });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(preflight.headers.get("Access-Control-Allow-Headers")).toBe("content-type");
+    expect((await api("/oauth/token")).status).toBe(405);
+  });
+
+  it("registers an app that has browsers sent back over https, or to this computer, a few an hour from one address", async () => {
+    await setUpOn();
+    const response = await register({ client_name: "  Claude  ", redirect_uris: [BACK, "http://localhost:8123/callback"], token_endpoint_auth_method: "client_secret_post" });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ client_id: expect.stringMatching(/^[A-Za-z0-9]{32}$/), client_name: "Claude", redirect_uris: [BACK, "http://localhost:8123/callback"], token_endpoint_auth_method: "none" });
+    // An app that gives no name goes by where it comes back to.
+    expect(await (await register({ redirect_uris: [BACK] })).json()).toMatchObject({ client_name: "claude.example" });
+
+    for (const address of ["javascript:alert(1)", "http://claude.example/callback", "claude://callback", `${BACK}#fragment`, "https://someone:secret@claude.example/callback", 7]) {
+      const refused = await register({ redirect_uris: [address] });
+      expect(refused.status, String(address)).toBe(400);
+      expect(await refused.json()).toMatchObject({ error: "invalid_redirect_uri" });
+    }
+    expect(await (await register({ redirect_uris: [] })).json()).toMatchObject({ error: "invalid_redirect_uri" });
+    expect(await (await register("Claude")).json()).toMatchObject({ error: "invalid_client_metadata" });
+
+    for (let n = 0; n < 10; n++) expect((await register({ redirect_uris: [BACK] }, "198.51.100.7")).status).toBe(201);
+    expect((await register({ redirect_uris: [BACK] }, "198.51.100.7")).status).toBe(429);
+    expect((await register({ redirect_uris: [BACK] }, "198.51.100.8")).status).toBe(201);
+  });
+
+  it("connects an app as the person who allows it, which then lists the rooms they're in", async () => {
+    const { administrator, member } = await setUpOn();
+    const secret = await createRoom("Secret plans", { closedTo: [administrator.user.id], as: administrator });
+    const dm = await direct(member, administrator);
+    const clientId = await registered();
+
+    const described = await describeAsk(member, askOf(clientId));
+    expect(described.status, await described.clone().text()).toBe(200);
+    expect((await described.json()) as OutsideAsked).toEqual({ name: "Claude", comesBackTo: "claude.example", workspace: "Ember", scopes: ["read"] });
+    expect((await connections())[0]!.n).toBe(0);
+
+    const back = await allowed(member, askOf(clientId));
+    expect(back.origin + back.pathname).toBe(BACK);
+    expect(Object.fromEntries(back.searchParams)).toEqual({ code: expect.any(String), state: "kept-by-the-app", iss: origin });
+    // Nothing is connected until the app exchanges the code.
+    expect(await yours(member)).toEqual([]);
+
+    const response = await exchange(clientId, back.searchParams.get("code")!);
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const tokens = (await response.json()) as Tokens;
+    expect(tokens).toEqual({ access_token: expect.any(String), refresh_token: expect.any(String), token_type: "Bearer", expires_in: 3600, scope: "read" });
+    // Ember keeps no token, only digests of them.
+    const [row] = (await workspaceSql("SELECT * FROM outside_connections")) as [Record<string, string | null>];
+    for (const kept of Object.values(row)) for (const token of [tokens.access_token, tokens.refresh_token, back.searchParams.get("code")!]) expect(kept).not.toBe(token);
+
+    const initialized = await asked(tokens.access_token, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "Claude", version: "1" } });
+    expect(initialized.result).toMatchObject({ serverInfo: { name: "ember" }, capabilities: { tools: expect.anything() } });
+    const listed = await asked(tokens.access_token, "tools/list");
+    expect((listed.result!.tools as Array<{ name: string }>).map(({ name }) => name)).toEqual(["list_rooms"]);
+
+    // She sees her rooms, the direct message by the other person's name, and not a private room she isn't in.
+    const rooms = await roomsFor(tokens.access_token);
+    expect(rooms.map(({ name, kind }) => ({ name, kind })).sort((a, b) => a.name.localeCompare(b.name))).toEqual([
+      { name: "Ada Lovelace", kind: "direct" },
+      { name: "general", kind: "open" },
+      { name: "random", kind: "open" },
+    ]);
+    expect(rooms.find(({ kind }) => kind === "direct")!.id).toBe(dm.id);
+    expect(rooms.some(({ id }) => id === secret.id)).toBe(false);
+
+    expect(await yours(member)).toEqual([{ id: expect.any(String), name: "Claude", comesBackTo: "claude.example", scopes: ["read"], connectedAt: expect.any(String), usedAt: expect.any(String) }]);
+    expect(await yours(administrator)).toEqual([]);
+  });
+
+  it("asks only someone signed in, who isn't a guest, about a request it can answer", async () => {
+    const { member } = await setUpOn();
+    const clientId = await registered();
+    expect((await describeAsk(null, askOf(clientId))).status).toBe(401);
+    expect((await answer(null, askOf(clientId), true)).status).toBe(401);
+    const guest = await signIn("Guest");
+    expect(await (await describeAsk(guest, askOf(clientId))).json()).toEqual({ error: OUTSIDE_GUEST });
+    expect((await answer(guest, askOf(clientId), true)).status).toBe(403);
+
+    const refusals: Array<Partial<OutsideAsk>> = [
+      { clientId: "an-app-ember-never-registered" },
+      { clientId: null },
+      { responseType: "token" },
+      { redirectUri: "https://attacker.example/callback" },
+      { redirectUri: "javascript:alert(1)" },
+      { redirectUri: null },
+      { codeChallenge: null },
+      { codeChallengeMethod: "plain" },
+      { codeChallengeMethod: null },
+      { resource: "https://ember.test/elsewhere" },
+      { state: "x".repeat(2049) },
+    ];
+    for (const refusal of refusals) {
+      expect(await (await describeAsk(member, askOf(clientId, refusal))).json(), JSON.stringify(refusal)).toEqual({ error: OUTSIDE_ASK_REFUSED });
+      expect((await answer(member, askOf(clientId, refusal), true)).status, JSON.stringify(refusal)).toBe(422);
+    }
+    expect((await answer(member, askOf(clientId), "yes")).status).toBe(422);
+    expect((await connections())[0]!.n).toBe(0);
+
+    // What she doesn't allow goes back to the app saying so, and connects nothing.
+    const denied = await answer(member, askOf(clientId), false);
+    expect(Object.fromEntries(new URL(((await denied.json()) as OutsideAnswered).redirectTo).searchParams)).toEqual({ error: "access_denied", state: "kept-by-the-app", iss: origin });
+    expect((await connections())[0]!.n).toBe(0);
+  });
+
+  it("gives tokens only for a code it gave that app, to the app that began, once", async () => {
+    const { member } = await setUpOn();
+    const clientId = await registered();
+    const other = await registered();
+    const code = async () => (await allowed(member, askOf(clientId))).searchParams.get("code")!;
+    const invalid = async (response: Response) => {
+      expect(response.status, await response.clone().text()).toBe(400);
+      expect(await response.json()).toMatchObject({ error: "invalid_grant" });
+    };
+
+    await invalid(await exchange(clientId, "a-code-ember-never-gave"));
+    await invalid(await exchange(other, await code()));
+    await invalid(await exchange(clientId, await code(), { code_verifier: "another-verifier-that-is-long-enough-0123456789" }));
+    await invalid(await exchange(clientId, await code(), { redirect_uri: "https://claude.example/elsewhere" }));
+    await invalid(await exchange(clientId, await code(), { resource: "https://other.example/mcp" }));
+    expect(await (await api("/oauth/token", form({ grant_type: "password", client_id: clientId }))).json()).toMatchObject({ error: "unsupported_grant_type" });
+    expect(await (await api("/oauth/token", form({ grant_type: "authorization_code", client_id: clientId, code: "a-code" }))).json()).toMatchObject({ error: "invalid_request" });
+
+    // A code that has expired is no good.
+    const late = await code();
+    await workspaceSql("UPDATE outside_connections SET code_expires_at = '2020-01-01T00:00:00.000Z' WHERE access_digest IS NULL");
+    await invalid(await exchange(clientId, late));
+
+    // One that comes twice has been copied, so what the first exchange gave ends with it.
+    const once = await code();
+    const tokens = (await (await exchange(clientId, once)).json()) as Tokens;
+    expect((await asked(tokens.access_token, "tools/list")).status).toBe(200);
+    await invalid(await exchange(clientId, once));
+    expect((await asked(tokens.access_token, "tools/list")).status).toBe(401);
+    expect(await yours(member)).toEqual([]);
+  });
+
+  it("gives the next tokens for a refresh token, which that replaces, and ends a connection whose refresh token comes twice", async () => {
+    const { member } = await setUpOn();
+    const { clientId, tokens } = await connected(member);
+
+    const refreshed = await refresh(clientId, tokens.refresh_token);
+    expect(refreshed.status, await refreshed.clone().text()).toBe(200);
+    const next = (await refreshed.json()) as Tokens;
+    expect(next).toMatchObject({ token_type: "Bearer", expires_in: 3600, scope: "read" });
+    expect(next.access_token).not.toBe(tokens.access_token);
+    expect(next.refresh_token).not.toBe(tokens.refresh_token);
+    expect((await asked(tokens.access_token, "tools/list")).status).toBe(401);
+    expect((await asked(next.access_token, "tools/list")).status).toBe(200);
+
+    // Another app can't use it, and an access token isn't one.
+    expect((await refresh(await registered(), next.refresh_token)).status).toBe(400);
+    expect((await refresh(clientId, next.access_token)).status).toBe(400);
+    expect((await asked(next.access_token, "tools/list")).status).toBe(200);
+
+    // The first refresh token again: a copy of it is out.
+    expect(await (await refresh(clientId, tokens.refresh_token)).json()).toMatchObject({ error: "invalid_grant" });
+    expect((await asked(next.access_token, "tools/list")).status).toBe(401);
+    expect((await refresh(clientId, next.refresh_token)).status).toBe(400);
+    expect((await connections())[0]!.n).toBe(0);
+  });
+
+  it("stops answering a token that has expired, or whose app named another address to use it at", async () => {
+    const { member } = await setUpOn();
+    const { tokens } = await connected(member);
+    await workspaceSql("UPDATE outside_connections SET access_expires_at = '2020-01-01T00:00:00.000Z'");
+    expect((await asked(tokens.access_token, "tools/list")).status).toBe(401);
+
+    const clientId = await registered();
+    const back = await allowed(member, askOf(clientId, { resource: "https://another-ember.example/mcp" }));
+    expect(back.searchParams.get("iss")).toBe("https://another-ember.example");
+    const elsewhere = (await (await exchange(clientId, back.searchParams.get("code")!, { resource: "https://another-ember.example/mcp" })).json()) as Tokens;
+    expect((await asked(elsewhere.access_token, "tools/list")).status).toBe(401);
+  });
+
+  it("takes an app whose id is the address of a document about it, read from a public address", async () => {
+    const { member } = await setUpOn();
+    expect(await (await describeAsk(member, askOf(DOCUMENT))).json()).toEqual({ name: "Claude", comesBackTo: "claude.example", workspace: "Ember", scopes: ["read"] });
+    const back = await allowed(member, askOf(DOCUMENT));
+    const tokens = (await (await exchange(DOCUMENT, back.searchParams.get("code")!)).json()) as Tokens;
+    expect(await roomsFor(tokens.access_token)).toHaveLength(2);
+    expect((await workspaceSql("SELECT count(*) AS n FROM outside_clients"))[0]).toEqual({ n: 0 });
+
+    // Not where the document doesn't say the app comes back, nor to an address Ember doesn't send browsers.
+    expect((await describeAsk(member, askOf(DOCUMENT, { redirectUri: "https://claude.example/elsewhere" }))).status).toBe(422);
+    expect((await describeAsk(member, askOf(DOCUMENT, { redirectUri: "claude://callback" }))).status).toBe(422);
+    // Nor when the document is about another app, isn't there, or is somewhere that isn't public.
+    document = () => Response.json({ client_id: "https://claude.example/another.json", redirect_uris: [BACK] });
+    expect((await describeAsk(member, askOf(DOCUMENT))).status).toBe(422);
+    document = () => new Response("Not found", { status: 404 });
+    expect((await describeAsk(member, askOf(DOCUMENT))).status).toBe(422);
+    document = () => new Response(null, { status: 302, headers: { Location: "https://elsewhere.example/client.json" } });
+    expect((await describeAsk(member, askOf(DOCUMENT))).status).toBe(422);
+    document = () => Response.json({ client_id: DOCUMENT, redirect_uris: [BACK] });
+    addresses["claude.example"] = ["10.0.0.7"];
+    expect((await describeAsk(member, askOf(DOCUMENT))).status).toBe(422);
+    expect((await describeAsk(member, askOf("https://10.0.0.7/client.json"))).status).toBe(422);
+  });
+
+  it("ends a connection when its person disconnects it, when the app revokes it, and when they're removed", async () => {
+    const { administrator, member } = await setUpOn();
+    const first = await connected(member);
+    const second = await connected(member);
+    const [newest, oldest] = (await yours(member))!;
+    expect(newest!.connectedAt >= oldest!.connectedAt).toBe(true);
+
+    // Not someone else's to end.
+    expect(await (await api(`/api/users/me/outside/${newest!.id}`, { method: "DELETE", headers: as(administrator) })).json()).toEqual({ error: OUTSIDE_CONNECTION_GONE });
+    const disconnected = await api(`/api/users/me/outside/${newest!.id}`, { method: "DELETE", headers: as(member) });
+    expect(((await disconnected.json()) as YourOutsideAi).connections).toEqual([oldest]);
+    expect((await asked(second.tokens.access_token, "tools/list")).status).toBe(401);
+    expect((await refresh(second.clientId, second.tokens.refresh_token)).status).toBe(400);
+    expect((await asked(first.tokens.access_token, "tools/list")).status).toBe(200);
+
+    // An app revokes its own tokens, not another's.
+    expect((await api("/oauth/revoke", form({ token: first.tokens.refresh_token, client_id: second.clientId }))).status).toBe(200);
+    expect((await asked(first.tokens.access_token, "tools/list")).status).toBe(200);
+    expect((await api("/oauth/revoke", form({ token: first.tokens.refresh_token, client_id: first.clientId }))).status).toBe(200);
+    expect((await asked(first.tokens.access_token, "tools/list")).status).toBe(401);
+    expect((await api("/oauth/revoke", form({ client_id: first.clientId }))).status).toBe(400);
+
+    const third = await connected(member);
+    expect((await api(`/api/account/users/${member.user.id}`, { method: "DELETE", headers: as(administrator) })).status).toBe(200);
+    expect((await asked(third.tokens.access_token, "tools/list")).status).toBe(401);
+    expect((await connections())[0]!.n).toBe(0);
+  });
+
+  it("ends every connection, and forgets every app, when it's turned off", async () => {
+    const { administrator, member } = await setUpOn();
+    const { clientId, tokens } = await connected(member);
+    expect(await (await turn(administrator, false)).json()).toEqual({ on: false });
+    expect((await asked(tokens.access_token, "tools/list")).status).toBe(404);
+    expect(await workspaceSql("SELECT (SELECT count(*) FROM outside_connections) + (SELECT count(*) FROM outside_clients) AS n")).toEqual([{ n: 0 }]);
+
+    expect((await turn(administrator, true)).status).toBe(200);
+    expect((await asked(tokens.access_token, "tools/list")).status).toBe(401);
+    expect((await refresh(clientId, tokens.refresh_token)).status).toBe(400);
+    expect((await describeAsk(member, askOf(clientId))).status).toBe(422);
+  });
+
+  it(`connects at most ${MAX_OUTSIDE_CONNECTIONS} apps as one person`, async () => {
+    const { member } = await setUpOn();
+    const clientId = await registered();
+    for (let n = 0; n < MAX_OUTSIDE_CONNECTIONS; n++) await allowed(member, askOf(clientId));
+    const full = await answer(member, askOf(clientId), true);
+    expect(full.status).toBe(409);
+    expect(await full.json()).toEqual({ error: OUTSIDE_FULL });
+    // The ones whose codes expired unexchanged make room.
+    await workspaceSql("UPDATE outside_connections SET code_expires_at = '2020-01-01T00:00:00.000Z'");
+    await allowed(member, askOf(clientId));
+    expect((await connections())[0]!.n).toBe(1);
+  });
+});
