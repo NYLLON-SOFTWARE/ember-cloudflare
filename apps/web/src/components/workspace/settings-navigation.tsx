@@ -48,6 +48,8 @@ export function settingsSectionOf(route: Route, hash: string): SettingsSection |
       return "chat-bots";
     case "new-agent":
     case "agent-settings":
+    case "new-app":
+    case "app-settings":
       return "assistant-settings";
     case "custom-styles":
       return "custom-styles";

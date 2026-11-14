@@ -62,6 +62,7 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol/assistant";
 import type { AgentProfile, AgentRoom } from "@ember/protocol/agents";
+import type { AppId, AppSummary } from "@ember/protocol/apps";
 import type { LiveHuddle } from "@ember/protocol/huddles";
 import { statement, type Db, type Statement } from "./db";
 import type { StoredPicture } from "./files/pictures";
@@ -2377,6 +2378,82 @@ const INSERT_FORMER_GUESTS = `INSERT INTO users (id, name, status, guest, create
   SELECT json_extract(value, '$.id'), json_extract(value, '$.name'), ${DEACTIVATED}, 1, ?, ? FROM json_each(?) WHERE true
   ON CONFLICT DO NOTHING`;
 
+/** A tool read from a connected app, as the apps table keeps it: as its page shows it, with the JSON Schema of what it takes and a fingerprint of those. */
+export interface StoredAppTool {
+  name: string;
+  title: string | null;
+  description: string;
+  takes: Record<string, unknown>;
+  fingerprint: string;
+}
+
+/** What reading an app's server found, as the apps table keeps it. */
+export interface StoredAppRead {
+  serverName: string | null;
+  tools: StoredAppTool[];
+  toolsLeftOut: number;
+}
+
+/** A connected app as the apps table keeps it: its token sealed, or null without one, what was read from its server, and who connected it, if they're still known. */
+export interface StoredApp extends StoredAppRead {
+  id: AppId;
+  name: string;
+  url: string;
+  sealedToken: string | null;
+  toolsReadAt: string;
+  connectedBy: { id: UserId; name: string } | null;
+}
+
+/** An app to connect, by `connectedBy`. */
+export interface NewStoredApp extends StoredAppRead {
+  id: AppId;
+  name: string;
+  url: string;
+  sealedToken: string | null;
+  connectedBy: UserId;
+  now: string;
+}
+
+/** A change to a connected app by `changedBy`: what's left out stays as it is, and `read` is what its server answered when it was read again. */
+export interface AppChange {
+  name?: string;
+  url?: string;
+  sealedToken?: string | null;
+  read?: StoredAppRead;
+  changedBy: UserId;
+  now: string;
+}
+
+interface AppRow {
+  id: AppId;
+  name: string;
+  url: string;
+  token: string | null;
+  server_name: string | null;
+  tools: string;
+  tools_left_out: number;
+  tools_read_at: string;
+  connected_by_id: UserId | null;
+  connected_by_name: string | null;
+}
+
+const APP = `SELECT apps.id, apps.name, apps.url, apps.token, apps.server_name, apps.tools, apps.tools_left_out, apps.tools_read_at,
+  users.id AS connected_by_id, users.name AS connected_by_name
+  FROM apps LEFT JOIN users ON users.id = apps.created_by WHERE apps.id = ?`;
+
+/** A connected app as `APP` reads it. */
+const storedApp = (row: AppRow): StoredApp => ({
+  id: row.id,
+  name: row.name,
+  url: row.url,
+  sealedToken: row.token,
+  serverName: row.server_name,
+  tools: JSON.parse(row.tools) as StoredAppTool[],
+  toolsLeftOut: row.tools_left_out,
+  toolsReadAt: row.tools_read_at,
+  connectedBy: row.connected_by_id !== null && row.connected_by_name !== null ? { id: row.connected_by_id, name: row.connected_by_name } : null,
+});
+
 export class WorkspaceStore {
   constructor(private readonly db: Db) {}
 
@@ -3715,6 +3792,62 @@ export class WorkspaceStore {
       statement(LEAVE_SHARED_ROOMS, agentId),
       statement(`UPDATE users SET status = ${DEACTIVATED}, updated_at = ? WHERE id = ? AND status = ${ACTIVE}`, now, agentId),
     ]);
+  }
+
+  /** The connected apps, by name, as the AI assistant tab lists them. */
+  async appSummaries(): Promise<AppSummary[]> {
+    const rows = await this.db.all<{ id: AppId; name: string; url: string; tool_count: number }>(
+      `SELECT id, name, url, json_array_length(tools) AS tool_count FROM apps ORDER BY name COLLATE NOCASE, id`,
+    );
+    return rows.map(({ id, name, url, tool_count }) => ({ id, name, url, toolCount: tool_count }));
+  }
+
+  /** How many apps are connected. */
+  async appCount(): Promise<number> {
+    const [row] = await this.db.all<{ count: number }>(`SELECT COUNT(*) AS count FROM apps`);
+    return row?.count ?? 0;
+  }
+
+  /** The connected app `appId`, with its sealed token and the tools read from it, or null unless there's one. */
+  async app(appId: AppId): Promise<StoredApp | null> {
+    const [row] = await this.db.all<AppRow>(APP, appId);
+    return row ? storedApp(row) : null;
+  }
+
+  /** Connects `app`, unless as many apps as there can be, `most`, are connected already, answering whether it did. */
+  async connectApp(app: NewStoredApp, most: number): Promise<boolean> {
+    const { id, name, url, sealedToken, serverName, tools, toolsLeftOut, connectedBy, now } = app;
+    const [connected] = (await this.db.batch([
+      statement(
+        `INSERT INTO apps (id, name, url, token, server_name, tools, tools_left_out, tools_read_at, created_by, updated_by, created_at, updated_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM apps) < ? RETURNING id`,
+        ...[id, name, url, sealedToken, serverName, JSON.stringify(tools), toolsLeftOut, now, connectedBy, connectedBy, now, now, most],
+      ),
+    ])) as [unknown[]];
+    return connected.length > 0;
+  }
+
+  /**
+   * Changes the connected app `appId` as `change` has it, by `changedBy`: its name, its server's address
+   * and its sealed token, null for none, each kept when left out, and what was read from its server
+   * again, if it was.
+   */
+  async changeApp(appId: AppId, { name, url, sealedToken, read, changedBy, now }: AppChange): Promise<void> {
+    const statements = [
+      statement(`UPDATE apps SET name = COALESCE(?, name), url = COALESCE(?, url), updated_by = ?, updated_at = ? WHERE id = ?`, name ?? null, url ?? null, changedBy, now, appId),
+    ];
+    if (sealedToken !== undefined) statements.push(statement(`UPDATE apps SET token = ? WHERE id = ?`, sealedToken, appId));
+    if (read) {
+      const { serverName, tools, toolsLeftOut } = read;
+      statements.push(statement(`UPDATE apps SET server_name = ?, tools = ?, tools_left_out = ?, tools_read_at = ? WHERE id = ?`, serverName, JSON.stringify(tools), toolsLeftOut, now, appId));
+    }
+    await this.db.batch(statements);
+  }
+
+  /** Disconnects the app `appId`, answering whether there was one. */
+  async disconnectApp(appId: AppId): Promise<boolean> {
+    const [disconnected] = (await this.db.batch([statement(`DELETE FROM apps WHERE id = ? RETURNING id`, appId)])) as [unknown[]];
+    return disconnected.length > 0;
   }
 
   /**

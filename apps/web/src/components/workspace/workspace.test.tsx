@@ -2098,11 +2098,24 @@ describe("Agent pages", () => {
     changedBy: { id: ada.id, name: ada.name },
     changedAt: "2026-11-09T12:00:00.000Z",
   };
+  /** A connected app, as its page shows it. */
+  const linear = {
+    id: "p1",
+    name: "Linear",
+    url: "https://mcp.linear.example/mcp",
+    hasToken: false,
+    serverName: null,
+    tools: [{ name: "create_issue", title: null, description: "Creates an issue." }],
+    toolsLeftOut: 0,
+    toolsReadAt: "2026-11-13T10:30:00.000Z",
+    connectedBy: { id: ada.id, name: ada.name },
+  };
   /** What an administrator's workspace answers while Ember AI is on. */
   const withAgents = (responses: Parameters<typeof serve>[0] = {}) =>
     serve({
       "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true, assistant }),
       "GET /api/account/agents": () => Response.json({ agents: [recap] }),
+      "GET /api/account/apps": () => Response.json({ apps: [{ id: linear.id, name: linear.name, url: linear.url, toolCount: linear.tools.length }] }),
       "POST /api/account/assistant/offered": () => Response.json(SHIPPED_MODELS),
       ...responses,
     });
@@ -2129,6 +2142,34 @@ describe("Agent pages", () => {
     expect(document.title).toBe("New agent");
     await user.click(screen.getByRole("link", { name: "Go Back" }));
     expect(await screen.findByRole("region", { name: "Agents" })).toBeInTheDocument();
+  });
+
+  it("shows the apps' pages at their addresses from the AI assistant tab, marking it, and Admin on the rail, with Go Back to it", async () => {
+    withAgents({ "GET /api/account/apps/p1": () => Response.json({ app: linear }) });
+    const { user } = showWorkspace("/account/edit#assistant-settings", asAdministrator);
+    await user.click(await screen.findByRole("link", { name: "Edit Linear" }));
+    expect(await screen.findByRole("textbox", { name: "Name" })).toHaveValue("Linear");
+    expect(location.pathname).toBe("/account/apps/p1/edit");
+    expect(document.title).toBe("Edit app");
+    expect(railCurrent()).toEqual(["Admin"]);
+    expect(sectionMarked()).toHaveTextContent("AI assistant");
+
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    await user.click(await screen.findByRole("link", { name: "Connect an app" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Connect an app" })).toBeInTheDocument();
+    expect(location.pathname).toBe("/account/apps/new");
+    expect(document.title).toBe("Connect an app");
+    expect(sectionMarked()).toHaveTextContent("AI assistant");
+    await user.click(screen.getByRole("link", { name: "Go Back" }));
+    expect(await screen.findByRole("region", { name: "Apps" })).toBeInTheDocument();
+  });
+
+  it("loads an app's page again when no app has the id, for the Worker to answer the 404 page", async () => {
+    vi.mocked(loadPage).mockClear();
+    withAgents({ "GET /api/account/apps/nothing": () => Response.json({ error: "Not found" }, { status: 404 }) });
+    showWorkspace("/account/apps/nothing/edit", asAdministrator);
+    await waitFor(() => expect(loadPage).toHaveBeenCalledExactlyOnceWith("/account/apps/nothing/edit"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("loads an agent's settings again when no agent has the id, for the Worker to answer the 404 page", async () => {

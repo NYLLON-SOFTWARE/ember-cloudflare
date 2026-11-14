@@ -35,6 +35,7 @@ import { logoVariantsOf } from "@/lib/previews";
 import { apart } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { AgentList } from "./agent-list";
+import { AppList } from "./app-list";
 import { AssistantSettings } from "./assistant-settings";
 import { AssistantSetup } from "./assistant-setup";
 import { CustomDomainSettings } from "./custom-domain-settings";
@@ -581,6 +582,7 @@ export function WorkspaceSettingsPage({
                 onFailed={onFailed}
               />
               {settings.assistant && <AgentList assistant={settings.assistant} onFailed={onFailed} />}
+              {settings.assistant && <AppList onFailed={onFailed} />}
               {settingUpAssistant && (
                 <AssistantSetup
                   assistant={settings.assistant}

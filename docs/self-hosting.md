@@ -22,6 +22,7 @@ account, as [Deploying](#deploying) describes.
   - [Files](#files)
   - [Ember AI](#ember-ai)
   - [AI agents](#ai-agents)
+  - [Apps](#apps)
   - [Huddles](#huddles)
   - [A preview from GitHub Actions](#a-preview-from-github-actions)
   - [A demo from GitHub Actions](#a-demo-from-github-actions)
@@ -861,6 +862,39 @@ before `{{cards}}` came along doesn't tell its model how to show a card until `{
 it, though a card the model writes anyway still shows, while one with `{{cards}}` in it gets what Ember
 says of cards in the release it runs. While it's modified, What Ember adds around them is marked
 Modified.
+
+### Apps
+
+An app is another service's [MCP](https://modelcontextprotocol.io) server: the tools it offers, at an
+address. On the AI assistant tab, under Agents, an administrator connects one with **Connect an app**,
+while Ember AI is on: a name, the server's address, which the service's documentation gives and which
+often ends in `/mcp`, and a token, if the server takes one. Ember asks the server for its tools then,
+over Streamable HTTP, and connects the app only once it has answered, so a wrong address or token is
+said on its field, in words about what the server did: it asked for a sign-in, didn't take the token,
+has no MCP server there, sent the address on to another, or took longer than 20 seconds.
+
+This release connects apps and reads their tools. Agents can't use them yet, and a server that signs
+people in with OAuth can't be connected, only one that takes a token or nothing.
+
+- **The address** is an `https` one, or `http` on `localhost`, for a server you're developing, with no
+  name and password in it. Ember asks only that address: it follows no redirect, and it looks the name
+  up first and refuses one that resolves to a private address, as [link previews](#security-notes) do,
+  so a server can't send Ember, or the token, anywhere else.
+- **The token** goes to the server with every request, as `Authorization: Bearer`. Ember keeps it
+  encrypted, as it keeps Ember AI's API token, and never shows it again: the app's page says only that
+  it has one. Type another to replace it, or check **Send no token** to stop sending one. Either has
+  Ember ask the server again before it saves, as another address does.
+- **The tools** show on the app's page, each by its name there, with its title and what the server
+  says it does, which is the server's word and not Ember's. Ember keeps up to 100, each with a name of
+  letters, digits, `_`, `-` and `.`, a description up to 1,500 characters and a schema of what it takes
+  up to 8,000, and the page says how many more the server has. **Read its tools again** asks the
+  server again, and leaves the app as it was if the server doesn't answer.
+- **Remove app** forgets the app, its token and its tools. Up to 10 apps can be connected, and they're
+  kept while Ember AI is off.
+
+Reading an app's tools runs in a Durable Object of its own, `AppConnector`, apart from the rooms and
+the workspace, with the protocol's own client, pinned to one version. Only JSON comes back, and none
+of a server's code runs in Ember.
 
 ### Huddles
 
