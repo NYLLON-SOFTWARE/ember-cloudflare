@@ -380,6 +380,18 @@ describe("Quotes' cites", () => {
     expect(within(fromDirect).getByRole("link", { name: "DM with Zan" })).toBeInTheDocument();
   });
 
+  it("marks a private room it's from with a lock, not a #", () => {
+    const qaLab = { id: "qa", kind: "closed" as const, name: "QA Lab", icon: null };
+    const { container } = render(
+      <ConversationsContext value={{ rooms: [...rooms, qaLab], meId: ada.id }}>
+        <MessageBody nodes={shown(cite("/rooms/qa/@m1"))} mentions={[]} roomId="portside" />
+      </ConversationsContext>,
+    );
+    const link = within(container.querySelector("cite")!).getByRole("link", { name: "Private QA Lab" });
+    expect(link.querySelector("svg")).toBeInTheDocument();
+    expect(link).not.toHaveTextContent("#");
+  });
+
   it("names a sub-room after its parent", () => {
     const backend = { id: "backend", kind: "open" as const, name: "Backend", icon: null, parent: { id: "portside", name: "Portside" } };
     const { container } = render(
