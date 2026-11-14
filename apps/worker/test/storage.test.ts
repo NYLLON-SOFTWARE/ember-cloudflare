@@ -178,6 +178,39 @@ describe("Durable Object SQLite or D1", () => {
     expect(rows[3]).toMatchObject({ body: "<p>Windows<br>line</p>", plain_text: "Windows\nline" });
   });
 
+  /** The migrations upstream added after a7f778dc, which production runs, numbered beside ours and never renamed. */
+  const sinceProduction = ["0055_apps.sql", "0056_agent_tools.sql", "0057_waiting_calls.sql"];
+
+  it("lists upstream's migrations beside ours of the same numbers, in the directory's order, for a fresh install to apply", () => {
+    const names = MIGRATIONS.map(({ name }) => name).filter((name) => /^005[5-7]_/.test(name));
+    expect(names).toEqual(["0055_apps.sql", "0055_unread_counts.sql", "0056_agent_tools.sql", "0056_unread_mentions.sql", "0057_waiting_calls.sql"]);
+  });
+
+  it("gives a Workspace and a room as they were at a7f778dc only the migrations upstream added since, after the ones they ran", async () => {
+    // D1 applies by name too, through wrangler, at setup.
+    if (sharedD1()) return;
+    /** What `scope`'s migrate adds to storage that ran every migration of its scope but upstream's since a7f778dc. */
+    const addedSince = async (name: string, scope: "workspace" | "room") => {
+      // A new room's storage stands in for either, since each migrates as it opens.
+      const room = await freshRoom(name);
+      return runInDurableObject(roomStub(room), (_room, state: DurableObjectState) => {
+        state.storage.sql.exec("CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)");
+        for (const migration of MIGRATIONS.filter((m) => m.scope === scope && !sinceProduction.includes(m.name))) {
+          state.storage.sql.exec(migration.sql);
+          state.storage.sql.exec("INSERT INTO d1_migrations (name) VALUES (?)", migration.name);
+        }
+        const before = state.storage.sql.exec<{ id: number }>("SELECT MAX(id) AS id FROM d1_migrations").one().id;
+        migrate(state.storage, scope);
+        return state.storage.sql.exec<{ name: string }>("SELECT name FROM d1_migrations WHERE id > ? ORDER BY id", before).toArray().map((row) => row.name);
+      });
+    };
+    const workspace = await addedSince("workspace-at-a7f778dc", "workspace");
+    const room = await addedSince("room-at-a7f778dc", "room");
+    expect(workspace).toEqual(["0055_apps.sql", "0056_agent_tools.sql"]);
+    expect(room).toEqual(["0057_waiting_calls.sql"]);
+    expect([...workspace, ...room].sort()).toEqual(sinceProduction);
+  });
+
   it("keeps the push subscriptions saved before they were numbered with AUTOINCREMENT, and never numbers another as one deleted", async () => {
     // D1 runs the same SQL, at setup, with no subscriptions from before to keep.
     if (sharedD1()) return;
