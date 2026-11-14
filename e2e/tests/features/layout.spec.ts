@@ -118,7 +118,8 @@ test.describe("Workspace layout", () => {
       await expect(header).toHaveCSS("border-bottom-color", colors.border);
       await expect(header.getByRole("heading", { level: 1 })).toHaveCSS("color", colors.ink);
       await expect(page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: "general" })).toHaveCSS("background-color", colors.hover);
-      await expect(page.getByRole("heading", { name: "DMs" })).toHaveCSS("color", colors.muted);
+      // The sections' headings, muted.
+      await expect(page.getByRole("button", { name: "Rooms" })).toHaveCSS("color", colors.muted);
     }
   });
 });
@@ -351,6 +352,7 @@ test.describe("Empty room", () => {
   test("welcomes people to a room nobody has written in", async ({ members }) => {
     const ada = await members.signIn("Ada");
     await expect(ada.page.getByRole("heading", { name: "Welcome to #general" })).toBeVisible();
-    await expect(ada.page.getByText("This is the very beginning of the room. Say hello!")).toBeVisible();
+    // Its heading alone: the line under it is for a sub-room's parent, with no filler in its place.
+    await expect(ada.page.getByText("This is the very beginning of the room. Say hello!")).toHaveCount(0);
   });
 });

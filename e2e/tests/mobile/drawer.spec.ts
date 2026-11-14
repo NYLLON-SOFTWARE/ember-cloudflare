@@ -1,6 +1,6 @@
 import { editorField, openRoom, signInAs } from "../../fixtures";
 import { settle } from "./audits";
-import { expect, hasDrawerLayout, test } from "./fixtures";
+import { expect, hasDrawerLayout, SWITCHES, test } from "./fixtures";
 
 test.beforeEach(async ({ page, session, room }) => {
   test.skip(!hasDrawerLayout(page), "Wider than 900px the rail and sidebar are always on screen");
@@ -78,33 +78,14 @@ test("choosing a room closes the drawer", async ({ page, room }) => {
   await expect(page).toHaveURL(new RegExp(`/rooms/${room.id}$`));
 });
 
-test("Activity filters the drawer's conversations, and the drawer stays open as it turns on and off", async ({ page, room, screenIsFine }) => {
+test("Activity, tapped in the drawer, shows its feed alone", async ({ page, screenIsFine }) => {
   await page.getByRole("button", { name: "Open conversations" }).tap();
-  const drawer = page.getByRole("dialog", { name: "Conversations" });
-  const activity = drawer.getByRole("button", { name: "Activity" });
-  // The room shown is read, so Activity leaves it out.
-  const row = drawer.getByRole("link", { name: room.name });
-  await activity.tap();
-  await expect(activity).toHaveAttribute("aria-pressed", "true");
-  await expect(row).toBeHidden();
-  await expect(drawer.getByText("You’re all caught up. No unread conversations.")).toBeVisible();
-  await screenIsFine();
-
-  await activity.tap();
-  await expect(activity).toHaveAttribute("aria-pressed", "false");
-  await expect(drawer).toBeVisible();
-  await expect(row).toBeVisible();
-});
-
-test("Activity, tapped in the drawer on community settings, goes home with the drawer open on the conversations it filters", async ({ page, room }) => {
-  await page.goto("/account/edit#channel-settings");
-  await page.getByRole("button", { name: "Open navigation" }).tap();
-  await page.getByRole("dialog", { name: "Navigation" }).getByRole("button", { name: "Activity" }).tap();
-  // Home goes on to the room last visited, which is read, so Activity leaves it out.
-  await expect(page).toHaveURL(new RegExp(`/rooms/${room.id}$`));
-  const drawer = page.getByRole("dialog", { name: "Conversations" });
-  await expect(drawer.getByRole("button", { name: "Activity" })).toHaveAttribute("aria-pressed", "true");
-  await expect(drawer.getByText("You’re all caught up. No unread conversations.")).toBeVisible();
+  await page.getByRole("dialog", { name: "Conversations" }).getByRole("link", { name: "Activity" }).tap();
+  await expect(page).toHaveURL(/\/activity$/);
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(page.getByRole("list", { name: "Activity items" })).toBeVisible();
+  await expect(page.getByRole("separator")).toHaveCount(0);
+  await screenIsFine({ denseTargets: [SWITCHES] });
 });
 
 test("rotating the phone with the drawer open leaves the page usable", async ({ page, room }) => {

@@ -11,6 +11,15 @@ describe("Room icons", () => {
     expect(container.innerHTML).toBe('<span aria-hidden="true" class="text-[22px]">#</span>');
   });
 
+  it("draws a lock for a private room without an icon, as the sidebar does, and a private room's own icon where it has one", () => {
+    const { container } = render(<RoomIcon icon={null} closed size={19} />);
+    expect(container.querySelector('svg[data-icon="lock"]')).toBeInTheDocument();
+    expect(container).toHaveTextContent("");
+    const withIcon = render(<RoomIcon icon="coffee" closed size={19} />).container;
+    expect(withIcon.querySelector('[data-icon="coffee"]')).toBeInTheDocument();
+    expect(withIcon.querySelector('[data-icon="lock"]')).not.toBeInTheDocument();
+  });
+
   it("draws an icon in the color of the text around it, from the icon's own address, at the size given", () => {
     const { container } = render(<RoomIcon icon="coffee" size={19} className="text-muted-foreground" />);
     const outer = container.firstElementChild as HTMLElement;

@@ -14,15 +14,15 @@ export const CLOSE_REASONS: Record<CloseCode | HuddleCloseCode, string> = {
 };
 
 /**
- * A socket that closes with `code` as soon as it opens: a browser can't read why an upgrade was refused.
+ * A socket that closes with `code`, and `reason` if it's given, as soon as it opens: a browser can't read why an upgrade was refused.
  * wrangler dev logs "Uncaught Error: Network connection lost." as each one finishes closing, even after
  * a clean close handshake: the runtime raises it once the close event has fired, where nothing here can
  * catch it, and the Worker's tests, which have no network between them and the Worker, never see it.
  */
-export function closedAtOnce(code: CloseCode | HuddleCloseCode): Response {
+export function closedAtOnce(code: CloseCode | HuddleCloseCode, reason = CLOSE_REASONS[code]): Response {
   const { 0: client, 1: server } = new WebSocketPair();
   server.accept();
-  server.close(code, CLOSE_REASONS[code]);
+  server.close(code, reason);
   return new Response(null, { status: 101, webSocket: client });
 }
 

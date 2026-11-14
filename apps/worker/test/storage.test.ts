@@ -9,9 +9,10 @@ import { apiWith, connect, freshRoom, objectSql, post, roomSql, roomStub, search
 
 /** The tables each kind of object keeps. A migration's new tables go under the scope it names. */
 const TABLES: Record<Exclude<Scope, "search">, string[]> = {
-  room: ["blobs", "boosts", "message_deletions", "messages", "revocations", "room_events", "unindexed_messages", "waiting_calls"],
+  room: ["blobs", "boosts", "forwards", "message_deletions", "messages", "revocations", "room_events", "scheduled_changes", "scheduled_messages", "unindexed_messages", "waiting_calls"],
   workspace: [
     "accounts",
+    "activity",
     "agent_tools",
     "agents",
     "apps",
@@ -20,6 +21,7 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "email_link_requests",
     "email_links",
     "favorites",
+    "file_marks",
     "identities",
     "membership_catch_ups",
     "membership_checks",
@@ -32,7 +34,10 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "pending_revocations",
     "push_subscriptions",
     "recent_searches",
+    "room_tab_items",
+    "room_tabs",
     "rooms",
+    "scheduled_listings",
     "searches",
     "sessions",
     "users",

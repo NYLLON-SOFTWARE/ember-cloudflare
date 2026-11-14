@@ -1,3 +1,4 @@
+import { ACTIVITY_PATH } from "./activity.ts";
 import type { RoomId, RoomKind, UserId } from "./index.ts";
 
 // The app's pages, at Campfire's addresses where it has the page. The app's router reads a path with
@@ -63,7 +64,26 @@ export type WorkspacePage =
   /** Someone's page, at `/users/<id>`, whatever their status. */
   | { page: "person"; userId: UserId }
   /** Search, at `/searches`, whose query string holds what's searched for. */
-  | { page: "search" };
+  | { page: "search" }
+  /** Your DMs, at `/dms`, latest active first, with the one picked open beside them at `/dms/<id>`. */
+  | { page: "dms"; roomId?: RoomId }
+  /** Everyone in the workspace, at `/people`, to find someone by name. */
+  | { page: "people" }
+  /** What you've written and not sent, at `/drafts`, or what you've sent lately, at `/drafts/sent`. */
+  | { page: "drafts"; tab: "drafts" | "sent" }
+  /** The threads you follow, at `/threads`, latest active first, each with a box to reply in. */
+  | { page: "threads" }
+  /** The workspace's files, at `/files`, its canvases at `/files/canvases`, or the files you've starred at `/files/starred`. */
+  | { page: "files"; place: FilesPlace }
+  /**
+   * Activity, at `/activity`: mentions, DMs, thread replies, reactions and invitations, newest first. With
+   * a conversation open beside it, the room's address follows, as `/activity/rooms/<id>/@<message id>`,
+   * and with a thread open too, `/activity/rooms/<id>/threads/<message id>/@<reply id>`.
+   */
+  | { page: "activity"; roomId?: RoomId; messageId?: string; threadId?: string; replyId?: string };
+
+/** Which of the workspace's files the Files page lists. */
+export type FilesPlace = "all" | "canvases" | "starred";
 
 /** Rails' names for each kind of room's controller. */
 export const KIND_SEGMENTS = { open: "opens", closed: "closeds", direct: "directs" } as const satisfies Record<RoomKind, string>;
@@ -79,6 +99,27 @@ export const NEW_DIRECT_PATH = "/rooms/directs/new";
 export const PROFILE_PATH = "/users/me/profile";
 export const PUSH_SUBSCRIPTIONS_PATH = "/users/me/push_subscriptions";
 export const SEARCHES_PATH = "/searches";
+export const DMS_PATH = "/dms";
+export const PEOPLE_PATH = "/people";
+export const DRAFTS_PATH = "/drafts";
+export const SENT_PATH = "/drafts/sent";
+export const THREADS_PATH = "/threads";
+
+/** A DM open beside the DMs page's list. */
+export const dmPath = (roomId: RoomId) => `${DMS_PATH}/${encodeURIComponent(roomId)}`;
+
+/** The pages the rail's DMs and the Home sidebar's links open, whose addresses name nothing more. */
+const LIST_PAGES = new Map<string, WorkspacePage>([
+  [DMS_PATH, { page: "dms" }],
+  [PEOPLE_PATH, { page: "people" }],
+  [DRAFTS_PATH, { page: "drafts", tab: "drafts" }],
+  [SENT_PATH, { page: "drafts", tab: "sent" }],
+  [THREADS_PATH, { page: "threads" }],
+]);
+export const FILES_PATH = "/files";
+
+/** The Files page's address for `place`. */
+export const filesPath = (place: FilesPlace) => (place === "all" ? FILES_PATH : `${FILES_PATH}/${place}`);
 
 /**
  * A message's thread, which opens beside its room, or a reply's permalink there, which opens the thread at
@@ -107,6 +148,11 @@ const kindOf = (segment: string): RoomKind => (segment === KIND_SEGMENTS.direct 
 export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (pathname === "/") return { page: "home" };
   if (pathname === NEW_DIRECT_PATH) return { page: "new-direct" };
+  const list = LIST_PAGES.get(pathname);
+  if (list) return { ...list };
+  const dm = pathname.match(/^\/dms\/([^/]+)$/);
+  const dmRoomId = dm && decoded(dm[1]!);
+  if (dmRoomId) return { page: "dms", roomId: dmRoomId };
   if (pathname === WORKSPACE_SETTINGS_PATH) return { page: "workspace-settings" };
   if (pathname === CUSTOM_STYLES_PATH) return { page: "custom-styles" };
   if (pathname === BOTS_PATH) return { page: "bots" };
@@ -123,6 +169,10 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   const appId = app && decoded(app[1]!);
   if (appId) return { page: "app-settings", appId };
   if (pathname === SEARCHES_PATH) return { page: "search" };
+  const files = pathname.match(/^\/files(?:\/(canvases|starred))?$/);
+  if (files) return { page: "files", place: (files[1] as FilesPlace | undefined) ?? "all" };
+  if (pathname === ACTIVITY_PATH) return { page: "activity" };
+  if (pathname.startsWith(`${ACTIVITY_PATH}/rooms/`)) return activityPageOf(pathname.slice(ACTIVITY_PATH.length));
   if (/^\/users\/[^/]+\/profile$/.test(pathname)) return { page: "profile" };
   if (/^\/users\/[^/]+\/push_subscriptions$/.test(pathname)) return { page: "push-subscriptions" };
   const person = pathname.match(/^\/users\/([^/]+)$/);
@@ -168,6 +218,14 @@ function threadPageOf(roomSegment: string, threadSegment: string, replySegment: 
   if (!isMessageId(threadId)) return { page: "room", roomId };
   const replyId = replySegment === undefined ? null : decoded(replySegment);
   return isMessageId(replyId) ? { page: "room", roomId, threadId, replyId } : { page: "room", roomId, threadId };
+}
+
+/** Activity with the conversation `roomPath`, a room's own address, names open beside it, or null where it names none. */
+function activityPageOf(roomPath: string): WorkspacePage | null {
+  const room = workspacePageOf(roomPath);
+  if (room?.page !== "room" || room.huddle) return null;
+  const { page: _, ...place } = room;
+  return { page: "activity", ...place };
 }
 
 /** A room's page at its huddle's link, from the address's room segment. */
