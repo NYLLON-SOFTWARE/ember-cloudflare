@@ -120,7 +120,8 @@ export const CALL_OUTCOMES = {
  */
 export function callCard(botName: string, askerName: string, { appName, name }: GivenTool, input: Record<string, unknown>, outcome?: string): SlackPayload {
   const shown = written(input);
-  const text = (text: string) => ({ type: "plain_text", text });
+  // As they're written: a name like `:tada:` in what a tool is called with is shown as it goes to the app, not as an emoji.
+  const text = (text: string) => ({ type: "plain_text", text, emoji: false });
   const button = (decision: CallDecision, label: string, style?: string) => ({ type: "button", text: text(label), action_id: CALL_ACTIONS[decision], ...(style && { style }) });
   return {
     blocks: [

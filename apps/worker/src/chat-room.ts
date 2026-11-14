@@ -232,6 +232,8 @@ type Outcome = Said | { asking: Asking; given: GivenTool[] };
 const CALL_ANSWERED = "Someone has answered that already";
 /** What it tells them once the call waited too long to be allowed. */
 const CALL_LATE = "That waited too long to be allowed. Ask again";
+/** What it tells them while the room has no turn left for the answer to go on in. */
+const ROOM_BUSY = "Too many questions are waiting for answers in this room. Try again in a moment";
 /** What an answerer says when its model isn't the one that made the call that waited. */
 const MODEL_CHANGED = "I can't go on from that call: my model was changed while it waited. Ask me again.";
 /** What an answerer says, by its tool's app, when what it has read is too much to keep while a call waits. */
@@ -465,11 +467,16 @@ export class ChatRoom extends DurableObject<Env> {
     await this.serially(() => this.ctx.storage.delete(LOGS_DUE));
     const couriers = this.couriersFor(roomId);
     await Promise.all([couriers.workspace.retry(), couriers.index.retry(), couriers.files.retry()]);
-    // Kept until then, so an alarm cut off as it sends, as a deploy can do, sends the rest when it's
-    // retried. A courier whose last call failed has set the alarm again, for its next try.
-    if (couriers.workspace.failing || couriers.index.failing || couriers.files.failing) return;
-    const unfinished = await this.serially(() => this.blobsFor(roomId).oldestUnfinished());
+    // Whatever the couriers came to, so that a call is forgotten in time while a delivery keeps failing.
     const nextLateCall = await this.forgetLateCalls(roomId);
+    // Kept until then, so an alarm cut off as it sends, as a deploy can do, sends the rest when it's
+    // retried. A courier whose last call failed has set the alarm again, for its next try, which comes
+    // sooner for a call that will have waited too long by then.
+    if (couriers.workspace.failing || couriers.index.failing || couriers.files.failing) {
+      if (nextLateCall !== null) await this.wakeAt(roomId, nextLateCall);
+      return;
+    }
+    const unfinished = await this.serially(() => this.blobsFor(roomId).oldestUnfinished());
     const next = Math.min(unfinished === null ? Infinity : Date.parse(unfinished) + UNFINISHED_UPLOAD_KEPT_MS, nextLateCall ?? Infinity);
     if (next === Infinity) await this.ctx.storage.delete(UNDELIVERED_ROOM);
     else await this.wakeAt(roomId, next);
@@ -1576,7 +1583,8 @@ export class ChatRoom extends DurableObject<Env> {
    * Answers the call that waits on the card `message` as `user`'s click on its button says, `allow` or
    * `deny`, for whoever asked the question or an administrator, once: the card says who answered and
    * how, in place of its buttons, and the answer goes on in its turn (`goOnFrom`). Answers what was
-   * decided, or null when no call waits on that message, and throws why the click came to nothing.
+   * decided, or null when no call waits on that message, and throws why the click came to nothing: with
+   * no turn left for the answer to go on in, the call waits on, to be answered again.
    */
   private async decideCall(roomId: RoomId, user: User, message: Message, decision: "allow" | "deny"): Promise<string | null> {
     const calls = this.waitingCallsFor(roomId);
@@ -1586,11 +1594,19 @@ export class ChatRoom extends DurableObject<Env> {
     if (!decider || (!decider.administrator && user.id !== waiting.asker.id)) throw new ClickError(`Only ${waiting.asker.name} or an administrator can answer that`, "whoever clicked may not answer it");
     const call = await this.serially(() => calls.take(message.id));
     if (!call) throw new ClickError(CALL_ANSWERED, "the call was answered meanwhile");
-    const late = Date.now() - call.askedAt > CALL_WAITS_MS;
-    const outcome = late ? CALL_OUTCOMES.late() : CALL_OUTCOMES[decision](decider.member.name);
-    const shown = await this.showDecided(roomId, message.id, call, outcome);
-    if (late) throw new ClickError(CALL_LATE, "the call waited too long");
-    this.ctx.waitUntil(this.goOnFrom(roomId, call, decision === "allow"));
+    if (Date.now() - call.askedAt > CALL_WAITS_MS) {
+      await this.showDecided(roomId, message.id, call, CALL_OUTCOMES.late());
+      throw new ClickError(CALL_LATE, "the call waited too long");
+    }
+    if (this.answers.full) {
+      // Kept to be answered again, as an answer nobody goes on with would be lost with its call allowed.
+      await this.serially(() => calls.keep(message.id, call));
+      throw new ClickError(ROOM_BUSY, "the room's queue of questions for @ember and the agents is full");
+    }
+    // The answer takes its turn before anything else can take the queue's last place.
+    const going = this.goOnFrom(roomId, call, decision === "allow");
+    const shown = await this.showDecided(roomId, message.id, call, CALL_OUTCOMES[decision](decider.member.name));
+    this.ctx.waitUntil(going);
     return `${decision}${shown === null ? "" : `, though its card wasn't changed: ${shown}`}`;
   }
 

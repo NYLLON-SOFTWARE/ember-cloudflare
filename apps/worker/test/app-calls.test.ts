@@ -1,7 +1,7 @@
 import { ASSISTANT_ID, type Card, type Me, type Message, type NewWorkspace, type RoomId, type User } from "@ember/protocol";
 import { CALL_ACTIONS, type AgentTools, type App, type AppAnswer, type CallDecision, type ToolPick } from "@ember/protocol/apps";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
-import { runDurableObjectAlarm } from "cloudflare:test";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_RESULT_LENGTH } from "../src/apps/mcp";
 import { CALL_OUTCOMES, MAX_SHOWN_INPUT_LENGTH, TOO_LONG_TO_SHOW } from "../src/apps/tools";
@@ -274,6 +274,71 @@ describe("A call of a connected app's tool", () => {
     expect(await runDurableObjectAlarm(roomStub(general))).toBe(false);
     expect(calls()).toEqual([]);
     expect(asked).toHaveLength(2);
+  });
+
+  it("is forgotten in time while the room's deliveries keep failing, as when the search index is away", async () => {
+    const { general, inGeneral } = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    script = [CALL];
+    const card = await ask(inGeneral);
+    // The room's alarm finds the search index away, and comes back for it.
+    const away = { getByName: () => ({ apply: () => Promise.reject(new Error("The search index is away")) }) };
+    await runInDurableObject(roomStub(general), (room) => {
+      const object = room as unknown as { env: Record<string, unknown> };
+      object.env = { ...object.env, SEARCH_INDEX: away };
+    });
+    expect(await runDurableObjectAlarm(roomStub(general))).toBe(true);
+    expect(await waiting(general)).toEqual([{ message_id: card.id }]);
+
+    await age(general, CALL_WAITS_MS + 1);
+    await post(inGeneral, "<p>Something else for the index.</p>");
+    expect(await runDurableObjectAlarm(roomStub(general))).toBe(true);
+    const late = await changed(inGeneral, card);
+    expect(late.plainText).toContain(CALL_OUTCOMES.late());
+    expect(buttonsOf(late.cards)).toEqual([]);
+    expect(await waiting(general)).toEqual([]);
+    // The index still hasn't taken the room's messages.
+    expect(await roomSql(general, "SELECT count(*) AS unindexed FROM unindexed_messages WHERE room_id = ?", general)).not.toEqual([{ unindexed: 0 }]);
+  });
+
+  it("waits on, to be answered again, when the room has no turn left for the answer to go on in", async () => {
+    const { general, inGeneral, ada } = await setUp();
+    script = [CALL, { text: "I opened #12 for it." }];
+    const card = await ask(inGeneral);
+    /** Has the room's queue of answers say whether it's full. */
+    const queueIsFull = (full: boolean | undefined) =>
+      runInDurableObject(roomStub(general), (room) => {
+        const { answers } = room as unknown as { answers: object };
+        if (full === undefined) delete (answers as { full?: boolean }).full;
+        else Object.defineProperty(answers, "full", { value: full, configurable: true });
+      });
+
+    await queueIsFull(true);
+    const busy = click(inGeneral, card, "allow");
+    expect(await inGeneral.next("error")).toMatchObject({ clickId: busy, message: "Too many questions are waiting for answers in this room. Try again in a moment" });
+    expect(await waiting(general)).toEqual([{ message_id: card.id }]);
+    expect(calls()).toEqual([]);
+    expect(asked).toHaveLength(1);
+
+    // Its card is as it was, and allows it once there's a turn.
+    await queueIsFull(undefined);
+    click(inGeneral, card, "allow");
+    expect((await changed(inGeneral, card)).plainText).toContain(CALL_OUTCOMES.allow(ada.user.name));
+    expect((await fromEmber(inGeneral)).plainText).toBe("I opened #12 for it.");
+    expect(calls()).toHaveLength(1);
+    expect(await waiting(general)).toEqual([]);
+  });
+
+  it("shows what it's called with as it's written, so that a name like :tada: isn't shown as an emoji the app isn't sent", async () => {
+    const { inGeneral } = await setUp();
+    script = [{ calls: [{ name: "Tracker__create_issue", input: { title: ":tada: Login &amp; logout <b>fail</b>" } }] }, { text: "Opened." }];
+
+    const card = await ask(inGeneral);
+    expect(card.plainText).toContain('"title": ":tada: Login &amp; logout <b>fail</b>"');
+    expect(card.body).not.toContain("🎉");
+    click(inGeneral, card, "allow");
+    expect((await fromEmber(inGeneral)).plainText).toBe("Opened.");
+    expect(calls().map(({ params }) => params?.arguments)).toEqual([{ title: ":tada: Login &amp; logout <b>fail</b>" }]);
   });
 
   it("isn't run by a click that comes once it has waited too long, which its card says, and the answer is dropped", async () => {
