@@ -1,5 +1,4 @@
-import { MAX_SCHEDULE_AHEAD_MS, type RoomId } from "@ember/protocol";
-import { runDurableObjectAlarm } from "cloudflare:test";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { MESSAGE_GONE, SCHEDULED_AUTHOR_GONE, SCHEDULED_THREAD_GONE } from "../src/chat-room";
 import { connect, freshDeploy, freshRoom, post, roomSql, roomStub, settle, workspaceSql, type Socket } from "./support";
@@ -49,6 +48,29 @@ describe("Scheduled messages", () => {
     const { message } = await grace.next("message.created");
     expect(message).toMatchObject({ creator: { id: ada.me.id, name: "Ada" }, plainText: "Good morning" });
     expect(await roomSql(room, "SELECT count(*) AS n FROM scheduled_messages WHERE room_id = ?", room)).toEqual([{ n: 0 }]);
+  });
+
+  it("posts a scheduled message live to the sockets open in the room, its author's gone, whatever else its alarm does", async () => {
+    const room = await freshRoom("scheduled-live");
+    const [sam, maya] = [await connect(room, "Sam"), await connect(room, "Maya")];
+    await schedule(maya, "<p>Standup in five</p>");
+    maya.close();
+    await timeComes(room);
+    const { message } = await sam.next("message.created");
+    expect(message).toMatchObject({ creator: { name: "Maya" }, plainText: "Standup in five" });
+
+    // The alarm that posts the next also sends the room's logs and forgets its late calls, as when an
+    // upload or a call is waiting, after the post has gone out.
+    const again = await connect(room, maya.session);
+    await schedule(again, "<p>Standup now</p>");
+    again.close();
+    await runInDurableObject(roomStub(room), async (_room, state: DurableObjectState) => {
+      await state.storage.put("undeliveredRoom", room);
+      await state.storage.put("logsDue", Date.now() - 1);
+    });
+    await timeComes(room);
+    expect((await sam.next("message.created")).message).toMatchObject({ creator: { name: "Maya" }, plainText: "Standup now" });
+    expect(sam.pending("message.created")).toEqual([]);
   });
 
   it("posts a scheduled reply in its thread, and keeps one whose thread's message was deleted, unsent, saying why", async () => {
