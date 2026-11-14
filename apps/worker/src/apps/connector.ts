@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { AppRefused } from "@ember/protocol/apps";
 import type { Env } from "../env";
-import { readApp, type ReadApp } from "./mcp";
+import { callApp, readApp, type CalledTool, type ReadApp, type ReadTool } from "./mcp";
 
 /**
  * Asks connected apps where there's CPU time for it, and subrequests of its own: reading what a server
@@ -13,6 +13,11 @@ export class AppConnector extends DurableObject<Env> {
   /** `readApp`: the tools of the app at `url`, asked with `token`, or why Ember couldn't read them. */
   read(url: string, token: string | null): Promise<ReadApp | AppRefused> {
     return readApp(url, token);
+  }
+
+  /** `callApp`: what calling `tool` of the app at `url` with `input` came to, asked with `token`. */
+  call(url: string, token: string | null, tool: Pick<ReadTool, "name" | "fingerprint">, input: Record<string, unknown>): Promise<CalledTool> {
+    return callApp(url, token, tool, input);
   }
 }
 
