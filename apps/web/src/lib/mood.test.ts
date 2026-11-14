@@ -33,4 +33,27 @@ describe("Your mood", () => {
     expect(choiceOf(new Date(2026, 9, 17, 12, 0).toISOString(), now)).toBe("week");
     expect(choiceOf(new Date(2026, 9, 20, 12, 0).toISOString(), now)).toBe("never");
   });
+
+  it("reads a mood saved back as the choice it was made by, past midnight the day it was saved for too", () => {
+    for (const choice of ["hour", "four", "today", "week"] as ClearChoice[]) expect(choiceOf(clearAtOf(choice, now)!, now)).toBe(choice);
+    // Saved as Today just before midnight, it comes off at one, and reads back as Today after it.
+    const late = new Date(2026, 9, 15, 23, 59, 30);
+    expect(choiceOf(clearAtOf("today", late)!, new Date(2026, 9, 16, 0, 0, 30))).toBe("today");
+  });
+
+  it("wears an hour or four as time itself, so a change to or from daylight saving time doesn't take one", () => {
+    const shift = nextShift(Date.UTC(2026, 0, 1));
+    // Where the clock never changes (UTC), the hours it counts and time itself agree.
+    if (shift === null) return;
+    const before = new Date(shift - 30 * 60_000);
+    expect(new Date(clearAtOf("hour", before)!).getTime()).toBe(before.getTime() + 3_600_000);
+    expect(new Date(clearAtOf("four", before)!).getTime()).toBe(before.getTime() + 4 * 3_600_000);
+  });
 });
+
+/** The first moment of the year after `from` that this clock sits differently from where it starts, or null where it never does. */
+function nextShift(from: number): number | null {
+  const offset = new Date(from).getTimezoneOffset();
+  for (let at = from; at < from + 366 * 86_400_000; at += 1_800_000) if (new Date(at).getTimezoneOffset() !== offset) return at;
+  return null;
+}
