@@ -2890,7 +2890,8 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Whoever a personal access token's digest opens, if it isn't revoked and its person is still active,
    * keeping when the token was last used; "limited" once too many have failed from the one IP address,
-   * as sign-in does. What the MCP server asks with every request (src/mcp-server.ts).
+   * as sign-in does. What the MCP server asks with every request (src/mcp-server.ts). A guest's token
+   * opens like their sessions do: only while EMBER_GUEST_SIGN_IN lets guests stay signed in.
    */
   async authenticateApiToken(ip: string, tokenDigest: string): Promise<User | "limited" | null> {
     const found = await this.store.findApiToken(tokenDigest);
@@ -2898,6 +2899,7 @@ export class Workspace extends DurableObject<Env> {
       if (!this.failedTokenAuths.attempt(ip)) return "limited";
       return null;
     }
+    if (found.guest && !guestSignIn(this.env)) return null;
     await this.store.touchApiToken(found.id, Date.now());
     return found.user;
   }

@@ -692,8 +692,8 @@ const INSERT_LINKED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, 
 /** How long before a token's last used time is kept again, so a busy token doesn't write it with every request. */
 const TOKEN_TOUCH_MS = 60 * 1000;
 
-/** The API token a digest names, if it isn't revoked and its person is still active, with their name. */
-const API_TOKEN = `SELECT api_tokens.id, api_tokens.user_id, users.name FROM api_tokens JOIN users ON users.id = api_tokens.user_id
+/** The API token a digest names, if it isn't revoked and its person is still active, with their name and whether they're a guest. */
+const API_TOKEN = `SELECT api_tokens.id, api_tokens.user_id, users.name, users.guest FROM api_tokens JOIN users ON users.id = api_tokens.user_id
   WHERE api_tokens.token_digest = ? AND api_tokens.revoked_at IS NULL AND users.status = ${ACTIVE}`;
 
 /** Keeps when a token was last used, unless it was kept within the minute before. */
@@ -3209,10 +3209,10 @@ export class WorkspaceStore {
     ).map(({ id, name, created_at, last_used_at, revoked_at }) => ({ id, name, createdAt: created_at, lastUsedAt: last_used_at, revokedAt: revoked_at }));
   }
 
-  /** The API token a digest opens, if it isn't revoked and its person is still active, with their name. */
-  async findApiToken(tokenDigest: string): Promise<{ id: string; user: User } | null> {
-    const [row] = await this.db.all<{ id: string; user_id: UserId; name: string }>(API_TOKEN, tokenDigest);
-    return row ? { id: row.id, user: { id: row.user_id, name: row.name } } : null;
+  /** The API token a digest opens, if it isn't revoked and its person is still active, with their name and guestness. */
+  async findApiToken(tokenDigest: string): Promise<{ id: string; user: User; guest: boolean } | null> {
+    const [row] = await this.db.all<{ id: string; user_id: UserId; name: string; guest: number }>(API_TOKEN, tokenDigest);
+    return row ? { id: row.id, user: { id: row.user_id, name: row.name }, guest: row.guest === 1 } : null;
   }
 
   /** Keeps when the token was last used, which `TOUCH_API_TOKEN` writes at most once a minute. */

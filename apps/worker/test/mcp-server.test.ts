@@ -185,6 +185,17 @@ describe("The MCP server", () => {
     expect(((await notification.json()) as { id: unknown; error: { code: number } }).error.code).toBe(-32600);
   });
 
+  it("refuses a guest's token once EMBER_GUEST_SIGN_IN turns guests away, and answers it again once it's back", async () => {
+    const ada = await signIn("Ada");
+    const { token } = await tokenOf(ada);
+    const list = () => mcp(token, { jsonrpc: "2.0", id: 1, method: "tools/list" });
+    expect((await list()).status).toBe(200);
+    await withWorkspaceEnv({ EMBER_GUEST_SIGN_IN: undefined }, async () => {
+      expect((await list()).status).toBe(401);
+    });
+    expect((await list()).status).toBe(200);
+  });
+
   it("lists the rooms its person is in, and neither a room they're not in nor a DM they're out of", async () => {
     const host = await signIn("Host");
     const ada = await signIn("Ada");
