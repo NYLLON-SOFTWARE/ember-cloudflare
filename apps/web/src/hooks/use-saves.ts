@@ -1,15 +1,18 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { RoomId, SavedItem } from "@ember/protocol";
 import { ApiError, forgetSave as forgetOnServer, fetchSaves, saveForLater } from "@/lib/api";
 
 // The messages someone has saved for later, which the rail's count, the Saved pane and More actions
-// share. The list is asked for when the page loads, and again after a save or a remove made here;
-// what another tab does isn't heard of until it loads again.
+// share. The list is asked for when the page loads, and again after a save or a remove made here, and
+// when the pane opens asking for what a failed ask never brought; what another tab does isn't heard of
+// until it loads again.
 
 /** What the workspace keeps of someone's saves. */
 export interface Saver {
   /** The messages saved, newest save first, or null while the list is on its way. */
   saves: SavedItem[] | null;
+  /** Asks for the list again, as opening the pane does, which a failed ask never brought. */
+  load: () => void;
   /** Saves the message `messageId` of room `roomId` for later, then follows what the server keeps. */
   save: (roomId: RoomId, messageId: string) => Promise<void>;
   /** Forgets the save `id`, taking it out at once, so the count and the pane move before the server has answered. */
@@ -26,17 +29,26 @@ export const useSaver = (): Saver | null => useContext(SavesContext);
 
 export function useSaves(onFailed: (error: unknown) => void): Saver {
   const [saves, setSaves] = useState<SavedItem[] | null>(null);
-  // Asked when the page loads, and again after a save or a remove here.
+  // Asked when the page loads, and again after a save or a remove here, or when the pane opens for
+  // what a failed ask never brought.
   const [asked, setAsked] = useState(0);
+  // What a remove here has taken out of the list since it was asked for, so an answer that set out
+  // before it doesn't put what was taken out back: that answer is left, and a fresh list asked for.
+  const changed = useRef(0);
+  const askAgain = useCallback(() => setAsked((asked) => asked + 1), []);
   useEffect(() => {
     let stopped = false;
+    const unchanged = changed.current;
     fetchSaves().then(
-      (answer) => !stopped && setSaves(answer.saves),
+      (answer) => {
+        if (stopped) return;
+        if (changed.current !== unchanged) askAgain();
+        else setSaves(answer.saves);
+      },
       (error: unknown) => !stopped && onFailed(error),
     );
     return () => void (stopped = true);
-  }, [asked, onFailed]);
-  const askAgain = useCallback(() => setAsked((asked) => asked + 1), []);
+  }, [asked, askAgain, onFailed]);
 
   const save = useCallback(
     async (roomId: RoomId, messageId: string) => {
@@ -56,6 +68,7 @@ export function useSaves(onFailed: (error: unknown) => void): Saver {
 
   const forget = useCallback(
     async (id: string) => {
+      changed.current++;
       setSaves((saved) => saved?.filter((save) => save.id !== id) ?? null);
       try {
         await forgetOnServer(id);
@@ -69,5 +82,5 @@ export function useSaves(onFailed: (error: unknown) => void): Saver {
   );
 
   const saveOf = useCallback((messageId: string) => saves?.find((save) => save.messageId === messageId) ?? null, [saves]);
-  return useMemo(() => ({ saves, save, forget, saveOf }), [saves, save, forget, saveOf]);
+  return useMemo(() => ({ saves, load: askAgain, save, forget, saveOf }), [saves, askAgain, save, forget, saveOf]);
 }
