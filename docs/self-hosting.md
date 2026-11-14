@@ -577,7 +577,7 @@ on its Ember AI card opens Set up Ember AI, which takes a Cloudflare account's I
 then a model. Its steps make the token under Account API tokens in the Cloudflare dashboard, as a
 custom token with three of the account's permissions: AI Gateway Run, which asking Claude and GPT
 takes, Workers AI Read, which listing and asking Workers AI's models and Grok takes, and AI Gateway
-Read, which searching the web for Workers AI's models takes as well. The account's ID starts as the one Ember is deployed to, when
+Read, which searching the web for Grok and Workers AI's models takes as well. The account's ID starts as the one Ember is deployed to, when
 the deploy gave it, leaving only the token to make, and the dialog's links open that account's pages in
 the dashboard. Ember asks models through the account's default
 [AI Gateway](https://developers.cloudflare.com/ai-gateway/), whose logs, caching and spend limits
@@ -585,10 +585,10 @@ apply: Claude and GPT at the gateway's endpoint for the model's provider,
 [Anthropic's](https://developers.cloudflare.com/ai-gateway/usage/providers/anthropic/) or
 [OpenAI's](https://developers.cloudflare.com/ai-gateway/usage/providers/openai/), in the provider's own
 API, which has all the model's features, and Grok and Workers AI's through Cloudflare's
-[REST API](https://developers.cloudflare.com/ai-gateway/usage/rest-api/), in Chat Completions. AI
+[REST API](https://developers.cloudflare.com/ai-gateway/usage/rest-api/), in Chat Completions, as AI
 Gateway's credits don't pay for Grok at the gateway's
-[xAI endpoint](https://developers.cloudflare.com/ai-gateway/usage/providers/grok/), as xAI answers "No
-credentials presented" there, so Ember asks it there only for Search the web, below. Ember
+[xAI endpoint](https://developers.cloudflare.com/ai-gateway/usage/providers/grok/), where xAI answers
+"No credentials presented". Every model and every search goes through the gateway. Ember
 tells OpenAI and xAI not to keep the conversations, as each otherwise does for 30 days. AI Gateway Run
 lets the token send requests through every gateway on the account, with any provider keys stored on
 them, so keep it as safe as those keys.
@@ -729,22 +729,18 @@ which AI Gateway passes on and the model's provider runs
 ([Cloudflare's guide](https://developers.cloudflare.com/ai-gateway/usage/web-search/)): Anthropic's
 [web search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool) and
 [web fetch](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-fetch-tool) for Claude,
-OpenAI's [web search](https://platform.openai.com/docs/guides/tools-web-search) for GPT, and xAI's
-[web search](https://docs.x.ai/developers/tools/web-search) for Grok, which searches only at AI Gateway's
-xAI endpoint, with an xAI API key added under Provider Keys in the default gateway's settings, as the
-gateway's credits don't pay for it there, which the switch says without one. Workers AI's models search with a
-tool of Ember's own, which the Worker runs with Cloudflare's
+and OpenAI's [web search](https://platform.openai.com/docs/guides/tools-web-search) for GPT. Grok and
+Workers AI's models search with a tool of Ember's own, which the Worker runs with Cloudflare's
 [Web Search API](https://developers.cloudflare.com/web-search/) through the same gateway: each search
 finds 5 pages, and the model reads what the search says of each, up to 2,000 characters, though not the
 pages themselves. A model kept from before in Chat Completions,
 as Google's are, has no such tools, which the page says, its switch opening Set up Ember AI to choose
 another model. Turning it on asks the model that answers everyone a question it has to search the web
 for, and keeps the tools AI Gateway took, reading pages only if it took that tool too, and says what
-the model found; a model that answers without searching leaves it off. Grok, kept in Chat
-Completions, is asked through the xAI endpoint then, and once it searches there, Ember asks it there from then on. Each other
-such Grok model people pick is asked its test question there too, whichever model answers everyone, and
-moves there once it answers. A model that moves is asked again at each level of thinking, as the levels
-it takes there needn't be the ones it took before. While the token still lacks that permission, the
+the model found; a model that answers without searching leaves it off. A Grok saved before in xAI's
+own Responses, at the gateway's xAI endpoint, moves to Chat Completions then, where AI Gateway's credits
+pay for its searches, and is asked again at each level of thinking, as the levels it takes there
+needn't be the ones it took before. While the token lacks AI Gateway Read, which Ember's tool takes, the
 switch says to add it. Choosing another model to answer everyone, under Models or in Set up Ember AI,
 or another Cloudflare account there, turns it off, as another model, or another account's AI Gateway,
 may not take the same tools, until it's turned on again. A model someone picks on their profile is
@@ -753,7 +749,7 @@ is told to say it can't, and that they can pick one that can. While it's on, @em
 times an answer and reads at most 3 pages, each cut to about 10,000 tokens: pages people link to, or
 that its searches find. Its answer is what it writes after it last searches, and a line under it links
 to the pages it cites and the pages it read, by their titles, at most 10, leaving out those the answer
-links to itself. A Workers AI model can't cite pages, so its line links to those its searches found,
+links to itself. Grok and Workers AI's models can't cite pages with Ember's tool, so their line links to those their searches found,
 each search's first ones first. A model that stops taking the tools is asked again without them, told
 it can't search this time. Its searches are written from the conversation, so the provider's search
 sees what the room was asking about. While it's off, @ember is told it can't search, and that an
@@ -1084,8 +1080,8 @@ pages had them in October 2026:
   most 2,000 tokens out. Each person's questions cost what the model they pick does, so add to the
   Models list only the models you're happy to pay for, and each [agent's](#ai-agents) what its own
   model does at its own dials, whose most its page says. While Search the web is on, an answer can also
-  search up to 5 times, which Anthropic charges $10 per 1,000 searches for, xAI $5 per 1,000 and OpenAI
-  its own price per search, and Cloudflare's Web Search API, for Workers AI's models, $0.25 per 1,000
+  search up to 5 times, which Anthropic charges $10 per 1,000 searches for and OpenAI
+  its own price per search, and Cloudflare's Web Search API, for Grok and Workers AI's models, $0.25 per 1,000
   with its default provider, Ceramic.ai, paid with AI Gateway's credits. The results and pages it reads
   count as input, up to about 10,000 tokens a page.
 - **Huddles**, if they're on: Cloudflare's Realtime SFU charges for what it sends to the people in a

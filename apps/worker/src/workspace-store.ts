@@ -184,8 +184,8 @@ export interface SavedAssistant {
 }
 
 /**
- * A model that Ember asks in another format from now on than the one it was saved in, `from`, as Grok
- * searches the web in xAI's own Responses, or any model its provider's own endpoint answers, with the
+ * A model that Ember asks in another format from now on than the one it was saved in, `from`, as one of
+ * Workers AI's searches the web in theirs, or any model its provider's own endpoint answers, with the
  * levels of thinking it takes there, which asking it at each found.
  */
 export interface MovedModel {

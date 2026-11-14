@@ -272,7 +272,7 @@ function assistantAvatarAnswer(changed: AssistantChanged | "off" | "forbidden" |
  * `PUT /api/account/assistant/web_search`, `{ on }`: turns Search the web on or off while Ember AI is on,
  * as the Ember AI card's switch does, answering Ember AI as it is then, and, once it's on, what the model
  * that answers everyone said when it searched (`searchedBy`), in the format it searches in, which it's
- * asked in from then on, as Grok is in xAI's own Responses (`searchFormatOf`). The models people pick
+ * asked in from then on, as one of Workers AI's kept in Chat Completions is in theirs (`searchFormatOf`). The models people pick
  * are given their format's tools for the web then too, in the one they search in (`movedModels`).
  * Someone who isn't an administrator hears so
  * before anything they sent is read, and turning it on for a model that has no tools for the web in any
@@ -380,8 +380,9 @@ export async function greetingFrom(
 
 /**
  * The models that search the web in another format than they're saved in, now that Search the web is on,
- * as Grok does in xAI's own Responses (`searchFormatOf`), with the levels of thinking each takes there,
- * which needn't be those it took where it was: the one that answers everyone, `gateway`'s, which searched
+ * as Workers AI's kept in Chat Completions do in theirs, and a Grok saved in xAI's own Responses does in
+ * Chat Completions (`searchFormatOf`), with the levels of thinking each takes there, which needn't be
+ * those it took where it was: the one that answers everyone, `gateway`'s, which searched
  * in `searchFormat`, and each other of those people pick, `models`, that answers its test question
  * there, as Add a model would have found, but not one that doesn't, as through an API token without AI
  * Gateway Run, which stays where it is.

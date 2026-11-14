@@ -123,7 +123,7 @@ function fileModelOf(entry: unknown): OfferedModel | null {
   const price = priceOf(given.price);
   if (id === null || format === null || name === null || price === null || !Array.isArray(given.web)) return null;
   const may: unknown[] = given.web;
-  // What Grok may do on the web is what it may in xAI's own Responses, where it searches.
+  // What it may do on the web is of what the format it searches in has tools for.
   const searching = WEB_TOOLS_IN[searchFormatOf(id, format) ?? format];
   const webTools = searching.filter((tool) => may.includes(tool));
   const until = typeof given.until === "string" && DAY.test(given.until) ? given.until : null;
@@ -133,7 +133,7 @@ function fileModelOf(entry: unknown): OfferedModel | null {
 /**
  * The format Ember asks a model the models file lists in: its provider's own, or Chat Completions,
  * through Cloudflare's REST API, for Grok, as AI Gateway's credits don't pay for it at its xAI endpoint,
- * or null for anyone else's.
+ * where it searches with Ember's own tool, or null for anyone else's.
  */
 const offeredFormatOf = (id: string): ModelFormat | null => providerFormatOf(id) ?? (isXaiModel(id) ? "chat" : null);
 
@@ -161,7 +161,7 @@ export const isWorkersAiModel = (model: string) => model.startsWith("@cf/");
 export const noLongerOffered = (model: string, offered: readonly OfferedModel[], workersAi: string | null) =>
   !offeredModelOf(model, offered) && !(isWorkersAiModel(model) && workersAi !== null);
 
-/** Whether `model` is one of xAI's, Grok, which searches the web only in xAI's own Responses. */
+/** Whether `model` is one of xAI's, Grok, which searches the web with Ember's own tool in Chat Completions. */
 export const isXaiModel = (model: string) => model.startsWith("xai/");
 
 /**
@@ -365,12 +365,13 @@ export const PAGES_READ_PER_ANSWER = 3;
 
 /**
  * What a model may do on the web in each format, with the tools AI Gateway passes on in it, or, for
- * Workers AI's, Ember's own tool for searching, which Ember runs with Cloudflare's Web Search API.
+ * Workers AI's and Grok, in Chat Completions, Ember's own tool for searching, which Ember runs with
+ * Cloudflare's Web Search API (`searchFormatOf` says which models in Chat Completions take it).
  */
 export const WEB_TOOLS_IN: Record<ModelFormat, readonly WebTool[]> = {
   messages: ["search", "read"],
   responses: ["search"],
-  chat: [],
+  chat: ["search"],
   xai: ["search"],
   anthropic: ["search", "read"],
   openai: ["search"],
@@ -389,21 +390,24 @@ export function formatOf(model: string, models: readonly AssistantModel[] = []):
 
 /**
  * The format `model`, which took its test question in `format`, searches the web in: that one, when it
- * has tools for the web, or else xAI's own Responses for Grok, or Workers AI's, with Ember's own tool, for
- * one of Workers AI's kept from before Ember gave them that, or null for a model that can't search.
+ * has tools for the web, but Chat Completions, where Ember gives its own tool for searching only to Grok,
+ * whichever format it was saved in, as AI Gateway's credits pay for that, and to Workers AI's in their own
+ * format, as for one kept from before Ember gave them that, or null for a model that can't search.
  */
 export function searchFormatOf(model: string, format: ModelFormat): ModelFormat | null {
-  if (WEB_TOOLS_IN[format].length > 0) return format;
-  if (isXaiModel(model)) return "xai";
-  return isWorkersAiModel(model) ? "workers" : null;
+  if (isXaiModel(model)) return "chat";
+  if (format === "chat") return isWorkersAiModel(model) ? "workers" : null;
+  return WEB_TOOLS_IN[format].length > 0 ? format : null;
 }
 
 /**
- * What `model` may do on the web in `format`, of what that format has tools for: less, when the models
- * `offered` list it in that format, or in one it searches in that format from, as Grok, with less, as
- * the models file can say of one.
+ * What `model` may do on the web in `format`, of what that format has tools for: nothing, when it doesn't
+ * search in that format (`searchFormatOf`), as no one but Grok does in Chat Completions, or less, when the
+ * models `offered` list it in that format, or in one it searches in that format from, as one of Workers
+ * AI's, with less, as the models file can say of one.
  */
 export function webToolsOf(model: string, format: ModelFormat, offered: readonly OfferedModel[]): readonly WebTool[] {
+  if (searchFormatOf(model, format) !== format) return [];
   const listed = offered.find(({ id, format: listedIn }) => id === model && (listedIn === format || searchFormatOf(id, listedIn) === format));
   return listed?.webTools ?? WEB_TOOLS_IN[format];
 }
@@ -413,8 +417,8 @@ export function webToolsOf(model: string, format: ModelFormat, offered: readonly
  * asks through, the model it answers anyone with who hasn't picked another, the models people can pick
  * from, that one among them, in the order they were added, the most each dial goes to for anyone's
  * questions, and what @ember does on the web: what it may while Search the web is on, nothing while it's
- * off, or null when the model that answers everyone can't: Anthropic's, OpenAI's and xAI's have tools for
- * it that AI Gateway passes on, and Workers AI's take Ember's own, which searches with Cloudflare's Web
+ * off, or null when the model that answers everyone can't: Anthropic's and OpenAI's have tools for it
+ * that AI Gateway passes on, and Grok and Workers AI's take Ember's own, which searches with Cloudflare's Web
  * Search API, but others kept from before have none (`searchFormatOf`). Then the instructions Ember adds
  * to @ember's own, what Ember adds around them, and @ember's avatar.
  */

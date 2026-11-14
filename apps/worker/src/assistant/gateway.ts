@@ -17,18 +17,19 @@ import { isLoopback } from "../loopback";
 // Asking a model through Cloudflare's AI Gateway: Claude and GPT, of the models Ember offers, through the
 // gateway's endpoints for Anthropic and OpenAI on gateway.ai.cloudflare.com, which pass on each provider's
 // own API as it is (https://developers.cloudflare.com/ai-gateway/usage/providers/anthropic/, …/openai/),
-// and Grok there through xAI's (…/grok/) only to search the web, as the gateway's credits pay for it there
-// only with no key of xAI's; otherwise Grok, and the models kept before Ember offered only its own as they
-// were kept, through the REST API on api.cloudflare.com, in whichever of its three formats the model took
+// and Grok, Workers AI's models and those kept before Ember offered only its own as they were kept,
+// through the REST API on api.cloudflare.com, in whichever of its three formats the model took
 // (https://developers.cloudflare.com/ai-gateway/usage/rest-api/), which takes Grok's requests only in Chat
-// Completions. Every request goes through the account's default gateway, whose logs, caching, rate limits
-// and spend limits apply, and which Cloudflare makes on the account's first request. A model that may use
-// the web is given its provider's own tools for it, which AI Gateway passes on and the provider runs
-// (https://developers.cloudflare.com/ai-gateway/usage/web-search/): Anthropic's web search and web fetch
-// in Messages, OpenAI's web search in Responses, and xAI's in its own. Chat Completions has none, but
-// Workers AI's models that take tools are given Ember's own for searching the web, in Workers AI's format,
-// which is Chat Completions on the REST API, and Ember runs their searches with Cloudflare's Web Search
-// API (https://developers.cloudflare.com/web-search/how-to-use/#use-web-search-as-a-tool).
+// Completions, where the gateway's credits pay for it as they don't at its xAI endpoint (…/grok/), which
+// only a Grok saved there before is asked at still. Every request goes through the account's default
+// gateway, whose logs, caching, rate limits and spend limits apply, and which Cloudflare makes on the
+// account's first request. A model that may use the web is given its provider's own tools for it, which
+// AI Gateway passes on and the provider runs (https://developers.cloudflare.com/ai-gateway/usage/web-search/):
+// Anthropic's web search and web fetch in Messages, OpenAI's web search in Responses, and xAI's in its
+// own. Chat Completions has none, so Grok, and Workers AI's models that take tools, in Workers AI's
+// format, which is Chat Completions on the REST API too, are given Ember's own for searching the web, and
+// Ember runs their searches with Cloudflare's Web Search API, through the same gateway
+// (https://developers.cloudflare.com/web-search/how-to-use/#use-web-search-as-a-tool).
 
 /** Where Cloudflare's API is. */
 const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
@@ -72,7 +73,7 @@ const MAX_RESULT_LENGTH = 2_000;
 /** The longest search Cloudflare's Web Search API takes. */
 const MAX_QUERY_LENGTH = 1_024;
 
-/** Ember's own tool for searching the web, which Workers AI's models take as a function, and Ember runs with Cloudflare's Web Search API (`searchedFor`). */
+/** Ember's own tool for searching the web, which Grok and Workers AI's models take as a function, and Ember runs with Cloudflare's Web Search API (`searchedFor`). */
 const WEB_SEARCH_FUNCTION = {
   type: "function",
   function: {
@@ -281,7 +282,7 @@ export async function thinkingLevelsOf(env: Env, gateway: Gateway, question: Que
  * on while the turn has tokens left. One that paused with none left took every token it could.
  */
 export async function askOnce(env: Env, gateway: Gateway, question: Question, signal: AbortSignal): Promise<Answered | GatewayRefusal> {
-  if (gateway.format === "workers") return askWorkersAi(env, gateway, question, signal);
+  if (takesEmbersSearch(gateway.format)) return askWithEmbersSearch(env, gateway, question, signal);
   const request = requestOf(gateway, question);
   let said: unknown[] = [];
   let tokensLeft = question.maxTokens;
@@ -317,15 +318,18 @@ function carryingOn(request: Record<string, unknown>, said: unknown[], tokensLef
   };
 }
 
+/** Whether a model in `format`, Chat Completions or Workers AI's, which is Chat Completions too, searches the web with Ember's own tool, as Grok and Workers AI's do. */
+const takesEmbersSearch = (format: ModelFormat) => format === "chat" || format === "workers";
+
 /**
- * What the model `gateway` names answers `question` in Workers AI's format, until `signal` says it's waited
- * long enough: Chat Completions, where it may call Ember's tool for searching the web, each time as many
- * times as it likes, which Ember runs (`searchedFor`) and answers it with what was found, until it answers
+ * What the model `gateway` names answers `question` in Chat Completions, or Workers AI's format, until
+ * `signal` says it's waited long enough, where it may call Ember's tool for searching the web, if it's
+ * given it, each time as many times as it likes, which Ember runs (`searchedFor`) and answers it with what was found, until it answers
  * in words, has taken every token the answer may, thinking among them, or has searched as much as an
  * answer may, when each search it asks for after that is answered with that it can't, and it's asked once
  * more. Its sources are the pages its searches found, as it can't cite them.
  */
-async function askWorkersAi(env: Env, gateway: Gateway, question: Question, signal: AbortSignal): Promise<Answered | GatewayRefusal> {
+async function askWithEmbersSearch(env: Env, gateway: Gateway, question: Question, signal: AbortSignal): Promise<Answered | GatewayRefusal> {
   const request = requestOf(gateway, question);
   const messages = [...(request.messages as unknown[])];
   const found: Source[][] = [];
@@ -583,12 +587,12 @@ export function modelIn(format: ModelFormat, model: string): string {
 /**
  * The tools that let a model in `format` do on the web what `webTools` says it may, of what the format
  * has tools for: Anthropic's basic web search and web fetch, which every Claude model takes, each used no
- * more than an answer allows, or OpenAI's web search, or xAI's, which has its name, or Ember's own for
- * Workers AI's.
+ * more than an answer allows, or OpenAI's web search, or xAI's, which has its name, or Ember's own, in
+ * Chat Completions and Workers AI's format.
  */
 export function toolsFor(format: ModelFormat, webTools: readonly WebTool[] = []): Record<string, unknown>[] {
   const may = (tool: WebTool) => webTools.includes(tool) && WEB_TOOLS_IN[format].includes(tool);
-  if (format === "workers") return may("search") ? [WEB_SEARCH_FUNCTION] : [];
+  if (takesEmbersSearch(format)) return may("search") ? [WEB_SEARCH_FUNCTION] : [];
   if (!isMessages(format)) return may("search") ? [{ type: "web_search" }] : [];
   return [
     ...(may("search") ? [{ type: "web_search_20250305", name: "web_search", max_uses: WEB_SEARCHES_PER_ANSWER }] : []),

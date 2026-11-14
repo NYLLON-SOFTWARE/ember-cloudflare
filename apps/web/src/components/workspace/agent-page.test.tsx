@@ -407,7 +407,7 @@ describe("New agent", () => {
     expect(within(modelMenu()).getAllByRole("option").map((option) => option.getAttribute("value"))).toEqual(OFFERED.models.map(({ id }) => id));
   });
 
-  it("lets Grok search the web without reading pages, as xAI's own Responses has no tool for reading them", async () => {
+  it("lets Grok search the web without reading pages, as Ember's own tool only searches", async () => {
     const { user } = showNewAgent();
     await fillIn(user);
     await user.selectOptions(modelMenu(), GROK);

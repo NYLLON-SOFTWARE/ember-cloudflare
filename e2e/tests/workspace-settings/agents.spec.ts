@@ -3,7 +3,7 @@ import { CARDS_PROMPT } from "@ember/protocol/prompts";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { administratorSession, cookieHeader, editorField, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
-import { ANTHROPIC_PATH, CARD_HEADER, CARD_LINK, CARD_QUESTION, CARDED, CHAT_COMPLETIONS_PATH, HELLO, startFakeGateway, XAI_PATH, type FakeGateway } from "./fake-gateway";
+import { ANTHROPIC_PATH, CARD_HEADER, CARD_LINK, CARD_QUESTION, CARDED, CHAT_COMPLETIONS_PATH, HELLO, startFakeGateway, type FakeGateway } from "./fake-gateway";
 
 // The AI assistant tab's Agents card, New agent and an agent's page, with Try it, an agent answering a
 // mention, and its badge and profile, on the second test server, through the AI Gateway this spec fakes.
@@ -163,27 +163,31 @@ test.describe("Agents", () => {
     expect(gone!.status()).toBe(404);
   });
 
-  test("an agent on Grok searches the web through AI Gateway's xAI endpoint, once the administrator turns Search the web on", async ({ page, request }) => {
+  test("an agent on Grok searches the web with Ember's own tool, once the administrator turns Search the web on", async ({ page, request }) => {
     await makeAgent(request, "Scout", GROK);
     // Its test question went to Cloudflare's REST API, in Chat Completions, as AI Gateway's credits pay for Grok there.
-    expect(gateway.asked.at(-1)).toMatchObject({ path: CHAT_COMPLETIONS_PATH, authorization: `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}`, body: { model: GROK } });
-    // Searching, it's asked in xAI's own Responses there, with the API token in AI Gateway's own header alone.
-    const throughXai = { path: XAI_PATH, authorization: undefined, aigAuthorization: `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}` };
+    const throughRest = { path: CHAT_COMPLETIONS_PATH, authorization: `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}` };
+    expect(gateway.asked.at(-1)).toMatchObject({ ...throughRest, body: { model: GROK } });
     const card = await openAgents(page);
     await card.getByRole("link", { name: "Edit Scout" }).click();
 
     const webSearch = page.getByRole("switch", { name: "Search the web" });
     await webSearch.click();
-    // xAI's web search is the only tool for the web it's given, so it doesn't read pages of its own.
+    // Ember's own tool only searches, so it doesn't read pages of its own.
     await expect(webSearch).toHaveAccessibleDescription(
       "Scout searches the web when a question needs it, at most 5 times an answer, and lists the pages it used under its answer. AI Gateway's credits pay for each search.",
     );
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(rowOf(card, "Scout")).toContainText("Grok 4.7 · Searches the web");
-    // Then at each level of thinking there, as it moves there from Chat Completions.
+    // It's still asked there, given Ember's tool, which Ember runs with Cloudflare's Web Search API through the same gateway.
     const searched = gateway.asked.filter(({ body }) => "tools" in body).at(-1);
-    expect(searched).toMatchObject({ ...throughXai, body: { model: "grok-4.7", tools: [{ type: "web_search" }], max_turns: 5, parallel_tool_calls: false, store: false } });
-    expect(gateway.asked.at(-1)).toMatchObject({ ...throughXai, body: { model: "grok-4.7", reasoning: {} } });
+    expect(searched).toMatchObject({ ...throughRest, body: { model: GROK, tools: [{ type: "function", function: { name: "web_search" } }] } });
+    expect(gateway.asked.findLast(({ path }) => path === `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/websearch/`)).toMatchObject({
+      ...throughRest,
+      path: `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/websearch/`,
+      body: { options: { gateway: { id: "default" } } },
+    });
+    expect(gateway.asked.some(({ path }) => path.includes("/grok/"))).toBe(false);
   });
 
   test("the administrator modifies what Ember adds around an agent's instructions, with caution, which Ember keeps until Use Ember's own puts its own back", async ({ page, request }) => {

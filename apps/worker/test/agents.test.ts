@@ -31,7 +31,6 @@ import { mentionPromptItem } from "@ember/richtext";
 import { runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentAnsweredUnsearched } from "../src/assistant/agents";
-import { XAI_TOKEN_REFUSED } from "../src/assistant/gateway";
 import type { Db, Statement } from "../src/db";
 import type { Workspace } from "../src/workspace";
 import notFoundPage from "../../web/public/404.html";
@@ -58,9 +57,10 @@ const GROK = "xai/grok-4.7";
 const PROVIDER_ENDPOINTS = `https://gateway.ai.cloudflare.com/v1/${ACCOUNT_ID}/default`;
 const ANTHROPIC_ENDPOINT = `${PROVIDER_ENDPOINTS}/anthropic/v1/messages`;
 const OPENAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/openai/responses`;
-const XAI_ENDPOINT = `${PROVIDER_ENDPOINTS}/grok/v1/responses`;
 /** Where Cloudflare's REST API takes requests in Chat Completions, as Ember asks Grok while it isn't to search. */
 const CHAT_COMPLETIONS = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/ai/v1/chat/completions`;
+/** Cloudflare's Web Search API, which Ember searches with for a model given its own tool. */
+const WEB_SEARCH = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/ai/websearch/`;
 const HELLO = "Hello, team!";
 
 /** An agent as New agent sends it: Recap, on Claude Haiku, in every open room. */
@@ -80,7 +80,7 @@ interface Asked {
   url: string;
   authorization: string | null;
   aigAuthorization: string | null;
-  body: { model?: string; system?: string; tools?: Array<{ type: string }>; reasoning?: { effort?: string } };
+  body: { model?: string; system?: string; tools?: Array<{ type: string; function?: { name: string } }>; reasoning?: { effort?: string }; messages?: Array<{ role: string }> };
 }
 
 /** A page the model finds on the web, as Anthropic's Messages gives it, and its answer citing it. */
@@ -91,8 +91,8 @@ const SEARCHED = [
   { type: "text", text: "AI Gateway is Cloudflare's proxy for AI models.", citations: [{ type: "web_search_result_location", ...DOCS, encrypted_index: "e", cited_text: "…" }] },
 ];
 
-/** Whether `asked` gives the model a tool for searching the web. */
-const searches = ({ body }: Asked) => (body.tools ?? []).some(({ type }) => type.startsWith("web_search"));
+/** Whether `asked` gives the model a tool for searching the web, its provider's or Ember's own. */
+const searches = ({ body }: Asked) => (body.tools ?? []).some(({ type, function: called }) => type.startsWith("web_search") || called?.name === "web_search");
 
 /** Whether `asked` tells the model how much to think, as the test question does when it's asked again at each level of thinking. */
 const thinks = ({ body }: Asked) => "thinking" in body || "reasoning" in body || "reasoning_effort" in body;
@@ -111,27 +111,18 @@ function sayingHello(url: string): Response {
 const answering = (asked: Asked): Response =>
   searches(asked) ? Response.json({ type: "message", role: "assistant", content: SEARCHED, stop_reason: "end_turn", usage: { input_tokens: 1_000, output_tokens: 100 } }) : sayingHello(asked.url);
 
-/** Grok's answer once it has searched, as xAI's own Responses has it, citing the page by its number. */
-const XAI_SEARCHED = {
-  object: "response",
-  status: "completed",
-  output: [
-    { type: "web_search_call", id: "ws_1", status: "completed", action: { type: "search", query: "Cloudflare AI Gateway" } },
-    { type: "message", role: "assistant", content: [{ type: "output_text", text: "AI Gateway is Cloudflare's proxy for AI models.", annotations: [{ type: "url_citation", url: DOCS.url, title: "1" }] }] },
-  ],
-};
-
 /**
- * Grok, through the xAI endpoint, searching the web whenever it's given a tool for it, or the xAI endpoint
- * refusing an API token without AI Gateway Run, `withoutRun`, as models answer everything else (`answering`).
+ * Grok, in Chat Completions through Cloudflare's REST API, calling Ember's own tool for searching the web
+ * whenever it's given it, then saying what Cloudflare's Web Search API found, as models answer everything
+ * else (`answering`).
  */
-const grokAnswering =
-  (withoutRun = false) =>
-  (asked: Asked): Response => {
-    if (asked.url !== XAI_ENDPOINT) return answering(asked);
-    if (withoutRun) return Response.json({ success: false, result: [], messages: [], error: [{ code: 2009, message: "Unauthorized" }] }, { status: 401 });
-    return searches(asked) ? Response.json(XAI_SEARCHED) : sayingHello(asked.url);
-  };
+const grokAnswering = (asked: Asked): Response => {
+  if (asked.url === WEB_SEARCH) return Response.json({ success: true, result: { items: [{ ...DOCS, description: "About AI Gateway." }] } });
+  if (asked.url !== CHAT_COMPLETIONS || !asked.body.tools) return answering(asked);
+  if (asked.body.messages?.at(-1)?.role === "tool") return sayingHello(asked.url);
+  const call = { id: "call_0", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "Cloudflare AI Gateway" }) } };
+  return Response.json({ choices: [{ message: { role: "assistant", content: null, tool_calls: [call] }, finish_reason: "tool_calls" }], usage: { completion_tokens: 20 } });
+};
 
 /** How the fake AI Gateway answers, which a test can change, and what it was asked. */
 let answer: (asked: Asked) => Response | Promise<Response>;
@@ -448,49 +439,36 @@ describe("AI agents", () => {
       expect(await listed(administrator)).toEqual([expect.objectContaining({ name: "Scout", webTools: ["search", "read"] })]);
     });
 
-    it("has Grok search the web through AI Gateway's xAI endpoint, in xAI's own Responses, as it's asked from then on", async () => {
+    it("has Grok search the web with Ember's own tool in Chat Completions, through Cloudflare's REST API, where it's asked", async () => {
       const administrator = await setUp();
       asked.length = 0;
-      answer = grokAnswering();
+      answer = grokAnswering;
       const grok = await made(administrator, { name: "Grok", model: GROK, webSearch: true });
-      expect(grok).toMatchObject({ model: GROK, format: "xai", webTools: ["search"] });
-      // Its test question in Chat Completions, as Ember offers it, then the trial that searches.
-      expect(unthinking().map(({ url }) => url)).toEqual([CHAT_COMPLETIONS, XAI_ENDPOINT]);
-      expect(unthinking().map(searches)).toEqual([false, true]);
-      // The API token goes in AI Gateway's own header there, as xAI would take one in Authorization as its own key.
-      expect(asked.filter(({ url }) => url === XAI_ENDPOINT).every(({ authorization }) => authorization === null)).toBe(true);
-      expect(unthinking()[1]!.body).toMatchObject({ model: "grok-4.7", tools: [{ type: "web_search" }], store: false });
+      expect(grok).toMatchObject({ model: GROK, format: "chat", webTools: ["search"] });
+      // Its test question, then the one that searches, which Ember runs with Cloudflare's Web Search API, and nothing at AI Gateway's xAI endpoint.
+      expect(unthinking().map(({ url }) => url)).toEqual([CHAT_COMPLETIONS, CHAT_COMPLETIONS, WEB_SEARCH, CHAT_COMPLETIONS]);
+      expect(unthinking().map(searches)).toEqual([false, true, false, true]);
+      expect(asked.every(({ url, authorization }) => new URL(url).hostname === "api.cloudflare.com" && authorization === `Bearer ${API_TOKEN}`)).toBe(true);
     });
 
-    it("moves a Grok agent made before onto the xAI endpoint once Search the web goes on, at the levels of thinking it takes there, saying what the API token lacks until it can", async () => {
-      vi.spyOn(console, "error").mockImplementation(() => {});
+    it("has a Grok agent made before search where it is once Search the web goes on, and moves one kept in xAI's own Responses into Chat Completions", async () => {
       vi.spyOn(console, "log").mockImplementation(() => {});
       const administrator = await setUp();
-      // Made while Ember asked Grok through Cloudflare's REST API, in Chat Completions, as it did with an API token without AI Gateway Run.
-      answer = grokAnswering();
+      answer = grokAnswering;
       const { id } = await made(administrator, { name: "Grok", model: GROK });
-      await agentWithKeptModel(id, { id: GROK, name: "Grok 4.7", format: "chat", thinkingLevels: [...THINKING_LEVELS] });
-      answer = grokAnswering(true);
-      const grok = await shownAgent(administrator, id);
-      expect(grok).toMatchObject({ format: "chat", webTools: [], thinkingLevels: [...THINKING_LEVELS] });
+      await agentWithKeptModel(id, { id: GROK, name: "Grok 4.7", format: "chat", thinkingLevels: ["low", "high"] });
 
       asked.length = 0;
-      // Said under Save, as it's Ember AI's API token, not the agent's, that lacks it.
-      expect(await refusalOf(await changeAgent(administrator, grok.id, { webSearch: true }))).toEqual([422, { error: `${XAI_TOKEN_REFUSED} Cloudflare says: Unauthorized` }]);
-      expect(asked.map(({ url }) => url)).toEqual([XAI_ENDPOINT]);
-      expect(await shownAgent(administrator, grok.id)).toMatchObject({ format: "chat", webTools: [] });
+      expect(await agentOf(await changeAgent(administrator, id, { webSearch: true }))).toMatchObject({ format: "chat", webTools: ["search"], thinkingLevels: ["low", "high"] });
+      expect(asked.map(({ url }) => url)).toEqual([CHAT_COMPLETIONS, WEB_SEARCH, CHAT_COMPLETIONS]);
 
-      // Once the token has it, Grok searches there, and is asked there from then on, at each level of
-      // thinking xAI's own Responses takes, which needn't be those Chat Completions took.
-      answer = (sent) =>
-        sent.body.reasoning?.effort === "none" ? Response.json({ code: "Client specified an invalid argument", error: "Model grok-4.7 does not support reasoning effort none." }, { status: 400 }) : grokAnswering()(sent);
+      // One searching in xAI's own Responses before is asked in Chat Completions from then on, at the levels it takes there.
+      await agentWithKeptModel(id, { id: GROK, name: "Grok 4.7", format: "xai", thinkingLevels: ["low", "medium", "high"] });
+      expect(await agentOf(await changeAgent(administrator, id, { webSearch: false }))).toMatchObject({ format: "xai", webTools: [] });
       asked.length = 0;
-      expect(await agentOf(await changeAgent(administrator, grok.id, { webSearch: true }))).toMatchObject({ format: "xai", webTools: ["search"], thinkingLevels: ["low", "medium", "high"] });
-      expect(unthinking().map(({ url }) => url)).toEqual([XAI_ENDPOINT]);
-      expect(asked.filter(thinks).map(({ url }) => url)).toEqual(THINKING_LEVELS.map(() => XAI_ENDPOINT));
-      expect(await workspaceSql("SELECT format, web_tools, thinking_levels FROM agents WHERE user_id = ?", grok.id)).toEqual([
-        { format: "xai", web_tools: '["search"]', thinking_levels: '["low","medium","high"]' },
-      ]);
+      expect(await agentOf(await changeAgent(administrator, id, { webSearch: true }))).toMatchObject({ format: "chat", webTools: ["search"], thinkingLevels: [...THINKING_LEVELS] });
+      expect(asked.every(({ url }) => url === CHAT_COMPLETIONS || url === WEB_SEARCH)).toBe(true);
+      expect(await workspaceSql("SELECT format, web_tools FROM agents WHERE user_id = ?", id)).toEqual([{ format: "chat", web_tools: '["search"]' }]);
     });
 
     it("refuses a model Ember doesn't offer, on its field, before AI Gateway is asked anything", async () => {
