@@ -2052,13 +2052,23 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
 const isJsonObject = (data: unknown): data is Record<string, unknown> => typeof data === "object" && data !== null && !Array.isArray(data);
 
 /**
+ * A group's name a request names, or null for one refused: as `text` reads it, and no longer than the
+ * limit as the Workspace keeps it too, since lowercasing a name can lengthen it (`İ` folds to i and
+ * its dot), which a name sent within the limit could otherwise outgrow once kept.
+ */
+const sentGroupName = (value: unknown): string | null => {
+  const name = text(value, MAX_GROUP_NAME_LENGTH);
+  return name !== null && name.toLowerCase().length <= MAX_GROUP_NAME_LENGTH ? name : null;
+};
+
+/**
  * Parses an untrusted request to make a group. Returns why it's refused instead of the group. The name
  * is kept as it's sent; the Workspace lowercases it, so that two names that differ only in capitals
  * can't both be kept.
  */
 export function parseNewUserGroup(data: unknown): NewUserGroup | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
-  const name = text(data.name, MAX_GROUP_NAME_LENGTH);
+  const name = sentGroupName(data.name);
   if (!name) return `Name must be 1 to ${MAX_GROUP_NAME_LENGTH} characters`;
   const memberIds = data.memberIds ?? [];
   return userIds(memberIds) ? { name, memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
@@ -2067,7 +2077,7 @@ export function parseNewUserGroup(data: unknown): NewUserGroup | string {
 /** Parses an untrusted change to a group. Returns why it's refused instead of the changes. */
 export function parseUserGroupChanges(data: unknown): UserGroupChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
-  const name = data.name === undefined ? undefined : text(data.name, MAX_GROUP_NAME_LENGTH);
+  const name = data.name === undefined ? undefined : sentGroupName(data.name);
   if (name === null) return `Name must be 1 to ${MAX_GROUP_NAME_LENGTH} characters`;
   if (data.memberIds === undefined) return name === undefined ? "Expected a name or members to change" : { name };
   return userIds(data.memberIds) ? { name, memberIds: data.memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;

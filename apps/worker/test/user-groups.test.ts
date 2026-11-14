@@ -1,4 +1,4 @@
-import { GROUP_MEMBER_UNKNOWN, GROUP_NAME_TAKEN, GROUP_TOO_BIG, GROUPS_FULL, MAX_GROUPS, type Directory, type NewWorkspace, type UserGroup } from "@ember/protocol";
+import { GROUP_MEMBER_UNKNOWN, GROUP_NAME_TAKEN, GROUP_TOO_BIG, GROUPS_FULL, MAX_GROUP_NAME_LENGTH, MAX_GROUPS, type Directory, type NewWorkspace, type UserGroup } from "@ember/protocol";
 import { GROUP_MENTION_CONTENT_TYPE, mentionGroupSgid } from "@ember/richtext";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api, connect, cookieOf, createRoom, direct, freshDeploy, freshRoom, post, pushBrowser, roomSql, shown, signIn, workspaceSql, type PushBrowser, type Session } from "./support";
@@ -123,6 +123,23 @@ describe("User groups", () => {
     expect(await prompt("équipe")).toContain(`search="équipe"`);
     expect(await prompt("ÉQUIPE")).toContain(`search="équipe"`);
     expect(await prompt("zz")).not.toContain(`search="équipe"`);
+  });
+
+  it("refuses a name that lowercasing would keep past the limit, as a too-long one is, and keeps one it wouldn't", async () => {
+    const administrator = await setUp();
+    // İ lowercases to i and its dot, two characters where one was sent, so a name of the limit sent is
+    // kept longer than it, and refused as a too-long one is.
+    const expanding = "İ".repeat(MAX_GROUP_NAME_LENGTH);
+    const refused = await add(administrator, { name: expanding, memberIds: [] });
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toEqual({ error: `Name must be 1 to ${MAX_GROUP_NAME_LENGTH} characters` });
+    const made = await groupOf(await add(administrator, { name: "design", memberIds: [] }), 201);
+    const renamed = await change(administrator, made.id, { name: expanding });
+    expect(renamed.status).toBe(422);
+    expect(await renamed.json()).toEqual({ error: `Name must be 1 to ${MAX_GROUP_NAME_LENGTH} characters` });
+    // Half as many folds back within the limit, and is kept as it was sent, lowercased only.
+    const kept = await groupOf(await add(administrator, { name: "İ".repeat(MAX_GROUP_NAME_LENGTH / 2), memberIds: [] }), 201);
+    expect(kept.name).toBe("İ".repeat(MAX_GROUP_NAME_LENGTH / 2).toLowerCase());
   });
 
   it("refuses a group of more than 100 people, and one naming someone who isn't an active person", async () => {

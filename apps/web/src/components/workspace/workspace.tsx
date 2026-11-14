@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { useAccount } from "@/hooks/use-account";
 import { useAppBadge } from "@/hooks/use-app-badge";
-import { DirectoryLoaded, GroupsContext, PeopleContext, useDirectory } from "@/hooks/use-directory";
+import { DirectoryLoaded, DirectoryReloading, GroupsContext, PeopleContext, ReloadDirectory, useDirectory } from "@/hooks/use-directory";
 import { useHuddle } from "@/hooks/use-huddle";
 import { useMounted } from "@/hooks/use-mounted";
 import { useReleaseCheck } from "@/hooks/use-release-check";
@@ -873,13 +873,17 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   return (
     <PeopleContext value={directory.people}>
       <GroupsContext value={directory.groups}>
-        <DirectoryLoaded value={directory.loaded}>
-          <SettingsLayout value={settings}>
-            <OpenSearchContext value={openSearch}>
-              <HuddlesContext value={huddles}>{layout}</HuddlesContext>
-            </OpenSearchContext>
-          </SettingsLayout>
-        </DirectoryLoaded>
+        <DirectoryReloading value={directory.reloading}>
+          <ReloadDirectory value={directory.reload}>
+            <DirectoryLoaded value={directory.loaded}>
+              <SettingsLayout value={settings}>
+                <OpenSearchContext value={openSearch}>
+                  <HuddlesContext value={huddles}>{layout}</HuddlesContext>
+                </OpenSearchContext>
+              </SettingsLayout>
+            </DirectoryLoaded>
+          </ReloadDirectory>
+        </DirectoryReloading>
       </GroupsContext>
     </PeopleContext>
   );
