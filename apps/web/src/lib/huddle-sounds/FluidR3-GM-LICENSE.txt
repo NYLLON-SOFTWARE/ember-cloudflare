@@ -1,4 +1,5 @@
-The Fluid R3 General MIDI SoundFont, whose instruments play the sounds in this folder.
+The Fluid R3 General MIDI SoundFont, whose instruments play the two short sounds in this folder,
+`joined.mp3` and `left.mp3`.
 
 Copyright (c) 2000-2002, 2008 Frank Wen
 
