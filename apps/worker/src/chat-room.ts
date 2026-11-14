@@ -33,6 +33,7 @@ import {
   PICKED_MODEL_NOTES,
   previewAttachment,
   questionFor,
+  readable,
   ROOM_MESSAGES_READ,
   THREAD_REPLIES_READ,
   waitFor,
@@ -40,6 +41,8 @@ import {
   type Answer,
 } from "./assistant/answers";
 import { ask, type Answered } from "./assistant/gateway";
+import { takesEmbersTools } from "./assistant/offered";
+import { roomSearch } from "./assistant/room-search";
 import { JobQueue } from "./at-once";
 import { actingButton, clickPayload } from "./bots/clicks";
 import { payloadOf, slackMessage, type SlackMessage } from "./bots/slack";
@@ -1435,7 +1438,8 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * What the bot `access` finds, @ember or an agent, says to `message`, `question`'s message, with what
-   * it reads of the conversation, as its instructions say, using the web as Search the web lets it: its
+   * it reads of the conversation, as its instructions say, using the web as Search the web lets it, and
+   * searching the room for what was written before that, where its model takes Ember's tools: its
    * answer in Markdown, at its levels, @ember's the asker's, with the model they picked, if they did,
    * ending with an ellipsis when the model was cut short, the pages it came from, and what people wrote
    * in what it read, or the note it posts when its model doesn't answer, saying why, which the room logs.
@@ -1443,9 +1447,11 @@ export class ChatRoom extends DurableObject<Env> {
   private async saidTo(roomId: RoomId, access: AssistantAccess, { author, roomName }: AssistantAsk, message: Message): Promise<Said> {
     const { bot, gateway, picked, instructions, promptTemplate, community, levels, webTools, webSearchOn } = access;
     if (!gateway) return { text: NOTES["unopened token"] };
-    const conversation = await this.conversationOf(this.storeFor(roomId), message);
+    const [conversation, searchesRoom] = await Promise.all([this.conversationOf(this.storeFor(roomId), message), takesEmbersTools(this.env, gateway.model)]);
     const where = { community, roomName, inThread: message.parentId !== undefined };
-    const asked = questionFor({ ...bot, instructions, promptTemplate }, conversation, author, where, levels, new Date(), webTools, webSearchOn);
+    const read = readable(conversation, where.inThread).map(({ id }) => id);
+    const tools = searchesRoom ? [roomSearch(this.env, roomId, read)] : [];
+    const asked = { ...questionFor({ ...bot, instructions, promptTemplate }, conversation, author, where, levels, new Date(), webTools, webSearchOn), tools };
     const [answered, people] = await Promise.all([ask(this.env, gateway, asked, waitFor(asked)), this.peopleWhoWrote(conversation)]);
     if (!("refusal" in answered)) {
       const text = answered.cut ? `${answered.text}\n\n…` : answered.text;

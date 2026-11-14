@@ -699,7 +699,9 @@ describe("Workers AI's models", () => {
       await post(client, `<p>${mention} hello?</p>`);
       await nextAnswer(client);
       client.close();
-      expect(requests.map(({ body }) => body?.tools)).toEqual([undefined]);
+      // The only tool it's given is the room's search, which Ember runs.
+      const given = requests.map(({ body }) => (body?.tools as Array<{ type: string; name?: string }> | undefined)?.map(({ type, name }) => [type, name]));
+      expect(given).toEqual([[["function", "search_messages"]]]);
     });
   });
 });

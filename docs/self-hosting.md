@@ -675,6 +675,25 @@ also turn on the gateway's
 dashboard, to check the questions, with the messages @ember reads, or the answers. When either blocks
 one, @ember's note says which, and that an administrator can change what it blocks there.
 
+For what was written before the messages it reads, @ember can search the room it's asked in, a tool
+Ember runs for it: its model answers with a call of the tool in place of an answer, Ember runs the
+search and asks the model again with what it found, and the model answers, or searches again. A search
+finds the room's messages that have every word the model gives, its threads' too, as Ember's search
+does for someone in the room, and never another room's, so an answer holds nothing its readers couldn't
+find themselves. It answers the newest 10 but those @ember was given with the question, which would
+only crowd out what's older, each with when it was written,
+who wrote it and at most 600 characters of what it says, which the model's provider reads as it does
+the conversation. An answer makes at most 5 such calls, then the model is told to answer with what it
+has, and they share the answer's limit of tokens, so a model that spends them all searching is cut
+short as any other answer is. Claude, GPT and Grok, the models the models file lists, are given the
+search, with nothing to turn on; Workers AI's models aren't, nor is a model kept from before Ember
+offered its own, or a test question, and a model that stops taking the tool is asked
+again without it: one refused only once it has searched answers without it in the tokens, and with the
+web searches and pages, the answer has left. Each call has the model read the conversation again, so an answer that searches costs
+that many more tokens read. A picture or a link that only a search found shows as a link, as the rule
+above has it, since the card and the preview are only of addresses in the messages @ember read with
+the question.
+
 @ember can also show cards under its answer, as a chat bot's [Slack-compatible
 webhook](slack-webhooks.md) does, for where something stands, a report, options to compare, a table or
 buttons that open pages: it writes a Slack message's payload as JSON in a code block that starts
@@ -1087,7 +1106,9 @@ pages had them in October 2026:
   search up to 5 times, which Anthropic charges $10 per 1,000 searches for, xAI $5 per 1,000 and OpenAI
   its own price per search, and Cloudflare's Web Search API, for Workers AI's models, $0.25 per 1,000
   with its default provider, Ceramic.ai, paid with AI Gateway's credits. The results and pages it reads
-  count as input, up to about 10,000 tokens a page.
+  count as input, up to about 10,000 tokens a page. An answer that searches its room, which Claude,
+  GPT and Grok can, up to 5 times, has its model read the conversation again after each round of
+  searches, with what they found.
 - **Huddles**, if they're on: Cloudflare's Realtime SFU charges for what it sends to the people in a
   huddle, and nothing for what they send it. The first 1,000 GB a month are free, and it's $0.05 per GB
   after that, as its page had it in November 2026. A voice is about 50 kbps to each person who hears

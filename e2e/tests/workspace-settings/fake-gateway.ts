@@ -12,7 +12,9 @@ import { AI_GATEWAY_ACCOUNT, AI_GATEWAY_PORT } from "../../projects/workspace-se
 // the web in Messages or Responses, with `FOUND`, citing `SOURCE`, as the model would once it had
 // searched, or, given Ember's own in Chat Completions, as Workers AI's models are, with a call of it, and
 // once told what it found, with `FOUND`, or, asked `CARD_QUESTION` last, with `CARDED` and a card's Slack
-// payload, refusing as Cloudflare does an account or a token it doesn't know. The REST API's model search
+// payload, or, asked `RECALL_QUESTION` last in Messages with the room's search among its tools, with a
+// call of it, and then with `RECALLED` and what the search found, refusing as Cloudflare does an account
+// or a token it doesn't know. The REST API's model search
 // lists two of Workers AI's models, `GEMMA` and one Ember doesn't offer, and its Web Search API finds
 // `SOURCE`, saying `FOUND`. It also serves the models file the second test server's EMBER_MODELS_URL
 // names, as GitHub serves the one on Ember's main branch (apps/worker/src/assistant/offered.ts): the
@@ -40,6 +42,13 @@ const CARD_PAYLOAD = {
     { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: "Open the plan" }, url: CARD_LINK, style: "primary" }] },
   ],
 };
+
+/**
+ * What a model asked `RECALL_QUESTION`, and then a word, does with the room's search, a tool Ember runs: it
+ * searches for the word, and says `RECALLED`, then what the search answered.
+ */
+export const RECALL_QUESTION = "Where's the offsite? Look for";
+export const RECALLED = "The room's search says:";
 
 /** Where the models file is, as the second test server's EMBER_MODELS_URL names it. */
 const MODELS_FILE_PATH = "/models.json";
@@ -191,6 +200,27 @@ function asksForCard(body: Record<string, unknown>): boolean {
   return JSON.stringify(turns.at(-1) ?? null).includes(CARD_QUESTION);
 }
 
+/**
+ * What Anthropic's model does when the last thing `body`'s conversation asks is `RECALL_QUESTION` and it's
+ * given the room's search: calls it for the word after the question, then, asked again with what the
+ * search found, answers with that. Undefined for any other request.
+ */
+function recalling(body: Record<string, unknown>): unknown {
+  const tools: Array<{ name?: unknown }> = Array.isArray(body.tools) ? body.tools : [];
+  const messages: Array<{ role?: unknown; content?: unknown }> = Array.isArray(body.messages) ? body.messages : [];
+  // What people wrote is text, where a turn of the model's that calls a tool, and what the call came to, are lists.
+  const written = messages.findLast(({ role, content }) => role === "user" && typeof content === "string")?.content as string | undefined;
+  const question = written?.split("\n\n").at(-1) ?? "";
+  const [, word] = question.slice(question.indexOf(RECALL_QUESTION)).match(/Look for (\w+)/) ?? [];
+  if (!tools.some(({ name }) => name === "search_messages") || !question.includes(RECALL_QUESTION) || word === undefined) return undefined;
+  const last = messages.at(-1)?.content;
+  const found = (Array.isArray(last) ? last : []).find((part: { type?: unknown }) => part.type === "tool_result") as { content: string } | undefined;
+  const content = found
+    ? [{ type: "text", text: `${RECALLED}\n\n${found.content}` }]
+    : [{ type: "text", text: "I'll look." }, { type: "tool_use", id: "toolu_e2e", name: "search_messages", input: { words: word } }];
+  return { type: "message", role: "assistant", content, stop_reason: found ? "end_turn" : "tool_use", usage: { input_tokens: 100, output_tokens: 20 } };
+}
+
 /** Whether `body` gives the model a tool for searching the web, as Anthropic's and OpenAI's are named. */
 const searches = (body: Record<string, unknown>) =>
   Array.isArray(body.tools) && body.tools.some((tool: { type?: unknown }) => typeof tool.type === "string" && tool.type.startsWith("web_search"));
@@ -211,7 +241,8 @@ async function answer(request: IncomingMessage, response: ServerResponse, asked:
   if (provider !== undefined) {
     // It would pass a token in Authorization on to the provider, as a key of the account's own there.
     if (aigAuthorization !== `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}` || request.headers.authorization !== undefined) return reply(401, { success: false, error: [{ code: 2009, message: "Unauthorized" }] });
-    return reply(200, (searches(sent) && SEARCHED_ANSWERS[provider]) || (asksForCard(sent) ? CARD_ANSWERS : ANSWERS)[provider]);
+    const recalled = provider === "messages" ? recalling(sent) : undefined;
+    return reply(200, recalled ?? ((searches(sent) && SEARCHED_ANSWERS[provider]) || (asksForCard(sent) ? CARD_ANSWERS : ANSWERS)[provider]));
   }
   if (account !== AI_GATEWAY_ACCOUNT.accountId) {
     return reply(400, { success: false, errors: [{ code: 7003, message: `Could not route to /client/v4${path}, perhaps your object identifier is invalid?` }] });

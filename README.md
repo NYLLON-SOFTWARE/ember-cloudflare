@@ -86,11 +86,11 @@ Turn on Ember AI and choose Claude, GPT or Grok, asked through
 itself on [Workers AI](https://developers.cloudflare.com/workers-ai/). Ember checks for new models
 every day, so they show up without an update. Then mention @ember in a room or a thread, or DM it, and
 it reads the conversation and answers right there, with links, lists, code and pictures, as a teammate
-would. It searches the web too, when you let it, listing the pages its answer came from. Administrators
-set how long it may think and write, and each person picks their own levels on their profile.
-Administrators can add agents of their own too, each with its instructions, model and rooms, such as
-one that sums up long threads or drafts replies in Support, and people mention or DM them just the
-same.
+would. It searches the web too, when you let it, listing the pages its answer came from, and Claude,
+GPT and Grok search the room for what was said before. Administrators set how long it may think and
+write, and each person picks their own levels on their profile. Administrators can add agents of their
+own too, each with its instructions, model and rooms, such as one that sums up long threads or drafts
+replies in Support, and people mention or DM them just the same.
 
 ### Find anything
 
