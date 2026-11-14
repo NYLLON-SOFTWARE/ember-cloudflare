@@ -2,7 +2,7 @@ import type { LiveHuddle, User } from "@ember/protocol";
 import type { HuddleServerFrame } from "@ember/protocol/huddles";
 import type { Page } from "@playwright/test";
 import { changeTheWorkspace, isolateRoom, listing, openRoom, signInAs, type TestRoom } from "../../fixtures";
-import { expect, hasDrawerLayout, hasPhoneLayout, test } from "./fixtures";
+import { expect, hasPhoneLayout, showConversations, test } from "./fixtures";
 
 // A room's huddle on a phone: its button in the room's header, the preview it starts from, and the bar
 // of the huddle the tab is in. The main test server has no huddles, whose keys Cloudflare would be asked
@@ -64,7 +64,7 @@ test("the button of a huddle going on, which says how many are in it, fits the p
 test("the sidebar's row of a room with a huddle going on, which ends with who's in it, fits the phone", async ({ page, room, participant, screenIsFine }) => {
   const userIds = await Promise.all(["Ada", "Grace", "Linus"].map(async (name) => (await participant(name)).session.user.id));
   await openRoomWithHuddlesOn(page, room, { startedAt: new Date().toISOString(), userIds });
-  if (hasDrawerLayout(page)) await page.getByRole("button", { name: "Open conversations" }).tap();
+  await showConversations(page);
   const row = page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: room.name, exact: true });
   const mark = row.locator("[title]");
   await expect(mark).toHaveAttribute("title", "Ada, Grace, and Linus are in the huddle");

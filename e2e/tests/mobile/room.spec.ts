@@ -14,9 +14,9 @@ async function showConversations(page: Page): Promise<void> {
 /** Where the room's star is: its top bar, or on a phone, its details, which the top bar's pill opens. */
 async function roomStar(page: Page, name: string) {
   const header = page.getByRole("navigation", { name: "Page" });
-  if (!hasPhoneLayout(page)) return header.getByRole("button", { name: "Favorite room" });
+  if (!hasPhoneLayout(page)) return header.getByRole("button", { name: "Star room" });
   await header.getByRole("button", { name: new RegExp(`^${name}`) }).tap();
-  return page.getByRole("dialog", { name }).getByRole("button", { name: "Favorite room" });
+  return page.getByRole("dialog", { name }).getByRole("button", { name: "Star room" });
 }
 
 test.beforeEach(async ({ page, session }) => {

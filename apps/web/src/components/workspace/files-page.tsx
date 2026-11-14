@@ -1,13 +1,16 @@
 import { useCallback, useMemo, useState } from "react";
-import type { FilesPlace, Me, Room } from "@ember/protocol";
+import { filesPath, type FilesPlace, type Me, type Room } from "@ember/protocol";
 import { filtersOn, listFiles, NO_FILE_FILTERS, type FileFilters, type FileOwner, type FileSort, type LibraryFile } from "@ember/protocol/library";
 import { MainContent } from "@/components/main-content";
+import { PageLink } from "@/components/page-link";
 import { fileOpened, starFile, useFiles } from "@/hooks/use-files";
+import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { useTitle } from "@/hooks/use-title";
 import { cn } from "@/lib/utils";
 import { CONTROLS_ROW, FileRow, FileSearch, FilterButton, FilterDialog, LIST_CHIPS, NothingHere, SortMenu, TypesMenu } from "./file-list";
 import { PageHeader } from "./page-header";
-import { Chip, useSearchNames } from "./search-box";
+import { Chip, CHIPS_ROW, useSearchNames } from "./search-box";
+import { YouLink } from "../mobile/tab-page";
 
 /** What each place on the Files page is called. */
 export const PLACE_TITLES: Record<FilesPlace, string> = { all: "All files", canvases: "Canvases", starred: "Starred" };
@@ -48,6 +51,7 @@ export function FilesPage({ me, place, rooms, onFailed }: Props) {
   const [sort, setSort] = useState<FileSort>("viewed");
   const [filtering, setFiltering] = useState(false);
   useTitle(PLACE_TITLES[place]);
+  const phone = usePhoneLayout();
   const placed = useMemo<FileFilters>(() => ({ ...filters, starred: place === "starred", canvases: place === "canvases" }), [filters, place]);
   const shown = useMemo(() => (files ? listFiles(files, placed, sort, me.id) : null), [files, placed, sort, me.id]);
   const roomsById = useMemo(() => new Map(rooms.map((room) => [room.id, room])), [rooms]);
@@ -56,12 +60,32 @@ export function FilesPage({ me, place, rooms, onFailed }: Props) {
   return (
     <>
       <PageHeader>
-        <h1 className="min-w-0 flex-1 truncate text-[17px] leading-[1.4] font-[650] max-md:text-base">{PLACE_TITLES[place]}</h1>
+        {/* A phone's names the tab, as its other tabs do, and ends with your avatar. */}
+        <h1 className="min-w-0 flex-1 truncate text-[17px] leading-[1.4] font-[650] max-md:pl-2 max-md:text-[22px] max-md:leading-7 max-md:font-bold">
+          {phone ? "Files" : PLACE_TITLES[place]}
+        </h1>
+        {phone && <YouLink me={me} />}
       </PageHeader>
       <MainContent
         aria-busy={files === null && !failed ? true : undefined}
         className="relative flex min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain bg-background pr-[env(safe-area-inset-right)] max-md:pl-[env(safe-area-inset-left)]"
       >
+        {/* A phone has no column for the places beside the page, so they're tabs under its top bar. */}
+        {phone && (
+          <nav aria-label="Places" className="sticky top-0 z-[1] flex shrink-0 border-b bg-background px-2">
+            {(["all", "canvases", "starred"] as const).map((shown) => (
+              <PageLink
+                key={shown}
+                href={filesPath(shown)}
+                replace
+                aria-current={place === shown ? "page" : undefined}
+                className="flex min-h-11 items-center border-b-2 border-transparent px-3 text-[15px] font-medium text-muted-foreground no-underline aria-[current=page]:border-foreground aria-[current=page]:text-foreground"
+              >
+                {PLACE_TITLES[shown]}
+              </PageLink>
+            ))}
+          </nav>
+        )}
         <div className="flex w-full max-w-[1040px] flex-col gap-3 px-[22px] pt-5 pb-[max(18px,env(safe-area-inset-bottom))] narrow:px-[18px] max-md:px-3 max-md:pt-3">
           <FileSearch value={filters.q} onChange={(q) => setFilters({ ...filters, q })} label={place === "canvases" ? "Search canvases" : "Search files"} />
           <div className={CONTROLS_ROW}>

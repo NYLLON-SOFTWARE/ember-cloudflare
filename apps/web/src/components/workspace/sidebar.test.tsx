@@ -26,7 +26,7 @@ const EMBER: Account = { name: "Ember", tagline: "", hideTranslationButtons: tru
 function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: readonly DirectoryUser[] = []) {
   const all: Props = {
     workspaceName: "Ember",
-    meId: "u1",
+    meId: ada!.id,
     rooms,
     favorites: unstarred,
     sharedOrder: [],
@@ -54,8 +54,6 @@ function renderSidebar(props: Partial<Props> = {}, account = EMBER, people: read
 }
 
 const [ada, grace, linus, alan]: User[] = ["Ada", "Grace", "Linus", "Alan"].map((name, i) => ({ id: `u${i + 1}`, name }));
-/** A time on 15 October 2026, `minutes` past noon UTC. */
-const at = (minutes: number) => new Date(Date.UTC(2026, 9, 15, 12, minutes)).toISOString();
 /** A DM between `members`, as the list has it for Ada, who's always in it. */
 const direct = (id: string, members: User[], unread = false): SidebarRoom => ({ id, kind: "direct", members, activeAt: new Date(0).toISOString(), unread, involvement: "everything" });
 
@@ -70,7 +68,7 @@ describe("Workspace name", () => {
   it("heads the list with the workspace's name alone, leaving out its tagline", () => {
     const tagline = "Engines for every occasion";
     renderSidebar({ workspaceName: "Analytical Engines" }, { ...EMBER, tagline });
-    // On a phone, Home's top bar has it instead.
+    // Home's top bar has it instead on a phone.
     expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toHaveClass("max-md:hidden");
     // It starts where the rows' icons and the sections' carets do, 9px in.
     expect(screen.getByRole("heading", { level: 2, name: "Analytical Engines" })).toHaveClass("px-[9px]");
@@ -299,7 +297,7 @@ describe("Rooms with a huddle", () => {
   const inDirectory = (user: User): DirectoryUser => ({ ...user, bio: null, role: "member", status: "active", avatarUrl: `/users/${user.id}/avatar` });
   const everyone = [ada!, grace!, linus!, alan!].map(inDirectory);
   /** A huddle with those people in it, in the order they joined. */
-  const huddleOf = (...people: User[]): LiveHuddle => ({ startedAt: at(0), userIds: people.map(({ id }) => id) });
+  const huddleOf = (...people: User[]): LiveHuddle => ({ startedAt: "2026-01-01T00:00:00.000Z", userIds: people.map(({ id }) => id) });
   /** What a room's row ends with while a huddle is going on in it. */
   const mark = (row: HTMLElement) => row.querySelector<HTMLElement>("[title]");
   const faces = (row: HTMLElement) => [...mark(row)!.querySelectorAll("img")].map((face) => face.getAttribute("src"));
@@ -353,8 +351,8 @@ describe("Rooms with a huddle", () => {
     expect(faces(general())).toEqual([]);
   });
 
-  it("comes before the row's unread dot, and takes the space before it", () => {
-    renderSidebar({ rooms: [{ ...rooms[0]!, unread: true }, rooms[1]!], huddles: { general: huddleOf(grace!), random: huddleOf(linus!) } }, EMBER, everyone);
+  it("comes before the row's unread dot or count, and takes the space before them", () => {
+    renderSidebar({ rooms: [{ ...rooms[0]!, unread: true }, { ...rooms[1]!, unread: true, unreadCount: 3 }], huddles: { general: huddleOf(grace!), random: huddleOf(linus!) } }, EMBER, everyone);
     const [general, random] = rows();
     const [first, words, dot] = Array.from(general!.children).slice(-3);
     expect(first).toBe(mark(general!));
@@ -364,9 +362,12 @@ describe("Rooms with a huddle", () => {
     expect(dot).not.toHaveClass("ml-auto");
     expect(general).toHaveAccessibleDescription(`Grace is in the huddle Unread ${HELP}`);
 
-    const [its] = Array.from(random!.children).slice(-2);
+    const [its, , , pill] = Array.from(random!.children).slice(-4);
     expect(its).toBe(mark(random!));
     expect(its).toHaveClass("ml-auto");
+    expect(pill).toHaveTextContent("3");
+    expect(pill).not.toHaveClass("ml-auto");
+    expect(random).toHaveAccessibleDescription(`Linus is in the huddle 3 unread ${HELP}`);
   });
 
   it("follows the huddle as people join and leave it, and goes when it ends", () => {

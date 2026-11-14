@@ -3,16 +3,16 @@ import type { Favorites, LiveHuddle, Me, RoomId, SidebarRoom, UserId } from "@em
 import { Bookmark, EditPencil, Group, Headset, Lock, MultiBubble, NavArrowDown, type IconoirIconProps } from "@/components/icons/iconoir";
 import { RoomIcon } from "@/components/icons/room-icon";
 import { PageLink } from "@/components/page-link";
+import { PeopleContext } from "@/hooks/use-directory";
 import { DRAFTS_PATH, PEOPLE_PATH, roomPath, SAVED_PATH, THREADS_PATH } from "@/hooks/use-route";
 import { useStarOrder } from "@/hooks/use-star-order";
+import { inItsHuddle } from "@/lib/huddle-people";
 import { apart, inSidebarOrder, markedUnread, type SharedSidebarRoom } from "@/lib/room-list";
-import { roomDisplayName, roomTree } from "@/lib/sub-rooms";
 import { isFolded, rememberFolded, type SidebarSection } from "@/lib/sidebar-sections";
+import { roomDisplayName, roomTree } from "@/lib/sub-rooms";
 import { unreadBadge } from "@/lib/unread-badge";
 import { cn } from "@/lib/utils";
 import { RoomTreeRow, useCollapsedRooms, type TreeRowOptions } from "./room-tree-row";
-import { PeopleContext } from "@/hooks/use-directory";
-import { inItsHuddle } from "@/lib/huddle-people";
 import { UserAvatar } from "./user-avatar";
 
 /** A row of the list, a link's or a room's. The selected one is filled, and only an unread one is bold. */
@@ -22,6 +22,9 @@ const ROW =
 /** The Home sidebar's own pages, which its links at the top open. */
 export type SidebarPage = "threads" | "drafts" | "saved" | "people";
 
+/** How many of the people in a huddle its room's row shows the faces of. */
+const MAX_HUDDLE_FACES = 2;
+
 /** The links at the top of the list, in order, after Slack's. */
 const LINKS: Array<{ page: SidebarPage; label: string; href: string; Icon: ComponentType<IconoirIconProps> }> = [
   { page: "threads", label: "Threads", href: THREADS_PATH, Icon: MultiBubble },
@@ -29,9 +32,6 @@ const LINKS: Array<{ page: SidebarPage; label: string; href: string; Icon: Compo
   { page: "saved", label: "Saved", href: SAVED_PATH, Icon: Bookmark },
   { page: "people", label: "People", href: PEOPLE_PATH, Icon: Group },
 ];
-
-/** How many of the people in a huddle its room's row shows the faces of. */
-const MAX_HUDDLE_FACES = 2;
 
 interface Props {
   /** The workspace's name, which heads the list. */
@@ -69,7 +69,7 @@ interface Props {
  * under its heading, as this browser remembers, leaving the room shown and the unread ones. A starred
  * room's row has no grip, as the project's owner chose: held, it can be dragged among the other starred
  * rows, or moved with Alt and an arrow (`useStarOrder`). A room marked unread is bold with a dot at the
- * end of its row. With Activity on, only those rows show, and with none it says everything's read; with
+ * end of its row, and a room with a huddle going on ends its row with who's in it. With Activity on, only those rows show, and with none it says everything's read; with
  * it off and nothing to list, it says it found nothing.
  */
 export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedOrder, huddles, currentRoomId, currentPage, draftCount, unreadOnly, onSelect, onStarred, onSessionChanged }: Props) {
@@ -92,7 +92,7 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
     folded[section] ? sectionRooms.filter((room) => room.id === currentRoomId || markedUnread(room, currentRoomId)) : sectionRooms;
   const starredRooms = shownIn("starred", listed.filter((room) => starred.has(room.id)));
   const otherRooms = shownIn("rooms", listed.filter((room) => !starred.has(room.id)));
-  // Starred rooms keep their place among the stars; the rest nest their sub-rooms under their parents.
+  // The rest nest their sub-rooms under their parents, as starred ones, which keep their place, don't.
   const tree = roomTree(otherRooms);
   const { collapsed, toggle: toggleSubRooms } = useCollapsedRooms();
   const isUnread = (room: SharedSidebarRoom) => markedUnread(room, currentRoomId);
@@ -132,7 +132,8 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
           wraps rather than running under the sidebar's edge. On a phone, Home's top bar has it instead. */}
       <h2 className="flex min-h-7 items-center gap-2 px-[9px] text-[17px] leading-6 font-[650] wrap-anywhere max-md:hidden">{workspaceName}</h2>
 
-      <nav aria-label="Home" className="flex flex-col gap-[3px]">
+      {/* On a phone, Home's cards over the list take these links' place. */}
+      <nav aria-label="Home" className="flex flex-col gap-[3px] max-md:hidden">
         {LINKS.map(({ page, label, href, Icon }) => {
           // Drafts & sent counts the drafts, as Slack's does.
           const count = page === "drafts" ? draftCount : 0;
@@ -270,9 +271,9 @@ interface RoomRowProps {
  * `useStarOrder` drags it.
  */
 export function RoomRow({ room, label = room.name, className, current, unread, count = room.unreadCount ?? 0, mentioned = room.unreadMentioned ?? false, starred, moving, huddle, meId, unreadId, helpId, onClick }: RoomRowProps) {
+  const countId = useId();
   // The words for who's in the room's huddle, which come with its mark.
   const huddleId = useId();
-  const countId = useId();
   const muted = room.involvement === "nothing";
   const showsUnread = unread && (!muted || count > 0);
   const counted = showsUnread && count > 0;
@@ -282,9 +283,9 @@ export function RoomRow({ room, label = room.name, className, current, unread, c
       href={roomPath(room.id)}
       draggable={false}
       aria-current={current ? "page" : undefined}
-      // Every row says how the stars are reordered, and a marked one says it's unread, and how many, which
-      // the eye sees by its weight and its dot or count.
-      aria-describedby={[huddle && huddleId, counted ? `${countId} ${helpId}` : showsUnread ? `${unreadId} ${helpId}` : helpId].filter(Boolean).join(" ")}
+      // Every row says how the stars are reordered, a marked one says it's unread, and how many, which the
+      // eye sees by its weight and its dot or count, and one with a huddle says who's in it, by its mark.
+      aria-describedby={[huddle && huddleId, counted ? countId : showsUnread && unreadId, helpId].filter(Boolean).join(" ")}
       aria-keyshortcuts={starred ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
       onClick={onClick}
       className={cn(
@@ -304,8 +305,9 @@ export function RoomRow({ room, label = room.name, className, current, unread, c
         <RoomIcon icon={room.icon} size={19} className="w-[18px] shrink-0 text-center text-[22px] leading-none text-muted-foreground" />
       )}
       <span className="truncate">{label}</span>
+      {/* Starred says a room's starred, so its row has no star of its own, as Slack's have none. The
+          huddle's mark and the dot or count sit together at the row's end, pushed there by one auto margin. */}
       {huddle && <HuddleMark huddle={huddle} meId={meId} wordsId={huddleId} className="ml-auto" />}
-      {/* Starred says a room's starred, so its row has no star of its own, as Slack's have none. */}
       {counted ? (
         <>
           <span id={countId} hidden>
@@ -314,7 +316,8 @@ export function RoomRow({ room, label = room.name, className, current, unread, c
           <span
             aria-hidden="true"
             className={cn(
-              "ml-auto inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold",
+              !huddle && "ml-auto",
+              "inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] leading-none font-semibold",
               mentioned ? "bg-foreground text-background" : "bg-muted-foreground/25 text-foreground",
             )}
           >
@@ -366,4 +369,3 @@ function HuddleMark({ huddle, meId, wordsId, className }: HuddleMarkProps) {
     </>
   );
 }
-

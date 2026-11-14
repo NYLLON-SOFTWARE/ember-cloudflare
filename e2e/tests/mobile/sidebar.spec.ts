@@ -22,7 +22,7 @@ test.describe("Reorder starred rooms", () => {
     await signInAs(page, session);
     await openRoom(page, rooms[0]!);
     await showConversations(page);
-    const rows = sidebarRoomRows(page);
+    const rows = page.getByRole("region", { name: "Starred" }).getByRole("link");
     await expect.poll(() => rowsWithStars(rows)).toEqual(["#general★", "#random★"]);
     // Where the finger goes down is measured once the page has settled, as a person would wait, with the
     // rows in view, as Home's cards over them can leave them below the fold on a phone on its side, and

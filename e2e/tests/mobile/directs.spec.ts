@@ -40,13 +40,12 @@ test.describe("New direct message dialog", () => {
 });
 
 test.describe("Suggested people", () => {
-  test("the people suggested for DMs fit under the DMs on the DMs page page's list, and are easy to tap", async ({ page, room, screenIsFine }) => {
+  test("the people suggested for DMs fit under the DMs page's list, and are easy to tap", async ({ page, room, screenIsFine }) => {
     // The server's suggestions, the oldest accounts, with only this test's room.
     await page.route("**/api/sidebar", async (route) => {
       const { suggestions } = (await (await route.fetch()).json()) as Sidebar;
       await route.fulfill({ json: { rooms: [{ ...room, kind: "open", icon: null, unread: false, involvement: "mentions" }], favorites: { rooms: [], version: 0 }, sharedOrder: [], invitation: null, suggestions, huddles: {} } satisfies Sidebar });
     });
-    // They're on the DMs page, under its DMs.
     await page.goto("/dms");
     await expect(page.getByRole("region", { name: "Direct messages" }).getByRole("button", { name: /^Start a direct message with / }).first()).toBeVisible();
     await settle(page);
