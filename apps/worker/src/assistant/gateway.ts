@@ -13,6 +13,10 @@ import {
 } from "@ember/protocol/assistant";
 import type { Env } from "../env";
 import { isLoopback } from "../loopback";
+import { isMessages, isObject, isResponses } from "./formats";
+import { goingOn, resultsOf, TOOL_CALLS_PER_ANSWER, toolCallsIn, toolsIn, withRoom, writtenIn, type EmberTool } from "./tool-calls";
+
+export { isObject };
 
 // Asking a model through Cloudflare's AI Gateway: Claude and GPT, of the models Ember offers, through the
 // gateway's endpoints for Anthropic and OpenAI on gateway.ai.cloudflare.com, which pass on each provider's
@@ -25,7 +29,8 @@ import { isLoopback } from "../loopback";
 // and spend limits apply, and which Cloudflare makes on the account's first request. A model that may use
 // the web is given its provider's own tools for it, which AI Gateway passes on and the provider runs
 // (https://developers.cloudflare.com/ai-gateway/usage/web-search/): Anthropic's web search and web fetch
-// in Messages, OpenAI's web search in Responses, and xAI's in its own. Chat Completions has none.
+// in Messages, OpenAI's web search in Responses, and xAI's in its own. Chat Completions has none. A model
+// may be given tools Ember runs as well, in any format (tool-calls.ts).
 
 /** Where Cloudflare's API is. */
 const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
@@ -58,6 +63,9 @@ const PAGE_TOKENS = 10_000;
 /** How many times Ember lets Anthropic's model carry on a turn it paused while it searched, before taking what it said. */
 const MAX_CONTINUATIONS = 2;
 
+/** The fewest tokens a request may let its model write, in OpenAI's Responses, so the fewest an answer needs left to go on after a tool's call. */
+const LEAST_TOKENS = 16;
+
 /** The most pages an answer names as its sources. */
 export const MAX_SOURCES = 10;
 
@@ -83,8 +91,9 @@ export interface Turn {
  * What to ask a model: how it should answer, the conversation, oldest first, ending with what it's asked,
  * the most tokens its answer may take, its thinking among them, how much to think first, if it's told,
  * who asked, if someone did, and who answers, @ember or an agent, if either does, whom AI Gateway's logs
- * and spend limits then know each request by (custom metadata's `user_id` and `agent_id`), and what it
- * may do on the web, of what its format has tools for: nothing, unless it's told.
+ * and spend limits then know each request by (custom metadata's `user_id` and `agent_id`), what it
+ * may do on the web, of what its format has tools for: nothing, unless it's told, and the tools Ember
+ * runs for it, if it has any.
  */
 export interface Question {
   instructions: string;
@@ -98,6 +107,7 @@ export interface Question {
   askerId?: string;
   agentId?: string;
   webTools?: readonly WebTool[];
+  tools?: readonly EmberTool[];
 }
 
 /**
@@ -189,8 +199,9 @@ export interface Answered {
  * the levels it takes allow, or not told, when it takes none (`thinkingTaken`). One that doesn't take
  * being told how much to think all the same, as a model Ember hasn't asked at each level might not, is
  * asked again without that, and then, as Search the web tries the web's tools when it's turned on,
- * without the one for reading pages, which AI Gateway may not have for every model, and then without
- * them, told it can't use them.
+ * without the one for reading pages, which AI Gateway may not have for every model, then without them,
+ * told it can't use them, and last without the tools Ember runs, which every model Ember gives them
+ * takes as far as its provider says.
  */
 export async function ask(env: Env, gateway: Gateway, question: Question, timeoutMs: number): Promise<Answered | GatewayRefusal> {
   const signal = AbortSignal.timeout(timeoutMs);
@@ -208,9 +219,14 @@ export async function ask(env: Env, gateway: Gateway, question: Question, timeou
     asked = { ...asked, instructions: asked.instructionsWithoutReading ?? asked.instructions, webTools: searching };
     answered = await askOnce(env, gateway, asked, signal);
   }
-  if (!isWrongFormat(answered) || toolsFor(gateway.format, asked.webTools).length === 0) return answered;
-  console.error(`Asking ${gateway.model} again without the web, whose tools AI Gateway didn't take: ${answered.refusal}`);
-  return askOnce(env, gateway, { ...asked, instructions: asked.instructionsWithoutWeb ?? asked.instructions, webTools: [] }, signal);
+  if (isWrongFormat(answered) && toolsFor(gateway.format, asked.webTools).length > 0) {
+    console.error(`Asking ${gateway.model} again without the web, whose tools AI Gateway didn't take: ${answered.refusal}`);
+    asked = { ...asked, instructions: asked.instructionsWithoutWeb ?? asked.instructions, webTools: [] };
+    answered = await askOnce(env, gateway, asked, signal);
+  }
+  if (!isWrongFormat(answered) || !asked.tools || asked.tools.length === 0) return answered;
+  console.error(`Asking ${gateway.model} again without Ember's tools, which it didn't take: ${answered.refusal}`);
+  return askOnce(env, gateway, { ...asked, tools: [] }, signal);
 }
 
 /** `question`, asking for the level of thinking a model that takes `taken` is asked for in place of its own (`thinkingTaken`), or for none. */
@@ -240,47 +256,103 @@ export async function thinkingLevelsOf(env: Env, gateway: Gateway, question: Que
 
 /**
  * What the model `gateway` names answers `question`, asked as it is, until `signal` says it's waited long
- * enough: once, but for a turn Anthropic's model paused while it searched, in Messages, which it carries
- * on while the turn has tokens left. One that paused with none left took every token it could.
+ * enough: once, unless it calls tools Ember runs, when it's asked again with what each call came to, for
+ * as many calls as an answer may make, and then told to answer. All its turns share the answer's tokens,
+ * and its provider's tools the uses an answer allows, and one that calls a tool with too few tokens left
+ * to go on took every token it could.
  */
 export async function askOnce(env: Env, gateway: Gateway, question: Question, signal: AbortSignal): Promise<Answered | GatewayRefusal> {
-  const request = requestOf(gateway, question);
-  let said: unknown[] = [];
+  const { format } = gateway;
+  const tools = question.tools ?? [];
+  const saidBefore: unknown[] = [];
+  let request = requestOf(gateway, question);
   let tokensLeft = question.maxTokens;
+  let called = 0;
+  for (;;) {
+    const turn = await turnOf(env, gateway, question, request, tokensLeft, signal);
+    if ("refusal" in turn) return turn;
+    tokensLeft = turn.tokensLeft;
+    const calls = called < TOOL_CALLS_PER_ANSWER ? toolCallsIn(format, turn.body) : [];
+    // Messages' sources are in what the model said in any turn, and its answer in what it said after its last call.
+    const said = isMessages(format) && isObject(turn.body) ? { ...turn.body, content: [...saidBefore, ...listOf(turn.body.content)] } : turn.body;
+    if (tools.length === 0 || calls.length === 0 || !isObject(turn.body)) return answeredIn(format, said);
+    if (tokensLeft < LEAST_TOKENS) return { status: 502, reason: "out of room", refusal: OUT_OF_ROOM, field: "model" };
+    const results = await resultsOf(tools, calls, TOOL_CALLS_PER_ANSWER - called);
+    called += calls.length;
+    request = withRoom(format, goingOn(format, sparing(format, request, turn.body), turn.body, results), tokensLeft, called >= TOOL_CALLS_PER_ANSWER);
+    saidBefore.push(...listOf(turn.body.content));
+  }
+}
+
+/**
+ * One turn of the model `gateway` names, asked `request`, with `tokensLeft` of its answer's tokens: what
+ * it answers, and the tokens left after it. Anthropic's model may pause a turn while it searches, in
+ * Messages, which Ember carries on while the turn has tokens left, so its answer is all the turn said.
+ * One that paused with none left took every token it could.
+ */
+async function turnOf(
+  env: Env,
+  gateway: Gateway,
+  question: Question,
+  request: Record<string, unknown>,
+  tokensLeft: number,
+  signal: AbortSignal,
+): Promise<{ body: unknown; tokensLeft: number } | GatewayRefusal> {
+  let said: unknown[] = [];
   for (let continued = 0; ; continued++) {
     const answered = await send(env, gateway, question, continued === 0 ? request : carryingOn(request, said, tokensLeft), signal);
     if ("refusal" in answered) return answered;
-    if (!isMessages(gateway.format) || !isObject(answered.body)) return answeredIn(gateway.format, answered.body);
+    tokensLeft -= writtenIn(gateway.format, answered.body);
+    if (!isMessages(gateway.format) || !isObject(answered.body)) return { body: answered.body, tokensLeft };
     // Each part of a turn says what's new since the last, which is sent back as it is to carry on.
-    said = [...said, ...(Array.isArray(answered.body.content) ? answered.body.content : [])];
-    tokensLeft -= writtenIn(answered.body);
+    said = [...said, ...listOf(answered.body.content)];
     const paused = answered.body.stop_reason === "pause_turn";
-    if (paused && tokensLeft < 1) return answeredIn(gateway.format, { ...answered.body, content: said, stop_reason: "max_tokens" });
-    if (!paused || continued === MAX_CONTINUATIONS) return answeredIn(gateway.format, { ...answered.body, content: said });
+    if (paused && tokensLeft < 1) return { body: { ...answered.body, content: said, stop_reason: "max_tokens" }, tokensLeft };
+    if (!paused || continued === MAX_CONTINUATIONS) return { body: { ...answered.body, content: said }, tokensLeft };
   }
 }
 
 /**
  * `request`, to Messages, carrying on the turn its model paused once it had `said` what it did, which goes
- * back as it is. Each request may write as many tokens as its `max_tokens`, and use a tool as many times
- * as its `max_uses`, so they're lowered to what the turn has left, `tokensLeft` of its tokens, and once it
- * has used a tool up, which stays among the tools as the turn used it, the model is told to use none and
- * answer with what it found.
+ * back as it is. Each request may write as many tokens as its `max_tokens`, so that's lowered to what the
+ * turn has left, `tokensLeft` of its tokens, and its provider's tools are left the uses the turn hasn't
+ * made (`usesLeft`).
  */
 function carryingOn(request: Record<string, unknown>, said: unknown[], tokensLeft: number): Record<string, unknown> {
+  return { ...request, max_tokens: tokensLeft, messages: [...(request.messages as unknown[]), { role: "assistant", content: said }], ...usesLeft(request, said) };
+}
+
+/**
+ * What `request`, to Messages, asks of its tools once its model has `said` what it did: each request may
+ * use a tool of its provider's as many times as its `max_uses`, so that's lowered by the uses made, and
+ * once one is used up, which stays among the tools as the answer used it, the model is told to use no
+ * tool and answer with what it found.
+ */
+function usesLeft(request: Record<string, unknown>, said: readonly unknown[]): Record<string, unknown> {
   const usesOf = (name: unknown) => said.filter((block) => isObject(block) && block.type === "server_tool_use" && block.name === name).length;
-  const tools = (Array.isArray(request.tools) ? request.tools : []).filter(isObject).map((tool) => ({ tool, left: Number(tool.max_uses) - usesOf(tool.name) }));
+  const tools = listOf(request.tools).filter(isObject).map((tool) => ({ tool, left: typeof tool.max_uses === "number" ? tool.max_uses - usesOf(tool.name) : null }));
   return {
-    ...request,
-    max_tokens: tokensLeft,
-    messages: [...(request.messages as unknown[]), { role: "assistant", content: said }],
-    ...(tools.length > 0 && { tools: tools.map(({ tool, left }) => ({ ...tool, max_uses: Math.max(1, left) })) }),
-    ...(tools.some(({ left }) => left < 1) && { tool_choice: { type: "none" } }),
+    ...(tools.length > 0 && { tools: tools.map(({ tool, left }) => (left === null ? tool : { ...tool, max_uses: Math.max(1, left) })) }),
+    ...(tools.some(({ left }) => left !== null && left < 1) && { tool_choice: { type: "none" } }),
   };
 }
 
-/** How many tokens Messages' answer `body` says its model wrote, thinking among them. */
-const writtenIn = (body: Record<string, unknown>) => (isObject(body.usage) && typeof body.usage.output_tokens === "number" ? body.usage.output_tokens : 0);
+/**
+ * `request`, in `format`, leaving its provider's tools the uses its answer has left once a turn answered
+ * `body`, for the turn that goes on from a call of Ember's tools: Messages' tools by their `max_uses`,
+ * and the web searches of OpenAI's Responses, and xAI's, by the cap each puts on a request's. Once they're
+ * used up, the model is told to call no tool and answer.
+ */
+function sparing(format: ModelFormat, request: Record<string, unknown>, body: Record<string, unknown>): Record<string, unknown> {
+  if (isMessages(format)) return { ...request, ...usesLeft(request, listOf(body.content)) };
+  const cap = format === "xai" ? "max_turns" : "max_tool_calls";
+  const allowed = request[cap];
+  if (!isResponses(format) || typeof allowed !== "number") return request;
+  const left = allowed - listOf(body.output).filter((item) => isObject(item) && item.type === "web_search_call").length;
+  return { ...request, [cap]: Math.max(1, left), ...(left < 1 && { tool_choice: "none" }) };
+}
+
+const listOf = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 
 /** Whether `answered` is a refusal that a model asked another way might not give. */
 const isWrongFormat = (answered: Answered | GatewayRefusal): answered is GatewayRefusal => "refusal" in answered && answered.wrongFormat === true;
@@ -353,14 +425,15 @@ function standInOf(env: Env): string | null {
  * the format does: Anthropic's adaptive thinking at an effort, whose lowest is as little as their models
  * think, OpenAI's reasoning effort, which xAI's Responses takes too, or Chat Completions'
  * `reasoning_effort`, "none" for no thinking. A model that may use the web is given the format's tools
- * for what it may do there. A provider's own format names the model as the provider does (`modelIn`),
- * and OpenAI's and xAI's ask the provider not to keep the conversation, which each keeps for 30 days
- * unless it's told not to.
+ * for what it may do there, and any model the tools Ember runs for it, after those. A provider's own
+ * format names the model as the provider does (`modelIn`), and OpenAI's and xAI's ask the provider not
+ * to keep the conversation, which each keeps for 30 days unless it's told not to, so a model given
+ * Ember's tools there is asked for its thinking in a form Ember can send back with what a call came to.
  */
-function requestOf({ model, format }: Gateway, { instructions, turns, maxTokens, thinking, webTools }: Question): Record<string, unknown> {
+function requestOf({ model, format }: Gateway, { instructions, turns, maxTokens, thinking, webTools, tools: embers = [] }: Question): Record<string, unknown> {
   const effort = thinking === "off" ? "none" : thinking;
   const tools = toolsFor(format, webTools);
-  const withTools = tools.length > 0 && { tools };
+  const withTools = tools.length + embers.length > 0 && { tools: [...tools, ...toolsIn(format, embers)] };
   const named = modelIn(format, model);
   if (isMessages(format)) {
     const messages = alternating(turns).map(({ role, text }) => ({ role, content: text }));
@@ -369,7 +442,8 @@ function requestOf({ model, format }: Gateway, { instructions, turns, maxTokens,
   }
   if (isResponses(format)) {
     const input = turns.map(({ role, text }) => ({ role, content: text }));
-    const asked = { model: named, max_output_tokens: maxTokens, instructions, input, ...(effort && { reasoning: { effort } }), ...withTools, ...(format !== "responses" && { store: false }) };
+    const unkept = format !== "responses" && { store: false, ...(embers.length > 0 && { include: ["reasoning.encrypted_content"] }) };
+    const asked = { model: named, max_output_tokens: maxTokens, instructions, input, ...(effort && { reasoning: { effort } }), ...withTools, ...unkept };
     // OpenAI's web search is its only built-in tool, so its calls of built-in tools are its searches.
     if (format !== "xai") return { ...asked, ...(tools.length > 0 && { max_tool_calls: WEB_SEARCHES_PER_ANSWER }) };
     // xAI caps the turns its tools take, each of which may search more than once unless they take one at a time.
@@ -380,6 +454,7 @@ function requestOf({ model, format }: Gateway, { instructions, turns, maxTokens,
     max_completion_tokens: maxTokens,
     messages: [{ role: "system", content: instructions }, ...turns.map(({ role, text }) => ({ role, content: text }))],
     ...(effort && { reasoning_effort: effort }),
+    ...(embers.length > 0 && { tools: toolsIn(format, embers) }),
   };
 }
 
@@ -422,12 +497,6 @@ export function alternating(turns: Turn[]): Turn[] {
   }
   return merged;
 }
-
-/** Whether answers in `format` come as Anthropic's Messages has them, through Cloudflare's REST API or AI Gateway's Anthropic endpoint. */
-const isMessages = (format: ModelFormat) => format === "messages" || format === "anthropic";
-
-/** Whether answers in `format` come as OpenAI's Responses has them, through either, as xAI's own Responses has them too. */
-const isResponses = (format: ModelFormat) => format === "responses" || format === "openai" || format === "xai";
 
 /**
  * The text of a model's answer in `format`, leaving out its thinking, and what it said before it last
@@ -611,5 +680,3 @@ function errorIn(body: unknown): { codes: number[]; message: string | null } {
 
 /** `message` cut to what Ember passes on. */
 const quoted = (message: string) => (message.length > MAX_QUOTED_LENGTH ? `${message.slice(0, MAX_QUOTED_LENGTH - 1).trimEnd()}…` : message);
-
-export const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);

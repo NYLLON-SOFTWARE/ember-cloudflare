@@ -1,0 +1,162 @@
+import { offeredModelOf, type ModelFormat } from "@ember/protocol/assistant";
+import { isMessages, isObject, isResponses } from "./formats";
+
+// Tools Ember runs for a model. A model is given each tool's name, what it does and what it takes, and may
+// answer with calls of them in place of an answer; Ember runs each and asks the model again, with what it
+// said and what each call came to, until it answers. Each format writes all of that its own way:
+// Anthropic's Messages (https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview), OpenAI's
+// Responses, which xAI's has too (https://developers.openai.com/api/docs/guides/function-calling), and
+// Chat Completions, which Cloudflare's REST API takes Grok's requests in.
+
+/**
+ * Whether `model` is given the tools Ember runs: one Ember offers, each of which takes them in the format
+ * Ember asks it in. A model kept from before Ember offered only its own may not, and would be asked every
+ * question twice, the second time without them.
+ */
+export const takesTools = (model: string) => offeredModelOf(model) !== undefined;
+
+/** The most calls of Ember's tools one answer makes, as the model reads the conversation again after each round of them. */
+export const TOOL_CALLS_PER_ANSWER = 5;
+
+/** What a model is told of a call an answer has no calls left for. */
+export const NO_CALLS_LEFT = "Not run: this answer has made all the tool calls it may. Answer with what you have.";
+
+/**
+ * A tool Ember runs: its name, what it does and when to use it, in words its model reads, the JSON Schema
+ * of the object it takes, and what a call with `input` comes to, as the model reads it. One that throws a
+ * `ToolError` tells the model why; any other failure tells it only that the tool failed.
+ */
+export interface EmberTool {
+  name: string;
+  description: string;
+  takes: Record<string, unknown>;
+  run(input: Record<string, unknown>): Promise<string>;
+}
+
+/** Why a tool can't do what it's called for, in words for the model that called it. */
+export class ToolError extends Error {}
+
+/** A model's call of a tool: the id its answer names it by, the tool's name, and what it's called with, an object, or the JSON of one. */
+export interface ToolCall {
+  id: string;
+  name: string;
+  input: unknown;
+}
+
+/** What a call came to: what the model reads of it, and whether that says the call failed. */
+export interface ToolResult {
+  id: string;
+  text: string;
+  failed: boolean;
+}
+
+/** `tools` as a request in `format` lists them. */
+export function toolsIn(format: ModelFormat, tools: readonly EmberTool[]): Record<string, unknown>[] {
+  return tools.map(({ name, description, takes }) => {
+    if (isMessages(format)) return { name, description, input_schema: takes };
+    return isResponses(format) ? { type: "function", name, description, parameters: takes } : { type: "function", function: { name, description, parameters: takes } };
+  });
+}
+
+/**
+ * The calls of Ember's tools the model's answer `body` makes in `format`, when it stopped to make them:
+ * none for one cut short, whose last call may be half written, or for a tool its provider runs.
+ */
+export function toolCallsIn(format: ModelFormat, body: unknown): ToolCall[] {
+  if (!isObject(body)) return [];
+  if (isMessages(format)) {
+    const blocks = body.stop_reason === "tool_use" && Array.isArray(body.content) ? body.content.filter(isObject) : [];
+    return blocks.flatMap((block) => (block.type === "tool_use" ? callOf(block.id, block.name, block.input) : []));
+  }
+  if (isResponses(format)) {
+    const items = body.status === "completed" && Array.isArray(body.output) ? body.output.filter(isObject) : [];
+    return items.flatMap((item) => (item.type === "function_call" ? callOf(item.call_id, item.name, item.arguments) : []));
+  }
+  const message = messageIn(body);
+  const calls = message && !isCutShort(body) && Array.isArray(message.tool_calls) ? message.tool_calls.filter(isObject) : [];
+  return calls.flatMap((call) => (isObject(call.function) ? callOf(call.id, call.function.name, call.function.arguments) : []));
+}
+
+const callOf = (id: unknown, name: unknown, input: unknown): ToolCall[] => (typeof id === "string" && typeof name === "string" ? [{ id, name, input }] : []);
+
+/** The message a Chat Completions answer `body` gives, or null without one. */
+function messageIn(body: Record<string, unknown>): Record<string, unknown> | null {
+  const [choice] = Array.isArray(body.choices) ? body.choices : [];
+  return isObject(choice) && isObject(choice.message) ? choice.message : null;
+}
+
+/** Whether a Chat Completions answer `body` stopped because it took every token it could. */
+function isCutShort(body: Record<string, unknown>): boolean {
+  const [choice] = Array.isArray(body.choices) ? body.choices : [];
+  return isObject(choice) && choice.finish_reason === "length";
+}
+
+/**
+ * What each of `calls` comes to, in order, run one after another: what its tool among `tools` answers,
+ * or, for the model to read, that no tool has that name, that what it's called with isn't an object, why
+ * its tool couldn't do it, or that it failed, which is logged. Only the first `left` are run: the rest
+ * are told the answer has no calls left.
+ */
+export async function resultsOf(tools: readonly EmberTool[], calls: readonly ToolCall[], left: number): Promise<ToolResult[]> {
+  const results: ToolResult[] = [];
+  for (const [index, { id, name, input }] of calls.entries()) {
+    const refused = (text: string): ToolResult => ({ id, text, failed: true });
+    const tool = tools.find((tool) => tool.name === name);
+    const taken = inputOf(input);
+    if (index >= left) results.push(refused(NO_CALLS_LEFT));
+    else if (!tool) results.push(refused(`There's no tool called ${name}.`));
+    else if (!taken) results.push(refused(`${name} takes a JSON object.`));
+    else results.push(await tool.run(taken).then((text) => ({ id, text, failed: false }), (error: unknown) => refused(whyFailed(name, error))));
+  }
+  return results;
+}
+
+/** What a tool is called with, `input`, as an object, read from JSON if it's that, or null when it's no object. */
+function inputOf(input: unknown): Record<string, unknown> | null {
+  if (typeof input !== "string") return isObject(input) ? input : null;
+  try {
+    const parsed: unknown = JSON.parse(input.trim() === "" ? "{}" : input);
+    return isObject(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function whyFailed(name: string, error: unknown): string {
+  if (error instanceof ToolError) return error.message;
+  console.error(`Ember's tool ${name} failed:`, error);
+  return `${name} failed. Answer without it.`;
+}
+
+/**
+ * `request`, in `format`, going on after its model answered `body` with calls of tools: what it asked,
+ * then what the model said, as it said it, its thinking too, which each provider asks to have back, and
+ * what each call came to, `results`.
+ */
+export function goingOn(format: ModelFormat, request: Record<string, unknown>, body: Record<string, unknown>, results: readonly ToolResult[]): Record<string, unknown> {
+  if (isMessages(format)) {
+    const told = results.map(({ id, text, failed }) => ({ type: "tool_result", tool_use_id: id, content: text, ...(failed && { is_error: true }) }));
+    return { ...request, messages: [...listOf(request.messages), { role: "assistant", content: body.content }, { role: "user", content: told }] };
+  }
+  if (isResponses(format)) {
+    const told = results.map(({ id, text }) => ({ type: "function_call_output", call_id: id, output: text }));
+    return { ...request, input: [...listOf(request.input), ...listOf(body.output), ...told] };
+  }
+  const told = results.map(({ id, text }) => ({ role: "tool", tool_call_id: id, content: text }));
+  return { ...request, messages: [...listOf(request.messages), messageIn(body), ...told] };
+}
+
+/** `request`, in `format`, whose model may write `tokens` tokens more, and, once its answer has no calls left, `answering`, is told to call no tool and answer. */
+export function withRoom(format: ModelFormat, request: Record<string, unknown>, tokens: number, answering: boolean): Record<string, unknown> {
+  const room = isMessages(format) ? { max_tokens: tokens } : isResponses(format) ? { max_output_tokens: tokens } : { max_completion_tokens: tokens };
+  return { ...request, ...room, ...(answering && { tool_choice: isMessages(format) ? { type: "none" } : "none" }) };
+}
+
+/** How many tokens the answer `body` says its model wrote in `format`, thinking among them. */
+export function writtenIn(format: ModelFormat, body: unknown): number {
+  const usage = isObject(body) && isObject(body.usage) ? body.usage : {};
+  const written = isMessages(format) || isResponses(format) ? usage.output_tokens : usage.completion_tokens;
+  return typeof written === "number" ? written : 0;
+}
+
+const listOf = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);

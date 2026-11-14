@@ -78,7 +78,7 @@ interface Asked {
   url: string;
   authorization: string | null;
   aigAuthorization: string | null;
-  body: { model?: string; system?: string; tools?: Array<{ type: string }>; reasoning?: { effort?: string } };
+  body: { model?: string; system?: string; tools?: Array<{ type?: string }>; reasoning?: { effort?: string } };
 }
 
 /** A page the model finds on the web, as Anthropic's Messages gives it, and its answer citing it. */
@@ -90,7 +90,7 @@ const SEARCHED = [
 ];
 
 /** Whether `asked` gives the model a tool for searching the web. */
-const searches = ({ body }: Asked) => (body.tools ?? []).some(({ type }) => type.startsWith("web_search"));
+const searches = ({ body }: Asked) => (body.tools ?? []).some(({ type }) => type?.startsWith("web_search"));
 
 /** Whether `asked` tells the model how much to think, as the test question does when it's asked again at each level of thinking. */
 const thinks = ({ body }: Asked) => "thinking" in body || "reasoning" in body || "reasoning_effort" in body;

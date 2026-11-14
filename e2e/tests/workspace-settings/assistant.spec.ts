@@ -2,7 +2,7 @@ import { DEFAULT_LEVELS, TOP_LEVELS } from "@ember/protocol/assistant";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { administratorSession, cookieHeader, drawnPicture, editorField, expect, SAME_ORIGIN, shownPicture, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
-import { ANTHROPIC_PATH, FOUND, HELLO, SOURCE, startFakeGateway, type FakeGateway } from "./fake-gateway";
+import { ANTHROPIC_PATH, FOUND, HELLO, RECALL_QUESTION, RECALLED, SOURCE, startFakeGateway, type FakeGateway } from "./fake-gateway";
 
 // The AI assistant tab's Ember AI card and Set up Ember AI, @ember's page, with Add a model, and @ember
 // answering, on the second test server, which asks models through the AI Gateway this spec fakes. Each test leaves the workspace as a new one is: Ember AI off, its dials
@@ -397,6 +397,42 @@ test.describe("@ember", () => {
     await expect(answer).not.toContainText("I'll look that up.");
     await expect(answer.getByRole("link", { name: SOURCE.title })).toHaveAttribute("href", SOURCE.url);
     expect(gateway.asked.at(-1)!.body.system).toEqual(expect.stringContaining("You can search the web"));
+  });
+
+  test("someone asks @ember about something written in the room before, which it searches the room for, and answers with what it found", async ({ page, request }) => {
+    await setUpAssistant(request);
+    await useOwnAddress(page);
+    await page.goto("/");
+    await signInAsAdministrator(page);
+    await page.getByRole("complementary", { name: "Conversations" }).getByRole("link", { name: "general" }).click();
+
+    const word = `lisbon${crypto.randomUUID().slice(0, 8)}`;
+    const composer = editorField(page, "Write a message");
+    await composer.pressSequentially(`The offsite is in ${word}`);
+    await composer.press("Enter");
+    await expect(page.getByRole("article").filter({ hasText: word })).toBeVisible();
+    // The search index takes a message a moment after its room does.
+    const headers = await asAdministrator(request);
+    await expect.poll(async () => ((await (await request.get(`/api/searches?q=${word}`, { headers })).json()) as { matches: unknown[] }).matches.length).toBe(1);
+
+    await composer.pressSequentially("@Embe");
+    await expect(page.getByRole("listbox").getByRole("option")).toHaveText(["Ember Agent"]);
+    await composer.press("Tab");
+    await composer.pressSequentially(`${RECALL_QUESTION} ${word}`);
+    await composer.press("Enter");
+
+    // Its answer is what its model said once Ember had run the search it called for.
+    const answer = page.getByRole("article").filter({ hasText: RECALLED });
+    await expect(answer).toContainText(`Ada Lovelace: The offsite is in ${word}`);
+    await expect(answer).not.toContainText("I'll look.");
+    await expect(answer.getByRole("heading", { level: 3 })).toHaveText(/^Ember Agent/);
+    // Its model was asked twice: with the tool, and again with its call and what the search found.
+    const [called, answered] = gateway.asked.slice(-2).map(({ body }) => body as { tools: Array<{ name: string }>; messages: Array<{ role: string; content: unknown }> });
+    expect(called!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
+    expect(answered!.messages.slice(called!.messages.length)).toEqual([
+      { role: "assistant", content: [{ type: "text", text: "I'll look." }, { type: "tool_use", id: "toolu_e2e", name: "search_messages", input: { words: word } }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_e2e", content: expect.stringContaining(`Ada Lovelace: The offsite is in ${word}`) }] },
+    ]);
   });
 
   test("someone picks how much @ember thinks and writes for them on their profile, up to the most the administrator allows, and it asks its model so", async ({

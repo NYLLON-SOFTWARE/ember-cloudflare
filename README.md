@@ -84,11 +84,11 @@ one, or DM it, and Ember sends the message to the bot's own webhook and posts wh
 Turn on Ember AI and choose Claude, GPT or Grok, asked through
 [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/). Then mention @ember in a room
 or a thread, or DM it, and it reads the conversation and answers right there, with links, lists, code
-and pictures, as a teammate would. It searches the web too, when you let it, listing the pages its
-answer came from. Administrators set how long it may think and write, and each person picks their own
-levels on their profile. Administrators can add agents of their own too, each with its instructions,
-model and rooms, such as one that sums up long threads or drafts replies in Support, and people
-mention or DM them just the same.
+and pictures, as a teammate would. It searches the room for what was said before, and the web too,
+when you let it, listing the pages its answer came from. Administrators set how long it may think and
+write, and each person picks their own levels on their profile. Administrators can add agents of their
+own too, each with its instructions, model and rooms, such as one that sums up long threads or drafts
+replies in Support, and people mention or DM them just the same.
 
 ### Find anything
 

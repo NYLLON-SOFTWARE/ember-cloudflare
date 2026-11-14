@@ -85,7 +85,7 @@ interface Asked {
     max_tokens?: number;
     system?: string;
     messages: Array<{ role: string; content: string }>;
-    tools?: Array<{ type: string; name?: string }>;
+    tools?: Array<{ type?: string; name?: string }>;
   };
 }
 
@@ -104,7 +104,7 @@ const chatAnswer = (text: string, reason: "stop" | "length" = "stop") =>
 /** A model's answer saying `text`, in the format of the API at `url`, searching the web first when it's given a tool for it, as `asked` is. */
 function answerTo({ url, body }: Pick<Asked, "url" | "body">, text: string): Response {
   if (!url.endsWith("/messages")) return chatAnswer(text);
-  const searches = (body.tools ?? []).some(({ type }) => type.startsWith("web_search"));
+  const searches = (body.tools ?? []).some(({ type }) => type?.startsWith("web_search"));
   return Response.json({ type: "message", role: "assistant", content: searches ? SEARCHED : [{ type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 100, output_tokens: 10 } });
 }
 
