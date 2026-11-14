@@ -408,6 +408,13 @@ function Feed({ shown, activity, filter, onFilter, tools, searching, onSearching
 }
 
 /** An icon button in the page's header, with nothing around it until a pointer's over it. */
+/**
+ * The time and place under a row's name: grey at rest on a read row, and darker on the unread tint, on
+ * hover and on the selected fill, where grey falls below 4.5:1 in light mode.
+ */
+const metaTone = (read: boolean) =>
+  read ? "text-muted-foreground group-hover:text-foreground/65 group-aria-[current=true]:text-foreground/65" : "text-foreground/65";
+
 const TOOL = "relative grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-hover hover:text-foreground aria-pressed:bg-hover aria-pressed:text-foreground data-[state=open]:bg-hover touch:size-11";
 
 interface ToolsProps {
@@ -597,7 +604,7 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
           <PageLink href={personPath(item.actorId)} className={cn("relative z-[1] truncate text-[15px] hover:underline touch:pointer-events-none", item.read ? "font-medium" : "font-bold")}>
             {author}
           </PageLink>
-          <time dateTime={item.at} className={cn("shrink-0 text-xs", item.read ? "text-muted-foreground" : "text-foreground/60")}>
+          <time dateTime={item.at} className={cn("shrink-0 text-xs", metaTone(item.read))}>
             {when}
           </time>
         </div>
@@ -614,7 +621,7 @@ function ActivityRow({ item, names, opened, onOpen, onMark }: RowProps) {
           <span className="line-clamp-2 text-[15px] leading-snug wrap-anywhere">{preview(item)}</span>
           {/* The conversation it's from, which a DM with its author alone doesn't need named again. */}
           {where !== author && (
-            <span className={cn("mt-1 flex items-center gap-1.5 text-[13px]", item.read ? "text-muted-foreground" : "text-foreground/60")}>
+            <span className={cn("mt-1 flex items-center gap-1.5 text-[13px]", metaTone(item.read))}>
               {/* A reminder's clock is its tile already. */}
               {item.kind !== "reminder" && <Icon className="size-3.5 shrink-0" />}
               <span className="truncate">{where}</span>
