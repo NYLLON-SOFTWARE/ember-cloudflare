@@ -5,9 +5,9 @@ import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NOTES, ROOM_MESSAGES_READ } from "../src/assistant/answers";
-import { askOnce, type Gateway, type Question } from "../src/assistant/gateway";
+import { ask as askModel, askOnce, askWaiting, goOn, type Asking, type Gateway, type PausedAnswer, type Question } from "../src/assistant/gateway";
 import { MAX_FOUND_LENGTH, MESSAGES_FOUND } from "../src/assistant/room-search";
-import { goingOn, NO_CALLS_LEFT, resultsOf, TOOL_CALLS_PER_ANSWER, toolCallsIn, toolsIn, ToolError, withRoom, type EmberTool } from "../src/assistant/tool-calls";
+import { CALL_DECLINED, decided, goingOn, NO_CALLS_LEFT, resultsOf, TOOL_CALLS_PER_ANSWER, toolCallsIn, toolsIn, ToolError, withRoom, type EmberTool } from "../src/assistant/tool-calls";
 import type { Env } from "../src/env";
 import { answerWithKeptModel, api, connect, cookieOf, createRoom, freshDeploy, post, roomSql, shown, workspaceSql, type Client, type Session } from "./support";
 
@@ -421,6 +421,133 @@ describe("A tool Ember runs", () => {
   });
 });
 
+describe("An answer that waits at a call", () => {
+  const gatewayFor = (model: string, format: ModelFormat): Gateway => ({ accountId: ACCOUNT_ID, apiToken: API_TOKEN, model, format });
+  /** What the fake AI Gateway answers each request in turn, as JSON. */
+  const answering = (bodies: unknown[]) => {
+    refusing = () => Response.json(bodies.shift());
+  };
+  let sent: unknown[];
+  let tools: EmberTool[];
+  let question: Question;
+  beforeEach(() => {
+    sent = [];
+    tools = [
+      { name: "look", description: "Looks it up.", takes: { type: "object" }, run: async () => "Launch is Friday." },
+      { name: "send", description: "Sends it.", takes: { type: "object" }, asksFirst: true, run: async (input) => `Sent ${sent.push(input)}` },
+    ];
+    question = { instructions: "Answer.", turns: [{ role: "user", text: "tell ada when the launch is" }], maxTokens: 1_000, thinking: "low", askerId: "ada", agentId: ASSISTANT_ID, tools };
+  });
+  const waitingIn = (answered: unknown): Asking => {
+    expect(answered).toHaveProperty("asks");
+    return answered as Asking;
+  };
+  /** `paused`, as its room keeps it and reads it again. */
+  const kept = (paused: PausedAnswer) => JSON.parse(JSON.stringify(paused)) as PausedAnswer;
+
+  it("stops Claude's answer at the call, keeps it as JSON, and goes on with what the call came to once it's allowed, to the next", async () => {
+    const use = (id: string, name: string, input: unknown) => ({ type: "tool_use", id, name, input });
+    const turn = (content: unknown[], stop_reason = "tool_use") => ({ type: "message", role: "assistant", content, stop_reason, usage: { input_tokens: 1_000, output_tokens: 100 } });
+    // A page the model read before the call, which the answer still came from once it has waited.
+    const read = { type: "web_fetch_tool_result", tool_use_id: "srv_1", content: { type: "web_fetch_result", url: "https://example.com/launch", content: { title: "Launch" } } };
+    answering([
+      turn([THOUGHT, read, use("call_1", "look", {}), use("call_2", "send", { to: "ada" }), use("call_3", "send", { to: "grace" })]),
+      turn([{ type: "text", text: "Ada knows now. Grace wasn't told." }], "end_turn"),
+    ]);
+    const gateway = gatewayFor(CLAUDE, "anthropic");
+
+    const first = waitingIn(await askWaiting(bindings, gateway, question, 5_000));
+    expect(first.asks).toEqual({ id: "call_2", name: "send", input: { to: "ada" } });
+    expect(first.paused).toMatchObject({ model: CLAUDE, format: "anthropic", called: 0, tokensLeft: 900, results: [{ id: "call_1", text: "Launch is Friday.", failed: false }] });
+    expect(first.paused.question).not.toHaveProperty("tools");
+    expect(sent).toEqual([]);
+    expect(asked).toHaveLength(1);
+
+    // Allowed, the call runs, and the answer waits at the next of the same turn, the model not asked meanwhile.
+    const second = waitingIn(await goOn(bindings, gateway, tools, kept(first.paused), true, 5_000));
+    expect(second.asks).toEqual({ id: "call_3", name: "send", input: { to: "grace" } });
+    expect(second.paused.results.map(({ text }) => text)).toEqual(["Launch is Friday.", "Sent 1"]);
+    expect(sent).toEqual([{ to: "ada" }]);
+    expect(asked).toHaveLength(1);
+
+    // Declined, it doesn't run, and the model is told so with what the others came to, as one round of calls.
+    const answered = await goOn(bindings, gateway, tools, kept(second.paused), false, 5_000);
+    expect(answered).toMatchObject({ text: "Ada knows now. Grace wasn't told.", sources: [{ url: "https://example.com/launch", title: "Launch" }] });
+    expect(sent).toHaveLength(1);
+    expect(asked).toHaveLength(2);
+    const [, went] = asked;
+    expect(went!.body).toMatchObject({ max_tokens: 900, thinking: expect.anything() as unknown });
+    expect(went!.body.messages!.slice(-2)).toEqual([
+      { role: "assistant", content: [THOUGHT, read, use("call_1", "look", {}), use("call_2", "send", { to: "ada" }), use("call_3", "send", { to: "grace" })] },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "call_1", content: "Launch is Friday." },
+          { type: "tool_result", tool_use_id: "call_2", content: "Sent 1" },
+          { type: "tool_result", tool_use_id: "call_3", content: CALL_DECLINED, is_error: true },
+        ],
+      },
+    ]);
+  });
+
+  it("counts the calls of every round toward what an answer may make, in Responses too, and a tool gone while it waited isn't run", async () => {
+    const call = (id: string, name: string) => ({ type: "function_call", id: `fc_${id}`, call_id: id, name, arguments: "{}", status: "completed" });
+    const turn = (output: unknown[]) => ({ object: "response", status: "completed", output, usage: { input_tokens: 1_000, output_tokens: 100 } });
+    const said = { type: "message", role: "assistant", content: [{ type: "output_text", text: "Done." }] };
+    answering([turn([REASONED, call("call_1", "look"), call("call_2", "look"), call("call_3", "look")]), turn([call("call_4", "send"), call("call_5", "send"), call("call_6", "send")]), turn([said])]);
+    const gateway = gatewayFor(GPT, "openai");
+
+    const first = waitingIn(await askWaiting(bindings, gateway, question, 5_000));
+    expect(first.asks).toEqual({ id: "call_4", name: "send", input: {} });
+    expect(first.paused).toMatchObject({ called: 3, tokensLeft: 800, results: [] });
+    const second = waitingIn(await goOn(bindings, gateway, tools, kept(first.paused), true, 5_000));
+    expect(second.asks.id).toBe("call_5");
+
+    // The tool isn't the agent's any more by the time the second is allowed, and the third is past what an answer may call.
+    expect(await goOn(bindings, gateway, tools.slice(0, 1), kept(second.paused), true, 5_000)).toMatchObject({ text: "Done." });
+    expect(sent).toHaveLength(1);
+    const [, , last] = asked;
+    expect(last!.body).toMatchObject({ tool_choice: "none", max_output_tokens: 800 });
+    expect(last!.body.input!.slice(-3)).toEqual([
+      { type: "function_call_output", call_id: "call_4", output: "Sent 1" },
+      { type: "function_call_output", call_id: "call_5", output: "There's no tool called send any more." },
+      { type: "function_call_output", call_id: "call_6", output: NO_CALLS_LEFT },
+    ]);
+  });
+
+  it("keeps what Grok's searches of the web found before the call, in Chat Completions, and lists them under the answer once it has waited", async () => {
+    const page = { url: "https://example.com/launch", title: "Launch day", description: "The launch is on March 3." };
+    const call = (id: string, name: string, args: Record<string, string>) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+    const turn = (message: Record<string, unknown>) => ({ object: "chat.completion", choices: [{ index: 0, message, finish_reason: "tool_calls" in message ? "tool_calls" : "stop" }], usage: { completion_tokens: 50 } });
+    const answers = [
+      turn({ role: "assistant", content: null, tool_calls: [call("call_1", "web_search", { query: "launch date" }), call("call_2", "send", { to: "ada" })] }),
+      turn({ role: "assistant", content: "Ada knows it's on March 3." }),
+    ];
+    refusing = ({ url }) => Response.json(url.endsWith("/ai/websearch/") ? { success: true, result: { items: [page] } } : answers.shift());
+    const gateway = gatewayFor(GROK, "chat");
+
+    const waiting = waitingIn(await askWaiting(bindings, gateway, { ...question, webTools: ["search"] }, 5_000));
+    expect(waiting.asks).toEqual({ id: "call_2", name: "send", input: { to: "ada" } });
+    expect(waiting.paused.searches).toEqual({ found: [[expect.objectContaining({ url: page.url, title: page.title })]] });
+
+    const answered = await goOn(bindings, gateway, tools, kept(waiting.paused), true, 5_000);
+    expect(answered).toMatchObject({ text: "Ada knows it's on March 3.", sources: [{ url: page.url, title: page.title }] });
+    expect(sent).toEqual([{ to: "ada" }]);
+    // The model is still given Ember's tool for searching the web as it goes on, and wasn't asked to search again.
+    expect(asked.map(({ url }) => new URL(url).pathname.split("/ai/")[1])).toEqual(["v1/chat/completions", "websearch/", "v1/chat/completions"]);
+    expect((asked[2]!.body.tools as Array<{ function: { name: string } }>).map(({ function: { name } }) => name)).toEqual(["web_search", "look", "send"]);
+  });
+
+  it("is only for an answer something waits for: asking a model any other way throws at a tool that asks first", async () => {
+    const turn = { type: "message", role: "assistant", content: [{ type: "tool_use", id: "call_1", name: "send", input: {} }], stop_reason: "tool_use", usage: { input_tokens: 1_000, output_tokens: 100 } };
+    for (const asking of [() => askModel(bindings, gatewayFor(CLAUDE, "anthropic"), question, 5_000), () => askOnce(bindings, gatewayFor(CLAUDE, "anthropic"), question, AbortSignal.timeout(5_000))]) {
+      answering([turn]);
+      await expect(asking()).rejects.toThrow("send asks first");
+    }
+    expect(sent).toEqual([]);
+  });
+});
+
 describe("The room's search", () => {
   /** What the search answers Claude's call for `words` in an answer to a question asked in `room`. */
   async function searching(client: Client, room: RoomId, words: string): Promise<{ found: string; question: Message }> {
@@ -528,7 +655,7 @@ describe("What a model's calls come to", () => {
       { id: "7", name: "broken", input: { how: "politely" } },
       { id: "8", name: "broken", input: {} },
     ];
-    expect(await resultsOf([echo, broken], calls, calls.length)).toEqual([
+    expect((await resultsOf([echo, broken], calls, calls.length)).results).toEqual([
       { id: "1", text: "You said hi", failed: false },
       { id: "2", text: "You said ho", failed: false },
       { id: "3", text: "You said undefined", failed: false },
@@ -538,10 +665,43 @@ describe("What a model's calls come to", () => {
       { id: "7", text: "Not that way.", failed: true },
       { id: "8", text: "broken failed. Answer without it.", failed: true },
     ]);
-    expect(await resultsOf([echo], calls.slice(0, 2), 1)).toEqual([
-      { id: "1", text: "You said hi", failed: false },
-      { id: "2", text: NO_CALLS_LEFT, failed: true },
-    ]);
+    expect(await resultsOf([echo], calls.slice(0, 2), 1)).toEqual({
+      results: [
+        { id: "1", text: "You said hi", failed: false },
+        { id: "2", text: NO_CALLS_LEFT, failed: true },
+      ],
+    });
+  });
+
+  it("stops at a call of a tool that asks first, goes on from there once it's decided, and runs it only when it's allowed", async () => {
+    const sent: unknown[] = [];
+    const send: EmberTool = { name: "send", description: "Sends it.", takes: { type: "object" }, asksFirst: true, run: async (input) => `Sent ${sent.push(input)}` };
+    const calls = [
+      { id: "1", name: "echo", input: { said: "hi" } },
+      { id: "2", name: "send", input: '{"to":"ada"}' },
+      { id: "3", name: "send", input: "[1]" },
+      { id: "4", name: "send", input: {} },
+      { id: "5", name: "echo", input: { said: "ho" } },
+    ];
+    const first = await resultsOf([echo, send], calls, 4);
+    expect(first).toEqual({ results: [{ id: "1", text: "You said hi", failed: false }], asks: { id: "2", name: "send", input: { to: "ada" } } });
+    expect(sent).toEqual([]);
+
+    // Allowed, it runs with what it was called with. One called with what it can't take never asks.
+    const allowed = await decided([echo, send], calls[1]!, true);
+    expect(allowed).toEqual({ id: "2", text: "Sent 1", failed: false });
+    expect(sent).toEqual([{ to: "ada" }]);
+    const second = await resultsOf([echo, send], calls, 4, [...first.results, allowed]);
+    expect(second.results.slice(2)).toEqual([{ id: "3", text: "send takes a JSON object.", failed: true }]);
+    expect(second.asks).toEqual({ id: "4", name: "send", input: {} });
+
+    // Not allowed, it doesn't run, and neither does one whose tool is gone by then, or one past what the answer may call.
+    expect(await decided([echo, send], calls[3]!, false)).toEqual({ id: "4", text: CALL_DECLINED, failed: true });
+    expect(await decided([echo], calls[3]!, true)).toEqual({ id: "4", text: "There's no tool called send any more.", failed: true });
+    expect(sent).toHaveLength(1);
+    const last = await resultsOf([echo, send], calls, 4, [...second.results, { id: "4", text: CALL_DECLINED, failed: true }]);
+    expect(last).toEqual({ results: [...second.results, { id: "4", text: CALL_DECLINED, failed: true }, { id: "5", text: NO_CALLS_LEFT, failed: true }] });
+    expect(await resultsOf([send], [calls[3]!], 0)).toEqual({ results: [{ id: "4", text: NO_CALLS_LEFT, failed: true }] });
   });
 
   it("reads no call in an answer that was cut short, or that calls only its provider's tools", () => {

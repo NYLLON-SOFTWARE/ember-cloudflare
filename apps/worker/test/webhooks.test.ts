@@ -950,12 +950,15 @@ describe("Webhooks run in the background", () => {
         finish.set(name, resolve);
       });
 
-    const ran = ["a", "b", "c", "d"].map((name) => queue.run(job(name)));
+    const ran = ["a", "b", "c"].map((name) => queue.run(job(name)));
     expect(started).toEqual(["a", "b"]);
+    expect(queue.full).toBe(true);
+    ran.push(queue.run(job("d")));
     expect(await ran[3]).toBe(false);
 
     finish.get("b")!();
     await vi.waitFor(() => expect(started).toEqual(["a", "b", "c"]));
+    expect(queue.full).toBe(false);
     finish.get("a")!();
     finish.get("c")!();
     expect(await Promise.all(ran.slice(0, 3))).toEqual([true, true, true]);

@@ -218,3 +218,9 @@ export function parseToolPicks(data: unknown): ToolPick[] | AppRefused {
   }
   return [...picks.values()];
 }
+
+/** Whether to make a call of an app's tool an agent asked to make, as the card that asks shows it: once, or not. */
+export type CallDecision = "allow" | "deny";
+
+/** The buttons of the card that asks before an agent's call of an app's tool, by the `action_id` each click names. */
+export const CALL_ACTIONS: Record<CallDecision, string> = { allow: "ember.call.allow", deny: "ember.call.deny" };

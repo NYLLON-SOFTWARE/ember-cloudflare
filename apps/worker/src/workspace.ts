@@ -113,6 +113,7 @@ import { webPush } from "./push/keys";
 import { FixedWindowLimit } from "./rate-limit";
 import { sessionTag } from "./revocations";
 import type { RoomEvent } from "./room-log";
+import type { PickedTool } from "./apps/tools";
 import { seal, unseal } from "./sealed";
 import { isToken } from "./secrets";
 import { SessionCache } from "./session-cache";
@@ -549,6 +550,8 @@ export interface AssistantAccess extends BotAccess {
   webSearchOn: boolean;
   /** The hosts Ember knows reach it, as `location.host` writes them: its custom domain, where a deploy puts it, and the domains it moved away from. */
   addresses: string[];
+  /** The connected apps' tools picked for it, each as its server described it when it was picked. */
+  appTools: PickedTool[];
 }
 
 /**
@@ -739,6 +742,9 @@ export interface AppAccess {
   token: string | null;
   sealedToken: string | null;
 }
+
+/** Where a call of a connected app's tool goes: its server's address, and the token Ember sends it, if it has one. */
+export type AppCallAccess = Pick<AppAccess, "url" | "token">;
 
 /** Where an app was asked when its tools were read: its server's address then, and its token as it was kept. */
 export type AskedAt = Pick<AppAccess, "url" | "sealedToken">;
@@ -3245,6 +3251,39 @@ export class Workspace extends DurableObject<Env> {
     });
   }
 
+  /**
+   * The connected apps' tools `agentId`, @ember or an agent, may use: those picked for it that its app
+   * still has as they were picked, by their fingerprints, and none that's set aside.
+   */
+  private async pickedTools(agentId: UserId): Promise<PickedTool[]> {
+    const picks = (await this.store.toolPicks(agentId)).filter(({ setAside }) => !setAside);
+    const apps = picks.length === 0 ? [] : await this.store.apps();
+    return picks.flatMap(({ appId, name, fingerprint }) => {
+      const app = apps.find((app) => app.id === appId);
+      const tool = app?.tools.find((tool) => tool.name === name && tool.fingerprint === fingerprint);
+      return app && tool ? [{ appId, appName: app.name, name, title: tool.title, description: tool.description, takes: JSON.stringify(tool.takes), fingerprint }] : [];
+    });
+  }
+
+  /**
+   * Where a call of `tool`, a connected app's, goes for `agentId`, @ember or an agent, as the call finds
+   * it when it's made: null once Ember AI is off, the app is gone, or the tool isn't picked for the
+   * agent as it was, by its fingerprint, so that what an administrator takes away stops what's waiting.
+   */
+  async appToolCall(agentId: UserId, tool: Pick<PickedTool, "appId" | "name" | "fingerprint">): Promise<AppCallAccess | null> {
+    const [account, picked, app] = await Promise.all([this.joinableAccount(), this.pickedTools(agentId), this.store.app(tool.appId)]);
+    const isPicked = picked.some(({ appId, name, fingerprint }) => appId === tool.appId && name === tool.name && fingerprint === tool.fingerprint);
+    return account?.assistant && app && isPicked ? { url: app.url, token: await this.appToken(app) } : null;
+  }
+
+  /**
+   * Who answers a call that waits to be allowed in room `roomId`, as their click finds them: by their
+   * name now, and whether they're an administrator, or null once they aren't an active member of the room.
+   */
+  async callDecider(roomId: RoomId, clickerId: UserId): Promise<{ member: User; administrator: boolean } | null> {
+    return this.store.roomMember(roomId, clickerId);
+  }
+
   /** Whether `agentId` is one tools are picked for: @ember, whether or not it has answered yet, or an agent. */
   private async usesTools(agentId: UserId): Promise<boolean> {
     return agentId === ASSISTANT_ID || (await this.store.isAgent(agentId));
@@ -3903,7 +3942,8 @@ export class Workspace extends DurableObject<Env> {
     const webSearchOn = account.assistant.webTools.includes("search");
     const bot = { id: ASSISTANT_ID, name: ASSISTANT_NAME };
     const { assistantInstructions: instructions, assistantPromptTemplate: promptTemplate } = account;
-    return { bot, authorizedAt, gateway, picked: picked !== null, instructions, promptTemplate, community: account.name, levels, webTools, webSearchOn, addresses: addressesOf(account) };
+    const appTools = gateway ? await this.pickedTools(ASSISTANT_ID) : [];
+    return { bot, authorizedAt, gateway, picked: picked !== null, instructions, promptTemplate, community: account.name, levels, webTools, webSearchOn, addresses: addressesOf(account), appTools };
   }
 
   /**
@@ -3923,7 +3963,8 @@ export class Workspace extends DurableObject<Env> {
     const webTools = agent.webTools.filter((tool) => webToolsOf(agent.model, format, offered.file).includes(tool));
     const bot = { id: agentId, name: agent.name };
     const { instructions, promptTemplate, levels } = agent;
-    return { bot, authorizedAt, gateway, picked: false, instructions, promptTemplate, community: account.name, levels, webTools, webSearchOn: webTools.includes("search"), addresses: addressesOf(account) };
+    const appTools = gateway ? await this.pickedTools(agentId) : [];
+    return { bot, authorizedAt, gateway, picked: false, instructions, promptTemplate, community: account.name, levels, webTools, webSearchOn: webTools.includes("search"), addresses: addressesOf(account), appTools };
   }
 
   /**

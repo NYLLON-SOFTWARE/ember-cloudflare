@@ -1741,6 +1741,11 @@ const CLICKER = `SELECT users.name, (SELECT name FROM rooms WHERE id = ?1 AND ki
   WHERE users.id = ?2 AND users.status = ${ACTIVE}
     AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)`;
 
+/** Who clicked a button in room ?1, ?2, by their name now, and whether they run the workspace: nothing once they aren't an active member of the room. */
+const ROOM_MEMBER = `SELECT users.name, users.role = ${ADMINISTRATOR} AS administrator FROM users
+  WHERE users.id = ?2 AND users.status = ${ACTIVE}
+    AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = ?1 AND memberships.user_id = users.id)`;
+
 /** Whether a room's event is a new message: anyone's, or a bot's reply to a webhook delivery. */
 const isNewMessage = ({ kind }: RoomEvent) => kind !== "read";
 
@@ -3675,6 +3680,12 @@ export class WorkspaceStore {
     ];
     if (!bot || !clicker) return null;
     return { bot: { id: botId, name: bot.name }, token: bot.bot_token, url: bot.url, savedAt: bot.updated_at, clicker: { id: clickerId, name: clicker.name }, roomName: clicker.room_name };
+  }
+
+  /** The active member `userId` of room `roomId`, by their name now, and whether they're an administrator, or null unless they're one. */
+  async roomMember(roomId: RoomId, userId: UserId): Promise<{ member: User; administrator: boolean } | null> {
+    const [row] = await this.db.all<{ name: string; administrator: number }>(ROOM_MEMBER, roomId, userId);
+    return row ? { member: { id: userId, name: row.name }, administrator: row.administrator === 1 } : null;
   }
 
   /** The active bot `botId`, with its token, its rooms but DMs and where its webhook delivers, or null unless it's one. */
