@@ -1,5 +1,5 @@
 import { useContext, useId, useLayoutEffect, useRef, useState, type Ref } from "react";
-import { isBoostLength, MAX_BOOST_LENGTH, type Boost, type Me, type Message } from "@ember/protocol";
+import { customEmojiNameIn, isBoostLength, MAX_BOOST_LENGTH, type Boost, type Me, type Message } from "@ember/protocol";
 import { isAllEmoji } from "@ember/richtext/dom";
 import { ArrowUp, Emoji, Minus, Xmark } from "@/components/icons/iconoir";
 import { useCustomEmoji } from "@/hooks/use-custom-emoji";
@@ -207,8 +207,10 @@ function CustomReaction({ me, fieldRef, onAdd, onCancel }: { me: Me; fieldRef?: 
     const field = fieldOf(form.current);
     if (!field) return;
     const at = field.selectionStart ?? field.value.length;
-    const replaced = field.value.slice(0, at - length) + text;
-    const written = replaced + field.value.slice(at);
+    // A custom emoji is a reaction by itself, as its code can be longer than anything else fits beside.
+    const alone = customEmojiNameIn(text) !== null;
+    const replaced = alone ? text : field.value.slice(0, at - length) + text;
+    const written = alone ? text : replaced + field.value.slice(at);
     if (!isBoostLength(written)) return;
     setContent(written);
     setCursor(replaced.length);

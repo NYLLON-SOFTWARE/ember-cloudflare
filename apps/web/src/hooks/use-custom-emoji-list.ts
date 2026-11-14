@@ -35,16 +35,25 @@ export interface CustomEmojiList {
 export function useCustomEmojiList(): CustomEmojiList {
   const [emoji, setEmoji] = useState<CustomEmojiByName>(NO_CUSTOM_EMOJI);
   const [list] = useState(() => {
+    // The emoji as last set, which the next change starts from.
+    let known: CustomEmojiByName = NO_CUSTOM_EMOJI;
+    const set = (next: CustomEmojiByName) => setEmoji((known = next));
     let changedSince: Change[] | null = null;
+    // The pictures of emoji removed, which no emoji has again: adding one here can be answered after
+    // the socket has said it was added and then removed, and the answer doesn't bring it back.
+    const removedKeys = new Set<string>();
     const change = (change: Change) => {
+      if ("added" in change && removedKeys.has(change.added.key)) return;
+      const removed = "removed" in change ? known.get(change.removed) : undefined;
+      if (removed) removedKeys.add(removed.key);
       changedSince?.push(change);
-      setEmoji((emoji) => withChanges(emoji, [change]));
+      set(withChanges(known, [change]));
     };
     const reload = oneAtATime(async () => {
       const changes: Change[] = (changedSince = []);
       try {
         const loaded = await fetchCustomEmoji();
-        setEmoji(withChanges(new Map(loaded.map((emoji) => [emoji.name, emoji])), changes));
+        set(withChanges(new Map(loaded.map((emoji) => [emoji.name, emoji])), changes));
       } finally {
         changedSince = null;
       }

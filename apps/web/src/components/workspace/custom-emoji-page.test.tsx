@@ -117,6 +117,24 @@ describe("Custom emoji page", () => {
     expect(((fetched.mock.calls[0]![1]!.body as FormData).get("image") as File).size).toBe(10);
   });
 
+  it("sends the picture picked last, however long one picked before it takes to scale", async () => {
+    let scaleFirst: (picture: Blob) => void = () => {};
+    vi.mocked(customEmojiPictureOf)
+      .mockImplementationOnce(() => new Promise<Blob>((resolve) => (scaleFirst = resolve)))
+      .mockImplementationOnce(async (file) => file);
+    const fetched = serve();
+    const { user, onAdded } = show(ada);
+    await user.upload(fileField(), png("first.png", 111));
+    await user.upload(fileField(), png("second.png", 222));
+    await waitFor(() => expect(form().getByLabelText("Preview")).toBeInTheDocument());
+    scaleFirst(png("first.png", 111));
+    await waitFor(() => expect(nameField()).toHaveValue("second"));
+
+    await user.click(addButton());
+    await waitFor(() => expect(onAdded).toHaveBeenCalled());
+    expect(((fetched.mock.calls[0]![1]!.body as FormData).get("image") as File).size).toBe(222);
+  });
+
   it("refuses a picture that's still over 256 KB, as an animated GIF can be, and one of another type", async () => {
     const { user } = show(ada);
     await user.upload(fileField(), new File([new Uint8Array(MAX_CUSTOM_EMOJI_SIZE + 1)], "party.gif", { type: "image/gif" }));
@@ -224,6 +242,29 @@ describe("Custom emoji page", () => {
     expect(rows().map((row) => row!.match(/^:[a-z]+:/)![0])).toEqual([":beta:", ":eta:", ":theta:", ":zeta:"]);
     await user.type(screen.getByRole("searchbox"), "x");
     expect(screen.getByText("No emoji match “ETAx”.")).toBeInTheDocument();
+  });
+
+  it("keeps the search while it's searching, though fewer emoji are left than it shows for", async () => {
+    const many = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"].map((name) => emoji(name, ada));
+    const handlers = { onAdded: vi.fn(), onRemoved: vi.fn(), onFailed: vi.fn() };
+    const page = (listed: CustomEmoji[]) => (
+      <FlashProvider workspace>
+        <PeopleContext value={people}>
+          <CustomEmojiContext value={new Map(listed.map((one) => [one.name, one]))}>
+            <Sheet>
+              <CustomEmojiPage me={ada} {...handlers} />
+            </Sheet>
+          </CustomEmojiContext>
+        </PeopleContext>
+      </FlashProvider>
+    );
+    const { rerender } = render(page(many));
+    await userEvent.type(screen.getByRole("searchbox"), "eta");
+    rerender(page(many.slice(1)));
+    expect(screen.getByRole("searchbox")).toHaveValue("eta");
+    await userEvent.clear(screen.getByRole("searchbox"));
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    expect(rows()).toHaveLength(7);
   });
 
   it("has no search for a handful", () => {

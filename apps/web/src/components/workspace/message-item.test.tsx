@@ -1462,6 +1462,18 @@ describe("Custom emoji", () => {
     await user.keyboard("{Enter}");
     expect(actions.boost).toHaveBeenCalledWith("m1", ":extremely_fast_party_parrot:");
   });
+
+  it("makes a custom emoji picked the whole reaction, whatever else was written, as nothing fits beside it", async () => {
+    const { actions, user } = show(message(), { customEmoji });
+    await pressAction(user, "More reactions");
+    await user.click(screen.getByRole("button", { name: "New boost" }));
+    await user.type(customField(), "Go :extreme");
+    await screen.findByRole("listbox", { name: "Emoji matching :extreme" });
+    await user.keyboard("{Enter}");
+    expect(customField()).toHaveValue(":extremely_fast_party_parrot:");
+    await user.keyboard("{Enter}");
+    expect(actions.boost).toHaveBeenCalledWith("m1", ":extremely_fast_party_parrot:");
+  });
 });
 
 describe("Take back a reaction", () => {

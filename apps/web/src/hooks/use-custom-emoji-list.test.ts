@@ -62,6 +62,22 @@ describe("The workspace's custom emoji", () => {
     expect([...result.current.emoji.keys()]).toEqual(["party_parrot"]);
   });
 
+  it("don't bring back an emoji removed since it was added, when adding it here is answered late", async () => {
+    serve(listing());
+    const { result } = renderHook(() => useCustomEmojiList());
+    await act(() => result.current.reload());
+
+    // The socket says it was added, then that someone removed it, before the page hears its own answer.
+    act(() => result.current.add(shipit));
+    act(() => result.current.remove("shipit"));
+    act(() => result.current.add(shipit));
+    expect(result.current.emoji.size).toBe(0);
+
+    // Another of the same name, added since, is another emoji.
+    act(() => result.current.add({ ...shipit, key: "key-shipit-again" }));
+    expect(result.current.emoji.get("shipit")?.key).toBe("key-shipit-again");
+  });
+
   it("stay as they were when a load fails", async () => {
     serve(listing(shipit), () => Response.json({ error: "Not signed in" }, { status: 401 }));
     const { result } = renderHook(() => useCustomEmojiList());

@@ -100,6 +100,8 @@ function AddEmoji({ emoji, onAdded, onFailed }: { emoji: CustomEmojiByName; onAd
   const id = useId();
   const file = useRef<HTMLInputElement>(null);
   const [chosen, setChosen] = useState<ChosenPicture | null>(null);
+  // How many pictures have been picked, so the last is told from one before it that's still being scaled.
+  const choices = useRef(0);
   const [pictureProblem, setPictureProblem] = useState<string | null>(null);
   const [name, setName] = useState("");
   // What the Worker said of the name sent last, until it's changed.
@@ -124,10 +126,12 @@ function AddEmoji({ emoji, onAdded, onFailed }: { emoji: CustomEmojiByName; onAd
     // The field forgets it, so picking the same file again picks it again.
     event.target.value = "";
     if (!picked) return;
+    const choice = ++choices.current;
     setChosen(null);
     if (!CUSTOM_EMOJI_TYPES.includes(picked.type)) return setPictureProblem(CUSTOM_EMOJI_WRONG_TYPE);
     const picture = await customEmojiPictureOf(picked);
-    if (!mounted.current) return;
+    // A picture picked since is the one wanted, however long this one took to scale.
+    if (!mounted.current || choice !== choices.current) return;
     if (picture.size > MAX_CUSTOM_EMOJI_SIZE) return setPictureProblem(CUSTOM_EMOJI_TOO_LARGE);
     setPictureProblem(null);
     setChosen({ picture, preview: URL.createObjectURL(picture) });
@@ -260,7 +264,8 @@ function EmojiList({ emoji, me, onRemoved, onFailed }: { emoji: CustomEmoji[]; m
       <h2 id={`${id}-heading`} className={cn(SECTION_HEADING, "text-[17px] font-[650]")}>
         {emoji.length === 0 ? "No custom emoji yet" : `${emoji.length.toLocaleString("en-US")} custom emoji`}
       </h2>
-      {emoji.length >= SEARCHED_FROM && (
+      {/* Kept while it's searching, though removing emoji leaves fewer than it shows for. */}
+      {(emoji.length >= SEARCHED_FROM || search !== "") && (
         <Input
           type="search"
           value={search}
