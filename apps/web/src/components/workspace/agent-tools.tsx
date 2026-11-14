@@ -9,16 +9,23 @@ import { cn } from "@/lib/utils";
 import { isOff } from "./agent-list";
 
 // The Tools card on @ember's page and on a saved agent's: every connected app's tools, by app, each with
-// a checkbox an administrator picks it with. A pick is saved as it's made, as the page's switches are.
+// a checkbox an administrator picks it with, and, under one that's picked, another that has the agent's
+// calls of it always allowed. Each is saved as it's made, as the page's switches are.
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
 /** What the card says of the tools `name` is picked. */
 export const toolsExplained = (name: string) =>
-  `Pick what ${name} may use of the apps you've connected, up to ${MAX_AGENT_TOOLS} tools. Anyone who can ask ${name} could have it use them, with the token each app was connected with, and allows each call on a card first.`;
+  `Pick what ${name} may use of the apps you've connected, up to ${MAX_AGENT_TOOLS} tools. Anyone who can ask ${name} could have it use them, with the token each app was connected with, and allows each call on a card first, unless you always allow the tool.`;
+
+/** What the box under a picked tool says it does for the agent `name`. */
+export const alwaysAllowExplained = (name: string) => `Always allow: ${name} calls it without asking first, and the room is shown each call`;
 
 /** What the card says in place of its tools, with no app connected. */
 export const NO_APPS_TO_PICK = "No apps are connected yet.";
+
+/** What the card says under an app whose server has come to have no tools Ember can use. */
+export const NO_TOOLS_TO_PICK = "Its server has no tools Ember can use any more.";
 
 /** What the card says under a tool whose app describes it another way than when it was picked. */
 export const TOOL_CHANGED = "Its app describes this tool another way than when it was picked, so it's set aside. Pick it again to keep it.";
@@ -27,7 +34,11 @@ export const TOOL_CHANGED = "Its app describes this tool another way than when i
 export const pickedOf = (count: number) => `${count} of ${MAX_AGENT_TOOLS} picked`;
 
 /** The tools `apps` have an agent use. */
-const picksIn = (apps: readonly OfferedApp[]): ToolPick[] => apps.flatMap(({ id, tools }) => tools.filter(({ picked }) => picked).map(({ name, fingerprint }) => ({ appId: id, name, fingerprint })));
+const picksIn = (apps: readonly OfferedApp[]): ToolPick[] =>
+  apps.flatMap(({ id, tools }) => tools.filter(({ picked }) => picked).map(({ name, fingerprint, alwaysAllowed }) => ({ appId: id, name, fingerprint, ...(alwaysAllowed && { alwaysAllowed }) })));
+
+/** Whether `pick` is of the tool `tool` is of. */
+const isPickOf = (pick: ToolPick, tool: ToolPick) => pick.appId === tool.appId && pick.name === tool.name;
 
 /** Whether the server refused picks for a reason the card says itself: too many, or a tool that's gone. */
 const isRefusal = (error: unknown): error is ApiError => error instanceof ApiError && (error.status === 422 || (error.status === 409 && !isOff(error)));
@@ -92,8 +103,16 @@ export function AgentTools({ agentId, name, onFailed }: Props) {
   const full = picks.length >= MAX_AGENT_TOOLS;
   /** Checks or unchecks a tool at once, as a checkbox does, and saves the picks that leaves: the server's answer then says what's picked. */
   const pick = (tool: ToolPick, picked: boolean) => {
-    setApps((apps) => apps && apps.map((app) => (app.id === tool.appId ? { ...app, tools: app.tools.map((offered) => (offered.name === tool.name ? { ...offered, picked } : offered)) } : app)));
-    save(picked ? [...picks, tool] : picks.filter((pick) => pick.appId !== tool.appId || pick.name !== tool.name), apps);
+    setApps((apps) => apps && apps.map((app) => (app.id === tool.appId ? { ...app, tools: app.tools.map((offered) => (offered.name === tool.name ? { ...offered, picked, alwaysAllowed: false } : offered)) } : app)));
+    save(picked ? [...picks, tool] : picks.filter((pick) => !isPickOf(pick, tool)), apps);
+  };
+  /** Has a picked tool's calls always allowed, or asked for again, and saves the picks as that leaves them. */
+  const alwaysAllow = (tool: ToolPick, alwaysAllowed: boolean) => {
+    setApps((apps) => apps && apps.map((app) => (app.id === tool.appId ? { ...app, tools: app.tools.map((offered) => (offered.name === tool.name ? { ...offered, alwaysAllowed } : offered)) } : app)));
+    save(
+      picks.map((pick) => (isPickOf(pick, tool) ? { ...tool, ...(alwaysAllowed && { alwaysAllowed }) } : pick)),
+      apps,
+    );
   };
 
   return (
@@ -125,8 +144,9 @@ export function AgentTools({ agentId, name, onFailed }: Props) {
       {apps?.map(({ id, name: app, tools }) => (
         <fieldset key={id} disabled={saving} className="flex min-w-0 flex-col">
           <legend className="pb-1 font-semibold">{app}</legend>
-          <ul className="flex max-h-[24em] flex-col overflow-y-auto overscroll-contain rounded-[10px] border bg-background">
-            {tools.map(({ name: tool, title, description, fingerprint, picked, changed }) => (
+          {tools.length === 0 && <p className={NOTE}>{NO_TOOLS_TO_PICK}</p>}
+          <ul className="flex max-h-[24em] flex-col overflow-y-auto overscroll-contain rounded-[10px] border bg-background empty:hidden">
+            {tools.map(({ name: tool, title, description, fingerprint, picked, changed, alwaysAllowed }) => (
               <li key={tool} className="border-t first:border-t-0">
                 {/* For fingers, the box sits far enough into its label, whatever the font, for a fingertip on it to land on the label. */}
                 <label className="flex cursor-pointer items-start gap-[1.5ch] px-[1.5ch] py-2.5 has-disabled:cursor-default touch:min-h-11 touch:ps-4">
@@ -150,6 +170,18 @@ export function AgentTools({ agentId, name, onFailed }: Props) {
                     </span>
                   </span>
                 </label>
+                {picked && (
+                  <label className="flex cursor-pointer items-center gap-[1.5ch] ps-[calc(3ch+1rem)] pe-[1.5ch] pb-2.5 has-disabled:cursor-default touch:min-h-12 touch:ps-[calc(2rem+1.5ch)] touch:pb-0">
+                    <input
+                      type="checkbox"
+                      checked={alwaysAllowed}
+                      onChange={(event) => alwaysAllow({ appId: id, name: tool, fingerprint }, event.target.checked)}
+                      aria-label={`Always allow ${tool}`}
+                      className="size-4 flex-none accent-foreground"
+                    />
+                    <span className={NOTE}>{alwaysAllowExplained(name)}</span>
+                  </label>
+                )}
               </li>
             ))}
           </ul>

@@ -62,7 +62,7 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol/assistant";
 import type { AgentProfile, AgentRoom } from "@ember/protocol/agents";
-import type { AppId, AppSummary } from "@ember/protocol/apps";
+import type { AppId } from "@ember/protocol/apps";
 import type { LiveHuddle } from "@ember/protocol/huddles";
 import { statement, type Db, type Statement } from "./db";
 import type { StoredPicture } from "./files/pictures";
@@ -2425,6 +2425,8 @@ export interface AppChange {
   url?: string;
   sealedToken?: string | null;
   read?: StoredAppRead;
+  /** The agents' picks that what was read changes (`ChangedPicks`). */
+  picks?: ChangedPicks[];
   changedBy: UserId;
   now: string;
 }
@@ -2432,13 +2434,29 @@ export interface AppChange {
 /**
  * A connected app's tool as it was picked for an agent: its app, its name there, and its fingerprint
  * then. One set aside was found described another way when picks were saved, and stays set aside, the
- * agent without it, however its server describes it later, until it's picked again.
+ * agent without it, however its server describes it later, until it's picked again. One always allowed
+ * is called without asking first, which one set aside never is.
  */
 export interface StoredToolPick {
   appId: AppId;
   name: string;
   fingerprint: string;
   setAside?: true;
+  alwaysAllowed?: true;
+}
+
+/** The tools picked for one agent, with what it's called, @ember's name before it has answered, as it has no user till then, and the picks as they're `stored`. */
+export interface AgentToolPicks {
+  agent: { id: UserId; name: string };
+  picks: StoredToolPick[];
+  stored: string;
+}
+
+/** An agent's picks as reading an app's tools leaves them, `picks`, kept only while they're still `stored` as they were when that was worked out. */
+export interface ChangedPicks {
+  agentId: UserId;
+  stored: string;
+  picks: StoredToolPick[];
 }
 
 interface AppRow {
@@ -3821,12 +3839,13 @@ export class WorkspaceStore {
     ]);
   }
 
-  /** The connected apps, by name, as the AI assistant tab lists them. */
-  async appSummaries(): Promise<AppSummary[]> {
-    const rows = await this.db.all<{ id: AppId; name: string; url: string; tool_count: number }>(
-      `SELECT id, name, url, json_array_length(tools) AS tool_count FROM apps ORDER BY name COLLATE NOCASE, id`,
+  /** The tools picked for every agent that has any, @ember among them, by the agents' names: at most one row an agent. */
+  async everyAgentsToolPicks(): Promise<AgentToolPicks[]> {
+    const rows = await this.db.all<{ agent_id: UserId; name: string | null; tools: string }>(
+      `SELECT agent_tools.agent_id, users.name, agent_tools.tools FROM agent_tools LEFT JOIN users ON users.id = agent_tools.agent_id
+       ORDER BY users.name COLLATE NOCASE, agent_tools.agent_id`,
     );
-    return rows.map(({ id, name, url, tool_count }) => ({ id, name, url, toolCount: tool_count }));
+    return rows.map(({ agent_id, name, tools }) => ({ agent: { id: agent_id, name: name ?? ASSISTANT_NAME }, picks: JSON.parse(tools) as StoredToolPick[], stored: tools }));
   }
 
   /** Every connected app, by name, with its sealed token and the tools read from it. */
@@ -3881,9 +3900,9 @@ export class WorkspaceStore {
   /**
    * Changes the connected app `appId` as `change` has it, by `changedBy`: its name, its server's address
    * and its sealed token, null for none, each kept when left out, and what was read from its server
-   * again, if it was.
+   * again, if it was, with the agents' picks that changes, in the same batch.
    */
-  async changeApp(appId: AppId, { name, url, sealedToken, read, changedBy, now }: AppChange): Promise<void> {
+  async changeApp(appId: AppId, { name, url, sealedToken, read, picks = [], changedBy, now }: AppChange): Promise<void> {
     const statements = [
       statement(`UPDATE apps SET name = COALESCE(?, name), url = COALESCE(?, url), updated_by = ?, updated_at = ? WHERE id = ?`, name ?? null, url ?? null, changedBy, now, appId),
     ];
@@ -3891,8 +3910,37 @@ export class WorkspaceStore {
     if (read) {
       const { serverName, tools, toolsLeftOut } = read;
       statements.push(statement(`UPDATE apps SET server_name = ?, tools = ?, tools_left_out = ?, tools_read_at = ? WHERE id = ?`, serverName, JSON.stringify(tools), toolsLeftOut, now, appId));
+      for (const { agentId, stored, picks: changed } of picks) {
+        statements.push(statement(`UPDATE agent_tools SET tools = ? WHERE agent_id = ? AND tools = ?`, JSON.stringify(changed), agentId, stored));
+      }
     }
     await this.db.batch(statements);
+  }
+
+  /**
+   * Keeps what was read from the server of the app `appId` again, with the agents' `picks` that
+   * changes, in one batch, while it's still asked at `url` with `sealedToken`, changing nothing else of it.
+   */
+  async keepAppRead(
+    appId: AppId,
+    { serverName, tools, toolsLeftOut }: StoredAppRead,
+    picks: ChangedPicks[],
+    { url, sealedToken }: { url: string; sealedToken: string | null },
+    now: string,
+  ): Promise<void> {
+    const asked = [appId, url, sealedToken];
+    await this.db.batch([
+      statement(
+        `UPDATE apps SET server_name = ?, tools = ?, tools_left_out = ?, tools_read_at = ? WHERE id = ? AND url = ? AND token IS ?`,
+        ...[serverName, JSON.stringify(tools), toolsLeftOut, now, ...asked],
+      ),
+      ...picks.map(({ agentId, stored, picks: changed }) =>
+        statement(
+          `UPDATE agent_tools SET tools = ? WHERE agent_id = ? AND tools = ? AND EXISTS (SELECT 1 FROM apps WHERE id = ? AND url = ? AND token IS ?)`,
+          ...[JSON.stringify(changed), agentId, stored, ...asked],
+        ),
+      ),
+    ]);
   }
 
   /** Disconnects the app `appId`, answering whether there was one. */

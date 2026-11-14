@@ -43,11 +43,11 @@ import {
 import { askWaiting, goOn, type Answered, type Asking, type GatewayRefusal } from "./assistant/gateway";
 import { takesEmbersTools } from "./assistant/offered";
 import { roomSearch } from "./assistant/room-search";
-import { appTool, callCard, callDecisionOf, CALL_OUTCOMES, givenAs, givenTools, type GivenTool } from "./apps/tools";
+import { appTool, callCard, callDecisionOf, CALL_OUTCOMES, givenAs, givenTools, usedCard, type GivenTool, type PickedTool, type ShowsCall, type Unmade } from "./apps/tools";
 import { CALL_WAITS_MS, fits, WaitingCalls, type WaitingCall } from "./apps/waiting-calls";
 import { JobQueue } from "./at-once";
 import { actingButton, clickPayload } from "./bots/clicks";
-import { payloadOf, slackMessage, type SlackMessage } from "./bots/slack";
+import { payloadOf, slackMessage, type SlackMessage, type SlackPayload } from "./bots/slack";
 import { postClick, postWebhook, WebhookError, webhookPayload, type ClickAnswer, type Reply } from "./bots/webhooks";
 import { keptCards } from "./cards";
 import { Courier, ENTRIES_PER_CALL } from "./courier";
@@ -1488,7 +1488,8 @@ export class ChatRoom extends DurableObject<Env> {
     const where = { community, roomName, inThread: message.parentId !== undefined };
     const read = readable(conversation, where.inThread).map(({ id }) => id);
     const given = takesTools ? givenTools(access.appTools) : [];
-    const tools = takesTools ? [roomSearch(this.env, roomId, read), ...given.map((tool) => appTool(this.env, bot.id, tool, tool))] : [];
+    const appTools = given.map((tool) => appTool(this.env, bot.id, tool, { described: tool, shown: this.showsCallsOf(roomId, access, message, tool) }));
+    const tools = takesTools ? [roomSearch(this.env, roomId, read), ...appTools] : [];
     const asked = { ...questionFor({ ...bot, instructions, promptTemplate }, conversation, author, where, levels, new Date(), webTools, webSearchOn), tools };
     const [answered, people] = await Promise.all([askWaiting(this.env, gateway, asked, waitFor(asked)), this.peopleWhoWrote(conversation)]);
     return this.outcomeOf(access, message, answered, writtenBy(people, conversation, where.inThread), given.map(givenAs));
@@ -1498,7 +1499,8 @@ export class ChatRoom extends DurableObject<Env> {
    * What the bot `access` finds says to `message` once the call its answer waited at, `call`, is
    * `allowed` or isn't: as `saidTo` answers, going on from where its model stopped, with the room's
    * search and the apps' tools the model was given then, each called only while it's still picked for
-   * the bot. A model changed since can't go on from another's answer, which the bot says.
+   * the bot, and without asking first where its calls of it are always allowed by now. A model changed
+   * since can't go on from another's answer, which the bot says.
    */
   private async wentOn(roomId: RoomId, access: AssistantAccess, message: Message, call: WaitingCall, allowed: boolean): Promise<Outcome> {
     const { bot, gateway } = access;
@@ -1507,9 +1509,30 @@ export class ChatRoom extends DurableObject<Env> {
     const conversation = await this.conversationOf(this.storeFor(roomId), message);
     const inThread = message.parentId !== undefined;
     const read = readable(conversation, inThread).map(({ id }) => id);
-    const tools = [roomSearch(this.env, roomId, read), ...call.tools.map((tool) => appTool(this.env, bot.id, tool))];
+    const tools = [roomSearch(this.env, roomId, read), ...call.tools.map((tool) => appTool(this.env, bot.id, tool, { shown: this.showsCallsOf(roomId, access, message, tool) }))];
     const [answered, people] = await Promise.all([goOn(this.env, gateway, tools, call.paused, allowed, waitFor(call.paused.question)), this.peopleWhoWrote(conversation)]);
     return this.outcomeOf(access, message, answered, writtenBy(people, conversation, inThread), call.tools);
+  }
+
+  /**
+   * What shows room `roomId` the calls of `tool` that the bot `access` finds makes, answering `message`,
+   * without asking first, or undefined unless its calls of it are always allowed: a card for each, as
+   * its reply, which says what the tool was called with, and then that the call wasn't made, if it wasn't.
+   */
+  private showsCallsOf(roomId: RoomId, { bot, appTools }: AssistantAccess, message: Message, tool: GivenTool): ShowsCall | undefined {
+    const isIt = (picked: PickedTool) => picked.appId === tool.appId && picked.name === tool.name && picked.fingerprint === tool.fingerprint;
+    if (!appTools.some((picked) => isIt(picked) && picked.alwaysAllowed)) return undefined;
+    return async (input) => {
+      let cardId: string | undefined;
+      const unshown = await this.postCallCard(roomId, bot, message, usedCard(bot.name, tool, input), async (posted) => void (cardId = posted.id));
+      return unshown ?? { unmade: (why) => this.showUnmade(roomId, cardId!, tool, input, why) };
+    };
+  }
+
+  /** Has the card `messageId`, which showed the room a call of `tool` made without asking first, say the call wasn't made, and `why`. */
+  private async showUnmade(roomId: RoomId, messageId: string, tool: GivenTool, input: Record<string, unknown>, why: Unmade): Promise<void> {
+    const unchanged = await this.changeCallCard(roomId, messageId, (botName) => usedCard(botName, tool, input, why));
+    if (unchanged !== null) console.error(`The card of a call that wasn't made, message ${messageId}, wasn't changed: ${unchanged}`);
   }
 
   /**
@@ -1550,10 +1573,22 @@ export class ChatRoom extends DurableObject<Env> {
    * that answers it (`decideCall`). Answers why the room keeps nothing of it, if it doesn't.
    */
   private async askFirst(roomId: RoomId, bot: User, message: Message, call: WaitingCall): Promise<string | null> {
-    const card = slackMessage(callCard(bot.name, call.asker.name, call.tool, call.input), true);
+    const refused = await this.postCallCard(roomId, bot, message, callCard(bot.name, call.asker.name, call.tool, call.input), (posted) => this.waitingCallsFor(roomId).keep(posted.id, call));
+    // The alarm forgets it once it has waited too long (`forgetLateCalls`).
+    if (refused === null) await this.wakeAt(roomId, call.askedAt + CALL_WAITS_MS + 1);
+    return refused;
+  }
+
+  /**
+   * Posts `card`, a call's, as `bot`'s reply to `message`, where `postAnswer` would post the answer and
+   * while it would, and then does `kept` with the message it is, in the same turn. Answers why the room
+   * keeps nothing of it, if it doesn't.
+   */
+  private async postCallCard(roomId: RoomId, bot: User, message: Message, payload: SlackPayload, kept?: (posted: Message) => Promise<void>): Promise<string | null> {
+    const card = slackMessage(payload, true);
     if (typeof card === "string") return card;
     const access = await workspace(this.env).answererIn(roomId, bot.id, message.creator.id);
-    const refused = await this.serially(async () => {
+    return this.serially(async () => {
       if (await this.isDeleted()) return "the room is gone";
       if (!access || (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt))) return answererGone(bot.id);
       const store = this.storeFor(roomId);
@@ -1563,12 +1598,9 @@ export class ChatRoom extends DurableObject<Env> {
       const body = await this.prepareWithCards(card.markup, card.cards);
       if (typeof body === "string") return body;
       const posted = await this.create(store, access.bot, crypto.randomUUID(), body, new Date().toISOString(), { kind: "reply", inThread });
-      await this.waitingCallsFor(roomId).keep(posted.id, call);
+      await kept?.(posted);
       return null;
     });
-    // The alarm forgets it once it has waited too long (`forgetLateCalls`).
-    if (refused === null) await this.wakeAt(roomId, call.askedAt + CALL_WAITS_MS + 1);
-    return refused;
   }
 
   /**
@@ -1617,11 +1649,16 @@ export class ChatRoom extends DurableObject<Env> {
 
   /** Has the card `messageId`, which asked whether `call` may run, say `outcome` in place of its buttons. Answers why it's left as it was, if it is. */
   private showDecided(roomId: RoomId, messageId: string, call: WaitingCall, outcome: string): Promise<string | null> {
+    return this.changeCallCard(roomId, messageId, (botName) => callCard(botName, call.asker.name, call.tool, call.input, outcome));
+  }
+
+  /** Has the message `messageId`, a call's card, be the card `cardFor` gives for the bot that posted it, by its name now. Answers why it's left as it was, if it is. */
+  private changeCallCard(roomId: RoomId, messageId: string, cardFor: (botName: string) => SlackPayload): Promise<string | null> {
     return this.serially(async () => {
       const store = this.storeFor(roomId);
       const current = (await this.isDeleted()) ? null : await this.findUndeleted(store, messageId);
       if (!current) return "the message is gone";
-      const card = slackMessage(callCard(current.creator.name, call.asker.name, call.tool, call.input, outcome));
+      const card = slackMessage(cardFor(current.creator.name));
       if (typeof card === "string") return card;
       const body = await this.prepareWithCards(card.markup, card.cards);
       if (typeof body === "string") return body;

@@ -304,16 +304,16 @@ const AGENT: AgentSettings = {
 /** What Try it's model says. */
 const TRIED: AgentTrialAnswer = { body: `<p>Two decisions so far, and one to-do for ${LONG_NAME}.</p>`, cards: [], ms: 2345 };
 
-/** The tools an agent's page offers: an app named as long as names go, with a tool named as long as the protocol takes, one picked, one set aside, and one its app says nothing of. */
+/** The tools an agent's page offers: an app named as long as names go, with a tool named as long as the protocol takes, one picked, which can be always allowed, one set aside, and one its app says nothing of. */
 const TOOLS: AgentTools = {
   apps: [
     {
       id: "0mgk3x2a9b4c70",
       name: LONG_NAME,
       tools: [
-        { name: "search_issues", title: "Search issues", description: "Finds issues by their words, in every project the token can read.", fingerprint: "f-search", picked: true, changed: false },
-        { name: `create_${"issue_".repeat(20)}now`, title: null, description: "Opens an issue.", fingerprint: "f-create", picked: false, changed: true },
-        { name: "close_issue", title: null, description: "", fingerprint: "f-close", picked: false, changed: false },
+        { name: "search_issues", title: "Search issues", description: "Finds issues by their words, in every project the token can read.", fingerprint: "f-search", picked: true, changed: false, alwaysAllowed: false },
+        { name: `create_${"issue_".repeat(20)}now`, title: null, description: "Opens an issue.", fingerprint: "f-create", picked: false, changed: true, alwaysAllowed: false },
+        { name: "close_issue", title: null, description: "", fingerprint: "f-close", picked: false, changed: false, alwaysAllowed: false },
       ],
     },
   ],
@@ -416,7 +416,8 @@ test("@ember's page fits the phone", async ({ page, screenIsFine }) => {
     await screenIsFine({ denseTargets: [SWITCHES] });
   }
   const tools = page.getByRole("region", { name: "Tools", exact: true });
-  await expect(tools.getByRole("checkbox")).toHaveCount(3);
+  await expect(tools.getByRole("checkbox")).toHaveCount(4);
+  await expect(tools.getByRole("checkbox", { name: "Always allow search_issues" })).toBeVisible();
   await tools.scrollIntoViewIfNeeded();
   await screenIsFine({ denseTargets: [SWITCHES] });
 });

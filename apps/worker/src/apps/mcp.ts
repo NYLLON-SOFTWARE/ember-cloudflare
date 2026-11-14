@@ -49,6 +49,10 @@ export interface ReadApp {
 export interface CalledTool {
   text: string;
   failed: boolean;
+  /** Whether the tool was never called: the server couldn't be asked, or no longer lists the tool as it was picked. */
+  unmade?: true;
+  /** Whether the server no longer lists the tool as it was picked, so that its tools want reading again. */
+  changed?: true;
 }
 
 /** What an app is asked through: the Worker's `fetch`, or a fake in tests. */
@@ -63,9 +67,10 @@ interface Held {
 /**
  * The tools of the app at `url`, asked with `token`, if it takes one: what its server calls itself and
  * each tool it lists, up to as many as Ember keeps, or why Ember couldn't read them, in words for the
- * administrator who's connecting it, on the field it's about.
+ * administrator who's connecting it, on the field it's about. A server with no tools Ember can use is
+ * no app to connect, but a connected app's, read `again`, may have come to have none.
  */
-export async function readApp(url: string, token: string | null, send: Send = fetch): Promise<ReadApp | AppRefused> {
+export async function readApp(url: string, token: string | null, again = false, send: Send = fetch): Promise<ReadApp | AppRefused> {
   const address = new URL(url);
   const held: Held = { deadline: AbortSignal.timeout(READ_DEADLINE_MS), bytesLeft: MAX_READ_BYTES };
   const within = heldTo(held, send);
@@ -75,7 +80,7 @@ export async function readApp(url: string, token: string | null, send: Send = fe
     return await connected(address, token, within, held, async (client) => {
       const { listed, more } = await listedTools(client, held.deadline);
       const tools = await keptTools(listed);
-      if (tools.length === 0) return { error: `${address.host} answered, but it has no tools Ember can use.`, field: "url" };
+      if (tools.length === 0 && !again) return { error: `${address.host} answered, but it has no tools Ember can use.`, field: "url" };
       return { serverName: client.getServerVersion()?.name?.slice(0, 100) ?? null, tools, toolsLeftOut: listed.length - tools.length + (more ? 1 : 0) };
     });
   } catch (error) {
@@ -98,8 +103,8 @@ export async function callApp(url: string, token: string | null, tool: Pick<Read
   try {
     return await connected(address, token, within, held, async (client) => {
       const listed = await toolNamed(client, tool.name, held.deadline);
-      if (!listed) return notRun(`${address.host} no longer has a tool named ${tool.name}.`);
-      if (listed.fingerprint !== tool.fingerprint) return notRun(`${tool.name} has changed since an administrator looked at it.`);
+      if (!listed) return { ...notRun(`${address.host} no longer has a tool named ${tool.name}.`), changed: true };
+      if (listed.fingerprint !== tool.fingerprint) return { ...notRun(`${tool.name} has changed since an administrator looked at it.`), changed: true };
       called = true;
       // The client's own `callTool` reads every page of the server's tools to check a result against its tool's schema, which Ember doesn't keep.
       return resultOf(await client.request({ method: "tools/call", params: { name: tool.name, arguments: input } }, { signal: held.deadline }));
@@ -112,7 +117,7 @@ export async function callApp(url: string, token: string | null, tool: Pick<Read
   }
 }
 
-const notRun = (why: string): CalledTool => ({ text: `Not run: ${why}`, failed: true });
+const notRun = (why: string): CalledTool => ({ text: `Not run: ${why}`, failed: true, unmade: true });
 
 /** What `ask` comes to, asked of a client connected to the server at `address`, with `token`, if it takes one: the connection is closed after. */
 async function connected<T>(address: URL, token: string | null, send: Send, held: Held, ask: (client: Client) => Promise<T>): Promise<T> {

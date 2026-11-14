@@ -9,16 +9,19 @@ import { BUTTON } from "./email-settings";
 import { ROUND_BUTTON } from "./link-buttons";
 
 // The Apps card on the AI assistant tab, under Agents, for administrators while Ember AI is on: Connect
-// an app, then each app connected, by name, with where its MCP server is and how many tools Ember read
-// from it, each with a link to its page.
+// an app, then each app connected, by name, with where its MCP server is, how many tools Ember read
+// from it, and whether any an agent had is set aside, each with a link to its page.
 
 const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
 /** What the card says of apps. */
-export const APPS_EXPLAINED = `Connect another service by the address of its MCP server, and Ember reads the tools it offers, which you pick for @ember and for each agent on its page. Each call an agent makes waits on a card in its room until whoever asked, or an administrator, allows it. You can connect up to ${MAX_APPS}.`;
+export const APPS_EXPLAINED = `Connect another service by the address of its MCP server, and Ember reads the tools it offers, which you pick for @ember and for each agent on its page. Each call an agent makes waits on a card in its room until whoever asked, or an administrator, allows it, unless you always allow that agent the tool. You can connect up to ${MAX_APPS}.`;
 
 /** What the card says in place of its list, with no app connected. */
 export const NO_APPS = "No apps are connected yet.";
+
+/** What a row says of an app's tools that are set aside for an agent that had them, as its page says which. */
+export const setAsideOf = (count: number) => (count === 1 ? "1 picked tool is set aside: its app changed it" : `${count} picked tools are set aside: their app changed them`);
 
 /** How many tools a row says Ember read from an app. */
 export const toolsOf = (count: number) => (count === 1 ? "1 tool" : `${count} tools`);
@@ -78,11 +81,12 @@ export function AppList({ onFailed }: Props) {
       {apps?.length === 0 && <p className={cn(NOTE, "rounded-[10px] border border-dashed border-muted-foreground px-[1ch] py-4 text-center")}>{NO_APPS}</p>}
       {apps !== null && apps.length > 0 && (
         <ul aria-labelledby="apps-heading" className="flex flex-col">
-          {apps.map(({ id, name, url, toolCount }) => (
+          {apps.map(({ id, name, url, toolCount, setAside }) => (
             <li key={id} className="flex items-center gap-x-[1.5ch] border-t py-3 last:pb-0">
               <div className="min-w-0 flex-1">
                 <strong className="block truncate">{name}</strong>
                 <p className={cn(NOTE, "wrap-anywhere")}>{[addressOf(url), toolsOf(toolCount)].join(" · ")}</p>
+                {setAside > 0 && <p className={cn(NOTE, "text-negative")}>{setAsideOf(setAside)}</p>}
               </div>
               <PageLink href={appSettingsPath(id)} className={ROUND_BUTTON}>
                 <EditPencil className="size-[1.3em]" />

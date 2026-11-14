@@ -2106,6 +2106,7 @@ describe("Agent pages", () => {
     hasToken: false,
     serverName: null,
     tools: [{ name: "create_issue", title: null, description: "Creates an issue." }],
+    setAside: [],
     toolsLeftOut: 0,
     toolsReadAt: "2026-11-13T10:30:00.000Z",
     connectedBy: { id: ada.id, name: ada.name },
@@ -2115,7 +2116,7 @@ describe("Agent pages", () => {
     serve({
       "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true, assistant }),
       "GET /api/account/agents": () => Response.json({ agents: [recap] }),
-      "GET /api/account/apps": () => Response.json({ apps: [{ id: linear.id, name: linear.name, url: linear.url, toolCount: linear.tools.length }] }),
+      "GET /api/account/apps": () => Response.json({ apps: [{ id: linear.id, name: linear.name, url: linear.url, toolCount: linear.tools.length, setAside: 0 }] }),
       "POST /api/account/assistant/offered": () => Response.json(SHIPPED_MODELS),
       // The Tools card of each agent's page.
       "GET /api/account/agents/a1/tools": () => Response.json({ apps: [] }),

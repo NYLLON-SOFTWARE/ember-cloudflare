@@ -10,9 +10,9 @@ import { callApp, readApp, type CalledTool, type ReadApp, type ReadTool } from "
  * link's preview does.
  */
 export class AppConnector extends DurableObject<Env> {
-  /** `readApp`: the tools of the app at `url`, asked with `token`, or why Ember couldn't read them. */
-  read(url: string, token: string | null): Promise<ReadApp | AppRefused> {
-    return readApp(url, token);
+  /** `readApp`: the tools of the app at `url`, asked with `token`, or why Ember couldn't read them, which having none is unless it's a connected app's read `again`. */
+  read(url: string, token: string | null, again = false): Promise<ReadApp | AppRefused> {
+    return readApp(url, token, again);
   }
 
   /** `callApp`: what calling `tool` of the app at `url` with `input` came to, asked with `token`. */

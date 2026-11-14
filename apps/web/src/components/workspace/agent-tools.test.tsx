@@ -5,12 +5,12 @@ import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { AGENT_TOOLS_FULL, MAX_AGENT_TOOLS, TOOL_GONE, type OfferedApp } from "@ember/protocol/apps";
 import { NEW_APP_PATH } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
-import { AgentTools, NO_APPS_TO_PICK, pickedOf, TOOL_CHANGED, toolsExplained } from "./agent-tools";
+import { AgentTools, alwaysAllowExplained, NO_APPS_TO_PICK, NO_TOOLS_TO_PICK, pickedOf, TOOL_CHANGED, toolsExplained } from "./agent-tools";
 
 const RECAP = "0mgk3x2a9b4c60";
 const TOOLS = `/api/account/agents/${RECAP}/tools`;
 
-const unpicked = { picked: false, changed: false };
+const unpicked = { picked: false, changed: false, alwaysAllowed: false };
 const MAIL: OfferedApp = { id: "0mgk3x2a9b4c71", name: "Mail", tools: [{ name: "send_email", title: null, description: "Sends an email.", fingerprint: "f-send", ...unpicked }] };
 const TRACKER: OfferedApp = {
   id: "0mgk3x2a9b4c70",
@@ -39,11 +39,12 @@ function serve({ loaded = () => Response.json({ apps: [MAIL, TRACKER] }), saved 
     const request = `${init?.method ?? "GET"} ${String(input)}`;
     if (request === `GET ${TOOLS}`) return loaded();
     if (request !== `PUT ${TOOLS}`) throw new Error(`Unexpected request for ${request}`);
-    const { tools } = JSON.parse(init!.body as string) as { tools: Array<{ appId: string; name: string }> };
+    const { tools } = JSON.parse(init!.body as string) as { tools: Array<{ appId: string; name: string; alwaysAllowed?: true }> };
     sent.push(tools);
     if (saved) return saved(tools);
-    const picked = (app: OfferedApp, name: string) => tools.some((tool) => tool.appId === app.id && tool.name === name);
-    return Response.json({ apps: [MAIL, TRACKER].map((app) => ({ ...app, tools: app.tools.map((tool) => ({ ...tool, picked: picked(app, tool.name) })) })) });
+    const pick = (app: OfferedApp, name: string) => tools.find((tool) => tool.appId === app.id && tool.name === name);
+    const offered = (app: OfferedApp) => app.tools.map((tool) => ({ ...tool, picked: pick(app, tool.name) !== undefined, alwaysAllowed: pick(app, tool.name)?.alwaysAllowed === true }));
+    return Response.json({ apps: [MAIL, TRACKER].map((app) => ({ ...app, tools: offered(app) })) });
   });
   return sent;
 }
@@ -57,6 +58,7 @@ function showCard() {
 const card = () => screen.getByRole("region", { name: "Tools" });
 const loaded = () => waitFor(() => expect(card()).toHaveAttribute("aria-busy", "false"));
 const tool = (name: string) => within(card()).getByRole("checkbox", { name: new RegExp(`^${name}(,|$)`) });
+const alwaysAllow = (name: string) => within(card()).queryByRole("checkbox", { name: `Always allow ${name}` });
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -68,7 +70,7 @@ describe("An agent's Tools card", () => {
 
     const groups = within(card()).getAllByRole("group");
     expect(groups.map((group) => group.querySelector("legend")?.textContent)).toEqual(["Mail", "Tracker"]);
-    expect(within(groups[1]!).getAllByRole("checkbox")).toHaveLength(2);
+    expect(within(groups[1]!).getAllByRole("checkbox", { name: /^(?!Always allow )/ })).toHaveLength(2);
     expect(tool("search_issues")).toBeChecked();
     expect(tool("search_issues")).toHaveAccessibleName("search_issues, Search issues");
     expect(tool("search_issues")).toHaveAccessibleDescription("Finds issues by their words.");
@@ -97,6 +99,54 @@ describe("An agent's Tools card", () => {
     await user.click(tool("search_issues"));
     await waitFor(() => expect(tool("search_issues")).not.toBeChecked());
     expect(sent[1]).toEqual([{ appId: MAIL.id, name: "send_email", fingerprint: "f-send" }]);
+  });
+
+  it("has a picked tool's calls always allowed, or asked for again, with a box under it, saved as it's made, and under no tool that isn't picked", async () => {
+    const sent = serve();
+    const { user } = showCard();
+    await loaded();
+
+    expect(alwaysAllow("search_issues")).not.toBeChecked();
+    expect(alwaysAllow("search_issues")!.closest("label")).toHaveTextContent(alwaysAllowExplained("Recap"));
+    expect(alwaysAllow("create_issue")).toBeNull();
+    expect(alwaysAllow("send_email")).toBeNull();
+
+    await user.click(alwaysAllow("search_issues")!);
+    await waitFor(() => expect(alwaysAllow("search_issues")).toBeChecked());
+    expect(sent).toEqual([[{ appId: TRACKER.id, name: "search_issues", fingerprint: "f-search", alwaysAllowed: true }]]);
+    expect(card()).toHaveTextContent(pickedOf(1));
+
+    // Another pick keeps it.
+    await user.click(tool("send_email"));
+    await waitFor(() => expect(tool("send_email")).toBeChecked());
+    expect(sent[1]).toEqual([
+      { appId: TRACKER.id, name: "search_issues", fingerprint: "f-search", alwaysAllowed: true },
+      { appId: MAIL.id, name: "send_email", fingerprint: "f-send" },
+    ]);
+    expect(alwaysAllow("search_issues")).toBeChecked();
+    expect(alwaysAllow("send_email")).not.toBeChecked();
+
+    await user.click(alwaysAllow("search_issues")!);
+    await waitFor(() => expect(alwaysAllow("search_issues")).not.toBeChecked());
+    expect(sent[2]).toEqual([
+      { appId: MAIL.id, name: "send_email", fingerprint: "f-send" },
+      { appId: TRACKER.id, name: "search_issues", fingerprint: "f-search" },
+    ]);
+  });
+
+  it("asks first again for a tool that's taken away and picked again", async () => {
+    const sent = serve({ loaded: () => Response.json({ apps: [{ ...TRACKER, tools: TRACKER.tools.map((tool) => ({ ...tool, alwaysAllowed: tool.picked })) }] }) });
+    const { user } = showCard();
+    await loaded();
+    expect(alwaysAllow("search_issues")).toBeChecked();
+
+    await user.click(tool("search_issues"));
+    await waitFor(() => expect(tool("search_issues")).not.toBeChecked());
+    expect(alwaysAllow("search_issues")).toBeNull();
+    await user.click(tool("search_issues"));
+    await waitFor(() => expect(tool("search_issues")).toBeChecked());
+    expect(sent[1]).toEqual([{ appId: TRACKER.id, name: "search_issues", fingerprint: "f-search" }]);
+    expect(alwaysAllow("search_issues")).not.toBeChecked();
   });
 
   it("takes no other pick while one is on its way", async () => {
@@ -185,6 +235,14 @@ describe("An agent's Tools card", () => {
     expect(within(card()).getByRole("link", { name: "Connect an app" })).toHaveAttribute("href", NEW_APP_PATH);
     expect(within(card()).queryByRole("checkbox")).toBeNull();
     expect(card()).not.toHaveTextContent(pickedOf(0));
+  });
+
+  it("says so under an app whose server has no tools any more", async () => {
+    serve({ loaded: () => Response.json({ apps: [{ id: "0mgk3x2a9b4c70", name: "Tracker", tools: [] }] }) });
+    showCard();
+    await loaded();
+    expect(within(card()).getByRole("group", { name: "Tracker" })).toHaveTextContent(NO_TOOLS_TO_PICK);
+    expect(within(card()).queryByRole("checkbox")).toBeNull();
   });
 
   it("shows no tools, and not that there are no apps, while they load", () => {

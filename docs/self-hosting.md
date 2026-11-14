@@ -873,8 +873,9 @@ has no MCP server there, sent the address on to another, took longer than 20 sec
 with more than 4 MB.
 
 An administrator picks the tools each agent may use, and an agent calls one only once someone allows
-that call, on a card in the room. A server that signs people in with OAuth can't be connected yet,
-only one that takes a token or nothing.
+that call, on a card in the room, unless the administrator has that agent's calls of the tool always
+allowed. A server that signs people in with OAuth can't be connected yet, only one that takes a token
+or nothing.
 
 - **The address** is an `https` one, or `http` on `localhost`, for a server you're developing, with no
   name and password in it. Ember asks only that address: it follows no redirect, and it looks the name
@@ -898,9 +899,16 @@ only one that takes a token or nothing.
   keeps each pick with the tool as its server described it then: when Ember reads the app's tools again
   and the server describes one another way, in its name, title, description or what it takes, that
   tool is set aside for every agent that had it, and its page says so, until an administrator picks it
-  again. A pick is of the tool as the page showed it, so one made on a page that loaded before the
+  again. One its server describes as it did again, before that agent's picks are next saved, comes
+  back by itself, as it's the tool that was picked. A pick is of the tool as the page showed it, so one made on a page that loaded before the
   tool changed is refused, and the page shows the tools as they are now. Removing an app takes its
   tools from every agent.
+- **A tool set aside** is flagged where an administrator looks: the Apps card says on the app's row
+  how many of its picked tools are set aside, and the app's page names each, with the agents that had
+  it, linked to their pages, and whether the server changed it or no longer has it. Ember also finds
+  a change as it goes to call a tool: it then reads the app's tools again, so the tool is set aside
+  from that call on, without waiting for an administrator to read them. An app whose server has
+  come to have no tools Ember can use keeps none, which its page and the agents' say.
 - **A call** is the model's to ask for and a person's to allow. Claude, GPT and Grok, which can
   search their room, are given an agent's picked tools beside that search, each named for its app and
   described in the app's own words, marked as the app's; Workers AI's models aren't given them. It never has an app's address or token: it names a tool
@@ -915,6 +923,16 @@ only one that takes a token or nothing.
   again, and doesn't call one that's no longer picked for the agent or that the server describes
   another way than when it was picked. What the tool answers goes to the model as text, cut at 8,000
   characters, and is the app's word: Ember passes on no pictures or files from it.
+- **Always allow** is an administrator's, for one agent and one tool: a box under each picked tool in
+  the agent's Tools card. That agent's calls of that tool are then made at once, with nobody asked,
+  for anyone who can ask the agent, so keep it for tools that only read, or whose every use you'd
+  allow. The room still sees each call: Ember posts a card saying which agent used which app, the
+  tool, and what it was called with, before it makes the call, and makes none it can't show, whether
+  the room wouldn't take the card or there are more than 3,000 characters to show. A call that then
+  isn't made after all, as Ember finds its server has changed the tool or can't get through to it, has its card changed to say so. Uncheck the box
+  and the tool asks first again, from the next call. It ends by itself when the tool is taken from
+  the agent, or when Ember finds its server has changed it: from then on the tool asks first, even
+  once the server describes it as it did, until you check the box again.
 
 Reading an app's tools and calling one run in a Durable Object of its own, `AppConnector`, apart from the rooms and
 the workspace, with the protocol's own client, pinned to one version. Only JSON comes back, and none

@@ -93,7 +93,7 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol/assistant";
 import { MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type NewAgent } from "@ember/protocol/agents";
-import { MAX_APPS, type App, type AppChanges, type AppId, type AppSummary, type NewApp, type OfferedApp, type ToolPick } from "@ember/protocol/apps";
+import { MAX_APPS, type App, type AppChanges, type AppId, type AppSummary, type NewApp, type OfferedApp, type SetAsideTool, type ToolPick } from "@ember/protocol/apps";
 import type { Gateway } from "./assistant/gateway";
 import { modelsFileUrlOf, type KeptModelsFile, type KeptWorkersAiModels } from "./assistant/offered";
 import { providerMovesOf } from "./assistant/model-tests";
@@ -148,6 +148,8 @@ import {
   type StoredAgent,
   type StoredApp,
   type StoredAppRead,
+  type AgentToolPicks,
+  type ChangedPicks,
   type StoredToolPick,
   type StoredAgentSettings,
   type StoredBot,
@@ -743,8 +745,8 @@ export interface AppAccess {
   sealedToken: string | null;
 }
 
-/** Where a call of a connected app's tool goes: its server's address, and the token Ember sends it, if it has one. */
-export type AppCallAccess = Pick<AppAccess, "url" | "token">;
+/** Where a call of a connected app's tool goes: its server's address, and the token Ember sends it, if it has one, as it's kept too. */
+export type AppCallAccess = AppAccess;
 
 /** Where an app was asked when its tools were read: its server's address then, and its token as it was kept. */
 export type AskedAt = Pick<AppAccess, "url" | "sealedToken">;
@@ -762,20 +764,53 @@ const offeredApps = (apps: readonly StoredApp[], picks: readonly StoredToolPick[
     tools: tools.map(({ name: tool, title, description, fingerprint }) => {
       const pick = picks.find((pick) => pick.appId === id && pick.name === tool);
       const picked = pick !== undefined && !pick.setAside && pick.fingerprint === fingerprint;
-      return { name: tool, title, description, fingerprint, picked, changed: pick !== undefined && !picked };
+      return { name: tool, title, description, fingerprint, picked, changed: pick !== undefined && !picked, alwaysAllowed: picked && pick.alwaysAllowed === true };
     }),
   }));
 
-const shownApp = ({ id, name, url, sealedToken, serverName, tools, toolsLeftOut, toolsReadAt, connectedBy }: StoredApp): App => ({
-  id,
-  name,
-  url,
-  hasToken: sealedToken !== null,
-  serverName,
-  tools: tools.map(({ name, title, description }) => ({ name, title, description })),
-  toolsLeftOut,
-  toolsReadAt,
-  connectedBy,
+/**
+ * The tools of `app` that agents were picked and none of them is given, by name, each with the agents
+ * whose picks those are, `everyPicks` being every agent's: one its server describes another way than a
+ * pick has it, or that was set aside for that before, and one its server no longer has.
+ */
+function setAsideTools(app: StoredApp, everyPicks: readonly AgentToolPicks[]): SetAsideTool[] {
+  const tools = new Map<string, SetAsideTool>();
+  for (const { agent, picks } of everyPicks) {
+    for (const pick of picks.filter(({ appId }) => appId === app.id)) {
+      const fingerprint = app.tools.find((tool) => tool.name === pick.name)?.fingerprint;
+      if (!pick.setAside && fingerprint === pick.fingerprint) continue;
+      const tool = tools.get(pick.name) ?? { name: pick.name, gone: fingerprint === undefined, agents: [] };
+      tools.set(pick.name, { ...tool, agents: [...tool.agents, agent] });
+    }
+  }
+  return [...tools.values()].sort((a, b) => (a.name < b.name ? -1 : 1));
+}
+
+/**
+ * The picks that reading `read` from the app `appId` changes, by agent, `everyPicks` being every
+ * agent's: an always-allowed pick of a tool its server no longer has as it was picked asks first from
+ * then on, even once the server describes the tool as it did. Nobody is asked about a call that's
+ * always allowed, so that isn't to come back without an administrator.
+ */
+function picksChangedBy(appId: AppId, read: StoredAppRead, everyPicks: readonly AgentToolPicks[]): ChangedPicks[] {
+  const isChanged = (pick: StoredToolPick) => pick.appId === appId && read.tools.find((tool) => tool.name === pick.name)?.fingerprint !== pick.fingerprint;
+  const asksFirst = ({ alwaysAllowed: _, ...pick }: StoredToolPick): StoredToolPick => pick;
+  return everyPicks
+    .filter(({ picks }) => picks.some((pick) => pick.alwaysAllowed && isChanged(pick)))
+    .map(({ agent, picks, stored }) => ({ agentId: agent.id, stored, picks: picks.map((pick) => (pick.alwaysAllowed && isChanged(pick) ? asksFirst(pick) : pick)) }));
+}
+
+const shownApp = (app: StoredApp, everyPicks: readonly AgentToolPicks[]): App => ({
+  id: app.id,
+  name: app.name,
+  url: app.url,
+  hasToken: app.sealedToken !== null,
+  serverName: app.serverName,
+  tools: app.tools.map(({ name, title, description }) => ({ name, title, description })),
+  toolsLeftOut: app.toolsLeftOut,
+  toolsReadAt: app.toolsReadAt,
+  connectedBy: app.connectedBy,
+  setAside: setAsideTools(app, everyPicks),
 });
 
 /**
@@ -3139,15 +3174,17 @@ export class Workspace extends DurableObject<Env> {
    */
   async connectedApps(credentials: Credentials): Promise<AppSummary[] | "off" | "forbidden" | null> {
     const allowed = await this.mayAdministerAgents(credentials);
-    return allowed === true ? this.store.appSummaries() : allowed;
+    if (allowed !== true) return allowed;
+    const [apps, everyPicks] = await Promise.all([this.store.apps(), this.store.everyAgentsToolPicks()]);
+    return apps.map((app) => ({ id: app.id, name: app.name, url: app.url, toolCount: app.tools.length, setAside: setAsideTools(app, everyPicks).length }));
   }
 
   /** The connected app `appId` as its page shows it to the person `credentials` signs in, or "not found" unless there's one, or why not, as `connectedApps` answers. */
   async connectedApp(credentials: Credentials, appId: AppId): Promise<App | "off" | "forbidden" | "not found" | null> {
     const allowed = await this.mayAdministerAgents(credentials);
     if (allowed !== true) return allowed;
-    const app = await this.store.app(appId);
-    return app ? shownApp(app) : "not found";
+    const [app, everyPicks] = await Promise.all([this.store.app(appId), this.store.everyAgentsToolPicks()]);
+    return app ? shownApp(app, everyPicks) : "not found";
   }
 
   /**
@@ -3182,7 +3219,7 @@ export class Workspace extends DurableObject<Env> {
       const id = sortableId();
       const sealedToken = app.token === undefined ? null : await this.sealedAppToken(id, app.token);
       const connected = await this.store.connectApp({ id, name: app.name, url: app.url, sealedToken, ...read, connectedBy: user.id, now: new Date().toISOString() }, MAX_APPS);
-      return connected ? shownApp((await this.store.app(id))!) : "full";
+      return connected ? shownApp((await this.store.app(id))!, []) : "full";
     });
   }
 
@@ -3205,9 +3242,10 @@ export class Workspace extends DurableObject<Env> {
       if (!app) return "not found";
       if (reread && (app.url !== reread.askedAt.url || app.sealedToken !== reread.askedAt.sealedToken)) return "changed";
       const sealedToken = changes.token === undefined ? undefined : changes.token === "" ? null : await this.sealedAppToken(appId, changes.token);
-      await this.store.changeApp(appId, { name: changes.name, url: changes.url, sealedToken, ...(reread && { read: reread.read }), changedBy: user.id, now: new Date().toISOString() });
-      const changed = await this.store.app(appId);
-      return changed ? shownApp(changed) : "not found";
+      const read = reread && { read: reread.read, picks: picksChangedBy(appId, reread.read, await this.store.everyAgentsToolPicks()) };
+      await this.store.changeApp(appId, { name: changes.name, url: changes.url, sealedToken, ...read, changedBy: user.id, now: new Date().toISOString() });
+      const [changed, everyPicks] = await Promise.all([this.store.app(appId), this.store.everyAgentsToolPicks()]);
+      return changed ? shownApp(changed, everyPicks) : "not found";
     });
   }
 
@@ -3234,7 +3272,8 @@ export class Workspace extends DurableObject<Env> {
    * as the administrator `credentials` signs in, answering what its page then offers: "gone" when one
    * of them isn't a connected app's tool as the administrator read it, by its fingerprint, or why not,
    * as `agentTools` answers. A tool found set aside for having changed stays set aside until it's among
-   * them, even once its server describes it as it did, so that the agent never has more than was picked.
+   * them, even once its server describes it as it did, so that the agent never has more than was picked,
+   * and is no longer always allowed, as that was said of the tool as it was.
    */
   async pickAgentTools(credentials: Credentials, agentId: UserId, picks: readonly ToolPick[]): Promise<OfferedApp[] | "gone" | "off" | "forbidden" | "not found" | null> {
     return this.administerAgents(credentials, async (user) => {
@@ -3244,7 +3283,7 @@ export class Workspace extends DurableObject<Env> {
       if (picks.some((pick) => fingerprintOf(pick) !== pick.fingerprint)) return "gone";
       const isPicked = ({ appId, name }: ToolPick) => picks.some((pick) => pick.appId === appId && pick.name === name);
       const isSetAside = (pick: StoredToolPick) => fingerprintOf(pick) !== undefined && (pick.setAside || fingerprintOf(pick) !== pick.fingerprint);
-      const setAside = before.filter((pick) => !isPicked(pick) && isSetAside(pick)).map((pick): StoredToolPick => ({ ...pick, setAside: true }));
+      const setAside = before.filter((pick) => !isPicked(pick) && isSetAside(pick)).map(({ appId, name, fingerprint }): StoredToolPick => ({ appId, name, fingerprint, setAside: true }));
       const kept: StoredToolPick[] = [...picks, ...setAside];
       await this.store.pickTools(agentId, kept, user.id, new Date().toISOString());
       return offeredApps(apps, kept);
@@ -3253,15 +3292,17 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * The connected apps' tools `agentId`, @ember or an agent, may use: those picked for it that its app
-   * still has as they were picked, by their fingerprints, and none that's set aside.
+   * still has as they were picked, by their fingerprints, and none that's set aside, each with whether
+   * its calls of it are always allowed.
    */
   private async pickedTools(agentId: UserId): Promise<PickedTool[]> {
     const picks = (await this.store.toolPicks(agentId)).filter(({ setAside }) => !setAside);
     const apps = picks.length === 0 ? [] : await this.store.apps();
-    return picks.flatMap(({ appId, name, fingerprint }) => {
+    return picks.flatMap(({ appId, name, fingerprint, alwaysAllowed }) => {
       const app = apps.find((app) => app.id === appId);
       const tool = app?.tools.find((tool) => tool.name === name && tool.fingerprint === fingerprint);
-      return app && tool ? [{ appId, appName: app.name, name, title: tool.title, description: tool.description, takes: JSON.stringify(tool.takes), fingerprint }] : [];
+      if (!app || !tool) return [];
+      return [{ appId, appName: app.name, name, title: tool.title, description: tool.description, takes: JSON.stringify(tool.takes), fingerprint, alwaysAllowed: alwaysAllowed === true }];
     });
   }
 
@@ -3269,11 +3310,25 @@ export class Workspace extends DurableObject<Env> {
    * Where a call of `tool`, a connected app's, goes for `agentId`, @ember or an agent, as the call finds
    * it when it's made: null once Ember AI is off, the app is gone, or the tool isn't picked for the
    * agent as it was, by its fingerprint, so that what an administrator takes away stops what's waiting.
+   * A call nobody was asked about, `unasked`, goes nowhere either unless the agent's calls of the tool
+   * are always allowed by then.
    */
-  async appToolCall(agentId: UserId, tool: Pick<PickedTool, "appId" | "name" | "fingerprint">): Promise<AppCallAccess | null> {
+  async appToolCall(agentId: UserId, tool: Pick<PickedTool, "appId" | "name" | "fingerprint">, unasked: boolean): Promise<AppCallAccess | null> {
     const [account, picked, app] = await Promise.all([this.joinableAccount(), this.pickedTools(agentId), this.store.app(tool.appId)]);
-    const isPicked = picked.some(({ appId, name, fingerprint }) => appId === tool.appId && name === tool.name && fingerprint === tool.fingerprint);
-    return account?.assistant && app && isPicked ? { url: app.url, token: await this.appToken(app) } : null;
+    const pick = picked.find(({ appId, name, fingerprint }) => appId === tool.appId && name === tool.name && fingerprint === tool.fingerprint);
+    const mayRun = pick !== undefined && (!unasked || pick.alwaysAllowed);
+    return account?.assistant && app && mayRun ? { url: app.url, token: await this.appToken(app), sealedToken: app.sealedToken } : null;
+  }
+
+  /**
+   * Keeps what the server of the connected app `appId` answered when a room read its tools again,
+   * `read`, as a call had found one no longer as it was picked: the tool is then set aside for every
+   * agent that had it, whose pages show how its server describes it now, while it does, and no longer
+   * always allowed (`picksChangedBy`). Kept only while the app is still asked where it was then, `askedAt`.
+   */
+  async keepAppRead(appId: AppId, read: StoredAppRead, askedAt: AskedAt): Promise<void> {
+    const picks = picksChangedBy(appId, read, await this.store.everyAgentsToolPicks());
+    await this.store.keepAppRead(appId, read, picks, askedAt, new Date().toISOString());
   }
 
   /**
