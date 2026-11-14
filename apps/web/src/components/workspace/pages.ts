@@ -29,12 +29,12 @@ export { EmojiPicker } from "@/components/emoji-picker";
 // Dialogs and panels few visits open, which load with the pages.
 export { ActivityPage } from "./activity-page";
 export { EmojiSheet } from "@/components/emoji-sheet";
-export { EmojiSheet } from "@/components/emoji-sheet";
 export { ForwardDialog } from "./forward-dialog";
 export { FilesPicker } from "./files-picker";
 export { ShareWarning } from "./share-warning";
 export { KeyboardShortcutsDialog } from "./keyboard-shortcuts-dialog";
 export { MembersDialog } from "./members-dialog";
+export { MessageEditor } from "./message-editor";
 export { NewDirectDialog } from "./new-direct-dialog";
 export { NotificationHelp } from "./notification-help";
 export { ProfilePanel } from "./profile-panel";

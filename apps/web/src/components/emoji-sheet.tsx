@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { EmojiPicker } from "./emoji-picker";
-import { DIALOG_BACKDROP } from "./workspace/dialog-styles";
+import { DIALOG_BACKDROP } from "./workspace/unsaved-changes";
 
 interface Props {
   /** How many 44px emoji a row holds, within the sheet's gutters. */

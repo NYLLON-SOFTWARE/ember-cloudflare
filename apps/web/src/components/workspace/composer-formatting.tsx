@@ -1,4 +1,4 @@
-import { useState, type RefObject } from "react";
+import { useState, type ComponentProps, type RefObject } from "react";
 import { opensLink, sendsMessage } from "@/lib/keyboard";
 import { ComposerToolbar } from "./composer-toolbar";
 import type { RichTextEditorHandle } from "./editor";
@@ -55,7 +55,8 @@ export function useFormatting(editor: RefObject<RichTextEditorHandle | null>, { 
     submit();
   };
 
-  const toolbar = (
+  // A layout that shows fewer tools, or places them, as a phone's composer row does, passes its own.
+  const toolbarWith = ({ groups, className }: Pick<ComponentProps<typeof ComposerToolbar>, "groups" | "className"> = {}) => (
     <ComposerToolbar
       formats={formats}
       onFormat={(format) => editor.current?.format(format)}
@@ -65,8 +66,11 @@ export function useFormatting(editor: RefObject<RichTextEditorHandle | null>, { 
       linkOpen={linkOpen}
       onLinkOpenChange={setLinkOpen}
       onReturnFocus={() => editor.current?.focus()}
+      groups={groups}
+      className={className}
     />
   );
+  const toolbar = toolbarWith();
 
-  return { formats, onFormats: setFormats, keyDown, toolbar };
+  return { formats, onFormats: setFormats, keyDown, toolbar, toolbarWith };
 }
