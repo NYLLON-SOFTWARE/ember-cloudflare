@@ -42,7 +42,7 @@ function renderPane(saves: SavedItem[] | null, rooms: Room[] = [general, dm], on
 
 describe("Saved pane", () => {
   /** The card's header, which names the room the save lives in and the day it was saved. */
-  const header = (card: HTMLElement) => card.firstElementChild!.firstElementChild!;
+  const header = (card: HTMLElement) => card.firstElementChild!.firstElementChild as HTMLElement;
 
   it("lists your saves, newest save first, each naming the room it lives in and the day it was saved", () => {
     renderPane([
