@@ -4,7 +4,7 @@ import { maxTokensAt, DEFAULT_LEVELS, type ModelFormat } from "@ember/protocol/a
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NOTES } from "../src/assistant/answers";
+import { NOTES, ROOM_MESSAGES_READ } from "../src/assistant/answers";
 import { askOnce, type Gateway, type Question } from "../src/assistant/gateway";
 import { MAX_FOUND_LENGTH, MESSAGES_FOUND } from "../src/assistant/room-search";
 import { goingOn, NO_CALLS_LEFT, resultsOf, TOOL_CALLS_PER_ANSWER, toolCallsIn, toolsIn, ToolError, withRoom, type EmberTool } from "../src/assistant/tool-calls";
@@ -103,6 +103,11 @@ async function caughtUp(room: RoomId): Promise<void> {
   while ((await roomSql(room, "SELECT seq FROM unindexed_messages WHERE room_id = ?", room)).length > 0) await sleep(5);
 }
 
+/** Writes enough in the room `client` is in that what was written there before isn't read with a question asked next. */
+async function moveOn(client: Client): Promise<void> {
+  for (let n = 1; n < ROOM_MESSAGES_READ; n++) await post(client, `<p>Onwards ${n}</p>`);
+}
+
 /** Asks `bot` `question` in the room `client` is in, once the search index has what was written there, answering the question and what the bot said. */
 async function ask(client: Client, room: RoomId, bot: Pick<User, "id">, question = "when is the launch?"): Promise<{ question: Message; answer: Message }> {
   await caughtUp(room);
@@ -124,6 +129,7 @@ describe("A tool Ember runs", () => {
   it("is called by Claude, which is asked again with what it said, its thinking too, and what the room's search found", async () => {
     const { general, inGeneral } = await setUp(CLAUDE);
     const said = await post(inGeneral, "<p>The launch moved to March 3.</p>");
+    await moveOn(inGeneral);
     script = [{ calls: ["launch"], written: 300 }, { text: "The launch is on March 3." }];
 
     const { answer } = await ask(inGeneral, general, EMBER);
@@ -148,6 +154,7 @@ describe("A tool Ember runs", () => {
   it("is called by GPT in Responses, whose thinking Ember asks for in a form it can send back with the call's result", async () => {
     const { general, inGeneral } = await setUp(GPT);
     await post(inGeneral, "<p>The launch moved to March 3.</p>");
+    await moveOn(inGeneral);
     script = [{ calls: ["launch"], written: 300 }, { text: "The launch is on March 3." }];
 
     const { answer } = await ask(inGeneral, general, EMBER);
@@ -169,6 +176,7 @@ describe("A tool Ember runs", () => {
   it("is called by Grok in Chat Completions, through Cloudflare's REST API", async () => {
     const { general, inGeneral } = await setUp(GROK);
     await post(inGeneral, "<p>The launch moved to March 3.</p>");
+    await moveOn(inGeneral);
     script = [{ calls: ["launch"], written: 300 }, { text: "The launch is on March 3." }];
 
     const { answer } = await ask(inGeneral, general, EMBER);
@@ -276,6 +284,32 @@ describe("A tool Ember runs", () => {
     ]);
   });
 
+  it("is left out for the rest of an answer whose model is refused going on from a call, which is asked once more, as it was, in the tokens the answer has left", async () => {
+    const { general, inGeneral } = await setUp(CLAUDE);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const goesOn = ({ body }: Asked) => JSON.stringify(body.messages).includes("tool_result");
+    refusing = (sent) => (goesOn(sent) ? Response.json({ type: "error", error: { type: "invalid_request_error", message: "messages.2: unexpected `tool_result`" } }, { status: 400 }) : null);
+    script = [{ calls: ["launch"], written: 300 }];
+
+    const { answer } = await ask(inGeneral, general, EMBER);
+    expect(answer.plainText).toBe("Hello, team!");
+    expect(answers().map(({ body }) => [body.tools !== undefined, "thinking" in body, body.max_tokens])).toEqual([
+      [true, true, maxTokensAt(DEFAULT_LEVELS)],
+      [true, true, maxTokensAt(DEFAULT_LEVELS) - 300],
+      [false, true, maxTokensAt(DEFAULT_LEVELS) - 300],
+    ]);
+    expect(answers()[2]!.body.messages).toEqual(answers()[0]!.body.messages);
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining("again without Ember's tools, as it was refused going on from a call of one"));
+
+    // Refused without them too, it isn't asked another way.
+    asked.length = 0;
+    script = [{ calls: ["launch"] }];
+    refusing = (sent) => (goesOn(sent) || !sent.body.tools ? Response.json({ type: "error", error: { type: "invalid_request_error", message: "messages: unexpected" } }, { status: 400 }) : null);
+    const { answer: note } = await ask(inGeneral, general, EMBER);
+    expect(note.plainText).not.toBe("Hello, team!");
+    expect(answers()).toHaveLength(3);
+  });
+
   it("isn't given to a model kept from before Ember offered only its own, or to an agent someone tries", async () => {
     const { ada, general, inGeneral } = await setUp(CLAUDE);
     await answerWithKeptModel({ id: GLM, name: "GLM-4.7 Flash", format: "chat", thinkingLevels: ["off"] });
@@ -314,7 +348,7 @@ describe("The room's search", () => {
     return { found: results[0]!.content, question };
   }
 
-  it("finds only the room's own messages, newest first, in its threads too, and leaves the question out", async () => {
+  it("finds only the room's own messages, newest first, in its threads too", async () => {
     const { ada, general, inGeneral } = await setUp(CLAUDE);
     const elsewhere = await createRoom("elsewhere");
     const inElsewhere = await connect(elsewhere.id, ada);
@@ -323,6 +357,7 @@ describe("The room's search", () => {
     const first = await post(inGeneral, "<p>The launch moved to March 3.</p>");
     inGeneral.send({ type: "message.create", clientMessageId: crypto.randomUUID(), body: "<p>Is the launch party on too?</p>", parentId: first.id });
     await inGeneral.next("message.created");
+    await moveOn(inGeneral);
 
     const { found } = await searching(inGeneral, general, "launch");
     const lines = found.split("\n\n");
@@ -333,10 +368,44 @@ describe("The room's search", () => {
     ]);
   });
 
+  it("leaves out the messages the model was given with the question, however many match, and finds what was written before them", async () => {
+    const { general, inGeneral } = await setUp(CLAUDE);
+    await post(inGeneral, "<p>The launch moved to March 3.</p>");
+    for (let n = 1; n < ROOM_MESSAGES_READ; n++) await post(inGeneral, `<p>Is the launch still on? Asking for the ${n}th time.</p>`);
+
+    const { found } = await searching(inGeneral, general, "launch");
+    expect(found).toMatch(/^The only message with those words:\n\n\[.+\] Ada Lovelace: The launch moved to March 3\.$/);
+  });
+
+  it("says so when only the messages the model was given match", async () => {
+    const { general, inGeneral } = await setUp(CLAUDE);
+    await post(inGeneral, "<p>The launch moved to March 3.</p>");
+
+    const { found } = await searching(inGeneral, general, "launch");
+    expect(found).toBe("No message in this room has those words, but for those of the conversation you were given.");
+    expect((await searching(inGeneral, general, "kumquat")).found).toBe("No message in this room has those words.");
+  });
+
+  it("leaves out a thread's messages when it's asked in the thread, but not the room's", async () => {
+    const { general, inGeneral } = await setUp(CLAUDE);
+    const first = await post(inGeneral, "<p>The launch moved to March 3.</p>");
+    await post(inGeneral, "<p>The launch party is at noon.</p>");
+    await caughtUp(general);
+    asked.length = 0;
+    script = [{ calls: ["launch"] }, { text: "Done." }];
+    const mention = `<action-text-attachment sgid="${mentionSgid(EMBER.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
+    inGeneral.send({ type: "message.create", clientMessageId: crypto.randomUUID(), body: `<p>${mention} when is the launch?</p>`, parentId: first.id });
+    for (;;) if ((await inGeneral.next("message.created")).message.creator.id === EMBER.id) break;
+
+    const results = (answers()[1]!.body.messages!.at(-1) as { content: Array<{ content: string }> }).content;
+    expect(results[0]!.content).toMatch(/^The only message with those words:\n\n\[.+\] Ada Lovelace: The launch party is at noon\.$/);
+  });
+
   it("answers the newest of many matches, saying there are more, and the start of a long one", async () => {
     const { general, inGeneral } = await setUp(CLAUDE);
     for (let n = 1; n <= MESSAGES_FOUND + 2; n++) await post(inGeneral, `<p>Kumquat count ${n}</p>`);
     await post(inGeneral, `<p>Kumquat ${"very ".repeat(200)}long</p>`);
+    await moveOn(inGeneral);
 
     const { found } = await searching(inGeneral, general, "kumquat");
     const [count, long, ...rest] = found.split("\n\n");

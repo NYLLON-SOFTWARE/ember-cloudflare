@@ -670,13 +670,15 @@ Ember runs for it: its model answers with a call of the tool in place of an answ
 search and asks the model again with what it found, and the model answers, or searches again. A search
 finds the room's messages that have every word the model gives, its threads' too, as Ember's search
 does for someone in the room, and never another room's, so an answer holds nothing its readers couldn't
-find themselves. It answers the newest 10, each with when it was written,
+find themselves. It answers the newest 10 but those @ember was given with the question, which would
+only crowd out what's older, each with when it was written,
 who wrote it and at most 600 characters of what it says, which the model's provider reads as it does
 the conversation. An answer makes at most 5 such calls, then the model is told to answer with what it
 has, and they share the answer's limit of tokens, so a model that spends them all searching is cut
 short as any other answer is. Every model Ember offers is given the search, with nothing to turn on;
 a model kept from before isn't, nor is a test question, and a model that stops taking the tool is asked
-again without it. Each call has the model read the conversation again, so an answer that searches costs
+again without it: one refused only once it has searched answers without it in the tokens the answer has
+left. Each call has the model read the conversation again, so an answer that searches costs
 that many more tokens read. A picture or a link that only a search found shows as a link, as the rule
 above has it, since the card and the preview are only of addresses in the messages @ember read with
 the question.

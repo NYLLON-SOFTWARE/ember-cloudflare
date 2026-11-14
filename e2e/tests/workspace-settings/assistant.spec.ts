@@ -49,6 +49,9 @@ async function openEmber(page: Page) {
 /** @ember's row in the AI assistant tab's Agents card. */
 const emberRow = (page: Page) => page.getByRole("region", { name: "Agents", exact: true }).getByRole("listitem").filter({ hasText: "Built in" });
 
+/** How many of a room's latest messages @ember reads with a question asked there, the question among them (apps/worker/src/assistant/answers.ts). */
+const ROOM_MESSAGES_READ = 20;
+
 /** The model Ember suggests, which the tests set Ember AI up with, and what Anthropic's endpoint calls it. */
 const HAIKU = { id: "anthropic/claude-haiku-5.5", there: "claude-haiku-5-5" };
 
@@ -414,6 +417,12 @@ test.describe("@ember", () => {
     // The search index takes a message a moment after its room does.
     const headers = await asAdministrator(request);
     await expect.poll(async () => ((await (await request.get(`/api/searches?q=${word}`, { headers })).json()) as { matches: unknown[] }).matches.length).toBe(1);
+    // The room moves on until that's no longer among the messages @ember reads with a question, which its search leaves out.
+    for (let n = 1; n < ROOM_MESSAGES_READ; n++) {
+      await composer.pressSequentially(`Onwards ${n}`);
+      await composer.press("Enter");
+    }
+    await expect(page.getByRole("article").filter({ hasText: `Onwards ${ROOM_MESSAGES_READ - 1}` })).toBeVisible();
 
     await composer.pressSequentially("@Embe");
     await expect(page.getByRole("listbox").getByRole("option")).toHaveText(["Ember Agent"]);

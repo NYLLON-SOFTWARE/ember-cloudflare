@@ -201,7 +201,8 @@ export interface Answered {
  * asked again without that, and then, as Search the web tries the web's tools when it's turned on,
  * without the one for reading pages, which AI Gateway may not have for every model, then without them,
  * told it can't use them, and last without the tools Ember runs, which every model Ember gives them
- * takes as far as its provider says.
+ * takes as far as its provider says. One refused only once it has called one of those isn't asked again
+ * here: `askOnce` has it answer without them in what's left of the answer's tokens.
  */
 export async function ask(env: Env, gateway: Gateway, question: Question, timeoutMs: number): Promise<Answered | GatewayRefusal> {
   const signal = AbortSignal.timeout(timeoutMs);
@@ -259,7 +260,8 @@ export async function thinkingLevelsOf(env: Env, gateway: Gateway, question: Que
  * enough: once, unless it calls tools Ember runs, when it's asked again with what each call came to, for
  * as many calls as an answer may make, and then told to answer. All its turns share the answer's tokens,
  * and its provider's tools the uses an answer allows, and one that calls a tool with too few tokens left
- * to go on took every token it could.
+ * to go on took every token it could. One that's refused going on from a call answers without Ember's
+ * tools (`withoutTools`).
  */
 export async function askOnce(env: Env, gateway: Gateway, question: Question, signal: AbortSignal): Promise<Answered | GatewayRefusal> {
   const { format } = gateway;
@@ -270,7 +272,7 @@ export async function askOnce(env: Env, gateway: Gateway, question: Question, si
   let called = 0;
   for (;;) {
     const turn = await turnOf(env, gateway, question, request, tokensLeft, signal);
-    if ("refusal" in turn) return turn;
+    if ("refusal" in turn) return called > 0 && turn.wrongFormat ? withoutTools(env, gateway, question, tokensLeft, turn, signal) : turn;
     tokensLeft = turn.tokensLeft;
     const calls = called < TOOL_CALLS_PER_ANSWER ? toolCallsIn(format, turn.body) : [];
     // Messages' sources are in what the model said in any turn, and its answer in what it said after its last call.
@@ -282,6 +284,21 @@ export async function askOnce(env: Env, gateway: Gateway, question: Question, si
     request = withRoom(format, goingOn(format, sparing(format, request, turn.body), turn.body, results), tokensLeft, called >= TOOL_CALLS_PER_ANSWER);
     saidBefore.push(...listOf(turn.body.content));
   }
+}
+
+/**
+ * What the model `gateway` names answers `question` without Ember's tools, in the `tokensLeft` of its
+ * answer's tokens, once it was `refused` going on from a call of one, as a request it can't take. It took
+ * the question with everything else it asks, so that's asked as it was, and only once more: `ask` asking
+ * it again other ways would spend the answer's tokens and calls over, and lose it thinking and the web
+ * for nothing.
+ */
+async function withoutTools(env: Env, gateway: Gateway, question: Question, tokensLeft: number, refused: GatewayRefusal, signal: AbortSignal): Promise<Answered | GatewayRefusal> {
+  console.error(`Asking ${gateway.model} again without Ember's tools, as it was refused going on from a call of one: ${refused.refusal}`);
+  const answered = await askOnce(env, gateway, { ...question, tools: [], maxTokens: tokensLeft }, signal);
+  if (!isWrongFormat(answered)) return answered;
+  const { wrongFormat: _, ...unanswered } = answered;
+  return unanswered;
 }
 
 /**

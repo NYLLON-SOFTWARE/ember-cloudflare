@@ -110,7 +110,7 @@ const WEB_TOOLS_REFUSED =
  * as fit in `MAX_CONVERSATION_LENGTH` characters, the newest first, but for a thread's first message, which
  * comes before them all.
  */
-function readable<T extends ReadMessage>(conversation: T[], inThread: boolean): T[] {
+export function readable<T extends ReadMessage>(conversation: T[], inThread: boolean): T[] {
   const question = conversation.at(-1)!;
   const before = conversation.slice(0, -1);
   const [first, ...replies] = before;

@@ -33,6 +33,7 @@ import {
   PICKED_MODEL_NOTES,
   previewAttachment,
   questionFor,
+  readable,
   ROOM_MESSAGES_READ,
   THREAD_REPLIES_READ,
   waitFor,
@@ -1448,7 +1449,8 @@ export class ChatRoom extends DurableObject<Env> {
     if (!gateway) return { text: NOTES["unopened token"] };
     const conversation = await this.conversationOf(this.storeFor(roomId), message);
     const where = { community, roomName, inThread: message.parentId !== undefined };
-    const tools = takesTools(gateway.model) ? [roomSearch(this.env, roomId, message.id)] : [];
+    const read = readable(conversation, where.inThread).map(({ id }) => id);
+    const tools = takesTools(gateway.model) ? [roomSearch(this.env, roomId, read)] : [];
     const asked = { ...questionFor({ ...bot, instructions, promptTemplate }, conversation, author, where, levels, new Date(), webTools, webSearchOn), tools };
     const [answered, people] = await Promise.all([ask(this.env, gateway, asked, waitFor(asked)), this.peopleWhoWrote(conversation)]);
     if (!("refusal" in answered)) {
