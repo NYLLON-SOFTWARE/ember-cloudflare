@@ -111,6 +111,53 @@ describe("Forward outside who can see the original", () => {
     expect(forwardMessage).not.toHaveBeenCalled();
   });
 
+  it("forwards nothing once Cancel is pressed while Forward is asking again who'd see it", async () => {
+    let answer: (check: { widens: boolean; newViewers: number; names: string[] }) => void = () => {};
+    vi.mocked(checkShare)
+      .mockResolvedValueOnce({ widens: true, newViewers: 1, names: ["Ana"] })
+      .mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    const user = show("secret");
+    await forwardTo(user, "general");
+    const warning = await screen.findByRole("alertdialog");
+    await user.click(within(warning).getByRole("button", { name: "Forward" }));
+    await user.click(within(warning).getByRole("button", { name: "Cancel" }));
+    await act(async () => answer({ widens: true, newViewers: 1, names: ["Ana"] }));
+    expect(forwardMessage).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Forward message" })).toBeInTheDocument();
+  });
+
+  it("forwards once for a double press of the warning's Forward", async () => {
+    vi.mocked(checkShare).mockResolvedValue({ widens: true, newViewers: 1, names: ["Ana"] });
+    vi.mocked(forwardMessage).mockResolvedValue(undefined as never);
+    const user = show("secret");
+    await forwardTo(user, "general");
+    const warning = await screen.findByRole("alertdialog");
+    await user.dblClick(within(warning).getByRole("button", { name: "Forward" }));
+    await waitFor(() => expect(forwardMessage).toHaveBeenCalledOnce());
+  });
+
+  it("forwards nothing, and says so, when asking again who'd see it fails", async () => {
+    vi.mocked(checkShare).mockResolvedValueOnce({ widens: true, newViewers: 1, names: ["Ana"] }).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const user = show("secret");
+    await forwardTo(user, "general");
+    const warning = await screen.findByRole("alertdialog");
+    await user.click(within(warning).getByRole("button", { name: "Forward" }));
+    expect(await screen.findByText("Couldn’t forward the message. Please try again.")).toBeInTheDocument();
+    expect(forwardMessage).not.toHaveBeenCalled();
+  });
+
+  it("sends a retry of the same forward with the same id, so it posts once though the first answer was lost", async () => {
+    vi.mocked(checkShare).mockResolvedValue({ widens: false, newViewers: 0, names: [] });
+    vi.mocked(forwardMessage).mockRejectedValueOnce(new TypeError("Failed to fetch")).mockResolvedValue(undefined as never);
+    const user = show("secret");
+    await forwardTo(user, "general");
+    await screen.findByText("Couldn’t forward the message. Please try again.");
+    await user.click(screen.getByRole("button", { name: "Forward" }));
+    await waitFor(() => expect(forwardMessage).toHaveBeenCalledTimes(2));
+    const [first, second] = vi.mocked(forwardMessage).mock.calls.map(([, , forward]) => forward.clientMessageId);
+    expect(second).toBe(first);
+  });
+
   it("asks again on Forward where who'd see it has changed since the warning opened", async () => {
     vi.mocked(checkShare).mockResolvedValueOnce({ widens: true, newViewers: 1, names: ["Ana"] }).mockResolvedValue({ widens: true, newViewers: 2, names: ["Ana", "Bo"] });
     const user = show("secret");

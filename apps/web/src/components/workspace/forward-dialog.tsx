@@ -87,6 +87,14 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
   const search = useRef<HTMLInputElement>(null);
   const noteField = useRef<HTMLTextAreaElement>(null);
   const forwardButton = useRef<HTMLButtonElement>(null);
+  // Whether Forward, or the warning's Forward, is under way, which a second press, before the page has drawn
+  // the first, leaves alone.
+  const acting = useRef(false);
+  // Counts the warning's Forward presses, so Cancel, by counting one more, stops the one under way.
+  const confirmation = useRef(0);
+  // The forward's id, the same for each try of the same forward, as of the conversation and note, so a retry
+  // after an answer that was lost doesn't post it twice.
+  const attempt = useRef<{ of: string; id: string } | null>(null);
   const [open, setOpen] = useState(true);
   const [typed, setTyped] = useState("");
   const [note, setNote] = useState("");
@@ -190,8 +198,10 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
   const forward = async (to: Destination) => {
     setBusy("forwarding");
     setFailure(null);
+    const of = `${to.room.id}/${to.parentId ?? ""}/${note}`;
+    if (attempt.current?.of !== of) attempt.current = { of, id: crypto.randomUUID() };
     try {
-      await forwardMessage(message.roomId, message.id, { to: to.room.id, parentId: to.parentId, note, clientMessageId: crypto.randomUUID() });
+      await forwardMessage(message.roomId, message.id, { to: to.room.id, parentId: to.parentId, note, clientMessageId: attempt.current.id });
       flash("notice", to.parentId ? `Message forwarded to a thread in ${labeled(to.room)}` : `Message forwarded to ${labeled(to.room)}`);
       if (mounted.current) {
         setBusy(null);
@@ -205,37 +215,66 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
   // Forward asks first where the conversation reaches people who can't see the original.
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!picked || busy || gone) return;
-    setBusy("checking");
-    setFailure(null);
-    let check: Awaited<ReturnType<typeof shareWidening>>;
+    if (!picked || busy || gone || acting.current) return;
+    acting.current = true;
     try {
-      check = await shareWidening(message.roomId, picked.room.id);
-    } catch (error) {
-      return failed(error);
+      setBusy("checking");
+      setFailure(null);
+      let check: Awaited<ReturnType<typeof shareWidening>>;
+      try {
+        check = await shareWidening(message.roomId, picked.room.id);
+      } catch (error) {
+        return failed(error);
+      }
+      if (!mounted.current) return;
+      if (check?.widens) {
+        setBusy(null);
+        setWidening(check);
+        return;
+      }
+      await forward(picked);
+    } finally {
+      acting.current = false;
     }
-    if (!mounted.current) return;
-    if (check?.widens) {
-      setBusy(null);
-      setWidening(check);
-      return;
-    }
-    await forward(picked);
   };
 
   // Asked again as the warning's Forward is pressed, as who's in either conversation may have changed while it
   // was open: the warning says so again where who'd see it now differs.
   const confirm = async (to: Destination, shown: ShareWidening) => {
-    setBusy("checking");
-    const now = await shareWidening(message.roomId, to.room.id).catch(() => undefined);
-    if (!mounted.current) return;
-    if (gone) return setBusy(null);
-    if (now?.widens && (now.newViewers !== shown.newViewers || now.names.join() !== shown.names.join())) {
-      setBusy(null);
-      return setWidening(now);
+    if (acting.current) return;
+    acting.current = true;
+    const pressed = ++confirmation.current;
+    try {
+      setBusy("checking");
+      let now: Awaited<ReturnType<typeof shareWidening>>;
+      try {
+        now = await shareWidening(message.roomId, to.room.id);
+      } catch (error) {
+        // Without knowing who'd see it now, it doesn't forward.
+        if (pressed === confirmation.current) failed(error);
+        return;
+      }
+      // Cancel was pressed meanwhile.
+      if (!mounted.current || pressed !== confirmation.current) return;
+      if (gone) return setBusy(null);
+      if (now?.widens && (now.newViewers !== shown.newViewers || now.names.join() !== shown.names.join())) {
+        setBusy(null);
+        return setWidening(now);
+      }
+      setWidening(null);
+      await forward(to);
+    } finally {
+      // Unless Cancel let go of it already, for whatever's pressed next.
+      if (pressed === confirmation.current) acting.current = false;
     }
+  };
+
+  /** The warning's Cancel, which stops its Forward if it's under way. */
+  const cancelWarning = () => {
+    confirmation.current++;
+    acting.current = false;
+    setBusy(null);
     setWidening(null);
-    await forward(to);
   };
 
   const status = gone
@@ -395,7 +434,7 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
             confirm="Forward"
             verb="Forward"
             onShare={() => void confirm(picked, widening)}
-            onCancel={() => setWidening(null)}
+            onCancel={cancelWarning}
             onReturnFocus={() => forwardButton.current?.focus({ preventScroll: true })}
             // Over Forward message's own backdrop.
             overlayClassName="bg-transparent"
