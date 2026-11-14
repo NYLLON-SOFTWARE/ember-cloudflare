@@ -1,3 +1,4 @@
+import { bodyFromPlainText } from "@ember/richtext";
 import { hasWords, isRoomId, MAX_ID_LENGTH, MAX_MESSAGE_HTML_LENGTH, MAX_SEARCH_LENGTH, sanitizeSearch, searchTerms, type Message, type RoomId, type SearchSort, type User } from "@ember/protocol";
 import { tokenDigest } from "./auth";
 import { bodyUpTo } from "./bodies";
@@ -61,6 +62,7 @@ const SCOPE_REFUSED = -32003;
 
 /** A JSON-RPC call, as far as it must parse to be answered or refused on its merits. */
 interface Rpc {
+  jsonrpc?: unknown;
   id?: unknown;
   method?: unknown;
   params?: unknown;
@@ -77,6 +79,9 @@ interface Answer {
 const answerOf = (id: unknown, result: unknown): Answer => ({ jsonrpc: "2.0", id, result });
 
 const errorOf = (id: unknown, code: number, message: string): Answer => ({ jsonrpc: "2.0", id, error: { code, message } });
+
+/** An id a refusal may be answered by, since JSON-RPC asks null for one it couldn't read. */
+const answerIdOf = (id: unknown): unknown => (typeof id === "string" || typeof id === "number" ? id : null);
 
 /** An HTTP answer that carries a JSON-RPC error, for what fails before a call could. */
 const mcpProblem = (status: number, code: number, message: string): Response =>
@@ -129,9 +134,11 @@ async function openerOf(request: Request, env: Env): Promise<{ user: User; scope
 function answerOfCall(call: unknown, user: User, scopes: ReadonlySet<string>, env: Env, request: Request): Promise<Answer | null> {
   if (typeof call !== "object" || call === null || Array.isArray(call)) return Promise.resolve(errorOf(null, INVALID_REQUEST, "Expected a JSON-RPC request"));
   const { id, method, params } = call as Rpc;
-  if (typeof method !== "string") return Promise.resolve(errorOf(id ?? null, INVALID_REQUEST, "Expected a method"));
+  if ((call as Rpc).jsonrpc !== "2.0") return Promise.resolve(errorOf(null, INVALID_REQUEST, "Expected JSON-RPC 2.0"));
+  if (typeof method !== "string") return Promise.resolve(errorOf(answerIdOf(id), INVALID_REQUEST, "Expected a method"));
   // A notification answers nothing, whatever its method.
   if (id === undefined) return Promise.resolve(null);
+  if (typeof id !== "string" && typeof id !== "number") return Promise.resolve(errorOf(null, INVALID_REQUEST, "Expected the id as a string or a number"));
   return answered(id, method, params, user, scopes, env, request);
 }
 
@@ -253,7 +260,7 @@ const SCHEMAS: Record<string, { description: string; inputSchema: { type: "objec
 async function called(id: unknown, name: string, args: Record<string, unknown>, user: User, env: Env, request: Request): Promise<Answer> {
   switch (name) {
     case "list_rooms":
-      return answerOf(id, { rooms: await listedRooms(user, env) });
+      return resultOf(id, { rooms: await listedRooms(user, env) });
     case "get_room_history":
       return historyAnswer(id, args, user, env, request);
     case "search_messages":
@@ -261,13 +268,16 @@ async function called(id: unknown, name: string, args: Record<string, unknown>, 
     case "get_thread":
       return threadAnswer(id, args, user, env, request);
     case "get_people":
-      return answerOf(id, { people: await listedPeople(env) });
+      return resultOf(id, { people: await listedPeople(env) });
     case "post_message":
       return postAnswer(id, args, user, env, request);
     default:
       return errorOf(id, METHOD_NOT_FOUND, `There is no tool called ${JSON.stringify(name)}`);
   }
 }
+
+/** A tool's successful answer: its data as one JSON text content block, as MCP's CallToolResult asks. */
+const resultOf = (id: unknown, result: unknown): Answer => answerOf(id, { content: [{ type: "text", text: JSON.stringify(result) }] });
 
 /** `value` as one of the tool's texts, or null when it isn't a string within `max` characters. */
 const textOf = (value: unknown, max: number): string | null => (typeof value === "string" && value.length <= max ? value : null);
@@ -328,7 +338,7 @@ async function historyAnswer(id: unknown, args: Record<string, unknown>, user: U
   const page = await env.CHAT_ROOM.getByName(roomId).botPage(roomId, { before, after }, limitOf(args.limit, HISTORY_LIMIT) ?? undefined);
   if (page === null) return refusedRoom(id);
   const origin = originFor(request, access.customDomain);
-  return answerOf(id, {
+  return resultOf(id, {
     messages: page.messages.filter(({ deleted }) => !deleted).map((message) => shownOf(message, origin)),
     hasMore: page.hasMore,
     hasNewer: page.hasNewer,
@@ -359,7 +369,7 @@ async function searchAnswer(id: unknown, args: Record<string, unknown>, user: Us
   const { hits } = await searchIndex(env).search(search);
   const origin = originFor(request, searcher.customDomain);
   const matches = (await matchesOf(env, hits.slice(0, limit))).map(({ message, words }) => ({ message: shownOf(message, origin), words }));
-  return answerOf(id, { matches });
+  return resultOf(id, { matches });
 }
 
 /** A message's thread, once the room it's in is the token's person's. */
@@ -373,7 +383,7 @@ async function threadAnswer(id: unknown, args: Record<string, unknown>, user: Us
   const thread = await env.CHAT_ROOM.getByName(roomId).botThread(roomId, messageId);
   if (thread === null || thread[0]!.deleted) return refusedRoom(id);
   const origin = originFor(request, access.customDomain);
-  return answerOf(id, {
+  return resultOf(id, {
     parent: shownOf(thread[0]!, origin),
     replies: thread.slice(1).filter(({ deleted }) => !deleted).map((message) => shownOf(message, origin)),
   });
@@ -396,10 +406,10 @@ async function postAnswer(id: unknown, args: Record<string, unknown>, user: User
   const access = await roomAccessIn(env, user, roomId, request);
   if (access === null) return refusedRoom(id);
   if (access.banned) return saidOf(id, "A ban blocks the address this request came from.", true);
-  const created = await env.CHAT_ROOM.getByName(roomId).createUserMessage(roomId, user, access.authorizedAt, body, threadId);
+  const created = await env.CHAT_ROOM.getByName(roomId).createUserMessage(roomId, user, access.authorizedAt, bodyFromPlainText(body), threadId);
   if (created === null) return refusedRoom(id);
   if (typeof created === "string") return saidOf(id, created, true);
-  return answerOf(id, { message: shownOf(created, originFor(request, access.customDomain)) });
+  return resultOf(id, { message: shownOf(created, originFor(request, access.customDomain)) });
 }
 
 /** What the Workspace says about the token's person in room `roomId`. */

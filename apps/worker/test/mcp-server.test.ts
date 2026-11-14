@@ -14,6 +14,7 @@ import {
   signIn,
   type Session,
   type Socket,
+  withWorkspaceEnv,
 } from "./support";
 
 // The MCP server at /mcp, and the personal access tokens it opens with, which the API tokens section
@@ -52,6 +53,10 @@ const said = ({ result }: { result?: Record<string, unknown> }): string => {
   return content[0]!.text;
 };
 
+/** What a tool's answer carried, as the JSON its one text content block holds. */
+const dataOf = ({ result }: { result?: Record<string, unknown> }): Record<string, unknown> =>
+  JSON.parse((result!.content as Array<{ type: string; text: string }>)[0]!.text) as Record<string, unknown>;
+
 /** The initialize the server answers a token with. */
 const initialize = (token: string) => mcp(token, { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", clientInfo: { name: "test", version: "1" } } });
 
@@ -82,7 +87,9 @@ describe("Personal access tokens", () => {
 
     const rooms = await freshRoom("used-here");
     const response = await toolOf(token, "list_rooms");
-    expect(response.result).toEqual({ rooms: [expect.objectContaining({ id: rooms })] });
+    // The data rides in one text content block, as MCP's CallToolResult asks.
+    expect(response.result).toEqual({ content: [{ type: "text", text: expect.any(String) }] });
+    expect(dataOf(response).rooms).toEqual([expect.objectContaining({ id: rooms })]);
     // Using it kept when it was last used.
     const after = (await (await api("/api/account/tokens", { headers: { Cookie: ada.cookie } })).json()) as ApiTokens;
     expect(after.tokens[0]!.lastUsedAt).not.toBeNull();
@@ -155,6 +162,29 @@ describe("The MCP server", () => {
     expect(tool.error!.code).toBe(-32601);
   });
 
+  it("refuses a call that isn't JSON-RPC 2.0, or whose id isn't a string or a number", async () => {
+    const { token } = await tokenOf(await signIn("Ada"));
+    for (const malformed of [
+      { id: 1, method: "ping" },
+      { jsonrpc: "1.0", id: 1, method: "ping" },
+      { jsonrpc: "2.0", id: {}, method: "ping" },
+      { jsonrpc: "2.0", id: null, method: "ping" },
+      { jsonrpc: "2.0", id: [1], method: "ping" },
+    ]) {
+      const refused = await mcp(token, malformed);
+      expect(refused.status, JSON.stringify(malformed)).toBe(200);
+      const answer = (await refused.json()) as { id: unknown; error?: { code: number }; result?: unknown };
+      expect(answer.error?.code, JSON.stringify(malformed)).toBe(-32600);
+      // A malformed id is answered with a null one, as JSON-RPC asks.
+      expect(answer.id, JSON.stringify(malformed)).toBe(null);
+      expect(answer.result, JSON.stringify(malformed)).toBeUndefined();
+    }
+    // A notification shaped just as badly is refused, since it isn't a well-formed one.
+    const notification = await mcp(token, { method: "notifications/initialized" });
+    expect(notification.status).toBe(200);
+    expect(((await notification.json()) as { id: unknown; error: { code: number } }).error.code).toBe(-32600);
+  });
+
   it("lists the rooms its person is in, and neither a room they're not in nor a DM they're out of", async () => {
     const host = await signIn("Host");
     const ada = await signIn("Ada");
@@ -163,8 +193,7 @@ describe("The MCP server", () => {
     const secret = await createRoom("secret", { closedTo: [ada.user.id], as: host });
     await direct(host, ada);
     const { token } = await tokenOf(grace);
-    const { result } = await toolOf(token, "list_rooms");
-    const listed = result!.rooms as Array<{ id: string; kind: string; name: string; unread: boolean }>;
+    const listed = dataOf(await toolOf(token, "list_rooms")).rooms as Array<{ id: string; kind: string; name: string; unread: boolean }>;
     expect(listed.map(({ id }) => id)).not.toContain(secret.id);
     expect(listed.filter(({ id }) => id === shared)).toHaveLength(1);
     // Every room it names is one its person can open.
@@ -180,22 +209,22 @@ describe("The MCP server", () => {
     const second = await post(client, "second message");
     const { token } = await tokenOf(grace);
 
-    const { result } = await toolOf(token, "get_room_history", { room_id: room });
-    const messages = result!.messages as Array<{ id: string; author: { id: string; name: string }; plain_text: string; permalink: string }>;
+    const page = dataOf(await toolOf(token, "get_room_history", { room_id: room }));
+    const messages = page.messages as Array<{ id: string; author: { id: string; name: string }; plain_text: string; permalink: string }>;
     expect(messages.map(({ id, plain_text }) => ({ id, plain_text }))).toEqual([
       { id: first.id, plain_text: "first message" },
       { id: second.id, plain_text: "second message" },
     ]);
     expect(messages[0]!.author).toEqual(shown(ada.user));
     expect(messages[0]!.permalink).toBe(`https://ember.test/rooms/${room}/@${first.id}`);
-    expect(result!.hasMore).toBe(false);
+    expect(page.hasMore).toBe(false);
 
     // One more before the first, so the page from it can be asked for.
     const newer = await post(client, "newest message");
-    const paged = await toolOf(token, "get_room_history", { room_id: room, after: first.id, limit: 2 });
-    const newerMessages = paged.result!.messages as Array<{ id: string }>;
+    const paged = dataOf(await toolOf(token, "get_room_history", { room_id: room, after: first.id, limit: 2 }));
+    const newerMessages = paged.messages as Array<{ id: string }>;
     expect(newerMessages.map(({ id }) => id)).toEqual([second.id, newer.id]);
-    expect(paged.result!.hasNewer).toBe(false);
+    expect(paged.hasNewer).toBe(false);
   });
 
   it("reads a thread a message has, parent first", async () => {
@@ -206,9 +235,9 @@ describe("The MCP server", () => {
     const parent = await post(client, "a question");
     const reply = await postReply(client, "an answer", parent.id);
     const { token } = await tokenOf(grace);
-    const { result } = await toolOf(token, "get_thread", { room_id: room, message_id: parent.id });
-    expect((result!.parent as { id: string }).id).toBe(parent.id);
-    expect((result!.replies as Array<{ id: string; thread_id: string }>).map(({ id, thread_id }) => ({ id, thread_id }))).toEqual([
+    const thread = dataOf(await toolOf(token, "get_thread", { room_id: room, message_id: parent.id }));
+    expect((thread.parent as { id: string }).id).toBe(parent.id);
+    expect((thread.replies as Array<{ id: string; thread_id: string }>).map(({ id, thread_id }) => ({ id, thread_id }))).toEqual([
       { id: reply.id, thread_id: parent.id },
     ]);
     // A reply has no thread of its own.
@@ -250,16 +279,16 @@ describe("The MCP server", () => {
     await caughtUp(secret.id);
     const { token } = await tokenOf(grace);
 
-    const found = await toolOf(token, "search_messages", { query: "hovercraft" });
-    const matches = found.result!.matches as Array<{ message: { plain_text: string } }>;
+    const found = dataOf(await toolOf(token, "search_messages", { query: "hovercraft" }));
+    const matches = found.matches as Array<{ message: { plain_text: string } }>;
     expect(matches.map(({ message }) => message.plain_text)).toEqual(["My hovercraft is full of eels"]);
 
-    const nothing = await toolOf(token, "search_messages", { query: "sycamore" });
-    expect(nothing.result!.matches).toEqual([]);
+    const nothing = dataOf(await toolOf(token, "search_messages", { query: "sycamore" }));
+    expect(nothing.matches).toEqual([]);
 
     // Keeping to a room they're in narrows the search; one they're not in refuses.
-    const inRoom = await toolOf(token, "search_messages", { query: "hovercraft", room_id: shared });
-    expect(((inRoom.result!.matches as unknown[])!).length).toBe(1);
+    const inRoom = dataOf(await toolOf(token, "search_messages", { query: "hovercraft", room_id: shared }));
+    expect((inRoom.matches as unknown[]).length).toBe(1);
     const elsewhere = await toolOf(token, "search_messages", { query: "hovercraft", room_id: secret.id });
     expect(said(elsewhere as never)).toBe("Room not found or inaccessible");
   });
@@ -272,22 +301,33 @@ describe("The MCP server", () => {
     const parent = await post(client, "what should we build?");
     const { token } = await tokenOf(grace);
 
-    const posted = await toolOf(token, "post_message", { room_id: room, body: "a treehouse" });
-    const message = posted.result!.message as { id: string; author: { id: string }; plain_text: string; permalink: string };
+    const posted = dataOf(await toolOf(token, "post_message", { room_id: room, body: "a treehouse" }));
+    const message = posted.message as { id: string; author: { id: string }; plain_text: string; permalink: string };
     expect(message.author).toEqual(shown(grace.user));
     expect(message.plain_text).toBe("a treehouse");
     expect(message.permalink).toBe(`https://ember.test/rooms/${room}/@${message.id}`);
 
-    const replied = await toolOf(token, "post_message", { room_id: room, body: "with a rope ladder", thread_id: parent.id });
-    expect(((replied.result!.message as { thread_id: string }).thread_id)).toBe(parent.id);
+    const replied = dataOf(await toolOf(token, "post_message", { room_id: room, body: "with a rope ladder", thread_id: parent.id }));
+    expect((replied.message as { thread_id: string }).thread_id).toBe(parent.id);
 
     // What it posted is there for the room, as a reply in the thread.
-    const thread = await toolOf(token, "get_thread", { room_id: room, message_id: parent.id });
-    expect((thread.result!.replies as Array<{ plain_text: string }>).map(({ plain_text }) => plain_text)).toEqual(["with a rope ladder"]);
+    const thread = dataOf(await toolOf(token, "get_thread", { room_id: room, message_id: parent.id }));
+    expect((thread.replies as Array<{ plain_text: string }>).map(({ plain_text }) => plain_text)).toEqual(["with a rope ladder"]);
 
     const secret = await createRoom("secret", { closedTo: [ada.user.id], as: ada });
     const refused = await toolOf(token, "post_message", { room_id: secret.id, body: "not allowed" });
     expect(said(refused as never)).toBe("Room not found or inaccessible");
+  });
+
+  it("posts a body that looks like markup as the plain text it says it is", async () => {
+    const grace = await signIn("Grace");
+    const room = await freshRoom("literal");
+    const { token } = await tokenOf(grace);
+    const body = `<b>bold</b> & "quoted" <script>alert(1)</script>`;
+    const posted = dataOf(await toolOf(token, "post_message", { room_id: room, body }));
+    expect(posted.message).toMatchObject({ plain_text: body });
+    const history = dataOf(await toolOf(token, "get_room_history", { room_id: room }));
+    expect((history.messages as Array<{ plain_text: string }>).map(({ plain_text }) => plain_text)).toEqual([body]);
   });
 
   it("refuses a message with nothing in it, and one too long, as the composer's path does", async () => {
@@ -308,8 +348,7 @@ describe("The MCP server", () => {
     await signIn("Ada");
     const grace = await signIn("Grace");
     const { token } = await tokenOf(grace);
-    const { result } = await toolOf(token, "get_people");
-    const people = result!.people as Array<Record<string, unknown>>;
+    const people = dataOf(await toolOf(token, "get_people")).people as Array<Record<string, unknown>>;
     expect(people.map(({ name }) => name).sort()).toEqual(["Ada", "Grace", "Host"]);
     for (const person of people) expect(Object.keys(person).sort()).toEqual(["id", "name", "role", "status"]);
   });
