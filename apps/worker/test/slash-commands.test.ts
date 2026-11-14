@@ -2,7 +2,7 @@ import { type BotAnswer, type BotSettings, type NewWorkspace, type RoomId, type 
 import { botMessagesPath, type Commands } from "@ember/protocol/bots";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, connect, cookieOf, freshDeploy, framesOf, post, settle, shown, signIn, workspaceSql, forwardUpgrade, type Session, type Socket } from "./support";
+import { api, connect, cookieOf, createRoom, freshDeploy, framesOf, post, settle, shown, signIn, workspaceSql, forwardUpgrade, type Session, type Socket } from "./support";
 
 // Slash commands and bots' subscriptions to message events (migrations/0065_commands.sql): typing
 // /name text in a room the bot is in delivers what was typed to its webhook, as Slack tells a slash
@@ -112,6 +112,22 @@ describe("Registering commands", () => {
     expect((await register(ada, "no such person", "build")).status).toBe(404);
     // Nothing of the refused ones was kept.
     expect(await workspaceSql("SELECT name FROM commands")).toEqual([{ name: "deploy" }]);
+  });
+
+  it("tells whoever reads of the events' rooms only what they may read: an administrator every subscription, and a member their own rooms'", async () => {
+    const { ada, bot, general } = await withBot();
+    expect((await subscribe(ada, bot.id, general)).status).toBe(204);
+    // A closed room the bot was added to, whose subscription names a room not everyone reads of.
+    const room = (await createRoom("Secret", { closedTo: [ada.user.id, bot.id], as: ada })).id;
+    expect((await subscribe(ada, bot.id, room)).status).toBe(204);
+    const grace = await signIn("Grace Hopper");
+
+    // Grace is in the open room, and in no closed one, so its subscription says nothing to her.
+    const hers = ((await (await api("/api/account/commands", { headers: { Cookie: grace.cookie } })).json()) as Commands).subscriptions;
+    expect(hers).toEqual([{ botId: bot.id, roomId: general }]);
+    const administratorSees = ((await (await api("/api/account/commands", { headers: { Cookie: ada.cookie } })).json()) as Commands).subscriptions;
+    expect(administratorSees).toHaveLength(2);
+    expect(administratorSees).toEqual(expect.arrayContaining([{ botId: bot.id, roomId: general }, { botId: bot.id, roomId: room }]));
   });
 });
 
@@ -300,6 +316,74 @@ describe("Message events", () => {
     const sent = sentIn(delivered[0]!);
     expect(sent.type).toBe("event_callback");
     expect(sent.text).toContain("ship it");
+  });
+
+  it("reads a mention's answer as a delivery's always was, whose JSON a room keeps as a file", async () => {
+    const { ada, bot, general } = await withBot();
+    const inRoom = await connect(general, ada);
+    botsAnswering({ blocks: [{ type: "section", text: { type: "mrkdwn", text: "Shipped *v42*" } }] });
+
+    // `post` hears the writer's own message first; what the bot says back follows it.
+    await post(inRoom, `@Deploy Bot ${mention(bot)}, ship it`);
+    const { message } = await inRoom.next("message.created");
+    expect(message).toMatchObject({
+      creator: { id: bot.id },
+      plainText: "attachment.json",
+      attachment: { name: "attachment.json", contentType: "application/json" },
+    });
+    await settle(inRoom);
+  });
+
+  it("posts a payload of blocks a bot answers a watched room's event with as its card", async () => {
+    const { ada, bot, general } = await withBot();
+    expect((await subscribe(ada, bot.id, general)).status).toBe(204);
+    const inRoom = await connect(general, ada);
+    botsAnswering({
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "Shipped *v42* to production" },
+          accessory: { type: "button", text: { type: "plain_text", text: "Open it" }, action_id: "open" },
+        },
+      ],
+    });
+
+    // `post` hears the writer's own message first; the bot's card answers it next, as a command's
+    // blocks answer would.
+    await post(inRoom, "Anyone there?");
+    const { message } = await inRoom.next("message.created");
+    expect(message).toMatchObject({
+      creator: { id: bot.id },
+      plainText: "Shipped v42 to production\nOpen it",
+      cards: [{ source: "blocks", parts: [{ kind: "section", button: { text: "Open it", action: { id: "open" } } }] }],
+    });
+    await settle(inRoom);
+  });
+
+  it("waits while a person's earlier events are answered, and delivers no more of theirs than of their commands", async () => {
+    const { ada, bot, general } = await withBot();
+    expect((await subscribe(ada, bot.id, general)).status).toBe(204);
+    const kai = await connect(general, "Kai");
+    const inRoom = await connect(general, ada);
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    // A webhook that answers once it's let holds each delivery to its turn.
+    const gate = Promise.withResolvers<void>();
+    const delivered = bots(async () => {
+      await gate.promise;
+      return new Response(null, { status: 200 });
+    });
+
+    for (const text of ["one", "two", "three", "four"]) await post(kai, text);
+    await vi.waitFor(() => expect(delivered.length).toBeGreaterThanOrEqual(2));
+    // Whoever else writes still has their event delivered while Kai's first wait theirs.
+    await post(inRoom, "From Ada");
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(expect.stringMatching(/to bot .* dropped: .*'s earlier events are still waiting$/)));
+
+    gate.resolve();
+    await vi.waitFor(() => expect(delivered).toHaveLength(4));
+    expect(delivered.map(({ init }) => (JSON.parse(init.body as string) as { text: string }).text)).toEqual(["one", "two", "three", "From Ada"]);
+    await settle(kai);
+    await settle(inRoom);
   });
 
   it("takes a bot off a room's messages when unticked, and refuses a tick for a room it isn't in", async () => {
