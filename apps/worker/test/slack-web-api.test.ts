@@ -154,6 +154,32 @@ describe("Slack Web API posting", () => {
     });
   });
 
+  it("takes a form's or query's mrkdwn word for the boolean it says, as a JSON body's own goes", async () => {
+    const { bot, general } = await withBot();
+    const urlencoded = await send("chat.postMessage", bot.key, `channel=${general}&text=*literal*&mrkdwn=false`, {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+    expect(await envelopeOf(urlencoded)).toEqual([200, expect.objectContaining({ ok: true })]);
+
+    const multipart = new FormData();
+    multipart.set("channel", general);
+    multipart.set("text", "_still literal_");
+    multipart.set("mrkdwn", "false");
+    expect(await envelopeOf(await send("chat.postMessage", bot.key, multipart))).toEqual([200, expect.objectContaining({ ok: true })]);
+
+    // A query's word, too, which a GET's fields are, and a form's true keeps its formatting.
+    const queried = await send("chat.postMessage?mrkdwn=false", bot.key, { channel: general, text: "~unstruck~" });
+    expect(await envelopeOf(queried)).toEqual([200, expect.objectContaining({ ok: true })]);
+    const trueWord = await send("chat.postMessage", bot.key, `channel=${general}&text=*bold*&mrkdwn=true`, {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+    expect(await envelopeOf(trueWord)).toEqual([200, expect.objectContaining({ ok: true })]);
+    expect(await historyOf(bot.key, general)).toMatchObject({
+      ok: true,
+      messages: [{ text: "bold" }, { text: "~unstruck~" }, { text: "_still literal_" }, { text: "*literal*" }],
+    });
+  });
+
   it("answers in the envelope what it refuses, at 200, posting nothing", async () => {
     const { administrator, bot, general } = await withBot();
     const closed = await createRoom("Launch", { closedTo: [administrator.user.id], as: administrator });
@@ -206,11 +232,11 @@ describe("Slack Web API editing", () => {
     const { bot, general } = await withBot();
     const posted = (await (await send("chat.postMessage", bot.key, { channel: general, text: "Deploying", attachments: [{ title: "web" }] })).json()) as { ts?: string };
     const updated = await send("chat.update", bot.key, { channel: general, ts: posted.ts, text: "Deployed to *production*" });
-    expect(await envelopeOf(updated)).toEqual([200, { ok: true, channel: general, ts: posted.ts, message: expect.objectContaining({ text: "Deployed to production" }) }]);
+    expect(await envelopeOf(updated)).toEqual([200, { ok: true, channel: general, ts: posted.ts, text: "Deployed to production", message: expect.objectContaining({ text: "Deployed to production" }) }]);
     expect(await historyOf(bot.key, general)).toMatchObject({ ok: true, messages: [{ text: "Deployed to production" }] });
 
     const blocks = await send("chat.update", bot.key, { channel: general, ts: posted.ts, blocks: [{ type: "section", text: { type: "mrkdwn", text: "*Rolled* back" } }] });
-    expect(await envelopeOf(blocks)).toEqual([200, { ok: true, channel: general, ts: posted.ts, message: expect.objectContaining({ text: "Rolled back" }) }]);
+    expect(await envelopeOf(blocks)).toEqual([200, { ok: true, channel: general, ts: posted.ts, text: "Rolled back", message: expect.objectContaining({ text: "Rolled back" }) }]);
     expect(await historyOf(bot.key, general)).toMatchObject({ ok: true, messages: [{ text: "Rolled back" }] });
     const cards = (await roomSql(general, "SELECT cards FROM messages WHERE id = ?", posted.ts!)) as Array<{ cards: string | null }>;
     expect(cards).toEqual([{ cards: expect.stringContaining("Rolled") }]);
