@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { RoomGuest, RoomId, RoomPerson, UserId } from "@ember/protocol";
+import { guestSignInLink, type RoomGuest, type RoomId, type RoomPerson, type UserId } from "@ember/protocol";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FIELD_INPUT } from "@/components/field";
@@ -224,7 +224,7 @@ export function RoomGuests({ roomId, guests, onSaved, onEnded, onFailed }: Props
         )}
         <p id="guest_until_note" className={NOTE}>
           The guest signs in with just the name you give them, and stops at their stay's end. Send them to{" "}
-          {`${location.origin}/sign-in?guest=1`} to sign in with it.
+          {guestSignInLink(location.origin)} to sign in with it.
         </p>
         <Button type="submit" disabled={busy === "add" || name.trim() === ""} className="h-[42px] rounded-[9px] font-[550] touch:h-11">
           Add guest
