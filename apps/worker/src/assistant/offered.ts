@@ -207,6 +207,16 @@ export async function offeredModel(env: Env, model: string, keys: ModelSearchKey
 }
 
 /**
+ * Whether `model` is given the tools Ember runs (tool-calls.ts): one the models file lists, each of which
+ * takes them in the format Ember asks it in. One of Workers AI's is asked in a format of its own, whose
+ * only tool is Ember's for searching the web, and a model kept from before Ember offered its own may take
+ * none, and would be asked every question twice, the second time without them.
+ */
+export async function takesEmbersTools(env: Env, model: string): Promise<boolean> {
+  return !isWorkersAiModel(model) && offeredModelOf(model, (await modelsFileOf(env)).models) !== undefined;
+}
+
+/**
  * The format `model`, which took its test question in `format`, searches the web in (`searchFormatOf`)
  * through the account `keys` names, or null when it can't: when the models file says it may do nothing
  * there, or it's one of Workers AI's that the model search doesn't list, as it lists only those that

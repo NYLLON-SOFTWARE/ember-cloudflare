@@ -68,17 +68,31 @@ interface Asked {
   };
 }
 
-/** Stands in for AI Gateway, answering each request with `answer`, and keeping what it's sent. */
+/**
+ * Stands in for AI Gateway, answering each request with `answer`, and keeping what it's sent, but for the
+ * tools Ember runs itself, which an answer in a room is given beside the web's (ember-tools.test.ts).
+ */
 function fakeGateway(answer: (asked: Asked) => Response | Promise<Response>): Asked[] {
   const requests: Asked[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
     const { headers } = request;
-    const asked = { url: request.url, authorization: headers.get("Authorization"), aigAuthorization: headers.get("cf-aig-authorization"), body: (await request.json()) as Asked["body"] };
+    const { tools, ...body } = (await request.json()) as Asked["body"];
+    const webTools = tools?.filter((tool) => !isEmbersTool(tool)) ?? [];
+    const asked = { url: request.url, authorization: headers.get("Authorization"), aigAuthorization: headers.get("cf-aig-authorization"), body: { ...body, ...(webTools.length > 0 && { tools: webTools }) } };
     requests.push(asked);
     return answer(asked);
   });
   return requests;
+}
+
+/**
+ * Whether `tool` is one Ember runs, as Messages or Responses lists one, rather than one of a provider's own
+ * or Ember's own for searching the web, which Chat Completions lists as a function too.
+ */
+function isEmbersTool(tool: unknown): boolean {
+  const { type, function: called } = tool as { type?: string; function?: { name?: string } };
+  return type === undefined || (type === "function" && called?.name !== "web_search");
 }
 
 /** Whether a request to `url` goes to one of AI Gateway's endpoints for each provider, as Ember asks Claude and GPT, and not to Cloudflare's API. */

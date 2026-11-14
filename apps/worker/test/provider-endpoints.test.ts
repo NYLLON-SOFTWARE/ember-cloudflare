@@ -57,7 +57,7 @@ function providerNameOf(model: string): string {
 interface Asked {
   url: string;
   aigAuthorization: string | null;
-  body: { model?: string; tools?: Array<{ type: string }>; thinking?: unknown; reasoning?: { effort?: string }; reasoning_effort?: string };
+  body: { model?: string; tools?: Array<{ type?: string }>; thinking?: unknown; reasoning?: { effort?: string }; reasoning_effort?: string };
 }
 
 /** A page the model finds on the web, as Anthropic's Messages gives it, and its answer citing it. */
@@ -86,7 +86,7 @@ function answering({ url, body }: Asked): Response {
   if (url.startsWith(PROVIDER_ENDPOINTS) && !run) return Response.json({ success: false, result: [], messages: [], error: [{ code: 2009, message: "Unauthorized" }] }, { status: 401 });
   if (url.startsWith(PROVIDER_ENDPOINTS) && unknownThere.includes(body.model ?? "")) return Response.json({ type: "error", error: { type: "not_found_error", message: `model: ${body.model}` } }, { status: 404 });
   if (url.endsWith("/messages")) {
-    const content = (body.tools ?? []).some(({ type }) => type.startsWith("web_search")) ? SEARCHED : [{ type: "text", text: "Hello, team!" }];
+    const content = (body.tools ?? []).some(({ type }) => type?.startsWith("web_search")) ? SEARCHED : [{ type: "text", text: "Hello, team!" }];
     return Response.json({ type: "message", role: "assistant", content, stop_reason: "end_turn", usage: { input_tokens: 100, output_tokens: 10 } });
   }
   if (url.endsWith("/responses")) return Response.json({ object: "response", status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "Hello, team!" }] }] });
