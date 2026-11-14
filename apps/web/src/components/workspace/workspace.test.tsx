@@ -976,6 +976,7 @@ describe("Rail", () => {
   });
 });
 
+<<<<<<< HEAD
 describe("Do not disturb", () => {
   const HUSHED = new Date(Date.now() + 60 * 60_000).toISOString();
   const profileLink = () => screen.getByRole("link", { name: "Your profile" });
@@ -1097,6 +1098,20 @@ describe("Do not disturb", () => {
     await act(async () => answer(Response.json({ dndUntil: HUSHED })));
     expect(profileLink()).toHaveAttribute("title", "Ada");
     expect(hush).not.toBeDisabled();
+=======
+describe("Saved pane", () => {
+  it("opens beside the room, and closes when a Jump is followed, which covers the message below 1180px wide", async () => {
+    const grace = { id: "u2", name: "Grace" };
+    const said: Message = { id: "m1", clientMessageId: "m1", roomId: "general", creator: grace, body: "For later", plainText: "For later", mentions: [], createdAt: NOON, updatedAt: NOON, editedAt: null, boosts: [] };
+    serve({ "GET /api/saves": () => Response.json({ saves: [{ id: "save-1", roomId: "general", messageId: "m1", createdAt: 0, message: said }] }) });
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    await user.click(screen.getByRole("button", { name: "Saved" }));
+    const pane = await screen.findByRole("complementary", { name: "Saved" });
+    await user.click(within(pane).getByRole("link", { name: "Jump" }));
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Saved" })).not.toBeInTheDocument());
+    expect(location.pathname).toBe("/rooms/general/@m1");
+>>>>>>> b1bbf5f9 (Close the Saved pane at the message Jump goes to)
   });
 });
 

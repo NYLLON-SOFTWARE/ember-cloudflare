@@ -454,10 +454,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // remove here. Another tab's saves aren't heard of until it loads again.
   const saver = useSaves(failed);
   // Whether the Saved pane is open beside the room, which lives as long as the page, as Activity's
-  // filter does. A thread open beside the room takes its place, so one opening closes the other.
+  // filter does. A thread open beside the room takes its place, so one opening closes the other, and
+  // a permalink followed closes it too, where below 1180px wide it covers the message it jumped to.
   const [savedOpen, setSavedOpen] = useState(false);
   useEffect(() => {
-    if (route.page === "room" && route.threadId !== undefined) setSavedOpen(false);
+    if (route.page === "room" && (route.threadId !== undefined || route.messageId !== undefined)) setSavedOpen(false);
   }, [route]);
   // A room just saved takes its place in the list, and one that's gone leaves it.
   const listRoom = useCallback((room: Room) => changeRooms({ type: "saved", room }), []);
