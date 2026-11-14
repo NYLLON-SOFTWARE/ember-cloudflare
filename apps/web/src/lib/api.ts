@@ -61,6 +61,8 @@ import {
   type PersonRole,
   type ProfileAnswer,
   type ProfileChanges,
+  type ProfileField,
+  type ProfileFieldChange,
   type PushSubscriptionKeys,
   type PushSubscriptionSave,
   type PushSubscriptions,
@@ -383,6 +385,31 @@ export async function fetchWorkspaceSettings(): Promise<WorkspaceSettings> {
 /** Changes the workspace, answering it as it is then. Fails with a 403 ApiError for anyone but an administrator. */
 export async function changeAccount(changes: AccountChanges): Promise<Account> {
   return (await request<{ account: Account }>("/api/account", { method: "PATCH", body: JSON.stringify(changes) })).account;
+}
+
+/** The workspace's profile fields, in the order they come in the profile. Fails with a 403 ApiError for anyone but an administrator. */
+export async function fetchProfileFields(): Promise<ProfileField[]> {
+  return (await request<{ fields: ProfileField[] }>("/api/account/profile_fields")).fields;
+}
+
+/** Adds a profile field, answering the fields as they are then. */
+export async function addProfileField(change: ProfileFieldChange): Promise<ProfileField[]> {
+  return (await request<{ fields: ProfileField[] }>("/api/account/profile_fields", { method: "POST", body: JSON.stringify(change) })).fields;
+}
+
+/** Renames a profile field and sets its choices, answering the fields as they are then. */
+export async function changeProfileField(id: string, change: ProfileFieldChange): Promise<ProfileField[]> {
+  return (await request<{ fields: ProfileField[] }>(`/api/account/profile_fields/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(change) })).fields;
+}
+
+/** Puts the fields in the order `ids` name them, answering the fields as they are then. */
+export async function reorderProfileFields(ids: string[]): Promise<ProfileField[]> {
+  return (await request<{ fields: ProfileField[] }>("/api/account/profile_fields/order", { method: "PUT", body: JSON.stringify({ ids }) })).fields;
+}
+
+/** Takes a profile field away, with what anyone saved for it, answering the fields as they are then. */
+export async function deleteProfileField(id: string): Promise<ProfileField[]> {
+  return (await request<{ fields: ProfileField[] }>(`/api/account/profile_fields/${encodeURIComponent(id)}`, { method: "DELETE" })).fields;
 }
 
 /** What `domain`, a custom domain Ember moved away from, reaches, as Check in Workspace settings asks: this Ember, something else, or nothing. */

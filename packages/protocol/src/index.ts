@@ -885,6 +885,11 @@ export interface Person extends DirectoryUser {
 export interface PersonAnswer {
   person: Person;
   /**
+   * The workspace's profile fields, in the order they come in the profile, with what this person saved
+   * for each, "" for none, which their page shows for the ones they filled in.
+   */
+  fields: ProfileFieldEntry[];
+  /**
    * The id in a new sign-in link for them (`transferLink`), which administrators are given for anyone
    * active who isn't a bot.
    */
@@ -920,6 +925,8 @@ export interface Profile {
   memberful: MemberfulStatus | null;
   /** How much @ember thinks and how long it answers you, and the most each may be, and the model you picked, if you did, and the ones you can pick, or null while Ember AI is off. */
   assistant: YourAssistant | null;
+  /** The workspace's profile fields, in the order its administrators put them in, with what you saved for each, "" for none. */
+  fields: ProfileFieldEntry[];
 }
 
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */
@@ -945,6 +952,52 @@ export interface ProfileChanges {
    * others, as signing out names the one it forgets (`SignOut`).
    */
   pushSubscriptionEndpoint?: string;
+  /**
+   * What to save for the workspace's profile fields, by their ids: what you typed, or "" to save none,
+   * clearing what you had. Only fields that changed are named, and the server checks each name and
+   * value once it knows the fields as they are then.
+   */
+  fieldValues?: Record<string, string>;
+}
+
+/** The most characters the name of a profile field takes, and each value or choice saved for one. */
+export const MAX_PROFILE_FIELD_NAME_LENGTH = 100;
+export const MAX_PROFILE_FIELD_VALUE_LENGTH = 200;
+
+/** The most profile fields a workspace can have, as Slack's does. */
+export const MAX_PROFILE_FIELDS = 10;
+
+/** The most choices a field with set choices takes. */
+export const MAX_PROFILE_FIELD_OPTIONS = 10;
+
+/** Why a field is refused, or a workspace can't take another one. */
+export const PROFILE_FIELD_NAME_REFUSED = `Give the field a name of at most ${MAX_PROFILE_FIELD_NAME_LENGTH} characters.`;
+export const PROFILE_FIELD_NAME_TAKEN = "There's a field with that name already.";
+export const PROFILE_FIELD_OPTIONS_REFUSED = `Set choices as one per line, at most ${MAX_PROFILE_FIELD_OPTIONS} of at most ${MAX_PROFILE_FIELD_VALUE_LENGTH} characters each.`;
+export const PROFILE_FIELDS_FULL = `A workspace can have at most ${MAX_PROFILE_FIELDS} profile fields. Delete one first.`;
+export const PROFILE_FIELD_VALUES_REFUSED = `Field values must be a JSON object of at most ${MAX_PROFILE_FIELD_VALUE_LENGTH} characters each.`;
+export const PROFILE_FIELD_VALUE_NOT_A_CHOICE = "Choose one of the field's choices.";
+export const PROFILE_FIELD_UNKNOWN = "That field is gone. Save again once your profile has loaded it.";
+export const PROFILE_FIELD_ORDER_REFUSED = "Field order must name each of the fields, once.";
+
+/** A field of the workspace's profiles, which administrators define and people fill in. */
+export interface ProfileField {
+  id: string;
+  name: string;
+  /** The choices it takes, or null for free text. */
+  options: string[] | null;
+}
+
+/** A field of the workspace's profiles, with the value someone saved for it, "" for none. */
+export interface ProfileFieldEntry extends ProfileField {
+  value: string;
+}
+
+/** What administrators give to add a field, or to rename one and set its choices. */
+export interface ProfileFieldChange {
+  name: string;
+  /** The choices it takes, or null for free text. */
+  options: string[] | null;
 }
 
 /** What the Set up Ember form shows in its Name and Email address fields while they're empty. */
@@ -2372,7 +2425,7 @@ const PROFILE_FIELDS = {
   bio: "Bio",
   currentPassword: "Current password",
   pushSubscriptionEndpoint: "Push subscription endpoint",
-} as const satisfies Record<keyof ProfileChanges, string>;
+} as const satisfies Record<Exclude<keyof ProfileChanges, "fieldValues">, string>;
 
 /**
  * Parses an untrusted change to your profile. Returns why it's refused instead. Each field is saved as
@@ -2382,7 +2435,7 @@ const PROFILE_FIELDS = {
 export function parseProfileChanges(data: unknown): ProfileChanges | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
   const changes: ProfileChanges = {};
-  for (const [field, label] of Object.entries(PROFILE_FIELDS) as [keyof ProfileChanges, string][]) {
+  for (const [field, label] of Object.entries(PROFILE_FIELDS) as [Exclude<keyof ProfileChanges, "fieldValues">, string][]) {
     const value = data[field];
     if (value === undefined) continue;
     if (typeof value !== "string") return `${label} must be text`;
@@ -2397,7 +2450,47 @@ export function parseProfileChanges(data: unknown): ProfileChanges | string {
   if (changes.pushSubscriptionEndpoint !== undefined && changes.pushSubscriptionEndpoint.length > MAX_PUSH_ENDPOINT_LENGTH) {
     return `Endpoint can't be longer than ${MAX_PUSH_ENDPOINT_LENGTH} characters`;
   }
+  if (data.fieldValues !== undefined) {
+    if (!isJsonObject(data.fieldValues)) return PROFILE_FIELD_VALUES_REFUSED;
+    const fieldValues: Record<string, string> = {};
+    for (const [id, value] of Object.entries(data.fieldValues)) {
+      if (typeof value !== "string" || value.length > MAX_PROFILE_FIELD_VALUE_LENGTH) return PROFILE_FIELD_VALUES_REFUSED;
+      fieldValues[id] = value;
+    }
+    changes.fieldValues = fieldValues;
+  }
   return changes;
+}
+
+/**
+ * Parses an untrusted change to a profile field, as workspace settings sends it. The name is saved
+ * without the spaces at its ends. Returns why it's refused instead.
+ */
+export function parseProfileFieldChange(data: unknown): ProfileFieldChange | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const name = typeof data.name === "string" ? data.name.trim() : "";
+  if (!name || name.length > MAX_PROFILE_FIELD_NAME_LENGTH) return PROFILE_FIELD_NAME_REFUSED;
+  if (data.options === undefined || data.options === null) return { name, options: null };
+  if (!Array.isArray(data.options) || data.options.length === 0) return PROFILE_FIELD_OPTIONS_REFUSED;
+  const options: string[] = [];
+  for (const option of data.options) {
+    if (typeof option !== "string") return PROFILE_FIELD_OPTIONS_REFUSED;
+    const choice = option.trim();
+    if (!choice || choice.length > MAX_PROFILE_FIELD_VALUE_LENGTH) return PROFILE_FIELD_OPTIONS_REFUSED;
+    options.push(choice);
+  }
+  return options.length <= MAX_PROFILE_FIELD_OPTIONS ? { name, options } : PROFILE_FIELD_OPTIONS_REFUSED;
+}
+
+/**
+ * Parses an untrusted order of the workspace's profile fields: their ids, in the new order. Returns why
+ * it's refused instead.
+ */
+export function parseProfileFieldOrder(data: unknown): string[] | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const { ids } = data;
+  if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) return "Field order must be a list of the fields' ids";
+  return new Set(ids).size === ids.length ? (ids as string[]) : "Field order must be a list of the fields' ids";
 }
 
 /**

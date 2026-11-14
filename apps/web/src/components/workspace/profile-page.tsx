@@ -6,6 +6,7 @@ import {
   MAX_EMAIL_ADDRESS_LENGTH,
   MAX_PASSWORD_LENGTH,
   MAX_USER_NAME_LENGTH,
+  MAX_PROFILE_FIELD_VALUE_LENGTH,
   MEMBERFUL_DISCONNECTED_NOTICE,
   MIN_PASSWORD_LENGTH,
   type Me,
@@ -13,6 +14,7 @@ import {
   type Profile,
   type ProfileAnswer,
   type ProfileChanges,
+  type ProfileFieldEntry,
   type SidebarRoom,
 } from "@ember/protocol";
 import { AUTH_FORM } from "@/components/auth-page";
@@ -36,6 +38,7 @@ import { MemberfulConnection } from "./memberful-connection";
 import { InstallInstructions } from "./notification-help";
 import { HEADER_TEXT_BUTTON } from "./page-header";
 import { PicturePicker } from "./picture-picker";
+import { SELECT } from "./model-picker";
 import { PageHeading, Panel, SettingsPage } from "./settings-page";
 import { SignInLink } from "./sign-in-link";
 import { avatarUrlOf, avatarVersionOf } from "./user-avatar";
@@ -78,6 +81,29 @@ function changesOf(saved: Fields, typed: Fields, password: string, currentPasswo
   return changes;
 }
 
+/** What someone saved for the workspace's fields, by their ids. */
+type FieldValues = Record<string, string>;
+
+/** The fields' values `typed` differently from `saved`, which is all that's sent, or none when nothing differs. */
+function fieldChangesOf(saved: FieldValues, typed: FieldValues): Record<string, string> | null {
+  const changes: Record<string, string> = {};
+  for (const [id, value] of Object.entries(typed)) if (saved[id] !== value) changes[id] = value;
+  return Object.keys(changes).length > 0 ? changes : null;
+}
+
+/**
+ * The fields' values once `sent` is saved as `saved`: each still as it was typed shows what's typed,
+ * which may hold another tab's change, and the rest what the server answered.
+ */
+function settledFieldValues(typed: FieldValues, sent: FieldValues, saved: FieldValues): FieldValues {
+  const values = { ...typed };
+  for (const id of Object.keys(values)) if (typed[id] === sent[id]) values[id] = saved[id] ?? "";
+  return values;
+}
+
+/** What a profile's fields say someone saved, "" where they saved none. */
+const fieldValuesOf = (fields: ProfileFieldEntry[] | undefined): FieldValues => Object.fromEntries((fields ?? []).map(({ id, value }) => [id, value]));
+
 /**
  * `changes` with this browser's push subscription named, if it has one and they hold a new password,
  * which forgets the rest of your browsers' subscriptions.
@@ -103,7 +129,9 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
  * everywhere.", and Remove avatar takes away, then your name, email address, a new password, unless
  * Memberful signs you in without one, your current password while you have one, which changing your
  * email address or password takes, and your
- * bio, which Save changes saves with the notice "✓", keeping the page, then, while members sign in with
+ * bio, which Save changes saves with the notice "✓", keeping the page, then the workspace's profile
+ * fields its administrators asked, an input each, or a menu of its choices for one that has them, saved
+ * with the rest, then, while members sign in with
  * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
  * unlinks with the notice "Your Memberful account is disconnected.", then, while Ember AI is on, how much @ember thinks and
  * how long it answers you, then your notification level in each of your rooms and DMs, then a sign-in
@@ -115,6 +143,12 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const [fields, setFields] = useState<Fields | null>(null);
   /** The profile as the page last loaded or saved it. */
   const saved = useRef<Fields | null>(null);
+  /** The workspace's fields, in the order the profile shows them, or null until it has loaded. */
+  const [askedFields, setAskedFields] = useState<ProfileFieldEntry[] | null>(null);
+  /** What's typed for each of them. */
+  const [fieldValues, setFieldValues] = useState<FieldValues | null>(null);
+  /** What was saved for each of them, as the page last loaded or saved it. */
+  const savedFieldValues = useRef<FieldValues>({});
   const [picture, setPicture] = useState<Picture | null>(null);
   /** The address of the photo picked, shown while it saves. */
   const [picked, setPicked] = useState<string | null>(null);
@@ -153,6 +187,9 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
         if (stopped) return;
         saved.current = fieldsOf(answer.profile);
         setFields(saved.current);
+        savedFieldValues.current = fieldValuesOf(answer.profile.fields);
+        setFieldValues(savedFieldValues.current);
+        setAskedFields(answer.profile.fields ?? []);
         setHasEmailAddress(answer.profile.emailAddress !== null);
         showAnswer(answer);
         // Only from here and the Ember AI section's own saves, as a save of the profile or a photo can
@@ -225,20 +262,29 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
   const change = (field: keyof Fields) => (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setFields((fields) => fields && { ...fields, [field]: event.target.value });
 
+  const changeFieldValue = (id: string) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setFieldValues((values) => values && { ...values, [id]: event.target.value });
+
   const save = (event: FormEvent) => {
     event.preventDefault();
-    if (!fields || !saved.current || saving) return;
+    if (!fields || !saved.current || !fieldValues || saving) return;
     setSaving(true);
     const sent = fields;
+    const sentFieldValues = fieldValues;
     const password = passwordInput.current?.value ?? "";
     const currentPassword = currentPasswordInput.current?.value ?? "";
-    keepingThisBrowsersPush(changesOf(saved.current, sent, password, currentPassword)).then(changeProfile).then(
+    const asked = fieldChangesOf(savedFieldValues.current, sentFieldValues);
+    keepingThisBrowsersPush({ ...changesOf(saved.current, sent, password, currentPassword), ...(asked && { fieldValues: asked }) }).then(changeProfile).then(
       (answer) => {
         if (!mounted.current) return;
         setSaving(false);
         const now = fieldsOf(answer.profile);
         saved.current = now;
         setFields((fields) => fields && settled(fields, sent, now));
+        const nowFieldValues = fieldValuesOf(answer.profile.fields);
+        savedFieldValues.current = nowFieldValues;
+        setFieldValues((values) => values && settledFieldValues(values, sentFieldValues, nowFieldValues));
+        setAskedFields(answer.profile.fields ?? []);
         setHasEmailAddress(answer.profile.emailAddress !== null);
         // The passwords leave their fields, unless others were typed meanwhile.
         if (passwordInput.current?.value === password) passwordInput.current.value = "";
@@ -366,6 +412,37 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
               className={cn("w-full border placeholder:text-muted-foreground disabled:opacity-50", FIELD_INPUT, "resize-y")}
             />
           </Field>
+          {/* The workspace's fields, an input each, or a menu of its choices for one that has them. */}
+          {askedFields?.map((asked) => (
+            <Field key={asked.id} id={`user_field_${asked.id}`} label={asked.name}>
+              {asked.options === null ? (
+                <Input
+                  id={`user_field_${asked.id}`}
+                  autoComplete="off"
+                  maxLength={MAX_PROFILE_FIELD_VALUE_LENGTH}
+                  disabled={!fieldValues}
+                  value={fieldValues?.[asked.id] ?? ""}
+                  onChange={changeFieldValue(asked.id)}
+                  className={FIELD_INPUT}
+                />
+              ) : (
+                <select
+                  id={`user_field_${asked.id}`}
+                  disabled={!fieldValues}
+                  value={fieldValues?.[asked.id] ?? ""}
+                  onChange={changeFieldValue(asked.id)}
+                  className={SELECT}
+                >
+                  <option value="">Not set</option>
+                  {asked.options.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+          ))}
           <SubmitButton disabled={!fields || saving}>Save changes</SubmitButton>
         </form>
         {memberful && (

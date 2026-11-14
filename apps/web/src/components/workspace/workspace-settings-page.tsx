@@ -47,6 +47,7 @@ import { InviteByEmail } from "./invite-by-email";
 import { InviteLink } from "./invite-link";
 import { PeopleList } from "./people-list";
 import { PicturePicker } from "./picture-picker";
+import { ProfileFieldsSettings } from "./profile-fields-settings";
 import { RoomOrder } from "./room-order";
 import { workspaceSectionOf } from "./settings-navigation";
 import { CHANGES_SAVED, PageHeading, Panel, SECTION_HEADING, SettingsPage, TITLE, TITLE_LINK } from "./settings-page";
@@ -86,7 +87,7 @@ interface Props {
 }
 
 /**
- * Workspace settings, in six sections, of which the address's fragment shows one, all of them staying
+ * Workspace settings, in seven sections, of which the address's fragment shows one, all of them staying
  * drawn so what's typed in one waits there while another shows:
  *
  * - General, where administrators change the workspace's icon, which one picked saves at once, showing it
@@ -103,6 +104,8 @@ interface Props {
  *   regenerate, and Memberful, how Ember sends email, and whether Cloudflare Turnstile checks who joins,
  *   or for members, the links that let people in, then the administrators and members, whom
  *   administrators can make administrators or members and remove.
+ * - Profile fields: for administrators, the fields everyone's profile asks, which people answer on
+ *   their own profile.
  * - Domain settings: for administrators, the custom domain Ember answers at.
  * - AI assistant: for administrators, whether Ember's AI agents run on models through Cloudflare AI
  *   Gateway, which Set up Ember AI connects, and while they do, the agents, @ember first, each linking to
@@ -549,6 +552,12 @@ export function WorkspaceSettingsPage({
             />
           </div>
         )}
+      </Panel>
+      <Panel id="profile-fields-settings" hidden={section !== "profile-fields-settings"} aria-labelledby="profile-fields-heading" className="flex flex-col gap-6">
+        <PageHeading id="profile-fields-heading" title="Profile fields" className={SECTION_HEADING}>
+          Ask everyone the same things on their profile, such as their title or pronouns.
+        </PageHeading>
+        {me.administrator ? <ProfileFieldsSettings onFailed={onFailed} /> : <p className="text-muted-foreground">Community admins manage profile fields.</p>}
       </Panel>
       <Panel id="domain-settings" hidden={section !== "domain-settings"} aria-labelledby="domain-settings-heading" className="flex flex-col gap-6">
         <PageHeading id="domain-settings-heading" title="Domain settings" className={SECTION_HEADING}>

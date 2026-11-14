@@ -1,4 +1,4 @@
-import type { DirectoryUser, Me, Person, PersonAnswer, User } from "@ember/protocol";
+import type { DirectoryUser, Me, Person, PersonAnswer, ProfileFieldEntry, User } from "@ember/protocol";
 import type { AgentProfile } from "@ember/protocol/agents";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -17,7 +17,7 @@ function serve(answer: () => Response | Promise<Response>) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async () => answer());
 }
 
-const found = (person: Person) => () => Response.json({ person });
+const found = (person: Person, fields: ProfileFieldEntry[] = []) => () => Response.json({ person, fields });
 
 interface Shown {
   me?: Me;
@@ -251,7 +251,7 @@ describe("A bot's profile", () => {
 
   it("shows an active bot's avatar and a button that starts a DM with it, without a name, bio, email, sign-in link or ban, even to administrators", async () => {
     // All a person's page could show, of which a bot's shows none.
-    serve(() => Response.json({ person: { ...bender, bio: "Bends girders", emailAddress: "bender@example.com" }, transferId: "u3.mgk3x2a9.signature" } satisfies PersonAnswer));
+    serve(() => Response.json({ person: { ...bender, bio: "Bends girders", emailAddress: "bender@example.com" }, fields: [], transferId: "u3.mgk3x2a9.signature" } satisfies PersonAnswer));
     const { onStartDirect, user } = showPage(bender, { me: administrator });
     expect(await avatar()).toBeVisible();
     expect(screen.queryByRole("heading")).toBeNull();
@@ -287,7 +287,7 @@ describe("A bot's profile", () => {
     const recap: Person = { ...bender, id: "u4", name: "Recap", agent: true };
     const HAIKU: AgentProfile = { description: "Sums up long threads", model: "anthropic/claude-haiku-5.5", modelName: "Claude Haiku 5.5", setUpBy: { id: grace.id, name: grace.name } };
     const showAgent = (agent: AgentProfile, shown: Shown = {}, person = recap) => {
-      serve(() => Response.json({ person, agent } satisfies PersonAnswer));
+      serve(() => Response.json({ person, fields: [], agent } satisfies PersonAnswer));
       return showPage(person, shown);
     };
     const runsOn = () => screen.getByText(/^An AI agent running on /);
@@ -367,7 +367,7 @@ describe("A bot's profile", () => {
 describe("Private sign-in link", () => {
   const administrator: Me = { ...ada, administrator: true };
   const TRANSFER_ID = "u2.mgk3x2a9.signature";
-  const withLink = (person: Person) => () => Response.json({ person, transferId: TRANSFER_ID } satisfies PersonAnswer);
+  const withLink = (person: Person) => () => Response.json({ person, fields: [], transferId: TRANSFER_ID } satisfies PersonAnswer);
   const signInLink = () => screen.queryByRole("textbox");
 
   it("shows administrators a sign-in link for someone, after the DM button, to get them back into their account", async () => {
@@ -426,7 +426,7 @@ describe("Ban and unban people", () => {
   }
 
   it("shows administrators Ban for someone else active, below the sign-in link, with a cancel mark", async () => {
-    serve(() => Response.json({ person: grace, transferId: "u2.mgk3x2a9.signature" } satisfies PersonAnswer));
+    serve(() => Response.json({ person: grace, fields: [], transferId: "u2.mgk3x2a9.signature" } satisfies PersonAnswer));
     showPage(grace, { me: administrator });
     await heading();
     const button = banButton()!;
@@ -597,5 +597,38 @@ describe("Memberful memberships", () => {
     expect(screen.queryByText(/no longer on this account/)).toBeNull();
     expect(directButton("Grace Hopper")).toBeNull();
     expect(screen.getByRole("button", { name: "Ban Grace Hopper" })).toBeVisible();
+  });
+});
+
+describe("The workspace's fields on someone's page", () => {
+  /** What the workspace asks, and what Grace answered, Title and Pronouns. */
+  const ASKED: ProfileFieldEntry[] = [
+    { id: "field-title", name: "Title", options: null, value: "Rear admiral" },
+    { id: "field-pronouns", name: "Pronouns", options: ["she/her", "they/them"], value: "" },
+    { id: "field-phone", name: "Phone", options: null, value: "" },
+  ];
+
+  it("shows the fields they answered, asked in the order the profile shows them, and none they left empty", async () => {
+    serve(found(grace, ASKED));
+    showPage(grace);
+    expect(await heading()).toHaveTextContent("Grace Hopper");
+    expect(screen.getByText("Title")).toBeVisible();
+    expect(screen.getByText("Rear admiral")).toBeVisible();
+    expect(screen.queryByText("Pronouns")).toBeNull();
+    expect(screen.queryByText("Phone")).toBeNull();
+    // Under their bio.
+    expect(screen.getByText("Wrote the first compiler").compareDocumentPosition(screen.getByText("Title"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("shows none of the fields for someone who answered none, or a workspace that asks none", async () => {
+    serve(found(grace, ASKED.map((asked) => ({ ...asked, value: "" }))));
+    showPage(grace);
+    expect(await heading()).toHaveTextContent("Grace Hopper");
+    expect(screen.queryByText("Title")).toBeNull();
+
+    serve(found(grace));
+    showPage(grace);
+    expect(await heading()).toHaveTextContent("Grace Hopper");
+    expect(screen.queryByText("Title")).toBeNull();
   });
 });

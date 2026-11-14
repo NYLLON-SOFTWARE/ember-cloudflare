@@ -479,7 +479,7 @@ describe("A bot's profile", () => {
     const bot = await added(administrator, { name: "Build Bot" });
 
     const person = { id: bot.id, name: "Build Bot", bio: null, role: "bot", status: "active", avatarUrl: bot.avatarUrl, emailAddress: null };
-    expect(await answered<PersonAnswer>(administrator, `/api/users/${bot.id}`)).toEqual({ person });
+    expect(await answered<PersonAnswer>(administrator, `/api/users/${bot.id}`)).toEqual({ person, fields: [] });
     const avatar = await api(bot.avatarUrl, { headers: signedInAs(administrator) });
     expect(avatar.headers.get("Content-Type")).toBe("image/svg+xml");
     expect(await avatar.text()).toBe(DEFAULT_BOT_AVATAR);

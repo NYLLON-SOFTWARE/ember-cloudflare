@@ -16,6 +16,7 @@ import {
   type Profile,
   type ProfileAnswer,
   type ProfileChanges,
+  type ProfileFieldEntry,
   type SidebarRoom,
 } from "@ember/protocol";
 import { MODEL_NOT_LISTED, type YourAssistant, type YourAssistantChanged, type YourAssistantChanges } from "@ember/protocol/assistant";
@@ -35,7 +36,12 @@ vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob([
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Ada's avatar as the profile loads it: her initials, until she uploads one. */
 const INITIALS = "/users/t0k3n/avatar?v=1";
-const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, assistant: null };
+/** What the workspace asks on every profile, with what Ada last saved for each. */
+const ASKED_FIELDS: ProfileFieldEntry[] = [
+  { id: "field-title", name: "Title", options: null, value: "Countess" },
+  { id: "field-pronouns", name: "Pronouns", options: ["she/her", "they/them"], value: "she/her" },
+];
+const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, assistant: null, fields: ASKED_FIELDS };
 /** Ada's levels of @ember's dials while Ember AI is on: where they start, up to Medium thinking, with the one model people can pick, which she leaves to administrators. */
 const LEVELS: YourAssistant = {
   levels: { thinking: "low", length: "medium" },
@@ -84,8 +90,13 @@ function serve({
       case "GET /api/users/me/profile":
         return loaded();
       case "PATCH /api/users/me/profile": {
-        const { password: _, currentPassword: _current, pushSubscriptionEndpoint: _endpoint, ...changes } = JSON.parse(String(init?.body)) as ProfileChanges;
-        return saved ? saved() : Response.json({ profile: { ...profile, ...changes }, transferId: SAVED_LINK } satisfies ProfileAnswer);
+        const { password: _, currentPassword: _current, pushSubscriptionEndpoint: _endpoint, fieldValues, ...changes } = JSON.parse(String(init?.body)) as ProfileChanges;
+        // What the server answers for the fields, with what the change saved for the ones it named.
+        const fields =
+          fieldValues === undefined
+            ? profile.fields
+            : (profile.fields ?? []).map((asked) => (asked.id in fieldValues ? { ...asked, value: fieldValues[asked.id] ?? "" } : asked));
+        return saved ? saved() : Response.json({ profile: { ...profile, ...changes, fields }, transferId: SAVED_LINK } satisfies ProfileAnswer);
       }
       case `PUT ${AVATAR_PATH}`:
         return uploaded();
@@ -968,5 +979,63 @@ describe("Custom CSS", () => {
       expect(field(label)).toHaveValue("difference engine");
       expect(field(label)).not.toHaveAttribute("value");
     }
+  });
+});
+
+describe("The workspace's fields on your profile", () => {
+  const title = () => field("Title");
+  const pronouns = () => field("Pronouns");
+
+  it("asks the fields after your bio, an input each, or a menu of its choices set at what you saved", async () => {
+    showPage();
+    await loaded();
+    expect(title()).toHaveValue("Countess");
+    expect(title()).toHaveAttribute("maxlength", "200");
+    expect(pronouns().tagName).toBe("SELECT");
+    expect(within(pronouns()).getAllByRole("option").map((option) => option.textContent)).toEqual(["Not set", "she/her", "they/them"]);
+    expect(pronouns()).toHaveValue("she/her");
+    // Between your bio and Save changes.
+    expect(field("Bio").compareDocumentPosition(title())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(title().compareDocumentPosition(pronouns())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(pronouns().compareDocumentPosition(saveButton())).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("saves what you changed with the rest, sending only the fields you changed", async () => {
+    const { user } = showPage();
+    await loaded();
+    await user.clear(title());
+    await user.type(title(), "Admiral");
+    await user.selectOptions(pronouns(), "Not set");
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(saved()).toEqual([{ fieldValues: { "field-title": "Admiral", "field-pronouns": "" } }]);
+    expect(title()).toHaveValue("Admiral");
+    expect(pronouns()).toHaveValue("");
+    // And saving again sends nothing, what being saved.
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(saved()).toEqual([{ fieldValues: { "field-title": "Admiral", "field-pronouns": "" } }, {}]);
+  });
+
+  it("shows what's saved once an answer says so, whether this page sent it or another tab did", async () => {
+    // Another tab saved a new title and pronouns while this page was open.
+    serve({
+      saved: () =>
+        Response.json({
+          profile: { ...profile, fields: [{ ...ASKED_FIELDS[0]!, value: "Admiral" }, { ...ASKED_FIELDS[1]!, value: "they/them" }] },
+          transferId: SAVED_LINK,
+        } satisfies ProfileAnswer),
+    });
+    const { user } = showPage();
+    await loaded();
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    expect(saved()).toEqual([{}]);
+    expect(title()).toHaveValue("Admiral");
+    expect(pronouns()).toHaveValue("they/them");
+    await user.click(saveButton());
+    await waitFor(() => expect(saveButton()).toBeEnabled());
+    // And saving again doesn't put back what the page loaded.
+    expect(saved()).toEqual([{}, {}]);
   });
 });

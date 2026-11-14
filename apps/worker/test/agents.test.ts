@@ -925,7 +925,7 @@ describe("AI agents", () => {
       const member = await joinAsGrace();
       const recap = await made(administrator);
       const profile = { description: RECAP.description, model: HAIKU, modelName: recap.modelName, setUpBy: { id: administrator.user.id, name: ada.name } };
-      expect(await pageOf(member, recap.id)).toEqual({ person: await inDirectory(member, recap.id), agent: profile });
+      expect(await pageOf(member, recap.id)).toEqual({ person: await inDirectory(member, recap.id), fields: [], agent: profile });
       expect(JSON.stringify(await pageOf(member, recap.id))).not.toContain(RECAP.instructions);
       expect(await pageOf(administrator, recap.id)).toMatchObject({ agent: profile });
 
