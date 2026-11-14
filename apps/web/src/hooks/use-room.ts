@@ -21,6 +21,7 @@ import { ApiError, fetchMe, roomSocketUrl } from "@/lib/api";
 import { handOver, leftUnsent, takeBack } from "@/lib/outbox";
 import { openAhead, reconnectingSocket, waitingAhead, type ReconnectingSocket } from "@/lib/reconnecting-socket";
 import { initialRoomState, isPending, isQueued, roomReducer, unconfirmed, type PendingMessage } from "@/lib/room-state";
+import { tellRoomMessagesChanged } from "@/lib/room-changes";
 import { UPLOAD_FAILED, UploadError, uploadFile } from "@/lib/uploads";
 import { settledVisibility } from "@/lib/visibility";
 import { useLatestReducer } from "./use-latest-reducer";
@@ -206,6 +207,7 @@ export function useRoom(roomId: string, me: User, onSessionChanged: (me: Me | nu
       if (opening) openingAround = undefined;
       // A reply sent only to its thread is the thread's, not the timeline's.
       if (frame.type !== "message.created" || isInRoom(frame.message)) dispatch({ type: "frame", frame, now: Date.now() });
+      if (frame.type === "message.updated" || frame.type === "message.deleted") tellRoomMessagesChanged(roomId);
       if (opening) {
         room.connected();
         tellVisibility(visibility.visible);

@@ -145,6 +145,7 @@ import { releaseCheck } from "./releases";
 import { urlOf } from "./request-url";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
 import { clearSearches, recordSearch, searchMessages } from "./searches";
+import { directPreviews, listedThreads } from "./conversations";
 import { isOnboardedToEmailSending } from "./sending-domain";
 import { checkSetup, firstRun, isSetupPath, setupAccessOf, setupPage, setupPlaceholdersOf } from "./setup";
 import { closedAtOnce } from "./sockets";
@@ -1164,6 +1165,8 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/rooms" && request.method === "POST") return () => createRoom(request, env);
   if (pathname === "/api/rooms/new" && request.method === "GET") return () => newRoomForm(request, env);
   if (pathname === "/api/directs" && request.method === "POST") return () => startDirect(request, env);
+  if (pathname === "/api/directs" && request.method === "GET") return () => directPreviews(request, env);
+  if (pathname === "/api/threads" && request.method === "GET") return () => listedThreads(request, env);
   if (pathname === "/api/join" && request.method === "POST") return () => signUp(request, env);
   if (pathname === "/api/join/invitation" && request.method === "POST") return () => joinWithEmailLink(request, env, "invitation");
   if (pathname === "/api/join/email" && request.method === "POST") return () => joinWithEmailLink(request, env, "email_domain");

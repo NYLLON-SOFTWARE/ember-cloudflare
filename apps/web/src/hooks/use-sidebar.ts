@@ -184,7 +184,7 @@ export function useSidebar(
           gone(frame.roomId);
           return change({ type: "gone", roomId: frame.roomId });
         case "room.unread":
-          return change({ type: "marked", roomId: frame.roomId, at: frame.at });
+          return change({ type: "marked", roomId: frame.roomId, at: frame.at, count: frame.count, mentioned: frame.mentioned });
         case "room.read":
           return change({ type: "marked", roomId: frame.roomId, at: null });
         case "room.active":

@@ -3814,8 +3814,14 @@ export class Workspace extends DurableObject<Env> {
   async applyRoomEvents(roomId: RoomId, events: RoomEvent[], viewerIds: UserId[]): Promise<RoomEventDeliveries> {
     if (events.length === 0) return { pushes: [], webhooks: [], asks: [] };
     const { on: pushing } = await webPush(this.env);
-    const { marks, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env));
-    for (const [userId, at] of marks) this.tell([userId], at === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, at });
+    const { marks, counts, active, pushes, webhooks, asks } = await this.store.applyRoomEvents(roomId, events, viewerIds, pushing, guestSignIn(this.env));
+    // Someone whose mark changed hears of it with their count, if a message counted, and someone already
+    // marked hears of their count as it changes.
+    for (const [userId, at] of marks) {
+      const counted = counts.get(userId);
+      this.tell([userId], at === null ? { type: "room.read", roomId } : { type: "room.unread", roomId, at, ...(counted && { count: counted.count, ...(counted.mentioned && { mentioned: true }) }) });
+    }
+    for (const [userId, { at, count, mentioned }] of counts) if (!marks.has(userId)) this.tell([userId], { type: "room.unread", roomId, at, count, ...(mentioned && { mentioned: true }) });
     if (active) this.tell(active.userIds, { type: "room.active", roomId, at: active.at });
     return { pushes, webhooks, asks };
   }

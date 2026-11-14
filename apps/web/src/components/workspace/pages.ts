@@ -17,3 +17,7 @@ export { PushSubscriptionsPage } from "./push-subscriptions-page";
 export { RoomSettingsPage } from "./room-settings-page";
 export { SearchPage } from "./search-page";
 export { WorkspaceSettingsPage } from "./workspace-settings-page";
+export { DraftsPage } from "./drafts-page";
+export { PeoplePage } from "./people-page";
+export { ThreadsPage } from "./threads-page";
+export { DirectsColumn, DirectsHome } from "./directs-pane";
