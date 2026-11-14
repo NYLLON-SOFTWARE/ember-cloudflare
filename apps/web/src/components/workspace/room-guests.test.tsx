@@ -15,6 +15,7 @@ const UNTIL_FORMAT = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", t
 
 const ada: RoomPerson = { id: "u1", name: "Ada Lovelace", member: true };
 const pat: RoomPerson = { id: "g1", name: "Pat Doe", member: true, guestUntil: "2026-11-21T09:00:00.000Z" };
+const nia: RoomPerson = { id: "g2", name: "Nia Reed", member: true, guestUntil: "2026-11-21T09:00:00.000Z" };
 const guestAnswer = (untilAt: string): RoomGuest => ({ userId: "g2", name: "Nia", untilAt });
 
 /** The panel, with `people` as the room's settings list them, keeping what its answers change. */
@@ -139,6 +140,21 @@ describe("Room guests", () => {
     expect(month.getTime() - Date.now()).toBeGreaterThan(29 * 24 * 60 * 60_000);
   });
 
+  it("keeps the custom field for when Custom is chosen, in the form and in a guest's picker, and not before", async () => {
+    const { user } = showPanel([ada, pat]);
+    // The untouched pickers say so, and neither field of its own shows before Custom is chosen.
+    expect(spans()).toHaveValue("");
+    expect(extendSpanOf("Pat Doe")).toHaveValue("");
+    expect(within(panel()).queryByLabelText("Until a time of your own")).not.toBeInTheDocument();
+    expect(within(rowOf("Pat Doe")).queryByLabelText("Extend Pat Doe's stay until a time of your own")).not.toBeInTheDocument();
+
+    await user.selectOptions(spans(), "Custom…");
+    expect(within(panel()).getByLabelText("Until a time of your own")).toBeInTheDocument();
+    await user.selectOptions(extendSpanOf("Pat Doe"), "Custom…");
+    expect(within(rowOf("Pat Doe")).getByLabelText("Extend Pat Doe's stay until a time of your own")).toBeInTheDocument();
+    expect(extendSpanOf("Pat Doe")).toHaveValue("custom");
+  });
+
   it("adds a guest until the custom time its field picks", async () => {
     const { user } = showPanel([ada]);
     await user.type(nameField(), "Nia");
@@ -202,12 +218,39 @@ describe("Room guests", () => {
     const { user } = showPanel([ada, pat]);
     await user.selectOptions(extendSpanOf("Pat Doe"), "24 hours");
     expect(extendSpanOf("Pat Doe")).toBeDisabled();
-    expect(endOf("Pat Doe")).toBeEnabled();
+    // Their row's other change waits too, which a late answer couldn't undo the ending of.
+    expect(endOf("Pat Doe")).toBeDisabled();
     expect(extensions()).toHaveLength(1);
 
     await act(async () => answer(Response.json({ guest: { userId: "g1", name: "Pat Doe", untilAt: "2026-11-21T09:00:00.000Z" } })));
     await waitFor(() => expect(extendSpanOf("Pat Doe")).toBeEnabled());
+    expect(endOf("Pat Doe")).toBeEnabled();
     await user.selectOptions(extendSpanOf("Pat Doe"), "A week");
     await waitFor(() => expect(extensions()).toHaveLength(2));
+  });
+
+  it("waits only the guest whose change is on its way, leaving every other row to go on", async () => {
+    let answer = (_: Response) => {};
+    vi.mocked(fetch).mockImplementation(
+      async (input, init) =>
+        new Promise((resolve) => {
+          if (init?.method === "PUT") answer = resolve;
+        }) as Promise<Response>,
+    );
+    const { user } = showPanel([ada, pat, nia]);
+    await user.selectOptions(extendSpanOf("Pat Doe"), "24 hours");
+    // Pat's picker waits, while Nia's row works however Pat's is doing.
+    expect(extendSpanOf("Pat Doe")).toBeDisabled();
+    expect(extendSpanOf("Nia Reed")).toBeEnabled();
+    expect(endOf("Nia Reed")).toBeEnabled();
+
+    await user.selectOptions(extendSpanOf("Nia Reed"), "30 days");
+    await waitFor(() => expect(extensions()).toHaveLength(2));
+    expect(extendSpanOf("Nia Reed")).toBeDisabled();
+    expect(endOf("Nia Reed")).toBeDisabled();
+    // Pat's is still the one waiting, and Nia's own answer brings neither of the others back.
+    await act(async () => answer(Response.json({ guest: { userId: "g2", name: "Nia Reed", untilAt: "2026-12-21T09:00:00.000Z" } })));
+    await waitFor(() => expect(extendSpanOf("Nia Reed")).toBeEnabled());
+    expect(extendSpanOf("Pat Doe")).toBeDisabled();
   });
 });

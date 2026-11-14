@@ -13,8 +13,8 @@ import { NOTE, SELECT } from "./model-picker";
 // room and nothing else, and signs in with just their name, until the stay picked here ends. Boxed as
 // the room's other panels are.
 
-/** The picker's value for "Custom…", whose time is picked in a field of its own. */
-const CUSTOM = "";
+/** The picker's value for "Custom…", whose time is picked in a field of its own, apart from no span picked yet. */
+const CUSTOM = "custom";
 
 /** The picker's value before a span is picked, which changes nothing. */
 const NOTHING = "";
@@ -60,18 +60,26 @@ export function RoomGuests({ roomId, guests, onSaved, onEnded, onFailed }: Props
   /** What each guest's own picker holds, and the custom time it may open, by their id. */
   const [extendsPicked, setExtendsPicked] = useState<Record<UserId, string>>({});
   const [extendsCustom, setExtendsCustom] = useState<Record<UserId, string>>({});
-  /** What's on its way, so no two of a row's changes are sent at once: "add", or "extend:<id>", or "end:<id>". */
-  const [busy, setBusy] = useState<string | null>(null);
+  /** What's on its way, so no two of a row's changes are sent at once: the add form's, and each guest's own, whose rows wait for theirs. */
+  const [busy, setBusy] = useState<{ add: boolean; guests: Record<UserId, boolean> }>({ add: false, guests: {} });
   const mounted = useMounted();
 
-  const send = (what: string, go: () => Promise<void>) => {
-    setBusy(what);
+  /** Marks what `guest`'s, or the add form's when they're null, as on its way, or as over once it answers. */
+  const busyWith = (guest: UserId | null, way: boolean) =>
+    setBusy((busy) =>
+      guest === null
+        ? { add: way, guests: busy.guests }
+        : { add: busy.add, guests: { ...busy.guests, [guest]: way } },
+    );
+
+  const send = (guest: UserId | null, go: () => Promise<void>) => {
+    busyWith(guest, true);
     go().then(
       () => {
-        if (mounted.current) setBusy(null);
+        if (mounted.current) busyWith(guest, false);
       },
       (error: unknown) => {
-        if (mounted.current) setBusy(null);
+        if (mounted.current) busyWith(guest, false);
         onFailed(error);
       },
     );
@@ -79,7 +87,7 @@ export function RoomGuests({ roomId, guests, onSaved, onEnded, onFailed }: Props
 
   /** Adds a guest for the span picked, or for a day while none is, or "Custom…" is picked but empty. */
   const add = (until: string) =>
-    send("add", async () => {
+    send(null, async () => {
       const guest = await addGuest(roomId, name.trim(), until);
       onSaved(guest);
       setName("");
@@ -112,10 +120,10 @@ export function RoomGuests({ roomId, guests, onSaved, onEnded, onFailed }: Props
   };
 
   const extend = (userId: UserId, until: string) =>
-    send(`extend:${userId}`, async () => onSaved(await extendGuest(roomId, userId, until)));
+    send(userId, async () => onSaved(await extendGuest(roomId, userId, until)));
 
   const end = (userId: UserId) =>
-    send(`end:${userId}`, async () => {
+    send(userId, async () => {
       await endGuest(roomId, userId);
       onEnded(userId);
     });
@@ -130,7 +138,8 @@ export function RoomGuests({ roomId, guests, onSaved, onEnded, onFailed }: Props
       {guests.length > 0 && (
         <ul className="flex flex-col gap-3" data-testid="guest-list">
           {guests.map((guest) => {
-            const extending = busy === `extend:${guest.id}`;
+            // Their row waits while any change of theirs is on its way, either of its own included.
+            const working = busy.guests[guest.id] === true;
             return (
               <li key={guest.id} className="flex flex-col gap-1.5" data-user-id={guest.id}>
                 <div className="flex items-center gap-2">
@@ -145,7 +154,7 @@ export function RoomGuests({ roomId, guests, onSaved, onEnded, onFailed }: Props
                   <select
                     id={`extend_${guest.id}`}
                     value={extendsPicked[guest.id] ?? NOTHING}
-                    disabled={extending}
+                    disabled={working}
                     onChange={(event) => pickExtend(guest.id, event.target.value)}
                     className={SELECT}
                   >
@@ -163,13 +172,13 @@ export function RoomGuests({ roomId, guests, onSaved, onEnded, onFailed }: Props
                       type="datetime-local"
                       aria-label={`Extend ${guest.name}'s stay until a time of your own`}
                       value={extendsCustom[guest.id] ?? ""}
-                      disabled={extending}
+                      disabled={working}
                       onChange={(event) => pickExtendCustom(guest.id, event.target.value)}
                       className={FIELD_INPUT}
                     />
                   )}
                 </div>
-                <Button type="button" variant="outline" disabled={busy === `end:${guest.id}`} onClick={() => end(guest.id)} className="max-w-full touch:h-11">
+                <Button type="button" variant="outline" disabled={working} onClick={() => end(guest.id)} className="max-w-full touch:h-11">
                   <Xmark className="size-[1.3em] shrink-0" />
                   <span className="truncate">End {guest.name}'s stay</span>
                 </Button>
@@ -195,14 +204,14 @@ export function RoomGuests({ roomId, guests, onSaved, onEnded, onFailed }: Props
           maxLength={48}
           placeholder="Their name"
           value={name}
-          disabled={busy === "add"}
+          disabled={busy.add}
           onChange={(event) => setName(event.target.value)}
           className={FIELD_INPUT}
         />
         <label htmlFor="guest_until" className="text-sm font-[550]">
           Their stay ends
         </label>
-        <select id="guest_until" value={picked} disabled={busy === "add"} onChange={(event) => pick(event.target.value)} className={SELECT}>
+        <select id="guest_until" value={picked} disabled={busy.add} onChange={(event) => pick(event.target.value)} className={SELECT}>
           <option value={NOTHING}>Pick a span…</option>
           {SPANS.map(({ label }) => (
             <option key={label} value={label}>
@@ -217,7 +226,7 @@ export function RoomGuests({ roomId, guests, onSaved, onEnded, onFailed }: Props
             type="datetime-local"
             aria-label="Until a time of your own"
             value={custom}
-            disabled={busy === "add"}
+            disabled={busy.add}
             onChange={(event) => pickCustom(event.target.value)}
             className={FIELD_INPUT}
           />
@@ -226,7 +235,7 @@ export function RoomGuests({ roomId, guests, onSaved, onEnded, onFailed }: Props
           The guest signs in with just the name you give them, and stops at their stay's end. Send them to{" "}
           {guestSignInLink(location.origin)} to sign in with it.
         </p>
-        <Button type="submit" disabled={busy === "add" || name.trim() === ""} className="h-[42px] rounded-[9px] font-[550] touch:h-11">
+        <Button type="submit" disabled={busy.add || name.trim() === ""} className="h-[42px] rounded-[9px] font-[550] touch:h-11">
           Add guest
         </Button>
       </form>
