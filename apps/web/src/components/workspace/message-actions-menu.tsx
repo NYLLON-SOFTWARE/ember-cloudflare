@@ -99,8 +99,8 @@ export interface MessageActionsHandle {
  * order Slack's bar has them. With a mouse, hovering the message opens the bar too, laid over the message's
  * top edge at the timeline's right, with Message options pinned as its last button, and each button names
  * itself in a tooltip as the pointer reaches it. On touch screens it opens beside Message options, with
- * Quote after Reply in thread and Copy link after that. Once opened, the bar stays in the page while it's
- * shut, so Copy link keeps its color.
+ * Quote after Reply in thread, Copy link after that, and Save for later last. Once opened, the bar stays
+ * in the page while it's shut, so Copy link keeps its color.
  *
  * With a mouse, Message options then opens More actions under the bar, as Slack's does: Pin to room, or
  * Unpin, Save for later, Quote, Copy text, Copy link, and on messages you can change, Edit message and
@@ -486,6 +486,20 @@ export function MessageActionsMenu({ message, nodes, row, threaded, editable, th
               <ActionTooltip label="Copy link">
                 <button type="button" aria-label="Copy link" className={ACTION} onClick={(event) => void copyLink(event, message)}>
                   <Copy />
+                </button>
+              </ActionTooltip>
+            )}
+            {/* Save for later is in the bar for fingers, where More actions never opens. */}
+            {saver && !overlapping && (
+              <ActionTooltip label={savedHere ? "Saved" : "Save for later"}>
+                <button
+                  type="button"
+                  aria-label={savedHere ? "Saved" : "Save for later"}
+                  aria-pressed={savedHere !== null}
+                  className={cn(ACTION, "aria-pressed:bg-hover")}
+                  onClick={toggleSaved}
+                >
+                  <Bookmark />
                 </button>
               </ActionTooltip>
             )}
