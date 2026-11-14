@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { HalfMoon } from "@/components/icons/iconoir";
 import { useMounted } from "@/hooks/use-mounted";
-import { clearDnd, isSignedOut, setDnd } from "@/lib/api";
+import { clearDnd, setDnd } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { FIELD_INPUT } from "@/components/field";
 import { Switch } from "@/components/ui/switch";
@@ -83,8 +83,9 @@ export function DoNotDisturb({ dndUntil, onChanged, onFailed }: Props) {
         onChanged(dndUntil);
       },
       (error: unknown) => {
-        if (!mounted.current && !isSignedOut(error)) return;
-        setSaving(false);
+        // Only the section's saving is the section's to keep: the hush is the workspace's, which shows
+        // it as it was again, and says why, even once the section is gone.
+        if (mounted.current) setSaving(false);
         onChanged(was);
         onFailed(error);
       },

@@ -27,7 +27,8 @@ const encoder = new TextEncoder();
  * service said they're gone (404 or 410), and those whose keys no push can be encrypted for. Any other
  * failure is logged. An endpoint that's no longer at a permitted push service is skipped, and so is a
  * subscription `pushable` says may no longer have pushes, or can't say about, asked just before each is
- * sent: a push can wait its turn while its person is banned. `send` stands in for `fetch` in tests.
+ * sent: a push can wait its turn while its person is banned or hushed (Do not disturb). `send` stands
+ * in for `fetch` in tests.
  */
 export async function sendPushes(env: Env, pushes: MessagePush[], pushable: Pushable, send: typeof fetch = fetch): Promise<number[]> {
   const push = await webPush(env);
