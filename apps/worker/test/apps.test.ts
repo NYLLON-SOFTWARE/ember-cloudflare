@@ -571,6 +571,22 @@ describe("An agent's tools", () => {
       const [row] = (await workspaceSql("SELECT tools FROM agent_tools")) as Array<{ tools: string }>;
       return (JSON.parse(row!.tools) as ToolPick[]).map(({ name }) => name);
     };
+    const createIssue = async () => {
+      const [{ tools }] = (await offeredBy(await offered(administrator, ASSISTANT_ID))) as [OfferedApp];
+      const { picked, changed } = tools.find(({ name }) => name === "create_issue")!;
+      return { picked, changed };
+    };
+    /** Has the app's server describe create_issue `how`, which Ember finds reading its tools again. */
+    const describe = async (how: string) => {
+      server.pages = [[SEARCH_ISSUES, { ...CREATE_ISSUE, description: how }]];
+      await appOf(await readAgain(administrator, tracker.id));
+    };
+
+    // Described as it was again before anyone picks anything, it's the tool that was picked.
+    await describe(CREATE_ISSUE.description!);
+    expect(await createIssue()).toEqual({ picked: true, changed: false });
+    await describe("Opens an issue, and emails everyone.");
+    expect(await createIssue()).toEqual({ picked: false, changed: true });
 
     // A page that loaded before then still has it as it was, which isn't the tool any more: picking
     // from it is refused, rather than taken for the tool nobody has read.
@@ -586,6 +602,11 @@ describe("An agent's tools", () => {
       ]);
       expect(await kept()).toEqual([...others.map(({ name }) => name), "create_issue"]);
     }
+    // Once picks were saved without it, it stays set aside however it's described, so that the agent
+    // never has more than was picked for it.
+    await describe(CREATE_ISSUE.description!);
+    expect(await createIssue()).toEqual({ picked: false, changed: true });
+    await describe("Opens an issue, and emails everyone.");
 
     // Picked again, it's the tool as its server describes it now.
     const [again] = await offeredBy(await pick(administrator, ASSISTANT_ID, await picksNow(administrator, "search_issues", "create_issue")));

@@ -2424,11 +2424,16 @@ export interface AppChange {
   now: string;
 }
 
-/** A connected app's tool as it was picked for an agent: its app, its name there, and its fingerprint then. */
+/**
+ * A connected app's tool as it was picked for an agent: its app, its name there, and its fingerprint
+ * then. One set aside was found described another way when picks were saved, and stays set aside, the
+ * agent without it, however its server describes it later, until it's picked again.
+ */
 export interface StoredToolPick {
   appId: AppId;
   name: string;
   fingerprint: string;
+  setAside?: true;
 }
 
 interface AppRow {
