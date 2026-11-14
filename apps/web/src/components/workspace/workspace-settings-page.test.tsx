@@ -262,6 +262,8 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         const { site } = JSON.parse(String(init?.body)) as MemberfulKeysChange;
         return Response.json({ memberfulSite: site, memberfulWebhooks: true, memberfulKeys: "saved", memberfulSiteKept: settings.memberfulSiteKept } satisfies MemberfulSaved);
       }
+      case "GET /api/user_groups":
+        return Response.json({ groups: [] });
       case "PUT /api/account/huddles":
         huddles = { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId };
         return Response.json({ huddles });
