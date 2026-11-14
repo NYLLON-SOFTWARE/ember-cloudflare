@@ -900,7 +900,9 @@ one that takes a token or nothing.
   keeps each pick with the tool as its server described it then: when Ember reads the app's tools again
   and the server describes one another way, in its name, title, description or what it takes, that
   tool is set aside for every agent that had it, and its page says so, until an administrator picks it
-  again. Removing an app takes its tools from every agent.
+  again. A pick is of the tool as the page showed it, so one made on a page that loaded before the
+  tool changed is refused, and the page shows the tools as they are now. Removing an app takes its
+  tools from every agent.
 
 Reading an app's tools runs in a Durable Object of its own, `AppConnector`, apart from the rooms and
 the workspace, with the protocol's own client, pinned to one version. Only JSON comes back, and none

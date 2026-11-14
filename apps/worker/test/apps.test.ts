@@ -150,6 +150,13 @@ async function offeredBy(response: Response): Promise<OfferedApp[]> {
   return ((await response.json()) as AgentTools).apps;
 }
 
+/** Picks of the tools called `names` among `apps`, each as its page offers it now. */
+const picksOf = (apps: OfferedApp[], ...names: string[]): ToolPick[] =>
+  apps.flatMap(({ id, tools }) => tools.filter(({ name }) => names.includes(name)).map(({ name, fingerprint }) => ({ appId: id, name, fingerprint })));
+
+/** Picks of the tools called `names`, as the page of @ember offers them to `administrator` now. */
+const picksNow = async (administrator: Session, ...names: string[]) => picksOf(await offeredBy(await offered(administrator, ASSISTANT_ID)), ...names);
+
 /** The names of the tools `apps` have an agent use. */
 const pickedIn = (apps: OfferedApp[]) => apps.flatMap(({ tools }) => tools.filter(({ picked }) => picked).map(({ name }) => name));
 
@@ -511,29 +518,31 @@ describe("An agent's tools", () => {
     const { agent } = (await made.json()) as { agent: AgentSettings };
 
     const unpicked = { picked: false, changed: false };
-    expect(await offeredBy(await offered(administrator, ASSISTANT_ID))).toEqual([
-      { id: mail.id, name: "Mail", tools: [{ name: "send_email", title: null, description: "Sends an email.", ...unpicked }] },
+    const kept = await fingerprintOf({ name: "search_issues", title: "Search issues", description: "Finds issues by their words.", takes: SEARCH_ISSUES.inputSchema as Record<string, unknown> });
+    const apps = await offeredBy(await offered(administrator, ASSISTANT_ID));
+    expect(apps).toEqual([
+      { id: mail.id, name: "Mail", tools: [{ name: "send_email", title: null, description: "Sends an email.", fingerprint: expect.any(String), ...unpicked }] },
       {
         id: tracker.id,
         name: "Tracker",
         tools: [
-          { name: "search_issues", title: "Search issues", description: "Finds issues by their words.", ...unpicked },
-          { name: "create_issue", title: null, description: "Opens an issue.", ...unpicked },
+          { name: "search_issues", title: "Search issues", description: "Finds issues by their words.", fingerprint: kept, ...unpicked },
+          { name: "create_issue", title: null, description: "Opens an issue.", fingerprint: expect.any(String), ...unpicked },
         ],
       },
     ]);
 
     // Each pick is every tool the agent may use from then on, however often it's named.
-    const search: ToolPick = { appId: tracker.id, name: "search_issues" };
-    expect(pickedIn(await offeredBy(await pick(administrator, ASSISTANT_ID, [search, search, { appId: mail.id, name: "send_email" }])))).toEqual(["send_email", "search_issues"]);
-    expect(pickedIn(await offeredBy(await pick(administrator, agent.id, [{ appId: tracker.id, name: "create_issue" }])))).toEqual(["create_issue"]);
+    const [search] = picksOf(apps, "search_issues");
+    expect(search).toEqual({ appId: tracker.id, name: "search_issues", fingerprint: kept });
+    expect(pickedIn(await offeredBy(await pick(administrator, ASSISTANT_ID, [search, search, ...picksOf(apps, "send_email")])))).toEqual(["send_email", "search_issues"]);
+    expect(pickedIn(await offeredBy(await pick(administrator, agent.id, picksOf(apps, "create_issue"))))).toEqual(["create_issue"]);
     expect(pickedIn(await offeredBy(await offered(administrator, ASSISTANT_ID)))).toEqual(["send_email", "search_issues"]);
     expect(pickedIn(await offeredBy(await pick(administrator, ASSISTANT_ID, [search])))).toEqual(["search_issues"]);
     expect(pickedIn(await offeredBy(await pick(administrator, agent.id, [])))).toEqual([]);
-    const kept = await fingerprintOf({ name: "search_issues", title: "Search issues", description: "Finds issues by their words.", takes: SEARCH_ISSUES.inputSchema as Record<string, unknown> });
     expect(await workspaceSql("SELECT agent_id, tools, updated_by FROM agent_tools ORDER BY agent_id")).toEqual([
       { agent_id: agent.id, tools: "[]", updated_by: administrator.user.id },
-      { agent_id: ASSISTANT_ID, tools: JSON.stringify([{ ...search, fingerprint: kept }]), updated_by: administrator.user.id },
+      { agent_id: ASSISTANT_ID, tools: JSON.stringify([search]), updated_by: administrator.user.id },
     ]);
     // Picking tools calls none of them.
     expect(asked.filter(({ rpc }) => rpc === "tools/call")).toEqual([]);
@@ -548,10 +557,7 @@ describe("An agent's tools", () => {
   it("sets aside a tool its server describes another way since it was picked, until it's picked again, and one whose app is removed", async () => {
     const administrator = await setUp();
     const tracker = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
-    const picks: ToolPick[] = [
-      { appId: tracker.id, name: "search_issues" },
-      { appId: tracker.id, name: "create_issue" },
-    ];
+    const picks = await picksNow(administrator, "search_issues", "create_issue");
     expect(pickedIn(await offeredBy(await pick(administrator, ASSISTANT_ID, picks)))).toEqual(["search_issues", "create_issue"]);
 
     server.pages = [[SEARCH_ISSUES, { ...CREATE_ISSUE, description: "Opens an issue, and emails everyone." }]];
@@ -561,12 +567,39 @@ describe("An agent's tools", () => {
       { name: "search_issues", picked: true, changed: false },
       { name: "create_issue", picked: false, changed: true },
     ]);
+    const kept = async () => {
+      const [row] = (await workspaceSql("SELECT tools FROM agent_tools")) as Array<{ tools: string }>;
+      return (JSON.parse(row!.tools) as ToolPick[]).map(({ name }) => name);
+    };
+
+    // A page that loaded before then still has it as it was, which isn't the tool any more: picking
+    // from it is refused, rather than taken for the tool nobody has read.
+    expect(await refusalOf(await pick(administrator, ASSISTANT_ID, picks), 409)).toEqual({ error: TOOL_GONE });
+    expect(await refusalOf(await pick(administrator, ASSISTANT_ID, picks.slice(1)), 409)).toEqual({ error: TOOL_GONE });
+
+    // Other picks leave it set aside, saying so still, whether they keep the rest or take it away.
+    for (const others of [picks.slice(0, 1), []]) {
+      const [left] = await offeredBy(await pick(administrator, ASSISTANT_ID, others));
+      expect(left!.tools.map(({ picked, changed }) => ({ picked, changed }))).toEqual([
+        { picked: others.length > 0, changed: false },
+        { picked: false, changed: true },
+      ]);
+      expect(await kept()).toEqual([...others.map(({ name }) => name), "create_issue"]);
+    }
+
     // Picked again, it's the tool as its server describes it now.
-    const [again] = await offeredBy(await pick(administrator, ASSISTANT_ID, picks));
+    const [again] = await offeredBy(await pick(administrator, ASSISTANT_ID, await picksNow(administrator, "search_issues", "create_issue")));
     expect(again!.tools.map(({ picked, changed }) => ({ picked, changed }))).toEqual([
       { picked: true, changed: false },
       { picked: true, changed: false },
     ]);
+    // Taken away after that, it's forgotten, as any tool is.
+    const [taken] = await offeredBy(await pick(administrator, ASSISTANT_ID, await picksNow(administrator, "search_issues")));
+    expect(taken!.tools.map(({ picked, changed }) => ({ picked, changed }))).toEqual([
+      { picked: true, changed: false },
+      { picked: false, changed: false },
+    ]);
+    expect(await kept()).toEqual(["search_issues"]);
 
     expect((await disconnect(administrator, tracker.id)).status).toBe(204);
     expect(await offeredBy(await offered(administrator, ASSISTANT_ID))).toEqual([]);
@@ -579,13 +612,15 @@ describe("An agent's tools", () => {
     const administrator = await setUp();
     server = { pages: [Array.from({ length: MAX_AGENT_TOOLS + 1 }, (_, index) => ({ name: `tool_${index}` }))] };
     const tracker = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
-    const every = tracker.tools.map(({ name }): ToolPick => ({ appId: tracker.id, name }));
+    const every = await picksNow(administrator, ...tracker.tools.map(({ name }) => name));
     expect(pickedIn(await offeredBy(await pick(administrator, ASSISTANT_ID, every.slice(0, MAX_AGENT_TOOLS))))).toHaveLength(MAX_AGENT_TOOLS);
 
     expect(await refusalOf(await pick(administrator, ASSISTANT_ID, every), 422)).toEqual({ error: AGENT_TOOLS_FULL });
-    expect(await refusalOf(await pick(administrator, ASSISTANT_ID, [{ appId: tracker.id, name: "nonesuch" }]), 409)).toEqual({ error: TOOL_GONE });
-    expect(await refusalOf(await pick(administrator, ASSISTANT_ID, [{ appId: "nonesuch", name: "tool_0" }]), 409)).toEqual({ error: TOOL_GONE });
-    for (const tools of ["tool_0", [{ appId: tracker.id }], [null], undefined]) {
+    const [first] = every;
+    expect(await refusalOf(await pick(administrator, ASSISTANT_ID, [{ ...first, name: "nonesuch" }]), 409)).toEqual({ error: TOOL_GONE });
+    expect(await refusalOf(await pick(administrator, ASSISTANT_ID, [{ ...first, appId: "nonesuch" }]), 409)).toEqual({ error: TOOL_GONE });
+    expect(await refusalOf(await pick(administrator, ASSISTANT_ID, [{ ...first, fingerprint: "nonesuch" }]), 409)).toEqual({ error: TOOL_GONE });
+    for (const tools of ["tool_0", [{ appId: tracker.id }], [{ appId: tracker.id, name: "tool_0" }], [{ ...first, fingerprint: "f".repeat(129) }], [null], undefined]) {
       expect((await pick(administrator, ASSISTANT_ID, tools)).status, JSON.stringify(tools)).toBe(422);
     }
     expect(pickedIn(await offeredBy(await offered(administrator, ASSISTANT_ID)))).toHaveLength(MAX_AGENT_TOOLS);
@@ -594,8 +629,8 @@ describe("An agent's tools", () => {
   it("is for administrators, while Ember AI is on, and for @ember and agents alone", async () => {
     const administrator = await setUp();
     const member = await joinAsGrace();
-    const tracker = await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
-    const search: ToolPick[] = [{ appId: tracker.id, name: "search_issues" }];
+    await appOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 201);
+    const search = await picksNow(administrator, "search_issues");
     for (const who of [member, null]) {
       expect((await offered(who, ASSISTANT_ID)).status).toBe(who ? 403 : 401);
       expect((await pick(who, ASSISTANT_ID, search)).status).toBe(who ? 403 : 401);

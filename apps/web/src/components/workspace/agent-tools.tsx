@@ -27,7 +27,7 @@ export const TOOL_CHANGED = "Its app describes this tool another way than when i
 export const pickedOf = (count: number) => `${count} of ${MAX_AGENT_TOOLS} picked`;
 
 /** The tools `apps` have an agent use. */
-const picksIn = (apps: readonly OfferedApp[]): ToolPick[] => apps.flatMap(({ id, tools }) => tools.filter(({ picked }) => picked).map(({ name }) => ({ appId: id, name })));
+const picksIn = (apps: readonly OfferedApp[]): ToolPick[] => apps.flatMap(({ id, tools }) => tools.filter(({ picked }) => picked).map(({ name, fingerprint }) => ({ appId: id, name, fingerprint })));
 
 /** Whether the server refused picks for a reason the card says itself: too many, or a tool that's gone. */
 const isRefusal = (error: unknown): error is ApiError => error instanceof ApiError && (error.status === 422 || (error.status === 409 && !isOff(error)));
@@ -91,9 +91,9 @@ export function AgentTools({ agentId, name, onFailed }: Props) {
   const picks = apps ? picksIn(apps) : [];
   const full = picks.length >= MAX_AGENT_TOOLS;
   /** Checks or unchecks a tool at once, as a checkbox does, and saves the picks that leaves: the server's answer then says what's picked. */
-  const pick = (appId: string, tool: string, picked: boolean) => {
-    setApps((apps) => apps && apps.map((app) => (app.id === appId ? { ...app, tools: app.tools.map((offered) => (offered.name === tool ? { ...offered, picked } : offered)) } : app)));
-    save(picked ? [...picks, { appId, name: tool }] : picks.filter((pick) => pick.appId !== appId || pick.name !== tool), apps);
+  const pick = (tool: ToolPick, picked: boolean) => {
+    setApps((apps) => apps && apps.map((app) => (app.id === tool.appId ? { ...app, tools: app.tools.map((offered) => (offered.name === tool.name ? { ...offered, picked } : offered)) } : app)));
+    save(picked ? [...picks, tool] : picks.filter((pick) => pick.appId !== tool.appId || pick.name !== tool.name), apps);
   };
 
   return (
@@ -126,14 +126,14 @@ export function AgentTools({ agentId, name, onFailed }: Props) {
         <fieldset key={id} disabled={saving} className="flex min-w-0 flex-col">
           <legend className="pb-1 font-semibold">{app}</legend>
           <ul className="flex max-h-[24em] flex-col overflow-y-auto overscroll-contain rounded-[10px] border bg-background">
-            {tools.map(({ name: tool, title, description, picked, changed }) => (
+            {tools.map(({ name: tool, title, description, fingerprint, picked, changed }) => (
               <li key={tool} className="border-t first:border-t-0">
                 <label className="flex cursor-pointer items-start gap-[1.5ch] px-[1.5ch] py-2.5 has-disabled:cursor-default">
                   <input
                     type="checkbox"
                     checked={picked}
                     disabled={!picked && full}
-                    onChange={(event) => pick(id, tool, event.target.checked)}
+                    onChange={(event) => pick({ appId: id, name: tool, fingerprint }, event.target.checked)}
                     aria-label={title !== null && title !== tool ? `${tool}, ${title}` : tool}
                     aria-describedby={`agent-tool-${id}-${tool}`}
                     className="mt-1 size-4 flex-none accent-foreground"

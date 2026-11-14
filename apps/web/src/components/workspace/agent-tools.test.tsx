@@ -11,13 +11,13 @@ const RECAP = "0mgk3x2a9b4c60";
 const TOOLS = `/api/account/agents/${RECAP}/tools`;
 
 const unpicked = { picked: false, changed: false };
-const MAIL: OfferedApp = { id: "0mgk3x2a9b4c71", name: "Mail", tools: [{ name: "send_email", title: null, description: "Sends an email.", ...unpicked }] };
+const MAIL: OfferedApp = { id: "0mgk3x2a9b4c71", name: "Mail", tools: [{ name: "send_email", title: null, description: "Sends an email.", fingerprint: "f-send", ...unpicked }] };
 const TRACKER: OfferedApp = {
   id: "0mgk3x2a9b4c70",
   name: "Tracker",
   tools: [
-    { name: "search_issues", title: "Search issues", description: "Finds issues by their words.", ...unpicked, picked: true },
-    { name: "create_issue", title: null, description: "", ...unpicked },
+    { name: "search_issues", title: "Search issues", description: "Finds issues by their words.", fingerprint: "f-search", ...unpicked, picked: true },
+    { name: "create_issue", title: null, description: "", fingerprint: "f-create", ...unpicked },
   ],
 };
 
@@ -88,15 +88,15 @@ describe("An agent's Tools card", () => {
     await waitFor(() => expect(tool("send_email")).toBeChecked());
     expect(sent).toEqual([
       [
-        { appId: TRACKER.id, name: "search_issues" },
-        { appId: MAIL.id, name: "send_email" },
+        { appId: TRACKER.id, name: "search_issues", fingerprint: "f-search" },
+        { appId: MAIL.id, name: "send_email", fingerprint: "f-send" },
       ],
     ]);
     expect(card()).toHaveTextContent(pickedOf(2));
 
     await user.click(tool("search_issues"));
     await waitFor(() => expect(tool("search_issues")).not.toBeChecked());
-    expect(sent[1]).toEqual([{ appId: MAIL.id, name: "send_email" }]);
+    expect(sent[1]).toEqual([{ appId: MAIL.id, name: "send_email", fingerprint: "f-send" }]);
   });
 
   it("takes no other pick while one is on its way", async () => {
@@ -127,12 +127,13 @@ describe("An agent's Tools card", () => {
     expect(tool("create_issue")).toHaveAccessibleDescription(TOOL_CHANGED);
     await user.click(tool("create_issue"));
     await waitFor(() => expect(tool("create_issue")).toBeChecked());
-    expect(sent[0]).toContainEqual({ appId: TRACKER.id, name: "create_issue" });
+    // The pick carries the tool as the card showed it, so that it's never of one nobody read.
+    expect(sent[0]).toContainEqual({ appId: TRACKER.id, name: "create_issue", fingerprint: "f-create" });
     expect(card()).not.toHaveTextContent(TOOL_CHANGED);
   });
 
   it("lets no more be picked once the agent has as many as it may use, but lets them be taken away", async () => {
-    const tools = Array.from({ length: MAX_AGENT_TOOLS + 1 }, (_, n) => ({ name: `tool_${n}`, title: null, description: "", changed: false, picked: n < MAX_AGENT_TOOLS }));
+    const tools = Array.from({ length: MAX_AGENT_TOOLS + 1 }, (_, n) => ({ name: `tool_${n}`, title: null, description: "", fingerprint: `f-${n}`, changed: false, picked: n < MAX_AGENT_TOOLS }));
     serve({ loaded: () => Response.json({ apps: [{ ...TRACKER, tools }] }) });
     showCard();
     await loaded();

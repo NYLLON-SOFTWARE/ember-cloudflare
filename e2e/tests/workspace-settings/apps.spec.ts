@@ -1,5 +1,5 @@
 import type { APIRequestContext, Page } from "@playwright/test";
-import type { AppAnswer, Apps } from "@ember/protocol/apps";
+import { TOOL_GONE, type AppAnswer, type Apps } from "@ember/protocol/apps";
 import { administratorSession, cookieHeader, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
 import { startFakeGateway, type FakeGateway } from "./fake-gateway";
@@ -152,7 +152,10 @@ test.describe("Apps", () => {
     mcp.tools[1]!.description = "Opens an issue, and emails everyone.";
     const read = await request.post(`/api/account/apps/${app.id}/tools`, { headers });
     expect(read.status(), await read.text()).toBe(200);
-    await page.reload();
+    // The page loaded before that, so a pick from it would be of a tool nobody has read: it's refused,
+    // and the card shows the tools as they are now.
+    await search.uncheck();
+    await expect(tools.getByRole("alert")).toHaveText(TOOL_GONE);
     await expect(search).toBeChecked();
     await expect(create).not.toBeChecked();
     await expect(create).toHaveAccessibleDescription(/^Opens an issue, and emails everyone\..*Pick it again to keep it\.$/);

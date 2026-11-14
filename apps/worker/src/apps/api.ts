@@ -132,9 +132,10 @@ export async function showAgentTools(request: Request, env: Env, agentId: UserId
 }
 
 /**
- * `PUT /api/account/agents/:id/tools`, `{ tools: [{ appId, name }] }`: has those be every tool `id`,
- * @ember or an agent, may use, answering what its page then offers. More than an agent uses is refused,
- * and so is one that isn't a connected app's any more, with 409.
+ * `PUT /api/account/agents/:id/tools`, `{ tools: [{ appId, name, fingerprint }] }`: has those be every
+ * tool `id`, @ember or an agent, may use, answering what its page then offers. More than an agent uses
+ * is refused, and so is one that isn't a connected app's any more, or that its server describes another
+ * way than the fingerprint the page offered it with says, with 409.
  */
 export async function pickAgentTools(request: Request, env: Env, agentId: UserId): Promise<Response> {
   const credentials = await administratorOf(request, env, APPS_FORBIDDEN);

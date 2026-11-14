@@ -755,7 +755,7 @@ const offeredApps = (apps: readonly StoredApp[], picks: readonly StoredToolPick[
     name,
     tools: tools.map(({ name: tool, title, description, fingerprint }) => {
       const pick = picks.find((pick) => pick.appId === id && pick.name === tool);
-      return { name: tool, title, description, picked: pick?.fingerprint === fingerprint, changed: pick !== undefined && pick.fingerprint !== fingerprint };
+      return { name: tool, title, description, fingerprint, picked: pick?.fingerprint === fingerprint, changed: pick !== undefined && pick.fingerprint !== fingerprint };
     }),
   }));
 
@@ -3224,22 +3224,22 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Has `picks` be every tool of the connected apps `agentId`, @ember or an agent, may use from then on,
-   * as the administrator `credentials` signs in, each as its server describes it now, answering what
-   * its page then offers: "gone" when one of them isn't a connected app's tool, or why not, as
-   * `agentTools` answers.
+   * as the administrator `credentials` signs in, answering what its page then offers: "gone" when one
+   * of them isn't a connected app's tool as the administrator read it, by its fingerprint, or why not,
+   * as `agentTools` answers. A tool set aside for having changed stays set aside until it's among them.
    */
   async pickAgentTools(credentials: Credentials, agentId: UserId, picks: readonly ToolPick[]): Promise<OfferedApp[] | "gone" | "off" | "forbidden" | "not found" | null> {
     return this.administerAgents(credentials, async (user) => {
       if (!(await this.usesTools(agentId))) return "not found";
-      const apps = await this.store.apps();
-      const picked: StoredToolPick[] = [];
-      for (const { appId, name } of picks) {
-        const tool = apps.find((app) => app.id === appId)?.tools.find((tool) => tool.name === name);
-        if (!tool) return "gone";
-        picked.push({ appId, name, fingerprint: tool.fingerprint });
-      }
-      await this.store.pickTools(agentId, picked, user.id, new Date().toISOString());
-      return offeredApps(apps, picked);
+      const [apps, before] = await Promise.all([this.store.apps(), this.store.toolPicks(agentId)]);
+      const fingerprintOf = ({ appId, name }: ToolPick) => apps.find((app) => app.id === appId)?.tools.find((tool) => tool.name === name)?.fingerprint;
+      if (picks.some((pick) => fingerprintOf(pick) !== pick.fingerprint)) return "gone";
+      const isPicked = ({ appId, name }: ToolPick) => picks.some((pick) => pick.appId === appId && pick.name === name);
+      const hasChanged = (pick: ToolPick) => ![undefined, pick.fingerprint].includes(fingerprintOf(pick));
+      const setAside = before.filter((pick) => !isPicked(pick) && hasChanged(pick));
+      const kept = [...picks, ...setAside];
+      await this.store.pickTools(agentId, kept, user.id, new Date().toISOString());
+      return offeredApps(apps, kept);
     });
   }
 

@@ -157,19 +157,28 @@ const isLoopback = (hostname: string) => LOOPBACK_HOST.test(hostname);
 export const MAX_AGENT_TOOLS = 20;
 
 export const AGENT_TOOLS_FULL = `An agent uses at most ${MAX_AGENT_TOOLS} tools. Pick fewer.`;
-export const TOOL_GONE = "One of those tools isn't among the connected apps' any more. Load the page again.";
+export const TOOL_GONE = "One of those tools is gone from its app, or described another way than when this page loaded. Here they are as they are now.";
 
-/** A connected app's tool, picked for an agent: the app, and the tool's name there. */
+/** The longest fingerprint of a tool a pick may carry. */
+const MAX_FINGERPRINT_LENGTH = 128;
+
+/**
+ * A connected app's tool, picked for an agent: the app, the tool's name there, and the fingerprint of
+ * the tool as the page offered it, so that a pick is of the tool as the administrator read it.
+ */
 export interface ToolPick {
   appId: AppId;
   name: string;
+  fingerprint: string;
 }
 
 /**
- * A connected app's tool as an agent's page offers it: whether the agent may use it, and whether its
- * server has described it another way since it was picked, which sets it aside until it's picked again.
+ * A connected app's tool as an agent's page offers it: the fingerprint of how its server describes it,
+ * which a pick of it carries, whether the agent may use it, and whether its server has described it
+ * another way since it was picked, which sets it aside until it's picked again.
  */
 export interface OfferedTool extends AppTool {
+  fingerprint: string;
   picked: boolean;
   changed: boolean;
 }
@@ -191,6 +200,8 @@ export interface AgentToolPicks {
   tools: ToolPick[];
 }
 
+const NOT_A_PICK = "Expected each tool's app, name and fingerprint";
+
 /** Parses untrusted picks of an agent's tools, each once, or says why they're refused. */
 export function parseToolPicks(data: unknown): ToolPick[] | AppRefused {
   if (typeof data !== "object" || data === null || Array.isArray(data)) return { error: "Expected a JSON object" };
@@ -199,10 +210,11 @@ export function parseToolPicks(data: unknown): ToolPick[] | AppRefused {
   if (tools.length > MAX_AGENT_TOOLS) return { error: AGENT_TOOLS_FULL };
   const picks = new Map<string, ToolPick>();
   for (const tool of tools as unknown[]) {
-    if (typeof tool !== "object" || tool === null) return { error: "Expected each tool's app and name" };
-    const { appId, name } = tool as Record<string, unknown>;
-    if (typeof appId !== "string" || typeof name !== "string" || appId === "" || name === "") return { error: "Expected each tool's app and name" };
-    picks.set(`${appId}\n${name}`, { appId, name });
+    if (typeof tool !== "object" || tool === null) return { error: NOT_A_PICK };
+    const { appId, name, fingerprint } = tool as Record<string, unknown>;
+    if (typeof appId !== "string" || typeof name !== "string" || appId === "" || name === "") return { error: NOT_A_PICK };
+    if (typeof fingerprint !== "string" || fingerprint === "" || fingerprint.length > MAX_FINGERPRINT_LENGTH) return { error: NOT_A_PICK };
+    picks.set(`${appId}\n${name}`, { appId, name, fingerprint });
   }
   return [...picks.values()];
 }

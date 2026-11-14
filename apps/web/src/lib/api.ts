@@ -712,7 +712,7 @@ export async function fetchAgentTools(agentId: UserId): Promise<OfferedApp[]> {
 /**
  * Has `tools` be every tool `agentId` may use from then on, answering what its page then offers. Fails
  * as `fetchAgentTools` does, with a 422 ApiError for more than an agent uses, and with a 409 for a tool
- * that isn't a connected app's any more.
+ * that isn't a connected app's any more, or that its app describes another way than when it was offered.
  */
 export async function pickAgentTools(agentId: UserId, tools: ToolPick[]): Promise<OfferedApp[]> {
   const picks: AgentToolPicks = { tools };
