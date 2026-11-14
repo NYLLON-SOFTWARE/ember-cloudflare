@@ -987,6 +987,15 @@ export function SwitchOff(props: IconoirIconProps) {
   );
 }
 
+export function Terminal(props: IconoirIconProps) {
+  return (
+    <IconoirIcon name="terminal" {...props}>
+      <path d="M13 17H20" {...LINE} />
+      <path d="M5 7L10 12L5 17" {...LINE} />
+    </IconoirIcon>
+  );
+}
+
 export function TextSquare(props: IconoirIconProps) {
   return (
     <IconoirIcon name="text-square" {...props}>
