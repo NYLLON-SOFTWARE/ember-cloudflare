@@ -7,8 +7,8 @@ import { statement, type Db, type Statement } from "./db";
 // added to private rooms, which it records as they happen.
 
 /** Users' `status` for someone active, and `role` for a bot, as workspace-store.ts numbers them. */
-export const ACTIVE = 0;
-export const BOT = 2;
+const ACTIVE = 0;
+const BOT = 2;
 
 /** An item's columns, as `itemOf` reads them. */
 const COLUMNS = `id, kind, room_id, message_id, parent_id, actor_id, preview, content, created_at, read_at`;
@@ -154,7 +154,7 @@ const MARK_ALL = `UPDATE activity SET read_at = ?2 WHERE user_id = ?1 AND read_a
 /**
  * Records a reaction, ?5, by ?4 to message ?2 in room ?1, written by ?3, whose text starts ?6, for its
  * author, unless they reacted themselves, are a bot or aren't active, or aren't in the room any more, or
- * it's recorded already, as the Activity backfill may have just done.
+ * it's recorded already, as when the room tries again after an answer that was lost.
  */
 const RECORD_REACTION = `INSERT INTO activity (user_id, kind, room_id, message_id, actor_id, preview, content, created_at)
   SELECT users.id, 'reaction', ?1, ?2, ?4, ?6, ?5, ?7 FROM users
@@ -164,7 +164,7 @@ const RECORD_REACTION = `INSERT INTO activity (user_id, kind, room_id, message_i
   RETURNING user_id, ${COLUMNS}`;
 
 /** Removes the item for reaction ?3 by ?2 to message ?1, answering it. */
-const REMOVE_REACTION = `DELETE FROM activity WHERE message_id = ?1 AND kind = 'reaction' AND actor_id = ?2 AND content = ?3 RETURNING user_id, id`;
+const REMOVE_REACTION = `DELETE FROM activity WHERE message_id = ?1 AND kind = 'reaction' AND actor_id = ?2 AND content = ?3 RETURNING user_id, id, read_at IS NULL AS unread`;
 
 /** Whether the person whose item it is is still in the item's room. */
 const STILL_IN_ROOM = `EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = activity.room_id AND memberships.user_id = activity.user_id)`;
@@ -185,10 +185,10 @@ const EDIT_MESSAGE_LEFT = `DELETE FROM activity WHERE message_id = ?1 AND room_i
  */
 const FORGET_ROOMS_LEFT = `DELETE FROM activity
   WHERE user_id IN (SELECT value FROM json_each(?1)) AND room_id <> '' AND NOT ${STILL_IN_ROOM}
-  RETURNING user_id, id`;
+  RETURNING user_id, id, read_at IS NULL AS unread`;
 
 /** Removes every item about message ?1 in room ?2, answering them. */
-const REMOVE_MESSAGE = `DELETE FROM activity WHERE message_id = ?1 AND room_id = ?2 RETURNING user_id, id`;
+const REMOVE_MESSAGE = `DELETE FROM activity WHERE message_id = ?1 AND room_id = ?2 RETURNING user_id, id, read_at IS NULL AS unread`;
 
 /** Records ?2 adding the active people a JSON list ?3 names, but bots and themselves, to private room ?1, as of ?4. */
 const RECORD_INVITATIONS = `INSERT INTO activity (user_id, kind, room_id, actor_id, created_at)
@@ -214,12 +214,17 @@ export interface RecordedReminder {
   text: string;
 }
 
-/** Removed items, by whose they were. */
-export type RemovedItems = Map<UserId, number[]>;
+/** Removed items, by whose they were, and those of them that were unread. */
+export type RemovedItems = Map<UserId, { ids: number[]; unreadIds: number[] }>;
 
-function removedItems(rows: Array<{ user_id: UserId; id: number }>): RemovedItems {
+function removedItems(rows: Array<{ user_id: UserId; id: number; unread: number }>): RemovedItems {
   const removed: RemovedItems = new Map();
-  for (const { user_id, id } of rows) removed.set(user_id, [...(removed.get(user_id) ?? []), id]);
+  for (const { user_id, id, unread } of rows) {
+    const theirs = removed.get(user_id) ?? { ids: [], unreadIds: [] };
+    theirs.ids.push(id);
+    if (unread) theirs.unreadIds.push(id);
+    removed.set(user_id, theirs);
+  }
   return removed;
 }
 

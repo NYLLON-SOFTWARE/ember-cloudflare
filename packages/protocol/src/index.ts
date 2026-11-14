@@ -1942,8 +1942,11 @@ export type WorkspaceServerFrame =
   | { type: "activity.added"; items: ActivityItem[] }
   /** Items of their Activity marked read or unread, in this tab or another, or with `ids` null, every item marked read. */
   | { type: "activity.marked"; ids: number[] | null; read: boolean }
-  /** Items gone from their Activity, as a reaction taken back or a message deleted takes them. */
-  | { type: "activity.removed"; ids: number[] }
+  /**
+   * Items gone from their Activity, as a reaction taken back, a message deleted or leaving a room takes
+   * them, with those of them that were unread, loaded or not, for the unread count.
+   */
+  | { type: "activity.removed"; ids: number[]; unreadIds?: number[] }
   /** Items of their Activity that say what an edited message says now. */
   | { type: "activity.updated"; items: ActivityItem[] }
   /**

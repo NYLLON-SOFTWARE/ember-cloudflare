@@ -28,6 +28,19 @@ describe("activityReducer", () => {
     expect(older.more).toBe(false);
   });
 
+  it("keeps what the socket added while the newest page loaded, once each, counting the unread", () => {
+    // Item 4 came after the server read the page; item 3 came before, so the page has it too.
+    const feed = activityReducer(loaded([item(1)]), { type: "loaded", page: { items: [item(3), item(2)], unread: 2, more: false }, heard: [item(4), item(3)] });
+    expect(feed.items.map((i) => i.id)).toEqual([4, 3, 2]);
+    expect(feed.unread).toBe(3);
+  });
+
+  it("drops the unread count by the removed items the server says were unread, those not loaded too", () => {
+    const feed = activityReducer(loaded([item(3), item(2, { read: true })], 4, true), { type: "removed", ids: [2, 1], unreadIds: [1] });
+    expect(feed.items.map((i) => i.id)).toEqual([3]);
+    expect(feed.unread).toBe(3);
+  });
+
   it("adds new items in order, once each, counting the unread", () => {
     const feed = activityReducer(loaded([item(2)]), { type: "added", items: [item(4), item(3, { read: true }), item(2)] });
     expect(feed.items.map((i) => i.id)).toEqual([4, 3, 2]);

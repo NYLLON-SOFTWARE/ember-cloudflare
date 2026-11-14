@@ -16,14 +16,18 @@ export interface ActivityFeed {
 export const NO_ACTIVITY: ActivityFeed = { items: [], unread: 0, more: false, loaded: false };
 
 export type ActivityChange =
-  /** The newest page, loaded afresh, which takes the place of what was loaded. */
-  | { type: "loaded"; page: ActivityPage }
+  /**
+   * The newest page, loaded afresh, which takes the place of what was loaded, but for `heard`, the items
+   * the socket added while it loaded, which the server may have read it before.
+   */
+  | { type: "loaded"; page: ActivityPage; heard?: ActivityItem[] }
   /** An older page, after the items loaded. */
   | { type: "older"; page: ActivityPage }
   | { type: "added"; items: ActivityItem[] }
   /** Items marked read or unread, or with `ids` null, every item read. */
   | { type: "marked"; ids: number[] | null; read: boolean }
-  | { type: "removed"; ids: number[] }
+  /** Items gone, with those of them that were unread, loaded or not, when the server says. */
+  | { type: "removed"; ids: number[]; unreadIds?: number[] }
   /** Items that say what an edited message says now. */
   | { type: "updated"; items: ActivityItem[] };
 
@@ -31,8 +35,16 @@ const newestFirst = (a: ActivityItem, b: ActivityItem) => b.id - a.id;
 
 export function activityReducer(feed: ActivityFeed, change: ActivityChange): ActivityFeed {
   switch (change.type) {
-    case "loaded":
-      return { items: change.page.items, unread: change.page.unread, more: change.page.more, loaded: true };
+    case "loaded": {
+      const known = new Set(change.page.items.map((item) => item.id));
+      const heard = (change.heard ?? []).filter((item) => !known.has(item.id));
+      return {
+        items: [...heard, ...change.page.items].sort(newestFirst),
+        unread: change.page.unread + heard.filter((item) => !item.read).length,
+        more: change.page.more,
+        loaded: true,
+      };
+    }
     case "older": {
       const known = new Set(feed.items.map((item) => item.id));
       return { ...feed, items: [...feed.items, ...change.page.items.filter((item) => !known.has(item.id))], more: change.page.more };
@@ -59,8 +71,10 @@ export function activityReducer(feed: ActivityFeed, change: ActivityChange): Act
     case "removed": {
       const ids = new Set(change.ids);
       const gone = feed.items.filter((item) => ids.has(item.id));
-      if (gone.length === 0) return feed;
-      return { ...feed, items: feed.items.filter((item) => !ids.has(item.id)), unread: Math.max(0, feed.unread - gone.filter((item) => !item.read).length) };
+      // The server knows which were unread, those not loaded too; an older one, only what's loaded.
+      const unreadGone = change.unreadIds?.length ?? gone.filter((item) => !item.read).length;
+      if (gone.length === 0 && unreadGone === 0) return feed;
+      return { ...feed, items: feed.items.filter((item) => !ids.has(item.id)), unread: Math.max(0, feed.unread - unreadGone) };
     }
     case "updated": {
       // Only what they say changes: whether they're read is the marks' to say.

@@ -134,6 +134,9 @@ const UNDELIVERED_ROOM = "undeliveredRoom";
 const LOGS_DUE = "logsDue";
 /** What it keeps while it has messages scheduled to post: the room's id, which its alarm posts them in. */
 const SCHEDULED_ROOM = "scheduledRoom";
+/** How often the room tries telling people's Activity of an edit, a deletion or a reaction, and how long it waits before the first try again, quadrupled each time. */
+const ACTIVITY_TRIES = 3;
+const ACTIVITY_RETRY_MS = 250;
 /** How long the alarm waits to post a scheduled message again when it couldn't ask the Workspace about its author. */
 const SCHEDULED_RETRY_MS = 60 * 1000;
 /** Why the room keeps no scheduled message for a time that's passed, or too far ahead. */
@@ -1103,7 +1106,7 @@ export class ChatRoom extends DurableObject<Env> {
     couriers.index.deliver();
     couriers.forwards.deliver();
     if (message.attachment && !retold.attachment) couriers.files.deliver();
-    this.ctx.waitUntil(workspace(this.env).messageEdited(store.roomId, message.id, body.plainText).catch(() => {}));
+    this.tellActivityOfEdit(store, message.id);
   }
 
   /**
@@ -1591,7 +1594,7 @@ export class ChatRoom extends DurableObject<Env> {
     const { message: edited, seq } = await store.updateBody(message, body, now);
     this.broadcast({ type: "message.updated", message: edited, seq });
     // People's Activity says what it says now, so nothing edited out of it stays there.
-    this.ctx.waitUntil(workspace(this.env).messageEdited(store.roomId, edited.id, edited.plainText).catch(() => {}));
+    this.tellActivityOfEdit(store, edited.id);
     const couriers = this.couriersFor(store.roomId);
     couriers.index.deliver();
     // Its forwards follow it.
@@ -1603,11 +1606,42 @@ export class ChatRoom extends DurableObject<Env> {
    * Deletes `message`, with its boosts, or keeps it for its thread's replies without them, telling
    * everyone in the room and sending the search index its log, and has R2 delete its file, if it has one.
    */
+  /**
+   * Tells people's Activity what message `messageId` says now, reading it at each try, so that a try
+   * again after a later edit doesn't bring back what that edit took out.
+   */
+  private tellActivityOfEdit(store: MessageStore, messageId: string): void {
+    this.tellActivity(`edit of ${messageId}`, async () => {
+      const message = await store.find(messageId);
+      if (message) await workspace(this.env).messageEdited(store.roomId, messageId, message.plainText);
+    });
+  }
+
+  /**
+   * Has `tell` tell the Workspace of a change to people's Activity after the request, trying again after
+   * a failure, as when the Workspace is restarting, and logging the last, since nothing else would.
+   */
+  private tellActivity(what: string, tell: () => Promise<unknown>): void {
+    const told = async () => {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          return await tell();
+        } catch (error) {
+          if (attempt === ACTIVITY_TRIES) return console.error(`Activity wasn't told of the ${what}:`, error);
+          await new Promise((resolve) => setTimeout(resolve, ACTIVITY_RETRY_MS * 4 ** (attempt - 1)));
+        }
+      }
+    };
+    this.ctx.waitUntil(told());
+  }
+
   private async deleteMessage(store: MessageStore, message: Message): Promise<void> {
     const deletion = await store.delete([message.id]);
     this.broadcastDeletion(deletion);
     // What people's Activity says of it goes with it, even when it keeps its place for its thread.
-    for (const messageId of new Set([message.id, ...deletion.deletedIds])) this.ctx.waitUntil(workspace(this.env).messageDeleted(store.roomId, messageId).catch(() => {}));
+    for (const messageId of new Set([message.id, ...deletion.deletedIds])) {
+      this.tellActivity(`deletion of ${messageId}`, () => workspace(this.env).messageDeleted(store.roomId, messageId));
+    }
     const couriers = this.couriersFor(store.roomId);
     couriers.index.deliver();
     couriers.forwards.deliver();
@@ -1621,8 +1655,10 @@ export class ChatRoom extends DurableObject<Env> {
   private async addBoost(store: MessageStore, message: Message, user: User, content: string, now: string): Promise<Boost> {
     const { boost, seq } = await store.addBoost(sortableId(), message.id, user, content, now);
     this.broadcast({ type: "boost.created", boost, seq });
-    const reacted = workspace(this.env).reacted(store.roomId, message.id, message.creator.id, user.id, content, message.plainText, now);
-    this.ctx.waitUntil(reacted.catch(() => {}));
+    // Unless it's been taken back by the time a try again comes round.
+    this.tellActivity(`reaction ${boost.id}`, async () => {
+      if (await store.findBoost(boost.id)) await workspace(this.env).reacted(store.roomId, message.id, message.creator.id, user.id, content, message.plainText, now);
+    });
     // Search results show a message's boosts, so the index takes it again.
     this.couriersFor(store.roomId).index.deliver();
     return boost;
@@ -1632,7 +1668,7 @@ export class ChatRoom extends DurableObject<Env> {
   private async removeBoost(store: MessageStore, boost: Boost): Promise<void> {
     const seq = await store.removeBoost(boost);
     this.broadcast({ type: "boost.deleted", boostId: boost.id, messageId: boost.messageId, seq });
-    this.ctx.waitUntil(workspace(this.env).unreacted(boost.messageId, boost.booster.id, boost.content).catch(() => {}));
+    this.tellActivity(`removal of reaction ${boost.id}`, () => workspace(this.env).unreacted(boost.messageId, boost.booster.id, boost.content));
     this.couriersFor(store.roomId).index.deliver();
   }
 

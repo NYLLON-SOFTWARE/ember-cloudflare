@@ -4746,7 +4746,7 @@ export class Workspace extends DurableObject<Env> {
 
   /** Tells each person of the items gone from their Activity. */
   private tellOfRemovedActivity(removed: RemovedItems): void {
-    for (const [userId, ids] of removed) this.tell([userId], { type: "activity.removed", ids });
+    for (const [userId, { ids, unreadIds }] of removed) this.tell([userId], { type: "activity.removed", ids, unreadIds });
   }
 
   /**

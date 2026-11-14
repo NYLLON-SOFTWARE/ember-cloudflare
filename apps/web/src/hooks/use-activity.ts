@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
-import type { ActivityFrame } from "@ember/protocol";
+import type { ActivityFrame, ActivityItem } from "@ember/protocol";
 import { fetchActivity, markActivity } from "@/lib/api";
 import { activityReducer, NO_ACTIVITY } from "@/lib/activity-feed";
 
@@ -17,20 +17,35 @@ export function useActivity(onFailed: (error: unknown) => void) {
     failed.current = onFailed;
   }, [onFailed]);
 
+  // What the socket adds while a load is out, which the page it answers may not have.
+  const heardWhileLoading = useRef<ActivityItem[] | null>(null);
+
   const reload = useCallback(() => {
     const load = ++loads.current;
+    heardWhileLoading.current = [];
     fetchActivity().then(
-      (page) => load === loads.current && change({ type: "loaded", page }),
-      (error: unknown) => load === loads.current && failed.current(error),
+      (page) => {
+        if (load !== loads.current) return;
+        change({ type: "loaded", page, heard: heardWhileLoading.current ?? [] });
+        heardWhileLoading.current = null;
+      },
+      (error: unknown) => {
+        if (load !== loads.current) return;
+        heardWhileLoading.current = null;
+        failed.current(error);
+      },
     );
   }, []);
 
   const heard = useCallback(
     (frame: ActivityFrame | null) => {
       if (frame === null) return reload();
-      if (frame.type === "activity.added") change({ type: "added", items: frame.items });
+      if (frame.type === "activity.added") {
+        heardWhileLoading.current?.push(...frame.items);
+        change({ type: "added", items: frame.items });
+      }
       else if (frame.type === "activity.marked") change({ type: "marked", ids: frame.ids, read: frame.read });
-      else if (frame.type === "activity.removed") change({ type: "removed", ids: frame.ids });
+      else if (frame.type === "activity.removed") change({ type: "removed", ids: frame.ids, unreadIds: frame.unreadIds });
       else if (frame.type === "activity.updated") change({ type: "updated", items: frame.items });
     },
     [reload],
