@@ -1694,8 +1694,12 @@ export type WorkspaceClientFrame = { type: "ping" };
 
 /** What the Workspace sends on a tab's workspace socket. */
 export type WorkspaceServerFrame =
-  /** Sent as the Workspace lets the socket in: who its session signs in, and the workspace as it is then. */
-  | { type: "welcome"; you: Me; account: Account }
+  /**
+   * Sent as the Workspace lets the socket in: who its session signs in, the workspace as it is then,
+   * and when this person's hush of push notifications (Do not disturb) ends, or null while it doesn't,
+   * which the rail shows by the crescent on their avatar. Left out by a worker that sends it not yet.
+   */
+  | { type: "welcome"; you: Me; account: Account; dndUntil?: string | null }
   /**
    * A room of theirs has a message they haven't seen, which marks it unread, as of `at`, when that message
    * came. Sent only to the person marked, as their mark changes.

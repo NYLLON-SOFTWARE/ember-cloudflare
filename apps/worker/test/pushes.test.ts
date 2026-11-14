@@ -66,6 +66,18 @@ async function ban(administrator: Session, session: Session, method: "POST" | "D
   expect(response.status).toBe(200);
 }
 
+/** Hushes `session`'s push notifications until `until`, as Do not disturb on their profile asks. */
+async function hush(session: Session, until: string): Promise<void> {
+  const response = await api("/api/users/me/dnd", { method: "PUT", headers: { Cookie: session.cookie }, body: JSON.stringify({ until }) });
+  expect(response.status).toBe(200);
+}
+
+/** Lets `session`'s push notifications through again, as Do not disturb on their profile asks. */
+async function letThrough(session: Session): Promise<void> {
+  const response = await api("/api/users/me/dnd", { method: "DELETE", headers: { Cookie: session.cookie } });
+  expect(response.status).toBe(200);
+}
+
 /** How a message mentioning `session`'s person is written. */
 const mention = (session: Session) => `<action-text-attachment sgid="${mentionSgid(session.user.id)}" content-type="${MENTION_CONTENT_TYPE}"></action-text-attachment>`;
 
@@ -416,6 +428,46 @@ describe("Who gets a push", () => {
       await post(adaThere, "<p>After the ban</p>");
       await vi.waitFor(() => expect(pushed).toHaveLength(1), { timeout: 5_000 });
       expect(JSON.parse(await browser.open(pushed[0]!.body))).toMatchObject({ options: { body: "Ada: After the ban" } });
+    });
+
+    it("asks again whether a push may go once its turn comes, sending none to someone hushed meanwhile", async () => {
+      const pushed = pushServices();
+      const room = await freshRoom("Designers");
+      const [grace] = await people("Grace");
+      const browser = await pushBrowser();
+      await subscribe(grace, "grace", browser);
+      await involve(grace, room, "everything");
+      const ada = await connect(room, "Ada", { visible: true });
+      // The Workspace answers whether Grace's push may go once the test lets it.
+      let asked = false;
+      const answers: boolean[] = [];
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => (release = resolve));
+      await runInDurableObject(workspaceStub(), (workspace: Workspace) => {
+        const store = (workspace as unknown as { store: WorkspaceStore }).store;
+        const pushable = store.pushable.bind(store);
+        store.pushable = async (id) => {
+          store.pushable = pushable;
+          asked = true;
+          await released;
+          answers.push(await pushable(id));
+          return answers.at(-1)!;
+        };
+      });
+
+      // Grace was unhushed when the message's recipients were chosen, and hushed by the time her push's turn came.
+      await post(ada, "<p>Before the hush</p>");
+      await vi.waitFor(() => expect(asked).toBe(true), { timeout: 5_000 });
+      await hush(grace, new Date(Date.now() + 20 * 60_000).toISOString());
+      release();
+      await vi.waitFor(() => expect(answers).toEqual([false]), { timeout: 5_000 });
+      expect(pushed).toEqual([]);
+      expect(await subscriptionsOf(grace)).toBe(1);
+
+      await letThrough(grace);
+      await post(ada, "<p>After the hush</p>");
+      await vi.waitFor(() => expect(pushed).toHaveLength(1), { timeout: 5_000 });
+      expect(JSON.parse(await browser.open(pushed[0]!.body))).toMatchObject({ options: { body: "Ada: After the hush" } });
     });
 
     it("forgets a subscription its push service says is gone, and keeps one it couldn't reach", async () => {

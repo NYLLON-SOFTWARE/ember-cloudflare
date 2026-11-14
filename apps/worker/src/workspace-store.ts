@@ -1655,11 +1655,13 @@ export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.
   ORDER BY memberships.involvement = 'mentions', push_subscriptions.id`;
 
 /**
- * Whether push subscription ?1 is still saved, for someone active. Its id is never another's, as
- * AUTOINCREMENT numbers them.
+ * Whether push subscription ?1 may still have a push at the moment ?2 is: still saved, for someone
+ * active who hasn't hushed their push notifications (Do not disturb) since `MESSAGE_PUSHES` chose its
+ * recipients. Its id is never another's, as AUTOINCREMENT numbers them.
  */
 const PUSHABLE = `SELECT 1 FROM push_subscriptions JOIN users ON users.id = push_subscriptions.user_id
-  WHERE push_subscriptions.id = ?1 AND users.status = ${ACTIVE}`;
+  WHERE push_subscriptions.id = ?1 AND users.status = ${ACTIVE}
+    AND NOT EXISTS (SELECT 1 FROM dnd WHERE dnd.user_id = push_subscriptions.user_id AND dnd.until_at > ?2)`;
 
 /**
  * Hushes someone's push notifications (Do not disturb) until ?2, in milliseconds since the epoch,
@@ -3585,9 +3587,9 @@ export class WorkspaceStore {
     return { marks, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks, asks };
   }
 
-  /** Whether push subscription `id` is still saved, for someone active. */
+  /** Whether push subscription `id` may still have a push: still saved, for someone active with no hush covering the moment. */
   async pushable(id: number): Promise<boolean> {
-    return (await this.db.all(PUSHABLE, id)).length > 0;
+    return (await this.db.all(PUSHABLE, id, Date.now())).length > 0;
   }
 
   /** Forgets the push subscriptions with `ids`, which the push service has said are gone or can never be pushed to. */

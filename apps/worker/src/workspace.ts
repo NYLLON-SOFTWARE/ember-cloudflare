@@ -863,10 +863,17 @@ export class Workspace extends DurableObject<Env> {
     // cache forgets a session as it starts ending, and doesn't keep a lookup an ending overlapped.
     // The welcome says who they are as this check reads them, since a change to them while the first
     // read was told only the sockets already in. It brings the workspace as it is now too, which may
-    // have changed while the tab was without a socket.
+    // have changed while the tab was without a socket, and their hush of push notifications likewise.
     const [current, account] = await Promise.all([this.session(credentials), this.account()]);
-    if (current) send(server, { type: "welcome", you: meOf(current), account: account ?? ACCOUNT_BEFORE_SETUP });
-    else server.close(CloseCode.Reconnect, CLOSE_REASONS[CloseCode.Reconnect]);
+    if (current) {
+      const hushedUntil = await this.store.dndUntilOf(current.user.id, Date.now());
+      send(server, {
+        type: "welcome",
+        you: meOf(current),
+        account: account ?? ACCOUNT_BEFORE_SETUP,
+        dndUntil: hushedUntil === null ? null : new Date(hushedUntil).toISOString(),
+      });
+    } else server.close(CloseCode.Reconnect, CLOSE_REASONS[CloseCode.Reconnect]);
     return new Response(null, { status: 101, webSocket: client });
   }
 

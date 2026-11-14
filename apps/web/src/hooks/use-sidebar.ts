@@ -80,8 +80,9 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * whoever another tab signed in as, or `me` as they are now, once they've been made an administrator,
  * say. The people `directory` loads again each time the sidebar does by itself, and hears whoever the
  * socket says has changed. `onAccountChanged` hears the workspace as the socket says it is, each time
- * it connects and whenever an administrator changes it. `onGone` hears of each room the socket says is
- * gone as it leaves the list.
+ * it connects and whenever an administrator changes it. `onDndChanged` hears when your push
+ * notifications are hushed until (Do not disturb), as the welcome says they were when it let the socket
+ * in. `onGone` hears of each room the socket says is gone as it leaves the list.
  */
 export function useSidebar(
   me: Me,
@@ -89,6 +90,7 @@ export function useSidebar(
   directory: Directory = NO_DIRECTORY,
   onAccountChanged: (account: Account) => void = () => {},
   onGone: (roomId: RoomId) => void = () => {},
+  onDndChanged: (dndUntil: string | null) => void = () => {},
 ) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
   // Whether a list the server sent has come, rather than only the empty one a failed first load leaves.
@@ -116,6 +118,7 @@ export function useSidebar(
   // A failed load leaves the avatars as they are until the next.
   const reloadPeople = useEffectEvent(() => void directory.reload().catch(() => {}));
   const gone = useEffectEvent(onGone);
+  const dndChanged = useEffectEvent(onDndChanged);
   const isSomeoneElse = useEffectEvent((user: User) => user.id !== me.id);
   // Whether `user`, active now, is someone the directory lists as removed, banned or suspended, rather
   // than someone new, whom it doesn't list yet.
@@ -175,6 +178,7 @@ export function useSidebar(
           workspace.connected();
           if (!toldOf.you) signsIn(frame.you);
           if (!toldOf.account) accountChanged(frame.account);
+          dndChanged(frame.dndUntil ?? null);
           return reload();
         case "room.saved":
           heardOf(frame.room.id);

@@ -23,9 +23,9 @@ function showSection(hushedUntil: string | null = null) {
     };
     return <DoNotDisturb dndUntil={dndUntil} onChanged={changed} onFailed={onFailed} />;
   }
-  render(<Section />);
+  const { unmount } = render(<Section />);
   const user = userEvent.setup();
-  return { onChanged, onFailed, user };
+  return { onChanged, onFailed, unmount, user };
 }
 
 const dnd = () => screen.getByRole("region", { name: "Do not disturb" });
@@ -136,6 +136,24 @@ describe("Do not disturb", () => {
     // The hush the workspace had, which the section showed again.
     expect(onChanged).toHaveBeenLastCalledWith(null);
     expect(within(dnd()).queryByText(/hushed until/)).not.toBeInTheDocument();
+  });
+
+  it("shows it as it was again when a hush isn't saved, even once the section is gone", async () => {
+    let answer = (_: Response) => {};
+    vi.mocked(fetch).mockImplementation(
+      async (input, init) =>
+        new Promise((resolve) => {
+          if (`${init?.method} ${String(input)}` === "PUT /api/users/me/dnd") answer = resolve;
+        }) as Promise<Response>,
+    );
+    const { user, onChanged, onFailed, unmount } = showSection(null);
+    await user.click(hush());
+    expect(hush()).toBeChecked();
+    unmount();
+    // The failure lands once the section is gone, which the workspace's hush hears of all the same.
+    await act(async () => answer(Response.json({ error: "Pick a time that hasn't passed yet" }, { status: 422 })));
+    await waitFor(() => expect(onChanged).toHaveBeenLastCalledWith(null));
+    expect(onFailed).toHaveBeenCalledOnce();
   });
 
   it("can't change again until the last change is answered", async () => {

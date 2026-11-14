@@ -230,6 +230,9 @@ function redirectOf(route: Route, rooms: SidebarRoom[]): Redirect | null {
  */
 const DRAWER_LAYOUT = "(width < 56.3125rem)";
 
+/** The longest a delay may be, past which a browser fires a timer late or never: about 24.8 days. */
+const TIMER_CAP_MS = 2_147_483_647;
+
 /** The signed-in layout: rail | sidebar | header over main, or the drawer layout. */
 interface Props {
   me: Me;
@@ -269,7 +272,10 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // The people directory loads again whenever the sidebar does by itself, and follows whoever the
   // workspace socket says has changed.
   const directory = useDirectory();
-  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone);
+  // When your push notifications are hushed until, which the workspace socket's welcome brings and
+  // Do not disturb on your profile saves, and the rail shows by the crescent on your avatar.
+  const [dndUntil, setDndUntil] = useState<string | null>(null);
+  const { list, answered, change: changeRooms, refresh, askForRoom } = useSidebar(me, onSessionChanged, directory, accountHeard, shownRoomGone, setDndUntil);
   const [drawerOpen, setDrawerOpen] = useState(false);
   // New direct message, while it's open, with the link that opened it, which gets focus back, or null
   // when its address did.
@@ -277,13 +283,17 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   // Activity's filter, which lives as long as the page: other pages keep it on, and loading the page
   // again starts with it off.
   const [unreadOnly, setUnreadOnly] = useState(false);
-  // When your push notifications are hushed until, which Do not disturb on your profile loads and
-  // saves, and the rail shows by the crescent on your avatar.
-  const [dndUntil, setDndUntil] = useState<string | null>(null);
-  // The hush ends of its own accord, so the crescent goes the moment it lapses, without a reload.
+  // The hush ends of its own accord, so the crescent goes the moment it lapses, without a reload. The
+  // longest a delay may be is about 24.8 days, past which a browser fires a timer late or never, so a
+  // hush ending further out arms again at that until its time has come.
   useEffect(() => {
     if (dndUntil === null) return;
-    const lapse = setTimeout(() => setDndUntil(null), Math.max(0, Date.parse(dndUntil) - Date.now()));
+    let lapse: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      const wait = Math.min(TIMER_CAP_MS, Math.max(0, Date.parse(dndUntil) - Date.now()));
+      lapse = setTimeout(() => (Date.parse(dndUntil) > Date.now() ? arm() : setDndUntil(null)), wait);
+    };
+    arm();
     return () => clearTimeout(lapse);
   }, [dndUntil]);
   const closeDrawerButton = useRef<HTMLButtonElement>(null);

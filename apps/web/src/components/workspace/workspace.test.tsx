@@ -119,6 +119,8 @@ function goneRoom(roomId: string, messages: Message[] = []) {
 /** The workspace socket, which welcomes Ada, then brings what a test has it bring. */
 class WorkspaceSocket extends QuietSocket {
   static last: WorkspaceSocket | null = null;
+  /** When Ada's push notifications are hushed until, as the welcome says, or null while they aren't. */
+  static dndUntil: string | null = null;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
   constructor(url: string) {
@@ -127,7 +129,7 @@ class WorkspaceSocket extends QuietSocket {
     WorkspaceSocket.last = this;
     setTimeout(() => {
       this.onopen?.();
-      this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada }) });
+      this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: WorkspaceSocket.dndUntil }) });
     });
   }
 }
@@ -183,6 +185,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  WorkspaceSocket.dndUntil = null;
   history.replaceState(null, "", "/");
 });
 
@@ -919,6 +922,44 @@ describe("Rail", () => {
     expect(railCurrent()).toEqual(["Home"]);
     await user.click(await screen.findByRole("link", { name: "Settings for this room" }));
     expect(railCurrent()).toEqual(["Workspace"]);
+  });
+});
+
+describe("Do not disturb", () => {
+  const HUSHED = new Date(Date.now() + 60 * 60_000).toISOString();
+  const profileLink = () => screen.getByRole("link", { name: "Your profile" });
+
+  it("lays the crescent on your avatar when you reload straight into a room with your hush on", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    WorkspaceSocket.dndUntil = HUSHED;
+    showWorkspace("/rooms/random");
+    expect(await roomHeading()).toHaveTextContent("random");
+    // The welcome brought the hush, which the rail shows by the crescent on your avatar.
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    expect(profileLink().querySelector("svg.iconoir-half-moon")).toBeInTheDocument();
+  });
+
+  it("drops the crescent of a hush ending further out than a timer may wait, once its time has come", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    WorkspaceSocket.dndUntil = new Date(Date.now() + 40 * 24 * 60 * 60_000).toISOString();
+    showWorkspace("/rooms/random");
+    await waitFor(() => expect(profileLink()).toHaveAttribute("title", "Ada — push notifications hushed"));
+    // Under the test's own timers, the welcome says the hush again, 50 days out, which arms its lapse anew.
+    vi.useFakeTimers();
+    try {
+      const later = new Date(Date.now() + 50 * 24 * 60 * 60_000).toISOString();
+      act(() => WorkspaceSocket.last!.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, dndUntil: later }) }));
+      const avatar = profileLink();
+      // The timer fires at the most a delay may be, about 24.8 days out, and arms again, the crescent staying.
+      act(() => vi.advanceTimersByTime(2_147_483_647));
+      expect(avatar).toHaveAttribute("title", "Ada — push notifications hushed");
+      // Its time has come, and the crescent goes without a reload.
+      act(() => vi.advanceTimersByTime(2_147_483_647 + 24 * 60 * 60_000));
+      expect(avatar).toHaveAttribute("title", "Ada");
+      expect(avatar.querySelector("svg.iconoir-half-moon")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
