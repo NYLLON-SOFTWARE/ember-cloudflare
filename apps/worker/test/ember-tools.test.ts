@@ -287,6 +287,26 @@ describe("A tool Ember runs", () => {
       ]);
     });
 
+    it("asks Grok once more without Ember's tool for searching the web too, when it's refused going on from a call, listing what its searches found before", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const page = { url: "https://example.com/launch", title: "Launch day", description: "The launch is on March 3." };
+      const searching = { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "web_search", arguments: '{"query":"launch"}' } }] };
+      const turn = (message: Record<string, unknown>) => Response.json({ object: "chat.completion", choices: [{ index: 0, message, finish_reason: "stop" }], usage: { completion_tokens: 50 } });
+      const answers = [
+        () => turn(searching),
+        () => Response.json({ success: false, errors: [{ code: 7001, message: "Unexpected tool message" }] }, { status: 400 }),
+        () => turn({ role: "assistant", content: "It's on March 3." }),
+      ];
+      refusing = ({ url }) => (url.endsWith("/ai/websearch/") ? Response.json({ success: true, result: { items: [page] } }) : answers.shift()!());
+
+      const answered = await askOnce(bindings, gatewayFor(GROK, "chat"), question, AbortSignal.timeout(5_000));
+      expect(answered).toMatchObject({ text: "It's on March 3.", sources: [{ url: page.url, title: page.title }] });
+      expect(asked).toHaveLength(4);
+      const last = asked.at(-1)!.body;
+      expect(last).not.toHaveProperty("tools");
+      expect(last).toMatchObject({ max_completion_tokens: question.maxTokens - 50, messages: asked[0]!.body.messages });
+    });
+
     it("leaves a model refused going on from a call the searches and tokens its turns didn't use, as it's asked again without Ember's tools", async () => {
       vi.spyOn(console, "error").mockImplementation(() => {});
       const refusal = () => Response.json({ type: "error", error: { type: "invalid_request_error", message: "messages.2: unexpected `tool_result`" } }, { status: 400 });

@@ -760,7 +760,8 @@ for, and keeps the tools AI Gateway took, reading pages only if it took that too
 the model found; a model that answers without searching leaves it off. A Grok saved before in xAI's
 own Responses, at the gateway's xAI endpoint, moves to Chat Completions then, where AI Gateway's credits
 pay for its searches, and is asked again at each level of thinking, as the levels it takes there
-needn't be the ones it took before. While the token lacks AI Gateway Read, which Ember's tool takes, the
+needn't be the ones it took before. One that already searched there, with an xAI key on the gateway, searches there
+still until the switch is turned off and on again. While the token lacks AI Gateway Read, which Ember's tool takes, the
 switch says to add it. Choosing another model to answer everyone, under Models or in Set up Ember AI,
 or another Cloudflare account there, turns it off, as another model, or another account's AI Gateway,
 may not take the same tools, until it's turned on again. A model someone picks on their profile is

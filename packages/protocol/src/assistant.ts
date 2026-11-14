@@ -403,12 +403,14 @@ export function searchFormatOf(model: string, format: ModelFormat): ModelFormat 
 /**
  * What `model` may do on the web in `format`, of what that format has tools for: nothing, when it doesn't
  * search in that format (`searchFormatOf`), as no one but Grok does in Chat Completions, or less, when the
- * models `offered` list it in that format, or in one it searches in that format from, as one of Workers
- * AI's, with less, as the models file can say of one.
+ * models `offered` list it in a format it searches in the same one from, as one of Workers AI's, with
+ * less, as the models file can say of one. A Grok saved in xAI's own Responses while it searched there
+ * searches there still, until turning Search the web on again moves it to Chat Completions.
  */
 export function webToolsOf(model: string, format: ModelFormat, offered: readonly OfferedModel[]): readonly WebTool[] {
-  if (searchFormatOf(model, format) !== format) return [];
-  const listed = offered.find(({ id, format: listedIn }) => id === model && (listedIn === format || searchFormatOf(id, listedIn) === format));
+  const searchesIn = searchFormatOf(model, format);
+  if (searchesIn === null || (searchesIn !== format && format !== "xai")) return [];
+  const listed = offered.find(({ id, format: listedIn }) => id === model && searchFormatOf(id, listedIn) === searchesIn);
   return listed?.webTools ?? WEB_TOOLS_IN[format];
 }
 

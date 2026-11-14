@@ -385,7 +385,8 @@ async function withoutTools(
   signal: AbortSignal,
 ): Promise<Answered | GatewayRefusal> {
   console.error(`Asking ${gateway.model} again without Ember's tools, as it was refused going on from a call of one: ${refused.refusal}`);
-  const asked = { ...question, tools: [], maxTokens: tokensLeft };
+  // Ember's own tool for searching the web, in Chat Completions, is one of the tools it runs too.
+  const asked = { ...question, tools: [], maxTokens: tokensLeft, ...(gateway.format === "chat" && { webTools: [] }) };
   const turn = await turnOf(env, gateway, asked, withUsesOf(gateway.format, requestOf(gateway, asked), request), tokensLeft, signal);
   if (!("refused" in turn)) return answeredIn(gateway.format, turn.body);
   const { wrongFormat: _, ...unanswered } = turn.refused;

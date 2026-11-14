@@ -257,6 +257,9 @@ describe("The models file", () => {
     // No one else's model takes Ember's tool in Chat Completions.
     expect(webToolsOf("deepseek/deepseek-v4-pro", "chat", [])).toEqual([]);
     expect(webToolsOf(grok.id, "chat", [])).toEqual(["search"]);
+    // One saved in xAI's own Responses while it searched there still does, until Search the web moves it.
+    expect(webToolsOf(grok.id, "xai", [])).toEqual(["search"]);
+    expect(webToolsOf(grok.id, "xai", [unsearching!])).toEqual([]);
   });
 });
 
