@@ -68,6 +68,12 @@ export class WaitingCalls {
     return { late: rows.map(({ message_id, call }) => ({ messageId: message_id, call: JSON.parse(call) as WaitingCall })), next: oldest === null ? null : oldest + CALL_WAITS_MS + 1 };
   }
 
+  /** When the oldest call that waits here will have waited too long, or null when none waits. */
+  async nextLate(): Promise<number | null> {
+    const [row] = await this.db.all<{ oldest: number | null }>(`SELECT min(asked_at) AS oldest FROM waiting_calls WHERE room_id = ?`, this.roomId);
+    return row === undefined || row.oldest === null ? null : row.oldest + CALL_WAITS_MS + 1;
+  }
+
   /** The call that waits on the card `messageId`, or null when none does. */
   async find(messageId: string): Promise<WaitingCall | null> {
     const [row] = await this.db.all<{ call: string }>(`SELECT call FROM waiting_calls WHERE room_id = ? AND message_id = ?`, this.roomId, messageId);

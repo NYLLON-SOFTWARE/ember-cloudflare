@@ -276,6 +276,36 @@ describe("A call of a connected app's tool", () => {
     expect(asked).toHaveLength(2);
   });
 
+  it("is forgotten in time when it starts to wait as the alarm finds nothing left to come back for", async () => {
+    const { general, inGeneral } = await setUp();
+    script = [CALL];
+    const card = await ask(inGeneral);
+    const [{ call }] = (await roomSql(general, "SELECT call FROM waiting_calls WHERE room_id = ?", general)) as [{ call: string }];
+    await age(general, CALL_WAITS_MS + 1);
+    // As the alarm has forgotten the late call, another starts to wait, as a card just posted has it: kept, with the alarm set for it.
+    type Room = { forgetLateCalls(room: RoomId): Promise<number | null>; waitingCallsFor(room: RoomId): { keep(messageId: string, call: unknown): Promise<void> }; wakeAt(room: RoomId, time: number): Promise<boolean> };
+    await runInDurableObject(roomStub(general), (instance) => {
+      const room = instance as unknown as Room;
+      const forgetLateCalls = room.forgetLateCalls.bind(room);
+      room.forgetLateCalls = async (roomId) => {
+        room.forgetLateCalls = forgetLateCalls;
+        const next = await forgetLateCalls(roomId);
+        const waits = { ...(JSON.parse(call) as { askedAt: number }), askedAt: Date.now() };
+        await room.waitingCallsFor(roomId).keep(card.id, waits);
+        await room.wakeAt(roomId, waits.askedAt + CALL_WAITS_MS + 1);
+        return next;
+      };
+    });
+    expect(await runDurableObjectAlarm(roomStub(general))).toBe(true);
+    expect((await changed(inGeneral, card)).plainText).toContain(CALL_OUTCOMES.late());
+    expect(await waiting(general)).toEqual([{ message_id: card.id }]);
+
+    // The alarm comes back for it.
+    await age(general, CALL_WAITS_MS + 1);
+    expect(await runDurableObjectAlarm(roomStub(general))).toBe(true);
+    expect(await waiting(general)).toEqual([]);
+  });
+
   it("is forgotten in time while the room's deliveries keep failing, as when the search index is away", async () => {
     const { general, inGeneral } = await setUp();
     vi.spyOn(console, "error").mockImplementation(() => {});

@@ -476,10 +476,15 @@ export class ChatRoom extends DurableObject<Env> {
       if (nextLateCall !== null) await this.wakeAt(roomId, nextLateCall);
       return;
     }
-    const unfinished = await this.serially(() => this.blobsFor(roomId).oldestUnfinished());
-    const next = Math.min(unfinished === null ? Infinity : Date.parse(unfinished) + UNFINISHED_UPLOAD_KEPT_MS, nextLateCall ?? Infinity);
-    if (next === Infinity) await this.ctx.storage.delete(UNDELIVERED_ROOM);
-    else await this.wakeAt(roomId, next);
+    // Looked for and forgotten in one turn, so that a call that starts to wait meanwhile, or an upload
+    // that starts, which each set the alarm, isn't left without it.
+    const next = await this.serially(async () => {
+      const [unfinished, lateCall] = await Promise.all([this.blobsFor(roomId).oldestUnfinished(), this.waitingCallsFor(roomId).nextLate()]);
+      const next = Math.min(unfinished === null ? Infinity : Date.parse(unfinished) + UNFINISHED_UPLOAD_KEPT_MS, lateCall ?? Infinity);
+      if (next === Infinity) await this.ctx.storage.delete(UNDELIVERED_ROOM);
+      return next;
+    });
+    if (next !== Infinity) await this.wakeAt(roomId, next);
   }
 
   /**
