@@ -5,7 +5,6 @@ import { RoomIcon } from "@/components/icons/room-icon";
 import { useFlash } from "@/components/flash";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useNameOf } from "@/hooks/use-directory";
-import { usePhoneLayout } from "@/hooks/use-phone-layout";
 import { useMounted } from "@/hooks/use-mounted";
 import { ApiError, forwardMessage, isSignedOut } from "@/lib/api";
 import { membersShown, roomName } from "@/lib/directs";
@@ -82,7 +81,7 @@ export function ForwardDialog({ message, opener, onClose }: Props) {
   const nameOf = useNameOf();
   const flash = useFlash();
   const mounted = useMounted();
-  const phone = usePhoneLayout();
+  const phone: boolean = false;
   const listId = useId();
   const search = useRef<HTMLInputElement>(null);
   const noteField = useRef<HTMLTextAreaElement>(null);
