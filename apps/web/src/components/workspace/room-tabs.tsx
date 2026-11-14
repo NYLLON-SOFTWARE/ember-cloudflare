@@ -194,7 +194,7 @@ export function RoomTabs({ room, me, state, onFailed }: Props) {
           onKeyDown={moveFocus}
           onWheel={scrollSideways}
           onScroll={measure}
-          className={cn("flex h-full min-w-0 items-end gap-0.5 overflow-x-auto pl-[14px] [scrollbar-width:none]", OVERFLOW_FADES[overflow])}
+          className={cn("flex h-full min-w-0 items-end gap-0.5 overflow-x-auto pl-[14px] [scrollbar-width:none] max-md:pl-1.5", OVERFLOW_FADES[overflow])}
         >
           <StripTab label="Messages" Icon={ChatLines} selected={!covering} onSelect={() => select("messages")} />
           {!deleted && <StripTab label="Files & links" Icon={MultiplePages} selected={shown === "files"} onSelect={() => select("files")} />}

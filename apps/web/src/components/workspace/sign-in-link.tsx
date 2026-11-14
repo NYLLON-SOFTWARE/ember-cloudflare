@@ -1,5 +1,6 @@
 import { transferLink } from "@ember/protocol";
-import { ArrowRight, Crown, Laptop, SmartphoneDevice } from "@/components/icons/iconoir";
+import { ArrowRight, Laptop } from "@/components/icons/iconoir";
+import { Crown, SmartphoneDevice } from "@/components/icons/iconoir-more";
 import { LinkButtons, ROUND_BUTTON, type LinkSharing } from "./link-buttons";
 
 // The sign-in link block, at the foot of your profile and, for administrators, of the page of anyone

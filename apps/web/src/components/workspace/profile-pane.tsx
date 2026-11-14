@@ -15,6 +15,9 @@ export interface ProfilePane {
   startDirect: (person: User) => Promise<boolean>;
 }
 
+/** What the address of a room or Activity names the person whose profile is open beside it by: `?profile=<id>`. */
+export const PROFILE_PARAM = "profile";
+
 /** The profile pane of the page shown, or null on a page that has none, where an avatar links to someone's page. */
 export const ProfilePaneContext = createContext<ProfilePane | null>(null);
 
@@ -43,5 +46,16 @@ export function opensProfile(pane: ProfilePane | null, event: MouseEvent): void 
   const userId = personOfLink(link);
   if (userId === null) return;
   event.preventDefault();
+  opener = link;
   pane.open(userId);
+}
+
+/** The link the profile pane opened from last, for focus to return to as it closes. */
+let opener: Element | null = null;
+
+/** Takes the link the profile pane opened from last, which focus returns to as it closes (profile-panel.tsx). */
+export function takeOpener(): Element | null {
+  const from = opener;
+  opener = null;
+  return from;
 }
