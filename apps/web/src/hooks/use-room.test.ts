@@ -1505,7 +1505,7 @@ describe("A room gone with something unsent", () => {
     act(() => result.current.postMessage("still here?"));
     wait(500);
     socket().open();
-    socket().drop(CloseCode.NotFound);
+    socket().drop(CloseCode.NotFound, LOST_ACCESS);
     await vi.waitFor(() => expect(result.current.state.status).toBe("gone"));
     unmount();
 
