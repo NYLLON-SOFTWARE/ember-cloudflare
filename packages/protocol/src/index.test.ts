@@ -71,6 +71,10 @@ import {
   parseInvitationRequest,
   parseEmailLinkSignUp,
   parseInvolvementChange,
+  parseNotificationChanges,
+  type Room,
+  NOTIFICATION_LEVELS,
+  MAX_PAUSE_MS,
   parseNewDirect,
   parseNewRoom,
   parseOpenSignUp,
@@ -1072,6 +1076,44 @@ describe("Notification levels", () => {
     expect(startingInvolvement({ id: "general", kind: "open", name: "general", icon: null })).toBe("mentions");
     expect(startingInvolvement({ id: "secret", kind: "closed", name: "secret", icon: null })).toBe("mentions");
     expect(startingInvolvement({ id: "dm", kind: "direct", members: [], activeAt: "2026-10-16T00:00:00.000Z" })).toBe("everything");
+  });
+
+  it("starts a room at what you're notified about, and a DM at all messages unless that's nothing", () => {
+    const room: Room = { id: "general", kind: "open", name: "general", icon: null };
+    const dm: Room = { id: "dm", kind: "direct", members: [], activeAt: "2026-10-16T00:00:00.000Z" };
+    expect(NOTIFICATION_LEVELS.map((level) => [startingInvolvement(room, level), startingInvolvement(dm, level)])).toEqual([
+      ["everything", "everything"],
+      ["mentions", "everything"],
+      ["nothing", "nothing"],
+    ]);
+  });
+
+  it("takes default, which follows what you're notified about again", () => {
+    expect(parseInvolvementChange({ involvement: "default" })).toBe("default");
+  });
+});
+
+describe("Notification preferences", () => {
+  const now = Date.UTC(2026, 10, 14, 12);
+
+  it("takes a level, a time to resume within MAX_PAUSE_MS, or null to resume now", () => {
+    expect(parseNotificationChanges({ level: "nothing" }, now)).toEqual({ level: "nothing" });
+    expect(parseNotificationChanges({ pausedUntil: now + 1 }, now)).toEqual({ pausedUntil: now + 1 });
+    expect(parseNotificationChanges({ pausedUntil: now + MAX_PAUSE_MS }, now)).toEqual({ pausedUntil: now + MAX_PAUSE_MS });
+    expect(parseNotificationChanges({ pausedUntil: null, level: "everything" }, now)).toEqual({ pausedUntil: null, level: "everything" });
+    expect(parseNotificationChanges({}, now)).toEqual({});
+  });
+
+  it.each([
+    ["not an object", []],
+    ["a hidden level", { level: "invisible" }],
+    ["a past time", { pausedUntil: now }],
+    ["a time too far ahead", { pausedUntil: now + MAX_PAUSE_MS + 1 }],
+    ["a time in words", { pausedUntil: "tomorrow" }],
+    ["a fraction", { pausedUntil: now + 0.5 }],
+    ["another setting", { sounds: false }],
+  ])("refuses %s", (_, body) => {
+    expect(typeof parseNotificationChanges(body, now)).toBe("string");
   });
 });
 

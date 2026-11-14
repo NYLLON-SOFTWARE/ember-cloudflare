@@ -51,6 +51,8 @@ import {
   type Mailbox,
   type Invited,
   type Involvement,
+  type NotificationChanges,
+  type NotificationSettings,
   type Me,
   type NavigationIconChanges,
   type NavigationIcons,
@@ -3150,7 +3152,26 @@ export class Workspace extends DurableObject<Env> {
    * "invisible", and hears their stars again when hiding a starred room, or showing it again, changes
    * them.
    */
-  async setInvolvement(credentials: Credentials, roomId: RoomId, involvement: Involvement | null): Promise<Involvement | "not found" | "invalid" | null> {
+  /** What the signed-in person's notified about, when their paused notifications come back, and where they picked a level. */
+  async notificationSettings(credentials: Credentials): Promise<NotificationSettings | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.notificationSettings(user.id);
+  }
+
+  /**
+   * Changes what the signed-in person's notified about, or when their paused notifications come back, and
+   * with `reset`, has every room and DM they haven't hidden follow it again, telling their tabs the levels
+   * that changed. Answers their settings as they are now.
+   */
+  async changeNotifications(credentials: Credentials, changes: NotificationChanges, reset = false): Promise<NotificationSettings | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    const involvements = await this.store.changeNotifications(user.id, changes, reset);
+    if (involvements.length > 0) this.tell([user.id], { type: "room.involvements", involvements });
+    return this.store.notificationSettings(user.id);
+  }
+
+  async setInvolvement(credentials: Credentials, roomId: RoomId, involvement: Involvement | "default" | null): Promise<Involvement | "not found" | "invalid" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     const saved = await this.store.setInvolvement(user.id, roomId, involvement);

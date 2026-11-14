@@ -59,6 +59,8 @@ export type WorkspacePage =
   | { page: "app-signed-in" }
   /** Your profile, at `/users/me/profile`, or at any other person's id in its place. */
   | { page: "profile" }
+  /** Preferences › Notifications, at `/users/me/notifications`: what you're notified about, room by room, and pausing them. */
+  | { page: "notifications" }
   /**
    * Your browsers' push subscriptions, at `/users/me/push_subscriptions`, or at any other person's id in
    * its place, where you can send each a test push. Nothing links to it.
@@ -106,6 +108,7 @@ export const NEW_APP_PATH = "/account/apps/new";
 export const APP_SIGNED_IN_PATH = "/account/apps/signed-in";
 export const NEW_DIRECT_PATH = "/rooms/directs/new";
 export const PROFILE_PATH = "/users/me/profile";
+export const NOTIFICATION_PREFERENCES_PATH = "/users/me/notifications";
 export const PUSH_SUBSCRIPTIONS_PATH = "/users/me/push_subscriptions";
 export const SEARCHES_PATH = "/searches";
 export const DMS_PATH = "/dms";
@@ -190,6 +193,7 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   if (kept) return keptPageOf(kept[1] === "todos" ? "todos" : "saved", kept[2]);
   if (pathname.startsWith(`${ACTIVITY_PATH}/rooms/`)) return activityPageOf(pathname.slice(ACTIVITY_PATH.length));
   if (/^\/users\/[^/]+\/profile$/.test(pathname)) return { page: "profile" };
+  if (pathname === NOTIFICATION_PREFERENCES_PATH) return { page: "notifications" };
   if (/^\/users\/[^/]+\/push_subscriptions$/.test(pathname)) return { page: "push-subscriptions" };
   const person = pathname.match(/^\/users\/([^/]+)$/);
   const personId = person && decoded(person[1]!);

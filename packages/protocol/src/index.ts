@@ -132,6 +132,7 @@ export {
   NEW_DIRECT_PATH,
   PASSWORD_RESET_PATH,
   PROFILE_PATH,
+  NOTIFICATION_PREFERENCES_PATH,
   PUSH_SUBSCRIPTIONS_PATH,
   SAVED_PATH,
   SEARCHES_PATH,
@@ -328,8 +329,41 @@ export interface Invitation {
 export const INVOLVEMENTS = ["mentions", "everything", "nothing", "invisible"] as const;
 export type Involvement = (typeof INVOLVEMENTS)[number];
 
-/** The level someone starts at in `room`: all messages in a DM, and @mentions elsewhere. */
-export const startingInvolvement = (room: Room): Involvement => (room.kind === "direct" ? "everything" : "mentions");
+/**
+ * What someone's notified about wherever they haven't picked a level, as Slack's "Notify me about":
+ * all new messages, @mentions with DMs and the threads they follow, or nothing.
+ */
+export const NOTIFICATION_LEVELS = ["everything", "mentions", "nothing"] as const;
+export type NotificationLevel = (typeof NOTIFICATION_LEVELS)[number];
+
+/**
+ * The level someone starts at in `room`, and follows there until they pick one, given what they're
+ * notified about, `level`: that level in a room, and all messages in a DM unless it's nothing.
+ */
+export const startingInvolvement = (room: Room, level: NotificationLevel = "mentions"): Involvement =>
+  room.kind === "direct" ? (level === "nothing" ? "nothing" : "everything") : level;
+
+/** `GET /api/users/me/notifications`: what you're notified about, and where you've picked otherwise. */
+export interface NotificationSettings {
+  level: NotificationLevel;
+  /** When notifications come back, in milliseconds since the epoch, while they're paused. */
+  pausedUntil: number | null;
+  /** The rooms and DMs whose level you picked, which don't follow `level`. */
+  chosen: RoomId[];
+}
+
+/** A change to what you're notified about, or to when notifications come back: null resumes them. */
+export interface NotificationChanges {
+  level?: NotificationLevel;
+  pausedUntil?: number | null;
+}
+
+export const NOTIFICATIONS_API_PATH = "/api/users/me/notifications";
+/** POST: sets every room and DM you haven't hidden back to what you're notified about, answering the settings. */
+export const NOTIFICATIONS_RESET_API_PATH = "/api/users/me/notifications/reset";
+
+/** How long notifications can be paused for, as long as a message can be scheduled ahead. */
+export const MAX_PAUSE_MS = 120 * 24 * 60 * 60 * 1000;
 
 /**
  * A room in someone's sidebar, with whether a message has come since they last had it open in a shown
@@ -1928,6 +1962,8 @@ export type WorkspaceServerFrame =
   | { type: "favorites.changed"; favorites: Favorites }
   /** They've given a room of theirs another notification level, in this tab or another. */
   | { type: "room.involvement"; roomId: RoomId; involvement: Involvement }
+  /** Many of their rooms have another level at once, as when what they're notified about changes. */
+  | { type: "room.involvements"; involvements: Array<{ roomId: RoomId; involvement: Involvement }> }
   /** They've dismissed the welcome card, in this tab or another, so their sidebar has no invitation from now on. */
   | { type: "invitation.dismissed" }
   /**
@@ -2667,13 +2703,37 @@ export function parseRoleChange(data: unknown): RoleChange | null {
 export const isInvolvement = (value: unknown): value is Involvement => (INVOLVEMENTS as readonly unknown[]).includes(value);
 
 /**
- * Parses an untrusted change to someone's notification level in a room: the level, or null for anything
- * else.
+ * Parses an untrusted change to someone's notification level in a room: the level, "default" to follow
+ * what they're notified about again, or null for anything else.
  */
-export function parseInvolvementChange(data: unknown): Involvement | null {
+export function parseInvolvementChange(data: unknown): Involvement | "default" | null {
   if (typeof data !== "object" || data === null) return null;
   const { involvement } = data as Record<string, unknown>;
-  return isInvolvement(involvement) ? involvement : null;
+  return isInvolvement(involvement) || involvement === "default" ? involvement : null;
+}
+
+/**
+ * Parses an untrusted change to what someone's notified about, as of `now`: a level, and when paused
+ * notifications come back, a time ahead of `now` by at most MAX_PAUSE_MS, or null to resume them now.
+ * Returns why it's refused instead.
+ */
+export function parseNotificationChanges(data: unknown, now: number): NotificationChanges | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const changes: NotificationChanges = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (key === "level") {
+      if (!(NOTIFICATION_LEVELS as readonly unknown[]).includes(value)) return "level must be everything, mentions or nothing";
+      changes.level = value as NotificationLevel;
+    } else if (key === "pausedUntil") {
+      if (value !== null && !(Number.isSafeInteger(value) && (value as number) > now && (value as number) <= now + MAX_PAUSE_MS)) {
+        return "pausedUntil must be a time in the next 120 days, or null";
+      }
+      changes.pausedUntil = value as number | null;
+    } else {
+      return `Unknown setting: ${key}`;
+    }
+  }
+  return changes;
 }
 
 const PROFILE_FIELDS = {

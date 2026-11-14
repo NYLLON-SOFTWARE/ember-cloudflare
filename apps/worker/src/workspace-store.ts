@@ -28,6 +28,9 @@ import {
   type EmailLinkKind,
   type Favorites,
   type Involvement,
+  type NotificationChanges,
+  type NotificationLevel,
+  type NotificationSettings,
   type NavigationIconChanges,
   type NavigationIcons,
   type PersonRole,
@@ -1586,7 +1589,7 @@ const INSERT_DIRECT = `INSERT INTO rooms (id, kind, creator_id, direct_key, crea
  * `default_involvement` for a DM, everything.
  */
 const GRANT_DIRECT = `INSERT INTO memberships (room_id, user_id, involvement, created_at, updated_at)
-  SELECT ?1, users.id, 'everything', ?2, ?2 FROM users
+  SELECT ?1, users.id, ${directStart("users")}, ?2, ?2 FROM users
   WHERE users.id IN (SELECT value FROM json_each(?3)) AND EXISTS (SELECT 1 FROM rooms WHERE id = ?1)
   ON CONFLICT DO NOTHING`;
 
@@ -1786,7 +1789,7 @@ const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
  * thread for a reply sent only there, at all messages, when it's in the room's timeline, as ?7 says, then
  * of those at @mentions or all messages whom it mentions, a JSON list ?4, or who follow the thread it's a
  * reply in, a JSON list ?8, each in the order they were saved. Guests are left out unless ?6 says they
- * can stay signed in. Each comes with the room, its author's name and the count its push sets the badge
+ * can stay signed in, and so is anyone whose notifications are paused at ?9, now. Each comes with the room, its author's name and the count its push sets the badge
  * to: how many of its owner's conversations are marked unread. Nothing once the Workspace has applied the
  * message's event.
  */
@@ -1799,7 +1802,7 @@ export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.
     JOIN users ON users.id = memberships.user_id
     JOIN push_subscriptions ON push_subscriptions.user_id = memberships.user_id
   WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?6 = 1)
-    AND memberships.user_id NOT IN (SELECT value FROM json_each(?3))
+    AND memberships.user_id NOT IN (SELECT value FROM json_each(?3)) AND coalesce(users.notifications_paused_until <= ?9, 1)
     AND ((memberships.involvement = 'everything' AND ?7 = 1) OR (memberships.involvement IN ('everything', 'mentions')
       AND (memberships.user_id IN (SELECT value FROM json_each(?4)) OR memberships.user_id IN (SELECT value FROM json_each(?8)))))
   ORDER BY memberships.involvement = 'mentions', push_subscriptions.id`;
@@ -2048,7 +2051,53 @@ const COUNT_HIDDEN_STAR = `UPDATE users SET favorites_version = favorites_versio
   RETURNING favorites_version AS version`;
 
 /** Gives ?1 level ?3 in room ?2, if they're in it. */
-const SET_INVOLVEMENT = `UPDATE memberships SET involvement = ?3 WHERE user_id = ?1 AND room_id = ?2 RETURNING involvement`;
+const SET_INVOLVEMENT = `UPDATE memberships SET involvement = ?3, involvement_chosen = ?4 WHERE user_id = ?1 AND room_id = ?2 RETURNING involvement`;
+
+/** The level ?1 starts at in room ?2, which they follow there until they pick one, while they're in it. */
+const STARTING_LEVEL = `SELECT ${startingLevel("users", "rooms.kind")} AS involvement
+  FROM memberships JOIN users ON users.id = memberships.user_id JOIN rooms ON rooms.id = memberships.room_id
+  WHERE memberships.user_id = ?1 AND memberships.room_id = ?2`;
+
+/** What ?1's notified about, and when their paused notifications come back. */
+const NOTIFICATION_SETTINGS = `SELECT coalesce(default_involvement, 'mentions') AS level, notifications_paused_until AS paused_until FROM users WHERE id = ?1`;
+
+/** The rooms and DMs ?1 picked a level in. */
+const CHOSEN_LEVELS = `SELECT room_id FROM memberships WHERE user_id = ?1 AND involvement_chosen = 1 ORDER BY room_id`;
+
+/** Makes what ?1's notified about ?2. */
+const SET_NOTIFICATION_LEVEL = `UPDATE users SET default_involvement = ?2 WHERE id = ?1`;
+
+/** Makes ?1's paused notifications come back at ?2, or null to have them now. */
+const SET_NOTIFICATIONS_PAUSED = `UPDATE users SET notifications_paused_until = ?2 WHERE id = ?1`;
+
+/** The level the membership being changed starts at, as `STARTING_LEVEL` says. */
+const MEMBERSHIP_START = `(SELECT ${startingLevel("users", "rooms.kind")} FROM users, rooms WHERE users.id = memberships.user_id AND rooms.id = memberships.room_id)`;
+
+/** Has ?1 follow what they're notified about wherever they picked a level, but where they've hidden a room, which stays hidden. */
+const UNCHOOSE_LEVELS = `UPDATE memberships SET involvement_chosen = 0 WHERE user_id = ?1 AND involvement_chosen = 1 AND involvement <> 'invisible'`;
+
+/**
+ * Gives each of ?1's rooms and DMs that follows what they're notified about the level it starts at now,
+ * answering those whose level changed.
+ */
+const LEVEL_FOLLOWED = `UPDATE memberships SET involvement = ${MEMBERSHIP_START}
+  WHERE user_id = ?1 AND involvement_chosen = 0 AND involvement <> ${MEMBERSHIP_START}
+  RETURNING room_id, involvement`;
+
+/** What someone with a default of `user`.default_involvement starts at in a room, @mentions without one. */
+function sharedStart(user: string): string {
+  return `coalesce(${user}.default_involvement, 'mentions')`;
+}
+
+/** What they start at in a DM: all messages, unless they're notified about nothing. */
+function directStart(user: string): string {
+  return `CASE WHEN ${user}.default_involvement = 'nothing' THEN 'nothing' ELSE 'everything' END`;
+}
+
+/** What they start at in a room of kind `kind`, as `startingInvolvement` in @ember/protocol says. */
+function startingLevel(user: string, kind: string): string {
+  return `CASE WHEN ${kind} = 'direct' THEN ${directStart(user)} ELSE ${sharedStart(user)} END`;
+}
 
 /**
  * Whether ?2, a JSON array of distinct room ids, is exactly the rooms ?1 has starred and can star, so
@@ -2218,8 +2267,8 @@ const CHANGE_AGENT = `UPDATE agents SET description = ?2, instructions = ?3, mod
   web_tools = ?9, prompt_template = ?10, thinking_levels = ?11, updated_by = ?12, updated_at = ?13 WHERE user_id = ?1`;
 
 /** Puts ?1 in the open rooms the JSON list ?2 names, of those there are, keeping the memberships it has. */
-const GRANT_PICKED_ROOMS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT rooms.id, ?1, ?3, ?3 FROM json_each(?2) AS picked JOIN rooms ON rooms.id = picked.value
+const GRANT_PICKED_ROOMS = `INSERT INTO memberships (room_id, user_id, involvement, created_at, updated_at)
+  SELECT rooms.id, ?1, (SELECT ${sharedStart("users")} FROM users WHERE users.id = ?1), ?3, ?3 FROM json_each(?2) AS picked JOIN rooms ON rooms.id = picked.value
   WHERE ${OPEN_TO_EVERYONE} AND (rooms.parent_id IS NULL OR rooms.parent_id IN (SELECT value FROM json_each(?2))) ON CONFLICT DO NOTHING`;
 
 /** Takes ?1 out of the open rooms the JSON list ?2 doesn't name. */
@@ -2564,8 +2613,8 @@ const unpickedAgent = (table: string) => `NOT EXISTS (SELECT 1 FROM agents WHERE
  * Puts everyone active in room ?1 in its sub-rooms open to "Everyone", as of ?2, keeping the memberships
  * they have, and answers whom it put where. Agents kept to the rooms picked stay out.
  */
-const GRANT_OPEN_SUB_ROOMS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT rooms.id, memberships.user_id, ?2, ?2 FROM rooms JOIN memberships ON memberships.room_id = rooms.parent_id
+const GRANT_OPEN_SUB_ROOMS = `INSERT INTO memberships (room_id, user_id, involvement, created_at, updated_at)
+  SELECT rooms.id, memberships.user_id, ${sharedStart("users")}, ?2, ?2 FROM rooms JOIN memberships ON memberships.room_id = rooms.parent_id
     JOIN users ON users.id = memberships.user_id
   WHERE rooms.parent_id = ?1 AND rooms.kind = 'open' AND users.status = ${ACTIVE} AND ${unpickedAgent("users")}
   ON CONFLICT DO NOTHING RETURNING room_id, user_id`;
@@ -2574,15 +2623,15 @@ const GRANT_OPEN_SUB_ROOMS = `INSERT INTO memberships (room_id, user_id, created
  * Puts everyone active in sub-room ?1's parent in it, as of ?2, keeping the memberships they have, and
  * answers whom it put in. Agents kept to the rooms picked stay out.
  */
-const GRANT_SUB_ROOM_TO_PARENT_PEOPLE = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT rooms.id, memberships.user_id, ?2, ?2 FROM rooms JOIN memberships ON memberships.room_id = rooms.parent_id
+const GRANT_SUB_ROOM_TO_PARENT_PEOPLE = `INSERT INTO memberships (room_id, user_id, involvement, created_at, updated_at)
+  SELECT rooms.id, memberships.user_id, ${sharedStart("users")}, ?2, ?2 FROM rooms JOIN memberships ON memberships.room_id = rooms.parent_id
     JOIN users ON users.id = memberships.user_id
   WHERE rooms.id = ?1 AND users.status = ${ACTIVE} AND ${unpickedAgent("users")}
   ON CONFLICT DO NOTHING RETURNING user_id`;
 
 /** Puts the people a JSON list ?3 names who are in sub-room ?1's parent in it, as of ?2, and answers whom it put in. */
-const GRANT_SUB_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT ?1, users.id, ?2, ?2 FROM users WHERE users.id IN (SELECT value FROM json_each(?3))
+const GRANT_SUB_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, involvement, created_at, updated_at)
+  SELECT ?1, users.id, ${sharedStart("users")}, ?2, ?2 FROM users WHERE users.id IN (SELECT value FROM json_each(?3))
     AND EXISTS (SELECT 1 FROM rooms JOIN memberships ON memberships.room_id = rooms.parent_id WHERE rooms.id = ?1 AND memberships.user_id = users.id)
   ON CONFLICT DO NOTHING RETURNING user_id`;
 
@@ -2664,15 +2713,15 @@ const roomUsersOf = (rows: RoomUserRow[]) => rows.map((row) => ({ roomId: row.ro
 // SQLite would otherwise read as part of a join.
 
 /** Puts someone new in every open room. */
-const GRANT_OPEN_ROOMS_TO_USER = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT id, ?, ?, ? FROM rooms WHERE ${OPEN_TO_EVERYONE} ON CONFLICT DO NOTHING`;
+const GRANT_OPEN_ROOMS_TO_USER = `INSERT INTO memberships (room_id, user_id, created_at, updated_at, involvement)
+  SELECT id, ?1, ?2, ?3, (SELECT ${sharedStart("users")} FROM users WHERE users.id = ?1) FROM rooms WHERE ${OPEN_TO_EVERYONE} ON CONFLICT DO NOTHING`;
 
 /**
  * Puts every active person in an open room, keeping the memberships they already have, and answers whom
  * it put in. Agents kept to the open rooms an administrator picked stay out.
  */
-const GRANT_ROOM_TO_ACTIVE_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT ?, id, ?, ? FROM users WHERE status = ${ACTIVE}
+const GRANT_ROOM_TO_ACTIVE_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at, involvement)
+  SELECT ?, id, ?, ?, ${sharedStart("users")} FROM users WHERE status = ${ACTIVE}
     AND NOT EXISTS (SELECT 1 FROM agents WHERE agents.user_id = users.id AND agents.every_open_room = 0)
   ON CONFLICT DO NOTHING RETURNING user_id`;
 
@@ -2684,8 +2733,8 @@ const INSERT_FIRST_ROOM = `INSERT INTO rooms (id, kind, name, creator_id, create
   SELECT ?1, 'open', ?2, ?3, ?4, ?4 WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE kind = 'open' AND name = ?2)`;
 
 /** Puts every active person in one of first run's rooms, if it was added: one it found has them already, being open. */
-const GRANT_FIRST_ROOM = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT rooms.id, users.id, ?, ? FROM rooms, users WHERE rooms.id = ? AND users.status = ${ACTIVE} ON CONFLICT DO NOTHING`;
+const GRANT_FIRST_ROOM = `INSERT INTO memberships (room_id, user_id, created_at, updated_at, involvement)
+  SELECT rooms.id, users.id, ?, ?, ${sharedStart("users")} FROM rooms, users WHERE rooms.id = ? AND users.status = ${ACTIVE} ON CONFLICT DO NOTHING`;
 
 /** The oldest open room with a name, which first run opens: the one it added, or the one it found. */
 const OPEN_ROOM_NAMED = `SELECT id, kind, name, icon FROM rooms WHERE kind = 'open' AND name = ? ORDER BY created_at, id LIMIT 1`;
@@ -2693,8 +2742,8 @@ const OPEN_ROOM_NAMED = `SELECT id, kind, name, icon FROM rooms WHERE kind = 'op
 /**
  * Puts the people a JSON list names in a room, whatever their status, and answers whom it put in.
  */
-const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
-  SELECT ?, id, ?, ? FROM users WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT DO NOTHING RETURNING user_id`;
+const GRANT_ROOM_TO_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at, involvement)
+  SELECT ?, id, ?, ?, ${sharedStart("users")} FROM users WHERE id IN (SELECT value FROM json_each(?)) ON CONFLICT DO NOTHING RETURNING user_id`;
 
 /** Takes everyone but the people a JSON list names and anyone suspended whose membership it keeps (`KEPT_SUSPENDED_MEMBERSHIP`) out of a room, and answers whom. */
 export const REVOKE_ROOM_FROM_OTHERS = `DELETE FROM memberships WHERE room_id = ? AND user_id NOT IN (SELECT value FROM json_each(?)) AND NOT ${KEPT_SUSPENDED_MEMBERSHIP}
@@ -3985,17 +4034,46 @@ export class WorkspaceStore {
   async setInvolvement(
     userId: UserId,
     roomId: RoomId,
-    involvement: Involvement | null,
+    involvement: Involvement | "default" | null,
   ): Promise<{ involvement: Involvement; favorites: Favorites | null } | "not found" | "invalid"> {
     if (involvement === null) return (await this.db.all(INVOLVEMENT, userId, roomId)).length > 0 ? "invalid" : "not found";
+    // "default" follows what they're notified about again, at the level that starts at.
+    const level = involvement === "default" ? (await this.db.all<{ involvement: Involvement }>(STARTING_LEVEL, userId, roomId))[0]?.involvement : involvement;
+    if (!level) return "not found";
     const [[counted], [saved], starred] = (await this.db.batch([
-      statement(COUNT_HIDDEN_STAR, userId, roomId, involvement),
-      statement(SET_INVOLVEMENT, userId, roomId, involvement),
+      statement(COUNT_HIDDEN_STAR, userId, roomId, level),
+      statement(SET_INVOLVEMENT, userId, roomId, level, involvement === "default" ? 0 : 1),
       statement(FAVORITES_FOR_USER, userId),
     ])) as [Array<{ version: number }>, Array<{ involvement: Involvement }>, Array<{ room_id: RoomId }>];
     if (!saved) return "not found";
     const favorites = counted ? { rooms: starred.map((row) => row.room_id), version: counted.version } : null;
     return { involvement: saved.involvement, favorites };
+  }
+
+  /** What `userId`'s notified about, when their paused notifications come back, and where they picked a level. */
+  async notificationSettings(userId: UserId): Promise<NotificationSettings | null> {
+    const [[settings], chosen] = (await this.db.batch([statement(NOTIFICATION_SETTINGS, userId), statement(CHOSEN_LEVELS, userId)])) as [
+      Array<{ level: NotificationLevel; paused_until: number | null }>,
+      Array<{ room_id: RoomId }>,
+    ];
+    if (!settings) return null;
+    return { level: settings.level, pausedUntil: settings.paused_until, chosen: chosen.map(({ room_id }) => room_id) };
+  }
+
+  /**
+   * Changes what `userId`'s notified about, or when their paused notifications come back, and with `reset`,
+   * has every room and DM they haven't hidden follow it again. Answers the rooms whose level that changed.
+   */
+  async changeNotifications(userId: UserId, changes: NotificationChanges, reset = false): Promise<Array<{ roomId: RoomId; involvement: Involvement }>> {
+    const statements = [
+      ...(changes.level === undefined ? [] : [statement(SET_NOTIFICATION_LEVEL, userId, changes.level)]),
+      ...(changes.pausedUntil === undefined ? [] : [statement(SET_NOTIFICATIONS_PAUSED, userId, changes.pausedUntil)]),
+      ...(reset ? [statement(UNCHOOSE_LEVELS, userId)] : []),
+      statement(LEVEL_FOLLOWED, userId),
+    ];
+    const results = (await this.db.batch(statements)) as unknown[][];
+    const leveled = results.at(-1) as Array<{ room_id: RoomId; involvement: Involvement }>;
+    return leveled.map(({ room_id, involvement }) => ({ roomId: room_id, involvement }));
   }
 
   /**
@@ -4029,7 +4107,7 @@ export class WorkspaceStore {
       const mentioned = counts !== null && event.message && event.message.mentionIds.length > 0 ? statements.push(statement(MENTION_UNREAD, roomId, userId, mentions, seq)) - 1 : null;
       const followers = JSON.stringify(event.message?.followerIds ?? []);
       const inRoom = event.threadOnly ? 0 : 1;
-      const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, seeing, mentions, seq, guests ? 1 : 0, inRoom, followers)) - 1 : null;
+      const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, seeing, mentions, seq, guests ? 1 : 0, inRoom, followers, Date.now())) - 1 : null;
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it, nor is
       // @ember's answer, which is a reply too.
       const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq)) - 1 : null;

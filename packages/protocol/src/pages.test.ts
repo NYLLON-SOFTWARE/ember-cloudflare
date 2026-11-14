@@ -128,6 +128,13 @@ describe("Edit your profile", () => {
   });
 });
 
+describe("Notification preferences page", () => {
+  it("shows your notification preferences at your own address for them alone", () => {
+    expect(workspacePageOf("/users/me/notifications")).toEqual({ page: "notifications" });
+    for (const path of ["/users/me/notifications/", "/users/01J9Z3/notifications"]) expect(workspacePageOf(path), path).toBeNull();
+  });
+});
+
 describe("Push subscriptions page", () => {
   it("shows your push subscriptions at anyone's address for them", () => {
     for (const path of ["/users/me/push_subscriptions", "/users/01J9Z3/push_subscriptions"]) {

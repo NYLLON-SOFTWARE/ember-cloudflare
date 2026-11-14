@@ -240,13 +240,14 @@ export const NEXT_UPLOAD_DUE = `SELECT min(created_at) + ${NOTE_UPLOAD_TTL_MS} F
 export const NEXT_REMINDER_DUE = `SELECT min(remind_at) FROM saved_items WHERE remind_at IS NOT NULL AND reminded_at IS NULL`;
 
 /**
- * Person ?1's push subscriptions, if they're active, for a reminder, with the count each sets the badge
- * to, as `MESSAGE_PUSHES` counts it.
+ * Person ?1's push subscriptions, if they're active and their notifications aren't paused at ?2, now,
+ * for a reminder, with the count each sets the badge to, as `MESSAGE_PUSHES` counts it.
  */
 const REMINDER_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.endpoint, push_subscriptions.p256dh_key, push_subscriptions.auth_key,
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = push_subscriptions.user_id AND marked.unread_at IS NOT NULL) AS badge
   FROM push_subscriptions JOIN users ON users.id = push_subscriptions.user_id
-  WHERE push_subscriptions.user_id = ?1 AND users.status = 0 /* active */ ORDER BY push_subscriptions.id`;
+  WHERE push_subscriptions.user_id = ?1 AND users.status = 0 /* active */ AND coalesce(users.notifications_paused_until <= ?2, 1)
+  ORDER BY push_subscriptions.id`;
 
 function filesOf(json: string | null): KeptNoteFile[] {
   if (json === null) return [];
@@ -421,8 +422,8 @@ export class SavedStore {
     return rows.map(({ key }) => key);
   }
 
-  /** Where someone's reminder is pushed: their push subscriptions, while they're active. */
+  /** Where someone's reminder is pushed: their push subscriptions, while they're active and haven't paused notifications. */
   async reminderDeliveries(userId: UserId): Promise<DeliveryRow[]> {
-    return this.db.all<DeliveryRow>(REMINDER_PUSHES, userId);
+    return this.db.all<DeliveryRow>(REMINDER_PUSHES, userId, Date.now());
   }
 }

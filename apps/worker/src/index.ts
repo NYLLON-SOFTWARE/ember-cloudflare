@@ -42,6 +42,9 @@ import {
   parseActivityCursor,
   parseActivityMarks,
   parseInvolvementChange,
+  parseNotificationChanges,
+  NOTIFICATIONS_API_PATH,
+  NOTIFICATIONS_RESET_API_PATH,
   parseMemberfulDisconnection,
   parseSharedOrder,
   parseNewDirect,
@@ -70,6 +73,7 @@ import {
   type EmailSettings,
   type Favorites,
   type Involvement,
+  type NotificationSettings,
   type MemberfulConnection,
   type MemberfulStatus,
   type NewJoinCode,
@@ -1081,6 +1085,33 @@ async function setInvolvement(request: Request, env: Env, roomId: RoomId): Promi
   return json({ involvement } satisfies { involvement: Involvement });
 }
 
+/** What the signed-in person's notified about, when their paused notifications come back, and where they picked a level. */
+async function notificationSettings(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const settings = credentials && (await workspace(env).notificationSettings(credentials));
+  if (!settings) return problem(401, "Not signed in");
+  return json(settings satisfies NotificationSettings, { headers: { "Cache-Control": "no-store" } });
+}
+
+/** Changes what the signed-in person's notified about, or pauses or resumes their notifications: 422 for a change it can't take. */
+async function changeNotifications(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const changes = parseNotificationChanges(await jsonBodyOf(request), Date.now());
+  if (typeof changes === "string") return problem(422, changes);
+  const settings = await workspace(env).changeNotifications(credentials, changes);
+  if (!settings) return problem(401, "Not signed in");
+  return json(settings satisfies NotificationSettings);
+}
+
+/** Has every room and DM the signed-in person hasn't hidden follow what they're notified about again. */
+async function resetNotifications(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const settings = credentials && (await workspace(env).changeNotifications(credentials, {}, true));
+  if (!settings) return problem(401, "Not signed in");
+  return json(settings satisfies NotificationSettings);
+}
+
 /**
  * Puts the signed-in person's starred rooms in the order listed, as dragging one in their sidebar does,
  * answering their stars: 400 for a list it can't read, and 403 for one that isn't exactly the rooms
@@ -1255,6 +1286,9 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
+  if (pathname === NOTIFICATIONS_API_PATH && request.method === "GET") return () => notificationSettings(request, env);
+  if (pathname === NOTIFICATIONS_API_PATH && request.method === "PATCH") return () => changeNotifications(request, env);
+  if (pathname === NOTIFICATIONS_RESET_API_PATH && request.method === "POST") return () => resetNotifications(request, env);
   const ownAppSignIn = pathname.match(/^\/api\/users\/me\/apps\/([^/]+)\/sign-in$/);
   if (ownAppSignIn && request.method === "POST") return () => beginOwnAppSignIn(request, env, ownAppSignIn[1]!);
   if (ownAppSignIn && request.method === "DELETE") return () => signOutOfApp(request, env, ownAppSignIn[1]!);
