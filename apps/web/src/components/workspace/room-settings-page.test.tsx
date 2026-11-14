@@ -320,6 +320,25 @@ describe("Add and remove private room members", () => {
     expect(onLeft).toHaveBeenCalledWith(leads.id);
     expect(onMissing).not.toHaveBeenCalled();
   });
+
+  it("keeps a guest the guests panel saved in the private form's chosen, whose saving would otherwise take their membership out", async () => {
+    const guest = { userId: "g9", name: "Pat Doe", untilAt: "2026-11-21T09:00:00.000Z" };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (init?.method === "POST") return Response.json({ guest }, { status: 201 });
+      if (init?.method === "PATCH") return Response.json({ room: leads });
+      return Response.json(closedSettings);
+    });
+    const { onSaved, user } = showPage(leads);
+    await user.type(await screen.findByLabelText("Add a guest"), "Pat Doe");
+    await user.click(screen.getByRole("button", { name: "Add guest" }));
+    // They're listed, with the switch the private form gives them, already on: the form counts no change of theirs.
+    expect(await accessSwitch({ name: "Pat Doe" })).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(leads));
+    // What the form saved keeps them: their stay's membership isn't a change the form would have undone.
+    expect(sent()).toEqual({ name: "Leads", icon: "lock", kind: "closed", memberIds: expect.arrayContaining([guest.userId]) });
+  });
 });
 
 describe("Who can change a room", () => {
