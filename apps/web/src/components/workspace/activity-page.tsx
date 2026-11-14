@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { savedPath, workspacePageOf, type ActivityItem, type Me, type RoomId, type SidebarRoom, type UserId } from "@ember/protocol";
 import {
   ArrowLeft,
@@ -94,7 +94,13 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
   const { feed, loadOlder, mark, markAllRead } = activity;
   const profile = useProfilePane();
   const [filter, setFilter] = useState<ActivityFilter>(ALL_ACTIVITY);
-  const [threadPane, setThreadPane] = useState<HTMLElement | null>(null);
+  // Where the room puts its thread: one element throughout, moved between the panes that hold it, so the
+  // thread stays as it was, its picked files and Also send too, while a profile covers it.
+  const [threadPane] = useState(() => {
+    const element = document.createElement("div");
+    element.className = "h-full min-h-0";
+    return element;
+  });
   const [searching, setSearching] = useState(false);
   const [hiddenPanes, setHiddenPanes] = useState(0);
   const names = useActivityNames(rooms, me);
@@ -190,7 +196,7 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
           <div className="flex h-full min-h-0 flex-col" onClickCapture={openThreadForLink}>
             {/* Where the row's too narrow for the feed beside it; phones' back stack is the mobile layout's. */}
             {hiddenPanes > 0 && !phone && <BackToActivity onClick={closeConversation} />}
-            <div className="min-h-0 flex-1">{renderRoom(place, { thread: threadPane, onCloseThread: closeThread })}</div>
+            <div className="min-h-0 flex-1">{renderRoom(place, { thread: place.threadId === undefined ? null : threadPane, onCloseThread: closeThread })}</div>
           </div>
         ) : place ? (
           <Unavailable />
@@ -201,9 +207,24 @@ export function ActivityPage({ me, place, rooms, activity, renderRoom, onPaneSta
   ];
   if (feedAlone) panes.pop();
   if (side === "thread" && roomOpen)
-    panes.push({ id: "thread", label: "Resize thread", minWidth: 300, defaultShare: 0.3, width: DEFAULT_SIDE_PX, widthKey: "side", sizedBySeparator: true, onClose: closeThread, content: <div ref={setThreadPane} className="h-full min-h-0" /> });
+    panes.push({ id: "thread", label: "Resize thread", minWidth: 300, defaultShare: 0.3, width: DEFAULT_SIDE_PX, widthKey: "side", sizedBySeparator: true, onClose: closeThread, content: <Holder element={threadPane} /> });
   if (side === "profile" && profile)
-    panes.push({ id: "profile", label: "Resize profile", minWidth: 300, defaultShare: 0.3, width: DEFAULT_SIDE_PX, widthKey: "side", sizedBySeparator: true, onClose: profile.close, content: <ProfilePanel userId={profile.userId!} me={me} pane={profile} placement="pane" /> });
+    panes.push({
+      id: "profile",
+      label: "Resize profile",
+      minWidth: 300,
+      defaultShare: 0.3,
+      width: DEFAULT_SIDE_PX,
+      widthKey: "side",
+      sizedBySeparator: true,
+      onClose: profile.close,
+      content: (
+        <>
+          {place?.threadId !== undefined && <Holder element={threadPane} hidden />}
+          <ProfilePanel userId={profile.userId!} me={me} pane={profile} placement="pane" />
+        </>
+      ),
+    });
 
   return (
     <>
@@ -762,4 +783,13 @@ function FilterChoices({ filter, onFilter, rooms, me }: FilterProps) {
       </div>
     </>
   );
+}
+
+/** Holds `element`, which keeps what's in it mounted as it moves from one holder to another. */
+function Holder({ element, hidden }: { element: HTMLElement; hidden?: boolean }) {
+  const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    host.current?.append(element);
+  }, [element]);
+  return <div ref={host} hidden={hidden} className="h-full min-h-0" />;
 }

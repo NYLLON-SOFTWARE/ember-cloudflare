@@ -39,6 +39,19 @@ test.describe("Reply in a thread", () => {
     await expect(grace.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
   });
 
+  test("keeps the room at least 480px wide beside the thread, however wide the thread was made in a wider window", async ({ members }) => {
+    const ada = await members.signIn("Ada");
+    await ada.page.setViewportSize({ width: 1280, height: 800 });
+    // As dragged to its widest at 2560px.
+    await ada.page.evaluate(() => localStorage.setItem("ember:panes:room-side", "1600"));
+    await ada.send("Who has the keys?");
+    await (await ada.actions("Who has the keys?")).getByRole("link", { name: "Reply in thread" }).click();
+    await expect(threadOf(ada)).toBeVisible();
+    const room = await ada.page.getByRole("main").boundingBox();
+    expect(room!.width).toBeGreaterThanOrEqual(480);
+    await expect(threadOf(ada)).toBeInViewport({ ratio: 1 });
+  });
+
   test("also sends a reply to the room when asked, saying so in the thread, and the room's copy opens the thread at it", async ({ members, participant, rooms }) => {
     await (await participant("Grace")).say("Ship it Thursday?");
     const ada = await members.signIn("Ada");

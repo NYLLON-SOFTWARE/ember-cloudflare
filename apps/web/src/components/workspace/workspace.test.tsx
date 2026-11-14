@@ -1268,6 +1268,13 @@ describe("Search box", () => {
     expect(screen.getByRole("button", { name: "Open conversations" })).toHaveFocus();
   });
 
+  it("opens on Ctrl+F in the conversation Activity has open", async () => {
+    const { user } = showWorkspace("/activity/rooms/random");
+    await screen.findByRole("heading", { name: "Activity", level: 1 });
+    await user.keyboard("{Control>}f{/Control}");
+    expect(boxTokens()).toEqual(["in:random"]);
+  });
+
   it("opens on Ctrl+F in the room shown, and with the search the results page shows, leaving the key to the browser in a dialog", async () => {
     const { user } = showWorkspace("/rooms/random");
     await roomHeading();
@@ -1588,6 +1595,20 @@ describe("Activity", () => {
     expect(screen.getByRole("heading", { level: 1, name: "random" })).toBeInTheDocument();
   });
 
+  it("keeps a thread as it was under a profile opened over it, for when the profile closes", async () => {
+    vi.stubGlobal("WebSocket", WorkspaceSocket);
+    serveActivity([item(3, { kind: "thread", parentId: "m0", preview: "a reply" })], { "GET /api/users/u2": () => Response.json({ person: grace }) });
+    const { user } = showWorkspace("/activity/rooms/random/threads/m0/@m3");
+    const thread = await screen.findByRole("complementary", { name: "Thread" });
+    act(() => navigate("/activity/rooms/random/threads/m0/@m3?profile=u2"));
+    expect(await screen.findByRole("complementary", { name: "Profile" })).toBeInTheDocument();
+    // Hidden, but the same thread, with whatever was picked in it.
+    expect(thread.isConnected).toBe(true);
+    expect(thread.closest("[hidden]")).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Close profile" }));
+    await waitFor(() => expect(screen.getByRole("complementary", { name: "Thread" })).toBe(thread));
+  });
+
   it("opens an item's author's profile beside the feed from their name or avatar, without opening the item", async () => {
     vi.stubGlobal("WebSocket", WorkspaceSocket);
     serveActivity([item(1)], { "GET /api/users/u2": () => Response.json({ person: { ...grace, bio: "Wrote the first compiler" } }) });
@@ -1631,6 +1652,17 @@ describe("Profile pane", () => {
     await user.click(within(profile).getByRole("button", { name: "Close profile" }));
     await waitFor(() => expect(screen.queryByRole("complementary", { name: "Profile" })).not.toBeInTheDocument());
     expect(location.pathname + location.search).toBe("/rooms/general");
+  });
+
+  it("leaves nothing of the room to reach under a profile that covers it, which takes focus", async () => {
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: media === "(width < 73.75rem)", media, addEventListener() {}, removeEventListener() {} }));
+    serve({ "GET /api/users/u2": () => Response.json({ person: { id: "u2", name: "Grace", bio: null, role: "member", status: "active", avatarUrl: "/users/u2/avatar" } }) });
+    showWorkspace("/rooms/general?profile=u2");
+    const heading = await roomHeading();
+    const profile = await screen.findByRole("complementary", { name: "Profile" });
+    await waitFor(() => expect(within(profile).getByRole("heading", { name: "Profile" })).toHaveFocus());
+    expect(heading.closest("[inert]")).not.toBeNull();
+    expect(profile.closest("[inert]")).toBeNull();
   });
 
   it("keeps the profile open in the address, through a reload, Back closing it", async () => {

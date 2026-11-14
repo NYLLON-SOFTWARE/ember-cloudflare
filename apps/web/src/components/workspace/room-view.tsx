@@ -25,10 +25,10 @@ import { RoomHeader } from "./room-header";
 import { RoomNotice } from "./room-notice";
 import { RoomFramesContext } from "./room-tab-icons";
 import { RoomTabs, RoomTabsContext, useRoomTabs } from "./room-tabs";
+import { COLUMN_COVERS_ROOM } from "./side-column";
 import { ThreadPanel } from "./thread-panel";
 
 /** Where a thread covers its room, rather than showing beside it: below 1180px wide. */
-const THREAD_COVERS_ROOM = "(width < 73.75rem)";
 
 interface Props {
   room: Room;
@@ -117,12 +117,14 @@ export function RoomView({ room, messageId, threadId, replyId, invitation, onDis
   const { editing, editors, editedHere, doneHere } = useMessageEditors(composer, useMessageSheets());
   useImperativeHandle(ref, () => ({ focusComposer: editors.returnFocus }), [editors]);
   const edit = composerEdit(editedHere, state.messages, whyGone ? null : messageActions, doneHere);
-  // A thread that covers the room leaves nothing of it to reach until it's closed.
-  const covered = useMediaQuery(THREAD_COVERS_ROOM) && threadId !== undefined && !panes;
+  const phone = usePhoneLayout();
+  // A thread, or someone's profile, that covers the room leaves nothing of it to reach until it's closed.
+  // A phone opens a profile as a page of its own.
+  const covered = useMediaQuery(COLUMN_COVERS_ROOM) && (threadId !== undefined || (profile !== null && !phone)) && !panes;
   // In panes, the thread goes in its own, once it's there.
   const placed = (thread: ReactNode) => (panes ? panes.thread && createPortal(thread, panes.thread) : thread);
   // A phone has a top bar of its own, Slack's.
-  const Header = usePhoneLayout() ? MobileRoomHeader : RoomHeader;
+  const Header = phone ? MobileRoomHeader : RoomHeader;
 
   // Up Arrow edits your newest message, unless it's still on its way, or the timeline is reading older
   // history and may not hold it.

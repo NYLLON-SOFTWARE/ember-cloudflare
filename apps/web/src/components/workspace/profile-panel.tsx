@@ -1,4 +1,4 @@
-import { useContext, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Me, Person, User, UserId } from "@ember/protocol";
 import { ChatLines, Copy, Headset, MoreHoriz, User as UserIcon, Xmark } from "@/components/icons/iconoir";
 import { ClockRotateRight, Mail } from "@/components/icons/iconoir-more";
@@ -11,7 +11,7 @@ import { useShownPresence } from "@/hooks/use-shown-presence";
 import { fetchPerson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { AgentBadge, isAgent } from "./agent-badge";
-import { SideColumnSeparator } from "./side-column";
+import { COLUMN_COVERS_ROOM, SideColumnSeparator } from "./side-column";
 import { UserAvatar } from "./user-avatar";
 
 import { takeOpener, type ProfilePane } from "./profile-pane";
@@ -216,6 +216,11 @@ interface FrameProps {
  */
 export function PaneFrame({ placement, label, onClose, children }: FrameProps) {
   useFocusReturn();
+  const heading = useRef<HTMLHeadingElement>(null);
+  // Covering the room, which leaves nothing of it to reach, it takes focus, from its title.
+  useEffect(() => {
+    if (placement === "column" && matchMedia(COLUMN_COVERS_ROOM).matches) heading.current?.focus();
+  }, [placement]);
   return (
     <aside
       aria-label={label}
@@ -231,7 +236,9 @@ export function PaneFrame({ placement, label, onClose, children }: FrameProps) {
     >
       {placement === "column" && <SideColumnSeparator label={`Resize ${label.toLowerCase()}`} />}
       <header className="flex min-h-header shrink-0 items-center gap-2 border-b py-2.5 pr-3.5 pl-5 max-md:pl-4 max-md:min-h-[calc(56px+env(safe-area-inset-top))] max-md:pt-[env(safe-area-inset-top)]">
-        <h2 className="text-[17px] leading-[1.4] font-[650]">{label}</h2>
+        <h2 ref={heading} tabIndex={-1} className="text-[17px] leading-[1.4] font-[650] outline-none">
+          {label}
+        </h2>
         <button
           type="button"
           title={`Close ${label.toLowerCase()}`}

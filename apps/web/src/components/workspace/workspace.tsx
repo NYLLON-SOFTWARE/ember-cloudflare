@@ -601,6 +601,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     if (link instanceof HTMLAnchorElement && link.pathname === location.pathname) setDrawerOpen(false);
   };
   const currentRoomId = room?.id ?? null;
+  // The conversation Activity has open in a pane, which Cmd+F searches and the huddle key huddles in, as
+  // they do the room shown.
+  const paneRoom = route.page === "activity" && route.roomId !== undefined ? (rooms?.find((r) => r.id === route.roomId) ?? null) : null;
   const unreadConversations = (rooms ?? NO_ROOMS).filter((r) => markedUnread(r, currentRoomId)).length;
 
   // Someone's profile, open beside the room, Activity's conversation or the People page, as the address's `profile` says,
@@ -626,7 +629,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     if (event.target instanceof Element && event.target.closest("[role=dialog]")) return;
     event.preventDefault();
     // Before the sidebar has listed the rooms, the room the address names.
-    if (route.page !== "search") return openSearch({ opener: null, roomId: currentRoomId ?? (rooms === null && route.page === "room" ? route.roomId : null) });
+    if (route.page !== "search") return openSearch({ opener: null, roomId: currentRoomId ?? paneRoom?.id ?? (rooms === null && route.page === "room" ? route.roomId : null) });
     const { search, sort } = searchOfQuery(new URLSearchParams(location.search));
     openSearch({ opener: null, search, sort });
   });
@@ -644,8 +647,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
     if (togglesMute(event) && huddle) return pressed(() => muteHuddle(!huddle.muted));
     if (!togglesHuddle(event) || (event.target instanceof Element && event.target.closest("[role=dialog]"))) return;
     if (huddle) return pressed(leaveHuddle);
-    if (!huddlesOn || !room || room.kind === "direct" || goneRoom) return;
-    pressed(() => setHuddlePreview(room.id));
+    const shown = room ?? paneRoom;
+    if (!huddlesOn || !shown || shown.kind === "direct" || goneRoom) return;
+    pressed(() => setHuddlePreview(shown.id));
   });
   // Cmd+/ or Ctrl+/ opens the keyboard shortcuts: from the composer too, which has no
   // key of its own there, but not over another dialog, a native <dialog> like Notification setup included.
@@ -993,8 +997,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
             // The DMs page's list, which shows each DM's latest message, is wider, as Slack's is.
             !settings && directsShown && "md:[--spacing-sidebar:340px]",
             // A thread or a profile open beside its room, from 1180px wide, which takes 420px of the room's
-            // width until it's resized; a profile covers the thread, which keeps its place for when it closes.
-            "min-[1180px]:has-[>[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_var(--side-width,420px)]",
+            // width until it's resized, but never so much the room has under 480px (MIN_ROOM_PX), however
+            // wide it was made in a wider window; a profile covers the thread, which keeps its place for when it closes.
+            "min-[1180px]:has-[>[data-thread]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_min(var(--side-width,420px),calc(100%_-_var(--spacing-rail)_-_env(safe-area-inset-left)_-_var(--spacing-sidebar)_-_480px))]",
             "[&:has(>[data-profile])>[data-thread]:not([data-profile])]:hidden",
           )}
           onClickCapture={(event) => opensProfile(profilePane, event)}
