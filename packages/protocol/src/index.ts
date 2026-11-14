@@ -1609,6 +1609,15 @@ export type ClientFrame =
    * makes up.
    */
   | { type: "card.click"; clickId: string; messageId: string; actionId: string; blockId?: string; value?: string }
+  /**
+   * A slash command typed in the room: `name` as it's kept (`commandNameOf`), without the "/" and
+   * lowercased, and `text`, whatever was typed after it. It goes on the room's own socket, as a
+   * `card.click` does, rather than a route of its own: the socket is who the room has let in, so the
+   * sender's being in the room and no ban blocking them are the checks every change here gets, and the
+   * room answers `command.ran`, or an `error`, with `commandId`, which the tab makes up, while the bot's
+   * answer reaches the room as any message of its does.
+   */
+  | { type: "command.run"; commandId: string; name: string; text: string }
   | { type: "ping" };
 
 /**
@@ -1675,11 +1684,13 @@ export type ServerFrame =
   | { type: "thread.history"; parentId: string; before: string; messages: Message[]; hasMore: boolean }
   /** Answers card.click once the bot has answered the click: what it does to the room, if anything, comes as any change does. */
   | { type: "card.clicked"; clickId: string }
+  /** Answers command.run once the bot has answered the command: the bot's answer comes as any message of its does. */
+  | { type: "command.ran"; commandId: string }
   /**
    * `failed` names the request that went wrong, when the error answers one, and `clientMessageId` or
-   * `clientMessageIds` the messages it was about, or `clickId` the click.
+   * `clientMessageIds` the messages it was about, `clickId` the click, or `commandId` the command.
    */
-  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; failed?: ClientFrame["type"] }
+  | { type: "error"; message: string; clientMessageId?: string; clientMessageIds?: string[]; clickId?: string; commandId?: string; failed?: ClientFrame["type"] }
   | { type: "pong" };
 
 /**
@@ -1843,6 +1854,20 @@ export const MAX_BIO_LENGTH = 200;
  * of its history for everyone in it.
  */
 export const MAX_USER_NAME_LENGTH = 100;
+/** The longest name a slash command can have, where Slack's is 32. */
+export const MAX_COMMAND_NAME_LENGTH = 32;
+/** What a command's name is once it's kept: letters, numbers, dashes and underscores, one case. */
+const COMMAND_NAME = new RegExp(`^[a-z0-9_-]{1,${MAX_COMMAND_NAME_LENGTH}}$`);
+
+/**
+ * A command's name as it's kept: without the leading "/" typing it has, and lowercased, as Slack keeps
+ * its commands' names. Null unless the rest is 1 to `MAX_COMMAND_NAME_LENGTH` letters, numbers, dashes
+ * and underscores, which is all a name can be once it's one case.
+ */
+export function commandNameOf(given: string): string | null {
+  const name = given.trim().replace(/^\//, "").toLowerCase();
+  return COMMAND_NAME.test(name) ? name : null;
+}
 /** No deliverable address is longer (RFC 5321's path limit). */
 export const MAX_EMAIL_ADDRESS_LENGTH = 254;
 export const NAME_TOO_LONG = `Name must be at most ${MAX_USER_NAME_LENGTH} characters`;
@@ -1965,6 +1990,13 @@ export function parseClientFrame(raw: string): ClientFrame | null {
       if (f.value !== undefined && !isActionValue(f.value)) return null;
       const { blockId, value } = f;
       return { type: f.type, clickId: f.clickId, messageId: f.messageId, actionId: f.actionId, ...(blockId !== undefined && { blockId }), ...(value !== undefined && { value }) };
+    }
+    case "command.run": {
+      if (!id(f.commandId)) return null;
+      const name = commandNameOf(typeof f.name === "string" ? f.name : "");
+      // Whatever was typed after the command goes as it was typed, its spaces at either end spared, as Slack sends `text`.
+      const text = typeof f.text === "string" && f.text.length <= MAX_MESSAGE_HTML_LENGTH ? f.text.trim() : null;
+      return name && text !== null ? { type: f.type, commandId: f.commandId, name, text } : null;
     }
     case "typing.start":
     case "typing.stop":
