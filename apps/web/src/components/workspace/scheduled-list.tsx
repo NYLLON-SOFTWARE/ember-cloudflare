@@ -33,7 +33,6 @@ interface Props {
 export function ScheduledList({ open, onOpenChange, moving, onMove, list, rows, deletedId, undoLine, now, phone, disabled, scheduled, onEdit, onRemove, onReturnFocus }: Props) {
   const [acting, setActing] = useState<ListedScheduled | null>(null);
   const listAction = cn(TEXT_BUTTON, "px-2 hover:bg-hover");
-  const sheetAction = "flex min-h-12 w-full cursor-pointer items-center rounded-[9px] px-3 text-start text-[17px] hover:bg-hover disabled:pointer-events-none disabled:opacity-50";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -101,62 +100,67 @@ export function ScheduledList({ open, onOpenChange, moving, onMove, list, rows, 
           ))}
         </ul>
         {acting && (
-          <Dialog open onOpenChange={(opened) => opened || setActing(null)}>
-            <DialogContent showCloseButton={false} aria-describedby={undefined} overlayClassName="bg-transparent" className={cn(DIALOG, SHEET, "p-3")}>
-              <DialogTitle className="line-clamp-2 px-3 pt-2 pb-1 text-[15px] font-normal wrap-anywhere text-muted-foreground">{acting.text}</DialogTitle>
-              <div className="flex flex-col">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActing(null);
-                    scheduled.sendNow(acting.id);
-                  }}
-                  className={sheetAction}
-                >
-                  Send now
-                </button>
-                {acting.failed === undefined ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActing(null);
-                      onMove(acting);
-                    }}
-                    className={sheetAction}
-                  >
-                    Edit time
-                  </button>
-                ) : (
-                  onEdit && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActing(null);
-                        onEdit(acting);
-                      }}
-                      className={sheetAction}
-                    >
-                      Edit
-                    </button>
-                  )
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActing(null);
-                    onRemove(acting);
-                  }}
-                  className={cn(sheetAction, "text-destructive")}
-                >
-                  Delete
-                </button>
-                <button type="button" onClick={() => setActing(null)} className={cn(sheetAction, "font-semibold")}>
-                  Cancel
-                </button>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <ScheduledSheet
+            text={acting.text}
+            failed={acting.failed !== undefined}
+            onClose={() => setActing(null)}
+            onSendNow={() => scheduled.sendNow(acting.id)}
+            onMove={() => onMove(acting)}
+            onEdit={onEdit && (() => onEdit(acting))}
+            onRemove={() => onRemove(acting)}
+          />
         )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface SheetProps {
+  /** What the message says, which the sheet is titled by. */
+  text: string;
+  /** Whether the room couldn't send it when it was due, which is edited rather than moved. */
+  failed: boolean;
+  onClose: () => void;
+  onSendNow: () => void;
+  onMove: () => void;
+  /** Writes one that couldn't be sent in the composer, where there's one to write it in. */
+  onEdit?: () => void;
+  onRemove: () => void;
+}
+
+/** A phone's sheet of what can be done with a scheduled message: send it now, move or edit it, or delete it. */
+export function ScheduledSheet({ text, failed, onClose, onSendNow, onMove, onEdit, onRemove }: SheetProps) {
+  const sheetAction = "flex min-h-12 w-full cursor-pointer items-center rounded-[9px] px-3 text-start text-[17px] hover:bg-hover disabled:pointer-events-none disabled:opacity-50";
+  const then = (act: () => void) => () => {
+    onClose();
+    act();
+  };
+  return (
+    <Dialog open onOpenChange={(opened) => opened || onClose()}>
+      <DialogContent showCloseButton={false} aria-describedby={undefined} overlayClassName="bg-transparent" className={cn(DIALOG, SHEET, "p-3")}>
+        <DialogTitle className="line-clamp-2 px-3 pt-2 pb-1 text-[15px] font-normal wrap-anywhere text-muted-foreground">{text}</DialogTitle>
+        <div className="flex flex-col">
+          <button type="button" onClick={then(onSendNow)} className={sheetAction}>
+            Send now
+          </button>
+          {!failed ? (
+            <button type="button" onClick={then(onMove)} className={sheetAction}>
+              Edit time
+            </button>
+          ) : (
+            onEdit && (
+              <button type="button" onClick={then(onEdit)} className={sheetAction}>
+                Edit
+              </button>
+            )
+          )}
+          <button type="button" onClick={then(onRemove)} className={cn(sheetAction, "text-destructive")}>
+            Delete
+          </button>
+          <button type="button" onClick={onClose} className={cn(sheetAction, "font-semibold")}>
+            Cancel
+          </button>
+        </div>
       </DialogContent>
     </Dialog>
   );
