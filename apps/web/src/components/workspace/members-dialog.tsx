@@ -15,7 +15,7 @@ import { ROUND_BUTTON } from "../mobile/back-button";
 import { CAPSULE } from "../mobile/room-header";
 import { AgentBadge, isAgent } from "./agent-badge";
 import { PageHeader } from "./page-header";
-import { countOf, isIn, useMembers, type Members, type Props } from "./room-members";
+import { countOf, useMembers, type Members, type Props } from "./room-members";
 import { UserAvatar } from "./user-avatar";
 
 // Who's in a room, as its header's members button opens it, or as a phone pushes it as a page, which load
@@ -251,9 +251,9 @@ function AddPeople({ settings, addable, onBack, onAdded, onFailed }: { settings:
   const add = async () => {
     setSaving(true);
     setError(null);
-    const memberIds = [...settings.people.filter(isIn).map(({ id }) => id), ...chosen];
     try {
-      const room = await changeRoom(settings.room.id, { kind: "closed", memberIds });
+      // Only those chosen, beside whoever's in it now, as someone else may be adding people too.
+      const room = await changeRoom(settings.room.id, { kind: "closed", memberIds: [...chosen], adding: true });
       onAdded({ ...settings, room, people: settings.people.map((person) => ({ ...person, member: person.member || chosen.has(person.id) })) });
     } catch (failure) {
       setSaving(false);

@@ -138,7 +138,8 @@ export class CanvasSessions {
       this.room.send(ws, { type: "canvas.refused", tabId, message: CANT_APPLY });
       return this.room.send(ws, { type: "canvas.state", tabId, canvas: this.canvasOf(session) });
     }
-    if (doc.nodeSize > MAX_CANVAS_SIZE) return this.room.send(ws, { type: "canvas.refused", tabId, message: CANVAS_TOO_LONG });
+    // Too long to save, by its positions or by its JSON, which marks such as long links can make long on their own.
+    if (doc.nodeSize > MAX_CANVAS_SIZE || JSON.stringify(doc.toJSON()).length > MAX_CANVAS_LENGTH) return this.room.send(ws, { type: "canvas.refused", tabId, message: CANVAS_TOO_LONG });
     await this.advance(tabId, session, doc, steps, clientId, user);
   }
 
@@ -196,8 +197,7 @@ export class CanvasSessions {
     const body = JSON.stringify(session.doc.toJSON());
     session.unsavedSince = null;
     try {
-      // Too long to keep, as only marks on marks make it: what's saved stays, and the room keeps the rest while it can.
-      const kept = body.length > MAX_CANVAS_LENGTH || (await this.room.keep(tabId, body, version, session.updatedBy));
+      const kept = await this.room.keep(tabId, body, version, session.updatedBy);
       // Deleted as people wrote it: they hear so, and stop.
       if (!kept && !(await this.room.load(tabId))) return this.gone(tabId);
       session.saved = version;

@@ -23,6 +23,8 @@ import { forgetUnsaved, keepUnsaved } from "@/lib/canvas-unsaved";
 const SEND_EVERY_MS = 250;
 /** How long a send waits for the room before the editor sends again, as one lost with its socket may have been. */
 const CONFIRM_WITHIN_MS = 5_000;
+/** How many of the latest versions the room confirmed an editor keeps, ProseMirror's documents sharing what they don't change. */
+const KEPT_VERSIONS = 1_000;
 /** Marks the transactions that take in what the room sends, which aren't this person's writing. */
 export const FROM_ROOM = "emberCanvasFromRoom";
 /** Marks the transactions that merge someone else's canvas into what's here, which aren't this person's writing either. */
@@ -142,6 +144,12 @@ export function useLiveCanvas({ editor, frames, tabId, version, onEdited, onMerg
     parting.get(tabId)?.();
     // The document as the room has it at the version here, which what's here is merged from.
     let confirmed: Node = editor.state.doc;
+    // And at each version lately, for a room that restarted behind it (resync).
+    const history = new Map<number, Node>([[version, confirmed]]);
+    const remember = (at: number, doc: Node) => {
+      history.set(at, doc);
+      if (history.size > KEPT_VERSIONS) history.delete(history.keys().next().value!);
+    };
     editor.registerPlugin(collab({ version, clientID: clientId }));
     let timer: ReturnType<typeof setTimeout> | null = null;
     let waiting: ReturnType<typeof setTimeout> | null = null;
@@ -172,17 +180,27 @@ export function useLiveCanvas({ editor, frames, tabId, version, onEdited, onMerg
       if (from > here) return false;
       const fresh = steps.slice(here - from).map((json) => Step.fromJSON(editor.schema, json));
       if (fresh.length === 0) return true;
-      for (const step of fresh) confirmed = step.apply(confirmed).doc ?? confirmed;
+      fresh.forEach((step, at) => {
+        confirmed = step.apply(confirmed).doc ?? confirmed;
+        remember(here + at + 1, confirmed);
+      });
       editor.view.dispatch(receiveTransaction(editor.state, fresh, clientIds.slice(here - from), { mapSelectionBackward: true }).setMeta(FROM_ROOM, true));
       return true;
     };
 
     /** Starts again from the canvas as the room has it, `canvas`, with what's here merged in. */
     const resync = (canvas: Canvas) => {
-      const merge = mergeCanvas(JSON.stringify(confirmed.toJSON()), JSON.stringify(editor.getJSON()), canvas.body);
+      // A room behind what it confirmed here, as one that restarted before saving it, lost what's past its
+      // version, which is merged in as written here, from the canvas as it was here at that version, or from
+      // the room's, once that's too long ago.
+      const behind = canvas.version < getVersion(editor.state);
+      const base = behind ? (history.get(canvas.version)?.toJSON() ?? JSON.parse(canvas.body)) : confirmed.toJSON();
+      const merge = mergeCanvas(JSON.stringify(base), JSON.stringify(editor.getJSON()), canvas.body);
       editor.unregisterPlugin("collab");
       showDocument(editor, canvas.body, FROM_ROOM);
       confirmed = editor.state.doc;
+      history.clear();
+      remember(canvas.version, confirmed);
       editor.registerPlugin(collab({ version: canvas.version, clientID: clientId }));
       if (merge.body !== canvas.body) {
         // Written here, as the room hasn't it, but outside the undo history, as Undo would take theirs too.

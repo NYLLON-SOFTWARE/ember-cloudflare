@@ -76,6 +76,7 @@ import forwardChanges from "../migrations/0081_forward_changes.sql";
 import savedItems from "../migrations/0085_saved_items.sql";
 import savedRemindersSent from "../migrations/0086_saved_reminders_sent.sql";
 import noteUploads from "../migrations/0087_note_uploads.sql";
+import fileMarkMessages from "../migrations/0088_file_mark_messages.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -180,6 +181,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0085_saved_items.sql", scope: "workspace", sql: savedItems },
   { name: "0086_saved_reminders_sent.sql", scope: "workspace", sql: savedRemindersSent },
   { name: "0087_note_uploads.sql", scope: "workspace", sql: noteUploads },
+  { name: "0088_file_mark_messages.sql", scope: "workspace", sql: fileMarkMessages },
 ];
 
 /**

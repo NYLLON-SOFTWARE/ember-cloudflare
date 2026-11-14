@@ -136,14 +136,14 @@ describe("Members", () => {
     expect(rows.map((row) => row.textContent)).toEqual(["Ada Lovelace (you)Analytical engines", "Grace HopperCompilers", "Deploy Bot Bot"]);
   });
 
-  it("adds people to a private room for whoever can change it, as its settings save its members", async () => {
+  it("adds people to a private room for whoever can change it, beside whoever is in it then", async () => {
     serve(settings(true));
     renderButton(plans);
     await userEvent.click(await screen.findByRole("button", { name: /View members, 2/ }));
     await userEvent.click(screen.getByRole("button", { name: "Add people" }));
     await userEvent.click(screen.getByRole("checkbox", { name: "Linus Torvalds" }));
     await userEvent.click(screen.getByRole("button", { name: "Add" }));
-    expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/rooms/plans", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ kind: "closed", memberIds: ["ada", "grace", "linus"] }) }));
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/rooms/plans", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ kind: "closed", memberIds: ["linus"], adding: true }) }));
     await waitFor(() => expect(screen.getByRole("dialog")).toHaveAccessibleDescription("3 members"));
     await userEvent.keyboard("{Escape}");
     expect(screen.getByRole("button", { name: "View members, 3 members" })).toBeInTheDocument();

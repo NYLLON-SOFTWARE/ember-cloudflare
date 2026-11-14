@@ -156,6 +156,12 @@ describe("Files page", () => {
     expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("searchbox", { name: "Search files" })).toHaveValue("a");
     expect(rows()).toEqual(["Moon landing.jpg", "Launch notes"]);
+
+    // Opened again, the dialog has the filters as they are now, so Done brings none of the cleared ones back.
+    await userEvent.click(screen.getByRole("button", { name: "Filters" }));
+    expect(screen.getByRole("button", { name: "Date Any time" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.getByRole("button", { name: "Filters" })).toBeInTheDocument();
   });
 
   it("says whose files there aren't yet with nothing searched for, and that nothing matches a search", async () => {

@@ -178,6 +178,24 @@ describe("Writing a canvas together", () => {
     expect(sams!.getText()).toContain("SAM OFFLINE");
   });
 
+  it("keeps what the room confirmed but hadn't saved when it restarts, sending it back to the room behind it", async () => {
+    const { fake, sockets, editors } = writeTogether();
+    await waitFor(() => expect(editors()).toHaveLength(2));
+    const [mayas, sams] = editors();
+    typeAtEnd(mayas!, "CONFIRMED");
+    await waitFor(() => expect(sams!.getText()).toContain("CONFIRMED"));
+    // The room restarts before saving, with only the canvas as it opened, and Maya has nothing left to send.
+    sockets[0].open = false;
+    sockets[1].open = false;
+    fake.restart();
+    sockets[0].reconnect();
+    await waitFor(() => expect(fake.sessions["sessions"].get("t1")?.doc.textContent).toContain("CONFIRMED"), { timeout: 3000 });
+    expect(mayas!.getText()).toContain("CONFIRMED");
+    sockets[1].reconnect();
+    await waitFor(() => expect(sams!.getText()).toBe(mayas!.getText()), { timeout: 3000 });
+    expect(sams!.getText().match(/CONFIRMED/g)).toHaveLength(1);
+  });
+
   it("sends what was written while the socket was away once it's back, though the canvas has closed meanwhile", async () => {
     const fake = new FakeRoom();
     const socket = new Socket(fake, maya);

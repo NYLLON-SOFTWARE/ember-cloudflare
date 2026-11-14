@@ -223,6 +223,16 @@ export function FilterDialog({ open, onOpenChange, me, filters, rooms, names, on
   const [from, setFrom] = useState<UserId | "">(filters.from ?? "");
   const [inRoom, setInRoom] = useState<RoomId | "">(filters.in ?? "");
   const [date, setDate] = useState<FileDate>(filters.date);
+  // Each opening starts from the filters as they are, whatever opened it.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setFrom(filters.from ?? "");
+      setInRoom(filters.in ?? "");
+      setDate(filters.date);
+    }
+  }
   const id = useId();
   const everyone = useMemo(() => [...people.values()].filter((person) => person.id !== me.id).sort((a, b) => a.name.localeCompare(b.name)), [people, me.id]);
   const sortedRooms = useMemo(() => (rooms ? [...rooms].sort((a, b) => names.roomName(a).localeCompare(names.roomName(b))) : []), [rooms, names]);
@@ -231,17 +241,7 @@ export function FilterDialog({ open, onOpenChange, me, filters, rooms, names, on
     onOpenChange(false);
   };
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(opening) => {
-        if (opening) {
-          setFrom(filters.from ?? "");
-          setInRoom(filters.in ?? "");
-          setDate(filters.date);
-        }
-        onOpenChange(opening);
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={cn("max-w-[480px] gap-5", CLOSE_BY_TITLE)}>
         <DialogTitle className="text-xl font-bold">Filter by</DialogTitle>
         <DialogDescription className="sr-only">Whose files, in which conversation, and when they were shared.</DialogDescription>
@@ -515,6 +515,54 @@ export function FileRow({ file, room, names, showRoom, sort, onOpened, onStar }:
           </DropdownMenu>
         )}
       </div>
+    </li>
+  );
+}
+
+/**
+ * A photo or video in Files & links' grid, `children` its picture, which opens it, with a row's actions: a
+ * menu the pointer finds over the tile, or a held tile's sheet.
+ */
+export function MediaTile({ file, room, onOpened, onStar, children }: Pick<FileRowProps, "file" | "room" | "onOpened" | "onStar"> & { children: ReactNode }) {
+  const touch = useMediaQuery("(pointer: coarse)");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const holding = useLongPress(() => setMenuOpen(true));
+  const flash = useOptionalFlash();
+  const stored = file.file!;
+  return (
+    <li {...holding} className="group relative [-webkit-touch-callout:none]">
+      <a href={stored.url} target="_blank" rel="noopener" onClick={() => onOpened(file)} title={file.name} className="relative block aspect-square overflow-hidden rounded-lg border bg-hover">
+        {children}
+      </a>
+      {file.starred && (
+        <span className="pointer-events-none absolute bottom-1.5 left-1.5 grid size-6 place-items-center rounded-md bg-surface/90 text-foreground">
+          <StarSolid aria-label="Starred" className="size-4" />
+        </span>
+      )}
+      {touch ? (
+        <ActionSheet open={menuOpen} onOpenChange={setMenuOpen} title={file.name} actions={sheetActions(file, room, onOpened, onStar, flash)} />
+      ) : (
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger title="More actions" className={cn(ROW_BUTTON, ROW_ACTIONS, "absolute top-1.5 right-1.5 bg-surface/90 hover:bg-surface")}>
+            <MoreHoriz />
+            <span className="sr-only">More actions for {file.name}</span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {file.messageId && (
+              <DropdownMenuItem asChild>
+                <PageLink href={messagePath(file.roomId, file.messageId)}>{viewInLabel(room)}</PageLink>
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onSelect={() => copyLink(file, flash)}>Copy link</DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <a href={stored.downloadUrl} download={stored.name}>
+                Download
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onStar(file, !file.starred)}>{file.starred ? "Unstar" : "Star"}</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </li>
   );
 }

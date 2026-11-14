@@ -448,9 +448,11 @@ export interface RoomSettings {
 
 /**
  * What `PATCH /api/rooms/<id>` changes in a room, as its settings save it: its name, its icon, and who
- * it's for, everyone or just the people `memberIds` names, which takes anyone else out of it.
+ * it's for, everyone or just the people `memberIds` names, which takes anyone else out of it, or, with
+ * `adding`, puts them in beside whoever's in it already, as Add people does, which takes nobody out
+ * however many people add others at once.
  */
-export type RoomChanges = { name?: string; icon?: RoomIconChoice; parentId?: RoomId | null } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[] });
+export type RoomChanges = { name?: string; icon?: RoomIconChoice; parentId?: RoomId | null } & ({ kind?: "open" } | { kind: "closed"; memberIds: UserId[]; adding?: true });
 
 /**
  * The rail's buttons and the appearance modes, whose icons an administrator can choose in Community
@@ -2310,7 +2312,8 @@ export function parseRoomChanges(data: unknown): RoomChanges | string {
   if (r.kind === undefined) return changes;
   if (r.kind === "open") return { ...changes, kind: r.kind };
   if (r.kind !== "closed") return 'Kind must be "open" or "closed"';
-  return userIds(r.memberIds) ? { ...changes, kind: r.kind, memberIds: r.memberIds } : `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+  if (!userIds(r.memberIds)) return `Members must be a list of at most ${MAX_LISTED_USERS} user ids`;
+  return { ...changes, kind: r.kind, memberIds: r.memberIds, ...(r.adding === true && { adding: true as const }) };
 }
 
 /** Whether `data` is a JSON object: an array is an object too, but not one that can name a change. */

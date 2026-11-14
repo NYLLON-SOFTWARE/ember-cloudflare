@@ -14,7 +14,7 @@ import {
 } from "@ember/protocol/library";
 import { beforeEach, describe, expect, it } from "vitest";
 import { linksOf } from "../src/library";
-import { api, connect, createRoom, freshDeploy, freshRoom, post, recordedImage, roomSql, signIn, upload, workspaceSql, type Session } from "./support";
+import { api, connect, createRoom, freshDeploy, freshRoom, post, recordedImage, roomSql, searchSql, signIn, upload, workspaceSql, type Session } from "./support";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -73,6 +73,24 @@ describe("The Files page", () => {
     expect((await asking(ada, "/api/files/marks", "PUT", { fileId, roomId: closed, messageId, starred: true })).status).toBe(404);
     expect((await asking(ada, "/api/files/marks", "PUT", { fileId, roomId: room })).status).toBe(422);
     expect((await api("/api/files")).status).toBe(401);
+  });
+
+  it("keeps a file you starred long ago, past the newest files the page lists, but only while you're in its room", async () => {
+    const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
+    const room = (await createRoom("files-old-star", { closedTo: [ada.user.id, grace.user.id], as: ada })).id;
+    const old = await upload(ada, room, "Old plan.csv", new TextEncoder().encode("a\n1\n"), "text/csv");
+    const unstarred = await upload(ada, room, "Old notes.csv", new TextEncoder().encode("b\n2\n"), "text/csv");
+    await caughtUp(room);
+    await ok(await asking(ada, "/api/files/marks", "PUT", { fileId: old.attachment.id, roomId: room, messageId: old.id, starred: true }));
+    // As if a thousand newer files had pushed both out of what the page reads from the search index.
+    await searchSql("UPDATE search_messages SET has_file = 0 WHERE message_id IN (?, ?)", old.id, unstarred.id);
+
+    const { files } = await filesOf(ada);
+    expect(files.map(({ id }) => id)).toEqual([old.attachment.id]);
+    expect(files[0]).toMatchObject({ name: "Old plan.csv", starred: true, messageId: old.id });
+    expect((await filesOf(grace)).files).toEqual([]);
+    expect((await asking(ada, `/api/rooms/${room}`, "PATCH", { kind: "closed", memberIds: [grace.user.id] })).status).toBe(200);
+    expect((await filesOf(ada)).files).toEqual([]);
   });
 
   it("marks only a file a message in the room holds, or one of its canvases, keeping nothing for anything else", async () => {

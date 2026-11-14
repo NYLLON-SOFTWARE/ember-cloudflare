@@ -460,6 +460,11 @@ describe("Add and remove private room members", () => {
     expect(parseRoomChanges({ kind: "closed", memberIds: [] })).toEqual({ kind: "closed", memberIds: [] });
   });
 
+  it("takes people to add beside a room's members, only when it's told so outright", () => {
+    expect(parseRoomChanges({ kind: "closed", memberIds: ["u3"], adding: true })).toEqual({ kind: "closed", memberIds: ["u3"], adding: true });
+    expect(parseRoomChanges({ kind: "closed", memberIds: ["u3"], adding: "yes" })).toEqual({ kind: "closed", memberIds: ["u3"] });
+  });
+
   it("refuses making a room private without its members listed, since everyone left out is taken out", () => {
     const tooMany = Array.from({ length: MAX_LISTED_USERS + 1 }, (_, i) => `u${i}`);
     for (const memberIds of [undefined, "u1", [1], [""], tooMany]) {

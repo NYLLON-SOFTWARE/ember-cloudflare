@@ -35,7 +35,7 @@ import { dateLabel } from "@/lib/messages";
 import { forgetUnsaved } from "@/lib/canvas-unsaved";
 import { cn } from "@/lib/utils";
 import { PageLink } from "@/components/page-link";
-import { CLOSE_BY_TITLE, CONTROLS_ROW, FileRow, FileSearch, FileTypeIcon, FilterButton, FilterDialog, LIST_CHIPS, NothingHere, ROW_ACTIONS, sizeLabel, SortMenu, TypesMenu, useLongPress } from "./file-list";
+import { CLOSE_BY_TITLE, CONTROLS_ROW, FileRow, FileSearch, FileTypeIcon, FilterButton, FilterDialog, LIST_CHIPS, MediaTile, NothingHere, ROW_ACTIONS, sizeLabel, SortMenu, TypesMenu, useLongPress } from "./file-list";
 import { Chip, useSearchNames } from "./search-box";
 import { CanvasEditor, TAB_ICONS, type ShownTab } from "./room-tab-icons";
 
@@ -266,18 +266,16 @@ function FilesAndLinks({ room, me, onFailed }: { room: Room; me: Me; onFailed: (
             </h2>
             <ul className="grid grid-cols-6 gap-2 max-md:grid-cols-3">
               {media.map((file) => (
-                <li key={file.id}>
-                  <a href={file.file!.url} target="_blank" rel="noopener" onClick={() => opened(file)} title={file.name} className="relative block aspect-square overflow-hidden rounded-lg border bg-hover">
-                    {/* A picture every browser shows, or a preview; an SVG, say, is served as a file, so it shows its kind. */}
-                    {file.file!.previewUrl || isWebImage(file.file!.contentType) ? (
-                      <img src={file.file!.previewUrl ?? file.file!.url} alt={file.name} loading="lazy" className="size-full object-cover" />
-                    ) : (
-                      <span className="grid size-full place-items-center text-muted-foreground">
-                        {file.type === "videos" ? <MediaVideo className="size-8" /> : <MediaImage className="size-8" />}
-                      </span>
-                    )}
-                  </a>
-                </li>
+                <MediaTile key={file.id} file={file} room={room} onOpened={opened} onStar={star}>
+                  {/* A picture every browser shows, or a preview; an SVG, say, is served as a file, so it shows its kind. */}
+                  {file.file!.previewUrl || isWebImage(file.file!.contentType) ? (
+                    <img src={file.file!.previewUrl ?? file.file!.url} alt={file.name} loading="lazy" className="size-full object-cover" />
+                  ) : (
+                    <span className="grid size-full place-items-center text-muted-foreground">
+                      {file.type === "videos" ? <MediaVideo className="size-8" /> : <MediaImage className="size-8" />}
+                    </span>
+                  )}
+                </MediaTile>
               ))}
             </ul>
           </section>

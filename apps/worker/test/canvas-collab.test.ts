@@ -1,5 +1,5 @@
 import type { RoomId } from "@ember/protocol";
-import { EMPTY_CANVAS, roomTabPath, roomTabsPath, type OpenedTab } from "@ember/protocol/library";
+import { CANVAS_TOO_LONG, EMPTY_CANVAS, MAX_CANVAS_LENGTH, roomTabPath, roomTabsPath, type OpenedTab } from "@ember/protocol/library";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { canvasEditing } from "../src/canvas-schema";
@@ -192,6 +192,31 @@ describe("Writing a canvas together", () => {
     adas.send({ type: "canvas.steps", tabId: elsewhere, version: 0, clientId: "ada-1", steps: [typing(1, "x")] });
     expect(await adas.next("canvas.refused")).toMatchObject({ tabId: elsewhere });
     expect((await saved(ada, other, elsewhere)).body).toBe(EMPTY_CANVAS);
+  });
+
+  it("refuses steps that would make a canvas too long to save, as long links can in few positions, and saves what it has", async () => {
+    const room = await freshRoom("canvas-too-long");
+    const ada = await signIn("Ada");
+    const tabId = await canvasIn(room, ada);
+    const adas = await connect(room, ada);
+    await joining(adas, tabId);
+    // Sixty one-letter links, each to its own long address: two thousand characters of JSON a position.
+    const links = (batch: number) =>
+      Array.from({ length: 60 }, (_, at) => ({ type: "text", text: "x", marks: [{ type: "link", attrs: { href: `https://example.com/${batch}-${at}/${"a".repeat(2000)}` } }] }));
+    let version = 0;
+    let refused: unknown = null;
+    for (let batch = 0; batch < 6 && !refused; batch++) {
+      adas.send({ type: "canvas.steps", tabId, version, clientId: "ada-1", steps: [{ stepType: "replace", from: 1 + version * 60, to: 1 + version * 60, slice: { content: links(batch) } }] });
+      const answer = await adas.next("canvas.steps", "canvas.refused");
+      if (answer.type === "canvas.refused") refused = answer;
+      else version++;
+    }
+    expect(refused).toMatchObject({ tabId, message: CANVAS_TOO_LONG });
+    expect(version).toBeGreaterThan(0);
+    await ringAt(room, Date.now() + 60_000);
+    const kept = await saved(ada, room, tabId);
+    expect(kept.version).toBe(version);
+    expect(kept.body.length).toBeLessThanOrEqual(MAX_CANVAS_LENGTH);
   });
 
   it("refuses steps that aren't steps or don't apply, sending the canvas as it is", async () => {

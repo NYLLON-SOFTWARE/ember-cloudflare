@@ -337,6 +337,20 @@ describe("Add and remove private room members", () => {
     expect((await settings(room.id, grace)).status).toBe(404);
   });
 
+  it("puts the people Add people names beside whoever's in the room, so two people adding at once take nobody out", async () => {
+    const [ada, grace, linus, mary] = [await signIn("Ada"), await signIn("Grace"), await signIn("Linus"), await signIn("Mary")];
+    const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });
+    await promote(grace);
+    const graceInRoom = await connect(room.id, grace);
+
+    // Each opened Add people with the room as it was, and adds someone else.
+    expect((await change(room.id, ada, { kind: "closed", memberIds: [linus.user.id], adding: true })).status).toBe(200);
+    expect((await change(room.id, grace, { kind: "closed", memberIds: [mary.user.id], adding: true })).status).toBe(200);
+    expect(await membersOf(room.id)).toEqual(ids(ada, grace, linus, mary));
+    expect(await workspaceSql("SELECT * FROM pending_revocations")).toEqual([]);
+    expect((await post(graceInRoom, "Still here")).body).toBe("Still here");
+  });
+
   it("takes out whoever saves the room without themselves, who can't see it then", async () => {
     const [ada, grace] = [await signIn("Ada"), await signIn("Grace")];
     const room = await createRoom("Leads", { closedTo: [ada.user.id, grace.user.id], as: ada });

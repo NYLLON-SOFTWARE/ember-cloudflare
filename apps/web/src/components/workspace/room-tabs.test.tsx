@@ -124,6 +124,11 @@ describe("Room tabs", { timeout: PAGES_LOAD_MS * 2 }, () => {
     expect(within(panel).getAllByRole("link", { name: /Moon\.jpg/ })).toHaveLength(1);
     expect(within(within(panel).getByRole("region", { name: "Photos and videos" })).getByRole("img", { name: "Moon.jpg" })).toBeInTheDocument();
     expect(within(within(panel).getByRole("list", { name: "Files and links" })).queryByText("Moon.jpg")).not.toBeInTheDocument();
+    // With a row's actions, from the tile's menu.
+    await userEvent.click(within(panel).getByRole("button", { name: "More actions for Moon.jpg" }));
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["View in room", "Copy link", "Download", "Star"]);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Star" }));
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/files/marks", expect.objectContaining({ method: "PUT", body: expect.stringContaining('"starred":true') }));
 
     await userEvent.click(within(panel).getByRole("button", { name: "Links" }));
     await waitFor(() => expect(within(panel).queryByRole("link", { name: "Budget.csv" })).not.toBeInTheDocument());

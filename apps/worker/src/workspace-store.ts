@@ -4847,7 +4847,7 @@ export class WorkspaceStore {
    * Makes `changes` to a room in one transaction: renames it, moves it under `changes.parentId` or out
    * from under its parent, and makes it open to everyone it can be, or private to just the people
    * `memberIds` names, taking anyone else out but those suspended in a room that was private already,
-   * whom its settings don't list. `parentId` is the room it's under once it's changed, whose people are
+   * whom its settings don't list, or, `adding` them, nobody. `parentId` is the room it's under once it's changed, whose people are
    * everyone it can take in. Then it takes anyone not in the room out of its sub-rooms, or anyone not in
    * its parent out of it, and puts everyone in it in its sub-rooms open to "Everyone". Everyone it takes
    * out has their sockets there queued closing with `code`, due at `dueAt`. Answers what it changed, who's
@@ -4857,7 +4857,8 @@ export class WorkspaceStore {
     const memberIds = changes.kind === "closed" ? JSON.stringify(changes.memberIds) : null;
     const steps: Array<[string, Statement]> = [];
     // Whom it takes out is read before the room's kind changes, which says whether anyone suspended stays.
-    if (memberIds !== null) {
+    // People added beside those in it already take nobody out.
+    if (memberIds !== null && !(changes.kind === "closed" && changes.adding)) {
       steps.push(["queued", statement(QUEUE_MEMBER_REVOCATIONS, code, dueAt, roomId, memberIds)]);
       steps.push(["removed", statement(REVOKE_ROOM_FROM_OTHERS, roomId, memberIds)]);
     }

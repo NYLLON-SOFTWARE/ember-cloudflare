@@ -125,9 +125,14 @@ async function libraryOf(env: Env, { roomIds, canvases, marks }: LibraryShelf, w
   if (roomIds.length === 0) return { files: [], links: [] };
   const index = searchIndex(env);
   const [withFiles, linked] = await Promise.all([index.shelved(roomIds, false, LIBRARY_LIMIT), withLinks ? index.shelved(roomIds, true, LIBRARY_LIMIT) : []]);
-  const [fileMessages, linkMessages] = await Promise.all([messagesOf(env, withFiles), messagesOf(env, linked)]);
+  // Files starred before the newest the index lists are read from their rooms, so Starred keeps them.
+  const shelvedIds = new Set(withFiles.map(({ messageId }) => messageId));
+  const shelf = new Set(roomIds);
+  const starredBefore = marks.flatMap(({ starred, roomId, messageId }) => (starred && messageId && shelf.has(roomId) && !shelvedIds.has(messageId) ? [{ roomId, messageId, number: 0, message: null, words: [] }] : []));
+  const [fileMessages, linkMessages, olderStarred] = await Promise.all([messagesOf(env, withFiles), messagesOf(env, linked), readNow(env, starredBefore)]);
   const marked = new Map(marks.map(({ fileId, ...mark }) => [fileId, mark]));
-  const files = fileMessages.filter(hasFile).map((message) => libraryFileOf(message, marked));
+  const starredFiles = olderStarred.filter((message) => hasFile(message) && marked.get(message.attachment.id)?.starred === true);
+  const files = [...fileMessages, ...starredFiles].filter(hasFile).map((message) => libraryFileOf(message, marked));
   const canvasFiles = canvases.map(
     (canvas): LibraryFile => ({
       id: canvas.id,

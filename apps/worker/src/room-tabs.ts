@@ -64,6 +64,9 @@ export interface CanvasEntry {
 /** Someone's mark on a file. */
 export interface FileMarkRow {
   fileId: string;
+  roomId: RoomId;
+  /** The message holding the file, for a file marked since that was kept, or null. */
+  messageId: string | null;
   starred: boolean;
   viewedAt: string | null;
 }
@@ -176,14 +179,14 @@ const ADD_ITEM = `INSERT INTO room_tab_items (id, room_id, tab_id, title, target
 const CANVASES_IN = `SELECT id, room_id, title, creator_id, creator_name, created_at, updated_at FROM room_tabs
   WHERE kind = 'canvas' AND room_id IN (SELECT value FROM json_each(?))`;
 
-const MARKS_OF = `SELECT file_id, starred_at, viewed_at FROM file_marks WHERE user_id = ?`;
+const MARKS_OF = `SELECT file_id, room_id, message_id, starred_at, viewed_at FROM file_marks WHERE user_id = ?`;
 
-const STAR = `INSERT INTO file_marks (user_id, file_id, room_id, starred_at) VALUES (?1, ?2, ?3, ?4)
-  ON CONFLICT (user_id, file_id) DO UPDATE SET starred_at = ?4
+const STAR = `INSERT INTO file_marks (user_id, file_id, room_id, starred_at, message_id) VALUES (?1, ?2, ?3, ?4, ?5)
+  ON CONFLICT (user_id, file_id) DO UPDATE SET starred_at = ?4, message_id = coalesce(?5, message_id)
   RETURNING starred_at, viewed_at`;
 
-const VIEW = `INSERT INTO file_marks (user_id, file_id, room_id, viewed_at) VALUES (?1, ?2, ?3, ?4)
-  ON CONFLICT (user_id, file_id) DO UPDATE SET viewed_at = ?4
+const VIEW = `INSERT INTO file_marks (user_id, file_id, room_id, viewed_at, message_id) VALUES (?1, ?2, ?3, ?4, ?5)
+  ON CONFLICT (user_id, file_id) DO UPDATE SET viewed_at = ?4, message_id = coalesce(?5, message_id)
   RETURNING starred_at, viewed_at`;
 
 const user = (id: UserId, name: string): User => ({ id, name });
@@ -334,8 +337,8 @@ export class RoomTabStore {
 
   /** What `userId` has starred and opened. */
   async marksOf(userId: UserId): Promise<FileMarkRow[]> {
-    const rows = await this.db.all<{ file_id: string; starred_at: string | null; viewed_at: string | null }>(MARKS_OF, userId);
-    return rows.map((row) => ({ fileId: row.file_id, starred: row.starred_at !== null, viewedAt: row.viewed_at }));
+    const rows = await this.db.all<{ file_id: string; room_id: RoomId; message_id: string | null; starred_at: string | null; viewed_at: string | null }>(MARKS_OF, userId);
+    return rows.map((row) => ({ fileId: row.file_id, roomId: row.room_id, messageId: row.message_id, starred: row.starred_at !== null, viewedAt: row.viewed_at }));
   }
 
   /** Room `roomId`'s canvas `tabId` as it's saved, or null where the room has no such canvas. */
@@ -355,10 +358,10 @@ export class RoomTabStore {
   }
 
   /** Stars or unstars a file for `userId`, or records that they opened it, answering its marks. */
-  async mark(userId: UserId, { fileId, roomId, starred, viewed }: FileMark, now: string): Promise<FileMarks> {
+  async mark(userId: UserId, { fileId, roomId, messageId, starred, viewed }: FileMark, now: string): Promise<FileMarks> {
     const statements = [
-      ...(starred !== undefined ? [statement(STAR, userId, fileId, roomId, starred ? now : null)] : []),
-      ...(viewed ? [statement(VIEW, userId, fileId, roomId, now)] : []),
+      ...(starred !== undefined ? [statement(STAR, userId, fileId, roomId, starred ? now : null, messageId ?? null)] : []),
+      ...(viewed ? [statement(VIEW, userId, fileId, roomId, now, messageId ?? null)] : []),
     ];
     const results = (await this.db.batch(statements)) as Array<Array<{ starred_at: string | null; viewed_at: string | null }>>;
     const row = results.at(-1)![0]!;
