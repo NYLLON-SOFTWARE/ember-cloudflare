@@ -15,7 +15,7 @@ const NOTE = "text-[0.8em] text-muted-foreground max-md:text-[12px]";
 
 /** What the card says of the tools `name` is picked. */
 export const toolsExplained = (name: string) =>
-  `Pick what ${name} may use of the apps you've connected, up to ${MAX_AGENT_TOOLS} tools. Anyone who can ask ${name} could have it use them, with the token each app was connected with. ${name} can't call them yet.`;
+  `Pick what ${name} may use of the apps you've connected, up to ${MAX_AGENT_TOOLS} tools. Anyone who can ask ${name} could have it use them, with the token each app was connected with, and allows each call on a card first.`;
 
 /** What the card says in place of its tools, with no app connected. */
 export const NO_APPS_TO_PICK = "No apps are connected yet.";

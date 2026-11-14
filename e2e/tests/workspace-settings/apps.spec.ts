@@ -1,13 +1,14 @@
 import type { APIRequestContext, Page } from "@playwright/test";
-import { TOOL_GONE, type AppAnswer, type Apps } from "@ember/protocol/apps";
-import { administratorSession, cookieHeader, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
+import { TOOL_GONE, type AgentTools, type AppAnswer, type Apps } from "@ember/protocol/apps";
+import { administratorSession, cookieHeader, editorField, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
-import { startFakeGateway, type FakeGateway } from "./fake-gateway";
-import { MCP_TOKEN, SERVER_NAME, startFakeMcp, TOOLS, type FakeMcp } from "./fake-mcp";
+import { FILE_QUESTION, FILED, startFakeGateway, type FakeGateway } from "./fake-gateway";
+import { calledWith, MCP_TOKEN, SERVER_NAME, startFakeMcp, TOOLS, type FakeMcp } from "./fake-mcp";
 
-// The Apps card on the AI assistant tab, Connect an app, a connected app's page, and the Tools card on
-// @ember's page, on the second test server, with an MCP server this spec fakes on this machine. Each test
-// leaves the workspace as a new one is: no apps, and Ember AI off.
+// The Apps card on the AI assistant tab, Connect an app, a connected app's page, the Tools card on
+// @ember's page, and @ember calling a picked tool once it's allowed, on the second test server, with an
+// MCP server this spec fakes on this machine. Each test leaves the workspace as a new one is: no apps,
+// and Ember AI off.
 
 const SONNET = "anthropic/claude-sonnet-5.5";
 
@@ -41,6 +42,16 @@ async function openApps(page: Page) {
   await page.goto("/account/edit#assistant-settings");
   await signInAsAdministrator(page);
   return page.getByRole("region", { name: "Apps", exact: true });
+}
+
+/** Asks @ember `question` in the room the page shows. */
+async function askEmber(page: Page, question: string): Promise<void> {
+  const composer = editorField(page, "Write a message");
+  await composer.pressSequentially("@Embe");
+  await expect(page.getByRole("listbox").getByRole("option")).toHaveText(["Ember Agent"]);
+  await composer.press("Tab");
+  await composer.pressSequentially(question);
+  await composer.press("Enter");
 }
 
 test.describe("Apps", () => {
@@ -170,5 +181,56 @@ test.describe("Apps", () => {
     await page.reload();
     await expect(tools).toContainText("No apps are connected yet.");
     await expect(tools.getByRole("checkbox")).toHaveCount(0);
+  });
+
+  test("someone asks @ember for what a picked tool does, and it runs once they allow the call on its card, and not when they deny it", async ({ page, request }) => {
+    mcp.tools.splice(0, mcp.tools.length, ...TOOLS.map((tool) => ({ ...tool })));
+    mcp.calls.length = 0;
+    const headers = await asAdministrator(request);
+    const connected = await request.post("/api/account/apps", { data: { name: "Tracker", url: mcp.url, token: MCP_TOKEN }, headers });
+    expect(connected.status(), await connected.text()).toBe(201);
+    const offered = (await (await request.get("/api/account/agents/ember/tools", { headers })).json()) as AgentTools;
+    const tools = offered.apps.flatMap(({ id, tools }) => tools.filter(({ name }) => name === "create_issue").map(({ name, fingerprint }) => ({ appId: id, name, fingerprint })));
+    const picked = await request.put("/api/account/agents/ember/tools", { data: { tools }, headers });
+    expect(picked.status(), await picked.text()).toBe(200);
+    // In a room of the test's own, which everyone is in, @ember too.
+    const created = await request.post("/api/rooms", { data: { kind: "open", name: `Issues ${crypto.randomUUID().slice(0, 8)}` }, headers });
+    expect(created.status(), await created.text()).toBe(201);
+    const { room } = (await created.json()) as { room: { id: string; name: string } };
+    await useOwnAddress(page);
+    await page.goto(`/rooms/${room.id}`);
+    await signInAsAdministrator(page);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(room.name);
+
+    // Its model calls the tool, which waits on a card that says what it would be called with.
+    const title = `Login fails ${crypto.randomUUID().slice(0, 8)}`;
+    await askEmber(page, `${FILE_QUESTION} ${title}`);
+    const card = page.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: title });
+    await expect(card).toContainText("create_issue, with:");
+    await expect(card).toContainText(`"title": "${title}"`);
+    await expect(card).toContainText("Ada Lovelace or an administrator can allow this call.");
+    expect(mcp.calls).toEqual([]);
+
+    // Allowed, it runs, with what the card showed, and the answer goes on with what the app answered.
+    await card.getByRole("button", { name: "Allow once" }).click();
+    await expect(card).toContainText("Allowed by Ada Lovelace.");
+    await expect(card.getByRole("button", { name: "Allow once" })).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "Deny" })).toHaveCount(0);
+    await expect(page.getByRole("article").filter({ hasText: FILED })).toContainText(`${FILED} ${calledWith("create_issue", { title })}`);
+    expect(mcp.calls).toEqual([{ name: "create_issue", arguments: { title } }]);
+    // The model was given the tool under its app's name, and never the app's address or token.
+    const said = JSON.stringify(gateway.asked.map(({ body }) => body));
+    expect(said).toContain("Tracker__create_issue");
+    expect(said).not.toContain(MCP_TOKEN);
+    expect(said).not.toContain(new URL(mcp.url).host);
+
+    // Denied, it isn't run, which the model is told.
+    const other = `Logout fails ${crypto.randomUUID().slice(0, 8)}`;
+    await askEmber(page, `${FILE_QUESTION} ${other}`);
+    const denied = page.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: other });
+    await denied.getByRole("button", { name: "Deny" }).click();
+    await expect(denied).toContainText("Not allowed by Ada Lovelace.");
+    await expect(page.getByRole("article").filter({ hasText: `${FILED} Not run: the person you're answering was asked to allow this call, and didn't.` })).toBeVisible();
+    expect(mcp.calls).toHaveLength(1);
   });
 });

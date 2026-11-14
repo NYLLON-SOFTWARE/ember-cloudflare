@@ -40,9 +40,11 @@ import {
   writtenBy,
   type Answer,
 } from "./assistant/answers";
-import { ask, type Answered } from "./assistant/gateway";
+import { askWaiting, goOn, type Answered, type Asking, type GatewayRefusal } from "./assistant/gateway";
 import { takesEmbersTools } from "./assistant/offered";
 import { roomSearch } from "./assistant/room-search";
+import { appTool, callCard, callDecisionOf, CALL_OUTCOMES, givenAs, givenTools, type GivenTool } from "./apps/tools";
+import { CALL_WAITS_MS, fits, WaitingCalls, type WaitingCall } from "./apps/waiting-calls";
 import { JobQueue } from "./at-once";
 import { actingButton, clickPayload } from "./bots/clicks";
 import { payloadOf, slackMessage, type SlackMessage } from "./bots/slack";
@@ -223,6 +225,18 @@ interface Said extends Pick<Answered, "text" | "sources"> {
   written?: string[];
 }
 
+/** What a question comes to: what its answerer says, or the call of an app's tool its answer waits at, with the apps' tools its model was given. */
+type Outcome = Said | { asking: Asking; given: GivenTool[] };
+
+/** What the room tells whoever clicks a call's card that isn't waiting any more, as someone answered it first. */
+const CALL_ANSWERED = "Someone has answered that already";
+/** What it tells them once the call waited too long to be allowed. */
+const CALL_LATE = "That waited too long to be allowed. Ask again";
+/** What an answerer says when its model isn't the one that made the call that waited. */
+const MODEL_CHANGED = "I can't go on from that call: my model was changed while it waited. Ask me again.";
+/** What an answerer says, by its tool's app, when what it has read is too much to keep while a call waits. */
+const tooMuchToWait = (app: string) => `I wanted to use ${app}, but this conversation is too long for me to wait while someone allows it. Ask me again in a new thread.`;
+
 /** How long an Active Storage key is: `MINIMUM_TOKEN_LENGTH`. */
 const KEY_LENGTH = 28;
 
@@ -259,6 +273,7 @@ export class ChatRoom extends DurableObject<Env> {
   private revocations: Revocations | null = null;
   private log: RoomLog | null = null;
   private blobs: Blobs | null = null;
+  private waitingCalls: WaitingCalls | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private couriers: Couriers | null = null;
   /** Whether the alarm has erased the room, whose storage no longer says it was deleted. */
@@ -411,6 +426,7 @@ export class ChatRoom extends DurableObject<Env> {
     for (const socket of this.roomSockets()) this.close(socket, code);
     while (await this.storeFor(roomId).deleteMessages(MESSAGES_DELETED_AT_ONCE));
     await this.logFor(roomId).forget();
+    await this.waitingCallsFor(roomId).forget();
     while (await searchIndex(this.env).forget(roomId, MESSAGES_DELETED_AT_ONCE));
     await this.ctx.storage.put(DELETED_ROOM, roomId);
     await this.ctx.storage.setAlarm(Date.now() + REVOCATIONS_KEPT_MS);
@@ -441,7 +457,8 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * Sends room `roomId`'s logs, which a call that failed left, or which `reindex` filled, and has R2
    * delete the files the room has marked deleted, and the uploads a day old that are still unfinished,
-   * coming back for the next of those once it's a day old.
+   * coming back for the next of those once it's a day old. Forgets the calls of apps' tools that waited
+   * too long to be allowed, too, coming back for the next of those once it has.
    */
   private async sendLogs(roomId: RoomId): Promise<void> {
     // Whatever is left to send after this says when it's due.
@@ -452,8 +469,10 @@ export class ChatRoom extends DurableObject<Env> {
     // retried. A courier whose last call failed has set the alarm again, for its next try.
     if (couriers.workspace.failing || couriers.index.failing || couriers.files.failing) return;
     const unfinished = await this.serially(() => this.blobsFor(roomId).oldestUnfinished());
-    if (unfinished === null) await this.ctx.storage.delete(UNDELIVERED_ROOM);
-    else await this.wakeAt(roomId, Date.parse(unfinished) + UNFINISHED_UPLOAD_KEPT_MS);
+    const nextLateCall = await this.forgetLateCalls(roomId);
+    const next = Math.min(unfinished === null ? Infinity : Date.parse(unfinished) + UNFINISHED_UPLOAD_KEPT_MS, nextLateCall ?? Infinity);
+    if (next === Infinity) await this.ctx.storage.delete(UNDELIVERED_ROOM);
+    else await this.wakeAt(roomId, next);
   }
 
   /**
@@ -471,7 +490,7 @@ export class ChatRoom extends DurableObject<Env> {
       await this.revocationsFor(roomId).forget();
       await this.ctx.storage.deleteAll();
       // Its tables went too, so anything after this would open the database afresh, making them again.
-      this.db = this.store = this.revocations = this.log = this.blobs = null;
+      this.db = this.store = this.revocations = this.log = this.blobs = this.waitingCalls = null;
       this.erased = true;
     });
   }
@@ -1148,6 +1167,10 @@ export class ChatRoom extends DurableObject<Env> {
     return (this.blobs ??= new Blobs(this.dbFor(), roomId));
   }
 
+  private waitingCallsFor(roomId: RoomId): WaitingCalls {
+    return (this.waitingCalls ??= new WaitingCalls(this.dbFor(), roomId));
+  }
+
   /**
    * Logs that `userId` has read the room, unless they have since its latest message, for the Workspace
    * to clear their mark, and sends it the log.
@@ -1270,10 +1293,13 @@ export class ChatRoom extends DurableObject<Env> {
    * they're in the room, and does what the bot answers. Answers the webhook's status, or throws why the
    * click came to nothing.
    */
-  private async reportClick(roomId: RoomId, user: User, click: CardClick): Promise<number> {
+  private async reportClick(roomId: RoomId, user: User, click: CardClick): Promise<number | string> {
     const message = (await this.isDeleted()) ? null : await this.findUndeleted(this.storeFor(roomId), click.messageId);
     const button = message?.cards && actingButton(message.cards, clickedIn(click));
     if (!message || !button) throw new ClickError(BUTTON_GONE, "the button is gone");
+    const decision = callDecisionOf(button.action);
+    const decided = decision && (await this.decideCall(roomId, user, message, decision));
+    if (decided) return decided;
     const { name } = message.creator;
     const webhook = await workspace(this.env).clickWebhook(roomId, message.creator.id, user.id);
     if (!webhook) throw new ClickError(`${name} isn't taking clicks here`, `${NO_WEBHOOK}, or whoever clicked has left the room`);
@@ -1426,7 +1452,7 @@ export class ChatRoom extends DurableObject<Env> {
         if (!message) throw new AnswerError("the message is gone");
         const access = await workspace(this.env).answererIn(roomId, question.botId, question.author.id);
         if (!access) throw new AnswerError(answererGone(question.botId));
-        const refused = await this.typingWhile(access.bot, message.parentId, async () => this.postAnswer(roomId, access.bot, await this.saidTo(roomId, access, question, message), message, access.addresses));
+        const refused = await this.typingWhile(access.bot, message.parentId, async () => this.post(roomId, access, question.author, message, await this.saidTo(roomId, access, question, message)));
         if (refused) throw new AnswerError(`it wasn't posted: ${refused}`);
         console.log(`${job} posted`);
       } catch (error) {
@@ -1439,27 +1465,172 @@ export class ChatRoom extends DurableObject<Env> {
   /**
    * What the bot `access` finds, @ember or an agent, says to `message`, `question`'s message, with what
    * it reads of the conversation, as its instructions say, using the web as Search the web lets it, and
-   * searching the room for what was written before that, where its model takes Ember's tools: its
-   * answer in Markdown, at its levels, @ember's the asker's, with the model they picked, if they did,
-   * ending with an ellipsis when the model was cut short, the pages it came from, and what people wrote
-   * in what it read, or the note it posts when its model doesn't answer, saying why, which the room logs.
+   * searching the room for what was written before that, and the connected apps' tools picked for it,
+   * where its model takes Ember's tools: its answer in Markdown, at its levels, @ember's the asker's,
+   * with the model they picked, if they did (`outcomeOf`), or the call of an app's tool it waits at.
    */
-  private async saidTo(roomId: RoomId, access: AssistantAccess, { author, roomName }: AssistantAsk, message: Message): Promise<Said> {
-    const { bot, gateway, picked, instructions, promptTemplate, community, levels, webTools, webSearchOn } = access;
+  private async saidTo(roomId: RoomId, access: AssistantAccess, { author, roomName }: AssistantAsk, message: Message): Promise<Outcome> {
+    const { bot, gateway, instructions, promptTemplate, community, levels, webTools, webSearchOn } = access;
     if (!gateway) return { text: NOTES["unopened token"] };
-    const [conversation, searchesRoom] = await Promise.all([this.conversationOf(this.storeFor(roomId), message), takesEmbersTools(this.env, gateway.model)]);
+    const [conversation, takesTools] = await Promise.all([this.conversationOf(this.storeFor(roomId), message), takesEmbersTools(this.env, gateway.model)]);
     const where = { community, roomName, inThread: message.parentId !== undefined };
     const read = readable(conversation, where.inThread).map(({ id }) => id);
-    const tools = searchesRoom ? [roomSearch(this.env, roomId, read)] : [];
+    const given = takesTools ? givenTools(access.appTools) : [];
+    const tools = takesTools ? [roomSearch(this.env, roomId, read), ...given.map((tool) => appTool(this.env, bot.id, tool, tool))] : [];
     const asked = { ...questionFor({ ...bot, instructions, promptTemplate }, conversation, author, where, levels, new Date(), webTools, webSearchOn), tools };
-    const [answered, people] = await Promise.all([ask(this.env, gateway, asked, waitFor(asked)), this.peopleWhoWrote(conversation)]);
+    const [answered, people] = await Promise.all([askWaiting(this.env, gateway, asked, waitFor(asked)), this.peopleWhoWrote(conversation)]);
+    return this.outcomeOf(access, message, answered, writtenBy(people, conversation, where.inThread), given.map(givenAs));
+  }
+
+  /**
+   * What the bot `access` finds says to `message` once the call its answer waited at, `call`, is
+   * `allowed` or isn't: as `saidTo` answers, going on from where its model stopped, with the room's
+   * search and the apps' tools the model was given then, each called only while it's still picked for
+   * the bot. A model changed since can't go on from another's answer, which the bot says.
+   */
+  private async wentOn(roomId: RoomId, access: AssistantAccess, message: Message, call: WaitingCall, allowed: boolean): Promise<Outcome> {
+    const { bot, gateway } = access;
+    if (!gateway) return { text: NOTES["unopened token"] };
+    if (gateway.model !== call.paused.model || gateway.format !== call.paused.format) return { text: MODEL_CHANGED };
+    const conversation = await this.conversationOf(this.storeFor(roomId), message);
+    const inThread = message.parentId !== undefined;
+    const read = readable(conversation, inThread).map(({ id }) => id);
+    const tools = [roomSearch(this.env, roomId, read), ...call.tools.map((tool) => appTool(this.env, bot.id, tool))];
+    const [answered, people] = await Promise.all([goOn(this.env, gateway, tools, call.paused, allowed, waitFor(call.paused.question)), this.peopleWhoWrote(conversation)]);
+    return this.outcomeOf(access, message, answered, writtenBy(people, conversation, inThread), call.tools);
+  }
+
+  /**
+   * What `answered`, which the model of the bot `access` finds came to for `message`, has it say: its
+   * answer, ending with an ellipsis when the model was cut short, the pages it came from, and what
+   * people wrote in what it read, `written`, or the note it posts when its model doesn't answer, saying
+   * why, which the room logs, or the call it waits at, with the apps' tools it was `given`.
+   */
+  private outcomeOf(access: AssistantAccess, message: Message, answered: Answered | GatewayRefusal | Asking, written: string[], given: GivenTool[]): Outcome {
+    const { bot, gateway, picked } = access;
+    if ("asks" in answered) return { asking: answered, given };
     if (!("refusal" in answered)) {
       const text = answered.cut ? `${answered.text}\n\n…` : answered.text;
-      return { text, ...(answered.sources && { sources: answered.sources }), written: writtenBy(people, conversation, where.inThread) };
+      return { text, ...(answered.sources && { sources: answered.sources }), written };
     }
-    console.error(`${answererOf(bot.id)}'s model ${gateway.model} didn't answer message ${message.id}: ${answered.refusal}`);
+    console.error(`${answererOf(bot.id)}'s model ${gateway?.model} didn't answer message ${message.id}: ${answered.refusal}`);
     const agent = bot.id !== ASSISTANT_ID;
     return { text: (picked && PICKED_MODEL_NOTES[answered.reason]) || (agent && AGENT_NOTES[answered.reason]) || NOTES[answered.reason] };
+  }
+
+  /**
+   * Posts what a question to the bot `access` finds came to, `outcome`, for `message`, which `asker`
+   * asked: its answer (`postAnswer`), or the card that asks whether its call may run (`askFirst`).
+   * Answers why the room keeps nothing of it, if it doesn't.
+   */
+  private async post(roomId: RoomId, access: AssistantAccess, asker: User, message: Message, outcome: Outcome): Promise<string | null> {
+    if (!("asking" in outcome)) return this.postAnswer(roomId, access.bot, outcome, message, access.addresses);
+    const { asks, paused } = outcome.asking;
+    const tool = outcome.given.find(({ as }) => as === asks.name);
+    if (!tool) return `${asks.name} asks first, and is no app's tool`;
+    const call: WaitingCall = { questionId: message.id, botId: access.bot.id, asker, tool, input: asks.input, tools: outcome.given, paused, askedAt: Date.now() };
+    return fits(call) ? this.askFirst(roomId, access.bot, message, call) : this.postAnswer(roomId, access.bot, { text: tooMuchToWait(tool.appName) }, message, access.addresses);
+  }
+
+  /**
+   * Posts the card that asks whether `call`, which `bot`'s answer to `message` waits at, may run, as its
+   * reply, where `postAnswer` would post the answer and while it would, and keeps the call for the click
+   * that answers it (`decideCall`). Answers why the room keeps nothing of it, if it doesn't.
+   */
+  private async askFirst(roomId: RoomId, bot: User, message: Message, call: WaitingCall): Promise<string | null> {
+    const card = slackMessage(callCard(bot.name, call.asker.name, call.tool, call.input), true);
+    if (typeof card === "string") return card;
+    const access = await workspace(this.env).answererIn(roomId, bot.id, message.creator.id);
+    const refused = await this.serially(async () => {
+      if (await this.isDeleted()) return "the room is gone";
+      if (!access || (await this.revocationsFor(roomId).refuse([access.bot.id], access.authorizedAt))) return answererGone(bot.id);
+      const store = this.storeFor(roomId);
+      if (!(await this.findUndeleted(store, message.id))) return "the message is gone";
+      const inThread = message.parentId === undefined ? undefined : await this.inThread(store, message.parentId, false);
+      if (inThread === null) return THREAD_GONE;
+      const body = await this.prepareWithCards(card.markup, card.cards);
+      if (typeof body === "string") return body;
+      const posted = await this.create(store, access.bot, crypto.randomUUID(), body, new Date().toISOString(), { kind: "reply", inThread });
+      await this.waitingCallsFor(roomId).keep(posted.id, call);
+      return null;
+    });
+    // The alarm forgets it once it has waited too long (`forgetLateCalls`).
+    if (refused === null) await this.wakeAt(roomId, call.askedAt + CALL_WAITS_MS + 1);
+    return refused;
+  }
+
+  /**
+   * Forgets the calls that have waited too long to be allowed in room `roomId`, a few at a time, each
+   * card saying so in place of its buttons, and answers when the next will have, if any still waits.
+   */
+  private async forgetLateCalls(roomId: RoomId): Promise<number | null> {
+    const { late, next } = await this.serially(() => this.waitingCallsFor(roomId).takeLate(Date.now()));
+    for (const { messageId, call } of late) {
+      const unchanged = await this.showDecided(roomId, messageId, call, CALL_OUTCOMES.late());
+      if (unchanged !== null) console.error(`The card of a call that waited too long, message ${messageId}, wasn't changed: ${unchanged}`);
+    }
+    return next;
+  }
+
+  /**
+   * Answers the call that waits on the card `message` as `user`'s click on its button says, `allow` or
+   * `deny`, for whoever asked the question or an administrator, once: the card says who answered and
+   * how, in place of its buttons, and the answer goes on in its turn (`goOnFrom`). Answers what was
+   * decided, or null when no call waits on that message, and throws why the click came to nothing.
+   */
+  private async decideCall(roomId: RoomId, user: User, message: Message, decision: "allow" | "deny"): Promise<string | null> {
+    const calls = this.waitingCallsFor(roomId);
+    const waiting = await calls.find(message.id);
+    if (!waiting) return null;
+    const decider = await workspace(this.env).callDecider(roomId, user.id);
+    if (!decider || (!decider.administrator && user.id !== waiting.asker.id)) throw new ClickError(`Only ${waiting.asker.name} or an administrator can answer that`, "whoever clicked may not answer it");
+    const call = await this.serially(() => calls.take(message.id));
+    if (!call) throw new ClickError(CALL_ANSWERED, "the call was answered meanwhile");
+    const late = Date.now() - call.askedAt > CALL_WAITS_MS;
+    const outcome = late ? CALL_OUTCOMES.late() : CALL_OUTCOMES[decision](decider.member.name);
+    const shown = await this.showDecided(roomId, message.id, call, outcome);
+    if (late) throw new ClickError(CALL_LATE, "the call waited too long");
+    this.ctx.waitUntil(this.goOnFrom(roomId, call, decision === "allow"));
+    return `${decision}${shown === null ? "" : `, though its card wasn't changed: ${shown}`}`;
+  }
+
+  /** Has the card `messageId`, which asked whether `call` may run, say `outcome` in place of its buttons. Answers why it's left as it was, if it is. */
+  private showDecided(roomId: RoomId, messageId: string, call: WaitingCall, outcome: string): Promise<string | null> {
+    return this.serially(async () => {
+      const store = this.storeFor(roomId);
+      const current = (await this.isDeleted()) ? null : await this.findUndeleted(store, messageId);
+      if (!current) return "the message is gone";
+      const card = slackMessage(callCard(current.creator.name, call.asker.name, call.tool, call.input, outcome));
+      if (typeof card === "string") return card;
+      const body = await this.prepareWithCards(card.markup, card.cards);
+      if (typeof body === "string") return body;
+      await this.edit(store, current, body, new Date().toISOString());
+      return null;
+    });
+  }
+
+  /**
+   * Goes on with the answer that waited at `call`, once it's `allowed` or isn't, in its turn among the
+   * room's answers, as `answer` answers a question: for the message asked, as it is by then, while Ember
+   * AI is on and the bot in the room, typing while it works, and posting what the model answers, the
+   * note saying why it can't, or the card for the next call it waits at.
+   */
+  private async goOnFrom(roomId: RoomId, call: WaitingCall, allowed: boolean): Promise<void> {
+    const job = `${answererOf(call.botId)}'s answer to message ${call.questionId}, going on from a call ${allowed ? "allowed" : "not allowed"}`;
+    const ran = await this.answers.run(async () => {
+      try {
+        const message = (await this.isDeleted()) ? null : await this.findUndeleted(this.storeFor(roomId), call.questionId);
+        if (!message) throw new AnswerError("the message is gone");
+        const access = await workspace(this.env).answererIn(roomId, call.botId, call.asker.id);
+        if (!access) throw new AnswerError(answererGone(call.botId));
+        const refused = await this.typingWhile(access.bot, message.parentId, async () => this.post(roomId, access, call.asker, message, await this.wentOn(roomId, access, message, call, allowed)));
+        if (refused) throw new AnswerError(`it wasn't posted: ${refused}`);
+        console.log(`${job} posted`);
+      } catch (error) {
+        console.error(`${job} failed:`, error instanceof AnswerError ? error.message : error);
+      }
+    });
+    if (!ran) console.error(`${job} dropped: the room's queue of questions for @ember and the agents is full`);
   }
 
   /**

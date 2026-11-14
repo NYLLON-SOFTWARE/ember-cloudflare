@@ -18,7 +18,8 @@ files themselves live in R2, in the bucket bound as `FILES`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations, the
-room's change log, its log of messages for the search index, its recent deletions and its files, and
+room's change log, its log of messages for the search index, its recent deletions, its files and the
+calls of apps' tools that wait to be allowed, and
 `workspace` for the workspace-wide tables (the account, people, sessions, linked accounts, push
 subscriptions, webhooks, bans, recent searches, rooms, memberships, stars, pending revocations,
 purges and reindexes, the rooms deleted, the apps connected, and the tools picked for each agent). On DO SQLite, an object applies only its own scope's
@@ -28,7 +29,7 @@ schema is in `apps/worker/search-migrations/`, which only the index applies, lis
 `SEARCH_MIGRATIONS`.
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
-`message_deletions` and `blobs`, the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
+`message_deletions`, `blobs` and `waiting_calls`, the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
 `bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`,
 `memberships`, `favorites`, `pending_revocations`, `pending_purges`, `pending_reindexes`,

@@ -515,6 +515,29 @@ describe("An answer that waits at a call", () => {
     ]);
   });
 
+  it("keeps what Grok's searches of the web found before the call, in Chat Completions, and lists them under the answer once it has waited", async () => {
+    const page = { url: "https://example.com/launch", title: "Launch day", description: "The launch is on March 3." };
+    const call = (id: string, name: string, args: Record<string, string>) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+    const turn = (message: Record<string, unknown>) => ({ object: "chat.completion", choices: [{ index: 0, message, finish_reason: "tool_calls" in message ? "tool_calls" : "stop" }], usage: { completion_tokens: 50 } });
+    const answers = [
+      turn({ role: "assistant", content: null, tool_calls: [call("call_1", "web_search", { query: "launch date" }), call("call_2", "send", { to: "ada" })] }),
+      turn({ role: "assistant", content: "Ada knows it's on March 3." }),
+    ];
+    refusing = ({ url }) => Response.json(url.endsWith("/ai/websearch/") ? { success: true, result: { items: [page] } } : answers.shift());
+    const gateway = gatewayFor(GROK, "chat");
+
+    const waiting = waitingIn(await askWaiting(bindings, gateway, { ...question, webTools: ["search"] }, 5_000));
+    expect(waiting.asks).toEqual({ id: "call_2", name: "send", input: { to: "ada" } });
+    expect(waiting.paused.searches).toEqual({ found: [[expect.objectContaining({ url: page.url, title: page.title })]] });
+
+    const answered = await goOn(bindings, gateway, tools, kept(waiting.paused), true, 5_000);
+    expect(answered).toMatchObject({ text: "Ada knows it's on March 3.", sources: [{ url: page.url, title: page.title }] });
+    expect(sent).toEqual([{ to: "ada" }]);
+    // The model is still given Ember's tool for searching the web as it goes on, and wasn't asked to search again.
+    expect(asked.map(({ url }) => new URL(url).pathname.split("/ai/")[1])).toEqual(["v1/chat/completions", "websearch/", "v1/chat/completions"]);
+    expect((asked[2]!.body.tools as Array<{ function: { name: string } }>).map(({ function: { name } }) => name)).toEqual(["web_search", "look", "send"]);
+  });
+
   it("is only for an answer something waits for: asking a model any other way throws at a tool that asks first", async () => {
     const turn = { type: "message", role: "assistant", content: [{ type: "tool_use", id: "call_1", name: "send", input: {} }], stop_reason: "tool_use", usage: { input_tokens: 1_000, output_tokens: 100 } };
     for (const asking of [() => askModel(bindings, gatewayFor(CLAUDE, "anthropic"), question, 5_000), () => askOnce(bindings, gatewayFor(CLAUDE, "anthropic"), question, AbortSignal.timeout(5_000))]) {
