@@ -233,8 +233,12 @@ describe("One room, and nothing else", () => {
     expect(await opened(other, guest)).toBe(CloseCode.NotFound);
   });
 
-  it("reads their room's settings, and hears 404 for every other room's", async () => {
+  it("reads their room's settings, whose people are the room's alone, and hears 404 for every other room's", async () => {
+    await signIn("Grace");
     expect((await settingsOf(guest, room)).status).toBe(200);
+    const settings = (await (await settingsOf(guest, room)).json()) as RoomSettings;
+    // Grace is active in the workspace, and in the open room everyone's in, but not in the settings they read.
+    expect(settings.people.map((person) => person.id).sort()).toEqual([host.user.id, guest.user.id].sort());
     const elsewhere = await settingsOf(guest, other);
     expect(elsewhere.status).toBe(404);
     expect(await elsewhere.json()).toEqual({ error: ROOM_NOT_FOUND });
