@@ -117,7 +117,8 @@ test.describe("Delete a direct message", () => {
     await expect(grace.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(grace.page.getByRole("alert")).toHaveCount(0);
 
-    await expect(ada.page.getByRole("alert")).toHaveText("This room was deleted.");
+    // The DM's place says it's gone, as a deleted room's does.
+    await expect(ada.page.getByRole("alert")).toHaveText("This DM was deleted");
     await expect(ada.composer()).toHaveCount(0);
     await expect(directRow(ada, [grace])).toHaveCount(0);
   });
