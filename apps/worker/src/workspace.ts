@@ -39,6 +39,7 @@ import {
   type EmailLinkFor,
   type EmailLinkKind,
   type EmailSettings,
+  type ExportedListing,
   type Favorites,
   type HuddlesSettings,
   type LiveHuddle,
@@ -3200,6 +3201,19 @@ export class Workspace extends DurableObject<Env> {
   async directory(credentials: Credentials): Promise<DirectoryEntry[] | null> {
     const user = await this.authenticate(credentials);
     return user && this.store.directory();
+  }
+
+  /**
+   * Everyone and every room, but no messages, for the administrator `credentials` signs in to export
+   * the workspace: "forbidden" for anyone else, or null without a valid session. Each room's own
+   * object reads its messages a page at a time (`ChatRoom.exportPage`), as the search reindex reads
+   * them, so this listing is all the Workspace answers for.
+   */
+  async exportWorkspace(credentials: Credentials): Promise<ExportedListing | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+    return this.store.exportWorkspace();
   }
 
   /**
