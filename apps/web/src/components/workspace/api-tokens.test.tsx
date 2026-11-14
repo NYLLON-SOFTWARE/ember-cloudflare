@@ -67,4 +67,23 @@ describe("API tokens on your profile", () => {
     render(<ApiTokens onFailed={onFailed} />);
     await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
   });
+
+  it("says why making one failed", async () => {
+    const { onFailed } = renderSection();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 500 }));
+    await userEvent.type(screen.getByLabelText("Name the token for what it opens"), "Deploy bot");
+    await userEvent.click(screen.getByRole("button", { name: "Create token" }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
+    expect(screen.queryByTestId("made-token")).toBeNull();
+  });
+
+  it("says why revoking failed", async () => {
+    const { onFailed } = renderSection([token("t1", "Deploy bot", 1_760_000_000_000)]);
+    await screen.findByRole("list", { name: "API tokens" });
+    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 500 }));
+    await userEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await waitFor(() => expect(onFailed).toHaveBeenCalledOnce());
+    expect(screen.getByRole("list", { name: "API tokens" })).toHaveTextContent("Deploy bot");
+  });
 });

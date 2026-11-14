@@ -62,7 +62,7 @@ export function ApiTokens({ onFailed }: Props) {
         if (nameInput.current) nameInput.current.value = "";
       },
       (error: unknown) => {
-        if (!mounted.current || isSignedOut(error)) onFailed(error);
+        if (mounted.current || isSignedOut(error)) onFailed(error);
       },
     );
   };
@@ -74,7 +74,7 @@ export function ApiTokens({ onFailed }: Props) {
         if (mounted.current) setTokens((tokens) => tokens && tokens.filter((token) => token.id !== id));
       },
       (error: unknown) => {
-        if (!mounted.current || isSignedOut(error)) onFailed(error);
+        if (mounted.current || isSignedOut(error)) onFailed(error);
       },
     );
   };
