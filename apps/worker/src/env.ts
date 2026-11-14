@@ -1,3 +1,4 @@
+import type { AppConnector } from "./apps/connector";
 import type { ChatRoom } from "./chat-room";
 import type { PasswordHasher } from "./passwords";
 import type { SearchIndex } from "./search-index";
@@ -13,6 +14,7 @@ export interface Env {
   PASSWORD_HASHER: DurableObjectNamespace<PasswordHasher>;
   UNFURLER: DurableObjectNamespace<Unfurler>;
   SEARCH_INDEX: DurableObjectNamespace<SearchIndex>;
+  APP_CONNECTOR: DurableObjectNamespace<AppConnector>;
   /** Only bound when D1 is configured in wrangler.jsonc. */
   DB?: D1Database;
   /**

@@ -49,6 +49,10 @@ export type WorkspacePage =
   | { page: "new-agent" }
   /** An agent's settings, at `/account/agents/<id>/edit`, or @ember's, at its id's. */
   | { page: "agent-settings"; agentId: UserId }
+  /** Connect an app, at `/account/apps/new`, which only administrators may open, as the next. */
+  | { page: "new-app" }
+  /** A connected app's page, at `/account/apps/<id>/edit`. */
+  | { page: "app-settings"; appId: string }
   /** Your profile, at `/users/me/profile`, or at any other person's id in its place. */
   | { page: "profile" }
   /**
@@ -70,6 +74,7 @@ export const CUSTOM_STYLES_PATH = "/account/custom_styles/edit";
 export const BOTS_PATH = "/account/bots";
 export const NEW_BOT_PATH = "/account/bots/new";
 export const NEW_AGENT_PATH = "/account/agents/new";
+export const NEW_APP_PATH = "/account/apps/new";
 export const NEW_DIRECT_PATH = "/rooms/directs/new";
 export const PROFILE_PATH = "/users/me/profile";
 export const PUSH_SUBSCRIPTIONS_PATH = "/users/me/push_subscriptions";
@@ -113,6 +118,10 @@ export function workspacePageOf(pathname: string): WorkspacePage | null {
   const agent = pathname.match(/^\/account\/agents\/([^/]+)\/edit$/);
   const agentId = agent && decoded(agent[1]!);
   if (agentId) return { page: "agent-settings", agentId };
+  if (pathname === NEW_APP_PATH) return { page: "new-app" };
+  const app = pathname.match(/^\/account\/apps\/([^/]+)\/edit$/);
+  const appId = app && decoded(app[1]!);
+  if (appId) return { page: "app-settings", appId };
   if (pathname === SEARCHES_PATH) return { page: "search" };
   if (/^\/users\/[^/]+\/profile$/.test(pathname)) return { page: "profile" };
   if (/^\/users\/[^/]+\/push_subscriptions$/.test(pathname)) return { page: "push-subscriptions" };

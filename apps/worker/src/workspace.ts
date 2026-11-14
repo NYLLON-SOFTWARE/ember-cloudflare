@@ -93,6 +93,7 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol/assistant";
 import { MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type NewAgent } from "@ember/protocol/agents";
+import { MAX_APPS, type App, type AppChanges, type AppId, type AppSummary, type NewApp } from "@ember/protocol/apps";
 import type { Gateway } from "./assistant/gateway";
 import { modelsFileUrlOf, type KeptModelsFile, type KeptWorkersAiModels } from "./assistant/offered";
 import { providerMovesOf } from "./assistant/model-tests";
@@ -144,6 +145,8 @@ import {
   type SavedModel,
   type SavedRoomChange,
   type StoredAgent,
+  type StoredApp,
+  type StoredAppRead,
   type StoredAgentSettings,
   type StoredBot,
   type StoredBotSettings,
@@ -724,6 +727,33 @@ const PICTURE_RESERVATION_MS = 60 * 60 * 1000;
 
 /** The rooms `LEGACY_ROOMS` lists, leaving out anything that couldn't be a room's id. */
 const legacyRooms = (env: Env): RoomId[] => (env.LEGACY_ROOMS ?? "").split(",").map((id) => id.trim()).filter(isRoomId);
+
+/**
+ * Where a connected app is asked: its server's address, and the token Ember sends it, if it has one,
+ * with the token as it's kept, sealed, which with the address says whether the app is still asked
+ * there once its server has answered.
+ */
+export interface AppAccess {
+  url: string;
+  token: string | null;
+  sealedToken: string | null;
+}
+
+/** Where an app was asked when its tools were read: its server's address then, and its token as it was kept. */
+export type AskedAt = Pick<AppAccess, "url" | "sealedToken">;
+
+/** A connected app as its page shows it: without its token, and with each tool as its server describes it. */
+const shownApp = ({ id, name, url, sealedToken, serverName, tools, toolsLeftOut, toolsReadAt, connectedBy }: StoredApp): App => ({
+  id,
+  name,
+  url,
+  hasToken: sealedToken !== null,
+  serverName,
+  tools: tools.map(({ name, title, description }) => ({ name, title, description })),
+  toolsLeftOut,
+  toolsReadAt,
+  connectedBy,
+});
 
 /**
  * What a workspace shares across its rooms: its account, its people and their sessions, and its
@@ -3077,6 +3107,101 @@ export class Workspace extends DurableObject<Env> {
       await this.publishPerson(agentId);
       return "deleted";
     });
+  }
+
+  /**
+   * The connected apps, by name, as the AI assistant tab lists them to the person `credentials` signs
+   * in: "off" while Ember AI is off, "forbidden" unless that's an administrator, or null without a valid
+   * session, as the agents are, whose tools they are.
+   */
+  async connectedApps(credentials: Credentials): Promise<AppSummary[] | "off" | "forbidden" | null> {
+    const allowed = await this.mayAdministerAgents(credentials);
+    return allowed === true ? this.store.appSummaries() : allowed;
+  }
+
+  /** The connected app `appId` as its page shows it to the person `credentials` signs in, or "not found" unless there's one, or why not, as `connectedApps` answers. */
+  async connectedApp(credentials: Credentials, appId: AppId): Promise<App | "off" | "forbidden" | "not found" | null> {
+    const allowed = await this.mayAdministerAgents(credentials);
+    if (allowed !== true) return allowed;
+    const app = await this.store.app(appId);
+    return app ? shownApp(app) : "not found";
+  }
+
+  /**
+   * Whether the person `credentials` signs in can connect another app now, so that nobody waits for an
+   * app's server to hear they can't: "full" with as many as there can be, or why not, as `connectedApps`
+   * answers.
+   */
+  async appSlot(credentials: Credentials): Promise<true | "full" | "off" | "forbidden" | null> {
+    const allowed = await this.mayAdministerAgents(credentials);
+    if (allowed !== true) return allowed;
+    return (await this.store.appCount()) < MAX_APPS ? true : "full";
+  }
+
+  /**
+   * Where the connected app `appId` is asked, for the administrator `credentials` signs in, who's
+   * changing it or reading its tools again: its server's address and its token, if it has one, or why
+   * not, as `connectedApp` answers.
+   */
+  async appAccess(credentials: Credentials, appId: AppId): Promise<AppAccess | "off" | "forbidden" | "not found" | null> {
+    const allowed = await this.mayAdministerAgents(credentials);
+    if (allowed !== true) return allowed;
+    const app = await this.store.app(appId);
+    return app ? { url: app.url, token: await this.appToken(app), sealedToken: app.sealedToken } : "not found";
+  }
+
+  /**
+   * Connects `app`, whose server answered `read`, as the administrator `credentials` signs in, answering
+   * it as its page shows it: "full" with as many as there can be, or why not, as `connectedApps` answers.
+   */
+  async connectApp(credentials: Credentials, app: NewApp, read: StoredAppRead): Promise<App | "full" | "off" | "forbidden" | null> {
+    return this.administerAgents(credentials, async (user) => {
+      const id = sortableId();
+      const sealedToken = app.token === undefined ? null : await this.sealedAppToken(id, app.token);
+      const connected = await this.store.connectApp({ id, name: app.name, url: app.url, sealedToken, ...read, connectedBy: user.id, now: new Date().toISOString() }, MAX_APPS);
+      return connected ? shownApp((await this.store.app(id))!) : "full";
+    });
+  }
+
+  /**
+   * Changes the connected app `appId` as the administrator `credentials` signs in: its name, its
+   * server's address and its token, "" for none, each kept when left out, and what its server answered
+   * when it was read again, `reread`, if it was, answering it as its page then shows it, or why not, as
+   * `connectedApp` answers. What was read is kept only while the app is still asked where it was when
+   * the server was, `askedAt`: "changed" once someone has saved another address or token meanwhile, as
+   * the tools would be another server's, or the new address's token one it never took.
+   */
+  async changeApp(
+    credentials: Credentials,
+    appId: AppId,
+    changes: AppChanges,
+    reread: { read: StoredAppRead; askedAt: AskedAt } | null,
+  ): Promise<App | "changed" | "off" | "forbidden" | "not found" | null> {
+    return this.administerAgents(credentials, async (user) => {
+      const app = await this.store.app(appId);
+      if (!app) return "not found";
+      if (reread && (app.url !== reread.askedAt.url || app.sealedToken !== reread.askedAt.sealedToken)) return "changed";
+      const sealedToken = changes.token === undefined ? undefined : changes.token === "" ? null : await this.sealedAppToken(appId, changes.token);
+      await this.store.changeApp(appId, { name: changes.name, url: changes.url, sealedToken, ...(reread && { read: reread.read }), changedBy: user.id, now: new Date().toISOString() });
+      const changed = await this.store.app(appId);
+      return changed ? shownApp(changed) : "not found";
+    });
+  }
+
+  /** Disconnects the app `appId` as the administrator `credentials` signs in, or says why not, as `connectedApp` answers. */
+  async disconnectApp(credentials: Credentials, appId: AppId): Promise<"disconnected" | "off" | "forbidden" | "not found" | null> {
+    return this.administerAgents(credentials, async () => ((await this.store.disconnectApp(appId)) ? "disconnected" : "not found"));
+  }
+
+  /** `token`, sealed for the app `appId` alone: under the key for apps' tokens, with the app's id, so that one app's doesn't open as another's. */
+  private sealedAppToken(appId: AppId, token: string): Promise<string> {
+    return seal(this.env.SESSION_SECRET, "app-token", `${appId}\n${token}`);
+  }
+
+  /** The token Ember sends `app`, or null when it has none, or one that doesn't open, as after SESSION_SECRET changes. */
+  private async appToken({ id, sealedToken }: Pick<StoredApp, "id" | "sealedToken">): Promise<string | null> {
+    const opened = sealedToken === null ? null : await unseal(this.env.SESSION_SECRET, "app-token", sealedToken);
+    return opened?.startsWith(`${id}\n`) ? opened.slice(id.length + 1) : null;
   }
 
   /**

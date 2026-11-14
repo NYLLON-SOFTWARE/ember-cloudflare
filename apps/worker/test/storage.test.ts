@@ -13,6 +13,7 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
   workspace: [
     "accounts",
     "agents",
+    "apps",
     "bans",
     "deleted_rooms",
     "email_link_requests",

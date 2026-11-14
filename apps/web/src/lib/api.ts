@@ -93,6 +93,7 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol";
 import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTrial, AgentTrialAnswer, NewAgent } from "@ember/protocol/agents";
+import type { App, AppAnswer, AppChanges, AppId, Apps, AppSummary, NewApp } from "@ember/protocol/apps";
 import type { LogoVariants } from "@/lib/previews";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and socket,
@@ -669,6 +670,40 @@ export async function removeAgentAvatar(agentId: UserId): Promise<AgentSettings>
 /** Deletes agent `agentId`. Fails as `fetchAgent` does. */
 export async function deleteAgent(agentId: UserId): Promise<void> {
   await request(`/api/account/agents/${encodeURIComponent(agentId)}`, { method: "DELETE" });
+}
+
+/** The connected apps, by name. Fails with a 403 ApiError for anyone but an administrator, and a 409 while Ember AI is off. */
+export async function fetchApps(): Promise<AppSummary[]> {
+  return (await request<Apps>("/api/account/apps")).apps;
+}
+
+/** App `appId`, as its page shows it. Fails as `fetchApps` does, and with a 404 ApiError for an id that isn't a connected app's. */
+export async function fetchApp(appId: AppId): Promise<App> {
+  return (await request<AppAnswer>(`/api/account/apps/${encodeURIComponent(appId)}`)).app;
+}
+
+/**
+ * Connects an app, once Ember has read its server's tools, answering it as its page shows it. Fails as
+ * `fetchApps` does, with a 422 ApiError naming the field for what's refused, the address when its
+ * server doesn't answer as one does, and with a 409 when as many apps are connected as can be.
+ */
+export async function connectApp(app: NewApp): Promise<App> {
+  return (await request<AppAnswer>("/api/account/apps", { method: "POST", body: JSON.stringify(app) })).app;
+}
+
+/** Changes app `appId`, leaving what `changes` leaves out, answering it as its page then shows it. Fails as `fetchApp` and `connectApp` do. */
+export async function changeApp(appId: AppId, changes: AppChanges): Promise<App> {
+  return (await request<AppAnswer>(`/api/account/apps/${encodeURIComponent(appId)}`, { method: "PATCH", body: JSON.stringify(changes) })).app;
+}
+
+/** Reads app `appId`'s tools from its server again, answering it as its page then shows it. Fails as `fetchApp` does, and with a 422 ApiError when its server doesn't answer as one does. */
+export async function readAppTools(appId: AppId): Promise<App> {
+  return (await request<AppAnswer>(`/api/account/apps/${encodeURIComponent(appId)}/tools`, { method: "POST" })).app;
+}
+
+/** Disconnects app `appId`. Fails as `fetchApp` does. */
+export async function disconnectApp(appId: AppId): Promise<void> {
+  await request(`/api/account/apps/${encodeURIComponent(appId)}`, { method: "DELETE" });
 }
 
 /**

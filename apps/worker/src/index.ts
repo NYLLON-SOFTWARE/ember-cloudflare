@@ -96,6 +96,7 @@ import {
   tokenDigest,
 } from "./auth";
 import { directoryOf } from "./avatar-tokens";
+import { appPage, changeApp, connectApp, disconnectApp, listApps, readAppTools, showApp } from "./apps/api";
 import { agentPage, changeAgent, createAgent, deleteAgent, listAgents, removeAgentAvatar, showAgent, tryAgent } from "./assistant/agents";
 import {
   addAssistantModel,
@@ -155,6 +156,7 @@ import { platformOf } from "./user-agent";
 import { versionOf } from "./version";
 import { ACCOUNT_BEFORE_SETUP, CREDENTIALS_HEADER, workspace, type YourProfile } from "./workspace";
 
+export { AppConnector } from "./apps/connector";
 export { ChatRoom } from "./chat-room";
 export { PasswordHasher } from "./passwords";
 export { SearchIndex } from "./search-index";
@@ -1106,6 +1108,14 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (agentAvatar && request.method === "DELETE") return () => removeAgentAvatar(request, env, agentAvatar[1]!);
   const agentTrials = pathname.match(/^\/api\/account\/agents\/([^/]+)\/trials$/);
   if (agentTrials && request.method === "POST") return () => tryAgent(request, env, agentTrials[1]!);
+  if (pathname === "/api/account/apps" && request.method === "GET") return () => listApps(request, env);
+  if (pathname === "/api/account/apps" && request.method === "POST") return () => connectApp(request, env);
+  const app = pathname.match(/^\/api\/account\/apps\/([^/]+)$/);
+  if (app && request.method === "GET") return () => showApp(request, env, app[1]!);
+  if (app && request.method === "PATCH") return () => changeApp(request, env, app[1]!);
+  if (app && request.method === "DELETE") return () => disconnectApp(request, env, app[1]!);
+  const appTools = pathname.match(/^\/api\/account\/apps\/([^/]+)\/tools$/);
+  if (appTools && request.method === "POST") return () => readAppTools(request, env, appTools[1]!);
   if (pathname === "/api/account/huddles" && request.method === "PUT") return () => saveHuddles(request, env);
   if (pathname === "/api/account/huddles" && request.method === "DELETE") return () => forgetHuddles(request, env);
   if (pathname === "/api/account/custom_domain_checks" && request.method === "POST") return () => checkCustomDomain(request, env);
@@ -1268,6 +1278,7 @@ async function route(request: Request, env: Env, pathname: string): Promise<Resp
   if (page?.page === "person") return personPage(request, env, pathname, page.userId);
   if (page?.page === "bot-settings") return botPage(request, env, pathname, page.userId);
   if (page?.page === "agent-settings") return agentPage(request, env, pathname, page.agentId);
+  if (page?.page === "app-settings") return appPage(request, env, pathname, page.appId);
   return anyOtherPage(request, env, pathname);
 }
 

@@ -248,6 +248,8 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
         return Response.json({ assistant });
       case "GET /api/account/agents":
         return Response.json({ agents: [RECAP] } satisfies Agents);
+      case "GET /api/account/apps":
+        return Response.json({ apps: [{ id: "0mgk3x2a9b4c70", name: "Linear", url: "https://mcp.linear.example/mcp", toolCount: 23 }] });
       case "PUT /api/account/huddles":
         huddles = { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId };
         return Response.json({ huddles });
@@ -1990,6 +1992,12 @@ describe("Ember AI", () => {
     expect(within(ember!).getByRole("link", { name: "Edit Ember" })).toHaveAttribute("href", "/account/agents/ember/edit");
     expect(within(recap!).getByRole("link", { name: "Edit Recap" })).toHaveAttribute("href", `/account/agents/${RECAP.id}/edit`);
     expect(within(agentsCard()!).getByRole("link", { name: "New agent" })).toHaveAttribute("href", "/account/agents/new");
+
+    // Then the apps connected, under the agents.
+    const appsCard = await screen.findByRole("region", { name: "Apps" });
+    expect(agentsCard()!.compareDocumentPosition(appsCard) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(await within(appsCard).findByRole("link", { name: "Edit Linear" })).toHaveAttribute("href", "/account/apps/0mgk3x2a9b4c70/edit");
+    expect(within(appsCard).getByRole("link", { name: "Connect an app" })).toHaveAttribute("href", "/account/apps/new");
 
     await user.click(within(card).getByRole("button", { name: "Change" }));
     expect(await screen.findByRole("textbox", { name: "Account ID" })).toHaveValue("0123456789abcdef0123456789abcdef");
