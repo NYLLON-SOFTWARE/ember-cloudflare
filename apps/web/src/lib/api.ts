@@ -93,7 +93,7 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol";
 import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTrial, AgentTrialAnswer, NewAgent } from "@ember/protocol/agents";
-import type { AgentToolPicks, AgentTools, App, AppAnswer, AppChanges, AppClient, AppId, Apps, AppSignedIn, AppSignInBegun, AppSignInReturn, AppSummary, NewApp, NewAppSignIn, OfferedApp, ToolPick } from "@ember/protocol/apps";
+import type { AgentToolPicks, AgentTools, App, AppAnswer, AppChanges, AppClient, AppId, AppRemoved, Apps, AppSignedIn, AppSignInBegun, AppSignInReturn, AppSummary, NewApp, NewAppSignIn, OfferedApp, ToolPick } from "@ember/protocol/apps";
 import type { LogoVariants } from "@/lib/previews";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and socket,
@@ -753,9 +753,9 @@ export async function pickAgentTools(agentId: UserId, tools: ToolPick[]): Promis
   return (await request<AgentTools>(`/api/account/agents/${encodeURIComponent(agentId)}/tools`, { method: "PUT", body: JSON.stringify(picks) })).apps;
 }
 
-/** Disconnects app `appId`. Fails as `fetchApp` does. */
-export async function disconnectApp(appId: AppId): Promise<void> {
-  await request(`/api/account/apps/${encodeURIComponent(appId)}`, { method: "DELETE" });
+/** Disconnects app `appId`, answering whether its service took back Ember's sign-in to it, if Ember was signed in to it. Fails as `fetchApp` does. */
+export function disconnectApp(appId: AppId): Promise<Partial<AppRemoved>> {
+  return request<Partial<AppRemoved>>(`/api/account/apps/${encodeURIComponent(appId)}`, { method: "DELETE" });
 }
 
 /**

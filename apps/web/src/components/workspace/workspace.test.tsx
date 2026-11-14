@@ -2117,7 +2117,7 @@ describe("Agent pages", () => {
     serve({
       "GET /api/account": () => Response.json({ ...workspaceSettings, canAdminister: true, assistant }),
       "GET /api/account/agents": () => Response.json({ agents: [recap] }),
-      "GET /api/account/apps": () => Response.json({ apps: [{ id: linear.id, name: linear.name, url: linear.url, toolCount: linear.tools.length, setAside: 0, signInEnded: false }] }),
+      "GET /api/account/apps": () => Response.json({ apps: [{ id: linear.id, name: linear.name, url: linear.url, toolCount: linear.tools.length, setAside: 0, signInEnded: false, wantsAccess: false }] }),
       "POST /api/account/assistant/offered": () => Response.json(SHIPPED_MODELS),
       // The Tools card of each agent's page.
       "GET /api/account/agents/a1/tools": () => Response.json({ apps: [] }),

@@ -57,6 +57,7 @@ import agentTools from "../migrations/0056_agent_tools.sql";
 import waitingCalls from "../migrations/0057_waiting_calls.sql";
 import appSignIns from "../migrations/0058_app_sign_ins.sql";
 import appSignInClients from "../migrations/0059_app_sign_in_clients.sql";
+import appScopeWanted from "../migrations/0060_app_scope_wanted.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
@@ -140,6 +141,7 @@ export const MIGRATIONS: Migration[] = [
   { name: "0057_waiting_calls.sql", scope: "room", sql: waitingCalls },
   { name: "0058_app_sign_ins.sql", scope: "workspace", sql: appSignIns },
   { name: "0059_app_sign_in_clients.sql", scope: "workspace", sql: appSignInClients },
+  { name: "0060_app_scope_wanted.sql", scope: "workspace", sql: appScopeWanted },
 ];
 
 /**

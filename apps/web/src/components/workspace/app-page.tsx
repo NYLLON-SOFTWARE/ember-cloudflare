@@ -61,6 +61,14 @@ export const TOKEN_KEPT = "It has a token. Leave this blank to keep it, or type 
 export const ADDRESS_KEPT = "This app signs in to its server there, so its address stays as it is. To move it, remove it and connect it again.";
 export const SIGN_IN_EXPLAINED = "Ember keeps the sign-in encrypted, and gets itself a new token from it as each one ends.";
 export const SIGN_IN_HAS_ENDED = "Its sign-in has ended, so Ember doesn't ask its server, and no agent can use its tools. Sign in to it again.";
+/** What a signed-in app's page says once its server has refused something as more than the sign-in allows, with the `scopes` it asked for, which signing in again asks for too. */
+export const wantsMore = (scopes: string) => `Its server has asked for more than this sign-in allows (${scopes.split(" ").join(", ")}). Sign in again to allow it.`;
+
+/** What's said once an app Ember was signed in to is removed: whether its service, at `url`, took the sign-in back, or it's left to take back there. */
+export const removedNotice = (name: string, url: string, revoked: boolean) => {
+  const host = URL.parse(url)?.host ?? "its service";
+  return revoked ? `${name} is removed, and ${host} took back Ember's sign-in.` : `${name} is removed. Ember couldn't take back its sign-in at ${host}, so remove Ember's access there.`;
+};
 
 /** What the form says in place of offering a sign-in, while it has another address than the app's. */
 export const SIGN_IN_STAYS = "Ember signs in to an app at the address it's connected at. To sign in at another, remove this app and connect it there.";
@@ -355,7 +363,15 @@ export function AppSettingsPage({ appId, me, onMissing, onFailed }: PageProps & 
     });
   const remove = () => {
     if (!confirm(CONFIRM_REMOVE_APP)) return;
-    send("removing", () => disconnectApp(appId), () => navigate(AGENTS_PATH), ({ error }) => setUnread(error));
+    send(
+      "removing",
+      () => disconnectApp(appId),
+      ({ revoked }) => {
+        navigate(AGENTS_PATH);
+        if (app && revoked !== undefined) flash(revoked ? "notice" : "alert", removedNotice(app.name, app.url, revoked));
+      },
+      ({ error }) => setUnread(error),
+    );
   };
 
   return (
@@ -606,7 +622,7 @@ function Client({ kept, fields, onChange, refusal, busy, onSignIn }: Pick<FormPr
 
 /**
  * In the token's place for an app that signs in to its server: who signed in, and when, that the
- * sign-in has ended, if it has, who Ember is to its service, if the form asks (`children`), and Sign in
+ * sign-in has ended, if it has, or that its server asks for more than it allows, who Ember is to its service, if the form asks (`children`), and Sign in
  * again, with why that couldn't begin, if it couldn't.
  */
 function SignedIn({ signIn, refusal, busy, onSignIn, children }: { signIn: AppSignIn; refusal: Refusal | null; busy: boolean; onSignIn: () => void; children?: ReactNode }) {
@@ -618,6 +634,11 @@ function SignedIn({ signIn, refusal, busy, onSignIn, children }: { signIn: AppSi
       {signIn.ended && (
         <p role="alert" className={cn(NOTE, "text-negative")}>
           {SIGN_IN_HAS_ENDED}
+        </p>
+      )}
+      {signIn.wantsScope !== null && (
+        <p role="alert" className={cn(NOTE, "wrap-anywhere text-negative")}>
+          {wantsMore(signIn.wantsScope)}
         </p>
       )}
       <p className={NOTE}>

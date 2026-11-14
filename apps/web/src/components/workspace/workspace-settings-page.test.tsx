@@ -249,7 +249,7 @@ function serve(settings: WorkspaceSettings, { saved, regenerated, roleChanged, r
       case "GET /api/account/agents":
         return Response.json({ agents: [RECAP] } satisfies Agents);
       case "GET /api/account/apps":
-        return Response.json({ apps: [{ id: "0mgk3x2a9b4c70", name: "Linear", url: "https://mcp.linear.example/mcp", toolCount: 23, setAside: 0, signInEnded: false }] });
+        return Response.json({ apps: [{ id: "0mgk3x2a9b4c70", name: "Linear", url: "https://mcp.linear.example/mcp", toolCount: 23, setAside: 0, signInEnded: false, wantsAccess: false }] });
       case "PUT /api/account/huddles":
         huddles = { appId: (JSON.parse(String(init?.body)) as HuddlesSetup).appId };
         return Response.json({ huddles });

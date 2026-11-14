@@ -16,6 +16,8 @@ export const MAX_APP_URL_LENGTH = 2048;
 export const MAX_APP_TOKEN_LENGTH = 4096;
 export const MAX_APP_CLIENT_ID_LENGTH = 512;
 export const MAX_APP_CLIENT_SECRET_LENGTH = 1024;
+/** The most characters of OAuth scopes Ember keeps of what an app's server asks for beyond its sign-in. */
+export const MAX_APP_SCOPE_LENGTH = 1000;
 
 /** The most tools Ember reads from an app: the rest are left out, which its page says. */
 export const MAX_APP_TOOLS = 100;
@@ -60,21 +62,25 @@ export interface App {
 /**
  * An app's sign-in: who signed in to its server, if they're still known, and when, whether it has
  * `ended`, as it has once its server won't give Ember another token, so that its agents are without
- * its tools until an administrator signs in again, and the client ID Ember signed in as, when an
- * administrator gave one (`AppClient`), or null when the service came to know Ember by itself.
+ * its tools until an administrator signs in again, the client ID Ember signed in as, when an
+ * administrator gave one (`AppClient`), or null when the service came to know Ember by itself, and
+ * what its server has asked for since that the sign-in doesn't allow, `wantsScope`, as the OAuth
+ * scopes it named, between spaces: signing in again asks for them too.
  */
 export interface AppSignIn {
   by: { id: UserId; name: string } | null;
   at: string;
   ended: boolean;
   clientId: string | null;
+  wantsScope: string | null;
 }
 
 /**
  * An app as the AI assistant tab lists it: its name, its server's address, how many tools Ember read
- * from it, how many of them are set aside for an agent that had them (`SetAsideTool`), and whether
+ * from it, how many of them are set aside for an agent that had them (`SetAsideTool`), whether
  * Ember's sign-in to its server has ended, so that its server isn't asked until an administrator signs
- * in again.
+ * in again, and whether its server has asked for more than the sign-in allows, `wantsAccess`, which
+ * signing in again asks for.
  */
 export interface AppSummary {
   id: AppId;
@@ -83,6 +89,7 @@ export interface AppSummary {
   toolCount: number;
   setAside: number;
   signInEnded: boolean;
+  wantsAccess: boolean;
 }
 
 /**
@@ -99,6 +106,15 @@ export interface SetAsideTool {
 /** What `GET /api/account/apps` answers: the apps, by name. */
 export interface Apps {
   apps: AppSummary[];
+}
+
+/**
+ * What `DELETE /api/account/apps/<id>` answers for an app Ember was signed in to: whether its service
+ * took back what the sign-in gave Ember, `revoked`, which it's asked to where it says how. Any other
+ * app's removal answers 204.
+ */
+export interface AppRemoved {
+  revoked: boolean;
 }
 
 /** What a request that makes or changes an app answers. */

@@ -8,7 +8,9 @@ import type { AddressInfo } from "node:net";
 // call of one with `calledWith`, to whoever sends its token. It serves on this machine, where Ember
 // asks an app over http. Started to sign people in, it takes no token of its own: it's its own OAuth
 // authorization server, as the protocol has one found, which registers whoever asks, shows a page to
-// allow or deny them, and gives short-lived access tokens with a token to get the next one with.
+// allow or deny them, and gives short-lived access tokens with a token to get the next one with. A
+// call of a tool can be made to take a scope, which the tokens then have to allow, and the
+// authorization server takes back the tokens it's sent to revoke.
 
 /** What the server calls itself. */
 export const SERVER_NAME = "Tracker";
@@ -58,13 +60,17 @@ export interface FakeClient {
 
 /**
  * A fake server's sign-in: the access token it takes now and the token that gets the next one, neither
- * once it's `end`ed, and the one client its authorization server knows, or null for one that registers
- * whoever asks.
+ * once it's `end`ed, the one client its authorization server knows, or null for one that registers
+ * whoever asks, the scopes its tokens `allows`, as whoever signed in last was sent asking for them,
+ * the scope a call of a tool `needs`, if it needs one, and the tokens that were `revoked` there.
  */
 export interface FakeSignIn {
   access: string | null;
   refresh: string | null;
   client: FakeClient | null;
+  allows: string[];
+  needs: string | null;
+  revoked: string[];
   /** The codes it sent a browser back with, each with what the browser was sent to it with. */
   codes: Map<string, URLSearchParams>;
   /** How many times it gave tokens for a code, and for a token that gets the next one. */
@@ -127,8 +133,21 @@ function tokensFor(signIn: FakeSignIn, form: URLSearchParams, authorization: str
   const challenge = createHash("sha256").update(form.get("code_verifier") ?? "").digest("base64url");
   if (!sent || sent.get("code_challenge") !== challenge || sent.get("redirect_uri") !== form.get("redirect_uri")) return reply(400, { error: "invalid_grant" });
   signIn.exchanged += 1;
+  signIn.allows = (sent.get("scope") ?? "").split(" ").filter((scope) => scope !== "");
   reply(200, nextTokens(signIn));
 }
+
+/** Takes back the token `form` names, at the revocation endpoint: it's no good from then on. */
+function revoke(signIn: FakeSignIn, form: URLSearchParams, reply: Reply): void {
+  const token = form.get("token") ?? "";
+  signIn.revoked.push(token);
+  if (token === signIn.access) signIn.access = null;
+  if (token === signIn.refresh) signIn.refresh = null;
+  reply(200);
+}
+
+/** What the allow page says of the scopes whoever is sent to it asks for, when they ask for any. */
+export const asksFor = (scope: string) => `It asks for: ${scope}`;
 
 /** The page the authorization server shows whoever is sent to it with `query`: a link that allows Ember, back to it with a code, and one that denies it. */
 function allowPage(signIn: FakeSignIn, query: URLSearchParams): string {
@@ -139,7 +158,9 @@ function allowPage(signIn: FakeSignIn, query: URLSearchParams): string {
   };
   const code = `code-${randomUUID()}`;
   signIn.codes.set(code, query);
-  return `<!doctype html><title>${SERVER_NAME}</title><h1>${ALLOW_HEADING}</h1><p><a href="${back({ code })}">Allow</a> <a href="${back({ error: "access_denied" })}">Deny</a></p>`;
+  const scope = query.get("scope");
+  const asks = scope === null ? "" : `<p>${asksFor(scope).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</p>`;
+  return `<!doctype html><title>${SERVER_NAME}</title><h1>${ALLOW_HEADING}</h1>${asks}<p><a href="${back({ code })}">Allow</a> <a href="${back({ error: "access_denied" })}">Deny</a></p>`;
 }
 
 /** What the server says of its sign-in at `origin`, as OAuth has an authorization server describe itself: one that registers whoever asks, unless it knows one `client` alone. */
@@ -147,6 +168,7 @@ const describedAt = (origin: string, client: FakeClient | null) => ({
   issuer: origin,
   authorization_endpoint: `${origin}/authorize`,
   token_endpoint: `${origin}/token`,
+  revocation_endpoint: `${origin}/revoke`,
   ...(client === null && { registration_endpoint: `${origin}/register` }),
   response_types_supported: ["code"],
   grant_types_supported: ["authorization_code", "refresh_token"],
@@ -161,6 +183,7 @@ async function answerSignIn(signIn: FakeSignIn, url: URL, request: IncomingMessa
   else if (pathname === "/.well-known/oauth-authorization-server") reply(200, describedAt(origin, signIn.client));
   else if (pathname === "/register" && request.method === "POST" && signIn.client === null) reply(201, { ...(JSON.parse(await bodyOf(request)) as object), client_id: "ember-e2e" });
   else if (pathname === "/token" && request.method === "POST") tokensFor(signIn, new URLSearchParams(await bodyOf(request)), request.headers.authorization, reply);
+  else if (pathname === "/revoke" && request.method === "POST") revoke(signIn, new URLSearchParams(await bodyOf(request)), reply);
   else if (pathname === "/authorize") response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(allowPage(signIn, url.searchParams));
   else return false;
   return true;
@@ -184,6 +207,8 @@ async function answer(mcp: FakeMcp, request: IncomingMessage, response: ServerRe
   const message = JSON.parse(await bodyOf(request)) as Message;
   mcp.asked.push(message.method);
   if (message.id === undefined) return reply(202);
+  const needs = message.method === "tools/call" ? (mcp.signIn?.needs ?? null) : null;
+  if (needs !== null && !mcp.signIn?.allows.includes(needs)) return reply(403, { error: "Forbidden" }, { "WWW-Authenticate": `Bearer error="insufficient_scope", scope="${needs}"` });
   const result = resultOf(mcp, message);
   if (result === undefined) return reply(200, { jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Method not found" } });
   reply(200, { jsonrpc: "2.0", id: message.id, result });
@@ -195,7 +220,7 @@ async function answer(mcp: FakeMcp, request: IncomingMessage, response: ServerRe
  * `client` an administrator registered there.
  */
 export async function startFakeMcp({ signsIn = false, client = null as FakeClient | null } = {}): Promise<FakeMcp> {
-  const signIn: FakeSignIn = { access: null, refresh: null, client, codes: new Map(), exchanged: 0, refreshed: 0, end: () => void Object.assign(signIn, { access: null, refresh: null }) };
+  const signIn: FakeSignIn = { access: null, refresh: null, client, allows: [], needs: null, revoked: [], codes: new Map(), exchanged: 0, refreshed: 0, end: () => void Object.assign(signIn, { access: null, refresh: null }) };
   const mcp: FakeMcp = { url: "", tools: [...TOOLS], asked: [], calls: [], signIn: signsIn ? signIn : null, close: async () => {} };
   const server = createServer((request, response) => {
     answer(mcp, request, response).catch(() => response.destroy());

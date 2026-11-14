@@ -3,7 +3,7 @@ import { TOOL_GONE, type AgentTools, type AppAnswer, type Apps } from "@ember/pr
 import { administratorSession, cookieHeader, editorField, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
 import { FILE_QUESTION, FILED, startFakeGateway, type FakeGateway } from "./fake-gateway";
-import { ALLOW_HEADING, calledWith, MCP_TOKEN, SERVER_NAME, startFakeMcp, TOOLS, type FakeMcp } from "./fake-mcp";
+import { ALLOW_HEADING, asksFor, calledWith, MCP_TOKEN, SERVER_NAME, startFakeMcp, TOOLS, type FakeMcp } from "./fake-mcp";
 
 // The Apps card on the AI assistant tab, Connect an app, a connected app's page, the Tools card on
 // @ember's page, and @ember calling a picked tool once it's allowed, or at once where an administrator
@@ -28,7 +28,8 @@ test.afterEach(async ({ request }) => {
   expect(listed.status(), await listed.text()).toBe(200);
   for (const { id } of ((await listed.json()) as Apps).apps) {
     const removed = await request.delete(`/api/account/apps/${id}`, { headers });
-    expect(removed.status(), await removed.text()).toBe(204);
+    // An app Ember was signed in to answers whether its service took the sign-in back.
+    expect([200, 204], await removed.text()).toContain(removed.status());
   }
   const forgotten = await request.delete("/api/account/assistant", { headers });
   expect(forgotten.status(), await forgotten.text()).toBe(200);
@@ -237,6 +238,70 @@ test.describe("Apps", () => {
       await expect(page.getByRole("alert")).toHaveText("Ember is signed in to Tracker again.");
       expect(signIn.exchanged).toBe(2);
       await expect(kept.getByRole("textbox", { name: "Client ID" })).toHaveValue(client.id);
+    } finally {
+      await signsIn.close();
+    }
+  });
+
+  test("a call an app's server refuses as more than Ember's sign-in allows has the administrator sign in again for it, and removing the app takes the sign-in back there", async ({ page, request }) => {
+    const signsIn = await startFakeMcp({ signsIn: true });
+    try {
+      const signIn = signsIn.signIn!;
+      const host = new URL(signsIn.url).host;
+      const card = await openApps(page);
+      await connectAt(page, card, signsIn.url);
+      await page.getByRole("button", { name: `Sign in to ${host}` }).click();
+      await page.getByRole("link", { name: "Allow" }).click();
+      await expect(page.getByRole("alert")).toHaveText("Tracker is connected. Ember read 2 tools from it.");
+      const headers = await asAdministrator(request);
+      const offered = (await (await request.get("/api/account/agents/ember/tools", { headers })).json()) as AgentTools;
+      const tools = offered.apps.flatMap(({ id, tools }) => tools.filter(({ name }) => name === "create_issue").map(({ name, fingerprint }) => ({ appId: id, name, fingerprint })));
+      const picked = await request.put("/api/account/agents/ember/tools", { data: { tools }, headers });
+      expect(picked.status(), await picked.text()).toBe(200);
+      const created = await request.post("/api/rooms", { data: { kind: "open", name: `Scopes ${crypto.randomUUID().slice(0, 8)}` }, headers });
+      expect(created.status(), await created.text()).toBe(201);
+      const { room } = (await created.json()) as { room: { id: string; name: string } };
+
+      // The server takes Ember's sign-in, but not for this: the call isn't run, and the model is told who can allow it.
+      signIn.needs = "issues:write";
+      await page.goto(`/rooms/${room.id}`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText(room.name);
+      const title = `Login fails ${crypto.randomUUID().slice(0, 8)}`;
+      await askEmber(page, `${FILE_QUESTION} ${title}`);
+      await page.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: title }).getByRole("button", { name: "Allow once" }).click();
+      const told = "Not run: Tracker says this takes more access than Ember's sign-in to it has. An administrator has to sign in to it again, on its page, to allow it.";
+      await expect(page.getByRole("article").filter({ hasText: `${FILED} ${told}` })).toBeVisible();
+      expect(signsIn.calls).toEqual([]);
+
+      // Its row and its page say so, and signing in again asks the service for it.
+      await page.goto("/account/edit#assistant-settings");
+      await expect(card.getByRole("listitem")).toContainText("Its server asks for more than its sign-in allows");
+      await card.getByRole("link", { name: "Edit Tracker" }).click();
+      const kept = page.getByRole("group", { name: "Sign-in" });
+      await expect(kept.getByRole("alert")).toHaveText("Its server has asked for more than this sign-in allows (issues:write). Sign in again to allow it.");
+      await kept.getByRole("button", { name: "Sign in again" }).click();
+      await expect(page.getByText(asksFor("issues:write"))).toBeVisible();
+      await page.getByRole("link", { name: "Allow" }).click();
+      await expect(page.getByRole("alert")).toHaveText("Ember is signed in to Tracker again.");
+      await expect(kept.getByRole("alert")).toHaveCount(0);
+      expect(signIn.allows).toEqual(["issues:write"]);
+
+      // The same call then runs.
+      await page.goto(`/rooms/${room.id}`);
+      const other = `Logout fails ${crypto.randomUUID().slice(0, 8)}`;
+      await askEmber(page, `${FILE_QUESTION} ${other}`);
+      await page.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: other }).getByRole("button", { name: "Allow once" }).click();
+      await expect(page.getByRole("article").filter({ hasText: `${FILED} ${calledWith("create_issue", { title: other })}` })).toBeVisible();
+
+      // Removing the app takes back what the sign-in gave, at the service, which the tab says.
+      await page.goto("/account/edit#assistant-settings");
+      await card.getByRole("link", { name: "Edit Tracker" }).click();
+      page.once("dialog", (dialog) => void dialog.accept());
+      await page.getByRole("button", { name: "Remove Tracker" }).click();
+      await expect(page.getByRole("alert")).toHaveText(`Tracker is removed, and ${host} took back Ember's sign-in.`);
+      await expect(card).toContainText("No apps are connected yet.");
+      expect(signIn.revoked).toHaveLength(2);
+      expect([signIn.access, signIn.refresh]).toEqual([null, null]);
     } finally {
       await signsIn.close();
     }

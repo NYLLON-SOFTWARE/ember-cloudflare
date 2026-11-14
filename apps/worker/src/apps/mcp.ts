@@ -4,6 +4,7 @@ import { toHex } from "../encoding";
 import { isLoopback } from "../loopback";
 import { checkHost, GuardError, resolveOverHttps } from "../unfurl/guard";
 import { VERSION } from "../version";
+import { scopesOf } from "./scopes";
 
 // Asking an app, an MCP server an administrator connected, over Streamable HTTP, with the Model Context
 // Protocol's own client (https://github.com/modelcontextprotocol/typescript-sdk), pinned to one version.
@@ -53,7 +54,12 @@ export interface CalledTool {
   unmade?: true;
   /** Whether the server no longer lists the tool as it was picked, so that its tools want reading again. */
   changed?: true;
+  /** The scopes the server asked for, when it refused the call as more than Ember's sign-in to it allows. */
+  scope?: string;
 }
+
+/** Why an app's tools couldn't be read, with the scopes its server asked for, when it refused that as more than Ember's sign-in to it allows. */
+export type UnreadApp = AppRefused & { scope?: string };
 
 /** What Ember sends an app's server to be let in: a token an administrator gave, or the one a sign-in to it gave, `signedIn`. */
 export interface Key {
@@ -76,7 +82,7 @@ export interface Held {
  * administrator who's connecting it, on the field it's about. A server with no tools Ember can use is
  * no app to connect, but a connected app's, read `again`, may have come to have none.
  */
-export async function readApp(url: string, key: Key | null, again = false, send: Send = fetch): Promise<ReadApp | AppRefused> {
+export async function readApp(url: string, key: Key | null, again = false, send: Send = fetch): Promise<ReadApp | UnreadApp> {
   const address = new URL(url);
   const held: Held = { deadline: AbortSignal.timeout(READ_DEADLINE_MS), bytesLeft: MAX_READ_BYTES };
   const within = heldTo(held, send);
@@ -118,7 +124,9 @@ export async function callApp(url: string, key: Key | null, tool: Pick<ReadTool,
   } catch (error) {
     // What a server says of a call it refused is the model's to read, as a result is.
     if (called && error instanceof ProtocolError) return { text: `${tool.name} refused the call: ${cut(error.message, 500)}`, failed: true };
-    const { error: why } = whyNot("Calling a tool of", address, key, error, held);
+    const { error: why, scope } = whyNot("Calling a tool of", address, key, error, held);
+    // A server that refuses a call as more than it allows whoever asks hasn't run it.
+    if (error instanceof InsufficientScopeError) return { ...notRun(why), ...(scope !== undefined && { scope }) };
     return called ? { text: `${tool.name} didn't answer, and may have run all the same: ${why}`, failed: true } : notRun(why);
   }
 }
@@ -269,7 +277,7 @@ function inOrder(value: unknown): unknown {
  * wrong within what asking it was held to, or at its end. Only the kind of failure is logged: a server writes what its answers say,
  * which the client quotes in its errors, and could write the token there.
  */
-function whyNot(what: "Reading the tools of" | "Calling a tool of", address: URL, key: Key | null, error: unknown, held: Held): AppRefused {
+function whyNot(what: "Reading the tools of" | "Calling a tool of", address: URL, key: Key | null, error: unknown, held: Held): UnreadApp {
   const { host } = address;
   const status = error instanceof SdkHttpError ? error.status : null;
   const kind = error instanceof SdkError ? `${error.name} ${error.code}` : error instanceof Error ? error.name : typeof error;
@@ -278,7 +286,10 @@ function whyNot(what: "Reading the tools of" | "Calling a tool of", address: URL
   if (held.deadline.aborted) return { error: tookTooLong(host), field: "url" };
   // A token that opens the server but not what was asked of it: the client has no status for that refusal.
   if (error instanceof InsufficientScopeError) {
-    return { error: key?.signedIn ? `${host} took Ember's sign-in, but says it doesn't allow this.` : `${host} took that token, but says it doesn't allow this. Give one that does.`, field: "token" };
+    if (!key?.signedIn) return { error: `${host} took that token, but says it doesn't allow this. Give one that does.`, field: "token" };
+    // What it says would allow it is asked for at the next sign-in.
+    const scope = scopesOf(error.requiredScope);
+    return { error: `${host} took Ember's sign-in, but says it doesn't allow this.${scope === null ? "" : " Sign in to it again to allow it."}`, field: "token", ...(scope !== null && { scope }) };
   }
   if (error instanceof UnauthorizedError || status === 401 || status === 403) {
     if (key === null) return { error: `${host} asks for a sign-in. Sign in to it, or give a token for it, if it has one.`, field: "token", signIn: true };
