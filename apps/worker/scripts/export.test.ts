@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -71,6 +71,7 @@ function pageOf(roomId: string, after: string | null) {
 
 /** What the fake Worker answers, to an administrator alone: signing in, the listing, a room's messages. */
 function answerOf(url: string, after: string | null, cookie: string | undefined, body: string): { status: number; answer: object; cookie?: string } {
+  if (url === refusing) return { status: 500, answer: { error: "The Worker couldn't answer just now" } };
   const administrator = cookie === "session=stays";
   if (url === "/api/session") {
     const asked = JSON.parse(body) as { emailAddress?: string; password?: string };
@@ -101,9 +102,12 @@ let server: Server;
 let address: string;
 let output: string;
 let asked: string[];
+/** The path of the export the fake Worker refuses, so a rerun can be made to fail part-way through. */
+let refusing: string | null;
 
 beforeEach(async () => {
   asked = [];
+  refusing = null;
   server = createServer((request: IncomingMessage, response) => {
     const { url = "", headers: { cookie } } = request;
     const chunks: Buffer[] = [];
@@ -148,6 +152,8 @@ describe("The export script", () => {
     expect({ status, stderr }).toEqual({ status: 0, stderr: "" });
     expect(stdout).toContain(`Exporting ${address} as Maya Chen to ${output}.`);
     expect(stdout).toContain(`Wrote 3 people, 6 rooms and 9 messages to ${output}.`);
+    // Every DM is in the export, so the file answers to whoever keeps it alone.
+    expect(statSync(output).mode & 0o777).toBe(0o600);
 
     const records = recordsOf();
     expect(records.filter(({ type }) => type === "user")).toEqual(
@@ -188,6 +194,22 @@ describe("The export script", () => {
     // General's three messages took two pages, and the second was asked for by the first's last message.
     expect(asked.filter((url) => url.startsWith(`/api/export/rooms/${GENERAL}/`))).toHaveLength(2);
     expect(asked.some((url) => new URL(`http://x${url}`).searchParams.get("after") === "m2")).toBe(true);
+  });
+
+  it("leaves the last export be when a rerun fails part-way through", async () => {
+    const { status } = await run(MAYA.emailAddress, MAYA.password);
+    expect(status).toBe(0);
+    const good = readFileSync(output, "utf8");
+
+    // The Worker loses Launch plan's first page of messages, by which time three people, general and
+    // its messages are already written to what would have been the new export.
+    refusing = `/api/export/rooms/${LAUNCH}/messages`;
+    const { status: rerun, stderr } = await run(MAYA.emailAddress, MAYA.password);
+    expect(rerun).toBe(1);
+    expect(stderr).toContain(`GET /api/export/rooms/${LAUNCH}/messages answered 500`);
+    expect(readFileSync(output, "utf8")).toBe(good);
+    // And nothing of the rerun that failed is left beside it.
+    expect(readdirSync(path.dirname(output))).toEqual([path.basename(output)]);
   });
 
   it("refuses someone who isn't an administrator, before it asks the Worker for anything of the export", async () => {
