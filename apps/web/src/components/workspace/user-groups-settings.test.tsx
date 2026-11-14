@@ -192,6 +192,34 @@ describe("User groups", () => {
     expect(sent).toEqual({ name: "launch", memberIds: [ada.id, newcomer.id] });
   });
 
+  it("waits for the directory's load under way before a save goes, which keeps the member it has yet to list", async () => {
+    const newcomer: DirectoryUser = { id: "u5", name: "New Hand", bio: null, role: "member", status: "active", avatarUrl: "" };
+    const fresh: UserGroup = { id: "g6", name: "launch", memberIds: [ada.id, newcomer.id] };
+    let sent: unknown;
+    serve((method, _path, body) => {
+      if (method === "PATCH") {
+        sent = body;
+        return Response.json({ group: fresh });
+      }
+      return Response.json({ groups: [fresh] });
+    });
+    // The directory has loaded, but is loading again: its answer may list the newcomer back whom
+    // this listing has gone, whom saving against the listing as it was would drop from the group.
+    const { user, rerender, reloadDirectory } = showCard({
+      directory: new Map<UserId, DirectoryUser>([...people, [newcomer.id, { ...newcomer, status: "deactivated" }]]),
+      loaded: true,
+      reloading: true,
+    });
+    await user.click(await within(card()).findByRole("button", { name: "Edit launch" }));
+    await user.click(within(card()).getByRole("button", { name: "Save changes" }));
+    // The save waits for the load under way, which the card asks for no other alongside.
+    expect(sent).toBeUndefined();
+    expect(reloadDirectory).not.toHaveBeenCalled();
+    // The load has come, listing the newcomer active now, and the save has gone with them kept.
+    rerender(new Map<UserId, DirectoryUser>([...people, [newcomer.id, newcomer]]), true, false);
+    await vi.waitFor(() => expect(sent).toEqual({ name: "launch", memberIds: [ada.id, newcomer.id] }));
+  });
+
   it("waits for the directory to come, its last load having failed, and keeps the member it couldn't verify", async () => {
     const newcomer: DirectoryUser = { id: "u5", name: "New Hand", bio: null, role: "member", status: "active", avatarUrl: "" };
     const fresh: UserGroup = { id: "g5", name: "launch", memberIds: [ada.id, newcomer.id] };
@@ -215,6 +243,45 @@ describe("User groups", () => {
     await user.click(within(card()).getByRole("button", { name: "Save changes" }));
     // The card has asked for the directory again, and the save waits for a load that comes.
     expect(reloadDirectory).toHaveBeenCalledOnce();
+    expect(sent).toBeUndefined();
+    // One has come, listing the newcomer active now, and the save has gone with them kept.
+    rerender(new Map<UserId, DirectoryUser>([...people, [newcomer.id, newcomer]]), true, false);
+    await vi.waitFor(() => expect(sent).toEqual({ name: "launch", memberIds: [ada.id, newcomer.id] }));
+    expect(within(card()).getByRole("list")).toHaveTextContent("2 members");
+  });
+
+  it("lets a held save go to be tried once its load has failed again, which it never sends against the listing as it was", async () => {
+    const newcomer: DirectoryUser = { id: "u5", name: "New Hand", bio: null, role: "member", status: "active", avatarUrl: "" };
+    const fresh: UserGroup = { id: "g7", name: "launch", memberIds: [ada.id, newcomer.id] };
+    let sent: unknown;
+    serve((method, _path, body) => {
+      if (method === "PATCH") {
+        sent = body;
+        return Response.json({ group: fresh });
+      }
+      return Response.json({ groups: [fresh] });
+    });
+    // The directory's last load has failed, which leaves it listing the newcomer gone whom the group
+    // has, and the save it held waits for a load that comes. One that fails again lets the save go
+    // to be tried, rather than hold it for good or send it against the listing as it was.
+    const { user, rerender, reloadDirectory } = showCard({
+      directory: new Map<UserId, DirectoryUser>([...people, [newcomer.id, { ...newcomer, status: "deactivated" }]]),
+      loaded: true,
+      stale: true,
+    });
+    await user.click(await within(card()).findByRole("button", { name: "Edit launch" }));
+    await user.click(within(card()).getByRole("button", { name: "Save changes" }));
+    expect(reloadDirectory).toHaveBeenCalledOnce();
+    expect(sent).toBeUndefined();
+    // The load the save waits for has failed again, and the save is let go, still unsent.
+    rerender(new Map<UserId, DirectoryUser>([...people, [newcomer.id, { ...newcomer, status: "deactivated" }]]), true, true, true);
+    rerender(new Map<UserId, DirectoryUser>([...people, [newcomer.id, { ...newcomer, status: "deactivated" }]]), true, false, true);
+    const saveButton = within(card()).getByRole("button", { name: "Save changes" });
+    expect(saveButton).not.toBeDisabled();
+    expect(sent).toBeUndefined();
+    // Tried again, the save asks for the directory once more, and waits for it.
+    await user.click(saveButton);
+    expect(reloadDirectory).toHaveBeenCalledTimes(2);
     expect(sent).toBeUndefined();
     // One has come, listing the newcomer active now, and the save has gone with them kept.
     rerender(new Map<UserId, DirectoryUser>([...people, [newcomer.id, newcomer]]), true, false);
