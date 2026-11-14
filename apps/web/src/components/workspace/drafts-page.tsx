@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode, type Ref } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState, type ComponentType, type ReactNode, type Ref } from "react";
 import type { ListedScheduledMessage, Me, Room, ScheduledMessage, SearchMatch } from "@ember/protocol";
 import { writtenBody } from "@ember/richtext/dom";
 import { useOptionalFlash } from "@/components/flash";
@@ -15,7 +15,7 @@ import { fetchScheduled, fetchSearch, isSignedOut } from "@/lib/api";
 import { discardDraft, draftsOf, type Draft } from "@/lib/drafts";
 import { dateTimeLabel, timeLabel } from "@/lib/messages";
 import { activityLabel } from "@/lib/direct-list";
-import { changeScheduled, type ScheduledChange } from "@/lib/scheduled-actions";
+import { changeScheduled, REFUSED, restoreScheduled, restoringOf, type Restoring, type ScheduledChange } from "@/lib/scheduled-actions";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "./page-header";
 import { UNDO_MS } from "./schedule-send";
@@ -69,7 +69,7 @@ export function DraftsPage({ me, tab, rooms, onFailed }: Props) {
           ))}
         </nav>
         <section className="min-h-0 flex-1 basis-0 overflow-x-hidden overflow-y-auto overscroll-contain px-[22px] pt-4 pb-[max(18px,env(safe-area-inset-bottom))] [scrollbar-gutter:stable] max-md:px-0 max-md:pt-3">
-          {tab === "drafts" ? <Drafts me={me} names={names} /> : tab === "scheduled" ? <Scheduled names={names} onFailed={onFailed} /> : <Sent me={me} names={names} onFailed={onFailed} />}
+          {tab === "drafts" ? <Drafts me={me} names={names} /> : tab === "scheduled" ? <Scheduled userId={me.id} names={names} onFailed={onFailed} /> : <Sent me={me} names={names} onFailed={onFailed} />}
         </section>
       </MainContent>
     </>
@@ -179,6 +179,10 @@ export const SCHEDULED_DELAY_MS = 1000;
 
 /** What's said when a change to a scheduled message from here doesn't go. */
 export const SCHEDULED_CHANGE_FAILED = "Couldn't change the scheduled message. Try again.";
+/** What's said when Undo couldn't reach the room, and waits to try again. */
+export const SCHEDULED_RESTORE_WAITING = "Couldn't reach the room yet. Undo finishes the next time you open Scheduled.";
+/** What's said when the room wouldn't schedule a deleted message again, as when its time has passed. */
+export const SCHEDULED_RESTORE_DRAFTED = "Couldn't schedule it again, so it's back in its draft.";
 
 /** One deleted from here, which keeps its place with Undo while it can be scheduled again. */
 interface Deleted {
@@ -192,10 +196,12 @@ interface Deleted {
  * it: each with when it's to go, or that it couldn't, opening where it is to go. Each can be sent now, moved
  * or deleted from here, over a socket to its room (`changeScheduled`): on hover or focus, or on a phone, from
  * the sheet a long press opens, as the composer's list has them, and a deletion can be undone for a few
- * seconds. It's asked for as the tab opens, and again a moment after a room open here says your scheduled
- * messages there have changed, or a change made here has gone.
+ * seconds. Undo is kept in this browser until the room has it (`restoreScheduled`), and the page asks
+ * before it's left meanwhile, so a reload doesn't lose the message: what an earlier visit's Undo didn't
+ * finish goes again as the tab opens. It's asked for as the tab opens, and again a moment after a room
+ * open here says your scheduled messages there have changed, or a change made here has gone.
  */
-function Scheduled({ names, onFailed }: { names: SearchNames; onFailed: (error: unknown) => void }) {
+function Scheduled({ userId, names, onFailed }: { userId: string; names: SearchNames; onFailed: (error: unknown) => void }) {
   const [listed, setListed] = useState<ListedScheduledMessage[] | null>(null);
   // What the rooms open here say of your scheduled messages, which changes as you schedule, send or delete one.
   const heard = useAllScheduled();
@@ -205,6 +211,8 @@ function Scheduled({ names, onFailed }: { names: SearchNames; onFailed: (error: 
   const [moving, setMoving] = useState<ListedScheduledMessage | null>(null);
   const [acting, setActing] = useState<ListedScheduledMessage | null>(null);
   const [deleted, setDeleted] = useState<Deleted | null>(null);
+  // How many Undos are on their way to their rooms.
+  const [restoring, setRestoring] = useState(0);
   const list = useRef<HTMLUListElement>(null);
   const flash = useOptionalFlash();
   const first = useRef(true);
@@ -232,11 +240,41 @@ function Scheduled({ names, onFailed }: { names: SearchNames; onFailed: (error: 
     return () => clearTimeout(timer);
   }, [deleted]);
 
+  // Leaving while an Undo is on its way asks first, though what it hasn't finished goes again next time.
+  useEffect(() => {
+    if (restoring === 0) return;
+    const ask = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", ask);
+    return () => window.removeEventListener("beforeunload", ask);
+  }, [restoring]);
+
+  const restore = async (what: Restoring, row?: ListedScheduledMessage) => {
+    setRestoring((count) => count + 1);
+    if (row) setChanging((ids) => new Set(ids).add(row.id));
+    const restored = await restoreScheduled(userId, what);
+    setRestoring((count) => count - 1);
+    if (row) setChanging((ids) => new Set([...ids].filter((id) => id !== row.id)));
+    if (restored === null) {
+      flash?.("alert", SCHEDULED_RESTORE_WAITING);
+      return;
+    }
+    if (restored === "drafted") {
+      if (row) without(row);
+      flash?.("alert", SCHEDULED_RESTORE_DRAFTED);
+    }
+    setChanged((times) => times + 1);
+  };
+  // What an earlier visit's Undo left unfinished, as when the page was reloaded before the room had it.
+  const restoreUnfinished = useEffectEvent(() => {
+    for (const what of restoringOf(userId)) void restore(what);
+  });
+  useEffect(() => restoreUnfinished(), [userId]);
+
   const change = async (row: ListedScheduledMessage, what: ScheduledChange, made: (message: ScheduledMessage) => void) => {
     setChanging((ids) => new Set(ids).add(row.id));
     const before = await changeScheduled(row.roomId, what);
     setChanging((ids) => new Set([...ids].filter((id) => id !== row.id)));
-    if (!before) {
+    if (!before || before === REFUSED) {
       flash?.("alert", SCHEDULED_CHANGE_FAILED);
       return;
     }
@@ -255,9 +293,11 @@ function Scheduled({ names, onFailed }: { names: SearchNames; onFailed: (error: 
       // One that couldn't be sent is gone for good, as the composer's list has it.
       if (row.failed === undefined) setDeleted({ row, message });
     });
+  // The row comes back at once, as the Undo is kept until its room has it.
   const undo = ({ row, message }: Deleted) => {
     setDeleted(null);
-    void change(row, { type: "restore", message }, () => setListed((rows) => rows && [...rows, row].sort(bySendAt)));
+    setListed((rows) => rows && [...rows, row].sort(bySendAt));
+    void restore({ roomId: row.roomId, message, clientMessageId: crypto.randomUUID() }, row);
   };
 
   // The deleted one keeps its place in the list while it can be brought back.
