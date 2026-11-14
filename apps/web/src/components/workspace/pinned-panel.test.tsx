@@ -32,7 +32,7 @@ function show(pins: Parameters<typeof PinnedPanel>[0]["pins"], messages: Message
   const onUnpin = vi.fn();
   const refresh = vi.fn();
   const onClose = vi.fn();
-  render(
+  const drawn = (pins: Parameters<typeof PinnedPanel>[0]["pins"], messages: Message[]) => (
     <PinnedPanel
       room={general}
       name="general"
@@ -45,9 +45,17 @@ function show(pins: Parameters<typeof PinnedPanel>[0]["pins"], messages: Message
       onDismissRoomNotice={vi.fn()}
       onClose={onClose}
       {...changes}
-    />,
+    />
   );
-  return { onUnpin, refresh, onClose, panel: screen.getByRole("complementary", { name: "Pinned messages" }) };
+  const view = render(drawn(pins, messages));
+  return {
+    onUnpin,
+    refresh,
+    onClose,
+    panel: screen.getByRole("complementary", { name: "Pinned messages" }),
+    /** The panel again, its pins and listed messages as they've since become. */
+    redraw: (pins: Parameters<typeof PinnedPanel>[0]["pins"], messages: Message[] = []) => view.rerender(drawn(pins, messages)),
+  };
 }
 
 afterEach(cleanup);
@@ -88,6 +96,36 @@ describe("The Pinned panel", () => {
     cleanup();
     const listed = show([{ messageId: "m1", by: grace, at: "2026-11-13T10:01:00.000Z" }], [first]);
     expect(listed.refresh).not.toHaveBeenCalled();
+  });
+
+  it("asks again when which pins wait for their listing changes, as a listing and another pin's arrival come together", () => {
+    // A pin's in whose time waits, so the room's been asked.
+    const waiting = show([{ messageId: "m1", by: grace, at: null }], [first]);
+    expect(waiting.refresh).toHaveBeenCalledOnce();
+
+    // Its listing and another pin's arrival are taken in together: m1's time has come, m2's now waits.
+    waiting.redraw(
+      [
+        { messageId: "m1", by: grace, at: "2026-11-13T10:01:00.000Z" },
+        { messageId: "m2", by: ada, at: null },
+      ],
+      [first],
+    );
+    expect(waiting.refresh).toHaveBeenCalledTimes(2);
+
+    // The listing answers with both pins and their messages, which the panel shows, asking no more.
+    waiting.redraw(
+      [
+        { messageId: "m1", by: grace, at: "2026-11-13T10:01:00.000Z" },
+        { messageId: "m2", by: ada, at: "2026-11-13T10:02:00.000Z" },
+      ],
+      [first, second],
+    );
+    const panel = screen.getByRole("complementary", { name: "Pinned messages" });
+    const items = within(panel).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(within(items[1]!).getByText("Second pinned")).toBeInTheDocument();
+    expect(waiting.refresh).toHaveBeenCalledTimes(2);
   });
 
   it("says when nothing's pinned, and offers no Unpin where nothing can change, as in a room that's gone", () => {
