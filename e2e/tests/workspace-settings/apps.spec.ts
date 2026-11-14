@@ -1,13 +1,15 @@
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
+import { ASSISTANT_ID, PROFILE_PATH, type WorkspaceSettings } from "@ember/protocol";
 import { TOOL_GONE, type AgentTools, type AppAnswer, type Apps } from "@ember/protocol/apps";
-import { administratorSession, cookieHeader, editorField, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
+import { administratorSession, cookieHeader, editorField, expect, newAddress, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
 import { FILE_QUESTION, FILED, startFakeGateway, type FakeGateway } from "./fake-gateway";
 import { ALLOW_HEADING, asksFor, calledWith, MCP_TOKEN, SERVER_NAME, startFakeMcp, TOOLS, type FakeMcp } from "./fake-mcp";
 
 // The Apps card on the AI assistant tab, Connect an app, a connected app's page, the Tools card on
 // @ember's page, and @ember calling a picked tool once it's allowed, or at once where an administrator
-// always allows it, and the card a tool answers with, whose buttons call its tools, on the second test
+// always allows it, the card a tool answers with, whose buttons call its tools, and the Apps section of
+// someone's profile, where they sign in to an app themselves, on the second test
 // server, with an MCP server this spec fakes on this machine. Each test leaves the workspace as a new one is: no apps,
 // and Ember AI off.
 
@@ -548,6 +550,78 @@ test.describe("Apps", () => {
       await expect(page.getByRole("article", { name: "Ember wants to use Tracker" })).toHaveCount(1);
     } finally {
       mcp.blocks = null;
+    }
+  });
+
+  test("someone signs in to an app themselves on their profile, and what @ember does with it in their direct conversation goes as them, once they allow it, until they sign out", async ({ page, request, browser, baseURL }) => {
+    const signsIn = await startFakeMcp({ signsIn: true });
+    const context = await browser.newContext({ baseURL, ignoreHTTPSErrors: true });
+    try {
+      const signIn = signsIn.signIn!;
+      const host = new URL(signsIn.url).host;
+      // The administrator connects the app by signing in to it, and picks one of its tools for @ember.
+      const card = await openApps(page);
+      await connectAt(page, card, signsIn.url);
+      await page.getByRole("button", { name: `Sign in to ${host}` }).click();
+      await page.getByRole("link", { name: "Allow" }).click();
+      await expect(page.getByRole("alert")).toHaveText("Tracker is connected. Ember read 2 tools from it.");
+      const headers = await asAdministrator(request);
+      const offered = (await (await request.get("/api/account/agents/ember/tools", { headers })).json()) as AgentTools;
+      const tools = offered.apps.flatMap(({ id, tools }) => tools.filter(({ name }) => name === "create_issue").map(({ name, fingerprint }) => ({ appId: id, name, fingerprint })));
+      const picked = await request.put("/api/account/agents/ember/tools", { data: { tools }, headers });
+      expect(picked.status(), await picked.text()).toBe(200);
+
+      // Grace, who joins Ember with the join link, finds the app on her profile, not signed in to.
+      const { joinCode } = (await (await request.get("/api/account", { headers })).json()) as WorkspaceSettings;
+      const name = `Grace ${crypto.randomUUID().slice(0, 8)}`;
+      const asGrace = { "CF-Connecting-IP": newAddress(), ...SAME_ORIGIN };
+      const joined = await context.request.post(`/api/join/${joinCode}`, { data: { name, emailAddress: `${crypto.randomUUID()}@example.com`, password: "compiler error" }, headers: asGrace });
+      expect(joined.status(), await joined.text()).toBe(201);
+      const grace = await context.newPage();
+      await useOwnAddress(grace);
+      await grace.goto(PROFILE_PATH);
+      const apps = grace.getByRole("region", { name: "Apps", exact: true });
+      await expect(apps.getByRole("listitem")).toContainText(["TrackerYou haven't signed in. Agents use the sign-in an administrator made."]);
+
+      // Signing in sends her to the app's service, and allowing it there comes back to her profile, signed in.
+      await apps.getByRole("button", { name: "Sign in to Tracker" }).click();
+      await expect(grace.getByRole("heading", { name: ALLOW_HEADING })).toBeVisible();
+      await grace.getByRole("link", { name: "Allow" }).click();
+      await expect(grace.getByRole("alert")).toHaveText("You're signed in to Tracker. What an agent does with it in your direct conversation with that agent, it now does as you.");
+      await expect(grace).toHaveURL(new RegExp(`${PROFILE_PATH}$`));
+      await expect(apps.getByRole("listitem")).toContainText("You signed in");
+      await expect(apps.getByRole("button", { name: "Sign in to Tracker" })).toHaveCount(0);
+      expect(signIn.exchanged).toBe(2);
+
+      // In her direct conversation with @ember, a call of the tool waits on a card that says it goes as her.
+      const direct = await context.request.post("/api/directs", { data: { userIds: [ASSISTANT_ID] }, headers: asGrace });
+      expect(direct.status(), await direct.text()).toBe(201);
+      const { room } = (await direct.json()) as { room: { id: string } };
+      await grace.goto(`/rooms/${room.id}`);
+      const title = `Login fails ${crypto.randomUUID().slice(0, 8)}`;
+      const composer = editorField(grace, "Write a message");
+      await composer.pressSequentially(`${FILE_QUESTION} ${title}`);
+      await composer.press("Enter");
+      const call = grace.getByRole("article", { name: "Ember wants to use Tracker" }).filter({ hasText: title });
+      await expect(call).toContainText(`${name} can allow this call. It goes to Tracker as ${name}, with the sign-in they made to it themselves.`);
+      expect(signsIn.calls).toEqual([]);
+
+      // The service keeps one sign-in good at a time, and hers is the later, so the call it runs is the one made as her.
+      await call.getByRole("button", { name: "Allow once" }).click();
+      await expect(call).toContainText(`Allowed by ${name}.`);
+      await expect(grace.getByRole("article").filter({ hasText: FILED })).toContainText(`${FILED} ${calledWith("create_issue", { title })}`);
+      expect(signsIn.calls).toEqual([{ name: "create_issue", arguments: { title } }]);
+
+      // Signing out takes her sign-in back at the service, and leaves the app as it was for her.
+      await grace.goto(PROFILE_PATH);
+      await apps.getByRole("button", { name: "Sign out of Tracker" }).click();
+      await expect(grace.getByRole("alert")).toHaveText("You're signed out of Tracker, which took your sign-in back.");
+      await expect(apps.getByRole("listitem")).toContainText(["TrackerYou haven't signed in. Agents use the sign-in an administrator made."]);
+      expect(signIn.revoked).toHaveLength(2);
+      expect([signIn.access, signIn.refresh]).toEqual([null, null]);
+    } finally {
+      await context.close();
+      await signsIn.close();
     }
   });
 });

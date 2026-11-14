@@ -1,14 +1,16 @@
 import { ASSISTANT_ID, type Card, type Me, type Message, type NewWorkspace, type RoomId, type User } from "@ember/protocol";
 import { CALL_ACTIONS, type AgentTools, type App, type AppAnswer, type CallDecision, type ToolPick } from "@ember/protocol/apps";
 import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import { env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fromApp, toolCallOf, toolCard, toolCards } from "../src/apps/cards";
 import { MAX_RESULT_LENGTH } from "../src/apps/mcp";
-import { alwaysAllowedFor, CALL_NOT_SHOWN, CALL_OUTCOMES, MAX_SHOWN_INPUT_LENGTH, shownAsCard, signInEnded, TOO_LONG_TO_SHOW, unmadeFor } from "../src/apps/tools";
+import { alwaysAllowedFor, CALL_NOT_SHOWN, CALL_OUTCOMES, callNote, MAX_SHOWN_INPUT_LENGTH, ownSignInEnded, shownAsCard, signInEnded, TOO_LONG_TO_SHOW, unmadeFor } from "../src/apps/tools";
 import { CALL_WAITS_MS } from "../src/apps/waiting-calls";
 import { CALL_DECLINED } from "../src/assistant/tool-calls";
-import { api, connect, cookieOf, freshDeploy, post, roomSql, roomStub, shown, workspaceSql, type Client, type Session } from "./support";
+import type { Env } from "../src/env";
+import { seal } from "../src/sealed";
+import { api, connect, cookieOf, freshDeploy, post, roomSql, roomStub, shown, startDirect, workspaceSql, type Client, type Session } from "./support";
 
 // Calls of connected apps' tools: @ember or an agent calls one picked for it, the room asks first on a
 // card, and the call runs, and the answer goes on, once whoever asked or an administrator allows it,
@@ -44,8 +46,8 @@ let asked: Asked[];
 let script: Turn[];
 /** What happens while the model works on its next turn, once, if anything. */
 let meanwhile: (() => Promise<unknown>) | undefined;
-/** The tools the fake server lists, the token it takes, and what it answers a call with, in its own time: a result, or the error it refuses it with. */
-let server: { tools: unknown[]; token: string; result: (call: Rpc) => unknown; refuses?: string };
+/** The tools the fake server lists, the token it takes, and another, if it `also` takes one, and what it answers a call with, in its own time: a result, or the error it refuses it with. */
+let server: { tools: unknown[]; token: string; also?: string; result: (call: Rpc) => unknown; refuses?: string };
 
 /** The fake server's answer to `message`. */
 async function answerTo(message: Rpc): Promise<Response> {
@@ -84,7 +86,8 @@ beforeEach(async () => {
     if (request.method !== "POST") return new Response(null, { status: 405 });
     const message = { ...((await request.json()) as Rpc), authorization: request.headers.get("Authorization") };
     rpcs.push(message);
-    return message.authorization === `Bearer ${server.token}` ? answerTo(message) : new Response("Unauthorized", { status: 401, headers: { "WWW-Authenticate": "Bearer" } });
+    const taken = [server.token, ...(server.also === undefined ? [] : [server.also])].some((token) => message.authorization === `Bearer ${token}`);
+    return taken ? answerTo(message) : new Response("Unauthorized", { status: 401, headers: { "WWW-Authenticate": "Bearer" } });
   });
 });
 afterEach(() => vi.restoreAllMocks());
@@ -966,5 +969,86 @@ describe("A card a connected app's tool answers a call with", () => {
     for (const blocks of undrawn) expect(toolCard(tool, JSON.stringify(blocks)), JSON.stringify(blocks)).toBeNull();
     expect(toolCard(tool, "{")).toBeNull();
     expect(toolCard(tool, '{"type":"section"}')).toBeNull();
+  });
+});
+
+describe("A call of a tool of an app someone has signed in to themselves, in their direct conversation with an agent", () => {
+  const GRACES_TOKEN = "graces-own-token";
+  /** A sign-in that's done, as Ember keeps one, whose access token is `access` and doesn't end. */
+  const signInWith = (access: string) => JSON.stringify({ redirectUrl: "https://ember.example/account/apps/signed-in", clientUrl: null, tokens: { access, refresh: null, scope: null }, expiresAt: null });
+  const sealedFor = (boundTo: string, access: string) => seal((env as unknown as Env).SESSION_SECRET, "app-sign-in", `${boundTo}\n${signInWith(access)}`);
+
+  /** Has Tracker be an app Ember signs in to, with the token its server takes, and Grace, a member, signed in to it herself, in her direct conversation with @ember. */
+  async function withGrace(): Promise<{ ada: Session; grace: Session; tracker: App; general: RoomId; inDm: Client }> {
+    const { ada, tracker, general } = await setUp();
+    const grace = await join("Grace Hopper");
+    const now = new Date().toISOString();
+    await workspaceSql("UPDATE apps SET token = NULL, sign_in = ?, signed_in_by = ?, signed_in_at = ? WHERE id = ?", await sealedFor(tracker.id, MCP_TOKEN), ada.user.id, now, tracker.id);
+    const hers = await sealedFor(`own ${tracker.id} ${grace.user.id}`, GRACES_TOKEN);
+    await workspaceSql("INSERT INTO own_app_sign_ins (app_id, user_id, sign_in, signed_in_at) VALUES (?, ?, ?, ?)", tracker.id, grace.user.id, hers, now);
+    server.also = GRACES_TOKEN;
+    const { room } = (await (await startDirect(grace, [ASSISTANT_ID])).json()) as { room: { id: RoomId } };
+    return { ada, grace, tracker, general, inDm: await connect(room.id, grace) };
+  }
+
+  /** Asks @ember in the direct conversation `client` is in, where it answers whatever is written: what it posts next. */
+  async function askThere(client: Client): Promise<Message> {
+    await post(client, "<p>open an issue for the login bug</p>");
+    return fromEmber(client);
+  }
+
+  const tokens = () => calls().map(({ authorization }) => authorization);
+
+  it("asks them, saying that it goes as them, and goes with their sign-in, while one they ask for in a room goes with Ember's", async () => {
+    const { grace, general, inDm } = await withGrace();
+    script = [CALL, { text: "Opened it as you." }, CALL, { text: "Opened it." }];
+
+    const card = await askThere(inDm);
+    expect(card.plainText).toContain(callNote("Grace Hopper", { appName: "Tracker", own: true }));
+    expect(card.plainText).toContain("It goes to Tracker as Grace Hopper");
+    expect(asked[0]!.tools[1]!.description).toContain("which the person you're answering has signed in to themselves: here, a call of it is made as them.");
+    expect(calls()).toEqual([]);
+    click(inDm, card, "allow");
+    expect((await fromEmber(inDm)).plainText).toBe("Opened it as you.");
+    expect(tokens()).toEqual([`Bearer ${GRACES_TOKEN}`]);
+
+    const there = await connect(general, grace);
+    const shared = await ask(there);
+    expect(shared.plainText).toContain(callNote("Grace Hopper", { appName: "Tracker" }));
+    expect(asked.at(-1)!.tools[1]!.description).not.toContain("signed in to themselves");
+    click(there, shared, "allow");
+    expect((await fromEmber(there)).plainText).toBe("Opened it.");
+    expect(tokens()).toEqual([`Bearer ${GRACES_TOKEN}`, `Bearer ${MCP_TOKEN}`]);
+  });
+
+  it("asks first even where an administrator always allows the agent the tool, which was said of Ember's sign-in", async () => {
+    const { ada, inDm } = await withGrace();
+    await pick(ada, ["create_issue"], { always: ["create_issue"] });
+    script = [CALL, { text: "Opened it as you." }];
+
+    const card = await askThere(inDm);
+    expect(buttonsOf(card.cards).map(({ text }) => text)).toEqual(["Allow once", "Deny"]);
+    expect(calls()).toEqual([]);
+    click(inDm, card, "allow");
+    expect((await fromEmber(inDm)).plainText).toBe("Opened it as you.");
+    expect(tokens()).toEqual([`Bearer ${GRACES_TOKEN}`]);
+  });
+
+  it("isn't made with Ember's sign-in once theirs has ended, which the model is told, and is once they've signed out", async () => {
+    const { grace, tracker, inDm } = await withGrace();
+    await workspaceSql("UPDATE own_app_sign_ins SET sign_in = NULL WHERE user_id = ?", grace.user.id);
+    script = [CALL, { text: "You need to sign in to Tracker again." }, CALL, { text: "Opened it." }];
+
+    click(inDm, await askThere(inDm), "allow");
+    expect((await fromEmber(inDm)).plainText).toBe("You need to sign in to Tracker again.");
+    expect(told()).toEqual([[`Not run: ${ownSignInEnded("Tracker")}`, true]]);
+    expect(calls()).toEqual([]);
+
+    await workspaceSql("DELETE FROM own_app_sign_ins WHERE app_id = ?", tracker.id);
+    const card = await askThere(inDm);
+    expect(card.plainText).toContain(callNote("Grace Hopper", { appName: "Tracker" }));
+    click(inDm, card, "allow");
+    expect((await fromEmber(inDm)).plainText).toBe("Opened it.");
+    expect(tokens()).toEqual([`Bearer ${MCP_TOKEN}`]);
   });
 });

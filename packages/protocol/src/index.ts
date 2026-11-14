@@ -3,6 +3,7 @@
 // worker and the web app both import it directly as TypeScript.
 
 import type { AgentProfile } from "./agents.ts";
+import type { YourApp } from "./apps.ts";
 import type { AssistantSettings, YourAssistant } from "./assistant.ts";
 import { isActionId, isActionValue, type Card } from "./cards.ts";
 import type { StoredFile } from "./files.ts";
@@ -924,6 +925,8 @@ export interface Profile {
   memberful: MemberfulStatus | null;
   /** How much @ember thinks and how long it answers you, and the most each may be, and the model you picked, if you did, and the ones you can pick, or null while Ember AI is off. */
   assistant: YourAssistant | null;
+  /** The connected apps you can sign in to yourself, by name, each with your sign-in to it, if you've made one: none while Ember AI is off, or for a guest. */
+  apps: YourApp[];
 }
 
 /** What `GET /api/users/me/profile` answers, and `PATCH` once it has saved. */

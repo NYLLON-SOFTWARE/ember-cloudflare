@@ -96,7 +96,23 @@ import {
   tokenDigest,
 } from "./auth";
 import { directoryOf } from "./avatar-tokens";
-import { appPage, beginAppSignIn, beginNewAppSignIn, changeApp, clientDocument, connectApp, disconnectApp, finishAppSignIn, listApps, pickAgentTools, readAppTools, showAgentTools, showApp } from "./apps/api";
+import {
+  appPage,
+  beginAppSignIn,
+  beginNewAppSignIn,
+  beginOwnAppSignIn,
+  changeApp,
+  clientDocument,
+  connectApp,
+  disconnectApp,
+  finishAppSignIn,
+  listApps,
+  pickAgentTools,
+  readAppTools,
+  showAgentTools,
+  showApp,
+  signOutOfApp,
+} from "./apps/api";
 import { CLIENT_DOCUMENT_PATH } from "./apps/oauth";
 import { agentPage, changeAgent, createAgent, deleteAgent, listAgents, removeAgentAvatar, showAgent, tryAgent } from "./assistant/agents";
 import {
@@ -1156,6 +1172,9 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "PATCH") return () => changeProfile(request, env);
   if (pathname === "/api/users/me/assistant" && request.method === "PATCH") return () => changeYourAssistant(request, env);
+  const ownAppSignIn = pathname.match(/^\/api\/users\/me\/apps\/([^/]+)\/sign-in$/);
+  if (ownAppSignIn && request.method === "POST") return () => beginOwnAppSignIn(request, env, ownAppSignIn[1]!);
+  if (ownAppSignIn && request.method === "DELETE") return () => signOutOfApp(request, env, ownAppSignIn[1]!);
   if (pathname === MEMBERFUL_CONNECTIONS_PATH && request.method === "POST") return () => connectMemberful(request, env);
   if (pathname === MEMBERFUL_CONNECTIONS_PATH && request.method === "DELETE") return () => disconnectMemberful(request, env);
   if (pathname === AVATAR_PATH && request.method === "PUT") return () => changeAvatar(request, env);

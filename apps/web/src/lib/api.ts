@@ -93,7 +93,27 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol";
 import type { Agent, AgentAnswer, AgentChanges, Agents, AgentSettings, AgentTrial, AgentTrialAnswer, NewAgent } from "@ember/protocol/agents";
-import type { AgentToolPicks, AgentTools, App, AppAnswer, AppChanges, AppClient, AppId, AppRemoved, Apps, AppSignedIn, AppSignInBegun, AppSignInReturn, AppSummary, NewApp, NewAppSignIn, OfferedApp, ToolPick } from "@ember/protocol/apps";
+import type {
+  AgentToolPicks,
+  AgentTools,
+  App,
+  AppAnswer,
+  AppChanges,
+  AppClient,
+  AppId,
+  AppRemoved,
+  Apps,
+  AppSignedIn,
+  AppSignInBegun,
+  AppSignInReturn,
+  AppSummary,
+  NewApp,
+  NewAppSignIn,
+  OfferedApp,
+  ToolPick,
+  YourAppSignedIn,
+  YourAppSignedOut,
+} from "@ember/protocol/apps";
 import type { LogoVariants } from "@/lib/previews";
 
 // The session lives in an HttpOnly cookie, which the browser sends with every request and socket,
@@ -718,11 +738,22 @@ export async function beginAppSignIn(appId: AppId, client?: AppClient): Promise<
 
 /**
  * Finishes the sign-in an authorization server sent the browser `back` from, answering the app, connected
- * by it or signed in to `again`. Fails as `fetchApps` does, and with a 422 ApiError for a sign-in that
- * has ended, was begun by someone else, or that its server didn't finish.
+ * by it or signed in to `again`, or, for a sign-in you made to a connected app yourself, the app as your
+ * profile then lists it. Fails as `fetchApps` does, and with a 422 ApiError for a sign-in that has
+ * ended, was begun by someone else, or that its server didn't finish.
  */
-export async function finishAppSignIn(back: AppSignInReturn): Promise<AppSignedIn> {
-  return request<AppSignedIn>("/api/account/app-sign-ins/finish", { method: "POST", body: JSON.stringify(back) });
+export async function finishAppSignIn(back: AppSignInReturn): Promise<AppSignedIn | YourAppSignedIn> {
+  return request<AppSignedIn | YourAppSignedIn>("/api/account/app-sign-ins/finish", { method: "POST", body: JSON.stringify(back) });
+}
+
+/** Begins a sign-in you make to the connected app `appId` yourself, answering where to send the browser. Fails with an ApiError: 404 for an app that isn't one Ember signs in to, 409 while Ember AI is off, 422 when its server has no sign-in Ember can use. */
+export async function beginOwnAppSignIn(appId: AppId): Promise<string> {
+  return (await request<AppSignInBegun>(`/api/users/me/apps/${encodeURIComponent(appId)}/sign-in`, { method: "POST" })).authorizationUrl;
+}
+
+/** Forgets the sign-in you made to the connected app `appId` yourself, answering the apps as your profile then lists them, and whether its service took the sign-in back. Fails as `beginOwnAppSignIn` does. */
+export async function signOutOfApp(appId: AppId): Promise<YourAppSignedOut> {
+  return request<YourAppSignedOut>(`/api/users/me/apps/${encodeURIComponent(appId)}/sign-in`, { method: "DELETE" });
 }
 
 /** Changes app `appId`, leaving what `changes` leaves out, answering it as its page then shows it. Fails as `fetchApp` and `connectApp` do. */

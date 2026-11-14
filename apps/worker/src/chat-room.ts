@@ -1395,7 +1395,7 @@ export class ChatRoom extends DurableObject<Env> {
     if (!tool) throw new ClickError(`${name} no longer has that tool`, "the tool isn't the answerer's any more");
     try {
       const clicked = { who: clicker.member.name, button: label };
-      const { text, card } = await calledFromCard(this.env, access.bot.id, givenAs(tool), call.input, clicked);
+      const { text, card } = await calledFromCard(this.env, access.bot.id, givenAs(tool), call.input, clicked, { roomId, askerId: user.id });
       const cards = card && toolCards(card, tool.appId, toolsOf(access.appTools, tool.appId));
       const unshown = await this.showCalled(roomId, access, message, cards ?? slackMessage(saidCard(tool, text, clicked)), cards !== null);
       if (unshown !== null) throw new ClickError(`${tool.appName}'s answer couldn't be shown`, `its answer wasn't kept: ${unshown}`);
@@ -1593,7 +1593,8 @@ export class ChatRoom extends DurableObject<Env> {
     const where = { community, roomName, inThread: message.parentId !== undefined };
     const read = readable(conversation, where.inThread).map(({ id }) => id);
     const given = takesTools ? givenTools(access.appTools) : [];
-    const appTools = given.map((tool) => appTool(this.env, bot.id, tool, { described: tool, shown: this.showsCallsOf(roomId, access, message, tool), cards: this.showsCardsOf(roomId, bot, message, tool) }));
+    const askedBy = { roomId, askerId: author.id };
+    const appTools = given.map((tool) => appTool(this.env, bot.id, tool, askedBy, { described: tool, shown: this.showsCallsOf(roomId, access, message, tool), cards: this.showsCardsOf(roomId, bot, message, tool) }));
     const tools = takesTools ? [roomSearch(this.env, roomId, read), ...appTools] : [];
     const asked = { ...questionFor({ ...bot, instructions, promptTemplate }, conversation, author, where, levels, new Date(), webTools, webSearchOn), tools };
     const [answered, people] = await Promise.all([askWaiting(this.env, gateway, asked, waitFor(asked)), this.peopleWhoWrote(conversation)]);
@@ -1614,7 +1615,8 @@ export class ChatRoom extends DurableObject<Env> {
     const conversation = await this.conversationOf(this.storeFor(roomId), message);
     const inThread = message.parentId !== undefined;
     const read = readable(conversation, inThread).map(({ id }) => id);
-    const appTools = call.tools.map((tool) => appTool(this.env, bot.id, tool, { shown: this.showsCallsOf(roomId, access, message, tool), cards: this.showsCardsOf(roomId, bot, message, tool) }));
+    const asked = { roomId, askerId: call.asker.id };
+    const appTools = call.tools.map((tool) => appTool(this.env, bot.id, tool, asked, { shown: this.showsCallsOf(roomId, access, message, tool), cards: this.showsCardsOf(roomId, bot, message, tool) }));
     const tools = [roomSearch(this.env, roomId, read), ...appTools];
     const [answered, people] = await Promise.all([goOn(this.env, gateway, tools, call.paused, allowed, waitFor(call.paused.question)), this.peopleWhoWrote(conversation)]);
     return this.outcomeOf(access, message, answered, writtenBy(people, conversation, inThread), call.tools);

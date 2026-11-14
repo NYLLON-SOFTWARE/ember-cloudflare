@@ -187,6 +187,34 @@ export interface AppSignedIn {
   again: boolean;
 }
 
+/**
+ * A connected app Ember signs in to, as your profile lists it: by its name, with the sign-in you've
+ * made to it yourself, if you have: when, whether it has `ended`, and whether its server has asked for
+ * more than it allows, `wantsMore`, which signing in again asks for. With one, what an agent does with
+ * the app in your direct conversation with it, it does as you.
+ */
+export interface YourApp {
+  id: AppId;
+  name: string;
+  signedInAt: string | null;
+  ended: boolean;
+  wantsMore: boolean;
+}
+
+/** What finishing a sign-in you made to a connected app yourself answers: the app as your profile then lists it. */
+export interface YourAppSignedIn {
+  yours: YourApp;
+}
+
+/** What `DELETE /api/users/me/apps/<id>/sign-in` answers: the apps as your profile then lists them, and whether the app's service took back what your sign-in gave Ember. */
+export interface YourAppSignedOut {
+  apps: YourApp[];
+  revoked: boolean;
+}
+
+export const YOUR_APP_GONE = "That app isn't one you can sign in to here any more.";
+export const YOUR_APPS_FORBIDDEN = "Guests can't sign in to apps";
+
 /** The longest state, code or issuer a browser comes back from a sign-in with that Ember reads. */
 const MAX_RETURN_LENGTH = 4096;
 

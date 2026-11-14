@@ -93,7 +93,20 @@ import {
   type YourAssistantChanges,
 } from "@ember/protocol/assistant";
 import { MAX_AGENTS, type Agent, type AgentChanges, type AgentProfile, type AgentRoom, type AgentSettings, type NewAgent } from "@ember/protocol/agents";
-import { MAX_APP_SCOPE_LENGTH, MAX_APPS, type App, type AppChanges, type AppId, type AppSummary, type NewApp, type OfferedApp, type SetAsideTool, type ToolPick } from "@ember/protocol/apps";
+import {
+  MAX_APP_SCOPE_LENGTH,
+  MAX_APPS,
+  type App,
+  type AppChanges,
+  type AppId,
+  type AppSummary,
+  type NewApp,
+  type OfferedApp,
+  type SetAsideTool,
+  type ToolPick,
+  type YourApp,
+  type YourAppSignedOut,
+} from "@ember/protocol/apps";
 import type { Gateway } from "./assistant/gateway";
 import { modelsFileUrlOf, type KeptModelsFile, type KeptWorkersAiModels } from "./assistant/offered";
 import { providerMovesOf } from "./assistant/model-tests";
@@ -141,6 +154,7 @@ import {
   type LinkedPerson,
   type MovedModel,
   type NewPerson,
+  type OwnAppSignIn,
   type OwnProfileEntry,
   type PendingRevocation,
   type ProfileEntry,
@@ -754,11 +768,39 @@ export interface AppAccess {
   signedInAt: string | null;
 }
 
-/** Where a call of a connected app's tool goes, as the app is asked. */
-export type AppCallAccess = AppAccess;
+/**
+ * Where a call of a connected app's tool goes, as the app is asked: with what Ember sends it, or, with
+ * `own`, as that person, who asked, with the sign-in they made to it themselves, when `signedInAt` is
+ * when they did, and there's no key once it has ended, or they've signed out.
+ */
+export type AppCallAccess = AppAccess & { own?: UserId };
 
 /** Where an app was asked when its tools were read: its server's address then, its token as it was kept, and when it was signed in to. */
 export type AskedAt = Pick<AppAccess, "url" | "sealedToken" | "signedInAt">;
+
+/** Who asked for a call of an app's tool that goes as them, with the sign-in they made to the app themselves, and where: in their direct conversation with the agent. */
+export interface AskedBy {
+  roomId: RoomId;
+  askerId: UserId;
+}
+
+/** Whose sign-in to an app it is: a person's, which they made themselves, or, with null, Ember's, which an administrator made. */
+type Holder = UserId | null;
+
+/** What the sign-in `holder` keeps to the app `appId` is sealed for, and what's asked for with it is kept by. */
+const signInOf = (appId: AppId, holder: Holder) => (holder === null ? appId : `own ${appId} ${holder}`);
+
+/** The most sign-ins people made to an app themselves that its removal has its service take back: the rest are forgotten all the same. */
+export const MAX_OWN_SIGN_INS_REVOKED = 20;
+
+/** A connected app as someone's profile lists it, with the sign-in they've made to it themselves, if they have. */
+const yourApp = ({ appId, appName, signedIn }: OwnAppSignIn): YourApp => ({
+  id: appId,
+  name: appName,
+  signedInAt: signedIn?.at ?? null,
+  ended: signedIn !== null && signedIn.sealed === null,
+  wantsMore: signedIn !== null && signedIn.scopeWanted !== null,
+});
 
 /** Whether `app` is still asked where it was `at`, as the same account: what its server answered then is still about it. */
 const isAskedAt = (app: StoredApp, at: AskedAt) => app.url === at.url && app.sealedToken === at.sealedToken && (app.signedIn?.at ?? null) === at.signedInAt;
@@ -769,7 +811,7 @@ interface SignInKey {
   signedInAt: string | null;
 }
 
-/** A sign-in to an app that an administrator began, as JSON: for a connected app, or for one to connect by `name` at `url`. */
+/** A sign-in to an app that an administrator began, as JSON: for a connected app, or for one to connect by `name` at `url`. One anyone began to a connected app for themselves is the same. */
 export interface BegunAppSignIn {
   state: string;
   appId: AppId | null;
@@ -877,9 +919,9 @@ export class Workspace extends DurableObject<Env> {
   /** The probes custom domain checks send, each with its answer and when it's no longer waited for (see `expectProbe`). */
   private readonly probes = new Map<string, { answer: string; until: number }>();
   /** The access token of each app's sign-in that's being asked for now (`signInKey`). */
-  private readonly signInKeys = new Map<AppId, Promise<SignInKey>>();
+  private readonly signInKeys = new Map<string, Promise<SignInKey>>();
   /** Whether a removed app's service took back the tokens Ember got from it as the app went, by app, until its removal reads it (`revokeStrayTokens`). */
-  private readonly strayTokens = new Map<AppId, Promise<boolean>>();
+  private readonly strayTokens = new Map<string, Promise<boolean>>();
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
   private lastChange: Promise<unknown> = Promise.resolve();
   /** Ember AI's models being asked through their providers' endpoints, while they are (see `moveToProviderEndpoints`). */
@@ -3271,15 +3313,20 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /** The scopes Ember's sign-in to `app` has, as its authorization server said when it gave them, or null where it didn't say, or the sign-in has ended. */
-  private async scopeHad({ id, sealedSignIn }: StoredApp): Promise<string | null> {
-    const kept = sealedSignIn === null ? null : await this.openedSignIn(id, sealedSignIn);
+  private scopeHad({ id, sealedSignIn }: StoredApp): Promise<string | null> {
+    return this.scopeIn(id, sealedSignIn);
+  }
+
+  /** The scopes the sign-in `sealed` for `signIn` (`signInOf`) has, as its authorization server said when it gave them, or null where it didn't say, or there's none. */
+  private async scopeIn(signIn: string, sealed: string | null): Promise<string | null> {
+    const kept = sealed === null ? null : await this.openedSignIn(signIn, sealed);
     return kept === null ? null : ((JSON.parse(kept) as SignIn).tokens?.scope ?? null);
   }
 
   /** Where `app` is asked (`AppAccess`): one signed in to as it's signed in to once its access token is had, which an administrator may have done again meanwhile. */
   private async accessTo(app: StoredApp): Promise<AppAccess> {
     const asked = { name: app.name, url: app.url, sealedToken: app.sealedToken, signedIn: app.signedIn !== null };
-    return app.signedIn ? { ...asked, ...(await this.signInKey(app.id)) } : { ...asked, key: await this.tokenKey(app), signedInAt: null };
+    return app.signedIn ? { ...asked, ...(await this.signInKey(app.id, null)) } : { ...asked, key: await this.tokenKey(app), signedInAt: null };
   }
 
   /**
@@ -3302,25 +3349,37 @@ export class Workspace extends DurableObject<Env> {
    * its authorization server for, until their browser comes back, or for ten minutes: answers true, or
    * why not, as `connectedApps` answers.
    */
-  async beginAppSignIn(credentials: Credentials, { state, appId, name, url, signIn }: BegunAppSignIn): Promise<true | "off" | "forbidden" | null> {
-    return this.administerAgents(credentials, async (user): Promise<true> => {
-      const now = Date.now();
-      const pending = { state, userId: user.id, appId, name, url, sealedSignIn: await this.sealedSignIn(`sign-in ${state}`, signIn) };
-      await this.store.beginAppSignIn(pending, new Date(now + APP_SIGN_IN_MS).toISOString(), new Date(now).toISOString());
-      return true;
-    });
+  async beginAppSignIn(credentials: Credentials, begun: BegunAppSignIn): Promise<true | "off" | "forbidden" | null> {
+    return this.administerAgents(credentials, (user) => this.keepBegunSignIn(user, begun, false));
+  }
+
+  /** Keeps `begun`, a sign-in `user` was just sent to an app's authorization server for, for ten minutes: Ember's, or their `own`. */
+  private async keepBegunSignIn(user: User, { state, appId, name, url, signIn }: BegunAppSignIn, own: boolean): Promise<true> {
+    const now = Date.now();
+    const pending = { state, userId: user.id, appId, name, url, sealedSignIn: await this.sealedSignIn(`sign-in ${state}`, signIn), own };
+    await this.store.beginAppSignIn(pending, new Date(now + APP_SIGN_IN_MS).toISOString(), new Date(now).toISOString());
+    return true;
   }
 
   /**
-   * Takes the sign-in to an app that the administrator `credentials` signs in began and came back from
-   * with `state`, which finishes it once: "ended" for one that has expired, was finished already, or
-   * was begun by someone else, or why not, as `connectedApps` answers.
+   * Takes the sign-in to an app that the person `credentials` signs in began and came back from with
+   * `state`, which finishes it once, saying whether it's their `own`, to a connected app, or Ember's,
+   * which an administrator began: "ended" for one that has expired, was finished already, or was begun
+   * by someone else, "forbidden" for Ember's once they aren't an administrator, and for a guest, "off"
+   * while Ember AI is off, or null without a valid session.
    */
-  async takeAppSignIn(credentials: Credentials, state: string): Promise<BegunAppSignIn | "ended" | "off" | "forbidden" | null> {
-    return this.administerAgents(credentials, async (user) => {
-      const taken = await this.store.takeAppSignIn(state, user.id, new Date().toISOString());
+  async takeAppSignIn(credentials: Credentials, state: string): Promise<(BegunAppSignIn & { own: boolean }) | "ended" | "off" | "forbidden" | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    if (session.guest) return "forbidden";
+    const { user } = session;
+    return this.oneAtATime(async () => {
+      const [administrator, own, account] = await Promise.all([this.store.isAdministrator(user.id), this.store.isOwnAppSignIn(state, user.id, new Date().toISOString()), this.joinableAccount()]);
+      if (own === false && !administrator) return "forbidden";
+      if (!account?.assistant) return "off";
+      const taken = own === null ? null : await this.store.takeAppSignIn(state, user.id, new Date().toISOString());
       const signIn = taken && (await this.openedSignIn(`sign-in ${state}`, taken.sealedSignIn));
-      return taken && signIn ? { state, appId: taken.appId, name: taken.name, url: taken.url, signIn } : "ended";
+      return taken && signIn ? { state, appId: taken.appId, name: taken.name, url: taken.url, signIn, own: taken.own } : "ended";
     });
   }
 
@@ -3340,6 +3399,91 @@ export class Workspace extends DurableObject<Env> {
       const [app, everyPicks] = await Promise.all([this.store.app(appId), this.store.everyAgentsToolPicks()]);
       return app ? shownApp(app, everyPicks) : "not found";
     });
+  }
+
+  /**
+   * Does `change` for the person `credentials` signs in, to the sign-ins they make to connected apps
+   * themselves, one change at a time with the others, while Ember AI is on: "off" while it's off,
+   * "forbidden" for a guest, or null without a valid session.
+   */
+  private async changeOwnSignIns<T>(credentials: Credentials, change: (user: User) => Promise<T>): Promise<T | "off" | "forbidden" | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    if (session.guest) return "forbidden";
+    return this.oneAtATime(async () => ((await this.joinableAccount())?.assistant ? change(session.user) : "off"));
+  }
+
+  /** The connected apps `userId` can sign in to themselves, as their profile lists them: those Ember signs in to, while Ember AI is on, and none for a `guest`. */
+  private async yourApps(userId: UserId, guest: boolean, account: JoinableAccount | null): Promise<YourApp[]> {
+    return account?.assistant && !guest ? (await this.store.ownAppSignIns(userId)).map(yourApp) : [];
+  }
+
+  /**
+   * What a sign-in the person `credentials` signs in makes to the connected app `appId` themselves
+   * begins with, as `appSignInTarget` answers for Ember's: as the client Ember signed in to it as, and
+   * asking, besides what a sign-in asks for by itself, for what their last had, and what the app's
+   * server has asked for beyond that. "not found" unless the app is one Ember signs in to, or why
+   * not, as `changeOwnSignIns` answers.
+   */
+  async ownAppSignInTarget(credentials: Credentials, appId: AppId): Promise<{ name: string; url: string; client: string | null; scope: string | null } | "off" | "forbidden" | "not found" | null> {
+    const session = await this.session(credentials);
+    if (!session) return null;
+    if (session.guest) return "forbidden";
+    const [account, app, own] = await Promise.all([this.joinableAccount(), this.store.app(appId), this.store.ownAppSignIn(appId, session.user.id)]);
+    if (!account?.assistant) return "off";
+    if (!app || !own) return "not found";
+    const client = app.signInClient && (await this.openedSignIn(`client ${appId}`, app.signInClient.sealed));
+    const had = await this.scopeIn(signInOf(appId, session.user.id), own.signedIn?.sealed ?? null);
+    return { name: app.name, url: app.url, client, scope: scopesWith(had, own.signedIn?.scopeWanted ?? null) };
+  }
+
+  /** Keeps `begun`, a sign-in to a connected app that the person `credentials` signs in was just sent to its authorization server to make themselves, as `beginAppSignIn` keeps Ember's, or says why not, as `changeOwnSignIns` answers. */
+  async beginOwnAppSignIn(credentials: Credentials, begun: BegunAppSignIn): Promise<true | "off" | "forbidden" | null> {
+    return this.changeOwnSignIns(credentials, (user) => this.keepBegunSignIn(user, begun, true));
+  }
+
+  /**
+   * Keeps `signIn`, the sign-in the person `credentials` signs in made to the server of the connected
+   * app `appId`, at `url`, themselves, in place of any they had, answering the app as their profile
+   * then lists it: "changed" once the app is gone, when its service is asked to take back what the
+   * sign-in gave, which Ember doesn't keep, or why not, as `changeOwnSignIns` answers.
+   */
+  async signInToAppAsSelf(credentials: Credentials, appId: AppId, url: string, signIn: string): Promise<YourApp | "changed" | "off" | "forbidden" | null> {
+    const signedIn = await this.changeOwnSignIns(credentials, async (user) => {
+      const sealed = await this.sealedSignIn(signInOf(appId, user.id), signIn);
+      const kept = await this.store.signInToAppAsSelf(appId, user.id, sealed, url, new Date().toISOString());
+      const own = kept ? await this.store.ownAppSignIn(appId, user.id) : null;
+      return own ? yourApp(own) : "changed";
+    });
+    if (typeof signedIn === "string") this.ctx.waitUntil(this.unkeptRevoked(url, signIn));
+    return signedIn;
+  }
+
+  /** Whether the service of the app at `url` took back `signIn`, as JSON, which Ember was given and doesn't keep. */
+  private unkeptRevoked(url: string, signIn: string): Promise<boolean> {
+    return appConnector(this.env)
+      .revokeSignIn(url, signIn)
+      .catch(() => false);
+  }
+
+  /**
+   * Forgets the sign-in the person `credentials` signs in made to the connected app `appId` themselves,
+   * and has its service take back what it gave, as an app's removal does Ember's (`disconnectApp`):
+   * answers the apps as their profile then lists them, and whether the service did, which it's said
+   * to have of a sign-in that had ended. "not found" when they had none, or why not, as
+   * `changeOwnSignIns` answers.
+   */
+  async signOutOfApp(credentials: Credentials, appId: AppId): Promise<YourAppSignedOut | "off" | "forbidden" | "not found" | null> {
+    const forgotten = await this.changeOwnSignIns(credentials, async (user) => {
+      const own = await this.store.ownAppSignIn(appId, user.id);
+      const sealed = own ? await this.store.forgetOwnAppSignIn(appId, user.id) : undefined;
+      return own && sealed !== undefined ? { user, url: own.url, sealed } : ("not found" as const);
+    });
+    if (forgotten === null || typeof forgotten === "string") return forgotten;
+    const { user, url, sealed } = forgotten;
+    const signIn = signInOf(appId, user.id);
+    const revoked = await Promise.all([sealed === null || this.signInRevoked(signIn, url, sealed), this.strayTokensRevoked(signIn)]);
+    return { apps: await this.yourApps(user.id, false, await this.joinableAccount()), revoked: revoked.every(Boolean) };
   }
 
   /**
@@ -3375,44 +3519,46 @@ export class Workspace extends DurableObject<Env> {
    * `connectedApp` answers. One Ember was signed in to has its service asked to take back what the
    * sign-in gave, once the app is gone, so that nothing more is asked with it meanwhile: "revoked"
    * when it did, or "unrevoked" when it didn't, couldn't be asked, or doesn't say how. That's with
-   * the tokens Ember was getting as the app went, if it was, which it couldn't keep (`currentSignInKey`).
+   * the tokens Ember was getting as the app went, if it was, which it couldn't keep (`currentSignInKey`),
+   * and with the sign-ins people made to it themselves, which go with it: as many of those as Ember
+   * has a service take back at once, so that with more it says "unrevoked", having forgotten them all.
    */
   async disconnectApp(credentials: Credentials, appId: AppId): Promise<"disconnected" | "revoked" | "unrevoked" | "off" | "forbidden" | "not found" | null> {
     const removed = await this.administerAgents(credentials, async () => (await this.store.disconnectApp(appId)) ?? "not found");
     if (removed === null || typeof removed === "string") return removed;
     if (removed.sealedSignIn === null) return "disconnected";
-    const revoked = await Promise.all([this.signInRevoked(appId, removed.url, removed.sealedSignIn), this.strayTokensRevoked(appId)]);
-    return revoked.every(Boolean) ? "revoked" : "unrevoked";
+    const signIns = [{ signIn: appId, sealed: removed.sealedSignIn }, ...removed.own.slice(0, MAX_OWN_SIGN_INS_REVOKED).map(({ userId, sealed }) => ({ signIn: signInOf(appId, userId), sealed }))];
+    const revoked = await Promise.all(signIns.flatMap(({ signIn, sealed }) => [this.signInRevoked(signIn, removed.url, sealed), this.strayTokensRevoked(signIn)]));
+    return revoked.every(Boolean) && removed.own.length <= MAX_OWN_SIGN_INS_REVOKED ? "revoked" : "unrevoked";
   }
 
-  /** Whether the service of the app `appId`, just removed, took back the tokens Ember was getting from it as it went, if it was, once it has them. */
-  private async strayTokensRevoked(appId: AppId): Promise<boolean> {
-    await this.signInKeys.get(appId)?.catch(() => undefined);
-    const revoked = this.strayTokens.get(appId);
-    this.strayTokens.delete(appId);
+  /** Whether the service of an app took back the tokens Ember was getting from it for `signIn` (`signInOf`) as that went, if it was, once it has them. */
+  private async strayTokensRevoked(signIn: string): Promise<boolean> {
+    await this.signInKeys.get(signIn)?.catch(() => undefined);
+    const revoked = this.strayTokens.get(signIn);
+    this.strayTokens.delete(signIn);
     return revoked === undefined || revoked;
   }
 
   /**
-   * Has the service of the app `appId`, removed from `url`, take back `signIn`, as JSON, whose tokens
-   * it gave Ember as the app went: its removal took back the ones before them, which these ended, and
-   * waits for this to say whether its service took everything back.
+   * Has the service of the app at `url` take back `tokens`, a sign-in as JSON, which it gave Ember for
+   * `signIn` (`signInOf`) as that went, with its app or as its person signed out: what forgot it took
+   * back the ones before them, which these ended, and waits for this to say whether its service took
+   * everything back.
    */
-  private revokeStrayTokens(appId: AppId, url: string, signIn: string): void {
-    const revoked = appConnector(this.env)
-      .revokeSignIn(url, signIn)
-      .catch(() => false);
-    this.strayTokens.set(appId, revoked);
+  private revokeStrayTokens(signIn: string, url: string, tokens: string): void {
+    const revoked = this.unkeptRevoked(url, tokens);
+    this.strayTokens.set(signIn, revoked);
     this.ctx.waitUntil(revoked);
   }
 
-  /** Whether the service of the app `appId`, removed from `url`, took back what Ember's sign-in to it, `sealed`, gave. It's asked outside the queue of changes, as it may take a while to answer. */
-  private async signInRevoked(appId: AppId, url: string, sealed: string): Promise<boolean> {
+  /** Whether the service of the app at `url` took back what `sealed`, the sign-in `signIn` (`signInOf`) that Ember just forgot, gave. It's asked outside the queue of changes, as it may take a while to answer. */
+  private async signInRevoked(signIn: string, url: string, sealed: string): Promise<boolean> {
     try {
-      const signIn = await this.openedSignIn(appId, sealed);
-      return signIn !== null && (await appConnector(this.env).revokeSignIn(url, signIn));
+      const opened = await this.openedSignIn(signIn, sealed);
+      return opened !== null && (await appConnector(this.env).revokeSignIn(url, opened));
     } catch (error) {
-      console.error(`Taking back the sign-in to app ${appId} failed: ${error instanceof Error ? error.name : "unknown error"}`);
+      console.error(`Taking back the sign-in ${signIn} to an app failed: ${error instanceof Error ? error.name : "unknown error"}`);
       return false;
     }
   }
@@ -3470,22 +3616,56 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * The connected apps' tools `agentId` may use (`pickedTools`) answering `askerId` in room `roomId`:
+   * in their direct conversation, the two of them alone, a tool of an app `askerId` has signed in to
+   * themselves is theirs, `own`, as a call of it there goes as them, and each one asks first, whatever
+   * is always allowed, which was said of calls with Ember's sign-in. One whose sign-in has ended stays
+   * theirs until they sign out, so that nothing goes with Ember's that was to go with their own.
+   */
+  private async toolsFor(agentId: UserId, roomId: RoomId, askerId: UserId): Promise<PickedTool[]> {
+    const picked = await this.pickedTools(agentId);
+    if (picked.length === 0 || !(await this.store.isBetween(roomId, askerId, agentId))) return picked;
+    const own = new Set((await this.store.ownAppSignIns(askerId)).flatMap(({ appId, signedIn }) => (signedIn ? [appId] : [])));
+    return picked.map((tool) => (own.has(tool.appId) ? { ...tool, alwaysAllowed: false, own: true } : tool));
+  }
+
+  /**
    * Where a call of `tool`, a connected app's, goes for `agentId`, @ember or an agent, as the call finds
    * it when it's made: null once Ember AI is off, the app is gone, or the tool isn't picked for the
    * agent as it was, by its fingerprint, so that what an administrator takes away stops what's waiting.
    * A call nobody was asked about, `unasked`, goes nowhere either unless the agent's calls of the tool
    * are always allowed by then. Getting a sign-in's next access token asks its authorization server,
    * which can take a while, so the tool is looked up again after that: one taken away meanwhile isn't
-   * called, and an app signed in to again meanwhile is asked as it is then.
+   * called, and an app signed in to again meanwhile is asked as it is then. A call that was to go as
+   * whoever asked, `as`, with the sign-in they made to the app themselves, goes that way or nowhere
+   * (`callAs`), and never `unasked`.
    */
-  async appToolCall(agentId: UserId, tool: Pick<PickedTool, "appId" | "name" | "fingerprint">, unasked: boolean): Promise<AppCallAccess | null> {
+  async appToolCall(agentId: UserId, tool: Pick<PickedTool, "appId" | "name" | "fingerprint">, unasked: boolean, as?: AskedBy): Promise<AppCallAccess | null> {
     const app = await this.calledApp(agentId, tool, unasked);
     if (!app) return null;
+    if (as) return unasked ? null : this.callAs(agentId, tool, app, as);
     const access = await this.accessTo(app);
     if (!access.signedIn) return access;
     const after = await this.calledApp(agentId, tool, unasked);
     if (!after) return null;
     return isAskedAt(after, access) ? access : this.appToolCall(agentId, tool, unasked);
+  }
+
+  /**
+   * Where a call of `tool`, of the connected app `app`, goes for `agentId` as whoever asked, `as`: to
+   * its server with the sign-in they made to it themselves, in their direct conversation with the
+   * agent alone, and nowhere anywhere else. One that has ended, or that they've signed out of, has no
+   * key, so that the call isn't made with Ember's in its place. The tool is looked up again once the
+   * sign-in's access token is had, as `appToolCall` does, and the sign-in too, which they may have made
+   * again meanwhile.
+   */
+  private async callAs(agentId: UserId, tool: Pick<PickedTool, "appId" | "name" | "fingerprint">, app: StoredApp, as: AskedBy): Promise<AppCallAccess | null> {
+    if (!app.signedIn || !(await this.store.isBetween(as.roomId, as.askerId, agentId))) return null;
+    const { key, signedInAt } = await this.signInKey(app.id, as.askerId);
+    const [after, own] = await Promise.all([this.calledApp(agentId, tool, false), this.store.ownAppSignIn(app.id, as.askerId)]);
+    if (!after?.signedIn) return null;
+    if ((own?.signedIn?.at ?? null) !== signedInAt) return this.callAs(agentId, tool, after, as);
+    return { name: after.name, url: after.url, sealedToken: null, signedIn: true, key, signedInAt, own: as.askerId };
   }
 
   /** The app whose `tool` a call for `agentId` goes to, or null where it goes nowhere (`appToolCall`). */
@@ -3512,16 +3692,25 @@ export class Workspace extends DurableObject<Env> {
    * it allows, with what it asked for before, which signing in again then asks for, and the app's page
    * says. Kept only while the app is still signed in to as it was when its server was asked, `askedAt`,
    * and while it's no more than Ember keeps. One at a time, as two rooms' calls may each be refused for
-   * want of another scope, and each adds its own to what's kept by then.
+   * want of another scope, and each adds its own to what's kept by then. What it asked of a call that
+   * went as a person, with their `own` sign-in, is kept with that one, for them to sign in again with,
+   * as their profile says.
    */
-  async keepAppScopeWanted(appId: AppId, scope: string, askedAt: AskedAt): Promise<void> {
+  async keepAppScopeWanted(appId: AppId, scope: string, askedAt: AskedAt & Pick<AppCallAccess, "own">): Promise<void> {
+    const { own } = askedAt;
     await this.oneAtATime(async () => {
-      const app = await this.store.app(appId);
-      if (!app?.signedIn || !isAskedAt(app, askedAt)) return;
-      const wanted = scopesWith(app.scopeWanted, scope);
-      if (wanted === null || wanted === app.scopeWanted || wanted.length > MAX_APP_SCOPE_LENGTH) return;
-      await this.store.keepAppScopeWanted(appId, wanted, app.signedIn.at);
+      const kept = own === undefined ? await this.signInAskedAt(appId, askedAt) : ((await this.store.ownAppSignIn(appId, own))?.signedIn ?? null);
+      if (!kept || kept.at !== askedAt.signedInAt) return;
+      const wanted = scopesWith(kept.scopeWanted, scope);
+      if (wanted === null || wanted === kept.scopeWanted || wanted.length > MAX_APP_SCOPE_LENGTH) return;
+      await (own === undefined ? this.store.keepAppScopeWanted(appId, wanted, kept.at) : this.store.keepOwnAppScopeWanted(appId, own, wanted, kept.at));
     });
+  }
+
+  /** When Ember's sign-in to the connected app `appId` was made, and what its server has asked for beyond it, while the app is still asked as it was, `askedAt`: null once it isn't. */
+  private async signInAskedAt(appId: AppId, askedAt: AskedAt): Promise<{ at: string; scopeWanted: string | null } | null> {
+    const app = await this.store.app(appId);
+    return app?.signedIn && isAskedAt(app, askedAt) ? { at: app.signedIn.at, scopeWanted: app.scopeWanted } : null;
   }
 
   /**
@@ -3548,40 +3737,53 @@ export class Workspace extends DurableObject<Env> {
     return opened?.startsWith(`${id}\n`) ? { token: opened.slice(id.length + 1) } : null;
   }
 
-  /** The access token of the sign-in to the app `appId`, which is asked for one at a time, as getting another may be. */
-  private signInKey(appId: AppId): Promise<SignInKey> {
-    let key = this.signInKeys.get(appId);
+  /** The access token of the sign-in `holder` keeps to the app `appId`, which is asked for one at a time, as getting another may be. */
+  private signInKey(appId: AppId, holder: Holder): Promise<SignInKey> {
+    const signIn = signInOf(appId, holder);
+    let key = this.signInKeys.get(signIn);
     if (!key) {
-      key = this.currentSignInKey(appId).finally(() => this.signInKeys.delete(appId));
-      this.signInKeys.set(appId, key);
+      key = this.currentSignInKey(appId, holder).finally(() => this.signInKeys.delete(signIn));
+      this.signInKeys.set(signIn, key);
     }
     return key;
   }
 
+  /** The sign-in `holder` keeps to the app `appId`, sealed, or null once it has ended, with where the app's server is and when it was made: null when there's none, as its app is gone, or its person has signed out. */
+  private async keptSignIn(appId: AppId, holder: Holder): Promise<{ url: string; sealed: string | null; at: string | null } | null> {
+    if (holder === null) {
+      const app = await this.store.app(appId);
+      return app && { url: app.url, sealed: app.sealedSignIn, at: app.signedIn?.at ?? null };
+    }
+    const own = await this.store.ownAppSignIn(appId, holder);
+    return own?.signedIn ? { url: own.url, sealed: own.signedIn.sealed, at: own.signedIn.at } : null;
+  }
+
   /**
-   * The access token of the sign-in to the app `appId` as it's kept now, once Ember has got another
-   * with the one it keeps for that, if the last has ended, or is about to: its authorization server
-   * may take each of those once, so the sign-in is read as it is before each is sent, and kept with
-   * what came back before anything else asks. Null once there's no getting another, which ends the
-   * sign-in. A token that couldn't be asked for now leaves the last one, for the app's server to refuse.
-   * What came back for a sign-in that an administrator has replaced meanwhile, or whose app is gone,
-   * isn't kept or used: the app is asked as it is by then, and an app that's gone has its service
-   * take back what came, as its removal takes back the tokens that were kept, which these ended.
+   * The access token of the sign-in `holder` keeps to the app `appId` as it's kept now, once Ember has
+   * got another with the one it keeps for that, if the last has ended, or is about to: its
+   * authorization server may take each of those once, so the sign-in is read as it is before each is
+   * sent, and kept with what came back before anything else asks. Null once there's no getting
+   * another, which ends the sign-in. A token that couldn't be asked for now leaves the last one, for
+   * the app's server to refuse. What came back for a sign-in that was made again meanwhile, or that's
+   * gone, with its app or as its person signed out, isn't kept or used: the app is asked as it is by
+   * then, and one that's gone has its service take back what came, as what forgot it takes back the
+   * tokens that were kept, which these ended.
    */
-  private async currentSignInKey(appId: AppId): Promise<SignInKey> {
-    const app = await this.store.app(appId);
-    const signedInAt = app?.signedIn?.at ?? null;
-    const keyed = (token: string | null): SignInKey => ({ key: token === null ? null : { token, signedIn: true }, signedInAt });
-    const kept = app?.sealedSignIn ? await this.openedSignIn(appId, app.sealedSignIn) : null;
-    const signIn = kept === null ? null : (JSON.parse(kept) as SignIn);
-    if (!app?.sealedSignIn || kept === null || !signIn?.tokens) return keyed(null);
+  private async currentSignInKey(appId: AppId, holder: Holder): Promise<SignInKey> {
+    const kept = await this.keptSignIn(appId, holder);
+    const keyed = (token: string | null): SignInKey => ({ key: token === null ? null : { token, signedIn: true }, signedInAt: kept?.at ?? null });
+    const bound = signInOf(appId, holder);
+    const opened = kept?.sealed ? await this.openedSignIn(bound, kept.sealed) : null;
+    const signIn = opened === null ? null : (JSON.parse(opened) as SignIn);
+    if (!kept?.sealed || opened === null || !signIn?.tokens) return keyed(null);
     if (!isDue(signIn, Date.now())) return keyed(signIn.tokens.access);
-    const refreshed = await appConnector(this.env).refreshSignIn(app.url, kept);
+    const refreshed = await appConnector(this.env).refreshSignIn(kept.url, opened);
     if (refreshed === "failed") return keyed(signIn.tokens.access);
-    const saved = await this.store.keepAppSignIn(appId, refreshed === "lapsed" ? null : await this.sealedSignIn(appId, refreshed.kept), app.sealedSignIn);
+    const sealed = refreshed === "lapsed" ? null : await this.sealedSignIn(bound, refreshed.kept);
+    const saved = await (holder === null ? this.store.keepAppSignIn(appId, sealed, kept.sealed) : this.store.keepOwnAppSignIn(appId, holder, sealed, kept.sealed));
     if (saved) return keyed(refreshed === "lapsed" ? null : refreshed.token);
-    if (refreshed !== "lapsed" && !(await this.store.app(appId))) this.revokeStrayTokens(appId, app.url, refreshed.kept);
-    return this.currentSignInKey(appId);
+    if (refreshed !== "lapsed" && !(await this.keptSignIn(appId, holder))) this.revokeStrayTokens(bound, kept.url, refreshed.kept);
+    return this.currentSignInKey(appId, holder);
   }
 
   /** The client `signIn`, a sign-in to the app `appId` as JSON, was made as, to keep beside it when an administrator gave it: its ID, and what its service knows it by, sealed for that app's client alone. */
@@ -3762,9 +3964,10 @@ export class Workspace extends DurableObject<Env> {
     const { name, emailAddress, bio, avatar, password, membershipNeeded } = person;
     const [{ avatarUrl }, account] = await Promise.all([this.directoryUser(person), this.joinableAccount()]);
     const memberful = session.guest ? null : { membersOnly: account?.memberfulSignIn ?? false, accounts: person.accounts };
+    const apps = await this.yourApps(person.id, session.guest, account);
     return {
       transfer: { userId: person.id, sessionId: session.id },
-      profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks) },
+      profile: { name, emailAddress, bio, avatarUrl, avatar: avatar !== null, password, membershipNeeded, assistant: yourAssistantOf(account, person.picks), apps },
       memberful,
     };
   }
@@ -4215,7 +4418,7 @@ export class Workspace extends DurableObject<Env> {
    * `agentIn`): null once Ember AI is off, or the bot isn't in the room, so that what's on its way stops.
    */
   async answererIn(roomId: RoomId, botId: UserId, askerId: UserId): Promise<AssistantAccess | null> {
-    return botId === ASSISTANT_ID ? this.assistantIn(roomId, askerId) : this.agentIn(roomId, botId);
+    return botId === ASSISTANT_ID ? this.assistantIn(roomId, askerId) : this.agentIn(roomId, botId, askerId);
   }
 
   /**
@@ -4243,7 +4446,7 @@ export class Workspace extends DurableObject<Env> {
     const webSearchOn = account.assistant.webTools.includes("search");
     const bot = { id: ASSISTANT_ID, name: ASSISTANT_NAME };
     const { assistantInstructions: instructions, assistantPromptTemplate: promptTemplate } = account;
-    const appTools = gateway ? await this.pickedTools(ASSISTANT_ID) : [];
+    const appTools = gateway ? await this.toolsFor(ASSISTANT_ID, roomId, askerId) : [];
     return { bot, authorizedAt, gateway, picked: picked !== null, instructions, promptTemplate, community: account.name, levels, webTools, webSearchOn, addresses: addressesOf(account), appTools };
   }
 
@@ -4253,7 +4456,7 @@ export class Workspace extends DurableObject<Env> {
    * what it may do on the web, of what its model's format has tools for: null once Ember AI is off, or
    * the agent is deleted or taken out of the room.
    */
-  private async agentIn(roomId: RoomId, agentId: UserId): Promise<AssistantAccess | null> {
+  private async agentIn(roomId: RoomId, agentId: UserId, askerId: UserId): Promise<AssistantAccess | null> {
     const authorizedAt = Date.now();
     const [account, agent] = await Promise.all([this.joinableAccount(), this.store.answeringAgent(roomId, agentId)]);
     if (!account?.assistant || !agent) return null;
@@ -4264,7 +4467,7 @@ export class Workspace extends DurableObject<Env> {
     const webTools = agent.webTools.filter((tool) => webToolsOf(agent.model, format, offered.file).includes(tool));
     const bot = { id: agentId, name: agent.name };
     const { instructions, promptTemplate, levels } = agent;
-    const appTools = gateway ? await this.pickedTools(agentId) : [];
+    const appTools = gateway ? await this.toolsFor(agentId, roomId, askerId) : [];
     return { bot, authorizedAt, gateway, picked: false, instructions, promptTemplate, community: account.name, levels, webTools, webSearchOn: webTools.includes("search"), addresses: addressesOf(account), appTools };
   }
 

@@ -1,9 +1,10 @@
-import { ASSISTANT_ID, type Me, type NewWorkspace } from "@ember/protocol";
+import { ASSISTANT_ID, type Me, type NewWorkspace, type ProfileAnswer, type RoomId } from "@ember/protocol";
 import {
   APP_CHANGED,
   APP_SIGN_IN_ENDED,
   APP_SIGNED_IN,
   APPS_FORBIDDEN,
+  YOUR_APP_GONE,
   type AgentTools,
   type App,
   type AppAnswer,
@@ -12,15 +13,18 @@ import {
   type Apps,
   type AppSignedIn,
   type AppSignInBegun,
+  type YourApp,
+  type YourAppSignedIn,
+  type YourAppSignedOut,
 } from "@ember/protocol/apps";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { scopesOf, scopesWith } from "../src/apps/scopes";
-import { appTool, signInEnded, unmadeFor, wantsMoreAccess, type Unmade } from "../src/apps/tools";
+import { appTool, ownSignInEnded, ownWantsMoreAccess, signInEnded, unmadeFor, wantsMoreAccess, type GivenTool, type Unmade } from "../src/apps/tools";
 import { toBase64url } from "../src/encoding";
 import type { Env } from "../src/env";
-import { api, cookieOf, freshDeploy, origin, shown, workspaceSql, workspaceStub, type Session } from "./support";
+import { api, cookieOf, freshDeploy, origin, shown, startDirect, workspaceSql, workspaceStub, type Session } from "./support";
 
 // Signing in to an app whose server asks for a sign-in, with OAuth as the Model Context Protocol has
 // it. A fake MCP server and its authorization server stand behind `fetch`: the server takes only the
@@ -69,7 +73,9 @@ let addresses: Record<string, string[]>;
  * what happens while it lists them, if anything, once it has decided what to answer. `needs` is the
  * scope the fake server asks of whoever sends it a `method`, if it asks one. `revokes` is whether the
  * authorization server takes tokens back, which it answers with `revoked` in place of doing so, if
- * that answers anything.
+ * that answers anything. With `keepsOthers`, the tokens it gives a new sign-in leave the ones it gave
+ * before good, as a service's do for each account that signs in: `others` are those, by their access
+ * tokens.
  */
 interface AuthorizationServer {
   readsDocuments: boolean;
@@ -92,6 +98,8 @@ interface AuthorizationServer {
   needs: { method: string; scope: string } | null;
   revokes: boolean;
   revoked: () => Response | null;
+  keepsOthers: boolean;
+  others: Map<string, { refresh: string | null; scope: string | undefined }>;
 }
 let auth: AuthorizationServer;
 
@@ -100,8 +108,9 @@ const oauthError = (error: string, status = 400) => Response.json({ error }, { s
 /** The S256 challenge of a PKCE `verifier`. */
 const challengeOf = async (verifier: string) => toBase64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)))).replace(/=+$/, "");
 
-/** The tokens the fake authorization server gives next, which end the ones it gave last. */
-function nextTokens(scope: string | undefined): Response {
+/** The tokens the fake authorization server gives next, which end the ones it gave last, unless they're for a sign-in `beside` it and it keeps the others'. */
+function nextTokens(scope: string | undefined, beside = false): Response {
+  if (beside && auth.keepsOthers && auth.access !== null) auth.others.set(auth.access, { refresh: auth.refresh, scope: auth.scope });
   auth.issued += 1;
   auth.access = `access-${auth.issued}`;
   auth.refresh = auth.refreshes ? `refresh-${auth.issued}` : null;
@@ -133,13 +142,24 @@ async function tokensFor(sent: Asked): Promise<Response> {
   if (instead) return instead;
   const client = clientOf(sent);
   if (auth.client && (client.id !== auth.client.id || client.secret !== auth.client.secret)) return oauthError("invalid_client", 401);
-  if (form.grant_type === "refresh_token") return form.refresh_token === auth.refresh && auth.refresh !== null ? nextTokens(undefined) : oauthError("invalid_grant");
+  if (form.grant_type === "refresh_token" && form.refresh_token !== auth.refresh) return othersNextTokens(form.refresh_token);
+  if (form.grant_type === "refresh_token") return auth.refresh !== null ? nextTokens(undefined) : oauthError("invalid_grant");
   const began = auth.codes.get(form.code ?? "");
   auth.codes.delete(form.code ?? "");
   if (!began || form.grant_type !== "authorization_code") return oauthError("invalid_grant");
   const proven = began.get("code_challenge") === (await challengeOf(form.code_verifier ?? ""));
   const same = form.redirect_uri === began.get("redirect_uri") && client.id === began.get("client_id") && form.resource === began.get("resource");
-  return proven && same ? nextTokens(began.get("scope") ?? undefined) : oauthError("invalid_grant");
+  return proven && same ? nextTokens(began.get("scope") ?? undefined, true) : oauthError("invalid_grant");
+}
+
+/** The tokens the fake authorization server gives in place of another sign-in's, the one `refresh` gets the next of, which end those. */
+function othersNextTokens(refresh: string | undefined): Response {
+  const [access, other] = [...auth.others].find(([, other]) => other.refresh !== null && other.refresh === refresh) ?? [];
+  if (access === undefined || !other) return oauthError("invalid_grant");
+  auth.others.delete(access);
+  auth.issued += 1;
+  auth.others.set(`access-${auth.issued}`, { refresh: `refresh-${auth.issued}`, scope: other.scope });
+  return Response.json({ access_token: `access-${auth.issued}`, token_type: "Bearer", expires_in: auth.expiresIn, refresh_token: `refresh-${auth.issued}` });
 }
 
 /** What the fake authorization server, or the fake server's own description of its sign-in, answers a request at `url`. */
@@ -179,6 +199,10 @@ function revocationOf(sent: Asked): Response {
   if (auth.client && (client.id !== auth.client.id || client.secret !== auth.client.secret)) return oauthError("invalid_client", 401);
   if (sent.form?.token === auth.refresh) auth.refresh = null;
   if (sent.form?.token === auth.access) auth.access = null;
+  for (const [access, other] of auth.others) {
+    if (sent.form?.token === other.refresh) other.refresh = null;
+    if (sent.form?.token === access) auth.others.delete(access);
+  }
   return new Response(null, { status: 200 });
 }
 
@@ -221,6 +245,8 @@ beforeEach(async () => {
     needs: null,
     revokes: false,
     revoked: () => null,
+    keepsOthers: false,
+    others: new Map(),
   };
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = new Request(input, init);
@@ -245,9 +271,10 @@ beforeEach(async () => {
     };
     asked.push(sent);
     if (request.url !== TRACKER) return signInAnswer(url, request, sent);
-    if (auth.access === null || sent.authorization !== `Bearer ${auth.access}`) return new Response("Unauthorized", { status: 401, headers: { "WWW-Authenticate": CHALLENGE } });
+    const other = auth.others.get(sent.authorization?.replace(/^Bearer /, "") ?? "");
+    if ((auth.access === null || sent.authorization !== `Bearer ${auth.access}`) && !other) return new Response("Unauthorized", { status: 401, headers: { "WWW-Authenticate": CHALLENGE } });
     if (!sent.json) return new Response(null, { status: 405 });
-    const allowed = (auth.scope ?? "").split(" ");
+    const allowed = ((other ?? auth).scope ?? "").split(" ");
     if (auth.needs && sent.json.method === auth.needs.method && !auth.needs.scope.split(" ").every((scope) => allowed.includes(scope))) return wants(auth.needs.scope);
     const answer = answerTo(sent.json);
     if (sent.json.method !== "tools/list") return answer;
@@ -272,9 +299,12 @@ async function setUp(): Promise<Session> {
 }
 
 /** Grace joins with the join link, as a member, signed in. */
-async function joinAsGrace(): Promise<Session> {
+const joinAsGrace = () => joinAs(grace);
+
+/** `person` joins with the join link, as a member, signed in. */
+async function joinAs(person: typeof grace): Promise<Session> {
   const [{ join_code: joinCode }] = (await workspaceSql("SELECT join_code FROM accounts")) as [{ join_code: string }];
-  const response = await api(`/api/join/${joinCode}`, { method: "POST", body: JSON.stringify(grace) });
+  const response = await api(`/api/join/${joinCode}`, { method: "POST", body: JSON.stringify(person) });
   expect(response.status, await response.clone().text()).toBe(201);
   return { user: shown(((await response.json()) as { user: Me }).user), cookie: cookieOf(response) };
 }
@@ -347,11 +377,14 @@ const UNREGISTERED = {
   client: true,
 };
 
+/** Where a call goes as nobody: its tool isn't whoever asked's own. */
+const NOWHERE = { roomId: "0nowhere", askerId: "0nobody" };
+
 /** The tool the fake server lists, picked for @ember, as its model is given it: calling it asks the server, as a call someone allowed does. */
 async function pickedTool(administrator: Session, app: App) {
   await pick(administrator, true);
   const { name, fingerprint } = (await offered(administrator))[0]!.tools[0]!;
-  return appTool(env as unknown as Env, ASSISTANT_ID, { appId: app.id, appName: app.name, name, fingerprint, as: name });
+  return appTool(env as unknown as Env, ASSISTANT_ID, { appId: app.id, appName: app.name, name, fingerprint, as: name }, NOWHERE);
 }
 
 /** What removing a signed-in app answers of its sign-in: whether its service took it back. */
@@ -485,7 +518,9 @@ describe("Signing in to an app", () => {
     expect(await refusalOf(await begin(null), 401)).toEqual({ error: "Not signed in" });
     expect(await refusalOf(await begin(member), 403)).toEqual({ error: APPS_FORBIDDEN });
     expect(await refusalOf(await finish(null, back), 401)).toEqual({ error: "Not signed in" });
-    expect(await refusalOf(await finish(member, back), 403)).toEqual({ error: APPS_FORBIDDEN });
+    // A sign-in is only its own person's to finish, and is still theirs to once someone else has tried.
+    expect(await refusalOf(await finish(member, back))).toEqual({ error: APP_SIGN_IN_ENDED });
+    expect(await workspaceSql("SELECT count(*) AS n FROM app_sign_ins")).toEqual([{ n: 1 }]);
     expect(await refusalOf(await beginAgain(member, "0mgk3x2a9b4c5e"), 403)).toEqual({ error: APPS_FORBIDDEN });
     expect(await refusalOf(await beginAgain(administrator, "0mgk3x2a9b4c5e"), 404)).toEqual({ error: "Not found" });
 
@@ -908,7 +943,7 @@ describe("An app whose server asks for more than Ember's sign-in to it allows", 
     expect((await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { method: "PUT", headers: as(administrator), body: JSON.stringify(always) })).status).toBe(200);
     const told: Unmade[] = [];
     const shown = async () => ({ unmade: async (why: Unmade) => void told.push(why) });
-    const tool = appTool(env as unknown as Env, ASSISTANT_ID, { appId: app.id, appName: app.name, name, fingerprint, as: name }, { shown });
+    const tool = appTool(env as unknown as Env, ASSISTANT_ID, { appId: app.id, appName: app.name, name, fingerprint, as: name }, NOWHERE, { shown });
 
     expect(await tool.run({})).toBe("Done.");
     auth.needs = { method: "tools/call", scope: "issues:write" };
@@ -1066,5 +1101,236 @@ describe("Removing an app Ember is signed in to", () => {
 
     expect((await disconnect(administrator, app.id)).status).toBe(204);
     expect(asked).toEqual([]);
+  });
+});
+
+const beginOwn = (session: Session | null, id: string) => api(`/api/users/me/apps/${id}/sign-in`, { method: "POST", headers: as(session) });
+const signOut = (session: Session | null, id: string) => api(`/api/users/me/apps/${id}/sign-in`, { method: "DELETE", headers: as(session) });
+
+/** The connected apps `session`'s profile lists, each with the sign-in they've made to it themselves, if they have. */
+const yourApps = async (session: Session) => ((await (await api("/api/users/me/profile", { headers: as(session) })).json()) as ProfileAnswer).profile.apps;
+
+/** Signs `person` in to the connected app `id` themselves, at the fake service, which leaves the sign-ins it gave before good: the app as their profile then lists it. */
+async function signInAsSelf(person: Session, id: string): Promise<YourApp> {
+  auth.keepsOthers = true;
+  const response = await finish(person, comeBack(await sentTo(await beginOwn(person, id))));
+  expect(response.status, await response.clone().text()).toBe(200);
+  return ((await response.json()) as YourAppSignedIn).yours;
+}
+
+/** The room of `person`'s direct conversation with @ember. */
+async function directWithEmber(person: Session): Promise<RoomId> {
+  const response = await startDirect(person, [ASSISTANT_ID]);
+  expect(response.status, await response.clone().text()).toBe(201);
+  return ((await response.json()) as { room: { id: RoomId } }).room.id;
+}
+
+/** The tokens the fake server's tool was called with. */
+const callTokens = () => asked.filter(({ url, json }) => url === TRACKER && json?.method === "tools/call").map(({ authorization }) => authorization);
+
+describe("A sign-in someone makes to an app themselves", () => {
+  /** Ember signed in to Tracker, its tool picked for @ember, and Grace, a member, in her direct conversation with @ember: the tool as a model is given it, hers there once she has signed in herself. */
+  async function withGrace(): Promise<{ administrator: Session; member: Session; app: App; tool: GivenTool; own: GivenTool; dm: RoomId; asGrace: { roomId: RoomId; askerId: string } }> {
+    const administrator = await setUp();
+    const member = await joinAsGrace();
+    const app = await signIn(administrator);
+    await pick(administrator, true);
+    const { name, fingerprint } = (await offered(administrator))[0]!.tools[0]!;
+    const tool: GivenTool = { appId: app.id, appName: app.name, name, fingerprint, as: name };
+    const dm = await directWithEmber(member);
+    return { administrator, member, app, tool, own: { ...tool, own: true }, dm, asGrace: { roomId: dm, askerId: member.user.id } };
+  }
+
+  const called = (tool: GivenTool, asked: { roomId: RoomId; askerId: string }) => appTool(env as unknown as Env, ASSISTANT_ID, tool, asked).run({});
+
+  it("is offered on their profile for each app Ember signs in to, and is kept as theirs, beside Ember's", async () => {
+    const administrator = await setUp();
+    const member = await joinAsGrace();
+    expect(await yourApps(member)).toEqual([]);
+    const app = await signIn(administrator);
+    const unsigned: YourApp = { id: app.id, name: "Tracker", signedInAt: null, ended: false, wantsMore: false };
+    expect(await yourApps(member)).toEqual([unsigned]);
+
+    const to = await sentTo(await beginOwn(member, app.id));
+    expect(to.origin + to.pathname).toBe(`${AUTH}/authorize`);
+    expect(to.searchParams.get("redirect_uri")).toBe(BACK);
+    expect(to.searchParams.get("scope")).toBe("issues");
+    auth.keepsOthers = true;
+    const finished = await finish(member, comeBack(to));
+    expect(finished.status, await finished.clone().text()).toBe(200);
+    expect(finished.headers.get("Cache-Control")).toBe("no-store");
+    const { yours } = (await finished.json()) as YourAppSignedIn;
+    expect(yours).toEqual({ ...unsigned, signedInAt: expect.any(String) });
+    expect(await yourApps(member)).toEqual([yours]);
+
+    // It's hers alone, sealed, and Ember's sign-in is as it was.
+    expect(await yourApps(administrator)).toEqual([unsigned]);
+    expect((await appOf(await show(administrator, app.id))).signIn).toEqual(app.signIn);
+    const [kept] = (await workspaceSql("SELECT user_id, sign_in FROM own_app_sign_ins")) as [{ user_id: string; sign_in: string }];
+    expect(kept.user_id).toBe(member.user.id);
+    expect(kept.sign_in).not.toContain("access-2");
+    expect(await workspaceSql("SELECT count(*) AS n FROM app_sign_ins")).toEqual([{ n: 0 }]);
+  });
+
+  it("has what an agent does with the app in their direct conversation with it go as them, and nowhere else", async () => {
+    const { administrator, member, app, tool, own, dm, asGrace } = await withGrace();
+    const [{ id: general }] = (await workspaceSql("SELECT id FROM rooms WHERE kind <> 'direct' ORDER BY created_at LIMIT 1")) as [{ id: RoomId }];
+    const toolsIn = async (room: RoomId, asker: Session) => (await workspaceStub().answererIn(room, ASSISTANT_ID, asker.user.id))!.appTools.map(({ name, own, alwaysAllowed }) => ({ name, own, alwaysAllowed }));
+    expect(await toolsIn(dm, member)).toEqual([{ name: tool.name, own: undefined, alwaysAllowed: false }]);
+
+    await signInAsSelf(member, app.id);
+    expect(await toolsIn(dm, member)).toEqual([{ name: tool.name, own: true, alwaysAllowed: false }]);
+    expect(await toolsIn(general, member)).toEqual([{ name: tool.name, own: undefined, alwaysAllowed: false }]);
+    expect(await toolsIn(await directWithEmber(administrator), administrator)).toEqual([{ name: tool.name, own: undefined, alwaysAllowed: false }]);
+    asked = [];
+
+    expect(await called(own, asGrace)).toBe("Done.");
+    expect(callTokens()).toEqual(["Bearer access-2"]);
+    // A call that wasn't to go as her goes with Ember's sign-in, as its card said.
+    expect(await called(tool, asGrace)).toBe("Done.");
+    expect(callTokens()).toEqual(["Bearer access-2", "Bearer access-1"]);
+    // One that was goes nowhere outside that conversation, or for someone who isn't in it.
+    await expect(called(own, { roomId: general, askerId: member.user.id })).rejects.toThrow("isn't one of your tools any more");
+    await expect(called(own, { roomId: dm, askerId: administrator.user.id })).rejects.toThrow("isn't one of your tools any more");
+    expect(callTokens()).toHaveLength(2);
+
+    // What an administrator always allows was said of Ember's sign-in: as her, every call asks first.
+    const always = { tools: [{ appId: app.id, name: tool.name, fingerprint: tool.fingerprint, alwaysAllowed: true }] };
+    expect((await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { method: "PUT", headers: as(administrator), body: JSON.stringify(always) })).status).toBe(200);
+    expect(await toolsIn(general, member)).toEqual([{ name: tool.name, own: undefined, alwaysAllowed: true }]);
+    expect(await toolsIn(dm, member)).toEqual([{ name: tool.name, own: true, alwaysAllowed: false }]);
+    const shown = async () => ({ unmade: async () => {} });
+    await expect(appTool(env as unknown as Env, ASSISTANT_ID, own, asGrace, { shown }).run({})).rejects.toThrow("each call of it has to be allowed now");
+    expect(callTokens()).toHaveLength(2);
+  });
+
+  it("gets its next tokens apart from Ember's, and isn't made up for with Ember's once it has ended", async () => {
+    auth.expiresIn = 30;
+    const { administrator, member, app, tool, own, asGrace } = await withGrace();
+    await signInAsSelf(member, app.id);
+    asked = [];
+
+    expect(await called(own, asGrace)).toBe("Done.");
+    expect(tokenRequests()).toMatchObject([{ grant_type: "refresh_token", refresh_token: "refresh-2" }]);
+    expect(callTokens()).toEqual(["Bearer access-3"]);
+    expect(await called(tool, asGrace)).toBe("Done.");
+    expect(tokenRequests().at(-1)).toMatchObject({ grant_type: "refresh_token", refresh_token: "refresh-1" });
+    expect(callTokens()).toEqual(["Bearer access-3", "Bearer access-4"]);
+
+    // Her sign-in ends: the call isn't made, with hers or with Ember's, and her profile says so.
+    auth.token = ({ refresh_token: refresh }) => (refresh === "refresh-3" ? oauthError("invalid_grant") : null);
+    await expect(called(own, asGrace)).rejects.toThrow(`Not run: ${ownSignInEnded("Tracker")}`);
+    expect(callTokens()).toHaveLength(2);
+    expect(await yourApps(member)).toMatchObject([{ signedInAt: expect.any(String), ended: true }]);
+    expect((await appOf(await show(administrator, app.id))).signIn?.ended).toBe(false);
+    expect((await workspaceStub().answererIn(asGrace.roomId, ASSISTANT_ID, member.user.id))!.appTools[0]!.own).toBe(true);
+
+    // Signing in again makes it hers to use again.
+    auth.token = () => null;
+    expect(await signInAsSelf(member, app.id)).toMatchObject({ ended: false });
+    expect(await called(own, asGrace)).toBe("Done.");
+  });
+
+  it("is asked for more by the app's server for them alone, which their signing in again asks for", async () => {
+    const { administrator, member, app, own, asGrace } = await withGrace();
+    await signInAsSelf(member, app.id);
+    auth.needs = { method: "tools/call", scope: "issues:write" };
+
+    await expect(called(own, asGrace)).rejects.toThrow(`Not run: ${ownWantsMoreAccess("Tracker")}`);
+    expect(await yourApps(member)).toMatchObject([{ wantsMore: true, ended: false }]);
+    expect((await appOf(await show(administrator, app.id))).signIn?.wantsScope).toBeNull();
+
+    const to = await sentTo(await beginOwn(member, app.id));
+    expect(to.searchParams.get("scope")).toBe("issues issues:write");
+    const finished = await finish(member, comeBack(to));
+    expect(((await finished.json()) as YourAppSignedIn).yours).toMatchObject({ wantsMore: false });
+    expect(await called(own, asGrace)).toBe("Done.");
+  });
+
+  it("is forgotten when they sign out, which has its service take it back, and leaves Ember's", async () => {
+    auth.revokes = true;
+    const { member, app, tool, own, asGrace } = await withGrace();
+    const unsigned: YourApp = { id: app.id, name: "Tracker", signedInAt: null, ended: false, wantsMore: false };
+    expect(await refusalOf(await signOut(member, app.id), 404)).toEqual({ error: YOUR_APP_GONE });
+    await signInAsSelf(member, app.id);
+    asked = [];
+
+    expect(await refusalOf(await signOut(null, app.id), 401)).toEqual({ error: "Not signed in" });
+    const signedOut = await signOut(member, app.id);
+    expect(signedOut.status, await signedOut.clone().text()).toBe(200);
+    expect((await signedOut.json()) as YourAppSignedOut).toEqual({ apps: [unsigned], revoked: true });
+    expect(revocations().map(({ form }) => form?.token)).toEqual(["refresh-2", "access-2"]);
+    expect(await workspaceSql("SELECT count(*) AS n FROM own_app_sign_ins")).toEqual([{ n: 0 }]);
+
+    // What was to go as her isn't made with Ember's, and what she asks next goes with Ember's.
+    await expect(called(own, asGrace)).rejects.toThrow(`Not run: ${ownSignInEnded("Tracker")}`);
+    expect((await workspaceStub().answererIn(asGrace.roomId, ASSISTANT_ID, member.user.id))!.appTools[0]!.own).toBeUndefined();
+    expect(await called(tool, asGrace)).toBe("Done.");
+    expect(callTokens()).toEqual(["Bearer access-1"]);
+
+    // A service that doesn't take it back is said not to have: the sign-in is forgotten all the same.
+    await signInAsSelf(member, app.id);
+    auth.revoked = () => new Response(null, { status: 503 });
+    expect((await (await signOut(member, app.id)).json()) as YourAppSignedOut).toEqual({ apps: [unsigned], revoked: false });
+  });
+
+  it("goes with its app, whose removal has the service take it back too", async () => {
+    auth.revokes = true;
+    const { administrator, member, app } = await withGrace();
+    await signInAsSelf(member, app.id);
+    await beginOwn(administrator, app.id);
+    asked = [];
+
+    expect(await removed(await disconnect(administrator, app.id))).toEqual({ revoked: true });
+    expect(
+      revocations()
+        .map(({ form }) => form?.token)
+        .sort(),
+    ).toEqual(["access-1", "access-2", "refresh-1", "refresh-2"]);
+    expect(await workspaceSql("SELECT (SELECT count(*) FROM own_app_sign_ins) + (SELECT count(*) FROM app_sign_ins) AS n")).toEqual([{ n: 0 }]);
+    expect(await yourApps(member)).toEqual([]);
+  });
+
+  it("goes with its person, when they're removed or banned", async () => {
+    const { administrator, member, app } = await withGrace();
+    const hal = await joinAs({ name: "Hal Abelson", emailAddress: "hal@example.com", password: "structure and interpretation" });
+    await signInAsSelf(member, app.id);
+    await signInAsSelf(hal, app.id);
+    const whose = async () => ((await workspaceSql("SELECT user_id FROM own_app_sign_ins ORDER BY user_id")) as Array<{ user_id: string }>).map(({ user_id: id }) => id);
+    expect(await whose()).toEqual([member.user.id, hal.user.id].sort());
+
+    expect((await api(`/api/account/users/${member.user.id}`, { method: "DELETE", headers: as(administrator) })).status).toBe(200);
+    expect(await whose()).toEqual([hal.user.id]);
+    expect((await api(`/api/users/${hal.user.id}/ban`, { method: "POST", headers: as(administrator) })).status).toBe(200);
+    expect(await whose()).toEqual([]);
+  });
+
+  it("is anyone's to begin, for an app Ember signs in to, while Ember AI is on, and only their own to finish", async () => {
+    const { administrator, member, app } = await withGrace();
+    expect(await refusalOf(await beginOwn(null, app.id), 401)).toEqual({ error: "Not signed in" });
+    expect(await refusalOf(await beginOwn(member, "0mgk3x2a9b4c5e"), 404)).toEqual({ error: YOUR_APP_GONE });
+
+    // Someone else's comes to nothing for whoever tries it, and is still its person's to finish.
+    const adas = comeBack(await sentTo(await beginOwn(administrator, app.id)));
+    expect(await refusalOf(await finish(member, adas))).toEqual({ error: APP_SIGN_IN_ENDED });
+    // Each person has one under way: beginning another ends the last, and none of them crowds out Ember's.
+    const embers = comeBack(await sentTo(await beginAgain(administrator, app.id)));
+    const first = comeBack(await sentTo(await beginOwn(member, app.id)));
+    const second = comeBack(await sentTo(await beginOwn(member, app.id)));
+    expect(await workspaceSql("SELECT count(*) AS n FROM app_sign_ins WHERE own = 1")).toEqual([{ n: 2 }]);
+    expect(await refusalOf(await finish(member, first))).toEqual({ error: APP_SIGN_IN_ENDED });
+    auth.keepsOthers = true;
+    expect((await finish(member, second)).status).toBe(200);
+    expect((await finish(administrator, adas)).status).toBe(200);
+    await signedInBy(await finish(administrator, embers), 200);
+    expect((await yourApps(member))[0]!.signedInAt).not.toBeNull();
+
+    // While Ember AI is off, nobody's profile lists an app, and none is signed in to.
+    const pending = comeBack(await sentTo(await beginOwn(member, app.id)));
+    expect((await api("/api/account/assistant", { method: "DELETE", headers: as(administrator) })).status).toBe(200);
+    expect(await yourApps(member)).toEqual([]);
+    expect(await refusalOf(await beginOwn(member, app.id), 409)).toEqual({ error: ASSISTANT_OFF });
+    expect(await refusalOf(await finish(member, pending), 409)).toEqual({ error: ASSISTANT_OFF });
+    expect(await refusalOf(await signOut(member, app.id), 409)).toEqual({ error: ASSISTANT_OFF });
   });
 });
