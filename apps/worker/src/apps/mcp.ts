@@ -49,6 +49,8 @@ export interface ReadApp {
 export interface CalledTool {
   text: string;
   failed: boolean;
+  /** Whether the server no longer lists the tool as it was picked, so that its tools want reading again. */
+  changed?: true;
 }
 
 /** What an app is asked through: the Worker's `fetch`, or a fake in tests. */
@@ -98,8 +100,8 @@ export async function callApp(url: string, token: string | null, tool: Pick<Read
   try {
     return await connected(address, token, within, held, async (client) => {
       const listed = await toolNamed(client, tool.name, held.deadline);
-      if (!listed) return notRun(`${address.host} no longer has a tool named ${tool.name}.`);
-      if (listed.fingerprint !== tool.fingerprint) return notRun(`${tool.name} has changed since an administrator looked at it.`);
+      if (!listed) return { ...notRun(`${address.host} no longer has a tool named ${tool.name}.`), changed: true };
+      if (listed.fingerprint !== tool.fingerprint) return { ...notRun(`${tool.name} has changed since an administrator looked at it.`), changed: true };
       called = true;
       // The client's own `callTool` reads every page of the server's tools to check a result against its tool's schema, which Ember doesn't keep.
       return resultOf(await client.request({ method: "tools/call", params: { name: tool.name, arguments: input } }, { signal: held.deadline }));

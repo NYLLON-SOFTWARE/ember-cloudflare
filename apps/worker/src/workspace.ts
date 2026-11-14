@@ -743,8 +743,8 @@ export interface AppAccess {
   sealedToken: string | null;
 }
 
-/** Where a call of a connected app's tool goes: its server's address, and the token Ember sends it, if it has one. */
-export type AppCallAccess = Pick<AppAccess, "url" | "token">;
+/** Where a call of a connected app's tool goes: its server's address, and the token Ember sends it, if it has one, as it's kept too. */
+export type AppCallAccess = AppAccess;
 
 /** Where an app was asked when its tools were read: its server's address then, and its token as it was kept. */
 export type AskedAt = Pick<AppAccess, "url" | "sealedToken">;
@@ -3273,7 +3273,17 @@ export class Workspace extends DurableObject<Env> {
   async appToolCall(agentId: UserId, tool: Pick<PickedTool, "appId" | "name" | "fingerprint">): Promise<AppCallAccess | null> {
     const [account, picked, app] = await Promise.all([this.joinableAccount(), this.pickedTools(agentId), this.store.app(tool.appId)]);
     const isPicked = picked.some(({ appId, name, fingerprint }) => appId === tool.appId && name === tool.name && fingerprint === tool.fingerprint);
-    return account?.assistant && app && isPicked ? { url: app.url, token: await this.appToken(app) } : null;
+    return account?.assistant && app && isPicked ? { url: app.url, token: await this.appToken(app), sealedToken: app.sealedToken } : null;
+  }
+
+  /**
+   * Keeps what the server of the connected app `appId` answered when a room read its tools again,
+   * `read`, as a call had found one no longer as it was picked: the tool is then set aside for every
+   * agent that had it, whose pages show how its server describes it now, until an administrator picks
+   * it again. Kept only while the app is still asked where it was then, `askedAt`.
+   */
+  async keepAppRead(appId: AppId, read: StoredAppRead, askedAt: AskedAt): Promise<void> {
+    await this.store.keepAppRead(appId, read, askedAt, new Date().toISOString());
   }
 
   /**

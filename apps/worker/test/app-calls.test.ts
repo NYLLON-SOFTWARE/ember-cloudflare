@@ -410,6 +410,17 @@ describe("A call of a connected app's tool", () => {
     expect(told()).toEqual([["Not run: create_issue has changed since an administrator looked at it.", true]]);
     expect(calls()).toEqual([]);
     expect(await waiting(general)).toEqual([]);
+
+    // Ember read the app's tools again, so the tool is set aside, as its server describes it now, until an administrator picks it again.
+    const { apps } = (await (await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { headers: as(ada) })).json()) as AgentTools;
+    expect(apps.map(({ tools }) => tools)).toEqual([[expect.objectContaining({ name: "create_issue", description: "Opens an issue, and emails everyone.", picked: false, changed: true })]]);
+    expect((await ask(inGeneral)).plainText).toBe("Hello, team!");
+    expect(asked.at(-1)!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
+    await pick(ada, "create_issue");
+    script = [CALL, { text: "Now I could." }];
+    click(inGeneral, await ask(inGeneral), "allow");
+    expect((await fromEmber(inGeneral)).plainText).toBe("Now I could.");
+    expect(calls()).toHaveLength(1);
   });
 
   it("goes nowhere once Ember AI answers with another model, which @ember says, or is turned off", async () => {
@@ -459,13 +470,13 @@ describe("A call of a connected app's tool", () => {
     }
   });
 
-  it("tells the model why a call came to nothing: the app refused it, dropped the tool, or didn't take Ember's token", async () => {
-    const { inGeneral } = await setUp();
+  it("tells the model why a call came to nothing: the app refused it, didn't take Ember's token, or dropped the tool, which Ember then finds gone", async () => {
+    const { inGeneral, ada } = await setUp();
     vi.spyOn(console, "error").mockImplementation(() => {});
     const goesWrong: Array<[() => void, string]> = [
       [() => (server.refuses = "title is too short"), "create_issue refused the call: title is too short"],
-      [() => (server.tools = [SEARCH_ISSUES]), "Not run: localhost:3845 no longer has a tool named create_issue."],
       [() => (server.token = "another-token"), "Not run: localhost:3845 didn't take that token."],
+      [() => (server.tools = [SEARCH_ISSUES]), "Not run: localhost:3845 no longer has a tool named create_issue."],
     ];
     for (const [index, [wrong, expected]] of goesWrong.entries()) {
       script = [CALL, { text: `Answer ${index}` }];
@@ -475,8 +486,13 @@ describe("A call of a connected app's tool", () => {
       expect((await fromEmber(inGeneral)).plainText).toBe(`Answer ${index}`);
       expect(told(), String(index)).toEqual([[expected, true]]);
       expect(JSON.stringify(asked)).not.toContain(MCP_TOKEN);
-      server.refuses = undefined;
+      Object.assign(server, { refuses: undefined, token: MCP_TOKEN });
     }
+    // Ember read the app's tools again once one was gone, so @ember's page no longer offers it, and its model isn't given it.
+    const { apps } = (await (await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { headers: as(ada) })).json()) as AgentTools;
+    expect(apps.map(({ tools }) => tools.map(({ name }) => name))).toEqual([["search_issues"]]);
+    expect((await ask(inGeneral)).plainText).toBe("Hello, team!");
+    expect(asked.at(-1)!.tools.map(({ name }) => name)).toEqual(["search_messages"]);
   });
 
   it("is never asked for with more than its card shows, which the model is told, so that nobody allows what they couldn't read", async () => {

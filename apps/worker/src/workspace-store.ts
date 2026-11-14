@@ -3895,6 +3895,14 @@ export class WorkspaceStore {
     await this.db.batch(statements);
   }
 
+  /** Keeps what was read from the server of the app `appId` again, while it's still asked at `url` with `sealedToken`, changing nothing else of it. */
+  async keepAppRead(appId: AppId, { serverName, tools, toolsLeftOut }: StoredAppRead, { url, sealedToken }: { url: string; sealedToken: string | null }, now: string): Promise<void> {
+    await this.db.run(
+      `UPDATE apps SET server_name = ?, tools = ?, tools_left_out = ?, tools_read_at = ? WHERE id = ? AND url = ? AND token IS ?`,
+      ...[serverName, JSON.stringify(tools), toolsLeftOut, now, appId, url, sealedToken],
+    );
+  }
+
   /** Disconnects the app `appId`, answering whether there was one. */
   async disconnectApp(appId: AppId): Promise<boolean> {
     const [disconnected] = (await this.db.batch([statement(`DELETE FROM apps WHERE id = ? RETURNING id`, appId)])) as [unknown[]];

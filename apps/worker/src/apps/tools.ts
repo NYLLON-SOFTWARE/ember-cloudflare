@@ -3,7 +3,7 @@ import { CALL_ACTIONS, type AppId, type CallDecision } from "@ember/protocol/app
 import { ToolError, type EmberTool } from "../assistant/tool-calls";
 import type { SlackPayload } from "../bots/slack";
 import type { Env } from "../env";
-import { workspace } from "../workspace";
+import { workspace, type AppCallAccess } from "../workspace";
 import { appConnector } from "./connector";
 
 // Connected apps' tools as @ember and the agents use them: an administrator picks them for each
@@ -86,9 +86,24 @@ export function appTool(env: Env, agentId: UserId, given: GivenTool, described?:
 async function called(env: Env, agentId: UserId, tool: GivenTool, input: Record<string, unknown>): Promise<string> {
   const access = await workspace(env).appToolCall(agentId, tool);
   if (!access) throw new ToolError(`Not run: ${tool.as} isn't one of your tools any more.`);
-  const { text, failed } = await appConnector(env).call(access.url, access.token, { name: tool.name, fingerprint: tool.fingerprint }, input);
+  const { text, failed, changed } = await appConnector(env).call(access.url, access.token, { name: tool.name, fingerprint: tool.fingerprint }, input);
+  if (changed) await readAgain(env, tool, access);
   if (failed) throw new ToolError(text);
   return text;
+}
+
+/**
+ * Reads the tools of `tool`'s app again, asked as `access` has it, once a call has found its server no
+ * longer lists the tool as it was picked, so that the agents' pages say so, and how it's described now.
+ * A server that doesn't answer leaves the app as it was, and the tool uncalled all the same.
+ */
+async function readAgain(env: Env, tool: GivenTool, access: AppCallAccess): Promise<void> {
+  try {
+    const read = await appConnector(env).read(access.url, access.token);
+    if (!("error" in read)) await workspace(env).keepAppRead(tool.appId, read, access);
+  } catch (error) {
+    console.error(`Reading the tools of app ${tool.appId} again, after a call found one changed, failed: ${error instanceof Error ? error.name : "unknown error"}`);
+  }
 }
 
 /** The block a call's card has its buttons in. */
