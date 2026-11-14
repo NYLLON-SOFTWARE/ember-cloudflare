@@ -14,6 +14,10 @@ export const MAX_APPS = 10;
 export const MAX_APP_NAME_LENGTH = 60;
 export const MAX_APP_URL_LENGTH = 2048;
 export const MAX_APP_TOKEN_LENGTH = 4096;
+export const MAX_APP_CLIENT_ID_LENGTH = 512;
+export const MAX_APP_CLIENT_SECRET_LENGTH = 1024;
+/** The most characters of OAuth scopes Ember keeps of what an app's server asks for beyond its sign-in. */
+export const MAX_APP_SCOPE_LENGTH = 1000;
 
 /** The most tools Ember reads from an app: the rest are left out, which its page says. */
 export const MAX_APP_TOOLS = 100;
@@ -25,6 +29,8 @@ export const APPS_FORBIDDEN = "Only administrators can connect apps";
 export const APPS_FULL = `Ember connects at most ${MAX_APPS} apps. Remove one first.`;
 export const APP_CHANGED = "Someone else changed this app while Ember read its tools. Load the page again.";
 export const APP_URL_REFUSED = "The address must be an https URL, or an http one on localhost";
+export const APP_SIGNED_IN = "This app signs in to its server, so its address and token can't be changed here. Remove it and connect it again to move it.";
+export const APP_SIGN_IN_ENDED = "That sign-in has ended, or isn't one you started. Start it again.";
 
 /** A tool of an app's, as its server describes it: its name there, what it's called, if that's something else, and what it does. */
 export interface AppTool {
@@ -36,7 +42,8 @@ export interface AppTool {
 /**
  * An app as its page shows it: its name, its server's address, whether Ember
  * sends a token, which it never shows again, what the server calls itself, the tools read from it, how
- * many more it has than Ember keeps, and who connected it, and when its tools were last read.
+ * many more it has than Ember keeps, and who connected it, and when its tools were last read, and its
+ * sign-in, if an administrator signed in to its server.
  */
 export interface App {
   id: AppId;
@@ -48,19 +55,66 @@ export interface App {
   toolsLeftOut: number;
   toolsReadAt: string;
   connectedBy: { id: UserId; name: string } | null;
+  setAside: SetAsideTool[];
+  signIn: AppSignIn | null;
 }
 
-/** An app as the AI assistant tab lists it: its name, its server's address and how many tools Ember read from it. */
+/**
+ * An app's sign-in: who signed in to its server, if they're still known, and when, whether it has
+ * `ended`, as it has once its server won't give Ember another token, so that its agents are without
+ * its tools until an administrator signs in again, the client ID Ember signed in as, when an
+ * administrator gave one (`AppClient`), or null when the service came to know Ember by itself, and
+ * what its server has asked for since that the sign-in doesn't allow, `wantsScope`, as the OAuth
+ * scopes it named, between spaces: signing in again asks for them too.
+ */
+export interface AppSignIn {
+  by: { id: UserId; name: string } | null;
+  at: string;
+  ended: boolean;
+  clientId: string | null;
+  wantsScope: string | null;
+}
+
+/**
+ * An app as the AI assistant tab lists it: its name, its server's address, how many tools Ember read
+ * from it, how many of them are set aside for an agent that had them (`SetAsideTool`), whether
+ * Ember's sign-in to its server has ended, so that its server isn't asked until an administrator signs
+ * in again, and whether its server has asked for more than the sign-in allows, `wantsAccess`, which
+ * signing in again asks for.
+ */
 export interface AppSummary {
   id: AppId;
   name: string;
   url: string;
   toolCount: number;
+  setAside: number;
+  signInEnded: boolean;
+  wantsAccess: boolean;
+}
+
+/**
+ * A tool picked for agents that none of them is given any more, by its name at its app, with the
+ * agents that had it: its server describes it another way than when it was picked, so it waits for an
+ * administrator to pick it again on each agent's page, or its server no longer has it, `gone`.
+ */
+export interface SetAsideTool {
+  name: string;
+  gone: boolean;
+  agents: Array<{ id: UserId; name: string }>;
 }
 
 /** What `GET /api/account/apps` answers: the apps, by name. */
 export interface Apps {
   apps: AppSummary[];
+}
+
+/**
+ * What `DELETE /api/account/apps/<id>` answers for an app Ember was signed in to: whether its service
+ * took back what the sign-in gave Ember, `revoked`, which it's asked to where it says how. Any other
+ * app's removal answers 204.
+ */
+export interface AppRemoved {
+  revoked: boolean;
 }
 
 /** What a request that makes or changes an app answers. */
@@ -85,10 +139,117 @@ export interface AppChanges {
   token?: string;
 }
 
-/** Why a field of an app's form is refused. */
+/**
+ * Why a field of an app's form is refused, and whether that's because its server asks for a sign-in,
+ * which Ember can begin, or because its sign-in wants a client ID Ember can't get itself, `client`,
+ * which the form then asks for.
+ */
 export interface AppRefused {
   error: string;
-  field?: "name" | "url" | "token";
+  field?: "name" | "url" | "token" | "clientId" | "clientSecret";
+  signIn?: true;
+  client?: true;
+}
+
+/**
+ * Who Ember is to a service whose sign-in neither reads who a client is nor lets one register itself:
+ * the client ID the service gave an administrator who registered Ember there, and its secret, if it
+ * gave one. On a sign-in to a connected app, a `clientId` left out keeps the one the app signed in
+ * as, with its secret when none is given, and "" has Ember go without one.
+ */
+export interface AppClient {
+  clientId?: string;
+  clientSecret?: string;
+}
+
+/** What `POST /api/account/app-sign-ins` takes: the name and server address of an app to connect by signing in to its server, and who Ember is there, if the service doesn't find out by itself. */
+export type NewAppSignIn = Pick<NewApp, "name" | "url"> & AppClient;
+
+/** What beginning a sign-in answers: where to send the administrator's browser, which comes back to `/account/apps/signed-in`. */
+export interface AppSignInBegun {
+  authorizationUrl: string;
+}
+
+/**
+ * What `POST /api/account/app-sign-ins/finish` takes, from the address the administrator's browser came
+ * back to: the `state` and `code` it carried, and who the authorization server said it is, `iss`, if
+ * it said.
+ */
+export interface AppSignInReturn {
+  state: string;
+  code: string;
+  iss?: string;
+}
+
+/** What finishing a sign-in answers: the app as its page then shows it, and whether it was connected already, and signed in to `again`. */
+export interface AppSignedIn {
+  app: App;
+  again: boolean;
+}
+
+/**
+ * A connected app Ember signs in to, as your profile lists it: by its name, with the sign-in you've
+ * made to it yourself, if you have: when, whether it has `ended`, and whether its server has asked for
+ * more than it allows, `wantsMore`, which signing in again asks for. With one, what an agent does with
+ * the app in your direct conversation with it, it does as you.
+ */
+export interface YourApp {
+  id: AppId;
+  name: string;
+  signedInAt: string | null;
+  ended: boolean;
+  wantsMore: boolean;
+}
+
+/** What finishing a sign-in you made to a connected app yourself answers: the app as your profile then lists it. */
+export interface YourAppSignedIn {
+  yours: YourApp;
+}
+
+/** What `DELETE /api/users/me/apps/<id>/sign-in` answers: the apps as your profile then lists them, and whether the app's service took back what your sign-in gave Ember. */
+export interface YourAppSignedOut {
+  apps: YourApp[];
+  revoked: boolean;
+}
+
+export const YOUR_APP_GONE = "That app isn't one you can sign in to here any more.";
+export const YOUR_APPS_FORBIDDEN = "Guests can't sign in to apps";
+
+/** The longest state, code or issuer a browser comes back from a sign-in with that Ember reads. */
+const MAX_RETURN_LENGTH = 4096;
+
+/** Parses what a browser came back from a sign-in with, untrusted, or says why it's refused. */
+export function parseAppSignInReturn(data: unknown): AppSignInReturn | AppRefused {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return { error: "Expected a JSON object" };
+  const { state, code, iss } = data as Record<string, unknown>;
+  const isText = (value: unknown): value is string => typeof value === "string" && value !== "" && value.length <= MAX_RETURN_LENGTH;
+  if (!isText(state) || !isText(code) || (iss !== undefined && !isText(iss))) return { error: APP_SIGN_IN_ENDED };
+  return { state, code, ...(iss !== undefined && { iss }) };
+}
+
+/**
+ * Parses who an administrator says Ember is to a service, untrusted, or says why it's refused: a client
+ * ID and a secret are what a form's field and a header can carry, kept but for the spaces around them,
+ * and a secret is some client ID's.
+ */
+export function parseAppClient(data: unknown): AppClient | AppRefused {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return { error: "Expected a JSON object" };
+  const { clientId, clientSecret } = data as Record<string, unknown>;
+  const client: AppClient = {};
+  if (clientId !== undefined) {
+    if (typeof clientId !== "string") return { error: "Client ID must be text", field: "clientId" };
+    if (clientId.trim().length > MAX_APP_CLIENT_ID_LENGTH) return { error: `Client ID can't be longer than ${MAX_APP_CLIENT_ID_LENGTH} characters`, field: "clientId" };
+    if (/[^\x20-\x7e]/.test(clientId.trim())) return { error: "Client ID can't have characters a header can't carry", field: "clientId" };
+    client.clientId = clientId.trim();
+  }
+  if (clientSecret !== undefined && clientSecret !== "") {
+    if (typeof clientSecret !== "string") return { error: "Client secret must be text", field: "clientSecret" };
+    if (clientSecret.trim().length > MAX_APP_CLIENT_SECRET_LENGTH) return { error: `Client secret can't be longer than ${MAX_APP_CLIENT_SECRET_LENGTH} characters`, field: "clientSecret" };
+    if (/[^\x20-\x7e]/.test(clientSecret.trim())) return { error: "Client secret can't have characters a header can't carry", field: "clientSecret" };
+    if (!client.clientId) return { error: "A client secret goes with a client ID", field: "clientId" };
+    if (clientSecret.trim() !== "") client.clientSecret = clientSecret.trim();
+  }
+  return client;
 }
 
 /**
@@ -151,7 +312,8 @@ const isLoopback = (hostname: string) => LOOPBACK_HOST.test(hostname);
 
 // The tools an agent may use. An administrator picks them, for @ember and for each agent, from the
 // tools Ember read from the connected apps. Each one an agent has rides with every question it's asked,
-// and whoever asked is shown each call of one before Ember makes it.
+// and whoever asked is shown each call of one before Ember makes it, unless the administrator has that
+// agent's calls of it always allowed, which the room is shown as they're made.
 
 /** The most tools of connected apps one agent may use, as each rides with every question it's asked. */
 export const MAX_AGENT_TOOLS = 20;
@@ -170,17 +332,21 @@ export interface ToolPick {
   appId: AppId;
   name: string;
   fingerprint: string;
+  /** Whether the agent's calls of it are made without asking first. */
+  alwaysAllowed?: true;
 }
 
 /**
  * A connected app's tool as an agent's page offers it: the fingerprint of how its server describes it,
- * which a pick of it carries, whether the agent may use it, and whether its server has described it
- * another way since it was picked, which sets it aside until it's picked again.
+ * which a pick of it carries, whether the agent may use it, whether its server has described it
+ * another way since it was picked, which sets it aside until it's picked again, and whether the agent's
+ * calls of it are made without asking first, which only a tool it may use has.
  */
 export interface OfferedTool extends AppTool {
   fingerprint: string;
   picked: boolean;
   changed: boolean;
+  alwaysAllowed: boolean;
 }
 
 /** A connected app as an agent's page offers its tools. */
@@ -200,7 +366,7 @@ export interface AgentToolPicks {
   tools: ToolPick[];
 }
 
-const NOT_A_PICK = "Expected each tool's app, name and fingerprint";
+const NOT_A_PICK = "Expected each tool's app, name and fingerprint, and whether it's always allowed";
 
 /** Parses untrusted picks of an agent's tools, each once, or says why they're refused. */
 export function parseToolPicks(data: unknown): ToolPick[] | AppRefused {
@@ -211,10 +377,17 @@ export function parseToolPicks(data: unknown): ToolPick[] | AppRefused {
   const picks = new Map<string, ToolPick>();
   for (const tool of tools as unknown[]) {
     if (typeof tool !== "object" || tool === null) return { error: NOT_A_PICK };
-    const { appId, name, fingerprint } = tool as Record<string, unknown>;
+    const { appId, name, fingerprint, alwaysAllowed } = tool as Record<string, unknown>;
     if (typeof appId !== "string" || typeof name !== "string" || appId === "" || name === "") return { error: NOT_A_PICK };
     if (typeof fingerprint !== "string" || fingerprint === "" || fingerprint.length > MAX_FINGERPRINT_LENGTH) return { error: NOT_A_PICK };
-    picks.set(`${appId}\n${name}`, { appId, name, fingerprint });
+    if (alwaysAllowed !== undefined && typeof alwaysAllowed !== "boolean") return { error: NOT_A_PICK };
+    picks.set(`${appId}\n${name}`, { appId, name, fingerprint, ...(alwaysAllowed && { alwaysAllowed }) });
   }
   return [...picks.values()];
 }
+
+/** Whether to make a call of an app's tool an agent asked to make, as the card that asks shows it: once, or not. */
+export type CallDecision = "allow" | "deny";
+
+/** The buttons of the card that asks before an agent's call of an app's tool, by the `action_id` each click names. */
+export const CALL_ACTIONS: Record<CallDecision, string> = { allow: "ember.call.allow", deny: "ember.call.deny" };

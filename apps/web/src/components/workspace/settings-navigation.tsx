@@ -52,6 +52,7 @@ export function settingsSectionOf(route: Route, hash: string): SettingsSection |
     case "agent-settings":
     case "new-app":
     case "app-settings":
+    case "app-signed-in":
       return "assistant-settings";
     case "custom-emoji":
       return "custom-emoji";

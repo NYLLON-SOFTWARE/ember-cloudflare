@@ -29,13 +29,14 @@ import { CHROME_MAC, SAFARI_MAC } from "@/test-platforms";
 import { PUSH_ON } from "@/test-push";
 import { DEFAULT_MODEL_EXPLAINED } from "./answer-levels";
 import { AVATAR_CHANGED, ProfilePage } from "./profile-page";
+import { NOTHING_CONNECTED } from "./your-outside-ai";
 
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Ada's avatar as the profile loads it: her initials, until she uploads one. */
 const INITIALS = "/users/t0k3n/avatar?v=1";
-const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, assistant: null };
+const profile: Profile = { name: "Ada Lovelace", emailAddress: "ada@example.com", bio: "Wrote the first program", avatarUrl: INITIALS, avatar: false, password: true, membershipNeeded: true, memberful: null, assistant: null, apps: [], outsideAi: null };
 /** Ada's levels of @ember's dials while Ember AI is on: where they start, up to Medium thinking, with the one model people can pick, which she leaves to administrators. */
 const LEVELS: YourAssistant = {
   levels: { thinking: "low", length: "medium" },
@@ -196,7 +197,7 @@ describe("Edit your profile", () => {
   });
 
   it("shows no email address or bio as blank fields", async () => {
-    serve({ loaded: () => Response.json({ profile: { name: "Grace Hopper", emailAddress: null, bio: null } }) });
+    serve({ loaded: () => Response.json({ profile: { ...profile, name: "Grace Hopper", emailAddress: null, bio: null } }) });
     showPage();
     await loaded();
     expect(field("Email address")).toHaveValue("");
@@ -1046,5 +1047,51 @@ describe("Custom CSS", () => {
       expect(field(label)).toHaveValue("difference engine");
       expect(field(label)).not.toHaveAttribute("value");
     }
+  });
+});
+
+describe("AI apps on your profile", () => {
+  const CLAUDE = { id: "0mgk3x2a9b4c70", name: "Claude", comesBackTo: "claude.example", scopes: ["read" as const], connectedAt: "2026-11-14T09:00:00.000Z", usedAt: null };
+
+  it("aren't shown while AI apps can't connect as you", async () => {
+    serve();
+    showPage();
+    await waitFor(() => expect(screen.getByLabelText("Name")).toHaveValue("Ada Lovelace"));
+    expect(screen.queryByRole("heading", { level: 2, name: "AI apps" })).not.toBeInTheDocument();
+  });
+
+  it("lists the AI apps connected as you, as the profile loads them, and as disconnecting one leaves them", async () => {
+    const fetch = serve({ loaded: () => Response.json({ profile: { ...profile, outsideAi: [CLAUDE] }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+    const { user } = showPage();
+
+    expect(await screen.findByRole("heading", { level: 2, name: "AI apps" })).toBeVisible();
+    fetch.mockImplementationOnce(async () => Response.json({ connections: [] }));
+    await user.click(screen.getByRole("button", { name: "Disconnect Claude" }));
+    expect(await screen.findByText(NOTHING_CONNECTED)).toBeVisible();
+    expect(fetch).toHaveBeenLastCalledWith(`/api/users/me/outside/${CLAUDE.id}`, expect.objectContaining({ method: "DELETE" }));
+    expect(screen.getByRole("heading", { level: 2, name: "AI apps" })).toBeVisible();
+  });
+});
+
+describe("Apps on your profile", () => {
+  const LINEAR = { id: "0mgk3x2a9b4c70", name: "Linear", signedInAt: "2026-11-14T09:00:00.000Z", ended: false, wantsMore: false };
+
+  it("aren't shown while there's no app to sign in to yourself", async () => {
+    serve();
+    showPage();
+    await waitFor(() => expect(screen.getByLabelText("Name")).toHaveValue("Ada Lovelace"));
+    expect(screen.queryByRole("heading", { level: 2, name: "Apps" })).not.toBeInTheDocument();
+  });
+
+  it("lists the apps you can sign in to yourself, as the profile loads them, and as signing out of one leaves them", async () => {
+    const fetch = serve({ loaded: () => Response.json({ profile: { ...profile, apps: [LINEAR] }, transferId: LOADED_LINK } satisfies ProfileAnswer) });
+    const signedOut = { apps: [{ ...LINEAR, signedInAt: null }], revoked: true };
+    const { user } = showPage();
+
+    expect(await screen.findByRole("heading", { level: 2, name: "Apps" })).toBeVisible();
+    fetch.mockImplementationOnce(async () => Response.json(signedOut));
+    await user.click(screen.getByRole("button", { name: "Sign out of Linear" }));
+    expect(await screen.findByRole("button", { name: "Sign in to Linear" })).toBeVisible();
+    expect(fetch).toHaveBeenLastCalledWith(`/api/users/me/apps/${LINEAR.id}/sign-in`, expect.objectContaining({ method: "DELETE" }));
   });
 });

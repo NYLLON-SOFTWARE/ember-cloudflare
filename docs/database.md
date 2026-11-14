@@ -18,21 +18,22 @@ files themselves live in R2, in the bucket bound as `FILES`.
 
 Each file in `apps/worker/migrations/` belongs to one kind of Durable Object, which `MIGRATIONS` in
 `apps/worker/src/migrations.ts` names as its scope: `room` for messages, boosts, revocations, the
-room's change log, its log of messages for the search index, its recent deletions and its files, and
+room's change log, its log of messages for the search index, its recent deletions, its files and the
+calls of apps' tools that wait to be allowed, and
 `workspace` for the workspace-wide tables (the account, people, sessions, linked accounts, push
 subscriptions, webhooks, bans, recent searches, rooms, memberships, stars, pending revocations,
-purges and reindexes, the rooms deleted, the apps connected, and the tools picked for each agent). On DO SQLite, an object applies only its own scope's
+purges and reindexes, the rooms deleted, the apps connected, the tools picked for each agent, and the AI apps people connect to Ember). On DO SQLite, an object applies only its own scope's
 files, so a room's storage never holds workspace tables. Wrangler applies every file to D1, where
 all the tables share one database and each room's rows carry its `room_id`. The search index's
 schema is in `apps/worker/search-migrations/`, which only the index applies, listed in
 `SEARCH_MIGRATIONS`.
 
 So far rooms keep `messages`, `boosts`, `revocations`, `room_events`, `unindexed_messages`,
-`message_deletions` and `blobs`, the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
+`message_deletions`, `blobs` and `waiting_calls`, the Workspace keeps `accounts`, `users`, `sessions`, `identities`,
 `pending_identities`, `membership_checks`, `membership_catch_ups`, `push_subscriptions`, `webhooks`,
 `bans`, `email_links`, `email_link_requests`, `password_resets`, `searches`, `recent_searches`, `rooms`,
 `memberships`, `favorites`, `pending_revocations`, `pending_purges`, `pending_reindexes`,
-`deleted_rooms`, `apps` and `agent_tools`, and the search index keeps `search_messages`, `search_mentions`, `search_rooms` and the
+`deleted_rooms`, `apps`, `app_sign_ins`, `own_app_sign_ins`, `agent_tools`, `outside_clients`, `outside_connections` and `outside_spent_tokens`, and the search index keeps `search_messages`, `search_mentions`, `search_rooms` and the
 FTS5 table `search_index`. A room's id also
 names its Durable Object, and the Worker asks the Workspace whether someone is a member before it
 wakes the room for their socket. First run creates the account and its administrator, who signs in
@@ -572,12 +573,12 @@ Objects, D1 or speed call for something else.
   again once the model is added back.
 - **Your skin tone for emoji is a column of the person.** Campfire has no emoji by their codes. The
   tone someone chooses on their profile for the people and hands they type by their `:codes:` and add as
-  quick reactions, as Slack's default skin tone is, is `users.skin_tone` (workspace migration 0057),
+  quick reactions, as Slack's default skin tone is, is `users.skin_tone` (workspace migration 0063),
   0 for the emoji's own yellow and 1 to 5 for Unicode's tones. A session reads it with the person, in
   the statement that already reads them, so it comes with who's signed in at no cost, and choosing
   another has the Workspace read their sessions again and tell their tabs.
 - **Custom emoji are a table of names, and nothing refers to it.** Campfire has none. Each one anyone
-  adds, as in Slack, is a row of `custom_emoji` (workspace migration 0058): its name, the key R2 keeps
+  adds, as in Slack, is a row of `custom_emoji` (workspace migration 0064): its name, the key R2 keeps
   its picture at, the type its bytes said it is, and who added it and when. A message or a boost keeps
   an emoji's `:name:` as the text it was typed as, as Slack's do, so no row of theirs changes when one
   is added or removed, the search index and pushes carry the code as words, and the app draws the

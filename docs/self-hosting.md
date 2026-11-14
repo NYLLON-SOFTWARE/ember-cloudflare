@@ -23,6 +23,7 @@ account, as [Deploying](#deploying) describes.
   - [Ember AI](#ember-ai)
   - [AI agents](#ai-agents)
   - [Apps](#apps)
+  - [Outside AI](#outside-ai)
   - [Huddles](#huddles)
   - [A preview from GitHub Actions](#a-preview-from-github-actions)
   - [A demo from GitHub Actions](#a-demo-from-github-actions)
@@ -870,11 +871,11 @@ often ends in `/mcp`, and a token, if the server takes one. Ember asks the serve
 over Streamable HTTP, and connects the app only once it has answered, so a wrong address or token is
 said on its field, in words about what the server did: it asked for a sign-in, didn't take the token,
 has no MCP server there, sent the address on to another, took longer than 20 seconds, or answered
-with more than 4 MB.
+with more than 4 MB. A server that asks for a sign-in is connected by [signing in to it](#signing-in-to-an-app).
 
-This release connects apps, reads their tools, and has an administrator pick the tools each agent may
-use. Agents can't call them yet, and a server that signs people in with OAuth can't be connected, only
-one that takes a token or nothing.
+An administrator picks the tools each agent may use, and an agent calls one only once someone allows
+that call, on a card in the room, unless the administrator has that agent's calls of the tool always
+allowed.
 
 - **The address** is an `https` one, or `http` on `localhost`, for a server you're developing, with no
   name and password in it. Ember asks only that address: it follows no redirect, and it looks the name
@@ -889,8 +890,8 @@ one that takes a token or nothing.
   letters, digits, `_`, `-` and `.`, a description up to 1,500 characters and a schema of what it takes
   up to 8,000, and the page says how many more the server has. **Read its tools again** asks the
   server again, and leaves the app as it was if the server doesn't answer.
-- **Remove app** forgets the app, its token and its tools. Up to 10 apps can be connected, and they're
-  kept while Ember AI is off.
+- **Remove app** forgets the app, its token or sign-in, and its tools. Up to 10 apps can be connected,
+  and they're kept while Ember AI is off.
 - **An agent's tools** are picked on its page, and @ember's on its own, in the **Tools** card: every
   connected app's tools, by app, each with a checkbox, up to 20 an agent. A pick is saved as it's made.
   An agent is given nothing that isn't picked for it, and anyone who can ask the agent could have it
@@ -898,13 +899,210 @@ one that takes a token or nothing.
   keeps each pick with the tool as its server described it then: when Ember reads the app's tools again
   and the server describes one another way, in its name, title, description or what it takes, that
   tool is set aside for every agent that had it, and its page says so, until an administrator picks it
-  again. A pick is of the tool as the page showed it, so one made on a page that loaded before the
+  again. One its server describes as it did again, before that agent's picks are next saved, comes
+  back by itself, as it's the tool that was picked. A pick is of the tool as the page showed it, so one made on a page that loaded before the
   tool changed is refused, and the page shows the tools as they are now. Removing an app takes its
   tools from every agent.
+- **A tool set aside** is flagged where an administrator looks: the Apps card says on the app's row
+  how many of its picked tools are set aside, and the app's page names each, with the agents that had
+  it, linked to their pages, and whether the server changed it or no longer has it. Ember also finds
+  a change as it goes to call a tool: it then reads the app's tools again, so the tool is set aside
+  from that call on, without waiting for an administrator to read them. An app whose server has
+  come to have no tools Ember can use keeps none, which its page and the agents' say.
+- **A call** is the model's to ask for and a person's to allow. Claude, GPT and Grok, which can
+  search their room, are given an agent's picked tools beside that search, each named for its app and
+  described in the app's own words, marked as the app's; Workers AI's models aren't given them. It never has an app's address or token: it names a tool
+  and what to call it with, and Ember posts a card in the room, where the answer would go, saying
+  which agent wants to use which app, the tool, and everything it would be called with, as JSON.
+  **Allow once** runs that call and no other, and **Deny** tells the model it wasn't allowed; either
+  is for whoever asked the agent or an administrator, and the card then says who answered. The answer
+  goes on from there, and waits again at the next call, up to five calls an answer. A call nobody
+  answers in 15 minutes isn't run: its card says so in place of its buttons, and Ember forgets the
+  answer that waited. A call with more than 3,000 characters to show is never asked for,
+  so nobody allows what they couldn't read. As it runs a call, Ember asks the server for the tool
+  again, and doesn't call one that's no longer picked for the agent or that the server describes
+  another way than when it was picked. What the tool answers goes to the model as text, cut at 8,000
+  characters, and is the app's word: Ember passes on no pictures or files from it.
+- **A tool's card** is the app's own. A server built for Slack's assistant can answer a call with
+  [Block Kit](https://docs.slack.dev/ai/slackbot-mcp-client/returning-rich-responses) beside its
+  text, in `_meta.slack.blocks`, and Ember tells every server it takes that, by the name Slack's
+  client gives it (`io.slack/block-kit`). The room is shown those blocks as a card from the agent,
+  before its answer, ending in a line that says which app and tool it's from, and the model is told
+  the room has seen it. Ember shows such a card whole or not at all, as Slack does: one with more
+  than 50 blocks, or with a block Ember doesn't draw (a field to type in, a menu, a data table, a
+  chart, a container, a file), isn't shown, and the agent answers from the tool's text, as it does for
+  a server that sends no card. Its pictures are fetched by each reader's app from the addresses the
+  server gave, as a bot's card's are.
+- **A button on a tool's card** calls a tool when its `action_id` is `tool:` and the tool's name, with
+  the JSON object its `value` writes, as Slack has it. Ember keeps such a button only for a tool of
+  the same app that's picked for the agent, and drops any other button that isn't a link. Anyone in
+  the room can click it, and the click is its own leave: nobody is asked first, as the call is the
+  one the app's card offered, not one a model wrote, and it goes to no model. The card the tool
+  answers with takes the clicked one's place, saying who clicked which button, and what a tool only
+  says is posted beside the card. A call that fails tells whoever clicked why, in the server's words,
+  cut short. One click is answered at a time on a card. Agents' own answers still get no buttons
+  that act.
+- **Always allow** is an administrator's, for one agent and one tool: a box under each picked tool in
+  the agent's Tools card. That agent's calls of that tool are then made at once, with nobody asked,
+  for anyone who can ask the agent, so keep it for tools that only read, or whose every use you'd
+  allow. The room still sees each call: Ember posts a card saying which agent used which app, the
+  tool, and what it was called with, before it makes the call, and makes none it can't show, whether
+  the room wouldn't take the card or there are more than 3,000 characters to show. A call that then
+  isn't made after all, as Ember finds its server has changed the tool or can't get through to it, has its card changed to say so. Uncheck the box
+  and the tool asks first again, from the next call. It ends by itself when the tool is taken from
+  the agent, or when Ember finds its server has changed it: from then on the tool asks first, even
+  once the server describes it as it did, until you check the box again.
 
-Reading an app's tools runs in a Durable Object of its own, `AppConnector`, apart from the rooms and
+Reading an app's tools and calling one run in a Durable Object of its own, `AppConnector`, apart from the rooms and
 the workspace, with the protocol's own client, pinned to one version. Only JSON comes back, and none
 of a server's code runs in Ember.
+
+#### Signing in to an app
+
+Many services' MCP servers take no token you could paste: they sign you in, with OAuth, as the
+protocol has it. When a server answers Connect an app by asking for a sign-in, the token's field says
+so and offers **Sign in to** its host. Ember then finds where the server signs people in, sends your
+browser there, and connects the app once you've allowed it and the service has sent you back. The
+app's page says who signed in, and when, in place of a token.
+
+- **It's one sign-in for the app**, made by an administrator and used for every agent given the
+  app's tools, as a token is. So what an agent can do there is what the administrator who signed in
+  can, for anyone who can ask the agent: sign in as an account made for Ember where the service lets
+  you, and pick tools with that in mind. Each person can add [their own](#each-persons-own-sign-in),
+  for their direct conversation with an agent.
+- **Ember finds the sign-in from the server**, as the protocol says to: the server names its
+  authorization server, which describes itself. Ember says who it is with a document it serves at
+  `/oauth/client.json` where the authorization server reads one, and otherwise registers itself
+  there. It asks for the access the server says it needs, proves each sign-in with PKCE, and names
+  the server's address as what the tokens are for, so they're no good anywhere else.
+- **A service that does neither wants Ember registered there by you.** The form then says so, and
+  asks for a **Client ID** and a **Client secret**. Register Ember with the service as an OAuth app
+  (a "connected app" or "integration", by some services' names), giving it the **Redirect address**
+  the form shows, `https://<your Ember>/account/apps/signed-in`, as where it sends people back, and
+  type the client ID it gives you, with its secret if it gives one. Ember signs in as that client,
+  shows its ID on the app's page from then on, and keeps what the service knows it by encrypted,
+  for that app alone, never showing the secret again. Signing in again uses the same client without
+  asking, even after the sign-in has ended; type another ID, or another secret, to change it, or
+  clear the ID to have the service come to know Ember by itself. A secret the service doesn't take
+  is said once your browser is back, and changes nothing.
+- **An app that has a token can be signed in to instead.** When its server takes the token no
+  longer, saving it or reading its tools again says so and offers **Sign in to** its host. The
+  sign-in then takes the token's place. Ember signs in at the address the app is connected at, so
+  nothing is offered while the form has another: to sign in to an app somewhere else, remove it
+  and connect it there.
+- **Every address in it is checked** as the server's own is: `https` only, unless the server is one
+  you're developing on `localhost`, each looked up first and refused where it resolves to a private
+  address, with no redirect followed. An authorization server that says it's another service's, or
+  describes a sign-in for another address than the server's, is refused.
+- **You come back to Ember signed in**, at `/account/apps/signed-in`, which takes the code out of the
+  address at once. A sign-in is finished only by the administrator who began it, once, within ten
+  minutes; Ember keeps what it needs to finish it encrypted until then.
+- **The tokens are kept encrypted**, for that app alone, and never shown. An access token that's
+  about to end is replaced first, with the token the service gave for that, one request at a time,
+  so a token that's replaced as it's used is never sent twice.
+- **A sign-in ends** when the service won't give another token: it was taken back there, or the
+  service gave none to renew with. Ember then asks the server nothing: a call of its tools tells the
+  model so, the app's page and its row on the AI assistant tab say so, and **Sign in again** on the
+  app's page restores it, keeping the app and every agent's picks. A service that couldn't be reached
+  for a new token ends nothing: Ember goes on with the token it has.
+- **A server can ask for more than the sign-in allows.** When it refuses a call, or a read of its
+  tools, and names the access that would allow it (OAuth's `insufficient_scope`), the call isn't
+  run, the model is told that an administrator has to sign in again, and the app's page and its row
+  say what the server asked for. **Sign in again** then asks the service for that as well as for
+  what the sign-in had, which the service shows you before you allow it. Nothing is asked for on
+  Ember's own: more access is only ever given by an administrator, at the service.
+- **A signed-in app keeps its address** and takes no token, since its sign-in is to the server there.
+  To move it, remove it and connect it again.
+- **Removing a signed-in app takes the sign-in back at the service**, where the service says how
+  (a revocation endpoint, as RFC 7009 has it): Ember sends back the token that renews the sign-in
+  and the access token, as the client it signed in as, once the app is gone, waiting at most ten
+  seconds. The tab then says whether the service took them back. Where it didn't, couldn't be
+  reached, or doesn't say how, remove Ember's access at the service yourself. A sign-in replaced
+  by signing in again isn't taken back: the service decides what becomes of the last one.
+
+#### Each person's own sign-in
+
+Anyone but a guest can sign in themselves to an app Ember signs in to, under **Apps** on their
+profile, which lists those apps while Ember AI is on. It's the same sign-in at the same service, as
+the same client, made as them, and kept beside Ember's, sealed for that app and that person alone.
+
+- **It's used in one place:** their direct conversation with @ember or an agent, the two of them
+  alone. A call the agent makes of that app's tools there goes as them, with their sign-in.
+  Everywhere else, and for everyone who hasn't signed in themselves, calls go with the sign-in the
+  administrator made, as before.
+- **Every call as a person asks them first**, on a card that says the call goes as them. What an
+  administrator always allows an agent was said of Ember's sign-in, and doesn't cover theirs.
+- **Which tools an agent has is still the administrator's pick.** A person's sign-in changes whose
+  account a call acts as, not what the agent may call.
+- **Their sign-in ends, or wants more, for them alone.** Once it has ended, the call isn't made with
+  Ember's instead: the model says they have to sign in again, and their profile says so, with
+  **Sign in again**, or **Sign out** to go back to the shared one. When the app's server asks for
+  more access than their sign-in has, their profile says so, and signing in again asks for it.
+- **Sign out forgets it and takes it back at the service**, where the service says how, as removing
+  an app does. Removing the app forgets everyone's sign-in to it and takes back up to 20 of them
+  there too, saying it couldn't take everything back when there were more. Removing or banning
+  someone forgets theirs, without asking the service.
+
+### Outside AI
+
+An AI app, such as Claude or ChatGPT, can connect to Ember and read it as one of the people in it,
+and send messages as them if they let it. Ember is an [MCP](https://modelcontextprotocol.io) server
+for that, at `/mcp` on its own address, the other way round from [Apps](#apps), where Ember's agents
+call other services' servers. It's off until an administrator turns on **Outside AI** on the AI
+assistant tab, which is there whether or not Ember AI is on, and until then nothing about it answers:
+`/mcp`, and the addresses below, answer 404.
+
+To connect an app, someone gives it Ember's address ending in `/mcp`, which the card and their profile
+show, as a custom connector or MCP server. The app sends their browser to a page of Ember's, which
+they sign in to if they aren't, and which asks whether to connect it: it names the app, says what it
+could do as them, and says which site the browser goes back to, which is what tells whose app it is,
+since the name is only what the app calls itself. **Allow** connects it. **Don't allow** goes back
+with nothing.
+
+- **What a connected app can do** is read what the person who connected it can: list the rooms
+  they're in, read a room's messages 40 at a time and a thread's, and search for words across those
+  rooms, the ones they've hidden and their direct messages too, as their own search does. It sees
+  nothing they don't. Its tools are `list_rooms`, `read_room`, `read_thread` and `search_messages`,
+  each marked as only reading.
+- **It can send messages as them, if they let it.** The page that asks has a box for that, ticked
+  unless they clear it, and their profile says which apps can. `send_message` posts Markdown to a room
+  they're in, or as a reply in a thread, and everyone there sees it as theirs: nothing marks it as
+  sent by an app. It mentions nobody and goes to no bot, so it calls neither @ember, an agent nor a
+  bot's webhook, even in a direct message with one, and one person's apps send at most 20 messages
+  a minute between them. An app that asks for nothing by name only
+  reads.
+- **Your profile lists the apps connected as you**, under **AI apps**, with when each was connected
+  and last asked Ember anything, and **Disconnect**, which ends what that app was given at once. One
+  person has at most 20.
+- **Guests can't connect one**, as they have no account of their own to act as. Removing or banning
+  someone ends every connection of theirs.
+- **Turning Outside AI off disconnects every app**, and forgets the apps that registered, after
+  asking the administrator first. Turning it on again starts afresh.
+
+How an app signs in is OAuth 2.1, as MCP's
+[authorization](https://modelcontextprotocol.io/specification/draft/basic/authorization) has it,
+with Ember as the authorization server:
+
+- `/.well-known/oauth-protected-resource/mcp` and `/.well-known/oauth-authorization-server` say
+  where, and a request to `/mcp` without a token answers 401 pointing at the first.
+- An app names itself by the address of a Client ID Metadata Document, which Ember reads from a
+  public address only, or registers itself at `/oauth/register`, 10 times an hour from one address at
+  most. Either way it's a public client, with no secret, and proves itself with PKCE (S256).
+- The browser goes back only to an `https` address the app gave, or to `http` on the person's own
+  computer, at any port, for an app that runs there. An app that's opened by a scheme of its own,
+  such as `cursor://`, can't connect yet.
+- An access token lasts an hour, and a refresh token is replaced each time it's used and lasts 90 days
+  unused. Using a refresh token that was replaced, however long ago, or a code twice, ends that
+  connection, as either means it was copied. Ember keeps only a keyed digest of each, made with
+  `SESSION_SECRET`, so its database holds nothing an app could sign in with.
+- A token works only at the address the app said it was for, when it asked to connect or when it
+  exchanged its code, so one given for another Ember, or for this one at another address, is
+  refused. An app that never says is bound to none: its tokens are still only this Ember's.
+
+Requests to `/mcp` are answered in a Durable Object of their own, `OutsideAi`, apart from the rooms and
+the workspace, as an app's tools are read in `AppConnector`: reading a request and checking it takes
+more CPU time than a Worker's request gets on Workers Free. It keeps nothing, and each request has a
+new one.
 
 ### Huddles
 
@@ -1103,6 +1301,10 @@ What a self-hoster should know, beyond keeping the setup password and link to th
 - Custom CSS runs on every page for everyone, so it's an administrator's to write, like the rest of
   the workspace, and `EMBER_RECOVERY_TOKEN` can take over any account, so keep it set only while
   resetting a password, as above.
+- While [Outside AI](#outside-ai) is on, an AI app someone connects sees what they see, and writes as
+  them if they let it send, until they disconnect it on their profile, and whoever runs that app can
+  read it too. The page that asks them
+  names the site their browser goes back to, since anyone can register an app under any name.
 - `/api/health` tells strangers only whether Ember is up; administrators and whoever sends the
   recovery token hear the rest. QR codes (`/qr_code/<id>`) are drawn for people signed in.
 
