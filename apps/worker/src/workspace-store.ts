@@ -24,6 +24,7 @@ import {
   type EmailInvitation,
   type EmailLinkKind,
   type Favorites,
+  type GroupId,
   type Involvement,
   type NavigationIconChanges,
   type NavigationIcons,
@@ -42,6 +43,7 @@ import {
   type User,
   type UserId,
   type UserStatus,
+  type UserGroup,
 } from "@ember/protocol";
 import {
   ANSWER_LENGTHS,
@@ -270,6 +272,13 @@ export interface DirectoryEntry extends User {
   updatedAt: string;
   /** Whether they're an AI agent, @ember or one an administrator made, deleted ones too. */
   agent: boolean;
+}
+
+/** A group as its tables keep it, with everyone in it, named as they are now. */
+export interface StoredGroup {
+  id: GroupId;
+  name: string;
+  members: User[];
 }
 
 /** Someone as the people directory lists them, with their email address, which their profile shows too. */
@@ -2276,6 +2285,26 @@ export const PEOPLE_WITH_IDS = `SELECT id, name FROM users WHERE id IN (SELECT v
 /** The same, as the people directory lists them. */
 const DIRECTORY_WITH_IDS = `SELECT ${DIRECTORY_COLUMNS} FROM users WHERE id IN (SELECT value FROM json_each(?))`;
 
+/** The active people with the ids in a JSON array, with whether each is a bot, to check a group's members. */
+const ACTIVE_PEOPLE_WITH_IDS = `SELECT id, role FROM users WHERE status = ${ACTIVE} AND id IN (SELECT value FROM json_each(?))`;
+
+/** The workspace's groups, by name, which is lowercased as it's kept, so the order is theirs already. */
+const GROUPS = `SELECT id, name FROM user_groups ORDER BY lower(name), id`;
+
+/** The groups with the ids in a JSON array. */
+const GROUPS_WITH_IDS = `SELECT id, name FROM user_groups WHERE id IN (SELECT value FROM json_each(?))`;
+
+/** Everyone in the groups with ids in a JSON array, named as they are now, by name. */
+const GROUP_MEMBERS = `SELECT user_group_members.group_id AS groupId, users.id AS userId, users.name AS name
+  FROM user_group_members JOIN users ON users.id = user_group_members.user_id
+  WHERE user_group_members.group_id IN (SELECT value FROM json_each(?)) ORDER BY lower(users.name), users.id`;
+
+/** The group named `name`, which is kept lowercased, as a mention names it. */
+const GROUP_NAMED = `SELECT id FROM user_groups WHERE name = ?`;
+
+/** The group with the id in ?1, named to change or delete it without reading everyone in it. */
+const GROUP_WITH_ID = `SELECT id FROM user_groups WHERE id = ?`;
+
 /** How many people the mentions prompt offers: the first page of them, the only one Lexxy asks for. */
 export const MENTIONABLE_PAGE = 20;
 
@@ -3522,6 +3551,75 @@ export class WorkspaceStore {
   /** Everyone, whatever their status, for the people directory. */
   async directory(): Promise<DirectoryEntry[]> {
     return (await this.db.all<DirectoryRow>(DIRECTORY)).map(directoryEntry);
+  }
+
+  /** The workspace's groups, by name, each with its members' ids. */
+  async userGroups(): Promise<UserGroup[]> {
+    return (await this.storedGroups(await this.db.all<{ id: GroupId; name: string }>(GROUPS))).map(({ id, name, members }) => ({
+      id,
+      name,
+      memberIds: members.map((member) => member.id),
+    }));
+  }
+
+  /** The groups with `ids` that exist, each with the people in it, named as they are now, for a room saying whom a group's mention stands for. */
+  async mentionedGroups(ids: GroupId[]): Promise<StoredGroup[]> {
+    return this.storedGroups(await this.db.all<{ id: GroupId; name: string }>(GROUPS_WITH_IDS, JSON.stringify(ids)));
+  }
+
+  /** The groups of `rows`, with their members, read together. */
+  private async storedGroups(rows: Array<{ id: GroupId; name: string }>): Promise<StoredGroup[]> {
+    if (rows.length === 0) return [];
+    const [members] = (await this.db.batch([statement(GROUP_MEMBERS, JSON.stringify(rows.map(({ id }) => id)))])) as [
+      Array<{ groupId: GroupId; userId: UserId; name: string }>,
+    ];
+    const inGroup = Map.groupBy(members, (member) => member.groupId);
+    return rows.map(({ id, name }) => ({ id, name, members: (inGroup.get(id) ?? []).map(({ userId, name }) => ({ id: userId, name })) }));
+  }
+
+  /** The id of the group named `name`, which is kept lowercased, or null while none is. */
+  async groupNamed(name: string): Promise<GroupId | null> {
+    const [row] = await this.db.all<{ id: GroupId }>(GROUP_NAMED, name);
+    return row?.id ?? null;
+  }
+
+  /** The id of the group `id`, or null while none has it, as changing or deleting one finds it. */
+  async userGroupWithId(id: GroupId): Promise<GroupId | null> {
+    const [row] = await this.db.all<{ id: GroupId }>(GROUP_WITH_ID, id);
+    return row?.id ?? null;
+  }
+
+  /** The active people of `ids`, once each, with whether each is a bot, to check a group's members. */
+  async activePeopleWithIds(ids: UserId[]): Promise<Array<{ id: UserId; bot: boolean }>> {
+    if (ids.length === 0) return [];
+    const rows = await this.db.all<{ id: string; role: number }>(ACTIVE_PEOPLE_WITH_IDS, JSON.stringify(ids));
+    return rows.map((row) => ({ id: row.id, bot: row.role === BOT }));
+  }
+
+  /** Adds a group, with its members, in one batch. The name is given lowercased, as it's kept. */
+  async createUserGroup({ id, name, memberIds, createdBy }: { id: GroupId; name: string; memberIds: UserId[]; createdBy: UserId }, now: string): Promise<void> {
+    await this.db.batch([
+      statement(`INSERT INTO user_groups (id, name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, id, name, createdBy, now, now),
+      ...memberIds.map((userId) => statement(`INSERT INTO user_group_members (group_id, user_id) VALUES (?, ?)`, id, userId)),
+    ]);
+  }
+
+  /** Changes the group `id`, in one batch: its name, its members, either or both, recording when. The name is given lowercased, as it's kept. */
+  async changeUserGroup(id: GroupId, { name, memberIds }: { name?: string; memberIds?: UserId[] }, now: string): Promise<void> {
+    await this.db.batch([
+      statement(`UPDATE user_groups SET name = coalesce(?1, name), updated_at = ?2 WHERE id = ?3`, name ?? null, now, id),
+      ...(memberIds === undefined
+        ? []
+        : [statement(`DELETE FROM user_group_members WHERE group_id = ?`, id), ...memberIds.map((userId) => statement(`INSERT INTO user_group_members (group_id, user_id) VALUES (?, ?)`, id, userId))]),
+    ]);
+  }
+
+  /** Deletes the group `id` and everyone in it, in one batch. */
+  async deleteUserGroup(id: GroupId): Promise<void> {
+    await this.db.batch([
+      statement(`DELETE FROM user_group_members WHERE group_id = ?`, id),
+      statement(`DELETE FROM user_groups WHERE id = ?`, id),
+    ]);
   }
 
   /** Someone as the people directory lists them, whatever their status, or null if nobody has id `userId`. */

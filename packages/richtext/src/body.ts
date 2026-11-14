@@ -6,7 +6,7 @@ import { autoLink } from "./autolink";
 import { attachmentNodes, contentToPlainText, loadContent } from "./content";
 import { displayBody } from "./display";
 import { ParseLimitError, type HtmlParser } from "./markup";
-import { editableBody, mentionedUsers, userIdFromSgid, userIdsIn, usersAttached, writtenMentions, type MentionCard } from "./mentions";
+import { editableBody, groupIdsIn, groupIdFromSgid, mentionedUsers, userIdFromSgid, userIdsIn, usersAttached, writtenMentions, type MentionCard } from "./mentions";
 import { plainParagraphLines } from "./plain-paragraph";
 import { canonicalize } from "./render";
 import { chompNewlines, isBlank } from "./ruby";
@@ -22,7 +22,11 @@ export interface PreparedBody {
   html: string;
   /** Action Text's plain text of it: for search, notifications and emoji-only bodies. */
   plainText: string;
-  /** The users it mentions, once each, in order, named as `resolve` named them. */
+  /**
+   * The people and groups it mentions, once each, in order, named as `resolve` named them. A group's
+   * mention carries its `group` mark until the room says whom it stood for, which is whom a message's
+   * mentions list keeps.
+   */
   mentions: MentionUser[];
   /** Nothing to send: no text but whitespace, and no mentions. */
   blank: boolean;
@@ -42,7 +46,7 @@ export function plainText(parse: HtmlParser, markup: string, resolve: ResolveMen
 export function writtenBody(parse: HtmlParser, markup: string): { plainText: string; mentions: MentionUser[] } {
   const mentions = writtenMentions(parse, markup);
   try {
-    return { plainText: plainText(parse, markup, (sgid) => mentions.find((person) => person.id === userIdFromSgid(sgid))), mentions };
+    return { plainText: plainText(parse, markup, (sgid) => mentions.find((person) => person.id === (userIdFromSgid(sgid) ?? groupIdFromSgid(sgid)))), mentions };
   } catch (error) {
     if (error instanceof RenderError) return { plainText: "", mentions };
     throw error;
@@ -76,7 +80,7 @@ export function prepareParsedBody(parse: HtmlParser, markup: string, resolve: Re
     const html = canonicalize(parse, markup, resolve);
     const content = loadContent(parse, html);
     const attachments = attachmentNodes(content);
-    const mentions = usersAttached(attachments, resolve).map(({ id, name }) => ({ id, name }));
+    const mentions = usersAttached(attachments, resolve).map(({ id, name, group }) => (group ? { id, name, group } : { id, name }));
     const text = contentToPlainText(parse, content, resolve);
     return { html, plainText: text, mentions, blank: isBlank(text) && attachments.length === 0 };
   } catch (error) {
@@ -105,8 +109,10 @@ export function withParser(parse: HtmlParser) {
     plainText: (markup: string, resolve: ResolveMention) => plainText(parse, markup, resolve),
     mentionedUsers: (markup: string, resolve: ResolveMention): MentionUser[] => mentionedUsers(parse, markup, resolve),
     userIdsIn: (markup: string) => userIdsIn(parse, markup),
+    groupIdsIn: (markup: string) => groupIdsIn(parse, markup),
     writtenBody: (markup: string) => writtenBody(parse, markup),
-    editableBody: (stored: string, card: (userId: string) => MentionCard | undefined, host: string) => editableBody(parse, stored, card, host),
+    editableBody: (stored: string, card: (userId: string) => MentionCard | undefined, host: string, groupCard?: (groupId: string) => MentionUser | undefined) =>
+      editableBody(parse, stored, card, host, groupCard),
     autoLink: (html: string) => autoLink(parse, html),
     displayBody: (html: string, plainText: string, host: string) => displayBody(parse, html, plainText, host),
   };

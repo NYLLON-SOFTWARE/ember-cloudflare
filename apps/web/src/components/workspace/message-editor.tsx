@@ -2,7 +2,7 @@ import { Suspense, useContext, useImperativeHandle, useRef, useState, type React
 import type { Message } from "@ember/protocol";
 import { editableBody } from "@ember/richtext/dom";
 import { CheckCircle, Trash, Xmark } from "@/components/icons/iconoir";
-import { DirectoryLoaded, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
+import { DirectoryLoaded, GroupsContext, mentionedPerson, PeopleContext } from "@/hooks/use-directory";
 import { useScrollIntoView } from "@/hooks/use-scroll-into-view";
 import { mentionPromptSrc } from "@/lib/api";
 import { pressedAlone, savesEdit } from "@/lib/keyboard";
@@ -42,10 +42,11 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
   const editor = useRef<RichTextEditorHandle>(null);
   const container = useRef<HTMLDivElement>(null);
   const people = useContext(PeopleContext);
-  // The editable body: its mentions as the editor draws them, of the people as they are now, and its link previews
-  // as the message shows them here. It drops a mention of no one, and a message from before messages named the
-  // people they mention knows them only from the directory, so for such a message the editor waits for the
-  // directory to load, when it lists everyone.
+  const groups = useContext(GroupsContext);
+  // The editable body: its mentions as the editor draws them, of the people and the groups as they are
+  // now, and its link previews as the message shows them here. It drops a mention of no one, and a
+  // message from before messages named the people they mention knows them only from the directory, so
+  // for such a message the editor waits for the directory to load, when it lists everyone.
   const knowsMentions = useContext(DirectoryLoaded) || message.mentions.every((person) => person.name !== "");
   const editableNow = () =>
     editableBody(
@@ -55,6 +56,10 @@ export function MessageEditor({ message, onSave, onDelete, onClose, ref }: Props
         return person && { id: person.id, name: person.name, avatarUrl: avatarUrlOf(people, person) };
       },
       location.hostname,
+      (groupId) => {
+        const group = groups.get(groupId);
+        return group && { id: group.id, name: group.name, group: true };
+      },
     );
   const [editable, setEditable] = useState(() => (knowsMentions ? editableNow() : null));
   if (editable === null && knowsMentions) setEditable(editableNow());

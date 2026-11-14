@@ -32,6 +32,7 @@ import {
   type EmailLinkSignUp,
   type EmailSettings,
   type Favorites,
+  type GroupId,
   type HuddlesForgotten,
   type HuddlesSaved,
   type HuddlesSettings,
@@ -85,6 +86,11 @@ import {
   type TurnstileKeysChange,
   type TurnstileSettings,
   type UserId,
+  type UserGroup,
+  type UserGroupAnswer,
+  type UserGroupChanges,
+  type UserGroupsAnswer,
+  type NewUserGroup,
   type WebSearchChanged,
   type WorkspaceSettings,
   type YourAssistantChanged,
@@ -760,6 +766,24 @@ export async function fetchDirectory(copy: DirectoryCopy | null): Promise<Direct
   if (copy && response.status === 304) return copy;
   return { directory: await dataOf<Directory>(response), etag: response.headers.get("ETag") };
 }
+
+/** The workspace's groups, by name, as the settings' User groups list shows them. Fails with a 403 ApiError for anyone but an administrator's session. */
+export async function fetchUserGroups(): Promise<UserGroup[]> {
+  return (await request<UserGroupsAnswer>("/api/user_groups")).groups;
+}
+
+/** Makes a group, answering it as it then is. Fails with a 403 ApiError for anyone but an administrator, or a 422 for a name another group has, however it's capitalised. */
+export async function createUserGroup(group: NewUserGroup): Promise<UserGroup> {
+  return (await request<UserGroupAnswer>("/api/user_groups", { method: "POST", body: JSON.stringify(group) })).group;
+}
+
+/** Changes a group's name or members, answering it as it then is, failing as `createUserGroup` does, and with a 404 ApiError for an id that isn't a group's. */
+export async function changeUserGroup(groupId: GroupId, changes: UserGroupChanges): Promise<UserGroup> {
+  return (await request<UserGroupAnswer>(`/api/user_groups/${encodeURIComponent(groupId)}`, { method: "PATCH", body: JSON.stringify(changes) })).group;
+}
+
+/** Deletes a group and everyone in it. Fails with a 404 ApiError for an id that isn't a group's. */
+export const deleteUserGroup = (groupId: GroupId) => request<void>(`/api/user_groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
 
 /** Who the New room forms list: everyone active, by name. */
 export async function fetchNewRoomForm(): Promise<NewRoomForm> {

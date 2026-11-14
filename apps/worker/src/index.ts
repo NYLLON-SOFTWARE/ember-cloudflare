@@ -5,6 +5,10 @@ import {
   CURRENT_PASSWORD_WRONG,
   EMAIL_DOMAIN_NEEDS_EMAIL,
   EMAIL_SIGN_UP_PATH,
+  GROUP_MEMBER_UNKNOWN,
+  GROUP_NAME_TAKEN,
+  GROUPS_FULL,
+  GROUP_TOO_BIG,
   INVITATION_PATH,
   LOGO_PATH,
   LOGO_TOO_LARGE,
@@ -37,12 +41,14 @@ import {
   parseSharedOrder,
   parseNewDirect,
   parseNewRoom,
+  parseNewUserGroup,
   parseProfileChanges,
   parseResendApiKey,
   parseRoleChange,
   parseSendingDomainCheck,
   parseRoomChanges,
   parseTurnstileKeysChange,
+  parseUserGroupChanges,
   PROFILE_PATH,
   SIGN_IN_LIMITED,
   SIGN_IN_REJECTED,
@@ -76,10 +82,13 @@ import {
   type StartedDirect,
   type TurnstileSettings,
   type UserId,
+  type UserGroup,
+  type UserGroupAnswer,
+  type UserGroupsAnswer,
   type WorkspaceSettings,
 } from "@ember/protocol";
 import { agentsName } from "@ember/protocol/agents";
-import { mentionPromptItem } from "@ember/richtext";
+import { groupPromptItem, mentionPromptItem } from "@ember/richtext";
 import { isAccountLogoPath, showAccountLogo, storeLogo } from "./account-logo";
 import {
   clientOf,
@@ -793,14 +802,65 @@ async function dismissInvitation(request: Request, env: Env): Promise<Response> 
 }
 
 /**
- * Everyone in the workspace, deactivated and banned people too, with their avatars' addresses, for
- * the app to show people by. No cache keeps it, as none keeps the sidebar, so the app keeps its own copy.
+ * Everyone in the workspace, deactivated and banned people too, with their avatars' addresses, and the
+ * workspace's groups with everyone in each, for the app to show people by and a mention of a group to
+ * say whom it stands for. No cache keeps it, as none keeps the sidebar, so the app keeps its own copy.
  */
 async function directory(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
-  const entries = credentials && (await workspace(env).directory(credentials));
-  if (!entries) return problem(401, "Not signed in");
-  return jsonWithETag(request, { users: await directoryOf(entries, env.SESSION_SECRET) } satisfies Directory, { "Cache-Control": "no-store" });
+  const [entries, groups] = await Promise.all([
+    credentials && workspace(env).directory(credentials),
+    credentials && workspace(env).userGroups(credentials),
+  ]);
+  if (!entries || !groups) return problem(401, "Not signed in");
+  return jsonWithETag(request, { users: await directoryOf(entries, env.SESSION_SECRET), groups } satisfies Directory, { "Cache-Control": "no-store" });
+}
+
+/** The workspace's groups, by name, as the settings' User groups list shows them. */
+async function userGroups(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const groups = credentials && (await workspace(env).userGroups(credentials));
+  return groups ? Response.json({ groups } satisfies UserGroupsAnswer, { headers: { "Cache-Control": "no-store" } }) : problem(401, "Not signed in");
+}
+
+/** Makes a group, as the settings' User groups section does, answering 201 with it as it then is. */
+async function createUserGroup(request: Request, env: Env): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const group = parseNewUserGroup(await jsonBodyOf(request));
+  if (typeof group === "string") return problem(422, group);
+  return groupAnswer(await workspace(env).createUserGroup(credentials, group), 201);
+}
+
+/** Changes a group's name or members, as the settings' User groups section does, answering it as it then is. */
+async function changeUserGroup(request: Request, env: Env, groupId: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  if (!credentials) return problem(401, "Not signed in");
+  const changes = parseUserGroupChanges(await jsonBodyOf(request));
+  if (typeof changes === "string") return problem(422, changes);
+  return groupAnswer(await workspace(env).changeUserGroup(credentials, groupId, changes));
+}
+
+/** Deletes a group and everyone in it, as the settings' User groups section does, answering 204. */
+async function deleteUserGroup(request: Request, env: Env, groupId: string): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  const deleted = credentials && (await workspace(env).deleteUserGroup(credentials, groupId));
+  if (!deleted) return problem(401, "Not signed in");
+  if (deleted === "forbidden") return problem(403, "Only administrators can manage user groups");
+  if (deleted === "not found") return problem(404, "Not found");
+  return new Response(null, { status: 204 });
+}
+
+/** What the User groups section shows of an answer: the group, or what the Workspace refused it with. */
+function groupAnswer(group: UserGroup | "forbidden" | "not found" | "full" | "too big" | "member unknown" | "name taken" | null, created?: number): Response {
+  if (!group) return problem(401, "Not signed in");
+  if (group === "forbidden") return problem(403, "Only administrators can manage user groups");
+  if (group === "not found") return problem(404, "Not found");
+  if (group === "full") return problem(422, GROUPS_FULL);
+  if (group === "too big") return problem(422, GROUP_TOO_BIG);
+  if (group === "member unknown") return problem(422, GROUP_MEMBER_UNKNOWN);
+  if (group === "name taken") return problem(422, GROUP_NAME_TAKEN);
+  return Response.json({ group } satisfies UserGroupAnswer, { status: created, headers: { "Cache-Control": "no-store" } });
 }
 
 /** A path segment as text, or "" for malformed percent-encoding, which names nobody. */
@@ -839,7 +899,8 @@ async function personPage(request: Request, env: Env, pathname: string, userId: 
 /**
  * Whom the mentions prompt offers: the first 20 by name of the active people in `room_id`, or anywhere
  * without one, whose names contain `filter` (or `query`), as `<lexxy-prompt-item>`s, with the AI agents'
- * badged, @ember's among them. A room someone isn't in is 404.
+ * badged, @ember's among them, and the workspace's groups after them, each with how many it stands for.
+ * A room someone isn't in is 404.
  */
 async function mentionable(request: Request, env: Env): Promise<Response> {
   const credentials = await credentialsOf(request, env);
@@ -848,10 +909,12 @@ async function mentionable(request: Request, env: Env): Promise<Response> {
   const roomId = present(params.get("room_id"));
   if (roomId !== undefined && !isRoomId(roomId)) return problem(404, ROOM_NOT_FOUND);
   const query = present(params.get("filter")) ?? present(params.get("query")) ?? "";
-  const people = await workspace(env).mentionable(credentials, roomId ?? null, query);
+  const [people, groups] = await Promise.all([workspace(env).mentionable(credentials, roomId ?? null, query), workspace(env).userGroups(credentials)]);
   if (!people) return problem(401, "Not signed in");
   if (people === "not found") return problem(404, ROOM_NOT_FOUND);
   const items = (await directoryOf(people, env.SESSION_SECRET)).map((person) => mentionPromptItem(person));
+  const shown = query === "" ? groups ?? [] : groups?.filter(({ name }) => name.includes(query.toLowerCase())) ?? [];
+  items.push(...shown.map((group) => groupPromptItem({ id: group.id, name: group.name }, group.memberIds.length)));
   return new Response(items.join(""), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
@@ -1131,6 +1194,12 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/sidebar" && request.method === "GET") return () => sidebar(request, env);
   if (pathname === "/api/sidebar/invitation" && request.method === "DELETE") return () => dismissInvitation(request, env);
   if (pathname === "/api/users" && request.method === "GET") return () => directory(request, env);
+  if (pathname === "/api/user_groups" && request.method === "GET") return () => userGroups(request, env);
+  if (pathname === "/api/user_groups" && request.method === "POST") return () => createUserGroup(request, env);
+  // Groups' ids are sortable ids, which never need percent-encoding, so an encoded segment names none.
+  const userGroup = pathname.match(/^\/api\/user_groups\/([^/]+)$/);
+  if (userGroup && request.method === "PATCH") return () => changeUserGroup(request, env, userGroup[1]!);
+  if (userGroup && request.method === "DELETE") return () => deleteUserGroup(request, env, userGroup[1]!);
   if (pathname === "/api/autocompletable/users" && request.method === "GET") return () => mentionable(request, env);
   if (pathname === "/api/sidebar/order" && request.method === "PUT") return () => setFavoriteOrder(request, env);
   if (pathname === "/api/users/me/profile" && request.method === "GET") return () => profile(request, env);

@@ -2,19 +2,19 @@
 // rails_autolink linked them, as a tree of the elements and attributes a message can show, which the web
 // app builds the page from rather than from markup.
 
-import { ATTACHMENT_TAG, isTwitterAvatar, MENTION_CONTENT_TYPE, MISSING_ATTACHABLE, OPENGRAPH_EMBED_CONTENT_TYPE, opengraphEmbedFromNode } from "./attachments";
+import { ATTACHMENT_TAG, GROUP_MENTION_CONTENT_TYPE, isTwitterAvatar, MENTION_CONTENT_TYPE, MISSING_ATTACHABLE, OPENGRAPH_EMBED_CONTENT_TYPE, opengraphEmbedFromNode } from "./attachments";
 import { autoLink } from "./autolink";
 import { sanitizeContentAttribute } from "./content";
 import { BODY, type HtmlParser } from "./markup";
-import { userIdFromSgid } from "./mentions";
+import { groupIdFromSgid, userIdFromSgid } from "./mentions";
 import { removeSoloUnfurledLinkText } from "./previews";
 import { truncate } from "./ruby";
 import { AUTO_LINK, scrub, type SafeList } from "./sanitize";
 import { toHtml } from "./serialize";
 import { append, createElement, createFragment, createText, getAttr, isHtmlElement, type Element, type Fragment, type Node } from "./tree";
 
-/** A message as it shows: text, the elements it's formatted with, the people it mentions, and its link previews. */
-export type DisplayNode = DisplayText | DisplayElement | DisplayMention | DisplayPreview;
+/** A message shows: text, the elements it's formatted with, the people and groups it mentions, and its link previews. */
+export type DisplayNode = DisplayText | DisplayElement | DisplayMention | DisplayGroupMention | DisplayPreview;
 
 export interface DisplayText {
   kind: "text";
@@ -33,6 +33,12 @@ export interface DisplayElement {
 export interface DisplayMention {
   kind: "mention";
   userId: string;
+}
+
+/** A mention of a user group, which shows as the directory lists the group now. */
+export interface DisplayGroupMention {
+  kind: "group-mention";
+  groupId: string;
 }
 
 /**
@@ -62,6 +68,7 @@ const DISPLAYED: SafeList = {
 
 const isAttachment = (element: Element, contentType: string) => element.name === ATTACHMENT_TAG && getAttr(element, "content-type") === contentType;
 const isMention = (element: Element) => isAttachment(element, MENTION_CONTENT_TYPE);
+const isGroupMention = (element: Element) => isAttachment(element, GROUP_MENTION_CONTENT_TYPE);
 const isPreview = (element: Element) => isAttachment(element, OPENGRAPH_EMBED_CONTENT_TYPE);
 
 /**
@@ -76,7 +83,7 @@ const isPreview = (element: Element) => isAttachment(element, OPENGRAPH_EMBED_CO
 export function displayBody(parse: HtmlParser, html: string, plainText: string, host: string): DisplayNode[] {
   const stored = parse(html, BODY);
   removeSoloUnfurledLinkText(parse, stored, plainText, host);
-  scrub(stored, DISPLAYED, (element) => isMention(element) || isPreview(element));
+  scrub(stored, DISPLAYED, (element) => isMention(element) || isGroupMention(element) || isPreview(element));
   const shown = toHtml(stored, { escapeAttributeBrackets: true });
   // What serializes back to the body as stored lost nothing to either step, since what they take out
   // would be missing from it, so it's still the tree parsing the body gave, as parsing it again would.
@@ -96,6 +103,10 @@ function linked(parse: HtmlParser, html: string, host: string, parsed?: Fragment
     if (isMention(node)) {
       const userId = userIdFromSgid(getAttr(node, "sgid") ?? "");
       return [userId === undefined ? { kind: "text", value: MISSING_ATTACHABLE } : { kind: "mention", userId }];
+    }
+    if (isGroupMention(node)) {
+      const groupId = groupIdFromSgid(getAttr(node, "sgid") ?? "");
+      return [groupId === undefined ? { kind: "text", value: MISSING_ATTACHABLE } : { kind: "group-mention", groupId }];
     }
     if (isPreview(node)) return [displayedPreview(parse, node, host)];
     const children = node.children.flatMap(displayed);
@@ -132,13 +143,13 @@ function displayedPreview(parse: HtmlParser, attachment: Element, host: string):
  * The markup of what a message shows, with each mention as the text `mention` gives for it and
  * without its previews, as Reply quotes a message (reply_controller.js).
  */
-export function displayMarkup(nodes: DisplayNode[], mention: (node: DisplayMention) => string): string {
+export function displayMarkup(nodes: DisplayNode[], mention: (node: DisplayMention | DisplayGroupMention) => string): string {
   return toHtml(createFragment(nodes.flatMap((node) => treeOf(node, mention))), { escapeAttributeBrackets: true });
 }
 
-function treeOf(node: DisplayNode, mention: (node: DisplayMention) => string): Node[] {
+function treeOf(node: DisplayNode, mention: (node: DisplayMention | DisplayGroupMention) => string): Node[] {
   if (node.kind === "text") return [createText(node.value)];
-  if (node.kind === "mention") return [createText(mention(node))];
+  if (node.kind === "mention" || node.kind === "group-mention") return [createText(mention(node))];
   if (node.kind === "preview") return [];
   const element = createElement(node.name, Object.entries(node.attrs).map(([name, value]) => ({ name, value })));
   for (const child of node.children) for (const tree of treeOf(child, mention)) append(element, tree);

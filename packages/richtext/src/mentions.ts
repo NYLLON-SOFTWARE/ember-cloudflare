@@ -5,7 +5,7 @@
 
 import { attachmentNodes, loadContent, MAX_CONTENT_ATTACHMENT_DEPTH, sanitizeContentAttribute } from "./content";
 import { detach, getAttr, setAttr, textContent, type Element } from "./tree";
-import { OPENGRAPH_EMBED_CONTENT_TYPE, opengraphEmbedFromNode, type MentionUser, type ResolveMention } from "./attachments";
+import { GROUP_MENTION_CONTENT_TYPE, OPENGRAPH_EMBED_CONTENT_TYPE, opengraphEmbedFromNode, type MentionUser, type ResolveMention } from "./attachments";
 import { BODY, ParseLimitError, type HtmlParser } from "./markup";
 import { isPlainParagraph } from "./plain-paragraph";
 import { previewContent } from "./previews";
@@ -23,6 +23,23 @@ export function mentionSgid(userId: string): string {
 /** The id of the user an sgid names, if it names one. */
 export function userIdFromSgid(sgid: string): string | undefined {
   return USER_ID.test(sgid) ? sgid : undefined;
+}
+
+/**
+ * The prefix that marks an sgid as naming a user group, which none of a person's ids can: theirs are
+ * exactly 16 characters, where this adds a word and a hyphen to the group's.
+ */
+const GROUP_SGID_PREFIX = "group-";
+const GROUP_ID = /^[0-9a-z]{16}$/;
+
+/** The sgid that names a user group in a mention. */
+export function mentionGroupSgid(groupId: string): string {
+  return `${GROUP_SGID_PREFIX}${groupId}`;
+}
+
+/** The id of the user group an sgid names, if it names one. */
+export function groupIdFromSgid(sgid: string): string | undefined {
+  return sgid.startsWith(GROUP_SGID_PREFIX) && GROUP_ID.test(sgid.slice(GROUP_SGID_PREFIX.length)) ? sgid.slice(GROUP_SGID_PREFIX.length) : undefined;
 }
 
 /** Someone as a mention shows them, by their avatar too. */
@@ -62,12 +79,43 @@ export function mentionPromptItem(person: PromptCard): string {
 }
 
 /**
- * The markup the editor opens with for a body Ember stored: each mention given the content Lexxy shows
- * it by, since Lexxy drops an attachment without content. A mention of someone `card` doesn't know goes.
- * Each link preview is written again from what it shows on `host`, the one the page is served from, so
- * that the editor no more loads an image from this Ember than the message does.
+ * A user group as a mention shows it, as the editor keeps and the prompt's item writes one: its name in
+ * place of the avatar and name a person's shows, since a group has no face of its own.
  */
-export function editableBody(parse: HtmlParser, stored: string, card: (userId: string) => MentionCard | undefined, host: string): string {
+export function mentionGroupContent(group: MentionUser): string {
+  return `<span class="mention" sgid="${htmlEscape(mentionGroupSgid(group.id))}">${htmlEscape(group.name)}</span>`;
+}
+
+/**
+ * A user group as Lexxy's mentions prompt offers it, after the people: by its name, with a badge saying
+ * how many it stands for, and the mention picking it writes, whose content type and sgid name it a
+ * group's, so what's sent says a group was mentioned, not a person.
+ */
+export function groupPromptItem(group: MentionUser, members: number): string {
+  const name = htmlEscape(group.name);
+  const sgid = htmlEscape(mentionGroupSgid(group.id));
+  const badge = ` <span class="autocompletable__badge">${members} ${members === 1 ? "member" : "members"}</span>`;
+  return `<lexxy-prompt-item search="${name}" sgid="${sgid}">
+  <template type="menu"><span class="autocomplete__item"><span class="autocompletable__name">${name}</span>${badge}</span></template>
+  <template type="editor" content-type="${GROUP_MENTION_CONTENT_TYPE}" sgid="${sgid}">${mentionGroupContent(group)}</template>
+</lexxy-prompt-item>
+`;
+}
+
+/**
+ * The markup the editor opens with for a body Ember stored: each mention given the content Lexxy shows
+ * it by, since Lexxy drops an attachment without content. A mention of someone `card` doesn't know, or
+ * of a group `groupCard` doesn't, goes. Each link preview is written again from what it shows on
+ * `host`, the one the page is served from, so that the editor no more loads an image from this Ember
+ * than the message does.
+ */
+export function editableBody(
+  parse: HtmlParser,
+  stored: string,
+  card: (userId: string) => MentionCard | undefined,
+  host: string,
+  groupCard?: (groupId: string) => MentionUser | undefined,
+): string {
   if (isPlainParagraph(stored)) return stored;
   const content = parse(stored, BODY);
   for (const attachment of attachmentNodes(content)) {
@@ -76,7 +124,15 @@ export function editableBody(parse: HtmlParser, stored: string, card: (userId: s
       setAttr(attachment, "content", previewContent(opengraphEmbedFromNode(parse, attachment, host)));
       continue;
     }
-    const userId = userIdFromSgid(getAttr(attachment, "sgid") ?? "");
+    const sgid = getAttr(attachment, "sgid") ?? "";
+    const groupId = groupIdFromSgid(sgid);
+    if (groupId !== undefined) {
+      const group = groupCard?.(groupId);
+      if (group) setAttr(attachment, "content", mentionGroupContent(group));
+      else detach(attachment);
+      continue;
+    }
+    const userId = userIdFromSgid(sgid);
     const person = userId === undefined ? undefined : card(userId);
     if (person) setAttr(attachment, "content", mentionContent(person));
     else detach(attachment);
@@ -86,18 +142,22 @@ export function editableBody(parse: HtmlParser, stored: string, card: (userId: s
 
 /**
  * Whom markup the editor wrote mentions, once each, in order, named as their mentions show them: by the
- * text of each one's content, as the people search wrote it (`mentionContent`). Throws `ParseLimitError`
- * past the parser's limits.
+ * text of each one's content, as the people search wrote it (`mentionContent`, `mentionGroupContent`).
+ * A group's mention carries its `group` mark, so what the client says of what's written can tell one,
+ * until the room says whom it stood for. Throws `ParseLimitError` past the parser's limits.
  */
 export function writtenMentions(parse: HtmlParser, markup: string): MentionUser[] {
   if (isPlainParagraph(markup)) return [];
-  const people = new Map<string, MentionUser>();
+  const named = new Map<string, MentionUser>();
   for (const attachment of attachmentNodes(parse(markup, BODY))) {
-    const id = userIdFromSgid(getAttr(attachment, "sgid") ?? "");
-    if (id === undefined || people.has(id)) continue;
-    people.set(id, { id, name: textContent(parse(getAttr(attachment, "content") ?? "", BODY)).trim() });
+    const sgid = getAttr(attachment, "sgid") ?? "";
+    const groupId = groupIdFromSgid(sgid);
+    const id = groupId ?? userIdFromSgid(sgid);
+    if (id === undefined || named.has(id)) continue;
+    const name = textContent(parse(getAttr(attachment, "content") ?? "", BODY)).trim();
+    named.set(id, groupId !== undefined ? { id, name, group: true } : { id, name });
   }
-  return [...people.values()];
+  return [...named.values()];
 }
 
 /** Campfire's `avatar_tag` (users/avatars_helper.rb), without its link: an image screen readers skip. */
@@ -110,8 +170,22 @@ const avatarTag = (url: string) => `<img class="avatar" aria-hidden="true" src="
  * `prepareBody` refuses it anyway.
  */
 export function userIdsIn(parse: HtmlParser, markup: string): string[] {
-  if (isPlainParagraph(markup)) return [];
-  const ids = new Set<string>();
+  return mentionedIdsIn(parse, markup).userIds;
+}
+
+/**
+ * Every user group an attachment's sgid names, the same way: the groups to look up before resolving
+ * the body's mentions.
+ */
+export function groupIdsIn(parse: HtmlParser, markup: string): string[] {
+  return mentionedIdsIn(parse, markup).groupIds;
+}
+
+/** Every user and user group a body's attachments name, once each, to look up before resolving them. */
+export function mentionedIdsIn(parse: HtmlParser, markup: string): { userIds: string[]; groupIds: string[] } {
+  const userIds = new Set<string>();
+  const groupIds = new Set<string>();
+  if (isPlainParagraph(markup)) return { userIds: [], groupIds: [] };
   const collect = (markup: string, depth: number) => {
     let attachments: Element[];
     try {
@@ -121,14 +195,17 @@ export function userIdsIn(parse: HtmlParser, markup: string): string[] {
       throw error;
     }
     for (const attachment of attachments) {
-      const id = userIdFromSgid(getAttr(attachment, "sgid") ?? "");
-      if (id !== undefined) ids.add(id);
+      const sgid = getAttr(attachment, "sgid") ?? "";
+      const groupId = groupIdFromSgid(sgid);
+      const userId = userIdFromSgid(sgid);
+      if (groupId !== undefined) groupIds.add(groupId);
+      else if (userId !== undefined) userIds.add(userId);
       const content = getAttr(attachment, "content");
       if (content !== undefined && depth < MAX_CONTENT_ATTACHMENT_DEPTH) collect(content, depth + 1);
     }
   };
   collect(markup, 0);
-  return [...ids];
+  return { userIds: [...userIds], groupIds: [...groupIds] };
 }
 
 /**

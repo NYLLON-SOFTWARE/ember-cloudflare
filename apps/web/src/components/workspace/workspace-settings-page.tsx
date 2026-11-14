@@ -52,6 +52,7 @@ import { workspaceSectionOf } from "./settings-navigation";
 import { CHANGES_SAVED, PageHeading, Panel, SECTION_HEADING, SettingsPage, TITLE, TITLE_LINK } from "./settings-page";
 import { TurnstileSettings } from "./turnstile-settings";
 import { TurnstileSetup } from "./turnstile-setup";
+import { UserGroups } from "./user-groups-settings";
 import { HowPeopleJoin, WaysToJoin } from "./ways-to-join";
 
 interface Props {
@@ -103,6 +104,8 @@ interface Props {
  *   regenerate, and Memberful, how Ember sends email, and whether Cloudflare Turnstile checks who joins,
  *   or for members, the links that let people in, then the administrators and members, whom
  *   administrators can make administrators or members and remove.
+ * - User groups: for administrators, the groups of people a mention stands for, which they name, fill
+ *   and delete.
  * - Domain settings: for administrators, the custom domain Ember answers at.
  * - AI assistant: for administrators, whether Ember's AI agents run on models through Cloudflare AI
  *   Gateway, which Set up Ember AI connects, and while they do, the agents, @ember first, each linking to
@@ -549,6 +552,17 @@ export function WorkspaceSettingsPage({
             />
           </div>
         )}
+      </Panel>
+      <Panel id="user-groups-settings" hidden={section !== "user-groups-settings"} aria-labelledby="user-groups-settings-heading" className="flex flex-col gap-6">
+        <PageHeading id="user-groups-settings-heading" title="User groups" className={SECTION_HEADING}>
+          Name groups of people a mention stands for.
+        </PageHeading>
+        {settings &&
+          (settings.canAdminister ? (
+            <UserGroups onSaved={() => flash("notice", CHANGES_SAVED)} reloadDirectory={listPeople} onFailed={onFailed} />
+          ) : (
+            <p className="text-muted-foreground">Community admins manage user groups.</p>
+          ))}
       </Panel>
       <Panel id="domain-settings" hidden={section !== "domain-settings"} aria-labelledby="domain-settings-heading" className="flex flex-col gap-6">
         <PageHeading id="domain-settings-heading" title="Domain settings" className={SECTION_HEADING}>

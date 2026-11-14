@@ -24,7 +24,7 @@ import {
   type UserId,
 } from "@ember/protocol";
 import { parseHuddleSocketParams } from "@ember/protocol/huddles";
-import { prepareBody, userIdFromSgid, userIdsIn, type PreparedBody } from "@ember/richtext";
+import { mentionGroupSgid, mentionSgid, parseHtml, prepareBody, mentionedIdsIn, type MentionUser, type PreparedBody } from "@ember/richtext";
 import {
   AGENT_NOTES,
   AnswerError,
@@ -1097,15 +1097,30 @@ export class ChatRoom extends DurableObject<Env> {
 
   /**
    * What the room keeps of a body a client sent, naming the people it mentions as they are now, or
-   * why it keeps nothing.
+   * why it keeps nothing. A group's mention keeps the group's name in the body, and stands for
+   * everyone in it, whom the message's mentions list keeps once each, so that "mentions me", the
+   * unread marks and the pushes know it as they know a person's mention.
    */
   private async prepare(markup: string): Promise<PreparedBody | string> {
-    const ids = userIdsIn(markup);
-    const people = new Map<UserId, User>(ids.length === 0 ? [] : (await workspace(this.env).mentionedPeople(ids)).map((person) => [person.id, person]));
-    const body = prepareBody(markup, (sgid) => people.get(userIdFromSgid(sgid) ?? ""));
+    const { userIds, groupIds } = mentionedIdsIn(parseHtml, markup);
+    const [people, groups] = await Promise.all([
+      userIds.length === 0 ? [] : workspace(this.env).mentionedPeople(userIds),
+      groupIds.length === 0 ? [] : workspace(this.env).mentionedGroups(groupIds),
+    ]);
+    const named = new Map<string, MentionUser>(people.map((person) => [mentionSgid(person.id), person]));
+    for (const { id, name } of groups) named.set(mentionGroupSgid(id), { id, name, group: true });
+    const body = prepareBody(markup, (sgid) => named.get(sgid));
     if (body === null) return UNREADABLE;
     if (body.blank) return EMPTY;
-    return isMessageTooLong(body.plainText) ? MESSAGE_TOO_LONG : body;
+    const membersOf = new Map(groups.map((group) => [group.id, group.members]));
+    const mentions: User[] = [];
+    const seen = new Set<string>();
+    for (const mentioned of body.mentions) {
+      for (const member of mentioned.group ? (membersOf.get(mentioned.id) ?? []) : [mentioned]) {
+        if (!seen.has(member.id)) (seen.add(member.id), mentions.push(member));
+      }
+    }
+    return isMessageTooLong(body.plainText) ? MESSAGE_TOO_LONG : { ...body, mentions };
   }
 
   /**

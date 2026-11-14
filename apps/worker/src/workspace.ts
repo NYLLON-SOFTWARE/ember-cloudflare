@@ -11,6 +11,8 @@ import {
   INVITATION_DAYS,
   invitationLink,
   isReservedName,
+  MAX_GROUP_MEMBERS,
+  MAX_GROUPS,
   isRoomId,
   mailboxOf,
   mailboxUnder,
@@ -40,6 +42,7 @@ import {
   type EmailLinkKind,
   type EmailSettings,
   type Favorites,
+  type GroupId,
   type HuddlesSettings,
   type LiveHuddle,
   type Mailbox,
@@ -53,6 +56,7 @@ import {
   type NewRoom,
   type NewRoomForm,
   type NewWorkspace,
+  type NewUserGroup,
   type PersonRole,
   type Profile,
   type ProfileChanges,
@@ -69,6 +73,8 @@ import {
   type User,
   type UserId,
   type UserStatus,
+  type UserGroup,
+  type UserGroupChanges,
   type WorkspaceServerFrame,
   type WorkspaceSettings,
 } from "@ember/protocol";
@@ -135,6 +141,7 @@ import {
   type ProfileEntry,
   type PushDelivery,
   type RoomEventDeliveries,
+  type StoredGroup,
   type SavedAssistant,
   type SavedModel,
   type SavedRoomChange,
@@ -665,6 +672,12 @@ const meOf = ({ user, administrator }: StoredSession): Me => ({ ...user, adminis
 
 /** Whether someone or a bot named `name` takes @ember's name by being renamed `rename`, which they can't, unless it was theirs already (`isReservedName`). */
 const takesReservedName = (name: string, rename: string) => rename !== name && isReservedName(rename) && !isReservedName(name);
+
+/**
+ * A group's name as it's kept: lowercased, as people's names are compared (the web app's `byName` folds
+ * the same), so SQLite's case-sensitive UNIQUE keeps two names apart however they're capitalised.
+ */
+const groupName = (name: string) => name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 
 /**
  * What reading that `person`'s membership is `subscribed`, or not, changes: "lapsed" for an active member
@@ -2617,6 +2630,122 @@ export class Workspace extends DurableObject<Env> {
   async directory(credentials: Credentials): Promise<DirectoryEntry[] | null> {
     const user = await this.authenticate(credentials);
     return user && this.store.directory();
+  }
+
+  /**
+   * The groups of `ids` that exist, each with the people in it, for a room saying whom a group's mention
+   * stands for, as `mentionedPeople` says whom a person's does.
+   */
+  async mentionedGroups(ids: GroupId[]): Promise<StoredGroup[]> {
+    return this.store.mentionedGroups(ids);
+  }
+
+  /**
+   * The workspace's groups, by name, for the people directory and the settings' list, to the person
+   * `credentials` signs in, or null without a valid session.
+   */
+  async userGroups(credentials: Credentials): Promise<UserGroup[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.userGroups();
+  }
+
+  /**
+   * Makes `group` as the person `credentials` signs in: named `name`, with the active people `memberIds`
+   * names, bots left out, as the settings' form lists none. Answers it as it then is: "forbidden" unless
+   * that's an administrator, "full" once the workspace keeps as many groups as it can, "too big" past
+   * `MAX_GROUP_MEMBERS`, "member unknown" for a member who isn't an active person, or "name taken" for a
+   * name another group has, however it's capitalised, or null without a valid session.
+   */
+  async createUserGroup(
+    credentials: Credentials,
+    group: NewUserGroup,
+  ): Promise<UserGroup | "forbidden" | "full" | "too big" | "member unknown" | "name taken" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      const name = groupName(group.name);
+      const memberIds = await this.keptMembers(group.memberIds);
+      if (memberIds === "member unknown") return "member unknown";
+      if (memberIds.length > MAX_GROUP_MEMBERS) return "too big";
+      if (await this.store.groupNamed(name)) return "name taken";
+      if ((await this.store.userGroups()).length >= MAX_GROUPS) return "full";
+      const id = sortableId();
+      await this.store.createUserGroup({ id, name, memberIds, createdBy: user.id }, new Date().toISOString());
+      return this.shownGroup(id);
+    });
+  }
+
+  /**
+   * Changes the group `groupId` as the person `credentials` signs in, renaming it or making the active
+   * people `changes.memberIds` names its only members, bots left out, as they're sent, together in one
+   * save. Answers it as it then is: "forbidden" unless that's an administrator, "not found" unless
+   * `groupId` names one, then "too big", "member unknown" or "name taken" as making one is, or null
+   * without a valid session.
+   */
+  async changeUserGroup(
+    credentials: Credentials,
+    groupId: GroupId,
+    changes: UserGroupChanges,
+  ): Promise<UserGroup | "forbidden" | "not found" | "too big" | "member unknown" | "name taken" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (!(await this.store.userGroupWithId(groupId))) return "not found";
+      let memberIds: UserId[] | undefined;
+      if (changes.memberIds !== undefined) {
+        const kept = await this.keptMembers(changes.memberIds);
+        if (kept === "member unknown") return "member unknown";
+        if (kept.length > MAX_GROUP_MEMBERS) return "too big";
+        memberIds = kept;
+      }
+      const name = changes.name === undefined ? undefined : groupName(changes.name);
+      if (name !== undefined) {
+        const taken = await this.store.groupNamed(name);
+        if (taken !== null && taken !== groupId) return "name taken";
+      }
+      await this.store.changeUserGroup(groupId, { name, memberIds }, new Date().toISOString());
+      return this.shownGroup(groupId);
+    });
+  }
+
+  /**
+   * Deletes the group `groupId` as the person `credentials` signs in, and everyone in it with it.
+   * Answers "forbidden" unless that's an administrator, "not found" unless `groupId` names one, or null
+   * without a valid session.
+   */
+  async deleteUserGroup(credentials: Credentials, groupId: GroupId): Promise<"deleted" | "forbidden" | "not found" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.isAdministrator(user.id))) return "forbidden";
+      if (!(await this.store.userGroupWithId(groupId))) return "not found";
+      await this.store.deleteUserGroup(groupId);
+      return "deleted";
+    });
+  }
+
+  /**
+   * The people of `ids` a group keeps, once each: active people, with bots left out, as the settings'
+   * form lists none — or "member unknown" while an id names no active person.
+   */
+  private async keptMembers(ids: UserId[]): Promise<UserId[] | "member unknown"> {
+    const unique = [...new Set(ids)];
+    const active = new Map((await this.store.activePeopleWithIds(unique)).map((person) => [person.id, person.bot]));
+    const members: UserId[] = [];
+    for (const id of unique) {
+      const bot = active.get(id);
+      if (bot === undefined) return "member unknown";
+      if (!bot) members.push(id);
+    }
+    return members;
+  }
+
+  /** The group `groupId` as it then is, or null unless it's one. */
+  private async shownGroup(groupId: GroupId): Promise<UserGroup | null> {
+    const [group] = await this.store.mentionedGroups([groupId]);
+    return group ? { id: group.id, name: group.name, memberIds: group.members.map((member) => member.id) } : null;
   }
 
   /**
