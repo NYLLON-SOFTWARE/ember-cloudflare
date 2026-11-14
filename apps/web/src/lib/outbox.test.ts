@@ -129,7 +129,7 @@ describe("Send what was left unsent", () => {
     handOver("general", [message, reply]);
     await effectsRun();
     // A hidden tab's, so that the room reads nothing for it.
-    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=4");
+    expect(socket().url).toBe("ws://localhost:3000/api/rooms/general/socket?visible=0&protocol=5");
 
     socket().open();
     expect(socket().sent).toEqual([]);

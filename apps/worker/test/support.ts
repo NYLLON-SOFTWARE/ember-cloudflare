@@ -412,9 +412,9 @@ export type Socket = Awaited<ReturnType<typeof openSocket>>;
  * Opens a room socket as `name` (or in an existing session), queues every frame it receives, and
  * waits for its welcome. Its address names the room protocol's revision, as the app's do, and says
  * whether its tab is shown only when `params` does. An `outdated` tab's names nothing, as the app's
- * did before rich text.
+ * did before rich text, and a number names that revision, as an app from before the protocol's does.
  */
-export async function connect(room: string, as: string | Session, params?: RoomSocketParams | "outdated") {
+export async function connect(room: string, as: string | Session, params?: RoomSocketParams | "outdated" | number) {
   const socket = await openSocket(room, typeof as === "string" ? await signIn(as) : as, params);
   const welcome = await socket.next("welcome");
   return { ...socket, welcome, me: welcome.you };
@@ -458,8 +458,8 @@ export function framesOf<Frame extends { type: string }>(ws: WebSocket) {
 }
 
 /** Opens a room socket in `session` and queues every frame it receives. */
-async function openSocket(room: string, session: Session, params?: RoomSocketParams | "outdated") {
-  const query = params === "outdated" ? "" : params ? roomSocketQuery(params) : `?protocol=${ROOM_PROTOCOL}`;
+async function openSocket(room: string, session: Session, params?: RoomSocketParams | "outdated" | number) {
+  const query = params === "outdated" ? "" : typeof params === "number" ? `?protocol=${params}` : params ? roomSocketQuery(params) : `?protocol=${ROOM_PROTOCOL}`;
   const response = await api(`/api/rooms/${room}/socket${query}`, upgrade(session.cookie, session.ip));
   const ws = response.webSocket;
   if (!ws) throw new Error(`No socket: ${response.status} ${await response.text()}`);

@@ -1074,14 +1074,14 @@ export class ChatRoom extends DurableObject<Env> {
     if (await store.isPinned(messageId)) return;
     if ((await store.pinCount()) >= MAX_PINS) return this.send(ws, { type: "error", message: PINS_FULL, failed: "pin.create" });
     const seq = await store.addPin(messageId, user.id, now);
-    this.broadcast({ type: "pin.created", messageId, by: user, seq });
+    this.broadcastPins({ type: "pin.created", messageId, by: user, seq });
   }
 
   /** Takes the room's pin of `messageId` away, telling everyone, or nothing where it isn't pinned. */
   private async removePin(store: MessageStore, messageId: string, user: User): Promise<void> {
     const seq = await store.removePin(messageId);
     if (seq === null) return;
-    this.broadcast({ type: "pin.deleted", messageId, by: user, seq });
+    this.broadcastPins({ type: "pin.deleted", messageId, by: user, seq });
   }
 
   /**
@@ -1775,6 +1775,18 @@ export class ChatRoom extends DurableObject<Env> {
       } catch {
         // As above.
       }
+    }
+  }
+
+  /**
+   * Tells the room about a pin but the tabs running an app older than its protocol, whose room view has
+   * no case for a pin frame, and would break on one rather than ignore it: those are to reload, as the
+   * error they hear at once on joining, and whenever they send anything, says.
+   */
+  private broadcastPins(frame: ServerFrame): void {
+    for (const socket of this.roomSockets()) {
+      if (isOutdated(socket)) continue;
+      this.send(socket, frame);
     }
   }
 }

@@ -599,6 +599,51 @@ describe("Link to a message", () => {
   });
 });
 
+describe("The Pinned panel", () => {
+  /** The room's socket, which keeps what it's sent, and which the test lets in, then has list its pins. */
+  class RoomSocket {
+    static readonly OPEN = 1;
+    static last: RoomSocket | null = null;
+    readyState = 0;
+    sent: unknown[] = [];
+    onopen: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    constructor(readonly url: string) {
+      if (url.includes("/api/rooms/")) RoomSocket.last = this;
+    }
+    send(data: string) {
+      this.sent.push(JSON.parse(data));
+    }
+    close() {}
+    letIn(page: Partial<TimelinePage> = {}) {
+      act(() => {
+        this.readyState = RoomSocket.OPEN;
+        this.onopen?.();
+        this.onmessage?.({ data: JSON.stringify({ type: "welcome", you: ada, messages: [], present: [ada], hasMore: false, hasNewer: false, around: null, seq: 0, ...page }) });
+      });
+    }
+  }
+
+  it("takes the column the layout makes room for beside the room from 1180px wide, as the thread's", async () => {
+    vi.stubGlobal("WebSocket", RoomSocket);
+    const { user } = showWorkspace("/rooms/general");
+    await roomHeading();
+    const room = RoomSocket.last!;
+    room.letIn();
+    const pinned: Message = { id: "m1", clientMessageId: "c1", roomId: "general", creator: ada, body: "<p>Worth keeping</p>", plainText: "Worth keeping", mentions: [], createdAt: NOON, updatedAt: NOON, editedAt: null, boosts: [] };
+    await waitFor(() => expect(room.sent).toContainEqual({ type: "pins.list" }));
+    act(() => room.onmessage?.({ data: JSON.stringify({ type: "pins.listed", pins: [{ message: pinned, by: ada, at: NOON }] }) }));
+
+    await user.click(screen.getByRole("button", { name: "Pinned messages (1)" }));
+    const panel = screen.getByRole("complementary", { name: "Pinned messages" });
+    expect(panel).toHaveAttribute("data-pins");
+    // The layout's fourth column, which the rule naming a thread as its child names the panel's room for too.
+    expect(panel.parentElement).toHaveClass(
+      "min-[1180px]:has-[>[data-thread],>[data-pins]]:grid-cols-[calc(var(--spacing-rail)+env(safe-area-inset-left))_var(--spacing-sidebar)_minmax(0,1fr)_420px]",
+    );
+  });
+});
+
 describe("Group DMs and DM names", () => {
   it("names a DM for the others in it, in its header, the tab, its messages and the composer", async () => {
     vi.stubGlobal("WebSocket", OpenRoomSocket);
