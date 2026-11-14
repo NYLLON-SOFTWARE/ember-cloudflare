@@ -84,3 +84,28 @@ describe("ActivityPage's Filter on a phone", () => {
     expect(screen.getByRole("main", { name: "Activity" })).toBeInTheDocument();
   });
 });
+
+describe("ActivityPage's rows", () => {
+  /** The feed beside whatever `place` opens, as on a desktop, with `items` in it. */
+  function onDesktop(place: ActivityPlace | null, items: ActivityItem[]) {
+    vi.stubGlobal("matchMedia", (media: string) => ({ matches: false, media, addEventListener() {}, removeEventListener() {} }));
+    render(
+      <Sheet>
+        <ActivityPage me={me} place={place} rooms={[random]} activity={{ ...activity, feed: { ...activity.feed, items } }} renderRoom={() => <p>random</p>} onPaneStack={() => {}} />
+      </Sheet>,
+    );
+  }
+  const timeOf = (row: HTMLElement | undefined) => row!.querySelector("time")!;
+
+  it("darkens the time and place where grey would fall under 4.5:1: on the unread tint, on hover and on the selected row", () => {
+    history.replaceState(null, "", "/activity/rooms/random/threads/m1/@m2");
+    const unread: ActivityItem = { ...reply, id: 2, messageId: "m3", parentId: "m4", preview: "news", read: false };
+    onDesktop({ roomId: "random", threadId: "m1", replyId: "m2" }, [reply, unread]);
+    // The day's heading is a list item too.
+    const [selected, tinted] = screen.getAllByRole("listitem").filter((item) => item.querySelector("time"));
+    expect(selected).toHaveAttribute("aria-current", "true");
+    expect(timeOf(selected)).toHaveClass("text-muted-foreground", "group-hover:text-foreground/65", "group-aria-[current=true]:text-foreground/65");
+    expect(timeOf(tinted)).toHaveClass("text-foreground/65");
+    expect(timeOf(tinted)).not.toHaveClass("text-muted-foreground");
+  });
+});
