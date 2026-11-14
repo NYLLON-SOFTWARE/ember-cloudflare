@@ -224,11 +224,12 @@ export const commandFragmentOf = (text: string): string | null => {
 
 /**
  * The commands `commands` offers for `fragment`: those whose names it starts, all of them for "" — but
- * none once it's one command's name whole, since the menu is there to find one, and Enter sends one found.
+ * none once it's one command's name whole, longer names that start with it included, since the menu is
+ * there to find one, and Enter sends one found rather than completing it over what's typed after.
  */
 export const commandsMatching = (commands: Command[], fragment: string): Command[] => {
   const matching = commands.filter(({ name }) => name.startsWith(fragment));
-  return matching.length === 1 && matching[0]!.name === fragment ? [] : matching;
+  return commands.some(({ name }) => name === fragment) ? [] : matching;
 };
 
 /**
@@ -323,14 +324,22 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   // composer of every room and thread has no use for them. One that couldn't be had is asked for again
   // at the next slash.
   const [commands, setCommands] = useState<Command[] | null>(null);
-  const askingCommands = useRef(false);
-  const needCommands = () => {
-    if (commands || askingCommands.current) return;
-    askingCommands.current = true;
-    fetchCommands().then(
-      (loaded) => setCommands(loaded.commands),
-      () => (askingCommands.current = false),
+  // The ask for them on its way, which whoever is waiting on it joins, and which one that failed leaves
+  // to be asked again.
+  const asking = useRef<Promise<Command[] | null> | null>(null);
+  const needCommands = (): Promise<Command[] | null> => {
+    if (commands) return Promise.resolve(commands);
+    asking.current ??= fetchCommands().then(
+      (loaded) => {
+        setCommands(loaded.commands);
+        return loaded.commands;
+      },
+      () => {
+        asking.current = null;
+        return null;
+      },
     );
+    return asking.current;
   };
   // What the menu of commands shows: those `fragment` starts, and the one it highlights, which Enter and
   // the arrows move among. Empty once nothing matches, so a slash that's no command is sent as written.
@@ -394,8 +403,10 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
   // written unless it's blank, closes the toolbar and focuses the editor, on touch screens too. Before
   // the editor shows, as its code loads, only the files go. Also send to the room is unticked once
   // anything's gone, as Slack unticks it. What's written that begins with one of the workspace's
-  // commands goes as an invocation, which the room answers, and not as a message.
-  const submit = () => {
+  // commands goes as an invocation, which the room answers, and not as a message — and what begins with
+  // a slash waits for the commands to be had first, that a registered one isn't posted to the room while
+  // they're on their way. One that couldn't be had keeps what's written to be sent again.
+  const submit = async () => {
     if (disabled) return;
     if (picked.files.length > 0) {
       onSendFiles(picked.files.map(({ file }) => file), alsoSend);
@@ -406,7 +417,11 @@ export function Composer({ roomId, roomName, direct = false, userId, typing, dis
     if (!written) return;
     if (!written.isBlank()) {
       const markup = written.value();
-      const invocation = commands && onRunCommand ? commandInvocationOf(writtenBody(markup).plainText, commands) : null;
+      const plain = writtenBody(markup).plainText;
+      const wantsCommands = onRunCommand !== undefined && commandFragmentOf(plain) !== null && commands === null;
+      const had = wantsCommands ? await needCommands() : commands;
+      if (wantsCommands && !had) return;
+      const invocation = had && onRunCommand ? commandInvocationOf(plain, had) : null;
       if (invocation && onRunCommand) onRunCommand(invocation.command.name, invocation.text);
       // One the room won't take, as when it's too long, stays to be cut down.
       else if (!onSend(markup, alsoSend)) return;
