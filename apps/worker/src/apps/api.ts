@@ -1,4 +1,19 @@
-import { APP_CHANGED, APPS_FORBIDDEN, APPS_FULL, parseAppChanges, parseNewApp, type App, type AppAnswer, type AppId, type Apps } from "@ember/protocol/apps";
+import {
+  APP_CHANGED,
+  APPS_FORBIDDEN,
+  APPS_FULL,
+  TOOL_GONE,
+  parseAppChanges,
+  parseNewApp,
+  parseToolPicks,
+  type AgentTools,
+  type App,
+  type AppAnswer,
+  type AppId,
+  type Apps,
+  type OfferedApp,
+} from "@ember/protocol/apps";
+import type { UserId } from "@ember/protocol";
 import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { administratorOf } from "../assistant/settings";
 import { credentialsOf } from "../auth";
@@ -110,8 +125,32 @@ export async function disconnectApp(request: Request, env: Env, appId: AppId): P
   return new Response(null, { status: 204 });
 }
 
-/** Why a request about apps isn't done: there's no such app, or the person asking can't, or not now. */
-type Refusal = "off" | "full" | "changed" | "not found" | "forbidden" | null;
+/** `GET /api/account/agents/:id/tools`: every connected app's tools, and which of them `id`, @ember or an agent, may use. */
+export async function showAgentTools(request: Request, env: Env, agentId: UserId): Promise<Response> {
+  const credentials = await credentialsOf(request, env);
+  return agentToolsAnswer(credentials && (await workspace(env).agentTools(credentials, agentId)));
+}
+
+/**
+ * `PUT /api/account/agents/:id/tools`, `{ tools: [{ appId, name, fingerprint }] }`: has those be every
+ * tool `id`, @ember or an agent, may use, answering what its page then offers. More than an agent uses
+ * is refused, and so is one that isn't a connected app's any more, or that its server describes another
+ * way than the fingerprint the page offered it with says, with 409.
+ */
+export async function pickAgentTools(request: Request, env: Env, agentId: UserId): Promise<Response> {
+  const credentials = await administratorOf(request, env, APPS_FORBIDDEN);
+  if (credentials instanceof Response) return credentials;
+  const picks = parseToolPicks(await jsonBodyOf(request));
+  if ("error" in picks) return problem(422, picks.error);
+  return agentToolsAnswer(await workspace(env).pickAgentTools(credentials, agentId, picks));
+}
+
+function agentToolsAnswer(apps: OfferedApp[] | Refusal): Response {
+  return Array.isArray(apps) ? Response.json({ apps } satisfies AgentTools, { headers: PRIVATE }) : refused(apps);
+}
+
+/** Why a request about apps isn't done: there's no such app, agent or tool, or the person asking can't, or not now. */
+type Refusal = "off" | "full" | "changed" | "gone" | "not found" | "forbidden" | null;
 
 /** What a request about an app answers: the app as its page then shows it, with `status`, or why it was refused. */
 function appAnswer(app: App | Refusal, status = 200): Response {
@@ -122,5 +161,5 @@ function refused(why: Refusal): Response {
   if (why === null) return problem(401, NOT_SIGNED_IN);
   if (why === "forbidden") return problem(403, APPS_FORBIDDEN);
   if (why === "not found") return problem(404, "Not found");
-  return problem(409, why === "off" ? ASSISTANT_OFF : why === "changed" ? APP_CHANGED : APPS_FULL);
+  return problem(409, why === "off" ? ASSISTANT_OFF : why === "changed" ? APP_CHANGED : why === "gone" ? TOOL_GONE : APPS_FULL);
 }

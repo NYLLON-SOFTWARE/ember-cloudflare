@@ -32,6 +32,7 @@ import { PeopleContext, type People } from "@/hooks/use-directory";
 import { agentSettingsPath, navigate } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { AGENTS_PATH } from "./agent-list";
+import { toolsExplained } from "./agent-tools";
 import { searchTurnedOff } from "./assistant-setup";
 import {
   AVATAR_EXPLAINED,
@@ -70,6 +71,8 @@ const OFFERED: OfferedModels = { models: [...ASSISTANT_MODELS, GEMMA], suggested
 
 /** Listing the models Ember offers, which the card does as it shows. */
 const LISTING = "POST /api/account/assistant/offered";
+/** The Tools card's request, which has tests of its own. */
+const TOOLS = `GET /api/account/agents/${ASSISTANT_ID}/tools`;
 
 /** Why Workers AI's models aren't listed, as the Worker says when Cloudflare didn't take Ember AI's API token for them. */
 const UNLISTED = "Workers AI's models aren't listed, as Cloudflare didn't take the API token for them. Add the Workers AI Read permission to it in the Cloudflare dashboard.";
@@ -135,6 +138,7 @@ function serve({
     if (request === "DELETE /api/account/assistant/avatar") return unpictured();
     if (request === "GET /api/account") return read();
     if (request === LISTING) return offered();
+    if (request === TOOLS) return Response.json({ apps: [] });
     throw new Error(`Unexpected request for ${request}`);
   });
 }
@@ -232,6 +236,13 @@ describe("@ember's page", () => {
 
   afterEach(() => history.replaceState(null, "", "/"));
 
+  it("has the Tools card, for @ember", async () => {
+    const requests = serve({ read: readAs(SONNET) });
+    showPage();
+    expect(await screen.findByRole("region", { name: "Tools" })).toHaveTextContent(toolsExplained("@ember"));
+    expect(requests.mock.calls.map(([input]) => String(input))).toContain(`/api/account/agents/${ASSISTANT_ID}/tools`);
+  });
+
   it("is titled Edit agent and headed Ember, with Go Back to the AI assistant tab, showing @ember's settings once Ember AI is read", async () => {
     serve({ read: readAs(SONNET) });
     showPage();
@@ -277,6 +288,7 @@ describe("@ember's page", () => {
       const request = `${init?.method ?? "GET"} ${String(input)}`;
       if (request === "GET /api/account") return readAs(SONNET)();
       if (request === LISTING) return Response.json(OFFERED);
+      if (request === TOOLS) return Response.json({ apps: [] });
       if (request === "PUT /api/account/assistant/web_search") return Response.json({ error: ASSISTANT_OFF }, { status: 409 });
       throw new Error(`Unexpected request for ${request}`);
     });

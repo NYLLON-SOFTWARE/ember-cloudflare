@@ -42,6 +42,7 @@ import { avatarVariantOf } from "@/lib/previews";
 import { cn } from "@/lib/utils";
 import { AddAssistantModel, modelsToAddTo } from "./add-assistant-model";
 import { AGENTS_PATH, useAgentsOnly } from "./agent-list";
+import { AgentTools } from "./agent-tools";
 import { AssistantSetup, searchTurnedOff } from "./assistant-setup";
 import { BUTTON } from "./email-settings";
 import { LevelDials } from "./level-dials";
@@ -159,6 +160,7 @@ export function EmberPage({ me, onFailed }: { me: Me; onFailed: (error: unknown)
         {settings && assistant && (
           <>
             <EmberSettings me={me} assistant={assistant} onSetUp={() => setSettingUp(true)} onStopped={off} onChanged={show} onFailed={failed} />
+            <AgentTools agentId={ASSISTANT_ID} name="@ember" onFailed={failed} />
             {settingUp && (
               <AssistantSetup assistant={assistant} deployedAccountId={settings.cloudflareAccountId} onSaved={show} onClose={() => setSettingUp(false)} onFailed={failed} />
             )}

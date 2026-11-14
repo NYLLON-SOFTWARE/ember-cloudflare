@@ -1,13 +1,13 @@
 import type { APIRequestContext, Page } from "@playwright/test";
-import type { Apps } from "@ember/protocol/apps";
+import { TOOL_GONE, type AppAnswer, type Apps } from "@ember/protocol/apps";
 import { administratorSession, cookieHeader, expect, SAME_ORIGIN, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
 import { startFakeGateway, type FakeGateway } from "./fake-gateway";
-import { MCP_TOKEN, SERVER_NAME, startFakeMcp, type FakeMcp } from "./fake-mcp";
+import { MCP_TOKEN, SERVER_NAME, startFakeMcp, TOOLS, type FakeMcp } from "./fake-mcp";
 
-// The Apps card on the AI assistant tab, Connect an app, and a connected app's page, on the second test
-// server, with an MCP server this spec fakes on this machine. Each test leaves the workspace as a new
-// one is: no apps, and Ember AI off.
+// The Apps card on the AI assistant tab, Connect an app, a connected app's page, and the Tools card on
+// @ember's page, on the second test server, with an MCP server this spec fakes on this machine. Each test
+// leaves the workspace as a new one is: no apps, and Ember AI off.
 
 const SONNET = "anthropic/claude-sonnet-5.5";
 
@@ -119,5 +119,56 @@ test.describe("Apps", () => {
     await page.reload();
     await expect(page.getByRole("textbox", { name: "Name" })).toHaveValue("Issue tracker");
     await expect(page.getByRole("textbox", { name: "Server address" })).toHaveValue(mcp.url);
+  });
+
+  test("the administrator picks a connected app's tools for @ember, which a reload keeps, and picks again one its server describes another way since", async ({ page, request }) => {
+    mcp.tools.splice(0, mcp.tools.length, ...TOOLS.map((tool) => ({ ...tool })));
+    const headers = await asAdministrator(request);
+    const connected = await request.post("/api/account/apps", { data: { name: "Tracker", url: mcp.url, token: MCP_TOKEN }, headers });
+    expect(connected.status(), await connected.text()).toBe(201);
+    const { app } = (await connected.json()) as AppAnswer;
+
+    await useOwnAddress(page);
+    await page.goto("/account/agents/ember/edit");
+    await signInAsAdministrator(page);
+    const tools = page.getByRole("region", { name: "Tools", exact: true });
+    await expect(tools.getByRole("group", { name: "Tracker" }).getByRole("checkbox")).toHaveCount(2);
+    const search = tools.getByRole("checkbox", { name: "search_issues, Search issues" });
+    const create = tools.getByRole("checkbox", { name: "create_issue" });
+    await expect(search).toHaveAccessibleDescription("Finds issues by their words.");
+
+    // A pick is saved as it's made.
+    await search.check();
+    await expect(tools).toContainText("1 of 20 picked");
+    await create.check();
+    await expect(tools).toContainText("2 of 20 picked");
+    await page.reload();
+    await expect(search).toBeChecked();
+    await expect(create).toBeChecked();
+    // Picking a tool doesn't call it.
+    expect(mcp.asked).not.toContain("tools/call");
+
+    // The server says something else of a tool, which Ember finds when it reads its tools again.
+    mcp.tools[1]!.description = "Opens an issue, and emails everyone.";
+    const read = await request.post(`/api/account/apps/${app.id}/tools`, { headers });
+    expect(read.status(), await read.text()).toBe(200);
+    // The page loaded before that, so a pick from it would be of a tool nobody has read: it's refused,
+    // and the card shows the tools as they are now.
+    await search.uncheck();
+    await expect(tools.getByRole("alert")).toHaveText(TOOL_GONE);
+    await expect(search).toBeChecked();
+    await expect(create).not.toBeChecked();
+    await expect(create).toHaveAccessibleDescription(/^Opens an issue, and emails everyone\..*Pick it again to keep it\.$/);
+    await expect(tools).toContainText("1 of 20 picked");
+    await create.check();
+    await expect(tools).toContainText("2 of 20 picked");
+    await expect(create).toHaveAccessibleDescription("Opens an issue, and emails everyone.");
+
+    // Removing the app leaves @ember nothing to pick.
+    const removed = await request.delete(`/api/account/apps/${app.id}`, { headers });
+    expect(removed.status(), await removed.text()).toBe(204);
+    await page.reload();
+    await expect(tools).toContainText("No apps are connected yet.");
+    await expect(tools.getByRole("checkbox")).toHaveCount(0);
   });
 });

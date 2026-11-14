@@ -48,6 +48,7 @@ import { ApiError, changeAgent, createAgent, deleteAgent, fetchAgent, fetchWorks
 import { dateLabel } from "@/lib/messages";
 import { cn } from "@/lib/utils";
 import { AGENTS_PATH, useAgentsOnly } from "./agent-list";
+import { AgentTools } from "./agent-tools";
 import { BotCards } from "./bot-card";
 import { BUTTON } from "./email-settings";
 import { lengthOf, searchingWith, TEXTAREA } from "./ember-settings";
@@ -684,6 +685,11 @@ function AgentForm({ me, saved, setup, rooms, onFailed }: FormProps) {
           </p>
         )}
       </form>
+      {saved && (
+        <div className="mt-6">
+          <AgentTools agentId={saved.id} name={saved.name} onFailed={onFailed} />
+        </div>
+      )}
       {saved && (
         <>
           <hr className="my-8 w-full" />

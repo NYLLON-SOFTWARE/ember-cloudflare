@@ -434,7 +434,7 @@ function Tools({ app, busy, unread, onReadAgain }: { app: App; busy: Busy; unrea
       <p role="status" className={cn(NOTE, "wrap-anywhere empty:hidden", busy !== "reading" && "text-negative")}>
         {busy === "reading" ? READING_TOOLS : unread}
       </p>
-      <p className={NOTE}>Each description is the app's own. Agents can't use these tools yet.</p>
+      <p className={NOTE}>Each description is the app's own. Pick the tools an agent may use on the agent's page.</p>
       {app.tools.length > 0 && (
         <ul aria-labelledby="app-tools-heading" className="flex max-h-[28em] flex-col overflow-y-auto overscroll-contain rounded-[10px] border bg-background">
           {app.tools.map(({ name, title, description }) => (
