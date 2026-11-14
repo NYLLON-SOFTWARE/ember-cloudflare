@@ -118,7 +118,8 @@ test.describe("Workspace layout", () => {
       await expect(header).toHaveCSS("border-bottom-color", colors.border);
       await expect(header.getByRole("heading", { level: 1 })).toHaveCSS("color", colors.ink);
       await expect(page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: "general" })).toHaveCSS("background-color", colors.hover);
-      await expect(page.getByRole("heading", { name: "DMs" })).toHaveCSS("color", colors.muted);
+      // The sections' headings, muted.
+      await expect(page.getByRole("button", { name: "Rooms" })).toHaveCSS("color", colors.muted);
     }
   });
 });

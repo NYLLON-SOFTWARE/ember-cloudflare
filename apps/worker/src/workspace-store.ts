@@ -5,11 +5,14 @@ import {
   MAX_OTHER_ADDRESSES,
   MAX_PUSH_SUBSCRIPTIONS,
   MAX_SHARED_ORDER,
+  NAMED_NEW_VIEWERS,
   NAVIGATION_SLOTS,
   PASSWORD_RESET_CODE_TRIES,
   RECENT_SEARCHES,
   SUGGESTED_PEOPLE,
+  UNREAD_COUNT_CAP,
   emailDomainOf,
+  mentionsEveryone,
   isHost,
   isRoomIcon,
   mailboxOf,
@@ -38,6 +41,7 @@ import {
   type RoomSettings,
   type Search,
   type SharedRoom,
+  type ShareWidening,
   type SidebarRoom,
   type User,
   type UserId,
@@ -68,7 +72,10 @@ import { statement, type Db, type Statement } from "./db";
 import type { StoredPicture } from "./files/pictures";
 import { messagePayload, type PushPayload } from "./push/payload";
 import { ADDRESS_TAG_PREFIX, EVERYONE, SESSION_TAG_PREFIX, type Revocation } from "./revocations";
+import { addRecorded, readInRoom, recordedRows, recordMessage, type RecordedItems } from "./activity";
 import type { RoomEvent } from "./room-log";
+import { forgettingRoomTabs } from "./room-tabs";
+import { forgettingScheduledListings } from "./scheduled-listings";
 
 // The account, its people, their sessions and their rooms, kept by the Workspace in its own SQLite
 // storage or in D1 (see db.ts).
@@ -537,6 +544,8 @@ export interface SavedRoomChange {
 export interface AppliedEvents {
   /** Whose unread marks changed, and when the message each is now marked unread as of came, or null for one now read. */
   marks: Map<UserId, string | null>;
+  /** Whose unread counts changed, with when their mark is as of, their count now, and whether it mentions them (`COUNT_UNREAD`, `MENTION_UNREAD`). */
+  counts: Map<UserId, { at: string; count: number; mentioned: boolean }>;
   /** When messages came in a DM, when the latest did and everyone in the DM; null otherwise. */
   active: { at: string; userIds: UserId[] } | null;
   /** The new messages' pushes, oldest message first, when they were asked for. */
@@ -545,6 +554,39 @@ export interface AppliedEvents {
   webhooks: MessageWebhook[];
   /** The new messages @ember and the agents are to answer, oldest first, each agent mentioned once. */
   asks: AssistantAsk[];
+  /** What the events did to people's Activity. */
+  activity: AppliedActivity;
+}
+
+/** The items new messages added to people's Activity, and those opening a room read, by whose they are. */
+export interface AppliedActivity {
+  added: RecordedItems;
+  read: Map<UserId, number[]>;
+}
+
+/**
+ * What `event` does to people's Activity: a new message records items for whom it's about, unless it
+ * has been deleted since, and opening the room reads its mentions and DMs. A statement that matches
+ * nothing stands in for a deleted message's, so every event has one.
+ */
+function activityOf(roomId: RoomId, event: RoomEvent, viewers: string): Statement {
+  const { seq, userId, at, message } = event;
+  if (!isNewMessage(event)) return readInRoom(userId, roomId, at, seq);
+  if (!message) return statement(`SELECT NULL AS id WHERE 0`);
+  return recordMessage({
+    seq,
+    roomId,
+    messageId: message.id,
+    authorId: userId,
+    parentId: message.parentId ?? null,
+    plainText: message.plainText,
+    at,
+    mentionIds: message.mentionIds,
+    everyone: mentionsEveryone(message.plainText),
+    followerIds: message.followerIds ?? [],
+    inRoom: !event.threadOnly,
+    viewerIds: viewers,
+  });
 }
 
 /**
@@ -1299,6 +1341,8 @@ interface SidebarRow extends HuddleRow {
   active_at: string;
   unread: number;
   unread_since: string | null;
+  unread_count: number;
+  unread_mentioned: number;
   involvement: Involvement;
   shared_position: number | null;
 }
@@ -1319,6 +1363,13 @@ interface UserIdRow {
 }
 
 const userIdsOf = (rows: UserIdRow[]) => rows.map((row) => row.user_id);
+
+/** Someone a message was counted unread for, as `COUNT_UNREAD` answers them. */
+interface CountedRow extends UserIdRow {
+  unread_at: string;
+  unread_count: number;
+  unread_mentioned: number;
+}
 
 /** A new message's pushes, from the subscriptions `MESSAGE_PUSHES` found for it: none when it found none. */
 function messagePushes(roomId: RoomId, { message }: RoomEvent, rows: PushRow[]): MessagePush[] {
@@ -1348,6 +1399,8 @@ const sidebarRoom = (row: SidebarRow, members?: DirectMemberRow[]): SidebarRoom 
   ...roomOf(row, members),
   unread: row.unread === 1,
   ...(row.unread_since !== null && { unreadSince: row.unread_since }),
+  ...(row.unread === 1 && row.unread_count > 0 && { unreadCount: row.unread_count }),
+  ...(row.unread === 1 && row.unread_mentioned === 1 && { unreadMentioned: true }),
   involvement: row.involvement,
 });
 
@@ -1372,7 +1425,7 @@ const ACTIVE_AT = `coalesce(rooms.last_message_at, rooms.created_at) AS active_a
  * they were listed.
  */
 export const ROOMS_FOR_USER = `SELECT rooms.id, rooms.kind, rooms.name, rooms.icon, ${ACTIVE_AT}, memberships.unread_at IS NOT NULL AS unread,
-    memberships.unread_at AS unread_since, memberships.involvement, rooms.shared_position, rooms.huddle_started_at, rooms.huddle_user_ids
+    memberships.unread_at AS unread_since, memberships.unread_count, memberships.unread_mentioned, memberships.involvement, rooms.shared_position, rooms.huddle_started_at, rooms.huddle_user_ids
   FROM memberships JOIN rooms ON rooms.id = memberships.room_id
   WHERE memberships.user_id = ? ORDER BY rooms.created_at, rooms.id`;
 
@@ -1599,6 +1652,10 @@ const RETRY_DOUBLINGS = 10;
 /** Whether someone is in a room. */
 export const MEMBERSHIP = `SELECT 1 FROM memberships WHERE room_id = ? AND user_id = ?`;
 
+/** Someone active, by their id, if they're in a room, by its id. */
+export const ACTIVE_MEMBER = `SELECT users.id, users.name FROM memberships JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ? AND users.id = ? AND users.status = ${ACTIVE}`;
+
 /**
  * Whether someone is in a room, and whether a ban blocks the IP address they come from, in one go,
  * asked on every room socket's upgrade.
@@ -1617,8 +1674,34 @@ export const MARK_UNREAD = `UPDATE memberships SET unread_at = ?1
     AND user_id NOT IN (SELECT value FROM json_each(?4)) AND ?5 > (SELECT applied_seq FROM rooms WHERE id = ?2)
   RETURNING user_id`;
 
-/** Clears someone's unread mark on a room, answering a row if there was one, once for each event. */
-export const MARK_READ = `UPDATE memberships SET unread_at = NULL
+/**
+ * Counts a message, numbered ?5, by ?2 in room ?1, for the members it's marked unread for, but those a
+ * JSON list ?3 names, who are viewing it, and those who follow the room at @mentions or not at all whom it
+ * doesn't mention, as a JSON list ?4 names whom it does, up to `UNREAD_COUNT_CAP`, answering each one it
+ * counts for, when their mark is as of and their count. It follows `MARK_UNREAD` for the same message, so a
+ * mark it makes counts the message, and it changes nothing once the Workspace has applied the message.
+ */
+export const COUNT_UNREAD = `UPDATE memberships SET unread_count = unread_count + 1
+  WHERE room_id = ?1 AND unread_at IS NOT NULL AND unread_count < ${UNREAD_COUNT_CAP} AND involvement <> 'invisible' AND user_id <> ?2
+    AND user_id NOT IN (SELECT value FROM json_each(?3))
+    AND (involvement = 'everything' OR user_id IN (SELECT value FROM json_each(?4)))
+    AND ?5 > (SELECT applied_seq FROM rooms WHERE id = ?1)
+  RETURNING user_id, unread_at, unread_count, unread_mentioned`;
+
+/**
+ * Notes that a message, numbered ?4, by ?2 in room ?1 mentions the members a JSON list ?3 names, whom
+ * it's marked unread for, answering each one it notes, when their mark is as of, their count, and that
+ * they're mentioned, once each until they read the room. It follows `COUNT_UNREAD` for the same message,
+ * and changes nothing once the Workspace has applied the message.
+ */
+export const MENTION_UNREAD = `UPDATE memberships SET unread_mentioned = 1
+  WHERE room_id = ?1 AND unread_at IS NOT NULL AND unread_mentioned = 0 AND involvement <> 'invisible' AND user_id <> ?2
+    AND user_id IN (SELECT value FROM json_each(?3))
+    AND ?4 > (SELECT applied_seq FROM rooms WHERE id = ?1)
+  RETURNING user_id, unread_at, unread_count, unread_mentioned`;
+
+/** Clears someone's unread mark on a room, its count and whether it mentions them, answering a row if there was one, once for each event. */
+export const MARK_READ = `UPDATE memberships SET unread_at = NULL, unread_count = 0, unread_mentioned = 0
   WHERE room_id = ?1 AND user_id = ?2 AND unread_at IS NOT NULL AND ?3 > (SELECT applied_seq FROM rooms WHERE id = ?1)
   RETURNING user_id`;
 
@@ -2286,17 +2369,45 @@ const DIRECTORY_WITH_IDS = `SELECT ${DIRECTORY_COLUMNS} FROM users WHERE id IN (
 export const MENTIONABLE_PAGE = 20;
 
 /**
- * Active people whose names contain ?1, by name. It's `LIKE`, so only ASCII letters ignore case, `%` and
- * `_` match anything, and "" matches everyone.
+ * The order the mentions prompt offers people in, as Slack's does: those with a word of their name starting
+ * with ?1 first, then those it's elsewhere in, people before bots, each by name.
+ */
+const MENTIONABLE_ORDER = `ORDER BY (users.name LIKE ?1 || '%' OR users.name LIKE '% ' || ?1 || '%') DESC, users.role = ${BOT},
+  lower(users.name), users.id`;
+
+/**
+ * Active people whose names contain ?1, in `MENTIONABLE_ORDER`. It's `LIKE`, so only ASCII letters ignore
+ * case, `%` and `_` match anything, and "" matches everyone.
  */
 const MENTIONABLE_PEOPLE = `SELECT ${DIRECTORY_COLUMNS} FROM users
-  WHERE status = ${ACTIVE} AND name LIKE '%' || ?1 || '%' ORDER BY lower(name), id LIMIT ${MENTIONABLE_PAGE}`;
+  WHERE status = ${ACTIVE} AND name LIKE '%' || ?1 || '%' ${MENTIONABLE_ORDER} LIMIT ${MENTIONABLE_PAGE}`;
 
 /** The same of room ?2's members (`Current.user.rooms.find(room_id).users`). */
 const MENTIONABLE_MEMBERS = `SELECT ${DIRECTORY_COLUMNS}
   FROM memberships JOIN users ON users.id = memberships.user_id
   WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.name LIKE '%' || ?1 || '%'
-  ORDER BY lower(users.name), users.id LIMIT ${MENTIONABLE_PAGE}`;
+  ${MENTIONABLE_ORDER} LIMIT ${MENTIONABLE_PAGE}`;
+
+/**
+ * A room that every active person can see, which sharing from widens nothing. Merging sub-rooms
+ * (slack-subrooms) declares this too, as an open room that isn't inside a private one: keep that one.
+ */
+const OPEN_TO_EVERYONE = `rooms.kind = 'open'`;
+
+/** The people sharing from room ?1 in room ?2 would reach: active people in room ?2 who aren't in room ?1, and aren't bots. */
+const NEW_VIEWERS = `FROM memberships JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.role <> ${BOT}
+    AND NOT EXISTS (SELECT 1 FROM memberships AS seeing WHERE seeing.room_id = ?1 AND seeing.user_id = memberships.user_id)`;
+
+/**
+ * Whether room ?1 is open to everyone, and how many active people in room ?2 aren't in ?1, as sharing from
+ * ?1 in ?2 would show them what they can't see now. Bots aren't counted.
+ */
+const SHARE_WIDENING = `SELECT EXISTS (SELECT 1 FROM rooms WHERE rooms.id = ?1 AND ${OPEN_TO_EVERYONE}) AS source_open,
+  (SELECT count(*) ${NEW_VIEWERS}) AS new_viewers`;
+
+/** The first `NAMED_NEW_VIEWERS` of them, by name, for the warning to name. */
+const NAMED_NEW_VIEWER_NAMES = `SELECT users.name ${NEW_VIEWERS} ORDER BY lower(users.name), users.id LIMIT ${NAMED_NEW_VIEWERS}`;
 
 /** Whether someone in a room can change it: administrators and the room's creator can. */
 const CAN_ADMINISTER = `(users.role = ${ADMINISTRATOR} OR rooms.creator_id = users.id) AS can_administer`;
@@ -3565,28 +3676,47 @@ export class WorkspaceStore {
       const mark = isNewMessage(event) ? (event.threadOnly ? null : statement(MARK_UNREAD, at, roomId, userId, seeing, seq)) : statement(MARK_READ, roomId, userId, seq);
       const marks = mark && statements.push(mark) - 1;
       const mentions = event.message ? JSON.stringify(event.message.mentionIds) : null;
+      const counts = isNewMessage(event) && !event.threadOnly ? statements.push(statement(COUNT_UNREAD, roomId, userId, seeing, mentions ?? "[]", seq)) - 1 : null;
+      // Only a message that mentions someone notes it, after it's counted.
+      const mentioned = counts !== null && event.message && event.message.mentionIds.length > 0 ? statements.push(statement(MENTION_UNREAD, roomId, userId, mentions, seq)) - 1 : null;
       const followers = JSON.stringify(event.message?.followerIds ?? []);
       const inRoom = event.threadOnly ? 0 : 1;
       const pushes = pushing && mentions !== null ? statements.push(statement(MESSAGE_PUSHES, roomId, userId, seeing, mentions, seq, guests ? 1 : 0, inRoom, followers)) - 1 : null;
       // A bot's reply is never delivered to webhooks, as Campfire posts one without delivering it, nor is
       // @ember's answer, which is a reply too.
       const bots = kind === "message" && mentions !== null ? statements.push(statement(MESSAGE_BOTS, roomId, userId, mentions, seq)) - 1 : null;
-      return { event, marks, pushes, bots };
+      const activity = statements.push(activityOf(roomId, event, seeing)) - 1;
+      return { event, marks, counts, mentioned, pushes, bots, activity };
     });
     const told = statements.length;
     statements.push(...(message ? [statement(TOLD_OF_DIRECT_MESSAGE, roomId, message.seq), statement(APPLIED_WITH_MESSAGE, last, roomId, messageAt!)] : [statement(APPLIED, last, roomId)]));
     const results = await this.db.batch(statements);
     const marks = new Map<UserId, string | null>();
-    for (const { event, marks: at } of applied) {
-      if (at === null) continue;
-      for (const { user_id } of results[at] as UserIdRow[]) marks.set(user_id, isNewMessage(event) ? event.at : null);
+    // Each count as of the last message that changed it, but none for someone who's read the room since.
+    const counts = new Map<UserId, { at: string; count: number; mentioned: boolean }>();
+    for (const { event, marks: at, counts: counted, mentioned } of applied) {
+      if (at !== null) {
+        for (const { user_id } of results[at] as UserIdRow[]) {
+          marks.set(user_id, isNewMessage(event) ? event.at : null);
+          if (!isNewMessage(event)) counts.delete(user_id);
+        }
+      }
+      for (const found of [counted, mentioned]) {
+        if (found === null) continue;
+        for (const row of results[found] as CountedRow[]) counts.set(row.user_id, { at: row.unread_at, count: row.unread_count, mentioned: row.unread_mentioned === 1 });
+      }
     }
     const pushes = applied.flatMap(({ event, pushes: at }) => (at === null ? [] : messagePushes(roomId, event, results[at] as PushRow[])));
     const deliveries = applied.flatMap(({ event, bots: at }) => (at === null ? [] : messageDeliveries(event, results[at] as MessageBotRow[])));
     const webhooks = deliveries.flatMap(({ answers, ...delivery }) => (answers ? [] : [delivery]));
     const asks = deliveries.flatMap(({ answers, ...ask }) => (answers ? [ask] : []));
     const toldIds = message ? userIdsOf(results[told] as UserIdRow[]) : [];
-    return { marks, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks, asks };
+    const activity: AppliedActivity = { added: new Map(), read: new Map() };
+    for (const { event, activity: at } of applied) {
+      if (!isNewMessage(event)) activity.read.set(event.userId, [...(activity.read.get(event.userId) ?? []), ...(results[at] as Array<{ id: number }>).map((row) => row.id)]);
+      else addRecorded(activity.added, recordedRows(results[at]!));
+    }
+    return { marks, counts, active: toldIds.length > 0 ? { at: messageAt!, userIds: toldIds } : null, pushes, webhooks, asks, activity };
   }
 
   /** Whether push subscription `id` is still saved, for someone active. */
@@ -3597,6 +3727,12 @@ export class WorkspaceStore {
   /** Forgets the push subscriptions with `ids`, which the push service has said are gone or can never be pushed to. */
   async forgetPushSubscriptions(ids: number[]): Promise<void> {
     await this.db.run(`DELETE FROM push_subscriptions WHERE id IN (SELECT value FROM json_each(?))`, JSON.stringify(ids));
+  }
+
+  /** `userId`, if they're active and in room `roomId`, as a scheduled message of theirs is posted. */
+  async activeMember(roomId: RoomId, userId: UserId): Promise<User | null> {
+    const [user] = await this.db.all<User>(ACTIVE_MEMBER, roomId, userId);
+    return user ?? null;
   }
 
   async isMember(roomId: RoomId, userId: UserId): Promise<boolean> {
@@ -3625,12 +3761,21 @@ export class WorkspaceStore {
   }
 
   /**
-   * The first page of the active people whose names contain `query`, by name: room `roomId`'s members,
+   * The first page of the active people whose names contain `query`, those it starts a word of first: room `roomId`'s members,
    * or anyone's when it's null.
    */
   async mentionable(query: string, roomId: RoomId | null): Promise<DirectoryEntry[]> {
     const rows = roomId === null ? await this.db.all<DirectoryRow>(MENTIONABLE_PEOPLE, query) : await this.db.all<DirectoryRow>(MENTIONABLE_MEMBERS, query, roomId);
     return rows.map(directoryEntry);
+  }
+
+  /** Whether sharing from room `sourceRoomId` in `targetRoomId` shows it to people who can't see it now, and how many. */
+  async shareWidening(sourceRoomId: RoomId, targetRoomId: RoomId): Promise<ShareWidening> {
+    const [row] = await this.db.all<{ source_open: number; new_viewers: number }>(SHARE_WIDENING, sourceRoomId, targetRoomId);
+    const newViewers = row!.source_open === 1 ? 0 : row!.new_viewers;
+    if (newViewers === 0) return { widens: false, newViewers, names: [] };
+    const named = await this.db.all<{ name: string }>(NAMED_NEW_VIEWER_NAMES, sourceRoomId, targetRoomId);
+    return { widens: true, newViewers, names: named.map(({ name }) => name) };
   }
 
   /** Everyone, whatever their status, for the people directory. */
@@ -3987,6 +4132,17 @@ export class WorkspaceStore {
   }
 
   /** Someone with their email address, whatever their status, or null if nobody has id `userId`. */
+  /** The time zone someone's browser last said it's in, or null. */
+  async timeZoneOf(userId: UserId): Promise<string | null> {
+    const [row] = await this.db.all<{ time_zone: string | null }>(`SELECT time_zone FROM users WHERE id = ?`, userId);
+    return row?.time_zone ?? null;
+  }
+
+  /** Saves the time zone someone's browser says it's in, when it's changed. */
+  async setTimeZone(userId: UserId, timeZone: string): Promise<void> {
+    await this.db.run(`UPDATE users SET time_zone = ?2 WHERE id = ?1 AND time_zone IS NOT ?2`, userId, timeZone);
+  }
+
   async personWithProfile(userId: UserId): Promise<ProfileEntry | null> {
     const [row] = await this.db.all<DirectoryRow & { email_address: string | null }>(PERSON_WITH_PROFILE, userId);
     return row ? { ...directoryEntry(row), emailAddress: row.email_address } : null;
@@ -4238,6 +4394,8 @@ export class WorkspaceStore {
       statement(`DELETE FROM pending_reindexes WHERE room_id = ?`, roomId),
       statement(`DELETE FROM rooms WHERE id = ?`, roomId),
       statement(`INSERT INTO deleted_rooms (id, deleted_at) VALUES (?, ?) ON CONFLICT DO NOTHING`, roomId, now),
+      ...forgettingRoomTabs(roomId),
+      forgettingScheduledListings(roomId),
     ])) as UserIdRow[][];
     return userIdsOf(members!);
   }

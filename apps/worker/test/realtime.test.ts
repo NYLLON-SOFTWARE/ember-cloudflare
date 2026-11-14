@@ -162,6 +162,24 @@ describe("Catch up after a reconnect", () => {
     expect(await elsewhere.next("message.checked")).toEqual({ type: "message.checked", stored: [], missing: ["a1"] });
   });
 
+  it("posts a message sent again under the same id once, answering as a check does", async () => {
+    const room = await freshRoom("sent-twice");
+    const ada = await connect(room, "Ada");
+    const grace = await connect(room, "Grace");
+    await post(ada, "only once", "a1");
+    await grace.next("message.created");
+
+    // As the app sends again what it kept while the room was away, after a reload, say.
+    const again = await connect(room, ada.session);
+    again.send({ type: "message.create", clientMessageId: "a1", body: "<p>only once</p>" });
+    expect(await again.next("message.checked")).toEqual({ type: "message.checked", stored: ["a1"], missing: [] });
+    expect(await roomSql(room, "SELECT count(*) AS n FROM messages WHERE room_id = ? AND client_message_id = ?", room, "a1")).toEqual([{ n: 1 }]);
+    expect(grace.pending("message.created")).toEqual([]);
+
+    // Someone else's id is theirs to use.
+    await post(grace, "mine", "a1");
+  });
+
   it("checks a sender's messages through the room's index", async () => {
     const room = await freshRoom("checking-plan");
     const ada = await connect(room, "Ada");
