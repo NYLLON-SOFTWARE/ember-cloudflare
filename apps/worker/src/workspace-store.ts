@@ -2337,6 +2337,11 @@ export const ACTIVE_PEOPLE_IN_ROOM = `SELECT users.id, users.name, memberships.u
   FROM users LEFT JOIN memberships ON memberships.room_id = ? AND memberships.user_id = users.id
   WHERE users.status = ${ACTIVE} ORDER BY lower(users.name), users.id`;
 
+/** The room ?1's members alone, which its settings list the guests of one room, whose directory is its people too. */
+const STAY_PEOPLE_IN_ROOM = `SELECT users.id, users.name, 1 AS member
+  FROM memberships JOIN users ON users.id = memberships.user_id
+  WHERE memberships.room_id = ? AND users.status = ${ACTIVE} ORDER BY lower(users.name), users.id`;
+
 /** The people with the ids in a JSON array, whatever their status. */
 export const PEOPLE_WITH_IDS = `SELECT id, name FROM users WHERE id IN (SELECT value FROM json_each(?))`;
 
@@ -4579,11 +4584,12 @@ export class WorkspaceStore {
     return row ? roomToChange(row) : null;
   }
 
-  /** The same, with everyone active and whether they're in the room, and when each of its guests' stay ends, read together. */
+  /** The room's settings, with everyone active and whether they're in it — but for a guest of one room, its members alone, as their directory is — and when each of its guests' stay ends, read together. */
   async roomSettings(roomId: RoomId, userId: UserId): Promise<RoomSettings | null> {
+    const stay = await this.guestStayOf(userId);
     const [[row], people, stays] = (await this.db.batch([
       statement(ROOM_TO_CHANGE, roomId, userId),
-      statement(ACTIVE_PEOPLE_IN_ROOM, roomId),
+      statement(stay ? STAY_PEOPLE_IN_ROOM : ACTIVE_PEOPLE_IN_ROOM, roomId),
       statement(`SELECT user_id, until_at FROM guest_stays WHERE room_id = ?`, roomId),
     ])) as [RoomToChangeRow[], Array<User & { member: number }>, Array<{ user_id: UserId; until_at: number }>];
     const untilOf = new Map(stays.map((stay) => [stay.user_id, stay.until_at]));
