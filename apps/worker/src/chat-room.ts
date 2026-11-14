@@ -21,6 +21,7 @@ import {
   type NewUpload,
   type RoomId,
   type ServerFrame,
+  type StoredFile,
   type TimelinePage,
   type User,
   type UserId,
@@ -215,9 +216,30 @@ export interface Retelling {
   quoted: string;
   /** What it reads as outside its conversation when it has no note. */
   plainText: string;
-  /** Whether the original still has a file, without which the forward's copy goes too. */
-  hasFile: boolean;
+  /** Who wrote the original, after whom a forward with a note reads as forwarded. */
+  author: string;
+  /**
+   * The original's file, as told apart from another, or null for none: a forward keeps its copy while it's the
+   * same file, and loses it otherwise, as a bot giving its message another file makes the copy out of date.
+   */
+  file: FileFingerprint | null;
 }
+
+/** What tells one file from another without reading it, as a forward's copy has its original's name, type and size. */
+export type FileFingerprint = Pick<StoredFile, "name" | "contentType" | "byteSize" | "width" | "height">;
+
+/** A file's fingerprint (`Retelling`). */
+export const fingerprintOf = ({ name, contentType, byteSize, width, height }: FileFingerprint): FileFingerprint => ({ name, contentType, byteSize, width, height });
+
+/** Whether two fingerprints are of the same file. */
+const sameFile = (a: FileFingerprint, b: FileFingerprint) => JSON.stringify(fingerprintOf(a)) === JSON.stringify(fingerprintOf(b));
+
+/**
+ * How long after its original's room records a forward it may still be posting, copying the original's file:
+ * a deletion told meanwhile, before the forward is there, is told again until then, so the forward can't post
+ * the deleted original's quote and file.
+ */
+export const FORWARD_IN_FLIGHT_MS = 10 * 60 * 1000;
 
 /** What a forward quotes once its original has been deleted, in place of the quote. */
 export const ORIGINAL_DELETED = "Original message was deleted";
@@ -1023,17 +1045,21 @@ export class ChatRoom extends DurableObject<Env> {
    * author or its time, in the room, the search index and Activity, and its copy of the original's file is
    * deleted. A forward that's gone, or deleted since, stays as it is.
    */
-  async originDeleted(roomId: RoomId, forwardId: string): Promise<void> {
-    await this.serially(async () => {
-      if (await this.isDeleted()) return;
+  async originDeleted(roomId: RoomId, forwardId: string): Promise<boolean> {
+    return this.serially(async () => {
+      if (await this.isDeleted()) return true;
       const store = this.storeFor(roomId);
-      const message = await this.findUndeleted(store, forwardId);
-      if (!message) return;
+      const found = await store.find(forwardId);
+      // Not here yet, as while it posts, unless it was here and deleted since.
+      if (!found) return store.wasDeleted(forwardId);
+      if (found.deleted) return true;
+      const message = found;
       // The note comes first, as plain paragraphs, which can't hold a quote, then the quote.
       const quoteAt = message.body.indexOf("<blockquote");
       const note = quoteAt === -1 ? message.body : message.body.slice(0, quoteAt);
       const body = this.prepareAnyLength(`${note}<blockquote><p>${ORIGINAL_DELETED}</p></blockquote>`);
       if (body) await this.retell(store, message, body, false);
+      return true;
     });
   }
 
@@ -1043,7 +1069,7 @@ export class ChatRoom extends DurableObject<Env> {
    * original's file. Its plain text follows the quote where it has no note to read as. A forward that's
    * gone, or quotes a deleted original already, stays as it is.
    */
-  async originChanged(roomId: RoomId, forwardId: string, { quoted, plainText, hasFile }: Retelling): Promise<void> {
+  async originChanged(roomId: RoomId, forwardId: string, { quoted, plainText, author, file }: Retelling): Promise<void> {
     await this.serially(async () => {
       if (await this.isDeleted()) return;
       const store = this.storeFor(roomId);
@@ -1056,9 +1082,12 @@ export class ChatRoom extends DurableObject<Env> {
       const note = message.body.slice(0, quoteAt);
       const prepared = this.prepareAnyLength(`${note}<blockquote>${quoted}</blockquote>${message.body.slice(citeAt)}`);
       if (!prepared) return;
-      const body = { ...prepared, plainText: note.trim() === "" ? plainText : message.plainText };
-      if (body.html === message.body && body.plainText === message.plainText && (hasFile || !message.attachment)) return;
-      await this.retell(store, message, body, hasFile);
+      // A note reads as itself and whose message it forwards, as when it was posted, never as what it quoted then.
+      const noted = note.trim() === "" ? "" : (this.prepareAnyLength(note)?.plainText.trim() ?? "");
+      const body = { ...prepared, plainText: noted === "" ? plainText : `${noted} — forwarded from ${author}` };
+      const keepFile = file !== null && message.attachment !== undefined && sameFile(file, message.attachment);
+      if (body.html === message.body && body.plainText === message.plainText && (keepFile || !message.attachment)) return;
+      await this.retell(store, message, body, keepFile);
     });
   }
 
@@ -1762,12 +1791,20 @@ export class ChatRoom extends DurableObject<Env> {
           const original = originals.get(messageId);
           // One deleted since is marked orphaned, which tells its forwards' rooms itself.
           if (!original) return Promise.resolve();
-          return room(toRoomId).originChanged(toRoomId, forwardId, { quoted: quotedMarkup(original, ""), plainText: quotedText(original), hasFile: original.attachment !== undefined });
+          return room(toRoomId).originChanged(toRoomId, forwardId, {
+            quoted: quotedMarkup(original, ""),
+            plainText: quotedText(original),
+            author: original.creator.name,
+            file: original.attachment ? fingerprintOf(original.attachment) : null,
+          });
         }),
       ),
     ]);
     const heard = <T,>(rows: T[], told: PromiseSettledResult<unknown>[]) => rows.filter((_, index) => told[index]!.status === "fulfilled");
-    const heardOrphaned = heard(orphaned, toldOrphaned);
+    // A forward its room doesn't have yet may still be posting: it's told again, unless it's been long enough.
+    const heardOrphaned = heard(orphaned, toldOrphaned).filter(
+      (forward) => (toldOrphaned[orphaned.indexOf(forward)] as PromiseFulfilledResult<boolean>).value || Date.now() - Date.parse(forward.createdAt) > FORWARD_IN_FLIGHT_MS,
+    );
     const heardChanged = heard(changed, toldChanged);
     await this.serially(async () => {
       for (const forward of heardOrphaned) await store().forgetForward(forward);

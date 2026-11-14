@@ -85,6 +85,8 @@ const SENT_AS = `SELECT id FROM messages WHERE room_id = ? AND creator_id = ? AN
 export interface OrphanedForward {
   toRoomId: RoomId;
   forwardId: string;
+  /** When the forward was recorded, before it was posted, which takes as long as copying its file. */
+  createdAt: string;
 }
 
 /** A forward whose original here changed since its room last heard, as of `changedAt`. */
@@ -93,7 +95,7 @@ export interface ChangedForward extends OrphanedForward {
   changedAt: string;
 }
 
-const CHANGED_FORWARDS = `SELECT to_room_id AS toRoomId, forward_id AS forwardId, message_id AS messageId, changed_at AS changedAt FROM forwards
+const CHANGED_FORWARDS = `SELECT to_room_id AS toRoomId, forward_id AS forwardId, created_at AS createdAt, message_id AS messageId, changed_at AS changedAt FROM forwards
   WHERE room_id = ? AND changed_at IS NOT NULL AND orphaned_at IS NULL ORDER BY changed_at LIMIT ?`;
 
 /**
@@ -103,7 +105,7 @@ const CHANGED_FORWARDS = `SELECT to_room_id AS toRoomId, forward_id AS forwardId
 const changingForwardsOf = (roomId: RoomId, messageId: string, now: string): Statement =>
   statement(`UPDATE forwards SET changed_at = ? WHERE room_id = ? AND message_id = ? AND orphaned_at IS NULL`, now, roomId, messageId);
 
-const ORPHANED_FORWARDS = `SELECT to_room_id AS toRoomId, forward_id AS forwardId FROM forwards
+const ORPHANED_FORWARDS = `SELECT to_room_id AS toRoomId, forward_id AS forwardId, created_at AS createdAt FROM forwards
   WHERE room_id = ? AND orphaned_at IS NOT NULL ORDER BY orphaned_at LIMIT ?`;
 
 /**
@@ -703,6 +705,12 @@ export class MessageStore {
       forwardId,
       now,
     );
+  }
+
+  /** Whether message `messageId` was deleted lately, as the room's log of deletions keeps the latest `CHANGES_KEPT`. */
+  async wasDeleted(messageId: string): Promise<boolean> {
+    const rows = await this.db.all(`SELECT 1 AS deleted FROM message_deletions WHERE room_id = ? AND message_id = ? LIMIT 1`, this.roomId, messageId);
+    return rows.length > 0;
   }
 
   /** Up to `limit` forwards whose originals here have been deleted, which their rooms are yet to hear of. */

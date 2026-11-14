@@ -2,7 +2,7 @@ import { MENTION_CONTENT_TYPE, mentionSgid } from "@ember/richtext";
 import { env } from "cloudflare:test";
 import { MAX_MESSAGE_LENGTH, searchQuery, type ActivityPage, type Message, type NewForward, type RoomId, type SearchResults } from "@ember/protocol";
 import { describe, expect, it, vi } from "vitest";
-import { ORIGINAL_DELETED } from "../src/chat-room";
+import { fingerprintOf, FORWARD_IN_FLIGHT_MS, ORIGINAL_DELETED } from "../src/chat-room";
 import type { Env } from "../src/env";
 import { objectKey } from "../src/files/blobs";
 import { api, connect, createRoom, direct, freshRoom, origin, post, recordedImage, roomSql, signIn, upload, type Session } from "./support";
@@ -217,6 +217,86 @@ describe("Forwards follow their originals", () => {
   });
 });
 
+
+describe("A forward still posting as its original is deleted", () => {
+  it("is told again until it's there, for a while, as the original's room keeps its record, and is forgotten once it can't be posting", async () => {
+    const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
+    const room = await freshRoom("forward-in-flight");
+    const ada = await connect(room, adaSession);
+    const original = await post(ada, "<p>Going soon</p>");
+    const dm = await direct(adaSession, graceSession);
+    // Recorded, as a forward is before it posts: one a moment ago, and one long enough ago that it can't be posting.
+    const now = new Date().toISOString();
+    const long = new Date(Date.now() - FORWARD_IN_FLIGHT_MS - 60_000).toISOString();
+    await roomSql(room, "INSERT INTO forwards (room_id, message_id, to_room_id, forward_id, created_at) VALUES (?, ?, ?, ?, ?)", room, original.id, dm.id, "posting", now);
+    await roomSql(room, "INSERT INTO forwards (room_id, message_id, to_room_id, forward_id, created_at) VALUES (?, ?, ?, ?, ?)", room, original.id, dm.id, "never-posted", long);
+
+    ada.send({ type: "message.delete", messageId: original.id });
+    await ada.next("message.deleted");
+    await vi.waitFor(async () => expect(await roomSql(room, "SELECT forward_id AS id FROM forwards WHERE room_id = ? ORDER BY forward_id", room)).toEqual([{ id: "posting" }]), {
+      timeout: 10_000,
+    });
+    // Its room doesn't have it yet, and says so, so its record stays to tell it again.
+    expect(await (env as unknown as Env).CHAT_ROOM.getByName(dm.id).originDeleted(dm.id, "posting")).toBe(false);
+    expect(await roomSql(room, "SELECT forward_id AS id FROM forwards WHERE room_id = ?", room)).toEqual([{ id: "posting" }]);
+  });
+
+  it("is told as heard where it was posted and deleted since", async () => {
+    const room = await freshRoom("forward-deleted-since");
+    const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
+    const ada = await connect(room, adaSession);
+    const original = await post(ada, "Soon gone");
+    const dm = await direct(adaSession, graceSession);
+    const inDm = await connect(dm.id, adaSession);
+    const forwardedOnce = await forwarded(adaSession, room, original.id, { to: dm.id });
+    inDm.send({ type: "message.delete", messageId: forwardedOnce.id });
+    await inDm.next("message.deleted");
+    expect(await (env as unknown as Env).CHAT_ROOM.getByName(dm.id).originDeleted(dm.id, forwardedOnce.id)).toBe(true);
+  });
+});
+
+describe("A noted forward following its original's edit", () => {
+  it("reads as its note, edited or not, and whose message it forwards, never as what it quoted before", async () => {
+    const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
+    const room = await freshRoom("noted-forward-edits");
+    const ada = await connect(room, adaSession);
+    const original = await post(ada, "<p>The aardvark plan</p>");
+    const dm = await direct(adaSession, graceSession);
+    const grace = await connect(dm.id, graceSession);
+    const inDm = await connect(dm.id, adaSession);
+    const noted = await forwarded(adaSession, room, original.id, { to: dm.id, note: "Look" });
+
+    // Its note edited, as the app sends it: the note, then the quote as it was.
+    inDm.send({ type: "message.update", messageId: noted.id, body: noted.body.replace("<p>Look</p>", "<p>Look again</p>") });
+    await grace.next("message.updated");
+    ada.send({ type: "message.update", messageId: original.id, body: "<p>The plan</p>" });
+    const { message } = await grace.next("message.updated");
+    expect(message.plainText).toBe("Look again — forwarded from Ada");
+    await vi.waitFor(async () => expect(await found(graceSession, "aardvark")).toEqual([]), { timeout: 10_000 });
+  });
+});
+
+describe("A forward's copy of its original's file", () => {
+  it("stays while the original has the same file, and goes once it has another", async () => {
+    const [adaSession, graceSession] = await Promise.all([signIn("Ada"), signIn("Grace")]);
+    const room = await freshRoom("forward-file-replaced");
+    const original = await upload(adaSession, room, "moon.jpg", recordedImage("moon-thumb.jpg"));
+    const dm = await direct(adaSession, graceSession);
+    const grace = await connect(dm.id, graceSession);
+    const copy = await forwarded(adaSession, room, original.id, { to: dm.id });
+    const forwardRoom = (env as unknown as Env).CHAT_ROOM.getByName(dm.id);
+    const retelling = { quoted: "<p>moon.jpg</p>", plainText: "moon.jpg", author: "Ada" };
+
+    await forwardRoom.originChanged(dm.id, copy.id, { ...retelling, file: fingerprintOf(original.attachment!) });
+    expect((await connect(dm.id, graceSession)).welcome.messages.find((message) => message.id === copy.id)!.attachment).toBeDefined();
+
+    // As a bot gives its message another file in place of the first.
+    await forwardRoom.originChanged(dm.id, copy.id, { ...retelling, file: { ...fingerprintOf(original.attachment!), byteSize: original.attachment!.byteSize + 1 } });
+    const { message } = await grace.next("message.updated");
+    expect(message.attachment).toBeUndefined();
+    await vi.waitFor(async () => expect(await (env as unknown as Env).FILES!.get(objectKey(copy.attachment!.id))).toBeNull(), { timeout: 10_000 });
+  });
+});
 
 describe("Forwards of forwards", () => {
   it("take a deleted private original's text out of every forward down the chain, in the room and search", async () => {
