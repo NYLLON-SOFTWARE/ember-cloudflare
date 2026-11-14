@@ -441,6 +441,33 @@ describe("A connected app's page", () => {
     expect(requests.at(-1)).toEqual({ request: SIGN_IN, body: { clientId: "ember-at-linear" } });
   });
 
+  it("doesn't send a secret typed for the client an app had with the one another administrator signed in as since, once its tools are read again", async () => {
+    const answers = [() => answer({ ...SIGNED_IN_AS_CLIENT, signIn: { ...SIGNED_IN.signIn!, clientId: "ember-three" } }), begun];
+    const requests = serve({ loaded: () => answer(SIGNED_IN_AS_CLIENT), sent: () => answers.shift()!() });
+    const { user } = showSettings();
+    await nameField();
+    await user.type(clientSecretField(), "a-secret-for-the-last-client");
+    await user.click(within(tools()).getByRole("button", { name: "Read its tools again" }));
+
+    await waitFor(() => expect(clientIdField()).toHaveValue("ember-three"));
+    expect(clientSecretField()).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Sign in again" }));
+    await waitFor(() => expect(openPage).toHaveBeenCalledWith(AUTHORIZE));
+    expect(requests.at(-1)).toEqual({ request: SIGN_IN, body: { clientId: "ember-three" } });
+  });
+
+  it("keeps a secret typed for the client an app still has, once its tools are read again", async () => {
+    serve({ loaded: () => answer(SIGNED_IN_AS_CLIENT), sent: () => answer(SIGNED_IN_AS_CLIENT) });
+    const { user } = showSettings();
+    await nameField();
+    await user.type(clientSecretField(), "another-s3cret");
+    await user.click(within(tools()).getByRole("button", { name: "Read its tools again" }));
+
+    await waitFor(() => expect(within(tools()).getByRole("button", { name: "Read its tools again" })).toBeEnabled());
+    expect(clientIdField()).toHaveValue("ember-at-linear");
+    expect(clientSecretField()).toHaveValue("another-s3cret");
+  });
+
   it("keeps the client ID that's typed once its tools are read again, whatever another administrator signed in as since", async () => {
     serve({ loaded: () => answer(SIGNED_IN_AS_CLIENT), sent: () => answer({ ...SIGNED_IN_AS_CLIENT, signIn: { ...SIGNED_IN.signIn!, clientId: "ember-three" } }) });
     const { user } = showSettings();

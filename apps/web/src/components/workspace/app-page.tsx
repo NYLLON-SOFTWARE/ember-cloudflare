@@ -102,6 +102,16 @@ const NO_FIELDS: Fields = { name: "", url: "", token: "", noToken: false, client
 /** The client ID `app` signed in with, as its field shows it: none is an empty field. */
 const clientIdOf = (app: App) => app.signIn?.clientId ?? "";
 
+/**
+ * What the client's fields come to once `app` is read again, as `read`, with what's `typed` in them: an
+ * ID left as the app had it follows the client another administrator signed in as since, and a secret
+ * typed for the one it had doesn't go with another.
+ */
+function clientFollowing(typed: Fields, app: App, read: App): Partial<Fields> {
+  if (typed.clientId.trim() !== clientIdOf(app)) return {};
+  return { clientId: clientIdOf(read), ...(clientIdOf(read) !== clientIdOf(app) && { clientSecret: "" }) };
+}
+
 const fieldsOf = (app: App): Fields => ({ ...NO_FIELDS, name: app.name, url: app.url, clientId: clientIdOf(app) });
 
 /**
@@ -329,7 +339,7 @@ export function AppSettingsPage({ appId, me, onMissing, onFailed }: PageProps & 
       () => readAppTools(appId),
       // What's typed stays as it is, and a field left as the app had it follows what another administrator has saved since, or signed in as, so that the next save or sign-in doesn't put the old back. Sending no token is switched back off once the app keeps none, as the switch isn't shown then.
       (read) => {
-        if (app) setFields((typed) => ({ ...typed, ...(typed.name.trim() === app.name && { name: read.name }), ...(typed.url.trim() === app.url && { url: read.url }), ...(typed.clientId.trim() === clientIdOf(app) && { clientId: clientIdOf(read) }), ...(!read.hasToken && { noToken: false }) }));
+        if (app) setFields((typed) => ({ ...typed, ...(typed.name.trim() === app.name && { name: read.name }), ...(typed.url.trim() === app.url && { url: read.url }), ...clientFollowing(typed, app, read), ...(!read.hasToken && { noToken: false }) }));
         setApp(read);
       },
       ({ error, signIn }) => {
