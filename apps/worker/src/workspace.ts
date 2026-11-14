@@ -5063,20 +5063,16 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Lapses the stays of the guests of one room whose time has passed, as many as one run lapses, so
-   * their sessions end, their sockets close and their rows say they were removed, and the next wake
-   * comes at whichever stay ends next. Guests whose stays were ended are lapsed already, so the rest
-   * wait for the run after.
+   * Lapses the stays of the guests of one room whose time has passed, at most one run's worth
+   * (`GUEST_STAYS_LAPSED_AT_ONCE`), so their sessions end, their sockets close and their rows say they
+   * were removed. A whole batch lapsed leaves more, which the next run takes: the alarm is set for the
+   * stay that ends next, whose time has passed already, so it wakes at once for the rest.
    */
   private async lapseDueGuestStays(): Promise<void> {
-    for (;;) {
-      const due = await this.oneAtATime(async () => {
-        const due = await this.store.lapsedGuestStays(Date.now(), GUEST_STAYS_LAPSED_AT_ONCE);
-        for (const userId of due) await this.lapseGuestStay(userId);
-        return due.length;
-      });
-      if (due < GUEST_STAYS_LAPSED_AT_ONCE) return;
-    }
+    await this.oneAtATime(async () => {
+      const due = await this.store.lapsedGuestStays(Date.now(), GUEST_STAYS_LAPSED_AT_ONCE);
+      for (const userId of due) await this.lapseGuestStay(userId);
+    });
   }
 
   /**

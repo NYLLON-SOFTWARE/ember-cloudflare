@@ -375,6 +375,24 @@ describe("Expiry", () => {
     await runAlarm();
     expect(((await workspaceSql("SELECT count(*) AS n FROM guest_stays")) as Array<{ n: number }>)[0]!.n).toBe(1);
   });
+
+  it("lapses one run's worth of passed stays, leaving the rest for the next run", async () => {
+    const host = await setUp();
+    const room = (await createRoom("Designers", { closedTo: [host.user.id] })).id;
+    // More guests whose stays have passed than one run lapses, kept as the adding a guest keeps them.
+    const now = new Date().toISOString();
+    for (let n = 0; n < 21; n++) {
+      await workspaceSql("INSERT INTO users (id, name, guest, created_at, updated_at) VALUES (?, ?, 1, ?, ?)", `guest-${n}`, `Guest ${n}`, now, now);
+      await workspaceSql("INSERT INTO guest_stays (user_id, room_id, until_at) VALUES (?, ?, ?)", `guest-${n}`, room, Date.now() - 1);
+    }
+    const lapsed = async () => ((await workspaceSql("SELECT count(*) AS n FROM users WHERE guest = 1 AND status = 1")) as Array<{ n: number }>)[0]!.n;
+
+    await runAlarm();
+    expect(await lapsed()).toBeLessThan(21);
+    // The next run takes what waited, which the alarm was set for as this one ended.
+    await runAlarm();
+    expect(await lapsed()).toBe(21);
+  });
 });
 
 describe("Extending and ending a stay", () => {
