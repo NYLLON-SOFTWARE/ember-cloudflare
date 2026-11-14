@@ -45,9 +45,11 @@ async function searched(env: Env, roomId: RoomId, given: ReadonlySet<string>, wo
   if (typeof words !== "string" || !hasWords(words)) throw new ToolError("Give the words to find, as `words`.");
   if (words.length > MAX_SEARCH_LENGTH) throw new ToolError("That's too much to search for. Give one or two words.");
   const { hits, next } = await searchIndex(env).search({ terms: searchTerms(sanitizeSearch(words)), roomIds: [roomId], sort: "newest", after: null });
-  const others = hits.filter(({ messageId }) => !given.has(messageId));
-  const found = (await matchesOf(env, others.slice(0, MESSAGES_FOUND))).map(({ message }) => message);
-  if (found.length === 0) return hits.length === 0 ? "No message in this room has those words." : "No message in this room has those words, but for those of the conversation you were given.";
+  // Every other match on the page is read before the newest are taken, as one the room no longer has is left out.
+  const ungiven = hits.filter(({ messageId }) => !given.has(messageId));
+  const others = await matchesOf(env, ungiven);
+  const found = others.slice(0, MESSAGES_FOUND).map(({ message }) => message);
+  if (found.length === 0) return ungiven.length === hits.length ? "No message in this room has those words." : "No message in this room has those words, but for those of the conversation you were given.";
   const more = next !== null || others.length > found.length;
   const count = more ? `The newest ${found.length} messages with those words, of more` : found.length === 1 ? "The only message with those words" : `All ${found.length} messages with those words, newest first`;
   return [`${count}:`, ...found.map(lineOf)].join("\n\n");

@@ -310,7 +310,7 @@ export async function askOnce(env: Env, gateway: Gateway, question: Question, si
   let called = 0;
   for (;;) {
     const turn = await turnOf(env, gateway, question, request, tokensLeft, signal);
-    if ("refusal" in turn) return called > 0 && turn.wrongFormat ? withoutTools(env, gateway, question, tokensLeft, turn, signal) : turn;
+    if ("refused" in turn) return called > 0 && turn.refused.wrongFormat ? withoutTools(env, gateway, question, request, turn.tokensLeft, turn.refused, signal) : turn.refused;
     tokensLeft = turn.tokensLeft;
     const calls = called < TOOL_CALLS_PER_ANSWER ? toolCallsIn(format, turn.body) : [];
     // Messages' sources are in what the model said in any turn, and its answer in what it said after its last call.
@@ -325,25 +325,50 @@ export async function askOnce(env: Env, gateway: Gateway, question: Question, si
 }
 
 /**
- * What the model `gateway` names answers `question` without Ember's tools, in the `tokensLeft` of its
- * answer's tokens, once it was `refused` going on from a call of one, as a request it can't take. It took
- * the question with everything else it asks, so that's asked as it was, and only once more: `ask` asking
- * it again other ways would spend the answer's tokens and calls over, and lose it thinking and the web
- * for nothing.
+ * What the model `gateway` names answers `question` without Ember's tools, once it was `refused` going on
+ * from a call of one, as a request it can't take. It took the question with everything else it asks, so
+ * that's asked as it was, and only once more, with what the answer has left: `tokensLeft` of its tokens,
+ * and of its provider's tools the uses `request`, the one refused, left them. `ask` asking it again other
+ * ways would spend the answer's tokens and calls over, and lose it thinking and the web for nothing.
  */
-async function withoutTools(env: Env, gateway: Gateway, question: Question, tokensLeft: number, refused: GatewayRefusal, signal: AbortSignal): Promise<Answered | GatewayRefusal> {
+async function withoutTools(
+  env: Env,
+  gateway: Gateway,
+  question: Question,
+  request: Record<string, unknown>,
+  tokensLeft: number,
+  refused: GatewayRefusal,
+  signal: AbortSignal,
+): Promise<Answered | GatewayRefusal> {
   console.error(`Asking ${gateway.model} again without Ember's tools, as it was refused going on from a call of one: ${refused.refusal}`);
-  const answered = await askOnce(env, gateway, { ...question, tools: [], maxTokens: tokensLeft }, signal);
-  if (!isWrongFormat(answered)) return answered;
-  const { wrongFormat: _, ...unanswered } = answered;
+  const asked = { ...question, tools: [], maxTokens: tokensLeft };
+  const turn = await turnOf(env, gateway, asked, withUsesOf(gateway.format, requestOf(gateway, asked), request), tokensLeft, signal);
+  if (!("refused" in turn)) return answeredIn(gateway.format, turn.body);
+  const { wrongFormat: _, ...unanswered } = turn.refused;
   return unanswered;
+}
+
+/**
+ * `fresh`, a request in `format` that asks again what `request` went on from, leaving its provider's tools
+ * only the uses `request` left them (`sparing`), and telling the model to use none if `request` did.
+ */
+function withUsesOf(format: ModelFormat, fresh: Record<string, unknown>, request: Record<string, unknown>): Record<string, unknown> {
+  const told = request.tool_choice !== undefined && { tool_choice: request.tool_choice };
+  if (isMessages(format)) {
+    const left = new Map(listOf(request.tools).filter(isObject).map((tool) => [tool.name, tool.max_uses]));
+    const tools = listOf(fresh.tools).filter(isObject).map((tool) => (typeof left.get(tool.name) === "number" ? { ...tool, max_uses: left.get(tool.name) } : tool));
+    return tools.length > 0 ? { ...fresh, tools, ...told } : fresh;
+  }
+  const cap = format === "xai" ? "max_turns" : "max_tool_calls";
+  return isResponses(format) && typeof fresh[cap] === "number" && typeof request[cap] === "number" ? { ...fresh, [cap]: request[cap], ...told } : fresh;
 }
 
 /**
  * One turn of the model `gateway` names, asked `request`, with `tokensLeft` of its answer's tokens: what
  * it answers, and the tokens left after it. Anthropic's model may pause a turn while it searches, in
  * Messages, which Ember carries on while the turn has tokens left, so its answer is all the turn said.
- * One that paused with none left took every token it could.
+ * One that paused with none left took every token it could. A turn that's refused says so with the tokens
+ * left then, as the parts of it before the refusal wrote some.
  */
 async function turnOf(
   env: Env,
@@ -352,11 +377,11 @@ async function turnOf(
   request: Record<string, unknown>,
   tokensLeft: number,
   signal: AbortSignal,
-): Promise<{ body: unknown; tokensLeft: number } | GatewayRefusal> {
+): Promise<{ body: unknown; tokensLeft: number } | { refused: GatewayRefusal; tokensLeft: number }> {
   let said: unknown[] = [];
   for (let continued = 0; ; continued++) {
     const answered = await send(env, gateway, question, continued === 0 ? request : carryingOn(request, said, tokensLeft), signal);
-    if ("refusal" in answered) return answered;
+    if ("refusal" in answered) return { refused: answered, tokensLeft };
     tokensLeft -= writtenIn(gateway.format, answered.body);
     if (!isMessages(gateway.format) || !isObject(answered.body)) return { body: answered.body, tokensLeft };
     // Each part of a turn says what's new since the last, which is sent back as it is to carry on.

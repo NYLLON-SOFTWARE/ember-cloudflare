@@ -688,8 +688,8 @@ has, and they share the answer's limit of tokens, so a model that spends them al
 short as any other answer is. Claude, GPT and Grok, the models the models file lists, are given the
 search, with nothing to turn on; Workers AI's models aren't, nor is a model kept from before Ember
 offered its own, or a test question, and a model that stops taking the tool is asked
-again without it: one refused only once it has searched answers without it in the tokens the answer has
-left. Each call has the model read the conversation again, so an answer that searches costs
+again without it: one refused only once it has searched answers without it in the tokens, and with the
+web searches and pages, the answer has left. Each call has the model read the conversation again, so an answer that searches costs
 that many more tokens read. A picture or a link that only a search found shows as a link, as the rule
 above has it, since the card and the preview are only of addresses in the messages @ember read with
 the question.

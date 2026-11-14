@@ -260,6 +260,43 @@ describe("A tool Ember runs", () => {
       expect(await askOnce(bindings, gatewayFor(GROK, "xai"), question, AbortSignal.timeout(5_000))).toMatchObject({ text: "Nobody said." });
       expect(asked.map(({ body }) => [body.max_turns, body.tool_choice])).toEqual([[5, undefined], [4, undefined]]);
     });
+
+    it("leaves a model refused going on from a call the searches and tokens its turns didn't use, as it's asked again without Ember's tools", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const refusal = () => Response.json({ type: "error", error: { type: "invalid_request_error", message: "messages.2: unexpected `tool_result`" } }, { status: 400 });
+      const searched = (id: string) => [{ type: "server_tool_use", id, name: "web_search", input: { query: "launch" } }, { type: "web_search_tool_result", tool_use_id: id, content: [] }];
+      const calling = { type: "tool_use", id: "call_1", name: "search_messages", input: { words: "launch" } };
+      const turn = (content: unknown[], stop_reason: string, written: number) => ({ type: "message", role: "assistant", content, stop_reason, usage: { input_tokens: 1_000, output_tokens: written } });
+      // Claude searches the web twice and calls the room's search, pauses going on, and is refused carrying that on.
+      const answers = [
+        () => Response.json(turn([...searched("srv_1"), ...searched("srv_2"), calling], "tool_use", 50)),
+        () => Response.json(turn([{ type: "text", text: "Let me see." }], "pause_turn", 40)),
+        refusal,
+        () => Response.json(turn([{ type: "text", text: "Nobody said." }], "end_turn", 10)),
+      ];
+      refusing = () => answers.shift()!();
+
+      expect(await askOnce(bindings, gatewayFor(CLAUDE, "anthropic"), question, AbortSignal.timeout(5_000))).toMatchObject({ text: "Nobody said." });
+      const last = asked.at(-1)!.body;
+      expect(asked).toHaveLength(4);
+      expect((last.tools as Array<{ name: string; max_uses?: number }>).map(({ name, max_uses }) => [name, max_uses])).toEqual([["web_search", 3], ["web_fetch", 3]]);
+      expect(last).toMatchObject({ max_tokens: question.maxTokens - 90, messages: asked[0]!.body.messages });
+      expect(last).not.toHaveProperty("tool_choice");
+
+      // GPT, whose searches are capped by the request, is left those it didn't make.
+      asked.length = 0;
+      const call = { type: "function_call", id: "fc_1", call_id: "call_1", name: "search_messages", arguments: "{}", status: "completed" };
+      const search = { type: "web_search_call", id: "ws_1", status: "completed" };
+      const said = { type: "message", role: "assistant", content: [{ type: "output_text", text: "Nobody said." }] };
+      const responded = (output: unknown[]) => () => Response.json({ object: "response", status: "completed", output, usage: { input_tokens: 1_000, output_tokens: 50 } });
+      answers.push(responded([search, search, call]), () => Response.json({ error: { type: "invalid_request_error", message: "Unknown parameter: input[3]" } }, { status: 400 }), responded([said]));
+      expect(await askOnce(bindings, gatewayFor(GPT, "openai"), question, AbortSignal.timeout(5_000))).toMatchObject({ text: "Nobody said." });
+      expect(asked.map(({ body }) => [body.max_tool_calls, (body.tools as unknown[]).length, body.max_output_tokens])).toEqual([
+        [5, 2, question.maxTokens],
+        [3, 2, question.maxTokens - 50],
+        [3, 1, question.maxTokens - 50],
+      ]);
+    });
   });
 
   it("says it couldn't answer when the model calls a tool with too few of the answer's tokens left to go on", async () => {
