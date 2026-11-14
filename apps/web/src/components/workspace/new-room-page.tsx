@@ -80,15 +80,31 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
     return () => void (stopped = true);
   }, [flash, onFailed]);
 
-  /** Creates the room and lists it in the sidebar. */
+  /**
+   * Whether the room is made with you in it: an administrator may leave themselves out of a private one,
+   * which then isn't theirs to list or open, as only its members may.
+   */
+  const joins = () => access === "open" || inRoom(me);
+
+  /**
+   * Shows the room made, or, made without you in it, Rooms and permissions, which lists it, saying so.
+   */
+  const show = (room: Room, inIt: boolean) => {
+    if (inIt) return navigate(roomPath(room.id));
+    navigate(workspaceSectionPath("channel-settings"));
+    flash("notice", `Created ${"name" in room ? room.name : name}. You’re not in it.`);
+  };
+
+  /** Creates the room and lists it in the sidebar, unless you're not in it. */
   const send = () => {
     // The private form lists its creator, in it, and sends them as one of its members.
     const under = parent ? { parentId: parent.id } : {};
     // Only people in its parent can be in a sub-room.
     const memberIds = peopleIn(people ?? [], parent).flatMap((person) => (inRoom(person) ? [person.id] : []));
     const room: NewRoom = access === "open" ? { kind: access, name, icon: icon ?? "", ...under } : { kind: access, name, icon: icon ?? "", ...under, memberIds };
+    const inIt = joins();
     return createRoom(room).then((room) => {
-      onCreated(room);
+      if (inIt) onCreated(room);
       setCreated(room);
       return room;
     });
@@ -96,12 +112,13 @@ export function NewRoomPage({ access, me, onCreated, onFailed }: Props) {
 
   const save = () => {
     // A room made already isn't made twice: Save shows it, as it does a room it makes.
-    if (created) return navigate(roomPath(created.id));
+    if (created) return show(created, joins());
     setSaving(true);
     // An answer that comes after the page was left lists the room, but leaves the page shown then alone.
+    const inIt = joins();
     send().then(
       (room) => {
-        if (mounted.current) navigate(roomPath(room.id));
+        if (mounted.current) show(room, inIt);
       },
       (error: unknown) => {
         // Once the page is left, only a session that's ended matters, which goes to sign in from any page.

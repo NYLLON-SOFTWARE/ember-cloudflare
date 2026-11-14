@@ -7,6 +7,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { leave, navigate, useRoute } from "@/hooks/use-route";
 import { ApiError } from "@/lib/api";
 import { NewRoomPage } from "./new-room-page";
+import { workspaceSectionPath } from "./settings-navigation";
 
 const ada = { id: "u1", name: "Ada Lovelace", administrator: false };
 const grace = { id: "u2", name: "Grace Hopper" };
@@ -244,7 +245,7 @@ describe("Create a private room", () => {
     expect(posted()).toEqual({ kind: "closed", name: "Leads", icon: "", memberIds: [ada.id, linus.id] });
   });
 
-  it("lists an administrator in it too, with a switch they may turn off to make the room for others alone", async () => {
+  it("lists an administrator in it too, with a switch they may turn off to make the room for others alone, which isn't theirs to list or open", async () => {
     const created = { id: "leads", name: "Leads", kind: "closed", icon: null } satisfies Room;
     serve({ created });
     const { onCreated, user } = showPage("/rooms/closeds/new", { ...ada, administrator: true });
@@ -255,7 +256,10 @@ describe("Create a private room", () => {
     await user.click(mine);
     await user.click(screen.getByRole("switch", { name: `Give ${grace.name} access to this room` }));
     await user.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
+    // Only its members may open it, so it goes to Rooms and permissions, which lists it, rather than to No access.
+    await waitFor(() => expect(location.pathname + location.hash).toBe(workspaceSectionPath("channel-settings")));
+    expect(await screen.findByText("Created Leads. You’re not in it.")).toBeInTheDocument();
+    expect(onCreated).not.toHaveBeenCalled();
     expect(posted()).toEqual({ kind: "closed", name: "New room", icon: "", memberIds: [grace.id] });
   });
 
