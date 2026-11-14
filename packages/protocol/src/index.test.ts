@@ -43,6 +43,7 @@ import {
   MAX_MESSAGE_LENGTH,
   MAX_PASSWORD_LENGTH,
   MAX_PUSH_ENDPOINT_LENGTH,
+  MAX_GUEST_NAME_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   MAX_SHARED_ORDER,
   MAX_TAGLINE_LENGTH,
@@ -68,7 +69,9 @@ import {
   parseInvitationRequest,
   parseEmailLinkSignUp,
   parseInvolvementChange,
+  parseGuestChange,
   parseNewDirect,
+  parseNewGuest,
   parseNewRoom,
   parseOpenSignUp,
   parsePasswordReset,
@@ -363,6 +366,39 @@ describe("Room icons", () => {
     const refused = 'Icon must be one of the room icons, or "" for the default';
     expect(parseNewRoom({ kind: "open", name: "Design", icon })).toBe(refused);
     expect(parseRoomChanges({ name: "Design", icon })).toBe(refused);
+  });
+});
+
+describe("Guests", () => {
+  const inAWeek = "2026-11-21T09:00:00.000Z";
+
+  it("takes a guest's name as typed and their stay's end", () => {
+    expect(parseNewGuest({ name: "  Pat Doe  ", until: inAWeek })).toEqual({ name: "Pat Doe", until: inAWeek });
+    expect(parseNewGuest({ name: "x".repeat(MAX_GUEST_NAME_LENGTH), until: inAWeek })).toEqual({ name: "x".repeat(MAX_GUEST_NAME_LENGTH), until: inAWeek });
+    expect(parseGuestChange({ until: inAWeek })).toEqual({ until: inAWeek });
+  });
+
+  it.each([
+    ["no body", null, "Expected a JSON object"],
+    ["a list", [], "Expected a JSON object"],
+    ["no name", { until: inAWeek }, `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`],
+    ["a blank name", { name: "   ", until: inAWeek }, `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`],
+    ["a name that isn't text", { name: 42, until: inAWeek }, `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`],
+    ["a name too long", { name: "x".repeat(MAX_GUEST_NAME_LENGTH + 1), until: inAWeek }, `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`],
+    ["@ember's name", { name: "ember", until: inAWeek }, NAME_RESERVED],
+    ["no time", { name: "Pat" }, "Until must be a time"],
+    ["a blank time", { name: "Pat", until: "" }, "Until must be a time"],
+    ["a time that isn't one", { name: "Pat", until: "soon" }, "Until must be a time"],
+    ["a time that isn't text", { name: "Pat", until: 1 }, "Until must be a time"],
+  ])("refuses a guest with %s", (_, body, refused) => {
+    expect(parseNewGuest(body)).toBe(refused);
+  });
+
+  it("refuses a change to a stay that isn't an object, or whose time isn't one", () => {
+    expect(parseGuestChange(null)).toBe("Expected a JSON object");
+    expect(parseGuestChange([])).toBe("Expected a JSON object");
+    expect(parseGuestChange({})).toBe("Until must be a time");
+    expect(parseGuestChange({ until: "soon" })).toBe("Until must be a time");
   });
 });
 

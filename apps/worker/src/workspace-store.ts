@@ -951,7 +951,11 @@ const INSERT_TRANSFERRED_SESSION = `INSERT INTO sessions (id, user_id, token_dig
       WHERE showing.id = ?8 AND shower.status = ${ACTIVE} AND (shower.guest = 0 OR ?7 = 1)
         AND (shower.id = users.id OR shower.role = ${ADMINISTRATOR}))`;
 
-/** The session a token's digest names, if its person is still active. */
+/**
+ * The session a token's digest names, if its person is still active. When they're a guest of one room,
+ * what `session` says of their stay is asked of guest_stays apart, since it can change while a session
+ * is kept.
+ */
 const SESSION = `SELECT sessions.id AS session_id, sessions.last_active_at, users.id AS user_id, users.name,
     users.role = ${ADMINISTRATOR} AS administrator, users.guest
   FROM sessions JOIN users ON users.id = sessions.user_id
@@ -1729,8 +1733,9 @@ const TOLD_OF_DIRECT_MESSAGE = `SELECT user_id FROM memberships
  * thread for a reply sent only there, at all messages, when it's in the room's timeline, as ?7 says, then
  * of those at @mentions or all messages whom it mentions, a JSON list ?4, or who follow the thread it's a
  * reply in, a JSON list ?8, each in the order they were saved, but none of whoever has hushed their push
- * notifications (Do not disturb) while a row in `dnd` covers the moment, ?9 being it. Guests are left
- * out unless ?6 says they can stay signed in. Each comes with the room, its author's name and the count
+ * notifications (Do not disturb) while a row in `dnd` covers the moment, ?9 being it. Guests of one room,
+ * whom guest_stays keeps, are pushed whatever ?6 says, and the open sign-in's guests, without a stay,
+ * only while ?6 says they can stay signed in. Each comes with the room, its author's name and the count
  * its push sets the badge to: how many of its owner's conversations are marked unread. Nothing once the
  * Workspace has applied the message's event.
  */
@@ -1741,7 +1746,7 @@ export const MESSAGE_PUSHES = `SELECT push_subscriptions.id, push_subscriptions.
     JOIN memberships ON memberships.room_id = rooms.id
     JOIN users ON users.id = memberships.user_id
     JOIN push_subscriptions ON push_subscriptions.user_id = memberships.user_id
-  WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?6 = 1)
+  WHERE rooms.id = ?1 AND ?5 > rooms.applied_seq AND memberships.user_id <> ?2 AND users.status = ${ACTIVE} AND (users.guest = 0 OR ?6 = 1 OR EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id))
     AND memberships.user_id NOT IN (SELECT value FROM json_each(?3))
     AND NOT EXISTS (SELECT 1 FROM dnd WHERE dnd.user_id = memberships.user_id AND dnd.until_at > ?9)
     AND ((memberships.involvement = 'everything' AND ?7 = 1) OR (memberships.involvement IN ('everything', 'mentions')
@@ -2261,6 +2266,19 @@ const RECENT_SEARCHES_FOR_USER = `SELECT search FROM recent_searches WHERE user_
 const forgettingSearches = (userId: UserId): Statement[] => [
   statement(`DELETE FROM recent_searches WHERE user_id = ?`, userId),
   statement(`DELETE FROM searches WHERE user_id = ?`, userId),
+];
+
+/**
+ * What lapsing a guest's stay writes before it marks them deactivated: the closing of their sockets in
+ * every room they're in, their sessions' end, and their forgotten recent searches and push
+ * subscriptions, as removing them closes and forgets them.
+ */
+const lapsedStayStatements = (userId: UserId, code: CloseCode, dueAt: number, now: string): Statement[] => [
+  // Before their sessions go, which it finds their sockets by.
+  statement(QUEUE_PERSON_SESSION_REVOCATIONS, SESSION_TAG_PREFIX, code, dueAt, userId),
+  statement(`DELETE FROM sessions WHERE user_id = ?`, userId),
+  ...forgettingSearches(userId),
+  statement(`DELETE FROM push_subscriptions WHERE user_id = ?`, userId),
 ];
 
 /** A recent search from its key, or null for one that isn't a search. */
@@ -3073,6 +3091,18 @@ export class WorkspaceStore {
   }
 
   /**
+   * Starts a session for the guest of one room who signed in by their stay's name, unless they've stopped
+   * being active since, or their stay ended while it was checked, which leaves the session unstarted.
+   */
+  async startGuestSession(userId: UserId, sessionId: string, tokenDigest: string, client: Client, now: string): Promise<StoredSession | null> {
+    const [, [row]] = (await this.db.batch([
+      statement(INSERT_LINKED_SESSION, sessionId, tokenDigest, client.ip, client.userAgent, now, userId),
+      statement(SESSION, tokenDigest),
+    ])) as [unknown[], SessionRow[]];
+    return row ? storedSession(row) : null;
+  }
+
+  /**
    * Keeps `stateDigest`, started at `now`, for connecting the account of `userId` to one at `issuer`,
    * forgetting those started before `expiredBefore`, which can no longer connect anything. Whether it's
    * kept: not unless they're active, neither a guest nor a bot, their password's digest is still
@@ -3288,6 +3318,107 @@ export class WorkspaceStore {
       statement(INSERT_SESSION, sessionId, user.id, tokenDigest, client.ip, client.userAgent, now, now, now),
       statement(GRANT_OPEN_ROOMS_TO_USER, user.id, now, now),
     ]);
+  }
+
+  /**
+   * Adds a guest of room `roomId`, whose stay ends at `untilAt`, in one transaction: the person, who has
+   * a name but no way to sign in with a password, their one membership, and the stay that ends their
+   * access, which the alarm lapses once its time has passed.
+   */
+  async addGuest(user: User, roomId: RoomId, untilAt: number, now: string): Promise<void> {
+    await this.db.batch([
+      statement(`INSERT INTO users (id, name, guest, created_at, updated_at) VALUES (?, ?, 1, ?, ?)`, user.id, user.name, now, now),
+      statement(`INSERT INTO memberships (room_id, user_id, created_at, updated_at) VALUES (?, ?, ?, ?)`, roomId, user.id, now, now),
+      statement(`INSERT INTO guest_stays (user_id, room_id, until_at) VALUES (?, ?, ?)`, user.id, roomId, untilAt),
+    ]);
+  }
+
+  /** The stay of the guest `userId`, with the room it reaches and when it ends, or null while they have none. */
+  async guestStayOf(userId: UserId): Promise<{ roomId: RoomId; untilAt: number } | null> {
+    const [row] = await this.db.all<{ room_id: RoomId; until_at: number }>(`SELECT room_id, until_at FROM guest_stays WHERE user_id = ?`, userId);
+    return row ? { roomId: row.room_id, untilAt: row.until_at } : null;
+  }
+
+  /**
+   * The guests of one room who may still sign in by their stay's name: those active whose stays haven't
+   * ended yet, with their names, for matching the name the sign-in form gives (`sameName` compares those).
+   */
+  async unexpiredGuestStays(now: number): Promise<Array<{ userId: UserId; name: string }>> {
+    return this.db.all(
+      `SELECT guest_stays.user_id AS userId, users.name FROM guest_stays JOIN users ON users.id = guest_stays.user_id
+       WHERE guest_stays.until_at > ? AND users.status = ${ACTIVE}`,
+      now,
+    );
+  }
+
+  /**
+   * Raises the stay of guest `userId` in room `roomId` to end at `untilAt`, answering whether it did:
+   * a stay of someone whose person was removed, banned or suspended stays as it is, since extending it
+   * wouldn't let them back in.
+   */
+  async extendGuestStay(userId: UserId, roomId: RoomId, untilAt: number): Promise<boolean> {
+    const [row] = await this.db.all(
+      `UPDATE guest_stays SET until_at = ?3 WHERE user_id = ?1 AND room_id = ?2
+       AND EXISTS (SELECT 1 FROM users WHERE users.id = guest_stays.user_id AND users.status = ${ACTIVE})
+       RETURNING user_id`,
+      userId,
+      roomId,
+      untilAt,
+    );
+    return row !== undefined;
+  }
+
+  /** The guests of one room whose stays have ended and who are still active, oldest first, at most `most` of them. */
+  async lapsedGuestStays(now: number, most: number): Promise<UserId[]> {
+    const rows = await this.db.all<{ user_id: UserId }>(
+      `SELECT guest_stays.user_id FROM guest_stays JOIN users ON users.id = guest_stays.user_id
+       WHERE guest_stays.until_at <= ? AND users.status = ${ACTIVE} ORDER BY guest_stays.until_at LIMIT ?`,
+      now,
+      most,
+    );
+    return rows.map(({ user_id }) => user_id);
+  }
+
+  /**
+   * Lapses the stay of guest `userId`, whose time has passed, in one transaction: queues closing their
+   * sockets with `code` in every room they're in, due at `dueAt`, ends their sessions, and forgets their
+   * recent searches and push subscriptions, as removing them forgets them, and marks them deactivated,
+   * whose row it keeps, as it keeps a removed person's. Their membership and stay stay, so an
+   * administrator can still tell who they were, and nothing here answers for them again, since they're
+   * no longer active to find. Answers whether it queued anything.
+   */
+  async lapseGuestStay(userId: UserId, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
+    const [queued] = await this.db.batch([
+      ...lapsedStayStatements(userId, code, dueAt, now),
+      // A stay of a person who was removed, banned or suspended already changes nothing.
+      statement(`UPDATE users SET status = ${DEACTIVATED}, updated_at = ? WHERE id = ? AND status = ${ACTIVE}`, now, userId),
+    ]);
+    return queued!.length > 0;
+  }
+
+  /**
+   * Ends the stay of guest `userId` in room `roomId` now, lapsing it as `lapseGuestStay` lapses one
+   * whose time has passed, and keeping the stay with `endedAt` in place of its time, that pruning may
+   * one day take the row. Answers whether it queued anything.
+   */
+  async endGuestStay(userId: UserId, roomId: RoomId, endedAt: number, code: CloseCode, dueAt: number, now: string): Promise<boolean> {
+    const [queued] = await this.db.batch([
+      ...lapsedStayStatements(userId, code, dueAt, now),
+      statement(`UPDATE guest_stays SET until_at = ? WHERE user_id = ? AND room_id = ?`, endedAt, userId, roomId),
+      // A stay of a person who was removed, banned or suspended already changes nothing.
+      statement(`UPDATE users SET status = ${DEACTIVATED}, updated_at = ? WHERE id = ? AND status = ${ACTIVE}`, now, userId),
+    ]);
+    return queued!.length > 0;
+  }
+
+  /** The active people in room `roomId`, as the people directory lists them, for the directory of a guest of one room. */
+  async roomPeople(roomId: RoomId): Promise<DirectoryEntry[]> {
+    const rows = await this.db.all<DirectoryRow>(
+      `SELECT ${DIRECTORY_COLUMNS} FROM memberships JOIN users ON users.id = memberships.user_id
+       WHERE memberships.room_id = ? AND users.status = ${ACTIVE} ORDER BY lower(users.name), users.id`,
+      roomId,
+    );
+    return rows.map(directoryEntry);
   }
 
   /** The session a token's digest names, if its person is still active. */
@@ -3681,15 +3812,16 @@ export class WorkspaceStore {
    * (`REMINDER_PUSH_RETRY_MS`); one never tried is due when its time is.
    */
   async nextDeliveryDue(): Promise<number | null> {
-    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null; membership: number | null; catchUp: number | null; reminder: number | null }>(
+    const [row] = await this.db.all<{ revocation: number | null; purge: number | null; reindex: number | null; picture: number | null; membership: number | null; catchUp: number | null; reminder: number | null; stay: number | null }>(
       `SELECT (SELECT min(due_at) FROM pending_revocations) AS revocation, (${NEXT_PURGE_DUE}) AS purge, (SELECT min(due_at) FROM pending_reindexes) AS reindex,
         (SELECT min(due_at) FROM pending_picture_deletions) AS picture, (SELECT min(due_at) FROM membership_checks) AS membership,
         (SELECT min(due_at) FROM membership_catch_ups) AS catchUp,
         (SELECT min(CASE WHEN reminded_at IS NULL OR push_tried_at IS NULL THEN remind_at ELSE push_tried_at + ? END)
-          FROM reminders WHERE reminded_at IS NULL OR pushed_at IS NULL) AS reminder`,
+          FROM reminders WHERE reminded_at IS NULL OR pushed_at IS NULL) AS reminder,
+        (SELECT min(guest_stays.until_at) FROM guest_stays JOIN users ON users.id = guest_stays.user_id AND users.status = ${ACTIVE}) AS stay`,
       REMINDER_PUSH_RETRY_MS,
     );
-    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.reminder].filter((time) => typeof time === "number");
+    const due = [row?.revocation, row?.purge, row?.reindex, row?.picture, row?.membership, row?.catchUp, row?.reminder, row?.stay].filter((time) => typeof time === "number");
     return due.length > 0 ? Math.min(...due) : null;
   }
 
@@ -4827,13 +4959,23 @@ export class WorkspaceStore {
     return row ? roomToChange(row) : null;
   }
 
-  /** The same, with everyone active and whether they're in the room, read together. */
+  /** The same, with everyone active and whether they're in the room, and when each of its guests' stay ends, read together. */
   async roomSettings(roomId: RoomId, userId: UserId): Promise<RoomSettings | null> {
-    const [[row], people] = (await this.db.batch([statement(ROOM_TO_CHANGE, roomId, userId), statement(ACTIVE_PEOPLE_IN_ROOM, roomId)])) as [
-      RoomToChangeRow[],
-      Array<User & { member: number }>,
-    ];
-    return row ? { ...roomToChange(row), people: people.map((person) => ({ ...person, member: person.member === 1 })) } : null;
+    const [[row], people, stays] = (await this.db.batch([
+      statement(ROOM_TO_CHANGE, roomId, userId),
+      statement(ACTIVE_PEOPLE_IN_ROOM, roomId),
+      statement(`SELECT user_id, until_at FROM guest_stays WHERE room_id = ?`, roomId),
+    ])) as [RoomToChangeRow[], Array<User & { member: number }>, Array<{ user_id: UserId; until_at: number }>];
+    const untilOf = new Map(stays.map((stay) => [stay.user_id, stay.until_at]));
+    return row
+      ? {
+          ...roomToChange(row),
+          people: people.map((person) => {
+            const until = untilOf.get(person.id);
+            return until === undefined ? { ...person, member: person.member === 1 } : { ...person, member: true, guestUntil: new Date(until).toISOString() };
+          }),
+        }
+      : null;
   }
 
   /**

@@ -71,6 +71,7 @@ import {
   type ResentInvitation,
   type Room,
   type RoomChanges,
+  type RoomGuest,
   type RoomId,
   type RoomSettings,
   type SavedMessage,
@@ -318,6 +319,8 @@ const WAITING_PROBES = 20;
  * subrequest, of which an invocation on the Free plan can make 50, its queries included.
  */
 const DELIVERIES_PER_RUN = 40;
+/** How many lapsed stays of the guests of one room one run lapses, before the next takes the rest. */
+const GUEST_STAYS_LAPSED_AT_ONCE = 20;
 /**
  * How long a change waits for the rooms to close the sockets it queued before it answers. The alarm sees
  * to a room that takes longer.
@@ -2676,21 +2679,37 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * Adds someone who signs in with just a name, and the session their cookie's token opens, unless
-   * Memberful is members only, which answers "memberful", or the name is an agent's, which answers
-   * "agent's name". Everyone's workspace sockets hear of them.
+   * Signs in whoever the name names, and the session their cookie's token opens. A name one of the
+   * guests of one room (`guest_stays`) stays under signs them in, while their stay hasn't ended, whether
+   * or not `guests` lets just any name in. Otherwise someone new is added, unless Memberful is members
+   * only, which answers "memberful", the name is an agent's, which answers "agent's name", or `guests`
+   * doesn't allow the name alone, which answers "off". Everyone's workspace sockets hear of someone new.
    */
-  async signInGuest(name: string, tokenDigest: string, client: Client): Promise<Me | "memberful" | "agent's name"> {
+  async signInGuest(name: string, tokenDigest: string, client: Client, guests: boolean): Promise<Me | "memberful" | "agent's name" | "off" | "ended"> {
     // One at a time, as joining is, so that none can overlap turning Members only on.
     return this.oneAtATime(async () => {
       if ((await this.joinableAccount())?.memberfulSignIn) return "memberful";
       if (await this.takesAgentsName(null, name)) return "agent's name";
+      // Their stay is their way back in: the same name signs the same guest in again, instead of
+      // adding another who has it.
+      const stay = (await this.store.unexpiredGuestStays(Date.now())).find(({ name: stayName }) => sameName(stayName, name));
+      if (stay) return (await this.startGuestSession(stay.userId, tokenDigest, client)) ?? "ended";
+      if (!guests) return "off";
       const session: StoredSession = { id: sortableId(), user: { id: sortableId(), name }, administrator: false, guest: true, lastActiveAt: Date.now() };
       await this.store.createGuest(session.user, session.id, tokenDigest, client, new Date(session.lastActiveAt).toISOString());
       this.sessions.remember(tokenDigest, session);
       await this.publishPerson(session.user.id);
       return meOf(session);
     });
+  }
+
+  /** Signs the guest `userId` in, with the session their cookie's token opens, answering null if they've stopped being active since. */
+  private async startGuestSession(userId: UserId, tokenDigest: string, client: Client): Promise<Me | null> {
+    // On D1 a stay can lapse while this signs them in, so it's remembered only if none did.
+    const session = await this.sessions.keep(tokenDigest, () =>
+      this.store.startGuestSession(userId, sortableId(), tokenDigest, client, new Date().toISOString()),
+    );
+    return session && meOf(session);
   }
 
   /**
@@ -2994,8 +3013,10 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
-   * The person a session signs in, refreshing the session's last activity at most once an hour.
-   * Guests' sessions only count while `guests` says signing in with just a name is allowed.
+   * The person a session signs in, refreshing the session's last activity at most once an hour. A guest's
+   * session counts while they may stay signed in, asked of their stay as it is now, since ending or
+   * extending it changes nothing about the session: a guest of one room, until their stay ends, whoever
+   * the flag says; the open sign-in's guest, without a stay, while `guests` says so.
    */
   async authenticate(credentials: Credentials): Promise<User | null> {
     return (await this.session(credentials))?.user ?? null;
@@ -3009,8 +3030,12 @@ export class Workspace extends DurableObject<Env> {
 
   private async session({ tokenDigest, client, guests }: Credentials): Promise<StoredSession | null> {
     const session = await this.sessions.get(tokenDigest, () => this.store.findSession(tokenDigest));
-    if (!session || (session.guest && !guests)) return null;
+    if (!session) return null;
     const now = Date.now();
+    if (session.guest) {
+      const stay = await this.store.guestStayOf(session.user.id);
+      if (stay ? stay.untilAt <= now : !guests) return null;
+    }
     if (now - session.lastActiveAt >= SESSION_IDLE_MS) return null;
     if (now - session.lastActiveAt >= SESSION_REFRESH_MS) {
       await this.store.touchSession(session.id, client, new Date(now).toISOString());
@@ -3416,6 +3441,8 @@ export class Workspace extends DurableObject<Env> {
   }
 
   private async mayCreateRoomsAs(userId: UserId): Promise<boolean> {
+    // A guest of one room makes rooms they could never reach, so they make none.
+    if (await this.stayOf(userId)) return false;
     const account = await this.joinableAccount();
     return !account?.restrictRoomCreation || this.store.isAdministrator(userId);
   }
@@ -3438,13 +3465,14 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Starts a DM as the person `credentials` signs in: the DM between them and the people `userIds` names
    * who exist, whatever their status, or their DM with themselves when it names nobody else. A group of
-   * people has one DM, so the one they have opens again. Answers it, and whether it's new, or null
-   * without a valid session. Everyone in a new DM sees it in their sidebars at once, and nobody else
-   * hears of it.
+   * people has one DM, so the one they have opens again. Answers it, and whether it's new, "forbidden"
+   * for a guest of one room, whose stay is the one room they reach, or null without a valid session.
+   * Everyone in a new DM sees it in their sidebars at once, and nobody else hears of it.
    */
-  async startDirect(credentials: Credentials, userIds: UserId[]): Promise<{ room: DirectRoom; started: boolean } | null> {
+  async startDirect(credentials: Credentials, userIds: UserId[]): Promise<{ room: DirectRoom; started: boolean } | "forbidden" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
+    if (await this.stayOf(user.id)) return "forbidden";
     const people = userIds.length > 0 ? await this.store.peopleWithIds(userIds) : [];
     const memberIds = [user.id, ...people.map((person) => person.id)];
     const direct = await this.store.startDirect(sortableId(), user.id, memberIds, new Date().toISOString());
@@ -3464,20 +3492,27 @@ export class Workspace extends DurableObject<Env> {
 
   /**
    * Whom the person `credentials` signs in can mention in room `roomId`, or anywhere when it's null:
-   * the first page of the active people there whose names contain `query`, by name. "not found" unless
-   * they're in the room, or null without a valid session.
+   * the first page of the active people there whose names contain `query`, by name. Anywhere is a guest
+   * of one room's own room, since that's all they reach. "not found" unless they're in the room, or
+   * null without a valid session.
    */
   async mentionable(credentials: Credentials, roomId: RoomId | null, query: string): Promise<DirectoryEntry[] | "not found" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     if (roomId !== null && !(await this.store.isMember(roomId, user.id))) return "not found";
+    if (roomId === null) roomId = (await this.stayOf(user.id))?.roomId ?? null;
     return this.store.mentionable(query, roomId);
   }
 
-  /** Everyone in the workspace, for the person `credentials` signs in, or null without a valid session. */
+  /**
+   * Everyone in the workspace, for the person `credentials` signs in, or null without a valid session.
+   * A guest of one room sees the people of their room alone, who are all they reach.
+   */
   async directory(credentials: Credentials): Promise<DirectoryEntry[] | null> {
     const user = await this.authenticate(credentials);
-    return user && this.store.directory();
+    if (!user) return null;
+    const stay = await this.stayOf(user.id);
+    return stay ? this.store.roomPeople(stay.roomId) : this.store.directory();
   }
 
   /**
@@ -4991,13 +5026,104 @@ export class Workspace extends DurableObject<Env> {
   }
 
   /**
+   * Adds a guest of room `roomId`, named `name`, whose stay ends at `until`, for whoever `credentials`
+   * signs in as: "not found" as for its settings, "forbidden" unless they can change the room, "taken"
+   * for a name one of its guests stays under already, "agent's name" for a name that's an agent's, as
+   * signing in with just a name hears it, or null without a valid session. The guest is in that room
+   * and nothing else, and signs in by their stay's name with just a name, until their stay ends,
+   * whatever the sign-in's flag says. Everyone's workspace sockets hear of them.
+   */
+  async addGuest(credentials: Credentials, roomId: RoomId, name: string, until: string): Promise<RoomGuest | "not found" | "forbidden" | "taken" | "agent's name" | "passed" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      const found = await this.store.roomToChange(roomId, user.id);
+      if (!found) return "not found";
+      if (!found.canAdminister) return "forbidden";
+      // Their stay is the guest's way in, so two of them can't stay under one name, and an agent's
+      // name would pass for the agent, as signing in with just a name can't take.
+      if (await this.takesAgentsName(null, name)) return "agent's name";
+      const now = Date.now();
+      const untilAt = Date.parse(until);
+      if (!(untilAt > now)) return "passed";
+      if ((await this.store.unexpiredGuestStays(now)).some(({ name: stayName }) => sameName(stayName, name))) return "taken";
+      const guest = { id: sortableId(), name };
+      await this.store.addGuest(guest, roomId, untilAt, new Date(now).toISOString());
+      await this.publishPerson(guest.id);
+      // The alarm lapses the stay when it ends, which the next delivery is set for here.
+      await this.scheduleDelivery();
+      return { userId: guest.id, name, untilAt: new Date(untilAt).toISOString() };
+    });
+  }
+
+  /**
+   * Extends the stay of guest `userId` in room `roomId`, whose settings `credentials` signs in to, to
+   * end at `until` instead: "not found" unless they can change the room and the guest's stay is in it
+   * and hasn't ended, for whose person has been removed, or null without a valid session. Everyone's
+   * workspace sockets hear of it.
+   */
+  async extendGuestStay(credentials: Credentials, roomId: RoomId, userId: UserId, until: string): Promise<RoomGuest | "not found" | "forbidden" | "passed" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.oneAtATime(async () => {
+      if (!(await this.store.roomToChange(roomId, user.id))?.canAdminister) return "forbidden";
+      const now = Date.now();
+      const untilAt = Date.parse(until);
+      if (!(untilAt > now)) return "passed";
+      if (!(await this.store.extendGuestStay(userId, roomId, untilAt))) return "not found";
+      const person = await this.store.person(userId);
+      // The alarm lapses the stay when its new end passes, which the next delivery is set for here.
+      await this.scheduleDelivery();
+      await this.publishPerson(userId);
+      return person && { userId, name: person.name, untilAt: new Date(untilAt).toISOString() };
+    });
+  }
+
+  /**
+   * Ends the stay of guest `userId` in room `roomId`, whose settings `credentials` signs in to, now: as
+   * their expiry does, their sessions end, their sockets close for good, here at once and in every room
+   * they're in through the outbox, and the row their directory keeps says they were removed. "not found"
+   * unless whoever asks can change the room and their stay is in it, or null without a valid session.
+   */
+  async endGuestStay(credentials: Credentials, roomId: RoomId, userId: UserId): Promise<"ended" | "not found" | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    return this.afterQueuing(async () => {
+      if (!(await this.store.roomToChange(roomId, user.id))?.canAdminister) return "forbidden";
+      // A stay that has passed, or that was in another room, is not theirs to end here.
+      const stay = await this.store.guestStayOf(userId);
+      if (stay?.roomId !== roomId || stay.untilAt <= Date.now()) return "not found";
+      const now = Date.now();
+      // As when a stay lapses, until the database says it queued nothing.
+      let queued = true;
+      try {
+        queued = await this.sessions.change(
+          (session) => session.user.id === userId,
+          () => this.store.endGuestStay(userId, roomId, now, CloseCode.Revoked, now, new Date(now).toISOString()),
+        );
+      } finally {
+        // Whether or not it saved: the app connects them again if they're still signed in.
+        this.closeSockets(userId, CloseCode.Revoked);
+        if (queued) await this.revocationsQueued(now);
+      }
+      await this.publishPerson(userId);
+      return "ended";
+    });
+  }
+
+  /** The stay of the person `userId` as one of the guests of one room, which bounds what they reach, or null while they have none. */
+  private async stayOf(userId: UserId): Promise<{ roomId: RoomId } | null> {
+    return this.store.guestStayOf(userId);
+  }
+
+  /**
    * Takes the person `credentials` signs in out of private room `roomId`, by their own choice: "not
    * found" as for its settings, "open" for an open room, which takes in everyone, "can change" for whoever
    * can change it, whose settings take them out, and who may be the last who can, "last" when nobody else
    * could open it then, or null without a valid session. Their sockets there are told to reconnect, and
    * find it gone, and it leaves their sidebars.
    */
-  async leaveRoom(credentials: Credentials, roomId: RoomId): Promise<"left" | "not found" | "open" | "can change" | "last" | null> {
+  async leaveRoom(credentials: Credentials, roomId: RoomId): Promise<"left" | "not found" | "open" | "can change" | "guest" | "last" | null> {
     const user = await this.authenticate(credentials);
     if (!user) return null;
     return this.closingSockets(async () => {
@@ -5005,6 +5131,8 @@ export class Workspace extends DurableObject<Env> {
       if (!found) return "not found";
       if (found.room.kind !== "closed") return "open";
       if (found.canAdminister) return "can change";
+      // A guest of one room leaving it would strand their stay, which is what they reach.
+      if (await this.stayOf(user.id)) return "guest";
       if (!(await this.store.anotherPersonInRoom(roomId, user.id))) return "last";
       const now = Date.now();
       try {
@@ -5417,10 +5545,50 @@ export class Workspace extends DurableObject<Env> {
       const pictures = await this.deletePictures(DELIVERIES_PER_RUN - revocations - purges - reindexes);
       await this.deliverReminders(REMINDERS_PER_RUN, DELIVERIES_PER_RUN - revocations - purges - reindexes - pictures);
       await this.checkMemberships();
+      await this.lapseDueGuestStays();
     } catch (error) {
       console.error("Could not deliver everything due; trying again later", error);
     }
     await this.scheduleDelivery();
+  }
+
+  /**
+   * Lapses the stays of the guests of one room whose time has passed, as many as one run lapses, so
+   * their sessions end, their sockets close and their rows say they were removed, and the next wake
+   * comes at whichever stay ends next. Guests whose stays were ended are lapsed already, so the rest
+   * wait for the run after.
+   */
+  private async lapseDueGuestStays(): Promise<void> {
+    for (;;) {
+      const due = await this.oneAtATime(async () => {
+        const due = await this.store.lapsedGuestStays(Date.now(), GUEST_STAYS_LAPSED_AT_ONCE);
+        for (const userId of due) await this.lapseGuestStay(userId);
+        return due.length;
+      });
+      if (due < GUEST_STAYS_LAPSED_AT_ONCE) return;
+    }
+  }
+
+  /**
+   * Lapses the stay of guest `userId`, whose time has passed or which an administrator has just ended:
+   * all their sessions end, and their sockets close for good, here at once and in every room they're in
+   * through the outbox, as removing them closes them. Everyone's workspace sockets hear of it.
+   */
+  private async lapseGuestStay(userId: UserId): Promise<void> {
+    const now = Date.now();
+    // As when removing someone, until the database says it queued nothing.
+    let queued = true;
+    try {
+      queued = await this.sessions.change(
+        (session) => session.user.id === userId,
+        () => this.store.lapseGuestStay(userId, CloseCode.Revoked, now, new Date(now).toISOString()),
+      );
+    } finally {
+      // Whether or not it saved: the app connects them again if they're still signed in.
+      this.closeSockets(userId, CloseCode.Revoked);
+      if (queued) await this.revocationsQueued(now);
+    }
+    await this.publishPerson(userId);
   }
 
   /**

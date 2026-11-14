@@ -439,7 +439,7 @@ describe("Sign in with Memberful", () => {
 
         const turningOn = workspace.changeAccount(adas!, { settings: { memberfulSignIn: true } }, "ember.test");
         await reached;
-        const signingIn = workspace.signInGuest("Guest", guests!.tokenDigest, guests!.client);
+        const signingIn = workspace.signInGuest("Guest", guests!.tokenDigest, guests!.client, true);
         save();
         expect(await turningOn).toMatchObject({ memberfulSignIn: true });
         return signingIn;

@@ -388,6 +388,27 @@ export type NewRoom = { name: string; icon?: RoomIconChoice } & ({ kind: "open" 
 /** Someone active, as a room's settings list them, with whether they're in the room. */
 export interface RoomPerson extends User {
   member: boolean;
+  /**
+   * When their stay in this room as one of its guests ends, as an ISO time, while they're a guest of
+   * it, which an administrator added from its settings and can extend or end there. Left out for
+   * anyone else.
+   */
+  guestUntil?: string;
+}
+
+/**
+ * One of a room's guests, as its settings' guest answers name them: who they are and when their stay
+ * ends, as an ISO time.
+ */
+export interface RoomGuest {
+  userId: UserId;
+  name: string;
+  untilAt: string;
+}
+
+/** What `POST /api/rooms/<id>/guests` adds, and `PUT /api/rooms/<id>/guests/<user id>` answers: a guest of the room, as its settings mark them. */
+export interface GuestAnswer {
+  guest: RoomGuest;
 }
 
 /** What `GET /api/rooms/new` answers for the New room forms: everyone active, by name. */
@@ -2320,6 +2341,49 @@ export function parseNewDirect(data: unknown): NewDirect | string {
   if (!isJsonObject(data)) return "Expected a JSON object";
   const named = data.userIds === undefined ? [] : data.userIds;
   return userIds(named) ? { userIds: named } : `People must be a list of at most ${MAX_LISTED_USERS} user ids`;
+}
+
+/** How long a name the guest sign-in takes, which a guest of one room signs in with (`MAX_NAME_LENGTH` in the Worker, the sign-in form's own cap). */
+export const MAX_GUEST_NAME_LENGTH = 48;
+
+/** What `POST /api/rooms/<id>/guests` asks for: the guest's name, and when their stay ends, as an ISO time. */
+export interface NewGuest {
+  name: string;
+  until: string;
+}
+
+/**
+ * Parses an untrusted stay to add a guest for. Returns why it's refused instead of the stay. The name
+ * is kept as typed, as the sign-in keeps it, and whether the time has passed, the server checks once
+ * it knows who's asking, by its own clock.
+ */
+export function parseNewGuest(data: unknown): NewGuest | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const name = typeof data.name === "string" ? data.name.trim() : "";
+  if (!name) return `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`;
+  if (name.length > MAX_GUEST_NAME_LENGTH) return `Name must be 1 to ${MAX_GUEST_NAME_LENGTH} characters`;
+  if (isReservedName(name)) return NAME_RESERVED;
+  const until = aTime(data.until);
+  if (until === null) return "Until must be a time";
+  return { name, until };
+}
+
+/** What `PUT /api/rooms/<id>/guests/<user id>` asks for: when to extend their stay until, as an ISO time. */
+export interface GuestChange {
+  until: string;
+}
+
+/** Parses an untrusted change to when a guest's stay ends, as `parseNewGuest` does its time. */
+export function parseGuestChange(data: unknown): GuestChange | string {
+  if (!isJsonObject(data)) return "Expected a JSON object";
+  const until = aTime(data.until);
+  if (until === null) return "Until must be a time";
+  return { until };
+}
+
+/** The time `v` gives, as given, or null unless it's a non-empty one a date can read. */
+function aTime(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== "" && !Number.isNaN(Date.parse(v)) ? v : null;
 }
 
 /** The settings `PATCH /api/account` changes, each with the name workspace settings give it. */
