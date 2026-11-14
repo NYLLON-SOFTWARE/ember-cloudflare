@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { storedWidth, storeWidth } from "@/lib/pane-sizes";
-import { PaneSeparator } from "./split-panes";
+import { PaneSeparator } from "./pane-separator";
 
 // The column beside a room, from 1180px wide, where a thread or someone's profile opens, as the page's
 // layout grid gives it `--side-width`, 420px until it's resized. Its separator sets that width on the grid,
