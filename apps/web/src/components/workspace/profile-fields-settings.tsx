@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { MAX_PROFILE_FIELD_NAME_LENGTH, MAX_PROFILE_FIELDS, PROFILE_FIELD_OPTIONS_REFUSED, PROFILE_FIELDS_FULL, type ProfileField } from "@ember/protocol";
 import { useFlash } from "@/components/flash";
 import { FIELD_INPUT, Field } from "@/components/field";
@@ -74,13 +74,18 @@ export function ProfileFieldsSettings({ onFailed }: Props) {
   const [adding, setAdding] = useState<Adding>({ name: "", kind: "text", choices: "" });
   /** What's on its way to the server: "add", or a field's id. */
   const [busy, setBusy] = useState<string | null>(null);
+  /** The changes settled, which a load counts when it's sent: a change answering first settles with the fields as they are then. */
+  const changes = useRef(0);
   const flash = useFlash();
 
   useEffect(() => {
     let stopped = false;
+    const sent = changes.current;
     fetchProfileFields().then(
-      // A workspace without any, which a loose answer may say by leaving them out, has none.
-      (fields) => !stopped && setFields(fields ?? []),
+      // A workspace without any, which a loose answer may say by leaving them out, has none. A change
+      // sent while this load was out settles after it with the fields as they are then, which this
+      // answer, from before the change, mustn't overwrite.
+      (fields) => !stopped && changes.current === sent && setFields(fields ?? []),
       (error: unknown) => {
         // A card gone before its fields load only reports a session that's ended, which goes to sign in.
         if (!stopped || isSignedOut(error)) onFailed(error);
@@ -93,6 +98,7 @@ export function ProfileFieldsSettings({ onFailed }: Props) {
   const shown = (change: Promise<ProfileField[]>, settled?: () => void) =>
     change.then(
       (fields) => {
+        changes.current += 1;
         setFields(fields);
         setBusy(null);
         settled?.();

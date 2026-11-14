@@ -123,7 +123,7 @@ describe("User groups", () => {
     expect(groups).toHaveAttribute("href", "/account/edit#user-groups-settings");
     expect(groups.querySelector("svg")).toHaveClass("iconoir-community");
     expect(groups.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
-    expect(links()[3]).toBe(groups);
+    expect(links()[4]).toBe(groups);
     expect(current()).toBe(groups);
     expect(workspaceSectionOf("#user-groups-settings")).toBe("user-groups-settings");
     rerender(<SettingsNavigation section="community-settings" administrator={false} />);
@@ -176,7 +176,7 @@ describe("Custom domain", () => {
     const domain = screen.getByRole("link", { name: "Domain settings" });
     expect(domain).toHaveAttribute("href", "/account/edit#domain-settings");
     expect(domain.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
-    expect(links()[4]).toBe(domain);
+    expect(links()[5]).toBe(domain);
     expect(current()).toBe(domain);
     rerender(<SettingsNavigation section="community-settings" administrator={false} />);
     expect(screen.queryByRole("link", { name: "Domain settings" })).not.toBeInTheDocument();

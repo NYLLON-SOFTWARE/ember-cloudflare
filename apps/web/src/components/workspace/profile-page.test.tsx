@@ -1064,6 +1064,9 @@ describe("Apps on your profile", () => {
     await user.click(screen.getByRole("button", { name: "Sign out of Linear" }));
     expect(await screen.findByRole("button", { name: "Sign in to Linear" })).toBeVisible();
     expect(fetch).toHaveBeenLastCalledWith(`/api/users/me/apps/${LINEAR.id}/sign-in`, expect.objectContaining({ method: "DELETE" }));
+  });
+});
+
 describe("The workspace's fields on your profile", () => {
   const title = () => field("Title");
   const pronouns = () => field("Pronouns");

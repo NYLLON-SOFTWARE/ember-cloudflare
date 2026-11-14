@@ -601,6 +601,7 @@ export function WorkspaceSettingsPage({
           Ask everyone the same things on their profile, such as their title or pronouns.
         </PageHeading>
         {me.administrator ? <ProfileFieldsSettings onFailed={onFailed} /> : <p className="text-muted-foreground">Community admins manage profile fields.</p>}
+      </Panel>
       <Panel id="user-groups-settings" hidden={section !== "user-groups-settings"} aria-labelledby="user-groups-settings-heading" className="flex flex-col gap-6">
         <PageHeading id="user-groups-settings-heading" title="User groups" className={SECTION_HEADING}>
           Name groups of people a mention stands for.
