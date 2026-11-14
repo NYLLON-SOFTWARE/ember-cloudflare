@@ -279,6 +279,15 @@ export interface StoredSession {
   lastActiveAt: number;
 }
 
+/** One of someone's personal access tokens, as it's kept: never its digest, which nothing reads back. */
+export interface StoredToken {
+  id: string;
+  name: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+  revokedAt: number | null;
+}
+
 /** Someone as the people directory lists them, with when they last changed, which their avatar's address follows. */
 export interface DirectoryEntry extends User {
   bio: string | null;
@@ -679,6 +688,19 @@ const REHASH_PASSWORD = `UPDATE users SET password_digest = ? WHERE id = ? AND p
 /** The same, for someone signing in with an account elsewhere that's linked to them, unless they've stopped being active. */
 const INSERT_LINKED_SESSION = `INSERT INTO sessions (id, user_id, token_digest, ip_address, user_agent, last_active_at, created_at, updated_at)
   SELECT ?1, id, ?2, ?3, ?4, ?5, ?5, ?5 FROM users WHERE id = ?6 AND status = ${ACTIVE}`;
+
+/** How long before a token's last used time is kept again, so a busy token doesn't write it with every request. */
+const TOKEN_TOUCH_MS = 60 * 1000;
+
+/** The API token a digest names, if it isn't revoked and its person is still active, with their name. */
+const API_TOKEN = `SELECT api_tokens.id, api_tokens.user_id, users.name FROM api_tokens JOIN users ON users.id = api_tokens.user_id
+  WHERE api_tokens.token_digest = ? AND api_tokens.revoked_at IS NULL AND users.status = ${ACTIVE}`;
+
+/** Keeps when a token was last used, unless it was kept within the minute before. */
+const TOUCH_API_TOKEN = `UPDATE api_tokens SET last_used_at = ?1 WHERE id = ?2 AND (last_used_at IS NULL OR last_used_at < ?1 - ${TOKEN_TOUCH_MS})`;
+
+/** Revokes one of someone's tokens, unless it's gone already, answering its id. */
+const REVOKE_API_TOKEN = `UPDATE api_tokens SET revoked_at = ?1 WHERE id = ?2 AND user_id = ?3 AND revoked_at IS NULL RETURNING id`;
 
 /** What `email_links.kind` holds for an invitation, and for a link someone asked for with an address at the email domains. */
 const INVITATION = "'invitation'";
@@ -3170,6 +3192,41 @@ export class WorkspaceStore {
       statement(`DELETE FROM sessions WHERE token_digest = ?`, tokenDigest),
     ]);
     return queued!.length > 0;
+  }
+
+  /** Keeps one of someone's API tokens, whose digest nothing reads back. */
+  async createApiToken(userId: UserId, id: string, name: string, tokenDigest: string, now: number): Promise<void> {
+    await this.db.run(`INSERT INTO api_tokens (id, user_id, name, token_digest, created_at) VALUES (?, ?, ?, ?, ?)`, id, userId, name, tokenDigest, now);
+  }
+
+  /** Someone's API tokens, newest first. */
+  async apiTokensOf(userId: UserId): Promise<StoredToken[]> {
+    return (
+      await this.db.all<{ id: string; name: string; created_at: number; last_used_at: number | null; revoked_at: number | null }>(
+        `SELECT id, name, created_at, last_used_at, revoked_at FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC, id DESC`,
+        userId,
+      )
+    ).map(({ id, name, created_at, last_used_at, revoked_at }) => ({ id, name, createdAt: created_at, lastUsedAt: last_used_at, revokedAt: revoked_at }));
+  }
+
+  /** The API token a digest opens, if it isn't revoked and its person is still active, with their name. */
+  async findApiToken(tokenDigest: string): Promise<{ id: string; user: User } | null> {
+    const [row] = await this.db.all<{ id: string; user_id: UserId; name: string }>(API_TOKEN, tokenDigest);
+    return row ? { id: row.id, user: { id: row.user_id, name: row.name } } : null;
+  }
+
+  /** Keeps when the token was last used, which `TOUCH_API_TOKEN` writes at most once a minute. */
+  async touchApiToken(id: string, now: number): Promise<void> {
+    await this.db.run(TOUCH_API_TOKEN, now, id);
+  }
+
+  /** Revokes one of someone's API tokens, answering whether it still worked, or null if it was never theirs. */
+  async revokeApiToken(userId: UserId, id: string, now: number): Promise<boolean | null> {
+    const rows = await this.db.all<{ name: string }>(REVOKE_API_TOKEN, now, id, userId);
+    if (rows.length > 0) return true;
+    // Distinguish a token that was already revoked from one that was never theirs, which 404s.
+    const [kept] = await this.db.all<{ user_id: UserId; revoked_at: number | null }>(`SELECT user_id, revoked_at FROM api_tokens WHERE id = ?`, id);
+    return kept?.user_id === userId ? false : null;
   }
 
   /**

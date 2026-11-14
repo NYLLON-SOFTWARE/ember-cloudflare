@@ -55,6 +55,9 @@ export const sessionToken = (request: Request) =>
 
 export const newSessionToken = () => toBase64url(crypto.getRandomValues(new Uint8Array(32)));
 
+/** A personal access token: `pat_`, then 32 random bytes in base64url, so it reads as one in a client's list. */
+export const newApiToken = () => `pat_${newSessionToken()}`;
+
 /**
  * What the Workspace stores in place of a token: its HMAC under SESSION_SECRET. A leaked database holds
  * no sessions, and changing the secret signs everyone out, as changing Campfire's does.

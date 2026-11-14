@@ -14,8 +14,12 @@ const TABLES: Record<Exclude<Scope, "search">, string[]> = {
     "accounts",
     "agent_tools",
     "agents",
+<<<<<<< HEAD
     "app_sign_ins",
     "apps",
+=======
+    "api_tokens",
+>>>>>>> 033017ae (Give a person API tokens, whose secret shows once, that open Ember as them)
     "bans",
     "deleted_rooms",
     "email_link_requests",

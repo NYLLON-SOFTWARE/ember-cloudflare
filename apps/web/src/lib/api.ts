@@ -7,6 +7,13 @@ import {
   WORKSPACE_PRELOADS,
   type Account,
   type AccountChanges,
+<<<<<<< HEAD
+=======
+  type ApiToken,
+  type ApiTokenCreated,
+  type ApiTokens,
+  type AssistantCatalog,
+>>>>>>> 033017ae (Give a person API tokens, whose secret shows once, that open Ember as them)
   type AssistantChanged,
   type AssistantChanges,
   type AssistantForgotten,
@@ -350,6 +357,21 @@ export async function sendTestNotification(id: number): Promise<void> {
 /** Who this browser is signed in as. Fails with a 401 ApiError when it isn't signed in. */
 export async function fetchMe(): Promise<Me> {
   return (await request<{ user: Me }>("/api/me")).user;
+}
+
+/** Makes one of your API tokens, answering it with its secret, which is shown once, now. */
+export async function createApiToken(name: string): Promise<ApiTokenCreated> {
+  return request<ApiTokenCreated>("/api/account/tokens", { method: "POST", body: JSON.stringify({ name }) });
+}
+
+/** Your API tokens, newest first. */
+export async function fetchApiTokens(): Promise<ApiToken[]> {
+  return (await request<ApiTokens>("/api/account/tokens")).tokens;
+}
+
+/** Revokes one of your API tokens. Fails with a 404 ApiError when it was never yours. */
+export async function revokeApiToken(id: string): Promise<void> {
+  await request(`/api/account/tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 /**
