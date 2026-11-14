@@ -619,6 +619,7 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       suggestions={suggestions}
       favorites={favorites}
       sharedOrder={sharedOrder}
+      huddles={huddlesOn ? liveHuddles : NO_HUDDLES}
       currentRoomId={currentRoomId}
       unreadOnly={unreadOnly}
       onSelect={select}
