@@ -1010,6 +1010,16 @@ describe("Your mood", () => {
     expect(field("Clear at")).toHaveValue("never");
   });
 
+  it("prefers Never for a stored mood whose clear time has passed, so saving it doesn't keep it an hour longer", async () => {
+    serve({
+      loaded: () =>
+        Response.json({ profile: { ...profile, mood: { emoji: "😌", text: "Pairing on the compiler", clearAt: new Date(Date.now() - 60_000).toISOString() } }, transferId: LOADED_LINK } satisfies ProfileAnswer),
+    });
+    showPage();
+    await loaded();
+    expect(field("Clear at")).toHaveValue("never");
+  });
+
   it("has nothing to save or clear while you wear none, until an emoji and words are typed", async () => {
     const { user } = showPage();
     await loaded();

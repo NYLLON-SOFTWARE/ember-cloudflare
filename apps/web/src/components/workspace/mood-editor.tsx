@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
 import { changeProfile, isSignedOut } from "@/lib/api";
-import { choiceOf, clearAtOf, CLEAR_CHOICES, type ClearChoice } from "@/lib/mood";
+import { choiceOf, clearAtOf, currentMood, CLEAR_CHOICES, type ClearChoice } from "@/lib/mood";
 import { cn } from "@/lib/utils";
 import { NOTE, SELECT } from "./model-picker";
 
@@ -26,8 +26,11 @@ const moodOf = (emoji: string, text: string, clearAt: ClearChoice, now: Date): P
   return wornEmoji === "" || wornText === "" ? null : { emoji: wornEmoji, text: wornText, clearAt: clearAtOf(clearAt, now) };
 };
 
-/** The Clear-at menu's choice for when a mood comes off by itself, or Never for none. */
-const choiceOfClearAt = (mood: PersonMood | null): ClearChoice => (mood?.clearAt ? choiceOf(mood.clearAt) : "never");
+/** The Clear-at menu's choice for when a mood comes off by itself, or Never for none, or for one whose time has passed. */
+const choiceOfClearAt = (mood: PersonMood | null): ClearChoice => {
+  const worn = currentMood(mood);
+  return worn?.clearAt ? choiceOf(worn.clearAt) : "never";
+};
 
 /**
  * The mood section of your profile, boxed as the Ember AI section is: an emoji and a few words beside
