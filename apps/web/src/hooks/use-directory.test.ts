@@ -76,6 +76,21 @@ describe("Initials avatars", () => {
     expect(result.current.people).toBe(people);
   });
 
+  it("says a load that has failed has left it stale, until a load comes", async () => {
+    const { result } = renderHook(() => useDirectory());
+    await reload(result);
+    expect(result.current.stale).toBe(false);
+    server.down = true;
+    await act(async () => {
+      await expect(reload(result)).rejects.toThrow("Failed to fetch");
+    });
+    expect(result.current.stale).toBe(true);
+    // A load that comes, even one the server answers with what it has, has it current again.
+    server.down = false;
+    await reload(result);
+    expect(result.current.stale).toBe(false);
+  });
+
   it("says while a load it has asked for is still to settle, and once it has, come or fail", async () => {
     const { result } = renderHook(() => useDirectory());
     expect(result.current.reloading).toBe(false);
