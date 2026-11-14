@@ -364,6 +364,15 @@ describe("Notification levels", () => {
     expect(result.current.list?.rooms).toEqual([{ ...design, involvement: "everything" }]);
   });
 
+  it("changes many rooms' levels at once as the socket says what Ada's notified about changed", async () => {
+    server.change(unstarred([design, general]));
+    const { result } = await showSidebar();
+    socket().connect();
+    await settle();
+    socket().receive({ type: "room.involvements", involvements: [{ roomId: design.id, involvement: "nothing" }, { roomId: general.id, involvement: "nothing" }] });
+    expect(result.current.list?.rooms.map((room) => room.involvement)).toEqual(["nothing", "nothing"]);
+  });
+
   it("gives a room the level the server answers, unless the workspace socket has said what became of it since", async () => {
     server.change(unstarred([design, general]));
     const { result } = await showSidebar();

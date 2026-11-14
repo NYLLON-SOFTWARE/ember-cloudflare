@@ -69,6 +69,7 @@ const RARE_PAGES = new Set<Route["page"]>([
   "app-signed-in",
   "profile",
   "push-subscriptions",
+  "notifications",
   "person",
   "search",
   "dms",
@@ -119,6 +120,7 @@ const RAIL_PAGES = {
   "app-signed-in": "workspace",
   profile: "profile",
   "push-subscriptions": null,
+  notifications: "profile",
   person: null,
   search: "search",
   dms: "dms",
@@ -880,7 +882,9 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
       case "app-signed-in":
         return rarePage(({ AppSignedInPage }) => <AppSignedInPage me={me} onFailed={failed} />);
       case "profile":
-        return rarePage(({ ProfilePage }) => <ProfilePage me={me} rooms={rooms} askForRoom={askForRoom} onSignOut={onSignOut} onFailed={failed} />);
+        return rarePage(({ ProfilePage }) => <ProfilePage me={me} onSignOut={onSignOut} onFailed={failed} />);
+      case "notifications":
+        return rarePage(({ NotificationsPage }) => <NotificationsPage me={me} rooms={rooms} askForRoom={askForRoom} onFailed={failed} />);
       case "push-subscriptions":
         return rarePage(({ PushSubscriptionsPage }) => <PushSubscriptionsPage back={back} onFailed={failed} />);
       case "files":

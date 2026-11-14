@@ -1,4 +1,6 @@
 import {
+  NOTIFICATIONS_API_PATH,
+  NOTIFICATIONS_RESET_API_PATH,
   roomSocketQuery,
   WORKSPACE_PRELOADS,
   type ActivityMarks,
@@ -8,6 +10,8 @@ import {
   type Directory,
   type Favorites,
   type Involvement,
+  type NotificationChanges,
+  type NotificationSettings,
   type LinkPreview,
   type LinkSignIn,
   type Me,
@@ -221,7 +225,18 @@ export async function setFavorite(roomId: RoomId, favorite: boolean): Promise<Fa
  * Gives this person level `involvement` in a room, answering it. Fails with a 404 ApiError for a room
  * they aren't in.
  */
-export async function setInvolvement(roomId: RoomId, involvement: Involvement): Promise<Involvement> {
+/** What you're notified about, when your paused notifications come back, and where you picked a level. */
+export const fetchNotificationSettings = () => request<NotificationSettings>(NOTIFICATIONS_API_PATH);
+
+/** Changes what you're notified about, or pauses or resumes notifications, answering the settings as they are now. */
+export const changeNotifications = (changes: NotificationChanges) =>
+  request<NotificationSettings>(NOTIFICATIONS_API_PATH, { method: "PATCH", body: JSON.stringify(changes) });
+
+/** Has every room and DM you haven't hidden follow what you're notified about again. */
+export const resetNotificationLevels = () => request<NotificationSettings>(NOTIFICATIONS_RESET_API_PATH, { method: "POST" });
+
+/** Gives you `involvement` in a room, or with "default", what you're notified about there again, answering the level it has now. */
+export async function setInvolvement(roomId: RoomId, involvement: Involvement | "default"): Promise<Involvement> {
   return (await request<{ involvement: Involvement }>(`/api/rooms/${encodeURIComponent(roomId)}/involvement`, { method: "PUT", body: JSON.stringify({ involvement }) }))
     .involvement;
 }

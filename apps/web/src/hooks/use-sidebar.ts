@@ -220,6 +220,12 @@ export function useSidebar(
         case "room.involvement":
           heardOf(frame.roomId);
           return change({ type: "involved", roomId: frame.roomId, involvement: frame.involvement });
+        case "room.involvements":
+          for (const { roomId, involvement } of frame.involvements) {
+            heardOf(roomId);
+            change({ type: "involved", roomId, involvement });
+          }
+          return;
         case "favorites.changed":
           return change({ type: "starred", favorites: frame.favorites });
         case "invitation.dismissed":

@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import type { Me } from "@ember/protocol";
-import { User } from "@/components/icons/iconoir";
+import { Bell, User } from "@/components/icons/iconoir";
 import { PageLink } from "@/components/page-link";
 import { SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { PROFILE_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
+import { NOTIFICATION_PREFERENCES_PATH, PROFILE_PATH, WORKSPACE_SETTINGS_PATH } from "@/hooks/use-route";
 import { cn } from "@/lib/utils";
 import { AppearanceChoices } from "../workspace/appearance-choices";
 import { NavigationIcon } from "../workspace/navigation-icon";
@@ -40,9 +40,12 @@ export function YouSheet({ me, newRelease, onClose }: Props) {
         <UserAvatar user={me} className="size-10" />
         <SheetTitle className="min-w-0 truncate text-[17px] font-semibold">{me.name}</SheetTitle>
       </div>
-      <SheetDescription className="sr-only">Your profile, the workspace’s settings and the appearance</SheetDescription>
+      <SheetDescription className="sr-only">Your profile, notifications, the workspace’s settings and the appearance</SheetDescription>
       <SheetLink href={PROFILE_PATH} icon={<User className="size-6" />} onClick={onClose}>
         Your profile
+      </SheetLink>
+      <SheetLink href={NOTIFICATION_PREFERENCES_PATH} icon={<Bell className="size-6" />} onClick={onClose}>
+        Notifications
       </SheetLink>
       <SheetLink
         href={WORKSPACE_SETTINGS_PATH}

@@ -13,6 +13,7 @@ export { HuddleBar } from "./huddle-bar";
 export { HuddlePreview } from "./huddle-preview";
 export { SavedPage, TodosPage } from "./kept-pages";
 export { NewRoomPage } from "./new-room-page";
+export { NotificationsPage } from "./notifications-page";
 export { PersonPage } from "./person-page";
 export { ProfilePage } from "./profile-page";
 export { PushSubscriptionsPage } from "./push-subscriptions-page";

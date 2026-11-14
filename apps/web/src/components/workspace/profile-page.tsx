@@ -13,7 +13,6 @@ import {
   type Profile,
   type ProfileAnswer,
   type ProfileChanges,
-  type SidebarRoom,
 } from "@ember/protocol";
 import { AUTH_FORM } from "@/components/auth-page";
 import { FIELD_INPUT, Field, SubmitButton } from "@/components/field";
@@ -23,16 +22,16 @@ import { Input } from "@/components/ui/input";
 import { PeopleContext } from "@/hooks/use-directory";
 import { useMounted } from "@/hooks/use-mounted";
 import { usePush } from "@/hooks/use-push";
-import { leave, useBackPath } from "@/hooks/use-route";
+import { leave, NOTIFICATION_PREFERENCES_PATH, useBackPath } from "@/hooks/use-route";
 import { useTitle } from "@/hooks/use-title";
 import { isSignedOut } from "@/lib/api";
 import { changeAvatar, changeProfile, fetchProfile, removeAvatar } from "@/lib/api-pages";
 import { avatarVariantOf } from "@/lib/previews";
 import { pushEndpoint } from "@/lib/push";
-import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 import { AnswerLevels } from "./answer-levels";
-import { ConversationNotifications } from "./conversation-notifications";
+import { NavArrowRight } from "@/components/icons/iconoir";
+import { PageLink } from "@/components/page-link";
 import { MemberfulConnection } from "./memberful-connection";
 import { InstallInstructions } from "./notification-help";
 import { HEADER_TEXT_BUTTON } from "./page-header";
@@ -45,10 +44,6 @@ import { YourOutsideAi } from "./your-outside-ai";
 
 interface Props {
   me: Me;
-  /** Your rooms and DMs, as the sidebar's list has them, or null until it has loaded. */
-  rooms: SidebarRoom[] | null;
-  /** Called as a bell saves your level in a room, with what gives the room the level the server answers. */
-  askForRoom: () => (answer: RoomAnswer) => void;
   /** Signs out, settling with whether it did. */
   onSignOut: () => Promise<boolean>;
   /** Says why loading or saving failed, as the workspace's alerts do. */
@@ -109,12 +104,12 @@ function settled(typed: Fields, sent: Fields, saved: Fields): Fields {
  * bio, which Save changes saves with the notice "✓", keeping the page, then, while members sign in with
  * Memberful, connecting your Memberful account, or the one you've connected, which Disconnect Memberful
  * unlinks with the notice "Your Memberful account is disconnected.", then, while Ember AI is on, how much @ember thinks and
- * how long it answers you, then your notification level in each of your rooms and DMs, then a sign-in
+ * how long it answers you, then a link to your notification preferences, then a sign-in
  * link for you, a new one each time the page loads or saves, and Log out in the top bar. Go Back
  * returns to the page it was opened from. Your avatar, name and bio reach everyone's open pages at
  * once, through the workspace socket, as they reach the rail.
  */
-export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Props) {
+export function ProfilePage({ me, onSignOut, onFailed }: Props) {
   const [fields, setFields] = useState<Fields | null>(null);
   /** The profile as the page last loaded or saved it. */
   const saved = useRef<Fields | null>(null);
@@ -391,7 +386,14 @@ export function ProfilePage({ me, rooms, askForRoom, onSignOut, onFailed }: Prop
         {assistant && <AnswerLevels assistant={assistant} onChanged={setAssistant} onFailed={onFailed} />}
         {apps.length > 0 && <YourApps apps={apps} onChanged={setApps} onFailed={onFailed} />}
         {outsideAi && <YourOutsideAi connections={outsideAi} onChanged={setOutsideAi} onFailed={onFailed} />}
-        {rooms && <ConversationNotifications me={me} rooms={rooms} askForRoom={askForRoom} onFailed={onFailed} />}
+        {/* Preferences › Notifications: the default, each room's level, and pausing them. */}
+        <PageLink
+          href={NOTIFICATION_PREFERENCES_PATH}
+          className="my-4 flex items-center gap-3 rounded-[10px] border bg-surface px-[2ch] py-4 font-semibold text-foreground no-underline hover:bg-hover"
+        >
+          <span className="min-w-0 flex-1">Notifications</span>
+          <NavArrowRight className="size-5 text-muted-foreground" />
+        </PageLink>
         {transferId && <SignInLink transferId={transferId} mine />}
       </Panel>
     </SettingsPage>
