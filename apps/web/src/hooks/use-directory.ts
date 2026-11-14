@@ -24,6 +24,9 @@ export const DirectoryLoaded = createContext(false);
 /** Whether the people directory is loading again, which a load it has asked for and not yet settled has it do. */
 export const DirectoryReloading = createContext(false);
 
+/** Whether the people directory's last load failed, which leaves it listing people as it did before it, until a load comes. */
+export const DirectoryStale = createContext(false);
+
 /** Loads the people directory again, for a message's editor that found it doesn't know a group the message names. A no-op until the workspace has it. */
 export const ReloadDirectory = createContext<() => Promise<void>>(() => Promise.resolve());
 
@@ -65,14 +68,15 @@ function withChanges(people: People, changed: DirectoryUser[]): People {
  * The people directory, which `reload` loads again, one load at a time, settling once a load asked for
  * since has come or failed, and `update` changes someone in, as the workspace socket or a change made
  * here says they are now. The people stay as they were when a load fails or the server says they
- * haven't changed. It has `loaded` once a load has come, and `reloading` while one it has asked for is
- * still to settle.
+ * haven't changed. It has `loaded` once a load has come, `reloading` while one it has asked for is
+ * still to settle, and `stale` since a load last failed, until a load comes.
  */
 export function useDirectory(): {
   people: People;
   groups: Groups;
   loaded: boolean;
   reloading: boolean;
+  stale: boolean;
   reload: () => Promise<void>;
   update: (user: DirectoryUser) => void;
 } {
@@ -80,6 +84,7 @@ export function useDirectory(): {
   const [groups, setGroups] = useState<Groups>(() => new Map());
   const [loaded, setLoaded] = useState(false);
   const [reloading, setReloading] = useState(false);
+  const [stale, setStale] = useState(false);
   const [directory] = useState(() => {
     // The last directory the server sent, which it says is still current rather than send again.
     let copy: DirectoryCopy | null = null;
@@ -90,11 +95,17 @@ export function useDirectory(): {
       const changed: DirectoryUser[] = (changedSince = []);
       try {
         const loaded = await fetchDirectory(copy);
+        // An answer that has come, whether it has said the copy is still current or sent another.
+        setStale(false);
         if (loaded === copy) return;
         copy = loaded;
         setPeople(withChanges(new Map(loaded.directory.users.map((user) => [user.id, user])), changed));
         setGroups(new Map(loaded.directory.groups.map((group) => [group.id, group])));
         setLoaded(true);
+      } catch (error) {
+        // What it lists stays as it was, which may not be who's in the workspace now.
+        setStale(true);
+        throw error;
       } finally {
         changedSince = null;
         setReloading(false);
@@ -106,5 +117,5 @@ export function useDirectory(): {
     };
     return { reload: load, update };
   });
-  return { people, groups, loaded, reloading, ...directory };
+  return { people, groups, loaded, reloading, stale, ...directory };
 }

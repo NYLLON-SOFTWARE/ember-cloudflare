@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DirectoryUser, UserId, UserGroup } from "@ember/protocol";
-import { DirectoryLoaded, DirectoryReloading, PeopleContext, type People } from "@/hooks/use-directory";
+import { DirectoryLoaded, DirectoryReloading, DirectoryStale, PeopleContext, type People } from "@/hooks/use-directory";
 import { ApiError } from "@/lib/api";
 import { CONFIRM_DELETE, GROUPS_EXPLAINED, UserGroups } from "./user-groups-settings";
 
@@ -21,23 +21,25 @@ function serve(route: (method: string, path: string, body: unknown) => Response 
 }
 
 /**
- * The card, with `directory` in the people directory, which has loaded when `loaded` and is loading
- * again when `reloading`, and `groups` as the server lists them. `rerender` shows the card with
- * another directory, loaded or loading as then said.
+ * The card, with `directory` in the people directory, which has loaded when `loaded`, is loading again
+ * when `reloading`, and last failed to when `stale`, and `groups` as the server lists them. `rerender`
+ * shows the card with another directory, loaded or loading as then said.
  */
-function showCard({ directory = people, loaded = false, reloading = false }: { directory?: People; loaded?: boolean; reloading?: boolean } = {}) {
+function showCard({ directory = people, loaded = false, reloading = false, stale = false }: { directory?: People; loaded?: boolean; reloading?: boolean; stale?: boolean } = {}) {
   const callbacks = { onSaved: vi.fn(), reloadDirectory: vi.fn(), onFailed: vi.fn() };
-  const cardWith = (directory: People, loaded: boolean, reloading: boolean) => (
+  const cardWith = (directory: People, loaded: boolean, reloading: boolean, stale: boolean) => (
     <PeopleContext value={directory}>
       <DirectoryReloading value={reloading}>
         <DirectoryLoaded value={loaded}>
-          <UserGroups {...callbacks} />
+          <DirectoryStale value={stale}>
+            <UserGroups {...callbacks} />
+          </DirectoryStale>
         </DirectoryLoaded>
       </DirectoryReloading>
     </PeopleContext>
   );
-  const { rerender } = render(cardWith(directory, loaded, reloading));
-  return { ...callbacks, user: userEvent.setup(), rerender: (directory: People, loaded: boolean, reloading: boolean) => rerender(cardWith(directory, loaded, reloading)) };
+  const { rerender } = render(cardWith(directory, loaded, reloading, stale));
+  return { ...callbacks, user: userEvent.setup(), rerender: (directory: People, loaded: boolean, reloading: boolean, stale = false) => rerender(cardWith(directory, loaded, reloading, stale)) };
 }
 
 const card = () => screen.getByRole("region", { name: "User groups" });
@@ -188,6 +190,36 @@ describe("User groups", () => {
     expect(await within(card()).findByRole("checkbox", { name: "New Hand" })).toBeChecked();
     await user.click(within(card()).getByRole("button", { name: "Save changes" }));
     expect(sent).toEqual({ name: "launch", memberIds: [ada.id, newcomer.id] });
+  });
+
+  it("waits for the directory to come, its last load having failed, and keeps the member it couldn't verify", async () => {
+    const newcomer: DirectoryUser = { id: "u5", name: "New Hand", bio: null, role: "member", status: "active", avatarUrl: "" };
+    const fresh: UserGroup = { id: "g5", name: "launch", memberIds: [ada.id, newcomer.id] };
+    let sent: unknown;
+    serve((method, _path, body) => {
+      if (method === "PATCH") {
+        sent = body;
+        return Response.json({ group: fresh });
+      }
+      return Response.json({ groups: [fresh] });
+    });
+    // The directory's last load has failed, which leaves it as it was before it, listing the newcomer
+    // gone whom the group has: letting them go for that listing alone would drop them from it.
+    const { user, rerender, reloadDirectory } = showCard({
+      directory: new Map<UserId, DirectoryUser>([...people, [newcomer.id, { ...newcomer, status: "deactivated" }]]),
+      loaded: true,
+      stale: true,
+    });
+    await user.click(await within(card()).findByRole("button", { name: "Edit launch" }));
+    expect(within(card()).queryByRole("checkbox", { name: "New Hand" })).toBeNull();
+    await user.click(within(card()).getByRole("button", { name: "Save changes" }));
+    // The card has asked for the directory again, and the save waits for a load that comes.
+    expect(reloadDirectory).toHaveBeenCalledOnce();
+    expect(sent).toBeUndefined();
+    // One has come, listing the newcomer active now, and the save has gone with them kept.
+    rerender(new Map<UserId, DirectoryUser>([...people, [newcomer.id, newcomer]]), true, false);
+    await vi.waitFor(() => expect(sent).toEqual({ name: "launch", memberIds: [ada.id, newcomer.id] }));
+    expect(within(card()).getByRole("list")).toHaveTextContent("2 members");
   });
 
   it("says why a delete couldn't be sent, keeping the group to be tried again", async () => {
