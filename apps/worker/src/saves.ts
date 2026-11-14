@@ -60,7 +60,8 @@ async function answer(env: Env, rows: SavedMessage[], { rooms }: Searcher): Prom
   const items: SavedItem[] = [];
   for (const save of seen) {
     const message = messages.get(save.messageId);
-    if (message) items.push({ ...save, message });
+    // A message deleted while its replies are left is gone all the same, as one gone outright is.
+    if (message && !message.deleted) items.push({ ...save, message });
     else dropped.push(save.id);
   }
   // A message deleted, or a room they're out of, drops its save for good, in this same request.

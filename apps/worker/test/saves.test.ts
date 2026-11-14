@@ -1,6 +1,6 @@
 import type { Message, RoomId, SavedItem, SavedMessage } from "@ember/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
-import { api, connect, createRoom, direct, freshDeploy, post, settle, signIn, workspaceSql, type Session } from "./support";
+import { api, connect, createRoom, direct, freshDeploy, post, settle, signIn, workspaceSql, type Session, type Socket } from "./support";
 
 /** Saves the message `messageId` of room `roomId` for `session`'s person, as More actions does. */
 const save = (session: Session, roomId: RoomId, messageId: string) =>
@@ -33,6 +33,16 @@ async function messageIn(room: RoomId, session: Session, body: string): Promise<
   const message = await post(client, body);
   await settle(client);
   return { message, done: async () => client.close() };
+}
+
+/** Replies in `parentId`'s thread as `client`, as a thread's composer does. */
+async function replyIn(client: Socket, parentId: string, body: string): Promise<Message> {
+  const clientMessageId = crypto.randomUUID();
+  client.send({ type: "message.create", clientMessageId, body, parentId });
+  for (;;) {
+    const { message } = await client.next("message.created");
+    if (message.clientMessageId === clientMessageId) return message;
+  }
 }
 
 beforeEach(freshDeploy);
@@ -197,6 +207,34 @@ describe("The Saved pane's answer", () => {
     const saves = await savesOf(ada);
     expect(saves.map(({ messageId }) => messageId)).toEqual([keptMessage.message.id]);
     expect(await storedSaves(ada)).toHaveLength(1);
+  });
+
+  it("drops a save of a thread parent deleted while its replies are left, and keeps the replies', the same way", async () => {
+    const ada = await signIn("Ada");
+    const grace = await signIn("Grace");
+    const room = await createRoom("Design");
+    const writer = await connect(room.id, grace);
+    const parent = await post(writer, "Where the thread starts");
+    const reply = await replyIn(writer, parent.id, "A reply that stays");
+    await settle(writer);
+    await saved(save(ada, room.id, parent.id));
+    const kept = await saved(save(ada, room.id, reply.id));
+    await writer.close();
+
+    // Deleting the parent keeps it for the reply, and says so as a change to it, not as a deletion.
+    const deleter = await connect(room.id, grace);
+    deleter.send({ type: "message.delete", messageId: parent.id });
+    for (;;) {
+      const { message } = await deleter.next("message.updated");
+      if (message.id === parent.id) break;
+    }
+    await settle(deleter);
+    await deleter.close();
+
+    // The parent stays in its room for the reply's sake, and its save still leaves.
+    const saves = await savesOf(ada);
+    expect(saves.map(({ messageId }) => messageId)).toEqual([reply.id]);
+    expect(await storedSaves(ada)).toEqual([kept.id]);
   });
 });
 
