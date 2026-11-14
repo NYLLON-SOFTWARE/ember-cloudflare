@@ -230,6 +230,8 @@ export const REMINDER_LATEST_MS = 365 * 24 * 60 * 60 * 1000;
 const REMINDER_EXCERPT_LENGTH = 280;
 /** How many reminders that have come due one run of the alarm tells, at most. */
 const REMINDERS_PER_RUN = 20;
+/** How many pushes one run of the alarm sends for reminders, at most, so its asks stay within what an invocation may send, and the rest wait for the next run. */
+const REMINDER_PUSHES_PER_RUN = 40;
 /**
  * How many memberships the alarm checks in a run, at most, asking Memberful's admin API after them all in
  * one request, a query with an alias for each, so that a run's subrequests stay well within the Free plan's.
@@ -2695,22 +2697,30 @@ export class Workspace extends DurableObject<Env> {
   /**
    * Tells every tab of theirs each reminder that has come due and hasn't been told, reading what the
    * message kept when they asked, and pushes it to their browsers, saying each it tells has been, so the
-   * next run doesn't tell it again. What a run that stops in between has said may be said again once,
-   * as a revocation's may. Answers how many it told.
+   * next run doesn't tell it again. Each is read again before it's told, since a push can wait long
+   * enough that the person dismisses the next reminder meanwhile, and a run sends no more pushes than
+   * its share, leaving the rest for the next run. What a run that stops in between has said may be said
+   * again once, as a revocation's may. Answers how many it told.
    */
   private async deliverReminders(limit: number): Promise<number> {
     const due = await this.store.dueReminders(Date.now(), limit);
-    for (const reminder of due) {
-      this.tell([reminder.userId], { type: "reminder.due", reminder: reminderOf(reminder) });
-      const deliveries = await this.store.pushDeliveriesFor(reminder.userId);
+    let told = 0;
+    let pushes = 0;
+    for (const { id, userId } of due) {
+      const reminder = await this.store.reminder(id);
+      if (reminder === null) continue;
+      const deliveries = await this.store.pushDeliveriesFor(userId, guestSignIn(this.env));
+      if (pushes + deliveries.length > REMINDER_PUSHES_PER_RUN) break;
+      this.tell([userId], { type: "reminder.due", reminder: reminderOf(reminder) });
       if (deliveries.length > 0) {
-        const pushes = [{ payload: reminderPayload(reminder), deliveries }];
-        const gone = await sendPushes(this.env, pushes, (id) => this.store.pushable(id));
+        const gone = await sendPushes(this.env, [{ payload: reminderPayload(reminder), deliveries }], (id) => this.store.pushable(id));
         if (gone.length > 0) await this.store.forgetPushSubscriptions(gone);
       }
-      await this.store.markReminderTold(reminder.id, Date.now());
+      await this.store.markReminderTold(id, Date.now());
+      pushes += deliveries.length;
+      told++;
     }
-    return due.length;
+    return told;
   }
 
   /**

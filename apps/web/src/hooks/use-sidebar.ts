@@ -81,7 +81,8 @@ const isSame = (you: Me, me: Me) => you.id === me.id && you.name === me.name && 
  * say. The people `directory` loads again each time the sidebar does by itself, and hears whoever the
  * socket says has changed. `onAccountChanged` hears the workspace as the socket says it is, each time
  * it connects and whenever an administrator changes it. `onGone` hears of each room the socket says is
- * gone as it leaves the list.
+ * gone as it leaves the list. `reloadReminders` runs each time the socket connects too, so a reminder
+ * that came due while it was away is caught up.
  */
 export function useSidebar(
   me: Me,
@@ -91,6 +92,7 @@ export function useSidebar(
   onGone: (roomId: RoomId) => void = () => {},
   onReminderDue: (reminder: Reminder) => void = () => {},
   onReminderGone: (id: string) => void = () => {},
+  reloadReminders: () => void = () => {},
 ) {
   const [{ list }, change] = useReducer(roomListReducer, NO_ROOM_LIST);
   // Whether a list the server sent has come, rather than only the empty one a failed first load leaves.
@@ -177,6 +179,7 @@ export function useSidebar(
           workspace.connected();
           if (!toldOf.you) signsIn(frame.you);
           if (!toldOf.account) accountChanged(frame.account);
+          reloadReminders();
           return reload();
         case "room.saved":
           heardOf(frame.room.id);

@@ -2501,6 +2501,9 @@ const REMINDERS_FOR_USER = `SELECT ${REMINDER_FIELDS} FROM reminders WHERE user_
 /** One of someone's reminders, theirs alone. */
 const REMINDER_FOR_USER = `SELECT ${REMINDER_FIELDS} FROM reminders WHERE id = ? AND user_id = ?`;
 
+/** One reminder by its id, whoever asked for it, which a delivery reads again before it tells it. */
+const REMINDER_BY_ID = `SELECT ${REMINDER_FIELDS} FROM reminders WHERE id = ?`;
+
 /** The reminders that have come due and haven't been told yet, the oldest due first. */
 const DUE_REMINDERS = `SELECT ${REMINDER_FIELDS}, user_id AS userId FROM reminders
   WHERE reminded_at IS NULL AND remind_at <= ? ORDER BY remind_at, id LIMIT ?`;
@@ -2508,10 +2511,11 @@ const DUE_REMINDERS = `SELECT ${REMINDER_FIELDS}, user_id AS userId FROM reminde
 /** Whether someone is in a room, which a reminder of a message in it asks. */
 const IN_ROOM = `SELECT 1 FROM memberships WHERE user_id = ? AND room_id = ?`;
 
-/** The subscriptions someone's browsers have saved, each with the count its push sets the app's badge to. */
+/** The subscriptions someone's browsers have saved, each with the count its push sets the app's badge to, none of them a guest's while ?2 doesn't let guests stay signed in. */
 const PUSH_DELIVERIES_FOR_USER = `SELECT push_subscriptions.id AS "subscriptionId", endpoint, p256dh_key AS "p256dhKey", auth_key AS "authKey",
     (SELECT count(*) FROM memberships AS marked WHERE marked.user_id = push_subscriptions.user_id AND marked.unread_at IS NOT NULL) AS badge
-  FROM push_subscriptions WHERE user_id = ? ORDER BY id`;
+  FROM push_subscriptions JOIN users ON users.id = push_subscriptions.user_id
+  WHERE push_subscriptions.user_id = ?1 AND (users.guest = 0 OR ?2 = 1) ORDER BY push_subscriptions.id`;
 
 export class WorkspaceStore {
   constructor(private readonly db: Db) {}
@@ -4301,6 +4305,12 @@ export class WorkspaceStore {
     return row ?? null;
   }
 
+  /** One reminder by its id, whoever asked for it, or null for one that isn't there any more. */
+  async reminder(id: string): Promise<StoredReminderRow | null> {
+    const [row] = await this.db.all<StoredReminderRow>(REMINDER_BY_ID, id);
+    return row ?? null;
+  }
+
   /** The reminders that have come due and haven't been told yet, the oldest due first. */
   async dueReminders(now: number, limit: number): Promise<Array<StoredReminderRow & { userId: UserId }>> {
     return this.db.all<StoredReminderRow & { userId: UserId }>(DUE_REMINDERS, now, limit);
@@ -4321,8 +4331,8 @@ export class WorkspaceStore {
     return (await this.db.all(IN_ROOM, userId, roomId)).length > 0;
   }
 
-  /** The subscriptions someone's browsers have saved, each with the count its push sets the app's badge to. */
-  async pushDeliveriesFor(userId: UserId): Promise<PushDelivery[]> {
-    return this.db.all<PushDelivery>(PUSH_DELIVERIES_FOR_USER, userId);
+  /** The subscriptions someone's browsers have saved, or none of a guest's while guests can't stay signed in. */
+  async pushDeliveriesFor(userId: UserId, guests: boolean): Promise<PushDelivery[]> {
+    return this.db.all<PushDelivery>(PUSH_DELIVERIES_FOR_USER, userId, guests ? 1 : 0);
   }
 }

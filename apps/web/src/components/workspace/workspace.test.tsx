@@ -1,14 +1,14 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
+import { CloseCode, startingInvolvement, type Account, type Bot, type DirectoryUser, type DirectRoom, type Me, type Message, type Reminder, type Room, type RoomId, type RoomSettings, type SharedRoom, type SidebarRoom, type TimelinePage, type WorkspaceServerFrame, type WorkspaceSettings } from "@ember/protocol";
 import type { AgentSettings } from "@ember/protocol/agents";
 import { THINKING_LEVELS, type AssistantSettings } from "@ember/protocol/assistant";
 import { FlashProvider } from "@/components/flash";
 import { AccountContext } from "@/hooks/use-account";
 import { SHIPPED_MODELS } from "@/hooks/use-offered-models";
 import { PushContext } from "@/hooks/use-push";
-import { navigate } from "@/hooks/use-route";
+import { guardLeaving, navigate } from "@/hooks/use-route";
 import { joinHuddle } from "@/lib/huddle";
 import { endHuddle, joinedHuddle, showHuddle, type HuddleControls } from "@/lib/huddle-store";
 import { loadPage } from "@/lib/page";
@@ -67,6 +67,7 @@ function serve(responses: Record<string, () => Response | Promise<Response>> = {
   const answers: typeof responses = {
     "GET /api/account": () => Response.json(workspaceSettings),
     "GET /api/users": () => Response.json({ users: [] }),
+    "GET /api/reminders": () => Response.json({ reminders: [] }),
     ...responses,
   };
   vi.mocked(fetch).mockImplementation(async (input, init) => (answers[`${init?.method ?? "GET"} ${String(input)}`] ?? (() => Response.json(roomList(rooms))))());
@@ -2559,5 +2560,50 @@ describe("Huddles", () => {
     act(() => joinHuddle({ roomId: "general", muted: false, microphone: null, speakerId: "" }));
     unmount();
     expect(controls.leave).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Reminders", () => {
+  it("is done with a due reminder only once the page its Open goes to has been shown", async () => {
+    const due: Reminder = { id: "r1", roomId: "general", messageId: "m1", creator: { id: "u2", name: "Grace" }, excerpt: "The deploy is at noon", remindAt: NOON };
+    const deletes = () => vi.mocked(fetch).mock.calls.filter(([input, init]) => String(input) === "/api/reminders/r1" && init?.method === "DELETE").length;
+    serve({
+      "GET /api/reminders": () => Response.json({ reminders: [due] }),
+      "DELETE /api/reminders/r1": () => new Response(null, { status: 204 }),
+    });
+    // A page holding unsaved changes, which holds the navigation Open asks for.
+    let proceed: (() => unknown) | null = null;
+    const unguard = guardLeaving((_path, go) => ((proceed = go), true));
+    try {
+      const { user, unmount } = showWorkspace("/");
+      const notice = await screen.findByRole("alert");
+      expect(notice).toHaveTextContent("Grace");
+      await user.click(within(notice).getByRole("button", { name: "Open" }));
+      // Held, nothing is dismissed: the person may yet keep editing.
+      expect(deletes()).toBe(0);
+      await act(async () => void (await proceed?.()));
+      expect(location.pathname).toBe("/rooms/general/@m1");
+      await waitFor(() => expect(deletes()).toBe(1));
+      unmount();
+    } finally {
+      unguard();
+    }
+  });
+
+  it("is done with a due reminder when it's done with", async () => {
+    const due: Reminder = { id: "r1", roomId: "general", messageId: "m1", creator: { id: "u2", name: "Grace" }, excerpt: "The deploy is at noon", remindAt: NOON };
+    const deletes = () => vi.mocked(fetch).mock.calls.filter(([input, init]) => String(input) === "/api/reminders/r1" && init?.method === "DELETE").length;
+    serve({
+      "GET /api/reminders": () => Response.json({ reminders: [due] }),
+      "DELETE /api/reminders/r1": () => new Response(null, { status: 204 }),
+    });
+    const { user, unmount } = showWorkspace("/");
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("The deploy is at noon");
+    await user.click(within(notice).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(deletes()).toBe(1));
+    // Dismissed, the notice leaves the page at once.
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    unmount();
   });
 });

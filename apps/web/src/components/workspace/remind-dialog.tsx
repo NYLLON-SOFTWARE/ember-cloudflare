@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import type { Message, Reminder } from "@ember/protocol";
 import { Timer, Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { dismissReminder, fetchReminders, setReminder } from "@/lib/api";
+import { DismissReminder } from "@/hooks/use-reminders";
+import { fetchReminders, setReminder } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /** Campfire's `.btn`, as New direct message draws its buttons. */
@@ -55,6 +56,7 @@ export function RemindDialog({ message, onClose }: Props) {
   const [custom, setCustom] = useState("");
   const [mistake, setMistake] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
+  const takeBackWith = useContext(DismissReminder);
 
   // What's already waiting on this message, so a reminder can be taken back here as well as set.
   useEffect(() => {
@@ -70,14 +72,17 @@ export function RemindDialog({ message, onClose }: Props) {
 
   const chosen = PRESETS[picked]!;
   const customTime = new Date(custom);
+  // A custom time is whatever was picked; a preset is what it says from now, so it's read when the
+  // reminder is asked for, not when it was drawn — a dialog left open doesn't set a stale time.
   const remindAt = picked === PRESETS.length ? (custom !== "" && !Number.isNaN(customTime.getTime()) ? customTime : null) : chosen.at();
 
   const ask = async () => {
     if (remindAt === null) return;
+    const at = picked === PRESETS.length ? remindAt : chosen.at();
     setMistake(null);
     setAsking(true);
     try {
-      await setReminder(message.roomId, message.id, remindAt.toISOString());
+      await setReminder(message.roomId, message.id, at.toISOString());
       onClose();
     } catch (error) {
       setMistake(error instanceof Error ? error.message : "Ember couldn't set that. Try again.");
@@ -87,14 +92,14 @@ export function RemindDialog({ message, onClose }: Props) {
   };
 
   const takeBack = (id: string) => {
-    void dismissReminder(id)
+    void takeBackWith(id)
       .then(() => setWaiting((current) => current?.filter((reminder) => reminder.id !== id) ?? current))
       .catch(() => setMistake("Ember couldn't take that back. Try again."));
   };
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[22rem] p-5 touch:max-w-none touch:inset-x-3">
+      <DialogContent className="max-w-[22rem] p-5">
         <DialogTitle className="flex items-center gap-2 text-base font-medium">
           <Timer className="size-5" />
           Remind me
