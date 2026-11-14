@@ -1,6 +1,7 @@
 import { createContext, createElement, useContext, type ReactNode } from "react";
 import { workspacePageOf, type Room, type RoomId, type UserId } from "@ember/protocol";
 import type { DisplayElement, DisplayNode } from "@ember/richtext/dom";
+import { Lock } from "@/components/icons/iconoir";
 import { useNameOf } from "@/hooks/use-directory";
 import { roomName } from "@/lib/directs";
 import { roomDisplayName } from "@/lib/sub-rooms";
@@ -74,11 +75,21 @@ function CitedPlace({ href, roomId, inThread, fallback }: { href: string; roomId
   if (roomId === quoting) return fallback;
   const room = conversations?.rooms.find((r) => r.id === roomId);
   if (!room) return <span className="font-normal text-muted-foreground">· another conversation</span>;
-  const name = room.kind === "direct" ? `DM with ${roomName(room, conversations!.meId, nameOf)}` : `#${roomDisplayName(room, conversations!.rooms)}`;
+  // Named as the sidebar marks it: a DM by its people, a private room after its lock, an open one after `#`.
+  const name =
+    room.kind === "direct" ? `DM with ${roomName(room, conversations!.meId, nameOf)}` : `${room.kind === "closed" ? "" : "#"}${roomDisplayName(room, conversations!.rooms)}`;
   return (
     <>
       {"· "}
-      <MessageLink href={href}>{inThread ? `${name} › thread` : name}</MessageLink>
+      <MessageLink href={href}>
+        {room.kind === "closed" && (
+          <>
+            <Lock aria-hidden="true" className="inline size-[0.8em] align-baseline" />
+            <span className="sr-only">Private</span>{" "}
+          </>
+        )}
+        {inThread ? `${name} › thread` : name}
+      </MessageLink>
     </>
   );
 }
