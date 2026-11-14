@@ -62,6 +62,7 @@ import {
   type RoomChanges,
   type RoomId,
   type RoomSettings,
+  type SavedMessage,
   type Search,
   type SentTestEmail,
   type SharedRoom,
@@ -4641,6 +4642,35 @@ export class Workspace extends DurableObject<Env> {
   async forgetPushSubscriptions(ids: number[]): Promise<void> {
     for (const id of ids) console.log(`Destroying push subscription: ${id}`);
     await this.store.forgetPushSubscriptions(ids);
+  }
+
+  /**
+   * Saves the message `messageId` of room `roomId` for later for the person `credentials` signs in,
+   * answering the save, "saved already" once they have it saved, "forbidden" when they aren't in the
+   * room, or null without a valid session.
+   */
+  async saveMessage(credentials: Credentials, roomId: RoomId, messageId: string): Promise<SavedMessage | "saved already" | "forbidden" | null> {
+    const user = await this.authenticate(credentials);
+    if (!user) return null;
+    if (!(await this.store.isMember(roomId, user.id))) return "forbidden";
+    return (await this.store.saveMessage(user.id, roomId, messageId, Date.now())) ?? "saved already";
+  }
+
+  /** The messages the person `credentials` signs in has saved for later, newest save first, or null without a valid session. */
+  async saves(credentials: Credentials): Promise<SavedMessage[] | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.savesOf(user.id);
+  }
+
+  /** Deletes the save `id` of the person `credentials` signs in, answering whether it was theirs, or false without a valid session. */
+  async forgetSave(credentials: Credentials, id: string): Promise<boolean | null> {
+    const user = await this.authenticate(credentials);
+    return user && this.store.forgetSave(user.id, id);
+  }
+
+  /** Forgets the saves with `ids`, which an answer about someone's saves has dropped, so the table cleans itself as the pane does. */
+  async forgetSaves(ids: string[]): Promise<void> {
+    await this.store.forgetSaves(ids);
   }
 
   /**

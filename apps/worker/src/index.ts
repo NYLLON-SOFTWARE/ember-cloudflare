@@ -173,6 +173,7 @@ import { releaseCheck } from "./releases";
 import { urlOf } from "./request-url";
 import { MAX_ADDRESS_LENGTH } from "./revocations";
 import { clearSearches, recordSearch, searchMessages } from "./searches";
+import { forgetSave, saveMessage, saves } from "./saves";
 import { isOnboardedToEmailSending } from "./sending-domain";
 import { checkSetup, firstRun, isSetupPath, setupAccessOf, setupPage, setupPlaceholdersOf } from "./setup";
 import { closedAtOnce } from "./sockets";
@@ -1225,6 +1226,11 @@ function apiAction(request: Request, env: Env, pathname: string): (() => Respons
   if (pathname === "/api/searches" && request.method === "GET") return () => searchMessages(request, env);
   if (pathname === "/api/searches" && request.method === "POST") return () => recordSearch(request, env);
   if (pathname === "/api/searches" && request.method === "DELETE") return () => clearSearches(request, env);
+  if (pathname === "/api/saves" && request.method === "POST") return () => saveMessage(request, env);
+  if (pathname === "/api/saves" && request.method === "GET") return () => saves(request, env);
+  // A save's id is a UUID, which never needs percent-encoding, so an encoded segment names none.
+  const save = pathname.match(/^\/api\/saves\/([^/]+)$/);
+  if (save && request.method === "DELETE") return () => forgetSave(request, env, save[1]!);
   if (pathname === "/api/push-subscriptions" && request.method === "GET") return () => listPushSubscriptions(request, env);
   if (pathname === "/api/push-subscriptions" && request.method === "POST") return () => savePushSubscription(request, env);
   const pushSubscription = pathname.match(/^\/api\/push-subscriptions\/([^/]+)$/);
