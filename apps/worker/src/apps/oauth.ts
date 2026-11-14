@@ -53,8 +53,8 @@ const REVOKE_DEADLINE_MS = 10_000;
  * A sign-in to an app, as Ember keeps it, sealed: where its authorization server sends the browser
  * back, where Ember's client document is, if it serves one there, what was found of the authorization
  * server, who Ember is to it, and whether that's a client an administrator gave, `ownClient`, the
- * resource the tokens are for, the PKCE verifier of a sign-in that's under way, and, once it's done,
- * the tokens, with when the access token ends, if it does.
+ * resource the tokens are for, the PKCE verifier of a sign-in that's under way, with the scopes it
+ * asks for, if any, and, once it's done, the tokens, with when the access token ends, if it does.
  */
 export interface SignIn {
   redirectUrl: string;
@@ -64,6 +64,7 @@ export interface SignIn {
   ownClient?: true;
   resource?: string;
   codeVerifier?: string;
+  scopeAsked?: string;
   tokens?: { access: string; refresh: string | null; scope: string | null };
   expiresAt?: number | null;
 }
@@ -121,6 +122,7 @@ export async function startSignIn(
     await guard.allows(authorizationUrl);
     const asksFor = scopesWith(authorizationUrl.searchParams.get("scope"), more);
     if (more !== null && asksFor !== null) authorizationUrl.searchParams.set("scope", asksFor);
+    if (asksFor !== null) signIn.scopeAsked = asksFor;
     if (JSON.stringify(signIn).length > MAX_SIGN_IN_LENGTH) return { error: saidTooMuch(address.host), field: "url" };
     return { authorizationUrl: authorizationUrl.href, state: session.stateId, signIn };
   } catch (error) {
@@ -149,8 +151,8 @@ export async function finishSignIn(url: string, signIn: SignIn, code: string, is
       resource,
       fetchFn: guarded(address, held, send).send,
     });
-    const { codeVerifier: _, ...kept } = signIn;
-    return signedIn(kept, tokens, address);
+    const { codeVerifier: _, scopeAsked, ...kept } = signIn;
+    return signedIn(kept, tokens, address, scopeAsked);
   } catch (error) {
     return whyNotFinished(address, error, held, signIn.ownClient === true);
   }
@@ -230,14 +232,18 @@ function asClient(client: StoredOAuthClientInformation, method: ReturnType<typeo
 /** What an authorization server answers once a sign-in is over: the token to get another with is no good, or Ember isn't its client any more. */
 const LAPSED: ReadonlySet<string> = new Set([OAuthErrorCode.InvalidGrant, OAuthErrorCode.InvalidClient, OAuthErrorCode.UnauthorizedClient]);
 
-/** `signIn` with the `tokens` its authorization server gave, or why Ember can't use them: it sends a token only as a bearer's. */
-function signedIn(signIn: SignIn, tokens: OAuthTokens, address: URL): SignedIn | AppRefused {
+/**
+ * `signIn` with the `tokens` its authorization server gave, or why Ember can't use them: it sends a
+ * token only as a bearer's. An authorization server that doesn't say which scopes its tokens allow
+ * has given what was asked for (RFC 6749, 5.1): `asked`, of a sign-in, or what the last tokens had.
+ */
+function signedIn(signIn: SignIn, tokens: OAuthTokens, address: URL, asked?: string): SignedIn | AppRefused {
   if (tokens.token_type.toLowerCase() !== "bearer") return { error: `${address.host} signs in with a kind of token Ember can't send.` };
   const refresh = tokens.refresh_token ?? null;
   const lasts = tokens.expires_in === undefined ? (refresh === null ? null : UNSAID_LIFETIME_MS) : tokens.expires_in * 1000;
   const kept: SignedIn = {
     ...signIn,
-    tokens: { access: tokens.access_token, refresh, scope: tokens.scope ?? signIn.tokens?.scope ?? null },
+    tokens: { access: tokens.access_token, refresh, scope: tokens.scope ?? asked ?? signIn.tokens?.scope ?? null },
     expiresAt: lasts === null ? null : Date.now() + lasts,
   };
   return JSON.stringify(kept).length > MAX_SIGN_IN_LENGTH ? { error: saidTooMuch(address.host) } : kept;

@@ -878,6 +878,8 @@ export class Workspace extends DurableObject<Env> {
   private readonly probes = new Map<string, { answer: string; until: number }>();
   /** The access token of each app's sign-in that's being asked for now (`signInKey`). */
   private readonly signInKeys = new Map<AppId, Promise<SignInKey>>();
+  /** Whether a removed app's service took back the tokens Ember got from it as the app went, by app, until its removal reads it (`revokeStrayTokens`). */
+  private readonly strayTokens = new Map<AppId, Promise<boolean>>();
   /** The last change asked for, which the next one waits for (see `oneAtATime`). */
   private lastChange: Promise<unknown> = Promise.resolve();
   /** Ember AI's models being asked through their providers' endpoints, while they are (see `moveToProviderEndpoints`). */
@@ -3372,13 +3374,36 @@ export class Workspace extends DurableObject<Env> {
    * Disconnects the app `appId` as the administrator `credentials` signs in, or says why not, as
    * `connectedApp` answers. One Ember was signed in to has its service asked to take back what the
    * sign-in gave, once the app is gone, so that nothing more is asked with it meanwhile: "revoked"
-   * when it did, or "unrevoked" when it didn't, couldn't be asked, or doesn't say how.
+   * when it did, or "unrevoked" when it didn't, couldn't be asked, or doesn't say how. That's with
+   * the tokens Ember was getting as the app went, if it was, which it couldn't keep (`currentSignInKey`).
    */
   async disconnectApp(credentials: Credentials, appId: AppId): Promise<"disconnected" | "revoked" | "unrevoked" | "off" | "forbidden" | "not found" | null> {
     const removed = await this.administerAgents(credentials, async () => (await this.store.disconnectApp(appId)) ?? "not found");
     if (removed === null || typeof removed === "string") return removed;
     if (removed.sealedSignIn === null) return "disconnected";
-    return (await this.signInRevoked(appId, removed.url, removed.sealedSignIn)) ? "revoked" : "unrevoked";
+    const revoked = await Promise.all([this.signInRevoked(appId, removed.url, removed.sealedSignIn), this.strayTokensRevoked(appId)]);
+    return revoked.every(Boolean) ? "revoked" : "unrevoked";
+  }
+
+  /** Whether the service of the app `appId`, just removed, took back the tokens Ember was getting from it as it went, if it was, once it has them. */
+  private async strayTokensRevoked(appId: AppId): Promise<boolean> {
+    await this.signInKeys.get(appId)?.catch(() => undefined);
+    const revoked = this.strayTokens.get(appId);
+    this.strayTokens.delete(appId);
+    return revoked === undefined || revoked;
+  }
+
+  /**
+   * Has the service of the app `appId`, removed from `url`, take back `signIn`, as JSON, whose tokens
+   * it gave Ember as the app went: its removal took back the ones before them, which these ended, and
+   * waits for this to say whether its service took everything back.
+   */
+  private revokeStrayTokens(appId: AppId, url: string, signIn: string): void {
+    const revoked = appConnector(this.env)
+      .revokeSignIn(url, signIn)
+      .catch(() => false);
+    this.strayTokens.set(appId, revoked);
+    this.ctx.waitUntil(revoked);
   }
 
   /** Whether the service of the app `appId`, removed from `url`, took back what Ember's sign-in to it, `sealed`, gave. It's asked outside the queue of changes, as it may take a while to answer. */
@@ -3486,14 +3511,17 @@ export class Workspace extends DurableObject<Env> {
    * Keeps that the server of the connected app `appId` asked for `scope`, more than Ember's sign-in to
    * it allows, with what it asked for before, which signing in again then asks for, and the app's page
    * says. Kept only while the app is still signed in to as it was when its server was asked, `askedAt`,
-   * and while it's no more than Ember keeps.
+   * and while it's no more than Ember keeps. One at a time, as two rooms' calls may each be refused for
+   * want of another scope, and each adds its own to what's kept by then.
    */
   async keepAppScopeWanted(appId: AppId, scope: string, askedAt: AskedAt): Promise<void> {
-    const app = await this.store.app(appId);
-    if (!app?.signedIn || !isAskedAt(app, askedAt)) return;
-    const wanted = scopesWith(app.scopeWanted, scope);
-    if (wanted === null || wanted === app.scopeWanted || wanted.length > MAX_APP_SCOPE_LENGTH) return;
-    await this.store.keepAppScopeWanted(appId, wanted, app.signedIn.at);
+    await this.oneAtATime(async () => {
+      const app = await this.store.app(appId);
+      if (!app?.signedIn || !isAskedAt(app, askedAt)) return;
+      const wanted = scopesWith(app.scopeWanted, scope);
+      if (wanted === null || wanted === app.scopeWanted || wanted.length > MAX_APP_SCOPE_LENGTH) return;
+      await this.store.keepAppScopeWanted(appId, wanted, app.signedIn.at);
+    });
   }
 
   /**
@@ -3537,7 +3565,8 @@ export class Workspace extends DurableObject<Env> {
    * what came back before anything else asks. Null once there's no getting another, which ends the
    * sign-in. A token that couldn't be asked for now leaves the last one, for the app's server to refuse.
    * What came back for a sign-in that an administrator has replaced meanwhile, or whose app is gone,
-   * isn't kept or used: the app is asked as it is by then.
+   * isn't kept or used: the app is asked as it is by then, and an app that's gone has its service
+   * take back what came, as its removal takes back the tokens that were kept, which these ended.
    */
   private async currentSignInKey(appId: AppId): Promise<SignInKey> {
     const app = await this.store.app(appId);
@@ -3550,8 +3579,9 @@ export class Workspace extends DurableObject<Env> {
     const refreshed = await appConnector(this.env).refreshSignIn(app.url, kept);
     if (refreshed === "failed") return keyed(signIn.tokens.access);
     const saved = await this.store.keepAppSignIn(appId, refreshed === "lapsed" ? null : await this.sealedSignIn(appId, refreshed.kept), app.sealedSignIn);
-    if (!saved) return this.currentSignInKey(appId);
-    return keyed(refreshed === "lapsed" ? null : refreshed.token);
+    if (saved) return keyed(refreshed === "lapsed" ? null : refreshed.token);
+    if (refreshed !== "lapsed" && !(await this.store.app(appId))) this.revokeStrayTokens(appId, app.url, refreshed.kept);
+    return this.currentSignInKey(appId);
   }
 
   /** The client `signIn`, a sign-in to the app `appId` as JSON, was made as, to keep beside it when an administrator gave it: its ID, and what its service knows it by, sealed for that app's client alone. */

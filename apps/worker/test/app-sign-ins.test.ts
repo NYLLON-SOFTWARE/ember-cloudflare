@@ -17,7 +17,7 @@ import { ASSISTANT_OFF } from "@ember/protocol/assistant";
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { scopesOf, scopesWith } from "../src/apps/scopes";
-import { appTool, signInEnded, wantsMoreAccess } from "../src/apps/tools";
+import { appTool, signInEnded, unmadeFor, wantsMoreAccess, type Unmade } from "../src/apps/tools";
 import { toBase64url } from "../src/encoding";
 import type { Env } from "../src/env";
 import { api, cookieOf, freshDeploy, origin, shown, workspaceSql, workspaceStub, type Session } from "./support";
@@ -65,7 +65,7 @@ let addresses: Record<string, string[]>;
  * gives a token to get another with, and what it answers in place of all that, if anything, once
  * whatever that does meanwhile is done. `codes` are the ones it has sent a browser back with, each
  * with what the browser was sent to it with, and `access` and `refresh` the tokens it gave last, the
- * `issued`th, which allow the scopes of `scope`. `tools` are what the fake server lists, and `listing`
+ * `issued`th, which allow the scopes of `scope`, which it says with them unless `saysScope` is off. `tools` are what the fake server lists, and `listing`
  * what happens while it lists them, if anything, once it has decided what to answer. `needs` is the
  * scope the fake server asks of whoever sends it a `method`, if it asks one. `revokes` is whether the
  * authorization server takes tokens back, which it answers with `revoked` in place of doing so, if
@@ -86,6 +86,7 @@ interface AuthorizationServer {
   access: string | null;
   refresh: string | null;
   scope: string | undefined;
+  saysScope: boolean;
   tools: unknown[];
   listing: (() => Promise<unknown>) | undefined;
   needs: { method: string; scope: string } | null;
@@ -110,7 +111,7 @@ function nextTokens(scope: string | undefined): Response {
     token_type: "Bearer",
     ...(auth.expiresIn !== undefined && { expires_in: auth.expiresIn }),
     ...(auth.refresh !== null && { refresh_token: auth.refresh }),
-    ...(scope !== undefined && { scope }),
+    ...(scope !== undefined && auth.saysScope && { scope }),
   });
 }
 
@@ -214,6 +215,7 @@ beforeEach(async () => {
     access: null,
     refresh: null,
     scope: undefined,
+    saysScope: true,
     tools: [SEARCH_ISSUES],
     listing: undefined,
     needs: null,
@@ -360,6 +362,27 @@ async function removed(response: Response): Promise<AppRemoved> {
 
 /** The requests Ember sent the fake authorization server's revocation endpoint: what each carried, and how it was held. */
 const revocations = () => asked.filter(({ url }) => url === `${AUTH}/revoke`).map(({ form, authorization, redirect, timed }) => ({ form, authorization, redirect, timed }));
+
+/** Waits until Ember has no app connected, as once one that's being removed is gone. */
+const noApps = () => vi.waitFor(async () => expect(await workspaceSql("SELECT count(*) AS n FROM apps")).toEqual([{ n: 0 }]));
+
+/**
+ * Removes the app `id` as `administrator` while Ember asks the fake authorization server for its
+ * sign-in's next token, as `asks` has it do, which it's answered once the app is gone, with `given`,
+ * the tokens it was given before that, if it was: what `asks` came to, and what removing the app answered.
+ */
+async function removedWhileAsking<T>(administrator: Session, id: string, asks: () => Promise<T>, given: () => Response | null = () => null): Promise<[T, Response]> {
+  let asking = false;
+  auth.token = async () => {
+    const tokens = given();
+    asking = true;
+    await noApps();
+    return tokens;
+  };
+  const asked = asks();
+  await vi.waitFor(() => expect(asking).toBe(true));
+  return Promise.all([asked, disconnect(administrator, id)]);
+}
 
 /** The requests Ember sent the fake authorization server's token endpoint. */
 const tokenRequests = () => asked.filter(({ url }) => url === `${AUTH}/token`).map(({ form }) => form!);
@@ -662,8 +685,10 @@ describe("Signing in to an app", () => {
     await pick(administrator, true);
     expect(await called()).toMatchObject({ key: { token: "access-4" } });
 
-    auth.token = async () => (expect((await disconnect(administrator, app.id)).status).toBe(200), null);
-    expect(await called()).toBeNull();
+    // Its removal waits for the token Ember is getting, to have its service take that back too.
+    const [uncalled, removing] = await removedWhileAsking(administrator, app.id, called);
+    expect(uncalled).toBeNull();
+    expect(await removed(removing)).toEqual({ revoked: false });
   });
 
   it("keeps a signed-in app's address, and takes no token for it, as its sign-in is to the server there", async () => {
@@ -844,6 +869,54 @@ describe("An app whose server asks for more than Ember's sign-in to it allows", 
     expect(await tool.run({})).toBe("Done.");
   });
 
+  it("takes an authorization server that doesn't say what its tokens allow to have given what was asked for, which the next sign-in asks for again", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    auth.saysScope = false;
+    const app = await signIn(administrator);
+    const tool = await pickedTool(administrator, app);
+    auth.needs = { method: "tools/call", scope: "issues:write" };
+    await expect(tool.run({})).rejects.toThrow(wantsMoreAccess("Tracker"));
+    const authorizationUrl = await sentTo(await beginAgain(administrator, app.id));
+    expect(authorizationUrl.searchParams.get("scope")).toBe("issues issues:write");
+    await signedInBy(await finish(administrator, comeBack(authorizationUrl)), 200);
+    expect(await tool.run({})).toBe("Done.");
+
+    // What that sign-in was given isn't forgotten when the server asks for something else.
+    auth.needs = { method: "tools/call", scope: "projects:read" };
+    await expect(tool.run({})).rejects.toThrow(wantsMoreAccess("Tracker"));
+    expect((await sentTo(await beginAgain(administrator, app.id))).searchParams.get("scope")).toBe("issues issues:write projects:read");
+  });
+
+  it("keeps each of the scopes two calls are refused for want of at once", async () => {
+    const administrator = await setUp();
+    const app = await signIn(administrator);
+    await pick(administrator, true);
+    const { name, fingerprint } = (await offered(administrator))[0]!.tools[0]!;
+    const askedAt = (await workspaceStub().appToolCall(ASSISTANT_ID, { appId: app.id, name, fingerprint }, false))!;
+
+    await Promise.all(["issues:write", "projects:read", "labels:write"].map((scope) => workspaceStub().keepAppScopeWanted(app.id, scope, askedAt)));
+    expect(await workspaceSql("SELECT scope_wanted FROM apps")).toEqual([{ scope_wanted: "issues:write projects:read labels:write" }]);
+  });
+
+  it("tells the room that a call it was shown, made without asking first, wasn't made for want of access", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = await signIn(administrator);
+    const { name, fingerprint } = (await offered(administrator))[0]!.tools[0]!;
+    const always = { tools: [{ appId: app.id, name, fingerprint, alwaysAllowed: true }] };
+    expect((await api(`/api/account/agents/${ASSISTANT_ID}/tools`, { method: "PUT", headers: as(administrator), body: JSON.stringify(always) })).status).toBe(200);
+    const told: Unmade[] = [];
+    const shown = async () => ({ unmade: async (why: Unmade) => void told.push(why) });
+    const tool = appTool(env as unknown as Env, ASSISTANT_ID, { appId: app.id, appName: app.name, name, fingerprint, as: name }, { shown });
+
+    expect(await tool.run({})).toBe("Done.");
+    auth.needs = { method: "tools/call", scope: "issues:write" };
+    await expect(tool.run({})).rejects.toThrow(`Not run: ${wantsMoreAccess("Tracker")}`);
+    expect(told).toEqual(["refused"]);
+    expect(unmadeFor("Ember", "Tracker", "refused")).toBe(`Not run: ${wantsMoreAccess("Tracker")}`);
+  });
+
   it("keeps what reading its tools again was refused for want of, which says to sign in again", async () => {
     const administrator = await setUp();
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -951,6 +1024,34 @@ describe("Removing an app Ember is signed in to", () => {
     expect(await removed(await disconnect(administrator, inside.id))).toEqual({ revoked: false });
     expect(asked.some(({ url }) => url.startsWith("https://auth.internal.example"))).toBe(false);
     expect(await workspaceSql("SELECT count(*) AS n FROM apps")).toEqual([{ n: 0 }]);
+  });
+
+  it("takes back the tokens Ember was getting as the app went, too, which ended the ones it kept", async () => {
+    const administrator = await setUp();
+    Object.assign(auth, { revokes: true, expiresIn: 30 });
+    const app = await signIn(administrator);
+    await pick(administrator, true);
+    const { name, fingerprint } = (await offered(administrator))[0]!.tools[0]!;
+    const called = (id: string) => () => workspaceStub().appToolCall(ASSISTANT_ID, { appId: id, name, fingerprint }, false);
+    asked = [];
+
+    // The service gives the sign-in's next tokens, and the app is removed before Ember has them.
+    const [uncalled, removing] = await removedWhileAsking(administrator, app.id, called(app.id), () => nextTokens(undefined));
+    expect(uncalled).toBeNull();
+    expect(await removed(removing)).toEqual({ revoked: true });
+    expect(
+      revocations()
+        .map(({ form }) => form?.token)
+        .sort(),
+    ).toEqual(["access-1", "access-2", "refresh-1", "refresh-2"]);
+    expect([auth.access, auth.refresh]).toEqual([null, null]);
+
+    // A service that doesn't take those back hasn't taken the sign-in back.
+    const again = await signIn(administrator);
+    await pick(administrator, true);
+    auth.revoked = () => (asked.some(({ form }) => form?.token === auth.refresh) ? new Response(null, { status: 503 }) : null);
+    const [, unrevoked] = await removedWhileAsking(administrator, again.id, called(again.id), () => nextTokens(undefined));
+    expect(await removed(unrevoked)).toEqual({ revoked: false });
   });
 
   it("asks nothing of the service of an app whose sign-in has ended, or that has a token", async () => {
