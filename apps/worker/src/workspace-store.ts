@@ -1945,6 +1945,13 @@ const SUBSCRIPTIONS = `SELECT bot_subscriptions.user_id AS botId, bot_subscripti
   FROM bot_subscriptions JOIN users ON users.id = bot_subscriptions.user_id
   WHERE users.status = ${ACTIVE} ORDER BY bot_subscriptions.user_id, bot_subscriptions.room_id`;
 
+/** The same, but for ?1, who isn't an administrator: only the subscriptions to rooms they're in, since one names a room and its bot they may not read of. */
+const SUBSCRIPTIONS_IN_ROOMS_OF = `SELECT bot_subscriptions.user_id AS botId, bot_subscriptions.room_id AS roomId
+  FROM bot_subscriptions JOIN users ON users.id = bot_subscriptions.user_id
+  WHERE users.status = ${ACTIVE}
+    AND EXISTS (SELECT 1 FROM memberships WHERE memberships.room_id = bot_subscriptions.room_id AND memberships.user_id = ?1)
+  ORDER BY bot_subscriptions.user_id, bot_subscriptions.room_id`;
+
 /** Whether a room's event is a new message: anyone's, or a bot's reply to a webhook delivery. */
 const isNewMessage = ({ kind }: RoomEvent) => kind !== "read";
 
@@ -4455,9 +4462,12 @@ export class WorkspaceStore {
     return row ? { member: { id: userId, name: row.name }, administrator: row.administrator === 1 } : null;
   }
 
-  /** The workspace's commands, by name, and which of the bots are on which rooms' message events, read together. */
-  async commands(): Promise<Commands> {
-    const [commandRows, subscriptions] = (await this.db.batch([statement(COMMANDS), statement(SUBSCRIPTIONS)])) as [CommandRow[], EventSubscription[]];
+  /** The workspace's commands, by name, and which of the bots are on which rooms' message events, read together: an administrator's every subscription, and anyone else's only those of the rooms they're in, whose ids alone they may read. */
+  async commands(viewerId: UserId, administrator: boolean): Promise<Commands> {
+    const [commandRows, subscriptions] = (await this.db.batch([statement(COMMANDS), administrator ? statement(SUBSCRIPTIONS) : statement(SUBSCRIPTIONS_IN_ROOMS_OF, viewerId)])) as [
+      CommandRow[],
+      EventSubscription[],
+    ];
     return { commands: commandRows.map(commandOf), subscriptions };
   }
 

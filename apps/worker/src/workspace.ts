@@ -3937,12 +3937,15 @@ export class Workspace extends DurableObject<Env> {
   /**
    * The workspace's commands, each with its bot, and which of the bots are on which rooms' message
    * events, for the person `credentials` signs in: they're what the composer's menu offers and the bots
-   * page ticks, which everyone signed in reads, though only administrators change them. Null without a
+   * page ticks, which everyone signed in reads, though only administrators change them. The
+   * subscriptions name rooms, which not everyone may read, so an administrator's are all of them, and
+   * anyone else's only those of their own rooms — the composer needs the commands alone. Null without a
    * valid session.
    */
   async commands(credentials: Credentials): Promise<Commands | null> {
     const user = await this.authenticate(credentials);
-    return user ? this.store.commands() : null;
+    if (!user) return null;
+    return this.store.commands(user.id, await this.store.isAdministrator(user.id));
   }
 
   /**
