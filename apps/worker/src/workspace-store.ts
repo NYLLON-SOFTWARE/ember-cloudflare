@@ -2420,12 +2420,6 @@ const MENTIONABLE_MEMBERS = `SELECT ${DIRECTORY_COLUMNS}
   WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.name LIKE '%' || ?1 || '%'
   ${MENTIONABLE_ORDER} LIMIT ${MENTIONABLE_PAGE}`;
 
-/**
- * A room that every active person can see, which sharing from widens nothing. Merging sub-rooms
- * (slack-subrooms) declares this too, as an open room that isn't inside a private one: keep that one.
- */
-const OPEN_TO_EVERYONE = `rooms.kind = 'open'`;
-
 /** The people sharing from room ?1 in room ?2 would reach: active people in room ?2 who aren't in room ?1, and aren't bots. */
 const NEW_VIEWERS = `FROM memberships JOIN users ON users.id = memberships.user_id
   WHERE memberships.room_id = ?2 AND users.status = ${ACTIVE} AND users.role <> ${BOT}

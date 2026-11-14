@@ -25,6 +25,8 @@ import { loadPage } from "@/lib/page";
 import { updateOf } from "@/lib/release-check";
 import { apart, markedUnread } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
+import { addressShowing } from "./room-tabs";
+import { dmPath, messagePath, navigate, pageMark, returnTo, roomPath, routeOf, useHash, useQuery, useRoute, type Route } from "@/hooks/use-route";
 import type { RoomGone } from "./composer";
 import { ActivityPage } from "./activity-page";
 import { HuddlesContext, NO_HUDDLES, type Huddles } from "./huddle-button";
@@ -457,6 +459,11 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
   };
   const goneHere = gone?.route === route ? gone : null;
   const goneRoom = goneHere?.room ?? null;
+  // A room that's gone has no tabs, so its address names none.
+  const tabAddressed = new URLSearchParams(useQuery()).has("tab");
+  useEffect(() => {
+    if (goneHere && tabAddressed) navigate(addressShowing("messages"), { replace: true });
+  }, [goneHere, tabAddressed]);
   // A room shown as gone that's listed again, as when someone is put back in it, shows as it is on a page
   // started afresh, since its own socket may have stopped. `returns` counts the rooms that came back so.
   const [returns, setReturns] = useState(0);
@@ -812,7 +819,6 @@ export function Workspace({ me, workspaceName, onAccountChanged, onSignOut, onSe
                     onDismissInvitation={dismissCard}
                     me={me}
                     favorite={starred.has(shown.id)}
-                    gone={false}
                     onStarred={starredRooms}
                     involvement={shown.involvement}
                     askForRoom={askForRoom}

@@ -21,6 +21,8 @@ const plans: SharedRoom = { id: "plans", name: "plans", kind: "closed", icon: nu
 const settings = (canAdminister: boolean, room: SharedRoom = plans): RoomSettings => ({
   room,
   canAdminister,
+  parents: [],
+  subRooms: 0,
   people: [
     { ...ada, member: true },
     { ...grace, member: true },

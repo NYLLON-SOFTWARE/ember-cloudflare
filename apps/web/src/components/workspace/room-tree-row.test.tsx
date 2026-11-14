@@ -31,14 +31,14 @@ function renderSidebar(props: Partial<ComponentProps<typeof Sidebar>> = {}) {
         meId="u1"
         rooms={[general, strata, ...subRooms]}
         loaded
-        suggestions={[]}
         favorites={unstarred}
         sharedOrder={["strata", "inventory", "sales", "titling", "general"]}
+        huddles={{}}
         currentRoomId={null}
+        currentPage={null}
+        draftCount={0}
         unreadOnly={false}
         onSelect={vi.fn()}
-        onNewDirect={vi.fn()}
-        onStartDirect={vi.fn(async () => true)}
         onStarred={vi.fn()}
         onSessionChanged={vi.fn()}
         {...props}
@@ -86,7 +86,8 @@ describe("Sub-rooms in the sidebar", () => {
 
   it("names a starred sub-room, listed with the stars, with its parent", () => {
     renderSidebar({ favorites: { rooms: ["sales"], version: 1 } });
-    expect(listed()[0]).toBe("#Strata – Sales");
+    const starredRooms = within(screen.getByRole("region", { name: "Starred" })).getAllByRole("link").map((link) => link.textContent);
+    expect(starredRooms).toEqual(["#Strata – Sales"]);
     expect(listed()).not.toContain("#Sales");
   });
 });

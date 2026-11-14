@@ -116,7 +116,6 @@ export function Sidebar({ workspaceName, meId, rooms, loaded, favorites, sharedO
       unread={unread}
       count={count}
       mentioned={mentioned}
-      mentioned={mentioned}
       starred={starred.has(room.id)}
       moving={room.id === moving}
       huddle={huddles[room.id]}

@@ -1676,7 +1676,7 @@ describe("Live sidebar updates", () => {
     await roomHeading();
     await screen.findByRole("tabpanel", { name: "Files & links" }, { timeout: 5000 });
     await workspaceSends({ type: "room.gone", roomId: "random" });
-    expect(screen.getByRole("alert")).toHaveTextContent("This room was deleted.");
+    expect(screen.getByRole("alert")).toHaveTextContent("#random was deleted");
     await waitFor(() => expect(location.pathname + location.search).toBe("/rooms/random"));
   });
 
