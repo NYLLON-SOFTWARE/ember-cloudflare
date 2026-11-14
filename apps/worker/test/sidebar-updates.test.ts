@@ -47,7 +47,7 @@ describe("Live sidebar updates", () => {
     const [adasTab, gracesTab, linussTab] = [await openWorkspaceSocket(ada), await openWorkspaceSocket(grace), await openWorkspaceSocket(linus)];
 
     expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id, linus.user.id] })).status).toBe(200);
-    expect(await gracesTab.next()).toEqual({ type: "room.gone", roomId: room.id });
+    expect(await gracesTab.next()).toEqual({ type: "room.gone", roomId: room.id, lostAccess: true });
     expect(await linussTab.next()).toEqual({ type: "room.saved", room });
     // The room is as it was, so whoever stays in it hears nothing.
     await heardNothing(adasTab);
@@ -63,7 +63,7 @@ describe("Live sidebar updates", () => {
     for (const tab of [adasTab, gracesTab]) expect(await tab.next()).toEqual({ type: "room.saved", room: opened });
 
     expect((await change(room.id, ada, { kind: "closed", memberIds: [ada.user.id] })).status).toBe(200);
-    expect(await gracesTab.next()).toEqual({ type: "room.gone", roomId: room.id });
+    expect(await gracesTab.next()).toEqual({ type: "room.gone", roomId: room.id, lostAccess: true });
     expect(await adasTab.next()).toEqual({ type: "room.saved", room });
   });
 

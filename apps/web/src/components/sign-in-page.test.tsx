@@ -10,11 +10,15 @@ import {
 } from "@ember/protocol";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { returnPath } from "@/lib/return-path";
 import { CHROME_MAC } from "@/test-platforms";
 import { FlashProvider } from "./flash";
 import { SignInPage } from "./sign-in-page";
+import { loadRarePages } from "./workspace/rare-pages";
+
+// Joining with just a name loads with the pages.
+beforeAll(() => loadRarePages(), 120_000);
 
 const ada = { id: "u1", name: "Ada" };
 const workspace: Omit<Bootstrap, "user"> = {

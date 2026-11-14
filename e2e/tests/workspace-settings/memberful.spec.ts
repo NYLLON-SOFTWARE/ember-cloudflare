@@ -1,7 +1,7 @@
 import { MEMBERFUL_SIGN_IN_PROBLEMS, type Account, type WorkspaceSettings } from "@ember/protocol";
 import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, test } from "../../fixtures";
-import { administratorSession, cookieHeader, logOut, SAME_ORIGIN, signInAsAdministrator, useOwnAddress } from "../../fixtures";
+import { administratorSession, answerConfirm, cookieHeader, logOut, SAME_ORIGIN, signInAsAdministrator, useOwnAddress } from "../../fixtures";
 import { sendWebhook, startFakeMemberful, type FakeMember, type FakeMemberful } from "./fake-memberful";
 
 // Signing in with Memberful, at a Memberful site of the specs' own (fake-memberful.ts), whose address
@@ -132,9 +132,9 @@ test.describe("Ways to join", () => {
     await expect(link).toBeEnabled();
     await expect(page.getByRole("textbox", { name: "Share to invite more people" })).toBeVisible();
 
-    page.once("dialog", (dialog) => void dialog.accept());
     const membersOnly = page.getByRole("switch", { name: "Members only", exact: true });
     await membersOnly.click();
+    await answerConfirm(page, "Are you sure only Memberful's members should sign in?", "Turn on");
     await expect(membersOnly).toBeChecked();
     await expect(link).toBeDisabled();
     await expect(page.getByRole("textbox", { name: "Share to invite more people" })).toHaveCount(0);

@@ -1,5 +1,5 @@
 import type { APIRequestContext, Page } from "@playwright/test";
-import { administratorSession, cookieHeader, expect, fakeTurnstile, SAME_ORIGIN, signInAsAdministrator, test, TURNSTILE_WIDGET, turnstileTokenFor, useOwnAddress } from "../../fixtures";
+import { administratorSession, answerConfirm, cookieHeader, expect, fakeTurnstile, SAME_ORIGIN, signInAsAdministrator, test, TURNSTILE_WIDGET, turnstileTokenFor, useOwnAddress } from "../../fixtures";
 import { startFakeSiteverify, type FakeSiteverify } from "./fake-siteverify";
 
 // Membership's Turnstile card and Set up Turnstile, on the second test server, which asks the siteverify
@@ -95,10 +95,10 @@ test.describe("Check that people are people with Cloudflare Turnstile", () => {
     const saved = await request.put("/api/account/turnstile_keys", { data: { ...TURNSTILE_WIDGET, turnstileToken: turnstileTokenFor(TURNSTILE_WIDGET.siteKey) }, headers });
     expect(saved.status(), await saved.text()).toBe(200);
     const turnstile = await openTurnstile(page, request);
-    page.once("dialog", (dialog) => void dialog.accept());
     const turnstileSwitch = turnstile.getByRole("switch", { name: "Turnstile" });
     await expect(turnstileSwitch).toBeChecked();
     await turnstileSwitch.click();
+    await answerConfirm(page, "Are you sure you want to turn off Turnstile?", "Turn off");
     await expect(turnstileSwitch).not.toBeChecked();
     await expect(turnstileSwitch).toBeEnabled();
     await expect(page.getByRole("region", { name: "Open", exact: true })).toContainText("Setting up Turnstile lifts these limits.");

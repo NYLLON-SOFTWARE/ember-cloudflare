@@ -13,16 +13,20 @@ import {
 } from "@ember/protocol";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountContext } from "@/hooks/use-account";
 import { loadPage } from "@/lib/page";
 import { CHROME_MAC } from "@/test-platforms";
 import { fakeTurnstile } from "@/test-turnstile";
 import avatarPlaceholder from "./avatar-placeholder.svg";
 import { JoinPage, TURNSTILE_UNAVAILABLE } from "./join-page";
+import { loadTranslations } from "@/components/translation-button";
 
 vi.mock("@/lib/page", () => ({ loadPage: vi.fn() }));
 vi.mock("@/lib/previews", () => ({ avatarVariantOf: vi.fn(async () => new Blob(["variant"], { type: "image/webp" })) }));
+
+// Translations load as a translate button first opens; these tests read them under closed buttons.
+beforeAll(() => loadTranslations());
 
 const grace = { id: "u2", name: "Grace Hopper" };
 const workspace: Omit<Bootstrap, "user"> = {

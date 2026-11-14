@@ -8,7 +8,7 @@ import type { RoomAnswer } from "@/lib/room-list";
 import { cn } from "@/lib/utils";
 
 /** The icon for each level, where Campfire draws a bell for each (notification-bell-*.svg). */
-const BELLS: Record<Involvement, ComponentType<IconoirIconProps>> = {
+export const BELLS: Record<Involvement, ComponentType<IconoirIconProps>> = {
   mentions: AtSign,
   everything: BellNotificationSolid,
   nothing: BellOff,

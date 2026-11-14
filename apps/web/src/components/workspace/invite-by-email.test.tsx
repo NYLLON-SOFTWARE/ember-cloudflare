@@ -5,6 +5,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import { dateLabel } from "@/lib/messages";
+import { answerConfirm } from "@/test-confirm";
 import { CONFIRM_REVOKE, InviteByEmail } from "./invite-by-email";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -241,28 +242,30 @@ describe("Invite people by email", () => {
 
     it("revokes one once they confirm", async () => {
       serve();
-      const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+      const confirm = vi.spyOn(window, "confirm");
       const { user } = showCard({ invitations: [invitation("ann@example.com"), invitation("bob@example.com")] });
       const revoke = () => within(rowFor("ann@example.com")).getByRole("button", { name: "Revoke the invitation for ann@example.com" });
       await user.click(revoke());
-      expect(confirm).toHaveBeenCalledWith(CONFIRM_REVOKE);
+      await answerConfirm(user, CONFIRM_REVOKE, "Cancel");
       expect(fetch).not.toHaveBeenCalled();
 
       await user.click(revoke());
+      await answerConfirm(user, CONFIRM_REVOKE, "Revoke");
       await waitFor(() => expect(rows()).toHaveLength(1));
       expect(rows()[0]).toHaveTextContent("bob@example.com");
       expect(fetch).toHaveBeenCalledExactlyOnceWith("/api/invitations/id-ann%40example.com", expect.objectContaining({ method: "DELETE" }));
+      expect(confirm).not.toHaveBeenCalled();
     });
 
     it("takes away one found accepted or revoked already, and leaves other failures to the page's alerts", async () => {
       serve({ resent: () => Response.json({ error: "Not found" }, { status: 404 }), revoked: () => Response.json({ error: "Not signed in" }, { status: 401 }) });
-      vi.spyOn(window, "confirm").mockReturnValue(true);
       const { user, onFailed } = showCard({ invitations: [invitation("ann@example.com"), invitation("bob@example.com")] });
       await user.click(within(rowFor("ann@example.com")).getByRole("button", { name: "Send again for ann@example.com" }));
       await waitFor(() => expect(rows()).toHaveLength(1));
       expect(onFailed).not.toHaveBeenCalled();
 
       await user.click(within(rowFor("bob@example.com")).getByRole("button", { name: "Revoke the invitation for bob@example.com" }));
+      await answerConfirm(user, CONFIRM_REVOKE, "Revoke");
       await waitFor(() => expect(onFailed).toHaveBeenCalledWith(new ApiError(401, "Not signed in")));
       expect(rows()).toHaveLength(1);
       expect(within(rowFor("bob@example.com")).getByRole("button", { name: "Revoke the invitation for bob@example.com" })).toBeEnabled();

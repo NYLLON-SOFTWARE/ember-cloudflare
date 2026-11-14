@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PeopleContext, type People } from "@/hooks/use-directory";
 import { guardLeaving, navigate, pageMark } from "@/hooks/use-route";
 import { takeAnswer } from "@/lib/search";
-import { CONFIRM_CLEAR_SEARCHES, SearchBox } from "./search-box";
+import { answerConfirm } from "@/test-confirm";
+import { CONFIRM_CLEAR_SEARCHES } from "./search-box";
+import { SearchBox } from "./search-dialog";
 
 const ada: Me = { id: "u1", name: "Ada Lovelace", administrator: false };
 /** Someone in the people directory. */
@@ -465,7 +467,7 @@ describe("Recent searches", () => {
 
   it("hides them with Recent searches, and clears them once you confirm", async () => {
     serve([{ q: "launch" }]);
-    const sure = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi.spyOn(window, "confirm");
     const { user } = showBox();
     await screen.findByRole("option", { name: "launch" });
     const toggle = screen.getByRole("button", { name: "Recent searches" });
@@ -476,9 +478,11 @@ describe("Recent searches", () => {
     expect(options()).toEqual(["launch"]);
 
     await user.click(screen.getByRole("button", { name: "Clear recent searches" }));
-    expect(sure).toHaveBeenCalledExactlyOnceWith(CONFIRM_CLEAR_SEARCHES);
+    await answerConfirm(user, CONFIRM_CLEAR_SEARCHES, "Cancel");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Clear recent searches" })).toHaveFocus());
     expect(options()).toEqual(["launch"]);
     await user.click(screen.getByRole("button", { name: "Clear recent searches" }));
+    await answerConfirm(user, CONFIRM_CLEAR_SEARCHES, "Clear");
     await waitFor(() => expect(options()).toEqual([]));
     expect(screen.queryByRole("heading", { name: "Recent searches" })).toBeNull();
     expect(field()).toHaveFocus();
@@ -486,6 +490,7 @@ describe("Recent searches", () => {
       ["GET", "/api/searches?q="],
       ["DELETE", "/api/searches"],
     ]);
+    expect(confirm).not.toHaveBeenCalled();
   });
 });
 

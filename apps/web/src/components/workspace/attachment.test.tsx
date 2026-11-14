@@ -1,9 +1,13 @@
 import { MAX_PREVIEW_SIZE, type StoredFile } from "@ember/protocol";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { svgDataUrl } from "@/lib/svg-preview";
 import { Attachment } from "./attachment";
+import { loadRarePages } from "./rare-pages";
+
+// The image viewer loads with the pages few visits need, which take a while to import in a test.
+beforeAll(() => loadRarePages(), 120_000);
 
 // jsdom decodes no SVGs, so lib/svg-preview.test.ts tests how they're loaded, and e2e/ shows real ones.
 vi.mock("@/lib/svg-preview", () => ({ svgDataUrl: vi.fn() }));

@@ -1,19 +1,8 @@
 import { useSyncExternalStore, type ComponentType, type ReactNode } from "react";
 import type { Platform } from "@ember/protocol";
 import { ExternalSliders } from "@/components/icons/campfire";
-import {
-  BellOff,
-  DownloadDataWindow,
-  GridPlus,
-  Internet,
-  Lock,
-  MoreVert,
-  NavArrowRight,
-  Settings,
-  ShareIos,
-  SwitchOff,
-  type IconoirIconProps,
-} from "@/components/icons/iconoir";
+import { BellOff, Internet, Lock, NavArrowRight, Settings, type IconoirIconProps } from "@/components/icons/iconoir";
+import { DownloadDataWindow, GridPlus, MoreVert, ShareIos, SwitchOff } from "@/components/icons/iconoir-more";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { canInstall, givesInstallSteps, promptInstall, subscribeToInstallPrompt } from "@/lib/install-prompt";
 

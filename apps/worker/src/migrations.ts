@@ -53,11 +53,29 @@ import agentPromptTemplates from "../migrations/0052_agent_prompt_templates.sql"
 import unbannedOpenRooms from "../migrations/0053_unbanned_open_rooms.sql";
 import agentThinkingLevels from "../migrations/0054_agent_thinking_levels.sql";
 import apps from "../migrations/0055_apps.sql";
+import unreadCounts from "../migrations/0055_unread_counts.sql";
 import agentTools from "../migrations/0056_agent_tools.sql";
+import unreadMentions from "../migrations/0056_unread_mentions.sql";
 import waitingCalls from "../migrations/0057_waiting_calls.sql";
+import fileMarks from "../migrations/0060_file_marks.sql";
+import roomTabs from "../migrations/0061_room_tabs.sql";
+import activity from "../migrations/0065_activity.sql";
+import timeZones from "../migrations/0066_time_zones.sql";
+import scheduledMessages from "../migrations/0070_scheduled_messages.sql";
+import scheduledFailures from "../migrations/0071_scheduled_failures.sql";
+import scheduledListings from "../migrations/0072_scheduled_listings.sql";
+import scheduledChanges from "../migrations/0073_scheduled_changes.sql";
+import subRooms from "../migrations/0075_sub_rooms.sql";
+import forwards from "../migrations/0080_forwards.sql";
+import forwardChanges from "../migrations/0081_forward_changes.sql";
+import savedItems from "../migrations/0085_saved_items.sql";
+import savedRemindersSent from "../migrations/0086_saved_reminders_sent.sql";
+import noteUploads from "../migrations/0087_note_uploads.sql";
 import searchIndex from "../search-migrations/0001_search_index.sql";
 import searchResults from "../search-migrations/0002_search_results.sql";
 import searchFilters from "../search-migrations/0003_search_filters.sql";
+import mentionsByPerson from "../search-migrations/0004_mentions_by_person.sql";
+import threadsByActivity from "../search-migrations/0005_threads_by_activity.sql";
 
 /**
  * The kind of Durable Object whose tables a migration creates or changes. On DO SQLite each object
@@ -134,8 +152,24 @@ export const MIGRATIONS: Migration[] = [
   { name: "0053_unbanned_open_rooms.sql", scope: "workspace", sql: unbannedOpenRooms },
   { name: "0054_agent_thinking_levels.sql", scope: "workspace", sql: agentThinkingLevels },
   { name: "0055_apps.sql", scope: "workspace", sql: apps },
+  { name: "0055_unread_counts.sql", scope: "workspace", sql: unreadCounts },
   { name: "0056_agent_tools.sql", scope: "workspace", sql: agentTools },
+  { name: "0056_unread_mentions.sql", scope: "workspace", sql: unreadMentions },
   { name: "0057_waiting_calls.sql", scope: "room", sql: waitingCalls },
+  { name: "0060_file_marks.sql", scope: "workspace", sql: fileMarks },
+  { name: "0061_room_tabs.sql", scope: "workspace", sql: roomTabs },
+  { name: "0065_activity.sql", scope: "workspace", sql: activity },
+  { name: "0066_time_zones.sql", scope: "workspace", sql: timeZones },
+  { name: "0070_scheduled_messages.sql", scope: "room", sql: scheduledMessages },
+  { name: "0071_scheduled_failures.sql", scope: "room", sql: scheduledFailures },
+  { name: "0072_scheduled_listings.sql", scope: "workspace", sql: scheduledListings },
+  { name: "0073_scheduled_changes.sql", scope: "room", sql: scheduledChanges },
+  { name: "0075_sub_rooms.sql", scope: "workspace", sql: subRooms },
+  { name: "0080_forwards.sql", scope: "room", sql: forwards },
+  { name: "0081_forward_changes.sql", scope: "room", sql: forwardChanges },
+  { name: "0085_saved_items.sql", scope: "workspace", sql: savedItems },
+  { name: "0086_saved_reminders_sent.sql", scope: "workspace", sql: savedRemindersSent },
+  { name: "0087_note_uploads.sql", scope: "workspace", sql: noteUploads },
 ];
 
 /**
@@ -148,6 +182,8 @@ export const SEARCH_MIGRATIONS: Migration[] = [
   { name: "0001_search_index.sql", scope: "search", sql: searchIndex },
   { name: "0002_search_results.sql", scope: "search", sql: searchResults },
   { name: "0003_search_filters.sql", scope: "search", sql: searchFilters },
+  { name: "0004_mentions_by_person.sql", scope: "search", sql: mentionsByPerson },
+  { name: "0005_threads_by_activity.sql", scope: "search", sql: threadsByActivity },
 ];
 
 /**

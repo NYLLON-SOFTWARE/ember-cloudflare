@@ -1,5 +1,5 @@
 import type { APIRequestContext, Page } from "@playwright/test";
-import { cookieHeader, createRoom, createSession, ICON_CATALOG_LOADED, signInAs, type Session, type TestRoom } from "../../fixtures";
+import { answerConfirm, cookieHeader, createRoom, createSession, ICON_CATALOG_LOADED, signInAs, type Session, type TestRoom } from "../../fixtures";
 import { expect, Member, test, unique } from "./fixtures";
 
 /** The id of the room `member` is in, from the address. */
@@ -151,7 +151,7 @@ test.describe("Add and remove private room members", () => {
     await linus.page.getByRole("button", { name: "Save" }).click();
     await expect(linus.page).toHaveURL(new RegExp(`/rooms/${leads.id}$`));
 
-    await expect(ada.page.getByRole("alert")).toHaveText("This room was deleted.");
+    await expect(ada.page.getByRole("alert")).toHaveText(`You no longer have access to #${leads.name}`);
     await expect(ada.composer()).toHaveCount(0);
     await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: leads.name })).toHaveCount(0);
     expect(await canSee(request, ada.session, leads.id)).toBe(false);
@@ -178,14 +178,8 @@ test.describe("Leave a private room", () => {
     const leads = await createPrivateRoom(request, linus.session, unique("Leads"), [linus.session, ada.session]);
     await ada.page.goto(`/rooms/closeds/${leads.id}/edit`);
 
-    const asked = new Promise<string>((resolve) =>
-      ada.page.once("dialog", (dialog) => {
-        resolve(dialog.message());
-        void dialog.accept();
-      }),
-    );
     await ada.page.getByRole("button", { name: `Leave ${leads.name}` }).click();
-    expect(await asked).toBe("Are you sure you want to leave this room? Only someone in it who can change it can add you back.");
+    await answerConfirm(ada.page, "Are you sure you want to leave this room? Only someone in it who can change it can add you back.", "Leave");
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: leads.name })).toHaveCount(0);
     await expect(ada.page.getByRole("alert")).toHaveCount(0);
@@ -224,25 +218,19 @@ test.describe("Delete a room", () => {
     await ada.page.goto(`/rooms/opens/${design.id}/edit`);
     const remove = ada.page.getByRole("button", { name: `Delete ${design.name}` });
     // Saying no keeps the room.
-    ada.page.once("dialog", (dialog) => void dialog.dismiss());
     await remove.click();
+    await answerConfirm(ada.page, "Are you sure you want to delete this room and all messages in it? This can’t be undone.", "Cancel");
     await expect(remove).toBeEnabled();
     expect(await canSee(request, ada.session, design.id)).toBe(true);
 
-    const asked = new Promise<string>((resolve) =>
-      ada.page.once("dialog", (dialog) => {
-        resolve(dialog.message());
-        void dialog.accept();
-      }),
-    );
     await remove.click();
-    expect(await asked).toBe("Are you sure you want to delete this room and all messages in it? This can’t be undone.");
+    await answerConfirm(ada.page, "Are you sure you want to delete this room and all messages in it? This can’t be undone.", "Delete");
     // Home, which is the room they were in before its settings.
     await expect(ada.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(ada.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: design.name })).toHaveCount(0);
     await expect(ada.page.getByRole("alert")).toHaveCount(0);
 
-    await expect(grace.page.getByRole("alert")).toHaveText("This room was deleted.");
+    await expect(grace.page.getByRole("alert")).toHaveText(`#${design.name} was deleted`);
     await expect(grace.composer()).toHaveCount(0);
     await expect(grace.page.getByRole("region", { name: "Rooms" }).getByRole("link", { name: design.name })).toHaveCount(0);
     expect(await canSee(request, grace.session, design.id)).toBe(false);
