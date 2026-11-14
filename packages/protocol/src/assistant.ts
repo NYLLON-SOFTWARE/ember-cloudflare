@@ -1,3 +1,4 @@
+import shippedModelsFile from "../../../models.json" with { type: "json" };
 import { ASSISTANT_ID } from "./index.ts";
 import { parseTemplate } from "./prompts.ts";
 
@@ -7,11 +8,12 @@ import { parseTemplate } from "./prompts.ts";
 /**
  * The API formats Ember asks a model in: the providers' own, which AI Gateway's endpoint for each
  * provider passes on as they are, Anthropic's Messages, OpenAI's Responses and xAI's Responses, each the
- * provider's whole API, where Grok can search the web too, and the three Cloudflare's REST API takes a
+ * provider's whole API, where Grok can search the web too, Workers AI's, which is Chat Completions on
+ * Cloudflare's REST API with Ember's own tool for searching the web, and the three that REST API takes a
  * model's requests in, at `/ai/v1/messages`, `/ai/v1/responses` and `/ai/v1/chat/completions`, which
  * Ember asks only a model kept from before it offered just its own list in, in the one it took then.
  */
-export const MODEL_FORMATS = ["messages", "responses", "chat", "xai", "anthropic", "openai"] as const;
+export const MODEL_FORMATS = ["messages", "responses", "chat", "xai", "anthropic", "openai", "workers"] as const;
 export type ModelFormat = (typeof MODEL_FORMATS)[number];
 
 /** The formats of the providers' own APIs, which AI Gateway's endpoint for each provider passes on. */
@@ -32,8 +34,9 @@ export interface AssistantModel {
   format: ModelFormat;
   price?: ModelPrice;
   /**
-   * The levels of thinking it takes, as asking it at each found when an administrator added it, since
-   * nothing else says reliably: left out for one Ember hasn't asked at each, which is asked at any.
+   * The levels of thinking it takes, as Cloudflare's model search lists them for one of Workers AI's, or
+   * else as asking it at each found when an administrator added it, since nothing else says reliably:
+   * left out for one Ember hasn't asked at each, which is asked at any.
    */
   thinkingLevels?: ThinkingLevel[];
 }
@@ -45,36 +48,118 @@ export interface ModelPrice {
 }
 
 /**
- * The models Ember offers, which Set up Ember AI, Add a model and the agents' pages list: Anthropic's and
- * OpenAI's, each asked in its provider's own format through AI Gateway's endpoint for that provider, and
- * xAI's, asked through Cloudflare's REST API, where Ember knows the tools each has for the web
- * (`WEB_TOOLS_IN`, `searchFormatOf`), with what AI Gateway's
- * credits pay for each, at its provider's prices. A model kept from before Ember offered only these
- * answers still, as it was kept. Wherever one of these is listed, Ember calls it by its name here.
+ * A model Ember offers, as Set up Ember AI, Add a model and the agents' pages list it: with what it may
+ * do on the web, when that's less than its format has tools for (`WEB_TOOLS_IN`), and, for one that its
+ * maker, or Cloudflare for Workers AI's, plans to stop running, the day it does, as YYYY-MM-DD.
  */
-export const ASSISTANT_MODELS: readonly AssistantModel[] = [
-  { id: "anthropic/claude-fable-5.2", name: "Claude Fable 5.2", format: "anthropic", price: { input: 8, output: 40 } },
-  { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5", format: "anthropic", price: { input: 4, output: 20 } },
-  { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5", format: "anthropic", price: { input: 2, output: 10 } },
-  // For a question under 100,000 tokens, as most of @ember's are, and five times that for a longer one.
-  { id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", format: "anthropic", price: { input: 0.1, output: 0.5 } },
-  { id: "openai/gpt-6-astra", name: "GPT-6 Astra", format: "openai", price: { input: 10, output: 50 } },
-  { id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol", format: "openai", price: { input: 2, output: 10 } },
-  { id: "openai/gpt-6.1-terra", name: "GPT-6.1 Terra", format: "openai", price: { input: 1, output: 5 } },
-  { id: "openai/gpt-6-luna", name: "GPT-6 Luna", format: "openai", price: { input: 0.1, output: 0.5 } },
-  // AI Gateway's credits don't pay for Grok at its xAI endpoint, only through Cloudflare's REST API, where
-  // it can't search; it searches at the endpoint with an xAI key of the gateway's own (`searchFormatOf`).
-  { id: "xai/grok-4.7", name: "Grok 4.7", format: "chat", price: { input: 2, output: 6 } },
-];
+export interface OfferedModel extends AssistantModel {
+  webTools?: WebTool[];
+  until?: string;
+}
 
-/** The model Set up Ember AI starts at: the one that costs least of those that both search the web and read pages. */
-export const SUGGESTED_MODEL = "anthropic/claude-haiku-5.5";
+/**
+ * The models Ember offers an administrator, as `POST /api/account/assistant/offered` answers: those the
+ * models file lists (`parseModelsFile`), then Workers AI's that take Ember's tool for searching the web,
+ * as Cloudflare's model search lists them for the account, the one Set up Ember AI starts at, and why
+ * Workers AI's aren't among them, when they aren't.
+ */
+export interface OfferedModels {
+  models: OfferedModel[];
+  suggested: string;
+  workersAi: string | null;
+}
 
-/** The model Ember offers with the ID `model`, if it offers one (`ASSISTANT_MODELS`). */
-export const offeredModelOf = (model: string) => ASSISTANT_MODELS.find(({ id }) => id === model);
+/**
+ * The models file, models.json in Ember's repository, which every copy of Ember reads from its main
+ * branch once a day, so that a model can be offered, or stop being, without an update: Anthropic's,
+ * OpenAI's and xAI's, each asked in its provider's own format through AI Gateway's endpoint for that
+ * provider, with what AI Gateway's credits pay for it, at its provider's prices, and what it may do on
+ * the web, and the one Set up Ember AI starts at.
+ */
+export interface ModelsFile {
+  models: OfferedModel[];
+  suggested: string;
+}
+
+/** The version of the models file this Ember reads: it reads none written for another. */
+export const MODELS_FILE_VERSION = 1;
+
+/** The most models Ember reads from the models file. */
+const MAX_FILE_MODELS = 50;
+
+/** The most a million tokens can cost, read or written, as the models file says, in US dollars. */
+const MAX_PRICE = 1_000;
+
+/**
+ * The models file `data` gives, or null when it can't be one: its version isn't this Ember's, or it lists
+ * no model Ember can offer. It can't say anything but what's offered: each model is named by its ID, which
+ * starts with its provider's, Anthropic's, OpenAI's or xAI's, and gives the format it's asked in, so that
+ * the file names no address, and it has a name, a price, and what it may do on the web, of what that
+ * format has tools for, and may have the day its maker stops running it, as YYYY-MM-DD. A model that
+ * isn't all of that is left out, as is any field Ember doesn't know, so that a later Ember's file still
+ * lists what this one can offer. The model it starts at is the one it suggests, while it lists it, or
+ * else its first.
+ */
+export function parseModelsFile(data: unknown): ModelsFile | null {
+  const file = objectIn(data);
+  if (file.version !== MODELS_FILE_VERSION || !Array.isArray(file.models)) return null;
+  const listed = new Map<string, OfferedModel>();
+  for (const entry of file.models.slice(0, MAX_FILE_MODELS)) {
+    const model = fileModelOf(entry);
+    if (model && !listed.has(model.id)) listed.set(model.id, model);
+  }
+  const [first] = listed.keys();
+  if (first === undefined) return null;
+  const suggested = typeof file.suggested === "string" && listed.has(file.suggested) ? file.suggested : first;
+  return { models: [...listed.values()], suggested };
+}
+
+/** The model an entry of the models file lists, or null when it isn't one Ember can offer (`parseModelsFile`). */
+function fileModelOf(entry: unknown): OfferedModel | null {
+  const given = objectIn(entry);
+  const id = typeof given.id === "string" ? modelOf(given.id) : null;
+  const format = id === null ? null : offeredFormatOf(id);
+  const name = modelNameOf(given.name);
+  const price = priceOf(given.price);
+  if (id === null || format === null || name === null || price === null || !Array.isArray(given.web)) return null;
+  const may: unknown[] = given.web;
+  // What Grok may do on the web is what it may in xAI's own Responses, where it searches.
+  const searching = WEB_TOOLS_IN[searchFormatOf(id, format) ?? format];
+  const webTools = searching.filter((tool) => may.includes(tool));
+  const until = typeof given.until === "string" && DAY.test(given.until) ? given.until : null;
+  return { id, name, format, price, ...(webTools.length < searching.length && { webTools }), ...(until && { until }) };
+}
+
+/**
+ * The format Ember asks a model the models file lists in: its provider's own, or Chat Completions,
+ * through Cloudflare's REST API, for Grok, as AI Gateway's credits don't pay for it at its xAI endpoint,
+ * or null for anyone else's.
+ */
+const offeredFormatOf = (id: string): ModelFormat | null => providerFormatOf(id) ?? (isXaiModel(id) ? "chat" : null);
+
+/** A day, as the models file writes the one a model stops running on. */
+const DAY = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/;
+
+/** The price `data` gives, or null when it isn't one: what a million tokens read and written cost, neither below nothing nor above `MAX_PRICE`. */
+function priceOf(data: unknown): ModelPrice | null {
+  const { input, output } = objectIn(data);
+  const amount = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= MAX_PRICE;
+  return amount(input) && amount(output) ? { input: input as number, output: output as number } : null;
+}
+
+/** The model with the ID `model` of those `offered`, if it's one of them. */
+export const offeredModelOf = (model: string, offered: readonly OfferedModel[]) => offered.find(({ id }) => id === model);
 
 /** Whether `model` is one of Workers AI's, which Cloudflare runs itself, rather than another company's. */
 export const isWorkersAiModel = (model: string) => model.startsWith("@cf/");
+
+/**
+ * Whether Ember no longer offers `model`, as the Worker lists the models it does, `offered`: it isn't
+ * among them, and isn't one of Workers AI's while those couldn't be listed, `workersAi` saying why, as
+ * Ember may offer it still.
+ */
+export const noLongerOffered = (model: string, offered: readonly OfferedModel[], workersAi: string | null) =>
+  !offeredModelOf(model, offered) && !(isWorkersAiModel(model) && workersAi !== null);
 
 /** Whether `model` is one of xAI's, Grok, which searches the web only in xAI's own Responses. */
 export const isXaiModel = (model: string) => model.startsWith("xai/");
@@ -90,7 +175,7 @@ export function providerFormatOf(model: string): ProviderFormat | null {
   return model.startsWith("openai/") ? "openai" : null;
 }
 
-/** What to call `model`: its name in `models`, or else in the models Ember offers, or else its ID. */
+/** What to call `model`: its name in `models`, or else in the models file this Ember shipped with, or else its ID. */
 export const modelName = (model: string, models: readonly AssistantModel[] = []) =>
   (models.find(({ id }) => id === model) ?? ASSISTANT_MODELS.find(({ id }) => id === model))?.name ?? model;
 
@@ -278,7 +363,10 @@ export const WEB_SEARCHES_PER_ANSWER = 5;
 /** The most pages @ember reads for one answer, as what it reads is paid for as the conversation is. */
 export const PAGES_READ_PER_ANSWER = 3;
 
-/** What a model may do on the web in each format, with the tools AI Gateway passes on in it. */
+/**
+ * What a model may do on the web in each format, with the tools AI Gateway passes on in it, or, for
+ * Workers AI's, Ember's own tool for searching, which Ember runs with Cloudflare's Web Search API.
+ */
 export const WEB_TOOLS_IN: Record<ModelFormat, readonly WebTool[]> = {
   messages: ["search", "read"],
   responses: ["search"],
@@ -286,33 +374,49 @@ export const WEB_TOOLS_IN: Record<ModelFormat, readonly WebTool[]> = {
   xai: ["search"],
   anthropic: ["search", "read"],
   openai: ["search"],
+  workers: ["search"],
 };
 
 /**
- * The format Ember asks `model` in: the one `models` list it with, or the one Ember offers it in, or else
- * its provider's own (`providerFormatOf`), or Chat Completions, through Cloudflare's REST API, for anyone
- * else's.
+ * The format Ember asks `model` in: the one `models` list it with, or the one the models file this Ember
+ * shipped with lists it in, or else its provider's own (`providerFormatOf`), or Workers AI's, for one of
+ * Workers AI's, or Chat Completions, through Cloudflare's REST API, for anyone else's.
  */
 export function formatOf(model: string, models: readonly AssistantModel[] = []): ModelFormat {
-  return (models.find(({ id }) => id === model) ?? offeredModelOf(model))?.format ?? providerFormatOf(model) ?? "chat";
+  const listed = models.find(({ id }) => id === model) ?? ASSISTANT_MODELS.find(({ id }) => id === model);
+  return listed?.format ?? providerFormatOf(model) ?? (isWorkersAiModel(model) ? "workers" : "chat");
 }
 
 /**
- * The format `model`, which took its test question in `format`, searches the web in: that one, when AI
- * Gateway passes on tools for the web in it, or else xAI's own Responses for Grok, or null for a model
- * that can't search.
+ * The format `model`, which took its test question in `format`, searches the web in: that one, when it
+ * has tools for the web, or else xAI's own Responses for Grok, or Workers AI's, with Ember's own tool, for
+ * one of Workers AI's kept from before Ember gave them that, or null for a model that can't search.
  */
-export const searchFormatOf = (model: string, format: ModelFormat): ModelFormat | null =>
-  WEB_TOOLS_IN[format].length > 0 ? format : isXaiModel(model) ? "xai" : null;
+export function searchFormatOf(model: string, format: ModelFormat): ModelFormat | null {
+  if (WEB_TOOLS_IN[format].length > 0) return format;
+  if (isXaiModel(model)) return "xai";
+  return isWorkersAiModel(model) ? "workers" : null;
+}
+
+/**
+ * What `model` may do on the web in `format`, of what that format has tools for: less, when the models
+ * `offered` list it in that format, or in one it searches in that format from, as Grok, with less, as
+ * the models file can say of one.
+ */
+export function webToolsOf(model: string, format: ModelFormat, offered: readonly OfferedModel[]): readonly WebTool[] {
+  const listed = offered.find(({ id, format: listedIn }) => id === model && (listedIn === format || searchFormatOf(id, listedIn) === format));
+  return listed?.webTools ?? WEB_TOOLS_IN[format];
+}
 
 /**
  * Ember AI as the AI assistant tab shows it to administrators while it's on: the Cloudflare account it
  * asks through, the model it answers anyone with who hasn't picked another, the models people can pick
  * from, that one among them, in the order they were added, the most each dial goes to for anyone's
  * questions, and what @ember does on the web: what it may while Search the web is on, nothing while it's
- * off, or null when the model that answers everyone can't, as only Anthropic's, OpenAI's and xAI's models
- * have tools for it that AI Gateway passes on (`searchFormatOf`). Then the instructions Ember adds to
- * @ember's own, what Ember adds around them, and @ember's avatar.
+ * off, or null when the model that answers everyone can't: Anthropic's, OpenAI's and xAI's have tools for
+ * it that AI Gateway passes on, and Workers AI's take Ember's own, which searches with Cloudflare's Web
+ * Search API, but others kept from before have none (`searchFormatOf`). Then the instructions Ember adds
+ * to @ember's own, what Ember adds around them, and @ember's avatar.
  */
 export interface AssistantSettings {
   accountId: string;
@@ -385,17 +489,18 @@ export interface WebSearchChanged {
 /** Why a change to Search the web is refused before anything's asked. */
 export const WEB_SEARCH_REFUSED = "Say whether @ember searches the web.";
 
-/** Why Search the web can't turn on for the model called `name`, which has no tool for it that AI Gateway passes on. */
+/** Why Search the web can't turn on for the model called `name`, which has no tool for it that AI Gateway passes on, nor Ember. */
 export const cannotSearchWith = (name: string) =>
-  `${name} can't search the web through AI Gateway, but Anthropic's, OpenAI's and xAI's models can. Choose one under Models or Change.`;
+  `${name} can't search the web through AI Gateway, but the models Ember offers can. Choose one under Models or Change.`;
 
 /** Why it didn't turn on once the model was asked: Ember AI was changed or turned off meanwhile, or Search the web was. */
 export const WEB_SEARCH_CHANGED = "Ember AI changed while its model searched. Try again.";
 
 /**
  * The Cloudflare account Ember AI asks through, as Set up Ember AI gives it: its ID, and an API token of
- * its with the AI Gateway Run permission, which AI Gateway's endpoint for each provider takes, which a
- * change can leave out to keep the one Ember has.
+ * its with the AI Gateway Run permission, which AI Gateway's endpoint for each provider takes, and Workers
+ * AI Read and AI Gateway Read, which Cloudflare's model search and Web Search API take, which a change can
+ * leave out to keep the one Ember has.
  */
 export interface AssistantKeys {
   accountId: string;
@@ -490,11 +595,14 @@ export function parseAssistantSetup(data: unknown): AssistantSetup | { error: st
   return "error" in model ? model : { ...keys, ...model };
 }
 
-/** The model `POST /api/account/assistant/models` adds, as Add a model sends it, or why it can't be one: Ember doesn't offer it. */
+/**
+ * The model `POST /api/account/assistant/models` adds, as Add a model sends it, or why it can't be one: it
+ * has no model ID. Whether Ember offers it is the Worker's to say, as the models it offers change.
+ */
 export function parseNewAssistantModel(data: unknown): NewAssistantModel | { error: string; field: "model" } {
   const given = objectIn(data);
   const model = typeof given.model === "string" ? modelOf(given.model) : null;
-  return model !== null && offeredModelOf(model) ? { model } : { error: MODEL_REFUSED, field: "model" };
+  return model !== null ? { model } : { error: MODEL_REFUSED, field: "model" };
 }
 
 /** Why `DELETE /api/account/assistant/models` keeps a model: @ember answers everyone with it who hasn't picked another. */
@@ -505,3 +613,18 @@ export const MODELS_FULL = `People can pick from at most ${MAX_ASSISTANT_MODELS}
 
 /** What the AI assistant tab tells anyone but an administrator. */
 export const ASSISTANT_FORBIDDEN = "Only administrators can set up Ember AI";
+
+// Last, as reading it takes what's above.
+
+/** The models file this Ember shipped with, which it offers until it has read the one on Ember's main branch, and whenever it can't. */
+const SHIPPED = parseModelsFile(shippedModelsFile)!;
+
+/**
+ * The models the models file this Ember shipped with lists (`ModelsFile`). A model kept from before Ember
+ * offered only those the file lists and Workers AI's answers still, as it was kept. Wherever one of these
+ * is listed, Ember calls it by its name here, unless it's kept by another.
+ */
+export const ASSISTANT_MODELS: readonly OfferedModel[] = SHIPPED.models;
+
+/** The model Set up Ember AI starts at, as the models file this Ember shipped with suggests: the one that costs least of those that both search the web and read pages. */
+export const SUGGESTED_MODEL = SHIPPED.suggested;

@@ -50,6 +50,8 @@ const OTHER_API_TOKEN = "another-api-token-with-ai-gateway-run_01";
 const [SONNET, HAIKU, GPT, GLM] = ["anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5", "openai/gpt-6.1-sol", "@cf/zai-org/glm-4.7-flash"];
 /** GLM as an agent made before Ember stopped offering Workers AI's models keeps it, asked through Cloudflare's REST API. */
 const KEPT_GLM: KeptModel = { id: GLM, name: "GLM-4.7 Flash", format: "chat", thinkingLevels: [...THINKING_LEVELS] };
+/** DeepSeek's, kept from before too, which has no tools for the web in Chat Completions, nor Ember's, as Workers AI's do. */
+const KEPT_DEEPSEEK: KeptModel = { id: "deepseek/deepseek-v4-pro", name: "DeepSeek V4 Pro", format: "chat", thinkingLevels: [...THINKING_LEVELS] };
 /** xAI's Grok, which searches the web only in xAI's own Responses, through the default gateway's xAI endpoint there. */
 const GROK = "xai/grok-4.7";
 /** Where the account's default gateway passes requests on to each provider's own API, as Ember asks Claude and GPT, and Grok while it's to search. */
@@ -729,9 +731,9 @@ describe("AI agents", () => {
 
       // A model kept from before that can't search can't have it on.
       const juniper = await made(administrator, { name: "Juniper" });
-      await agentWithKeptModel(juniper.id, KEPT_GLM);
-      expect(await refusalOf(await changeAgent(administrator, juniper.id, { webSearch: true }))).toEqual([422, { error: agentCannotSearchWith("GLM-4.7 Flash"), field: "webSearch" }]);
-      expect(await shownAgent(administrator, juniper.id)).toMatchObject({ model: GLM, webTools: [] });
+      await agentWithKeptModel(juniper.id, KEPT_DEEPSEEK);
+      expect(await refusalOf(await changeAgent(administrator, juniper.id, { webSearch: true }))).toEqual([422, { error: agentCannotSearchWith("DeepSeek V4 Pro"), field: "webSearch" }]);
+      expect(await shownAgent(administrator, juniper.id)).toMatchObject({ model: KEPT_DEEPSEEK.id, webTools: [] });
     });
 
     it("moves it between every open room and the ones picked, keeping the closed rooms it was added to", async () => {

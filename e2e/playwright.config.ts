@@ -67,10 +67,11 @@ export default defineConfig<MobileOptions>({
     // Set up email, the address of the siteverify the Turnstile spec fakes, which Ember asks about
     // checks once it's given a widget's keys in Set up Turnstile, the address of the AI Gateway the
     // Ember AI spec fakes, which Ember asks models through once it's given an account in Set up Ember AI,
-    // the ID of the account Ember is deployed to, as `pnpm run deploy` gives it, which Set up Ember AI
-    // fills in, and the address of the Realtime SFU the huddles spec fakes, which Ember asks to start a
-    // session with an app's keys before it keeps them in Set up huddles, and then to carry what's said in
-    // a huddle. Servers start in turn, so the app is built by then.
+    // and which serves the models file too, in place of the one on Ember's main branch, the ID of the
+    // account Ember is deployed to, as `pnpm run deploy` gives it, which Set up Ember AI fills in, and the
+    // address of the Realtime SFU the huddles spec fakes, which Ember asks to start a session with an app's
+    // keys before it keeps them in Set up huddles, and then to carry what's said in a huddle. Servers start
+    // in turn, so the app is built by then.
     {
       command: [
         `node -e "require('node:fs').rmSync('e2e/.wrangler/settings-state', { recursive: true, force: true })"`,
@@ -81,7 +82,7 @@ export default defineConfig<MobileOptions>({
           `--var MEMBERFUL_API_KEY:${MEMBERFUL_KEYS.apiKey} --var MEMBERFUL_WEBHOOK_SECRET:${MEMBERFUL_KEYS.webhookSecret}`,
           `--var RESEND_API_URL:http://127.0.0.1:${RESEND_API_PORT} --var TURNSTILE_SITEVERIFY_URL:http://127.0.0.1:${SITEVERIFY_PORT}`,
           `--var AI_GATEWAY_URL:http://127.0.0.1:${AI_GATEWAY_PORT} --var CLOUDFLARE_ACCOUNT_ID:${AI_GATEWAY_ACCOUNT.accountId}`,
-          `--var REALTIME_SFU_URL:http://127.0.0.1:${SFU_PORT}`,
+          `--var EMBER_MODELS_URL:http://127.0.0.1:${AI_GATEWAY_PORT}/models.json --var REALTIME_SFU_URL:http://127.0.0.1:${SFU_PORT}`,
           "--persist-to ../../e2e/.wrangler/settings-state",
         ].join(" "),
       ].join(" && "),

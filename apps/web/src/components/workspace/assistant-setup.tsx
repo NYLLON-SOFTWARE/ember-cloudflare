@@ -2,13 +2,14 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import {
   ACCOUNT_ID_REFUSED,
   API_TOKEN_REFUSED,
-  ASSISTANT_MODELS,
   accountIdOf,
   apiTokenOf,
   modelName,
+  offeredModelOf,
   type AssistantField,
   type AssistantKeys,
   type AssistantSettings,
+  type OfferedModels,
   type WebTool,
 } from "@ember/protocol/assistant";
 import { FIELD_INPUT, Field } from "@/components/field";
@@ -16,6 +17,7 @@ import { Xmark } from "@/components/icons/iconoir";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useMounted } from "@/hooks/use-mounted";
+import { useOfferedModels } from "@/hooks/use-offered-models";
 import { ApiError, isSignedOut, saveAssistant } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { dashboard, FieldRefusal, ModelPicker, NOTE, Out, startingModelOf, type Refusal } from "./model-picker";
@@ -24,11 +26,12 @@ import { DIALOG, DIALOG_BACKDROP, DIALOG_CLOSE, DIALOG_TITLE, MAIN_ACTION, OTHER
 // Set up Ember AI, for administrators: the steps to give @ember a model through Cloudflare AI Gateway, in
 // a dialog that the AI assistant tab's Ember AI card opens. First the Cloudflare account's ID, filled in
 // with the account Ember is deployed to when the deploy gave it, and an API token of its with AI Gateway's
-// Run permission, which AI Gateway's endpoint for each model's provider takes. Then the model, of those
-// Ember offers, which the Worker asks a test question through AI Gateway before keeping all three, saying
-// on the field it's about why it didn't answer, if it didn't, and which answers everyone who hasn't picked
-// another. Then what the model said, and that Search the web is off, when a change of model turned it
-// off. Styled as Set up Turnstile is.
+// Run permission, which AI Gateway's endpoint for each model's provider takes, and Workers AI Read and AI
+// Gateway Read, which Workers AI's models and Cloudflare's Web Search API take. Then the model, of those
+// Ember offers through that account, which the Worker asks a test question through AI Gateway before
+// keeping all three, saying on the field it's about why it didn't answer, if it didn't, and which answers
+// everyone who hasn't picked another. Then what the model said, and that Search the web is off, when a
+// change of model turned it off. Styled as Set up Turnstile is.
 
 /** Where the account's own API tokens are made, in the Cloudflare dashboard. */
 const accountApiTokens = (accountId: string | null) => dashboard(accountId, "api-tokens");
@@ -69,7 +72,8 @@ export function AssistantSetup({ assistant, deployedAccountId, onSaved, onClose,
   // The account's ID as Ember AI has it, or else as the deploy gave it, which the steps then needn't say where to copy from.
   const [filledIn] = useState(() => assistant?.accountId ?? deployedAccountId);
   const [typed, setTyped] = useState<Record<KeyField, string>>({ accountId: filledIn ?? "", apiToken: "" });
-  const [model, setModel] = useState(() => startingModelOf(assistant?.model ?? null));
+  // The model chosen, once one is, while Ember offers it through the account typed.
+  const [chosen, setChosen] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   // Asking the model a test question holds the dialog open until it's answered.
   const [saving, setSaving] = useState(false);
@@ -98,6 +102,10 @@ export function AssistantSetup({ assistant, deployedAccountId, onSaved, onClose,
     const apiToken = apiTokenOf(typed.apiToken);
     return { accountId: accountIdOf(typed.accountId) ?? "", ...(apiToken && { apiToken }) };
   };
+
+  // The models Ember offers through the account typed, listed once the model's step opens, with the API token typed, or Ember AI's.
+  const offered = useOfferedModels(step !== "keys", keys(), onFailed);
+  const model = offered === null ? (chosen ?? assistant?.model ?? "") : chosenOf(chosen, assistant, offered);
 
   const save = () => {
     setRefusal(null);
@@ -143,9 +151,10 @@ export function AssistantSetup({ assistant, deployedAccountId, onSaved, onClose,
     model: (
       <ModelStep
         accountId={accountIdOf(typed.accountId)}
+        offered={offered}
         model={model}
         onChoose={(model) => {
-          setModel(model);
+          setChosen(model);
           if (refusal?.field === "model" || refusal?.field === null) setRefusal(null);
         }}
         refusal={refusal}
@@ -194,6 +203,10 @@ export function AssistantSetup({ assistant, deployedAccountId, onSaved, onClose,
     </Dialog>
   );
 }
+
+/** The model the menu shows chosen of those `offered`: the one `chosen`, or else Ember AI's, while it's offered, or else the one Ember suggests. */
+const chosenOf = (chosen: string | null, assistant: AssistantSettings | null, offered: OfferedModels) =>
+  chosen !== null && offeredModelOf(chosen, offered.models) ? chosen : startingModelOf(assistant?.model ?? null, offered);
 
 /** The field of Set up Ember AI a refusal names, if it names one. */
 function fieldOf(field: string | undefined): AssistantField | null {
@@ -272,7 +285,8 @@ function KeysStep({
   return (
     <form onSubmit={next}>
       <DialogDescription className="mb-4 leading-[1.65]">
-        Ember AI asks Claude, GPT or Grok through your Cloudflare account's AI Gateway, paid for with AI Gateway's credits. Ember keeps the API token encrypted.
+        Ember AI asks Claude, GPT or Grok through your Cloudflare account's AI Gateway, paid for with AI Gateway's credits, or a model Cloudflare runs on Workers
+        AI. Ember keeps the API token encrypted.
       </DialogDescription>
       <ol aria-label="Steps to make an API token" className="mb-4 flex list-decimal flex-col gap-2 ps-5">
         <li>
@@ -281,7 +295,8 @@ function KeysStep({
         </li>
         <li>
           Under <em>Custom Token</em>, choose <em>Get started</em>, name the token, and under <em>Permissions</em> choose <em>Account</em>, <em>AI Gateway</em>{" "}
-          and <em>Run</em>. For Grok, choose <em>Add more</em> too, then <em>Account</em>, <em>Workers AI</em> and <em>Read</em>.
+          and <em>Run</em>. Then <em>Add more</em>: <em>Account</em>, <em>AI Gateway</em> and <em>Read</em>, and <em>Account</em>, <em>Workers AI</em> and{" "}
+          <em>Read</em>.
         </li>
         <li>
           Choose <em>Continue to summary</em>, then <em>Create Token</em>, and copy the token here.
@@ -336,7 +351,8 @@ function KeysStep({
           ) : (
             hasToken && (
               <p id="assistant-api-token-description" className={cn(NOTE, "mt-2")}>
-                Ember has an API token already. Leave this blank to keep it, or paste another to ask with it instead. Either needs the AI Gateway Run permission, and Workers AI Read for Grok.
+                Ember has an API token already. Leave this blank to keep it, or paste another to ask with it instead. Either needs the AI Gateway Run and Read and the
+                Workers AI Read permissions.
               </p>
             )
           )}
@@ -348,11 +364,12 @@ function KeysStep({
 }
 
 /**
- * The second step: the model @ember runs on, of those Ember offers, which Save asks a test question. AI
- * Gateway's credits are topped up in the account given, `accountId`.
+ * The second step: the model @ember runs on, of those Ember offers, `offered`, once the Worker lists them,
+ * which Save asks a test question. AI Gateway's credits are topped up in the account given, `accountId`.
  */
 function ModelStep({
   accountId,
+  offered,
   model,
   onChoose,
   refusal,
@@ -361,6 +378,7 @@ function ModelStep({
   onBack,
 }: {
   accountId: string | null;
+  offered: OfferedModels | null;
   model: string;
   onChoose: (model: string) => void;
   refusal: Refusal | null;
@@ -379,11 +397,19 @@ function ModelStep({
         Choose the model @ember answers everyone with. Ember asks it a test question through AI Gateway before keeping it. You can let people pick other models
         later.
       </DialogDescription>
-      <ModelPicker models={ASSISTANT_MODELS} chosen={model} onChoose={onChoose} refusal={refusal} disabled={saving} accountId={accountId} />
+      <ModelPicker
+        models={offered?.models ?? null}
+        chosen={model}
+        onChoose={onChoose}
+        refusal={refusal}
+        disabled={saving}
+        accountId={accountId}
+        workersAi={offered?.workersAi ?? null}
+      />
       <p role="status" className={cn(NOTE, "mt-2 wrap-anywhere empty:mt-0", !saving && "text-negative")}>
-        {saving ? `Asking ${modelName(model)} a test question…` : refusal?.field === null ? refusal.error : null}
+        {saving ? `Asking ${modelName(model, offered?.models)} a test question…` : refusal?.field === null ? refusal.error : null}
       </p>
-      <Actions back={onBack} next={null} nextLabel={saving ? "Asking…" : "Save"} saving={saving} />
+      <Actions back={onBack} next={null} nextLabel={saving ? "Asking…" : "Save"} disabled={offered === null} saving={saving} />
     </form>
   );
 }

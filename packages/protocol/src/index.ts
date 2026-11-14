@@ -67,6 +67,8 @@ export type {
   ModelFormat,
   ModelPrice,
   NewAssistantModel,
+  OfferedModel,
+  OfferedModels,
   ThinkingLevel,
   WebSearchChange,
   WebSearchChanged,

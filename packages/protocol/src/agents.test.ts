@@ -49,9 +49,10 @@ describe("New agent", () => {
     expect(parseNewAgent({ ...RECAP, instructions })).toEqual({ ...RECAP, instructions });
   });
 
-  it("refuses a model Ember doesn't offer, on its field", () => {
-    for (const model of ["openai/gpt-5.5", "@cf/zai-org/glm-4.7-flash", "google/gemini-3.7-flash"]) {
-      expect(parseNewAgent({ ...RECAP, model }), model).toEqual({ error: MODEL_REFUSED, field: "model" });
+  it("takes a model by its ID, as whether Ember offers it is the Worker's to say, and refuses anything else on its field", () => {
+    expect(parseNewAgent({ ...RECAP, model: "@cf/zai-org/glm-5.2" })).toEqual({ ...RECAP, model: "@cf/zai-org/glm-5.2" });
+    for (const model of ["gpt-5.5", "openai/gpt 5.5", 5]) {
+      expect(parseNewAgent({ ...RECAP, model }), String(model)).toEqual({ error: MODEL_REFUSED, field: "model" });
     }
   });
 

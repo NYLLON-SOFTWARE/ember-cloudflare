@@ -2,7 +2,7 @@ import { DEFAULT_LEVELS, TOP_LEVELS } from "@ember/protocol/assistant";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { administratorSession, cookieHeader, drawnPicture, editorField, expect, SAME_ORIGIN, shownPicture, signInAsAdministrator, test, useOwnAddress } from "../../fixtures";
 import { AI_GATEWAY_ACCOUNT } from "../../projects/workspace-settings";
-import { ANTHROPIC_PATH, FOUND, HELLO, SOURCE, startFakeGateway, type FakeGateway } from "./fake-gateway";
+import { ANTHROPIC_PATH, FOUND, GEMMA, HELLO, NEWER, SOURCE, startFakeGateway, type FakeGateway } from "./fake-gateway";
 
 // The AI assistant tab's Ember AI card and Set up Ember AI, @ember's page, with Add a model, and @ember
 // answering, on the second test server, which asks models through the AI Gateway this spec fakes. Each test leaves the workspace as a new one is: Ember AI off, its dials
@@ -52,6 +52,26 @@ const emberRow = (page: Page) => page.getByRole("region", { name: "Agents", exac
 /** The model Ember suggests, which the tests set Ember AI up with, and what Anthropic's endpoint calls it. */
 const HAIKU = { id: "anthropic/claude-haiku-5.5", there: "claude-haiku-5-5" };
 
+/** The models the models file lists, by their makers, as the menu shows them, with what each costs: those Ember shipped with, and `NEWER`, which the file adds. */
+const FILE_MODELS = [
+  "Claude Fable 5.2 · $8 / $40",
+  "Claude Opus 5.5 · $4 / $20",
+  "Claude Sonnet 5.5 · $2 / $10",
+  "Claude Haiku 5.5 · $0.10 / $0.50",
+  "GPT-6 Astra · $10 / $50",
+  "GPT-6.1 Sol · $2 / $10",
+  "GPT-6.1 Terra · $1 / $5",
+  "GPT-6 Luna · $0.10 / $0.50",
+  `${NEWER.name} · $5 / $25`,
+  "Grok 4.7 · $2 / $6",
+];
+
+/** The one of Workers AI's models the fake model search lists that takes tools, as the menu shows it. */
+const GEMMA_OPTION = `${GEMMA.name} · $0.10 / $0.30`;
+
+/** Where Cloudflare's REST API takes Chat Completions, as Ember asks Workers AI's models, for the account the fake AI Gateway knows. */
+const CHAT_PATH = `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/v1/chat/completions`;
+
 /** Sets Ember AI up with `model`, as Set up Ember AI does, through the account the fake AI Gateway knows. */
 async function setUpAssistant(request: APIRequestContext, model = HAIKU.id) {
   const saved = await request.put("/api/account/assistant", { data: { ...AI_GATEWAY_ACCOUNT, model }, headers: await asAdministrator(request) });
@@ -100,19 +120,14 @@ test.describe("Ember AI", () => {
     await setup.getByRole("textbox", { name: "API token" }).fill("e2e-only-not-the-accounts-token");
     await setup.getByRole("button", { name: "Continue" }).click();
     await expect(setup).toHaveAccessibleName("Choose a model");
-    // The models Ember offers, by their makers, with what each costs, starting at the one it suggests.
+    // The models Ember offers, by their makers, with what each costs, starting at the one it suggests: those
+    // the models file lists, one of them added after Ember shipped, but none of Workers AI's, as Cloudflare
+    // didn't let the token list them.
     const menu = setup.getByRole("combobox", { name: "Model" });
-    await expect(menu.getByRole("option")).toHaveText([
-      "Claude Fable 5.2 · $8 / $40",
-      "Claude Opus 5.5 · $4 / $20",
-      "Claude Sonnet 5.5 · $2 / $10",
-      "Claude Haiku 5.5 · $0.10 / $0.50",
-      "GPT-6 Astra · $10 / $50",
-      "GPT-6.1 Sol · $2 / $10",
-      "GPT-6.1 Terra · $1 / $5",
-      "GPT-6 Luna · $0.10 / $0.50",
-      "Grok 4.7 · $2 / $6",
-    ]);
+    await expect(menu.getByRole("option")).toHaveText(FILE_MODELS);
+    await expect(setup).toContainText(
+      "Workers AI's models aren't listed, as Cloudflare didn't let the API token list them. Add the Workers AI Read permission to it in the Cloudflare dashboard.",
+    );
     await expect(menu).toHaveValue(HAIKU.id);
     await setup.getByRole("button", { name: "Save" }).click();
 
@@ -121,6 +136,10 @@ test.describe("Ember AI", () => {
     await expect(setup.getByRole("alert")).toContainText("Add the AI Gateway Run permission to the token in the Cloudflare dashboard, then try again.");
     await setup.getByRole("textbox", { name: "API token" }).fill(AI_GATEWAY_ACCOUNT.apiToken);
     await setup.getByRole("button", { name: "Continue" }).click();
+    // With the account's own token, Workers AI's models that take tools follow, which Cloudflare runs.
+    await expect(menu.getByRole("option")).toHaveText([...FILE_MODELS, GEMMA_OPTION]);
+    await expect(menu.locator("optgroup").last()).toHaveAttribute("label", "Workers AI");
+    await expect(setup).not.toContainText("Workers AI's models aren't listed");
     await setup.getByRole("button", { name: "Save" }).click();
     await expect(setup).toHaveAccessibleName("Ember AI is set up");
     await expect(setup).toContainText(HELLO);
@@ -168,6 +187,59 @@ test.describe("Ember AI", () => {
     await expect(emberRow(page)).toContainText("Claude Sonnet 5.5 · Every open room");
   });
 
+  test("the administrator chooses one of Workers AI's models, which Cloudflare runs, and Ember asks it through Cloudflare's REST API", async ({ page, request }) => {
+    await setUpAssistant(request);
+    const card = await openAssistant(page);
+    await card.getByRole("button", { name: "Change" }).click();
+
+    const setup = page.getByRole("dialog");
+    await setup.getByRole("button", { name: "Continue" }).click();
+    const menu = setup.getByRole("combobox", { name: "Model" });
+    await menu.selectOption(GEMMA.id);
+    await expect(menu).toHaveAccessibleDescription(
+      "Cloudflare runs this model on Workers AI, free for the account's first 10,000 Neurons each day, and beyond that on Workers Paid, at $0.10 for each million tokens it reads, and $0.30 for each million it writes. AI Gateway's credits pay for its searches of the web, and for the model too once the default gateway's Workers AI Billing is Unified billing. Open Workers AI in the Cloudflare dashboard",
+    );
+    await expect(setup.getByRole("link", { name: "Open Workers AI in the Cloudflare dashboard" })).toHaveAttribute(
+      "href",
+      `https://dash.cloudflare.com/${AI_GATEWAY_ACCOUNT.accountId}/ai/workers-ai`,
+    );
+    await setup.getByRole("button", { name: "Save" }).click();
+    await expect(setup).toHaveAccessibleName("Ember AI is set up");
+    await expect(setup).toContainText(HELLO);
+    // Through Cloudflare's REST API, which takes the API token as Cloudflare's API does, and the default gateway.
+    expect(gateway.asked.at(-1)).toMatchObject({
+      path: CHAT_PATH,
+      authorization: `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}`,
+      gateway: "default",
+      body: { model: GEMMA.id },
+    });
+    await setup.getByRole("button", { name: "Done" }).click();
+    await expect(emberRow(page)).toContainText(`${GEMMA.name} · Every open room`);
+  });
+
+  test("the administrator lets @ember search the web on one of Workers AI's models, with Ember's own tool on Cloudflare's Web Search API", async ({ page, request }) => {
+    await setUpAssistant(request, GEMMA.id);
+    const card = await openEmber(page);
+    const webSearch = card.getByRole("switch", { name: "Search the web" });
+    await webSearch.click();
+    await expect(card.getByRole("status")).toHaveText(`It searched the web and said: ${FOUND}`);
+    await expect(webSearch).toBeChecked();
+    // The model called Ember's tool, which searched through the default gateway, and was told what it found.
+    const searched = gateway.asked.findLast(({ path }) => path === `/accounts/${AI_GATEWAY_ACCOUNT.accountId}/ai/websearch/`);
+    expect(searched).toMatchObject({
+      authorization: `Bearer ${AI_GATEWAY_ACCOUNT.apiToken}`,
+      body: { query: "Cloudflare AI Gateway", limit: 5, options: { gateway: { id: "default" } } },
+    });
+    const told = gateway.asked.findLast(({ path, body }) => path === CHAT_PATH && Array.isArray(body.tools))!;
+    expect(told).toMatchObject({ body: { model: GEMMA.id, tools: [{ type: "function", function: { name: "web_search" } }] } });
+    expect((told.body.messages as Array<{ role: string; content: string }>).at(-1)).toEqual(
+      expect.objectContaining({ role: "tool", content: expect.stringContaining(SOURCE.url) as unknown }),
+    );
+
+    await page.getByRole("link", { name: "Go Back" }).click();
+    await expect(emberRow(page)).toContainText(`${GEMMA.name} · Searches the web · Every open room`);
+  });
+
   test("the administrator lets @ember search the web once its model has searched for a test question", async ({ page, request }) => {
     await setUpAssistant(request, "anthropic/claude-sonnet-5.5");
     const card = await openEmber(page);
@@ -206,8 +278,7 @@ test.describe("Ember AI", () => {
     const adding = page.getByRole("dialog");
     await expect(adding).toHaveAccessibleName("Add a model");
     const menu = adding.getByRole("combobox", { name: "Model" });
-    await expect(menu.getByRole("option")).toHaveCount(8);
-    await expect(menu.getByRole("option", { name: /^Claude Haiku 5\.5/ })).toHaveCount(0);
+    await expect(menu.getByRole("option")).toHaveText([...FILE_MODELS.filter((model) => !model.startsWith("Claude Haiku 5.5")), GEMMA_OPTION]);
     await menu.selectOption("anthropic/claude-sonnet-5.5");
     await adding.getByRole("button", { name: "Add" }).click();
     await expect(adding).toHaveAccessibleName("Model added");

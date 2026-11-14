@@ -11,6 +11,7 @@ import {
   DEFAULT_MODEL_KEPT,
   MAX_ASSISTANT_MODELS,
   MODELS_FULL,
+  SUGGESTED_MODEL,
   TOP_LEVELS,
   WEB_SEARCH_CHANGED,
   type AnswerLevels,
@@ -18,6 +19,8 @@ import {
   type AssistantModel,
   type AssistantSettings as Assistant,
   type NewAssistantModel,
+  type OfferedModel,
+  type OfferedModels,
   type WebSearchChanged,
   type WebTool,
 } from "@ember/protocol/assistant";
@@ -59,9 +62,21 @@ const UPLOADED = "/users/ember.abc/avatar?v=20261105120000";
 /** One of Workers AI's, which Ember no longer offers, kept by a copy set up before, in the format Cloudflare's REST API took it in. */
 const KEPT_GLM: AssistantModel = { id: "@cf/zai-org/glm-4.7-flash", name: "GLM-4.7 Flash", format: "chat" };
 
+/** One of Workers AI's, as Cloudflare's model search lists it for Ember AI's account. */
+const GEMMA: OfferedModel = { id: "@cf/google/gemma-4-26b-a4b-it", name: "Gemma 4 26B", format: "workers", price: { input: 0.1, output: 0.3 }, thinkingLevels: [] };
+
+/** The models Ember offers through Ember AI's account, as the Worker lists them: the models file's, then Workers AI's. */
+const OFFERED: OfferedModels = { models: [...ASSISTANT_MODELS, GEMMA], suggested: SUGGESTED_MODEL, workersAi: null };
+
+/** Listing the models Ember offers, which the card does as it shows. */
+const LISTING = "POST /api/account/assistant/offered";
+
+/** Why Workers AI's models aren't listed, as the Worker says when Cloudflare didn't take Ember AI's API token for them. */
+const UNLISTED = "Workers AI's models aren't listed, as Cloudflare didn't take the API token for them. Add the Workers AI Read permission to it in the Cloudflare dashboard.";
+
 /** The model `id`, as Ember offers it, or kept one it no longer offers, or else as it would keep one it doesn't know. */
 function known(id: string): AssistantModel {
-  const { name, format } = [...ASSISTANT_MODELS, KEPT_GLM].find((model) => model.id === id) ?? { name: id, format: "chat" as const };
+  const { name, format } = [...OFFERED.models, KEPT_GLM].find((model) => model.id === id) ?? { name: id, format: "chat" as const };
   return { id, name, format };
 }
 
@@ -87,8 +102,8 @@ type Answer<T = void> = (given: T) => Response | Promise<Response>;
 /**
  * Answers turning Ember AI off, changing it, taking a model out, adding a model, and uploading @ember's
  * avatar and taking it away as the server would, or as `stopped`, `changed`, `removed`, `added`,
- * `pictured` and `unpictured` say, and reading Ember AI again as another tab's upload left it, or as
- * `read` says.
+ * `pictured` and `unpictured` say, reading Ember AI again as another tab's upload left it, or as
+ * `read` says, and listing the models Ember offers with OFFERED, or as `offered` says.
  */
 function serve({
   stopped = () => Response.json({ assistant: null }),
@@ -98,6 +113,7 @@ function serve({
   pictured = () => Response.json({ assistant: { ...on("anthropic/claude-sonnet-5.5"), avatarUrl: UPLOADED, avatar: true } }),
   unpictured = () => Response.json({ assistant: on("anthropic/claude-sonnet-5.5") }),
   read = () => Response.json({ assistant: { ...on("anthropic/claude-sonnet-5.5"), avatarUrl: UPLOADED, avatar: true } }),
+  offered = () => Response.json(OFFERED),
 }: {
   stopped?: Answer;
   changed?: Answer<AssistantChanges>;
@@ -106,6 +122,7 @@ function serve({
   pictured?: Answer<FormData>;
   unpictured?: Answer;
   read?: Answer;
+  offered?: Answer;
 } = {}) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const request = `${init?.method ?? "GET"} ${String(input)}`;
@@ -117,9 +134,21 @@ function serve({
     if (request === "PUT /api/account/assistant/avatar") return pictured(init?.body as FormData);
     if (request === "DELETE /api/account/assistant/avatar") return unpictured();
     if (request === "GET /api/account") return read();
+    if (request === LISTING) return offered();
     throw new Error(`Unexpected request for ${request}`);
   });
 }
+
+/** What the card asked of the server, in order, but for listing the models Ember offers. */
+const asked = () =>
+  vi
+    .mocked(fetch)
+    .mock.calls.map(([input, init]) => `${init?.method ?? "GET"} ${String(input)}`)
+    .filter((request) => request !== LISTING);
+
+/** What the card listed the models Ember offers with, each time it did. */
+const listedWith = () =>
+  vi.mocked(fetch).mock.calls.flatMap(([input, init]) => (`${init?.method} ${String(input)}` === LISTING ? [JSON.parse(String(init?.body)) as unknown] : []));
 
 /** A response the test lets through when it says, with `answer` letting it through. */
 function held(response: () => Response) {
@@ -247,6 +276,7 @@ describe("@ember's page", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const request = `${init?.method ?? "GET"} ${String(input)}`;
       if (request === "GET /api/account") return readAs(SONNET)();
+      if (request === LISTING) return Response.json(OFFERED);
       if (request === "PUT /api/account/assistant/web_search") return Response.json({ error: ASSISTANT_OFF }, { status: 409 });
       throw new Error(`Unexpected request for ${request}`);
     });
@@ -679,25 +709,37 @@ describe("Avatar", () => {
 describe("Models", () => {
   const models = () => within(card()).getByRole("group", { name: "Models" });
   const model = (name: string) => within(models()).getByRole("radio", { name });
+  /** What each model people can pick is called on its radio button. */
+  const labels = () => within(models()).getAllByRole("radio").map((radio) => radio.closest("label")?.textContent);
   const SEVERAL = on("anthropic/claude-sonnet-5.5", TOP_LEVELS, ["anthropic/claude-haiku-5.5", "openai/gpt-6.1-sol"]);
 
   it("lists the models people can pick, the one that answers everyone else chosen, with Remove for the others", () => {
     serve();
     showCard(SEVERAL);
     expect(models()).toHaveAccessibleDescription(MODELS_EXPLAINED);
-    expect(within(models()).getAllByRole("radio").map((radio) => radio.closest("label")?.textContent)).toEqual(["Claude Sonnet 5.5", "Claude Haiku 5.5", "GPT-6.1 Sol"]);
+    expect(labels()).toEqual(["Claude Sonnet 5.5", "Claude Haiku 5.5", "GPT-6.1 Sol"]);
     expect(model("Claude Sonnet 5.5")).toBeChecked();
     expect(within(models()).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["Remove Claude Haiku 5.5", "Remove GPT-6.1 Sol"]);
     expect(addModel()).toBeEnabled();
   });
 
-  it("says so of a model Ember no longer offers, which can answer everyone still, or be removed", async () => {
+  it("says so of a model Ember no longer offers, once the Worker lists those it does, which can answer everyone still, or be removed", async () => {
     const fetch = serve();
-    const { user } = showCard(on("anthropic/claude-sonnet-5.5", TOP_LEVELS, [KEPT_GLM.id]));
-    expect(within(models()).getAllByRole("radio").map((radio) => radio.closest("label")?.textContent)).toEqual(["Claude Sonnet 5.5", "GLM-4.7 Flash (no longer offered)"]);
+    const { user } = showCard(on("anthropic/claude-sonnet-5.5", TOP_LEVELS, [GEMMA.id, KEPT_GLM.id]));
+    expect(await within(models()).findByRole("radio", { name: "GLM-4.7 Flash (no longer offered)" })).toBeEnabled();
+    expect(labels()).toEqual(["Claude Sonnet 5.5", "Gemma 4 26B", "GLM-4.7 Flash (no longer offered)"]);
     expect(within(models()).getByRole("button", { name: "Remove GLM-4.7 Flash" })).toBeEnabled();
     await user.click(model("GLM-4.7 Flash (no longer offered)"));
     expect(fetch).toHaveBeenCalledWith("/api/account/assistant", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ model: KEPT_GLM.id }) }));
+    expect(listedWith()).toEqual([{ accountId: ACCOUNT_ID }]);
+  });
+
+  it("doesn't say Ember no longer offers one of Workers AI's while the Worker couldn't list them, as it may offer it still", async () => {
+    const listing = held(() => Response.json({ ...OFFERED, models: [...ASSISTANT_MODELS], workersAi: UNLISTED } satisfies OfferedModels));
+    serve({ offered: listing.answered });
+    showCard(on("anthropic/claude-sonnet-5.5", TOP_LEVELS, [GEMMA.id, KEPT_GLM.id]));
+    await listing.answer();
+    expect(labels()).toEqual(["Claude Sonnet 5.5", "Gemma 4 26B", "GLM-4.7 Flash"]);
   });
 
   it("saves another model chosen to answer everyone at once, showing it meanwhile", async () => {
@@ -747,10 +789,10 @@ describe("Models", () => {
     expect(addModel()).toHaveAccessibleDescription(MODELS_FULL);
   });
 
-  it("can't add a model once people can pick every one Ember offers", () => {
+  it("can't add a model once people can pick every one Ember offers, as the Worker lists them", async () => {
     serve();
-    showCard(on("anthropic/claude-sonnet-5.5", TOP_LEVELS, ASSISTANT_MODELS.flatMap(({ id }) => (id === "anthropic/claude-sonnet-5.5" ? [] : [id]))));
-    expect(addModel()).toBeDisabled();
+    showCard(on("anthropic/claude-sonnet-5.5", TOP_LEVELS, OFFERED.models.flatMap(({ id }) => (id === "anthropic/claude-sonnet-5.5" ? [] : [id]))));
+    await waitFor(() => expect(addModel()).toBeDisabled());
     expect(addModel()).toHaveAccessibleDescription(EVERY_MODEL_ADDED);
   });
 });
@@ -763,20 +805,37 @@ describe("Add a model", () => {
   async function openDialog(assistant: Assistant = on("anthropic/claude-sonnet-5.5")) {
     const shown = showCard(assistant);
     await shown.user.click(within(card()).getByRole("button", { name: "Add a model" }));
-    await within(dialog()).findByRole("combobox", { name: "Model" });
+    await waitFor(() => expect(menu()).toBeEnabled());
     return shown;
   }
 
-  it("offers the models Ember offers that people can't pick yet, the first of them chosen", async () => {
-    const fetch = serve();
+  it("offers the models Ember offers that people can't pick yet, as the card listed them, the first of them chosen", async () => {
+    serve();
     await openDialog(on("anthropic/claude-sonnet-5.5", TOP_LEVELS, ["openai/gpt-6.1-sol", KEPT_GLM.id]));
     expect(dialog()).toHaveAccessibleName("Add a model");
-    expect(within(menu()).getAllByRole("group").map((group) => group.getAttribute("label"))).toEqual(["Anthropic", "OpenAI", "xAI"]);
+    expect(within(menu()).getAllByRole("group").map((group) => group.getAttribute("label"))).toEqual(["Anthropic", "OpenAI", "xAI", "Workers AI"]);
     expect(within(menu()).getAllByRole("option").map((option) => option.getAttribute("value"))).toEqual(
-      ASSISTANT_MODELS.flatMap(({ id }) => (["anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol"].includes(id) ? [] : [id])),
+      OFFERED.models.flatMap(({ id }) => (["anthropic/claude-sonnet-5.5", "openai/gpt-6.1-sol"].includes(id) ? [] : [id])),
     );
     expect(menu()).toHaveValue("anthropic/claude-fable-5.2");
-    expect(fetch).not.toHaveBeenCalled();
+    expect(asked()).toEqual([]);
+    expect(listedWith()).toEqual([{ accountId: ACCOUNT_ID }]);
+  });
+
+  it("says what one of Workers AI's costs, which Cloudflare runs", async () => {
+    serve();
+    const { user } = await openDialog();
+    await user.selectOptions(menu(), GEMMA.id);
+    expect(menu()).toHaveAccessibleDescription(
+      "Cloudflare runs this model on Workers AI, free for the account's first 10,000 Neurons each day, and beyond that on Workers Paid, at $0.10 for each million tokens it reads, and $0.30 for each million it writes. AI Gateway's credits pay for its searches of the web, and for the model too once the default gateway's Workers AI Billing is Unified billing. Open Workers AI in the Cloudflare dashboard",
+    );
+  });
+
+  it("says why Workers AI's models aren't offered when the Worker couldn't list them", async () => {
+    serve({ offered: () => Response.json({ ...OFFERED, models: [...ASSISTANT_MODELS], workersAi: UNLISTED } satisfies OfferedModels) });
+    await openDialog();
+    expect(within(menu()).getAllByRole("group").map((group) => group.getAttribute("label"))).toEqual(["Anthropic", "OpenAI", "xAI"]);
+    expect(dialog()).toHaveTextContent(UNLISTED);
   });
 
   it("adds the model chosen once it answers a test question, saying what it said", async () => {
@@ -879,7 +938,9 @@ describe("Search the web", () => {
   /** Answers turning Search the web on or off as `changed` says, keeping what the card sent. */
   function serveWebSearch(changed: (on: boolean) => Response | Promise<Response>) {
     return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      if (`${init?.method} ${String(input)}` !== "PUT /api/account/assistant/web_search") throw new Error(`Unexpected request for ${init?.method} ${String(input)}`);
+      const request = `${init?.method} ${String(input)}`;
+      if (request === LISTING) return Response.json(OFFERED);
+      if (request !== "PUT /api/account/assistant/web_search") throw new Error(`Unexpected request for ${request}`);
       return changed((JSON.parse(String(init?.body)) as { on: boolean }).on);
     });
   }
@@ -930,12 +991,12 @@ describe("Search the web", () => {
     expect(webSearchOn(["search"], [known(SONNET)])).not.toContain("reads");
   });
 
-  it("says, while people can pick other models, that a model someone picks searches too, if it's Anthropic's, OpenAI's or xAI's", () => {
+  it("says, while people can pick other models, that a model someone picks searches too, if it can", () => {
     serveWebSearch(() => turned(false));
     showLiveCard(on(SONNET, TOP_LEVELS, ["openai/gpt-6.1-sol", "@cf/zai-org/glm-4.7-flash"], ["search", "read"]));
     expect(webSwitch()).toBeChecked();
     expect(webSwitch()).toHaveAccessibleDescription(webSearchOn(["search", "read"], [SONNET, "openai/gpt-6.1-sol", "@cf/zai-org/glm-4.7-flash"].map(known)));
-    expect(webSearchOn(["search"], [known(SONNET), known("openai/gpt-6.1-sol")])).toContain("A model someone picks searches too, if it's Anthropic's, OpenAI's or xAI's.");
+    expect(webSearchOn(["search"], [known(SONNET), known("openai/gpt-6.1-sol")])).toContain("A model someone picks searches too, if it can.");
     expect(webSearchOn(["search"], [known(SONNET)])).not.toContain("picks");
   });
 
@@ -975,13 +1036,13 @@ describe("Search the web", () => {
   });
 
   it("says a model Ember no longer offers that can't search can't, its switch opening Set up Ember AI to choose another", async () => {
-    const fetch = serveWebSearch(() => turned(true));
+    serveWebSearch(() => turned(true));
     const { user, onSetUp } = showLiveCard(on("@cf/zai-org/glm-4.7-flash"));
     expect(webSwitch()).toHaveAccessibleDescription(cannotSearchWith("GLM-4.7 Flash"));
     await user.click(webSwitch());
     expect(onSetUp).toHaveBeenCalledOnce();
     expect(webSwitch()).not.toBeChecked();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(asked()).toEqual([]);
   });
 
   it("leaves a failure it can't say itself to the page's alerts", async () => {
@@ -1018,7 +1079,7 @@ describe("Search the web", () => {
 
     vi.restoreAllMocks();
     serve({ changed: () => Response.json({ assistant: on("@cf/zai-org/glm-4.7-flash", TOP_LEVELS, [SONNET]) }) });
-    await user.click(within(card()).getByRole("radio", { name: "GLM-4.7 Flash (no longer offered)" }));
+    await user.click(await within(card()).findByRole("radio", { name: "GLM-4.7 Flash (no longer offered)" }));
     await waitFor(() => expect(webSwitch()).toHaveAccessibleDescription(cannotSearchWith("GLM-4.7 Flash")));
     expect(within(card()).getByRole("status")).toHaveTextContent("");
   });
@@ -1026,7 +1087,7 @@ describe("Search the web", () => {
   it("forgets that choosing another model turned it off once Set up Ember AI opens, which may choose another", async () => {
     serve({ changed: () => Response.json({ assistant: on("@cf/zai-org/glm-4.7-flash", TOP_LEVELS, [SONNET]) }) });
     const { user, onSetUp } = showLiveCard(on(SONNET, TOP_LEVELS, ["@cf/zai-org/glm-4.7-flash"], ["search", "read"]));
-    await user.click(within(card()).getByRole("radio", { name: "GLM-4.7 Flash (no longer offered)" }));
+    await user.click(await within(card()).findByRole("radio", { name: "GLM-4.7 Flash (no longer offered)" }));
     await waitFor(() => expect(within(card()).getByRole("status")).toHaveTextContent(searchTurnedOff(null)));
 
     await user.click(webSwitch());

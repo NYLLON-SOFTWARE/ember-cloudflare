@@ -82,13 +82,15 @@ one, or DM it, and Ember sends the message to the bot's own webhook and posts wh
 ### Ask @ember
 
 Turn on Ember AI and choose Claude, GPT or Grok, asked through
-[Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/). Then mention @ember in a room
-or a thread, or DM it, and it reads the conversation and answers right there, with links, lists, code
-and pictures, as a teammate would. It searches the web too, when you let it, listing the pages its
-answer came from. Administrators set how long it may think and write, and each person picks their own
-levels on their profile. Administrators can add agents of their own too, each with its instructions,
-model and rooms, such as one that sums up long threads or drafts replies in Support, and people
-mention or DM them just the same.
+[Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/), or a model Cloudflare runs
+itself on [Workers AI](https://developers.cloudflare.com/workers-ai/). Ember checks for new models
+every day, so they show up without an update. Then mention @ember in a room or a thread, or DM it, and
+it reads the conversation and answers right there, with links, lists, code and pictures, as a teammate
+would. It searches the web too, when you let it, listing the pages its answer came from. Administrators
+set how long it may think and write, and each person picks their own levels on their profile.
+Administrators can add agents of their own too, each with its instructions, model and rooms, such as
+one that sums up long threads or drafts replies in Support, and people mention or DM them just the
+same.
 
 ### Find anything
 
@@ -184,7 +186,7 @@ Ember is free. Cloudflare runs it, at its own prices:
 | **A growing team** | $5 a month on Workers Paid, for the whole account. It includes 50 million database rows written a month, where Free allows 100,000 a day, and bills any use past its allowances. |
 | **Files** | 10 GB in [R2](https://developers.cloudflare.com/r2/pricing/) free, then $0.015 per GB a month, with nothing to pay for downloads. |
 | **Email, if you want it** | Free with [Resend](https://resend.com), up to 3,000 emails a month and 100 a day, or 3,000 a month included with Workers Paid through Cloudflare Email Service. |
-| **@ember and agents, if you turn them on** | Claude, GPT or Grok at their makers' prices, from $0.10 for a million tokens read, paid with [AI Gateway's credits](https://developers.cloudflare.com/ai-gateway/features/unified-billing/). |
+| **@ember and agents, if you turn them on** | Claude, GPT or Grok at their makers' prices, from $0.10 for a million tokens read, paid with [AI Gateway's credits](https://developers.cloudflare.com/ai-gateway/features/unified-billing/), or Workers AI's models, free for 10,000 [Neurons](https://developers.cloudflare.com/workers-ai/platform/pricing/) a day. |
 | **Your own domain, if you want one** | Whatever your registrar charges. |
 
 The free plan's allowances are daily: once a day's are used up, Ember can't save anything new until
@@ -267,6 +269,7 @@ pnpm seed       # in a second terminal: the made-up Fernwood team sets Ember up 
 - [Self-hosting guide](docs/self-hosting.md): deploying, what it costs, custom domains, who can join,
   email, push notifications, files and security.
 - [Slack-compatible webhooks](docs/slack-webhooks.md): what bots can post, and how it looks.
+- [The models file](docs/models.md): the models every copy of Ember offers, and how to change them.
 - [Development](docs/development.md): the code's layout, running Ember locally, tests and performance.
 - [The database](docs/database.md): Ember's schema beside Campfire's.
 - [Security policy](SECURITY.md): how to report a vulnerability privately.

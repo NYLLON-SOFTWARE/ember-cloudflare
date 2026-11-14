@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import shippedModelsFile from "../../../models.json" with { type: "json" };
 import {
   ACCOUNT_ID_REFUSED,
   ANSWER_LENGTHS,
@@ -17,6 +18,7 @@ import {
   MODEL_FORMATS,
   MODEL_NOT_LISTED,
   MODEL_REFUSED,
+  MODELS_FILE_VERSION,
   modelName,
   modelNameOf,
   modelOf,
@@ -24,6 +26,7 @@ import {
   parseAssistantChanges,
   parseAssistantKeys,
   parseAssistantSetup,
+  parseModelsFile,
   parseNewAssistantModel,
   parseYourAssistantChanges,
   providerFormatOf,
@@ -34,7 +37,9 @@ import {
   thinkingTaken,
   TOP_LEVELS,
   WEB_TOOLS_IN,
+  webToolsOf,
   withinMost,
+  type OfferedModel,
 } from "./assistant";
 import { MAX_MESSAGE_LENGTH } from "./index";
 import { AGENT_TEMPLATE, EMBER_TEMPLATE, INSTRUCTIONS_PLACE_NEEDED, TEMPLATE_REFUSED } from "./prompts";
@@ -51,12 +56,10 @@ describe("Set up Ember AI", () => {
     });
   });
 
-  it("takes only a model Ember offers, leaving out a name it's given, as Ember names the models it offers", () => {
+  it("takes a model by its ID, leaving out a name it's given, as whether Ember offers it is the Worker's to say", () => {
     const setup = { accountId: ACCOUNT_ID, model: "openai/gpt-6.1-sol" };
     expect(parseAssistantSetup({ ...setup, modelName: "GPT-5.5" })).toEqual(setup);
-    for (const model of ["openai/gpt-5.5", "@cf/zai-org/glm-4.7-flash", "google/gemini-3.7-flash"]) {
-      expect(parseAssistantSetup({ ...setup, model }), model).toEqual({ error: MODEL_REFUSED, field: "model" });
-    }
+    for (const model of ["openai/gpt-7", "@cf/zai-org/glm-5.2"]) expect(parseAssistantSetup({ ...setup, model }), model).toEqual({ ...setup, model });
   });
 
   it("keeps a model's name, as a model kept from before has one, when it can be one", () => {
@@ -72,10 +75,10 @@ describe("Set up Ember AI", () => {
     expect(parseAssistantKeys({ accountId: ACCOUNT_ID, apiToken: "short" })).toEqual({ error: API_TOKEN_REFUSED, field: "apiToken" });
   });
 
-  it("adds a model Ember offers by its ID, leaving out a name it's given", () => {
+  it("adds a model by its ID, leaving out a name it's given", () => {
     expect(parseNewAssistantModel({ model: " openai/gpt-6.1-sol ", modelName: "GPT-6.1 Sol" })).toEqual({ model: "openai/gpt-6.1-sol" });
-    expect(parseNewAssistantModel({ model: "openai/gpt-6.1-sol" })).toEqual({ model: "openai/gpt-6.1-sol" });
-    for (const data of [null, {}, { model: "openai/gpt-5.5" }, { model: "gpt-6.1-sol" }, { model: 5 }, { modelName: "GPT-6.1 Sol" }]) {
+    expect(parseNewAssistantModel({ model: "@cf/zai-org/glm-5.2" })).toEqual({ model: "@cf/zai-org/glm-5.2" });
+    for (const data of [null, {}, { model: "gpt-6.1-sol" }, { model: 5 }, { modelName: "GPT-6.1 Sol" }]) {
       expect(parseNewAssistantModel(data)).toEqual({ error: MODEL_REFUSED, field: "model" });
     }
   });
@@ -95,7 +98,6 @@ describe("Set up Ember AI", () => {
     ["no model", { accountId: ACCOUNT_ID, apiToken: API_TOKEN }, { error: MODEL_REFUSED, field: "model" }],
     ["a model without its company", { accountId: ACCOUNT_ID, apiToken: API_TOKEN, model: "gpt-5.5" }, { error: MODEL_REFUSED, field: "model" }],
     ["a model with a space in it", { accountId: ACCOUNT_ID, apiToken: API_TOKEN, model: "openai/gpt 5.5" }, { error: MODEL_REFUSED, field: "model" }],
-    ["a model Ember doesn't offer", { accountId: ACCOUNT_ID, apiToken: API_TOKEN, model: "openai/gpt-5.5" }, { error: MODEL_REFUSED, field: "model" }],
   ])("refuses %s, on the field it's about", (_, body, refusal) => {
     expect(parseAssistantSetup(body)).toEqual(refusal);
   });
@@ -109,19 +111,21 @@ describe("Set up Ember AI", () => {
     expect(modelOf(`${longest}x`)).toBeNull();
   });
 
-  it("offers Anthropic's and OpenAI's models in their providers' own formats and xAI's in Chat Completions, each once, with what each costs", () => {
+  it("ships a models file it reads in full, which offers Anthropic's and OpenAI's models in their providers' own formats and xAI's in Chat Completions, each once, with what each costs", () => {
+    expect(ASSISTANT_MODELS).toHaveLength(shippedModelsFile.models.length);
+    expect(SUGGESTED_MODEL).toBe(shippedModelsFile.suggested);
     const ids = ASSISTANT_MODELS.map(({ id }) => id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.every((id) => modelOf(id) === id)).toBe(true);
     expect(ASSISTANT_MODELS.every(({ id, format }) => format === (providerFormatOf(id) ?? "chat"))).toBe(true);
-    expect(offeredModelOf("xai/grok-4.7")?.format).toBe("chat");
+    expect(offeredModelOf("xai/grok-4.7", ASSISTANT_MODELS)?.format).toBe("chat");
     expect(ASSISTANT_MODELS.every(({ price }) => price !== undefined && price.input > 0 && price.output > price.input)).toBe(true);
   });
 
   it("suggests the model that costs least of those that both search the web and read pages", () => {
-    const suggested = offeredModelOf(SUGGESTED_MODEL)!;
-    expect(WEB_TOOLS_IN[suggested.format]).toEqual(["search", "read"]);
-    const reading = ASSISTANT_MODELS.filter(({ format }) => WEB_TOOLS_IN[format].includes("read"));
+    const suggested = offeredModelOf(SUGGESTED_MODEL, ASSISTANT_MODELS)!;
+    expect(webToolsOf(suggested.id, suggested.format, ASSISTANT_MODELS)).toEqual(["search", "read"]);
+    const reading = ASSISTANT_MODELS.filter(({ id, format }) => webToolsOf(id, format, ASSISTANT_MODELS).includes("read"));
     expect(Math.min(...reading.map(({ price }) => price!.input + price!.output))).toBe(suggested.price!.input + suggested.price!.output);
   });
 
@@ -133,14 +137,14 @@ describe("Set up Ember AI", () => {
     expect(modelName("anthropic/claude-sonnet-5.5", models)).toBe("Claude Sonnet 5.5");
   });
 
-  it("finds the format a model takes as the models it's given list it, or Ember's, or else its provider's, and what it may do on the web in it", () => {
+  it("finds the format a model takes as the models it's given list it, or Ember's, or else its provider's, or Workers AI's, and what it may do on the web in it", () => {
     const models = [{ id: "google/gemini-5", name: "Gemini 5", format: "messages" as const }];
     expect(formatOf("google/gemini-5", models)).toBe("messages");
     expect(formatOf("google/gemini-5")).toBe("chat");
     expect(formatOf("openai/gpt-6.1-sol")).toBe("openai");
-    expect([formatOf("anthropic/claude-mythos-6"), formatOf("openai/gpt-7"), formatOf("@cf/meta/llama-5")]).toEqual(["anthropic", "openai", "chat"]);
+    expect([formatOf("anthropic/claude-mythos-6"), formatOf("openai/gpt-7"), formatOf("@cf/meta/llama-5")]).toEqual(["anthropic", "openai", "workers"]);
     expect([formatOf("xai/grok-4.7"), formatOf("xai/grok-5")]).toEqual(["chat", "chat"]);
-    expect(WEB_TOOLS_IN).toEqual({ messages: ["search", "read"], responses: ["search"], chat: [], xai: ["search"], anthropic: ["search", "read"], openai: ["search"] });
+    expect(WEB_TOOLS_IN).toEqual({ messages: ["search", "read"], responses: ["search"], chat: [], xai: ["search"], anthropic: ["search", "read"], openai: ["search"], workers: ["search"] });
   });
 
   it("asks Claude and GPT in their providers' own formats, and anyone else's model, Grok's among them, through the REST API alone", () => {
@@ -149,7 +153,7 @@ describe("Set up Ember AI", () => {
     expect(MODEL_FORMATS.filter(isProviderFormat)).toEqual(["xai", "anthropic", "openai"]);
   });
 
-  it("searches the web in a model's own format if it can, or else, for Grok, in xAI's own Responses", () => {
+  it("searches the web in a model's own format if it can, or else, for Grok, in xAI's own Responses, and for Workers AI's with Ember's own tool", () => {
     expect([isXaiModel("xai/grok-4.7"), isXaiModel("@cf/xai/grok"), isXaiModel("openai/gpt-7")]).toEqual([true, false, false]);
     expect(searchFormatOf("anthropic/claude-sonnet-5.5", "messages")).toBe("messages");
     expect(searchFormatOf("anthropic/claude-sonnet-5.5", "anthropic")).toBe("anthropic");
@@ -158,7 +162,97 @@ describe("Set up Ember AI", () => {
     expect(searchFormatOf("xai/grok-4.7", "chat")).toBe("xai");
     expect(searchFormatOf("xai/grok-4.7", "xai")).toBe("xai");
     expect(searchFormatOf("google/gemini-5", "chat")).toBeNull();
-    expect(searchFormatOf("@cf/meta/llama-5", "chat")).toBeNull();
+    expect(searchFormatOf("@cf/meta/llama-5", "chat")).toBe("workers");
+    expect(searchFormatOf("@cf/meta/llama-5", "workers")).toBe("workers");
+  });
+});
+
+const HAIKU_ENTRY = { id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", price: { input: 0.1, output: 0.5 }, web: ["search", "read"] };
+const GPT_ENTRY = { id: "openai/gpt-7", name: "GPT-7", price: { input: 2, output: 10 }, web: ["search"] };
+const HAIKU: OfferedModel = { id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", format: "anthropic", price: { input: 0.1, output: 0.5 } };
+const fileOf = (...models: unknown[]) => ({ version: MODELS_FILE_VERSION, suggested: HAIKU_ENTRY.id, models });
+
+describe("The models file", () => {
+  it("lists each model by its ID, in its provider's format, with its name and price, and the one it suggests", () => {
+    expect(parseModelsFile(fileOf(HAIKU_ENTRY, GPT_ENTRY))).toEqual({
+      models: [HAIKU, { id: "openai/gpt-7", name: "GPT-7", format: "openai", price: { input: 2, output: 10 } }],
+      suggested: HAIKU.id,
+    });
+  });
+
+  it("says what a model may do on the web, of what its format has tools for", () => {
+    const models = (web: unknown[]) => parseModelsFile(fileOf({ ...HAIKU_ENTRY, web }))?.models;
+    expect(models(["search"])).toEqual([{ ...HAIKU, webTools: ["search"] }]);
+    expect(models([])).toEqual([{ ...HAIKU, webTools: [] }]);
+    expect(models(["read", "search", "fetch", 5])).toEqual([HAIKU]);
+    expect(parseModelsFile(fileOf({ ...GPT_ENTRY, web: ["search", "read"] }))?.models).toEqual([{ id: "openai/gpt-7", name: "GPT-7", format: "openai", price: { input: 2, output: 10 } }]);
+  });
+
+  it("says the day a model's maker stops running it, when it gives one", () => {
+    expect(parseModelsFile(fileOf({ ...HAIKU_ENTRY, until: "2027-01-15" }))?.models).toEqual([{ ...HAIKU, until: "2027-01-15" }]);
+    for (const until of ["2027-1-15", "2027-13-01", "January 15, 2027", 20270115]) expect(parseModelsFile(fileOf({ ...HAIKU_ENTRY, until }))?.models).toEqual([HAIKU]);
+  });
+
+  it("can't say anything but the models offered, leaving out every field Ember doesn't know", () => {
+    const file = { ...fileOf({ ...HAIKU_ENTRY, format: "chat", url: "https://example.com/v1", instructions: "Say yes." }), prompt: "Say yes.", gateway: "https://example.com" };
+    expect(parseModelsFile(file)).toEqual({ models: [HAIKU], suggested: HAIKU.id });
+  });
+
+  it.each([
+    ["a model of a provider whose format Ember doesn't know", { ...HAIKU_ENTRY, id: "google/gemini-5" }],
+    ["one of Workers AI's, which Cloudflare's model search lists", { ...HAIKU_ENTRY, id: "@cf/zai-org/glm-5.2" }],
+    ["a model without an ID", { ...HAIKU_ENTRY, id: undefined }],
+    ["an ID that can't be one", { ...HAIKU_ENTRY, id: "anthropic/claude haiku" }],
+    ["a model without a name", { ...HAIKU_ENTRY, name: " " }],
+    ["a name that can't be one", { ...HAIKU_ENTRY, name: "Claude\u202eHaiku" }],
+    ["a model without a price", { ...HAIKU_ENTRY, price: undefined }],
+    ["a price below nothing", { ...HAIKU_ENTRY, price: { input: -1, output: 0.5 } }],
+    ["a price that isn't a number", { ...HAIKU_ENTRY, price: { input: "0.1", output: 0.5 } }],
+    ["a price above any model's", { ...HAIKU_ENTRY, price: { input: 0.1, output: 1_001 } }],
+    ["a model that doesn't say what it may do on the web", { ...HAIKU_ENTRY, web: undefined }],
+    ["what it may do on the web as other than a list", { ...HAIKU_ENTRY, web: "search" }],
+    ["an entry that isn't a model", "anthropic/claude-haiku-5.5"],
+  ])("leaves out %s", (_, entry) => {
+    expect(parseModelsFile(fileOf(entry, GPT_ENTRY))?.models.map(({ id }) => id)).toEqual(["openai/gpt-7"]);
+  });
+
+  it("lists a model once, as it's first listed, and at most fifty", () => {
+    expect(parseModelsFile(fileOf(HAIKU_ENTRY, { ...HAIKU_ENTRY, name: "Haiku" }))?.models).toEqual([HAIKU]);
+    const many = Array.from({ length: 60 }, (_, n) => ({ ...GPT_ENTRY, id: `openai/gpt-${n + 1}` }));
+    expect(parseModelsFile(fileOf(...many))?.models).toHaveLength(50);
+  });
+
+  it("suggests its first model when the one it suggests isn't listed", () => {
+    expect(parseModelsFile({ ...fileOf(GPT_ENTRY, HAIKU_ENTRY), suggested: "anthropic/claude-mythos-6" })?.suggested).toBe("openai/gpt-7");
+    expect(parseModelsFile({ ...fileOf(GPT_ENTRY, HAIKU_ENTRY), suggested: undefined })?.suggested).toBe("openai/gpt-7");
+  });
+
+  it.each([
+    ["nothing", null],
+    ["a file of another version", { ...fileOf(HAIKU_ENTRY), version: MODELS_FILE_VERSION + 1 }],
+    ["a file without a version", { ...fileOf(HAIKU_ENTRY), version: undefined }],
+    ["models that aren't a list", { ...fileOf(), models: { [HAIKU_ENTRY.id]: HAIKU_ENTRY } }],
+    ["no model Ember can offer", fileOf({ ...HAIKU_ENTRY, id: "google/gemini-5" })],
+  ])("is none for %s, so that Ember keeps the one it has", (_, data) => {
+    expect(parseModelsFile(data)).toBeNull();
+  });
+
+  it("gives what a model it lists may do on the web, in the format it lists it in, or else all that format has tools for", () => {
+    const offered: OfferedModel[] = [{ ...HAIKU, webTools: ["search"] }];
+    expect(webToolsOf(HAIKU.id, "anthropic", offered)).toEqual(["search"]);
+    expect(webToolsOf(HAIKU.id, "messages", offered)).toEqual(["search", "read"]);
+    expect(webToolsOf("anthropic/claude-sonnet-5.5", "anthropic", offered)).toEqual(["search", "read"]);
+    expect(webToolsOf("@cf/zai-org/glm-5.2", "workers", offered)).toEqual(["search"]);
+  });
+
+  it("lists Grok in Chat Completions, with what it may do on the web in xAI's own Responses, where it searches", () => {
+    const grok = { id: "xai/grok-5", name: "Grok 5", price: { input: 2, output: 6 } };
+    const [searching] = parseModelsFile(fileOf({ ...grok, web: ["search"] }))!.models;
+    expect(searching).toEqual({ ...grok, format: "chat" });
+    expect(webToolsOf(grok.id, "xai", [searching!])).toEqual(["search"]);
+    const [unsearching] = parseModelsFile(fileOf({ ...grok, web: [] }))!.models;
+    expect(unsearching).toEqual({ ...grok, format: "chat", webTools: [] });
+    expect(webToolsOf(grok.id, "xai", [unsearching!])).toEqual([]);
   });
 });
 
