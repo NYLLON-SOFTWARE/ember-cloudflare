@@ -271,6 +271,29 @@ describe("One room, and nothing else", () => {
     expect((await api("/api/rooms/new", { headers: { Cookie: guest.cookie } })).status).toBe(403);
   });
 
+  it("stays out of open rooms made or opened after them, which take everyone else in", async () => {
+    const made = await createRoom("Later");
+    const quiet = await createRoom("Quiet", { closedTo: [host.user.id] });
+    const openedQuiet = await api(`/api/rooms/${quiet.id}`, { method: "PATCH", headers: { Cookie: host.cookie }, body: JSON.stringify({ kind: "open" }) });
+    expect(openedQuiet.status, await openedQuiet.clone().text()).toBe(200);
+    // Their one membership stands: neither a new open room nor one opened just now put them in it.
+    const memberships = (await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", guest.user.id)) as Array<{ room_id: RoomId }>;
+    expect(memberships).toEqual([{ room_id: room }]);
+    expect((await sidebarOf(guest)).rooms.map(({ id }) => id)).toEqual([room]);
+    expect(await opened(made.id, guest)).toBe(CloseCode.NotFound);
+    expect(await opened(quiet.id, guest)).toBe(CloseCode.NotFound);
+  });
+
+  it("joins no DM someone else starts with them, whose room their stay doesn't reach", async () => {
+    const member = await signIn("Grace");
+    const started = await api("/api/directs", { method: "POST", headers: { Cookie: member.cookie }, body: JSON.stringify({ userIds: [guest.user.id] }) });
+    expect(started.status, await started.clone().text()).toBe(201);
+    const dm = ((await started.json()) as { room: { id: RoomId } }).room.id;
+    expect((await workspaceSql("SELECT room_id FROM memberships WHERE user_id = ?", guest.user.id)) as Array<{ room_id: RoomId }>).toEqual([{ room_id: room }]);
+    expect((await sidebarOf(guest)).rooms.map(({ id }) => id)).toEqual([room]);
+    expect(await opened(dm, guest)).toBe(CloseCode.NotFound);
+  });
+
   it("can't leave the room they were added to", async () => {
     const refused = await api(`/api/rooms/${room}/membership`, { method: "DELETE", headers: { Cookie: guest.cookie } });
     expect(refused.status).toBe(403);

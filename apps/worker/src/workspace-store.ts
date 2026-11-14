@@ -1561,11 +1561,13 @@ const INSERT_DIRECT = `INSERT INTO rooms (id, kind, creator_id, direct_key, crea
 
 /**
  * Puts the people key ?3 names in DM ?1, as of ?2, if `INSERT_DIRECT` added it, at Campfire's
- * `default_involvement` for a DM, everything.
+ * `default_involvement` for a DM, everything. The guests of one room stay out, whom nobody else's DM
+ * takes out of the room their stay keeps them to.
  */
 const GRANT_DIRECT = `INSERT INTO memberships (room_id, user_id, involvement, created_at, updated_at)
   SELECT ?1, users.id, 'everything', ?2, ?2 FROM users
   WHERE users.id IN (SELECT value FROM json_each(?3)) AND EXISTS (SELECT 1 FROM rooms WHERE id = ?1)
+    AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)
   ON CONFLICT DO NOTHING`;
 
 /** The DM a key names, when it was last active, and who's in it, by id. */
@@ -2519,11 +2521,13 @@ const GRANT_OPEN_ROOMS_TO_USER = `INSERT INTO memberships (room_id, user_id, cre
 
 /**
  * Puts every active person in an open room, keeping the memberships they already have, and answers whom
- * it put in. Agents kept to the open rooms an administrator picked stay out.
+ * it put in. Agents kept to the open rooms an administrator picked stay out, and so do the guests of one
+ * room, whose stay keeps them to its own room, whoever opens another here.
  */
 const GRANT_ROOM_TO_ACTIVE_USERS = `INSERT INTO memberships (room_id, user_id, created_at, updated_at)
   SELECT ?, id, ?, ? FROM users WHERE status = ${ACTIVE}
     AND NOT EXISTS (SELECT 1 FROM agents WHERE agents.user_id = users.id AND agents.every_open_room = 0)
+    AND NOT EXISTS (SELECT 1 FROM guest_stays WHERE guest_stays.user_id = users.id)
   ON CONFLICT DO NOTHING RETURNING user_id`;
 
 /**
