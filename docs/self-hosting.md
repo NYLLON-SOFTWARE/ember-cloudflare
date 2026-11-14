@@ -871,7 +871,8 @@ while Ember AI is on: a name, the server's address, which the service's document
 often ends in `/mcp`, and a token, if the server takes one. Ember asks the server for its tools then,
 over Streamable HTTP, and connects the app only once it has answered, so a wrong address or token is
 said on its field, in words about what the server did: it asked for a sign-in, didn't take the token,
-has no MCP server there, sent the address on to another, or took longer than 20 seconds.
+has no MCP server there, sent the address on to another, took longer than 20 seconds, or answered
+with more than 4 MB.
 
 This release connects apps and reads their tools. Agents can't use them yet, and a server that signs
 people in with OAuth can't be connected, only one that takes a token or nothing.

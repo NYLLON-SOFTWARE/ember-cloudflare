@@ -236,9 +236,9 @@ export function AppSettingsPage({ appId, me, onMissing, onFailed }: PageProps & 
     send(
       "reading",
       () => readAppTools(appId),
-      // What's typed stays as it is, and a field left as the app had it follows what another administrator has saved since, so that the next save doesn't put the old back.
+      // What's typed stays as it is, and a field left as the app had it follows what another administrator has saved since, so that the next save doesn't put the old back. Sending no token is switched back off once the app keeps none, as the switch isn't shown then.
       (read) => {
-        if (app) setFields((typed) => ({ ...typed, ...(typed.name.trim() === app.name && { name: read.name }), ...(typed.url.trim() === app.url && { url: read.url }) }));
+        if (app) setFields((typed) => ({ ...typed, ...(typed.name.trim() === app.name && { name: read.name }), ...(typed.url.trim() === app.url && { url: read.url }), ...(!read.hasToken && { noToken: false }) }));
         setApp(read);
       },
       ({ error }) => setUnread(error),

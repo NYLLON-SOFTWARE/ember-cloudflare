@@ -279,6 +279,24 @@ describe("Connecting an app", () => {
     expect(JSON.stringify(logged.mock.calls)).not.toContain("echoed-token-5678");
   });
 
+  it("stops reading a server that answers with more than Ember reads, and connects nothing", async () => {
+    const administrator = await setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let megabytes = 0;
+    const endless = () =>
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          megabytes++;
+          controller.enqueue(new Uint8Array(1_000_000).fill(32));
+        },
+      });
+    server = { pages: [], instead: ({ rpc }) => (rpc === "tools/list" ? new Response(endless(), { headers: { "Content-Type": "application/json" } }) : null) };
+
+    expect(await refusalOf(await connect(administrator, { name: "Tracker", url: LOCAL }), 422)).toEqual({ error: "localhost:3845 answered with more than Ember reads.", field: "url" });
+    expect(megabytes).toBeLessThan(10);
+    expect(((await (await listApps(administrator)).json()) as Apps).apps).toEqual([]);
+  });
+
   it("reads every page of a server's tools up to as many as it keeps, cuts a long description, and leaves out a tool it can't use", async () => {
     const administrator = await setUp();
     const many = Array.from({ length: MAX_APP_TOOLS + 5 }, (_, index): ListedTool => ({ name: `tool_${index}`, description: `Does thing ${index}.` }));

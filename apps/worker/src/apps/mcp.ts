@@ -11,7 +11,7 @@ import { VERSION } from "../version";
 // resolves only to public addresses, or this machine's, and a redirect isn't followed, so a server can't
 // send Ember, or the token, anywhere else. Only JSON comes back, and none of a server's code runs here.
 // Every request, the lookups of the name among them, ends at one deadline, as the client doesn't pass
-// its own to all of them.
+// its own to all of them, and the answers together may be only so long, as the client reads each whole.
 
 /** How long reading an app's tools may take, from connecting to the last page of them. */
 export const READ_DEADLINE_MS = 20_000;
@@ -22,6 +22,8 @@ const MAX_TOOL_NAME_LENGTH = 128;
 export const MAX_TOOL_SCHEMA_LENGTH = 8_000;
 /** The most pages of tools Ember asks an app for. */
 const MAX_PAGES = 10;
+/** The most bytes Ember reads of what's answered while it reads an app's tools, all the answers together. */
+export const MAX_READ_BYTES = 4_000_000;
 
 /** A tool as Ember keeps it: as its page shows it, with the JSON Schema of what it takes, and a fingerprint of all that. */
 export interface ReadTool {
@@ -42,6 +44,12 @@ export interface ReadApp {
 /** What an app is asked through: the Worker's `fetch`, or a fake in tests. */
 export type Send = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+/** What asking an app is held to: when it ends, and how many bytes of answers may still be read. */
+interface Held {
+  deadline: AbortSignal;
+  bytesLeft: number;
+}
+
 /**
  * The tools of the app at `url`, asked with `token`, if it takes one: what its server calls itself and
  * each tool it lists, up to as many as Ember keeps, or why Ember couldn't read them, in words for the
@@ -49,9 +57,9 @@ export type Send = (input: RequestInfo | URL, init?: RequestInit) => Promise<Res
  */
 export async function readApp(url: string, token: string | null, send: Send = fetch): Promise<ReadApp | AppRefused> {
   const address = new URL(url);
-  const deadline = AbortSignal.timeout(READ_DEADLINE_MS);
-  const within: Send = (input, init) => send(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, deadline]) : deadline });
-  const guarded = await guardedHost(address, within, deadline);
+  const held: Held = { deadline: AbortSignal.timeout(READ_DEADLINE_MS), bytesLeft: MAX_READ_BYTES };
+  const within = heldTo(held, send);
+  const guarded = await guardedHost(address, within, held);
   if (guarded) return guarded;
   const transport = new StreamableHTTPClientTransport(address, {
     fetch: within,
@@ -61,16 +69,35 @@ export async function readApp(url: string, token: string | null, send: Send = fe
   });
   const client = new Client({ name: "Ember", version: VERSION });
   try {
-    await client.connect(transport, { signal: deadline });
-    const { listed, more } = await listedTools(client, deadline);
+    await client.connect(transport, { signal: held.deadline });
+    const { listed, more } = await listedTools(client, held.deadline);
     const tools = await keptTools(listed);
     if (tools.length === 0) return { error: `${address.host} answered, but it has no tools Ember can use.`, field: "url" };
     return { serverName: client.getServerVersion()?.name?.slice(0, 100) ?? null, tools, toolsLeftOut: listed.length - tools.length + (more ? 1 : 0) };
   } catch (error) {
-    return whyUnread(address, token, error, deadline);
+    return whyUnread(address, token, error, held);
   } finally {
     await client.close().catch(() => {});
   }
+}
+
+/**
+ * `send`, held: each request ends at the deadline, and what's read of each answer comes out of the bytes
+ * left, past which reading it fails.
+ */
+function heldTo(held: Held, send: Send): Send {
+  return async (input, init) => {
+    const response = await send(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, held.deadline]) : held.deadline });
+    if (!response.body) return response;
+    const counted = new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        held.bytesLeft -= chunk.byteLength;
+        if (held.bytesLeft < 0) controller.error(new TypeError("The answer is longer than Ember reads."));
+        else controller.enqueue(chunk);
+      },
+    });
+    return new Response(response.body.pipeThrough(counted), response);
+  };
 }
 
 /**
@@ -105,21 +132,22 @@ async function keptTools(listed: readonly unknown[]): Promise<ReadTool[]> {
 
 /**
  * Why Ember won't ask the host of `address`, if it won't: its name has to resolve, and only to public
- * addresses, unless it's this machine, before `deadline`.
+ * addresses, unless it's this machine, within what asking it is held to.
  */
-async function guardedHost(address: URL, send: Send, deadline: AbortSignal): Promise<AppRefused | null> {
+async function guardedHost(address: URL, send: Send, held: Held): Promise<AppRefused | null> {
   if (isLoopback(address)) return null;
   try {
     await checkHost(address.hostname, (host) => resolveOverHttps(host, (request) => send(request)));
     return null;
   } catch (error) {
-    if (deadline.aborted) return { error: tookTooLong(address.host), field: "url" };
+    if (held.deadline.aborted) return { error: tookTooLong(address.host), field: "url" };
     if (!(error instanceof GuardError)) throw error;
     return { error: `Ember couldn't find ${address.host} on the Internet. Check the address.`, field: "url" };
   }
 }
 
 const tookTooLong = (host: string) => `${host} took too long to answer.`;
+const saidTooMuch = (host: string) => `${host} answered with more than Ember reads.`;
 
 /**
  * A tool as an app lists it, `listed`, as Ember keeps it, or null for one it can't use: without a name
@@ -158,16 +186,17 @@ function inOrder(value: unknown): unknown {
 }
 
 /**
- * Why Ember couldn't read the tools of the app at `address`, asked with `token`, from what went wrong,
- * before `deadline` or at it. Only the kind of failure is logged: a server writes what its answers say,
+ * Why Ember couldn't read the tools of the app at `address`, asked with `token`, from what went wrong
+ * within what asking it was held to, or at its end. Only the kind of failure is logged: a server writes what its answers say,
  * which the client quotes in its errors, and could write the token there.
  */
-function whyUnread(address: URL, token: string | null, error: unknown, deadline: AbortSignal): AppRefused {
+function whyUnread(address: URL, token: string | null, error: unknown, held: Held): AppRefused {
   const { host } = address;
   const status = error instanceof SdkHttpError ? error.status : null;
   const kind = error instanceof SdkError ? `${error.name} ${error.code}` : error instanceof Error ? error.name : typeof error;
   console.error(`Reading the tools of the app at ${host} failed${status === null ? "" : ` with ${status}`}: ${kind}`);
-  if (deadline.aborted) return { error: tookTooLong(host), field: "url" };
+  if (held.bytesLeft < 0) return { error: saidTooMuch(host), field: "url" };
+  if (held.deadline.aborted) return { error: tookTooLong(host), field: "url" };
   if (error instanceof UnauthorizedError || status === 401 || status === 403) {
     return token === null
       ? { error: `${host} asks for a sign-in. Give a token for it, if it has one: Ember can't sign in to an app any other way yet.`, field: "token" }

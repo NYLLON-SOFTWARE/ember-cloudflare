@@ -293,6 +293,17 @@ describe("A connected app's page", () => {
     await waitFor(() => expect(requests.at(-1)).toEqual({ request: `PATCH /api/account/apps/${LINEAR.id}`, body: { name: "Linear!" } }));
   });
 
+  it("lets a token be typed again once the tools are read again of an app another administrator took the token from", async () => {
+    serve({ sent: () => answer({ ...LINEAR, hasToken: false }) });
+    const { user } = showSettings();
+    await user.click(await screen.findByRole("checkbox", { name: "Send no token" }));
+    expect(tokenField()).toBeDisabled();
+    await user.click(within(tools()).getByRole("button", { name: "Read its tools again" }));
+
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Send no token" })).toBeNull());
+    expect(tokenField()).toBeEnabled();
+  });
+
   it("says why its tools couldn't be read again, in the Tools card, leaving those it has", async () => {
     const why = "mcp.linear.example took too long to answer.";
     serve({ sent: () => refused(422, why) });
