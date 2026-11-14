@@ -107,12 +107,12 @@ test.describe("Delete a direct message", () => {
     const remove = grace.page.getByRole("button", { name: "Delete DM" });
     // Saying no keeps it.
     await remove.click();
-    await answerConfirm(grace.page, "Are you sure you want to delete this ping and all messages in it? This can’t be undone.", "Cancel");
+    await answerConfirm(grace.page, "Delete DM", "Cancel");
     await expect(remove).toBeEnabled();
     await expect(grace.page).toHaveURL(new RegExp(`/rooms/directs/${roomId}/edit$`));
 
     await remove.click();
-    await answerConfirm(grace.page, "Are you sure you want to delete this ping and all messages in it? This can’t be undone.", "Delete");
+    await answerConfirm(grace.page, "Delete DM", "Delete");
     // Home, which is the last room shown that isn't a DM.
     await expect(grace.page).toHaveURL(new RegExp(`/rooms/${rooms.general.id}$`));
     await expect(grace.page.getByRole("alert")).toHaveCount(0);
@@ -139,7 +139,7 @@ test.describe("Delete a direct message", () => {
     });
     const remove = grace.page.getByRole("button", { name: "Delete DM" });
     await remove.click();
-    await answerConfirm(grace.page, "Are you sure you want to delete this ping", "Delete");
+    await answerConfirm(grace.page, "Delete DM", "Delete");
 
     // The DMs list beside the settings loses it.
     await expect(directRow(grace, [ada])).toHaveCount(0);

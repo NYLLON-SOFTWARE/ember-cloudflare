@@ -17,7 +17,8 @@ import {
   type SearchResults,
   type SearchSort,
 } from "@ember/protocol";
-import { ArrowLeft, ClockRotateRight, NavArrowRight, Search as SearchIcon, Sort, Trash, User as UserIcon, Xmark } from "@/components/icons/iconoir";
+import { ArrowLeft, NavArrowRight, Search as SearchIcon, Trash, User as UserIcon, Xmark } from "@/components/icons/iconoir";
+import { ClockRotateRight, Sort } from "@/components/icons/iconoir-more";
 import { MainContent } from "@/components/main-content";
 import { PageLink } from "@/components/page-link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
