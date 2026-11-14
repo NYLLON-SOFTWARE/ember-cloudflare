@@ -475,10 +475,15 @@ test.describe("@ember", () => {
 
   test("someone asks @ember about something written in the room before, which it searches the room for, and answers with what it found", async ({ page, request }) => {
     await setUpAssistant(request);
+    // In a room of the test's own, which everyone is in: the messages it writes would move general's first ones off its page.
+    const headers = await asAdministrator(request);
+    const created = await request.post("/api/rooms", { data: { kind: "open", name: `Offsite ${crypto.randomUUID().slice(0, 8)}` }, headers });
+    expect(created.status(), await created.text()).toBe(201);
+    const { room } = (await created.json()) as { room: { id: string; name: string } };
     await useOwnAddress(page);
-    await page.goto("/");
+    await page.goto(`/rooms/${room.id}`);
     await signInAsAdministrator(page);
-    await page.getByRole("complementary", { name: "Conversations" }).getByRole("link", { name: "general" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(room.name);
 
     const word = `lisbon${crypto.randomUUID().slice(0, 8)}`;
     const composer = editorField(page, "Write a message");
@@ -486,7 +491,6 @@ test.describe("@ember", () => {
     await composer.press("Enter");
     await expect(page.getByRole("article").filter({ hasText: word })).toBeVisible();
     // The search index takes a message a moment after its room does.
-    const headers = await asAdministrator(request);
     await expect.poll(async () => ((await (await request.get(`/api/searches?q=${word}`, { headers })).json()) as { matches: unknown[] }).matches.length).toBe(1);
     // The room moves on until that's no longer among the messages @ember reads with a question, which its search leaves out.
     for (let n = 1; n < ROOM_MESSAGES_READ; n++) {
